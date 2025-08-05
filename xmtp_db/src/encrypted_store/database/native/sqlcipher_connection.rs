@@ -13,7 +13,11 @@ use std::{
 };
 
 use super::PlatformStorageError;
-use crate::NotFound;
+use crate::{
+    NotFound,
+    database::instrumentation::TestInstrumentation,
+    native::{ConnectionOptions, connection_pragmas},
+};
 
 use crate::{EncryptionKey, StorageOption};
 
@@ -41,6 +45,7 @@ pub struct EncryptedConnection {
     key: EncryptionKey,
     /// We don't store the salt for Ephemeral Dbs
     salt: Option<Salt>,
+    options: StorageOption,
 }
 
 impl EncryptedConnection {
@@ -51,7 +56,10 @@ impl EncryptedConnection {
         let salt = match opts {
             Ephemeral => None,
             Persistent(db_path) => {
-                Self::check_for_sqlcipher(opts, None)?;
+                {
+                    let mut conn = SqliteConnection::establish(db_path)?;
+                    Self::check_for_sqlcipher(opts, &mut conn)?;
+                }
                 let mut salt = [0u8; 16];
                 let db_pathbuf = PathBuf::from(db_path);
                 let salt_path = Self::salt_file(db_path)?;
@@ -107,7 +115,11 @@ impl EncryptedConnection {
             }
         };
 
-        Ok(Self { key, salt })
+        Ok(Self {
+            key,
+            salt,
+            options: opts.clone(),
+        })
     }
 
     /// create a new database + salt file.
@@ -122,8 +134,7 @@ impl EncryptedConnection {
             r#"
             {}
             {}
-            PRAGMA journal_mode = WAL;
-        "#,
+            "#,
             pragma_key(hex::encode(key)),
             pragma_plaintext_header()
         ))?;
@@ -214,7 +225,7 @@ impl EncryptedConnection {
 
     /// Output the corect order of PRAGMAS to instantiate a connection
     fn pragmas(&self) -> impl Display {
-        let Self { key, salt } = self;
+        let Self { key, salt, .. } = self;
 
         if let Some(s) = salt {
             format!(
@@ -234,14 +245,8 @@ impl EncryptedConnection {
 
     fn check_for_sqlcipher(
         opts: &StorageOption,
-        conn: Option<&mut SqliteConnection>,
+        conn: &mut SqliteConnection,
     ) -> Result<CipherVersion, PlatformStorageError> {
-        let conn = if let Some(c) = conn {
-            c
-        } else {
-            &mut opts.conn()?
-        };
-
         if cfg!(any(test, feature = "test-utils")) {
             conn.batch_execute("pragma cipher_log = stdout; pragma cipher_log_level = NONE;")?;
         }
@@ -258,10 +263,15 @@ impl EncryptedConnection {
     }
 }
 
+impl ConnectionOptions for EncryptedConnection {
+    fn options(&self) -> &StorageOption {
+        &self.options
+    }
+}
+
 impl super::ValidatedConnection for EncryptedConnection {
-    fn validate(&self, opts: &StorageOption) -> Result<(), PlatformStorageError> {
-        let conn = &mut opts.conn()?;
-        let sqlcipher_version = EncryptedConnection::check_for_sqlcipher(opts, Some(conn))?;
+    fn validate(&self, conn: &mut SqliteConnection) -> Result<(), PlatformStorageError> {
+        let sqlcipher_version = EncryptedConnection::check_for_sqlcipher(&self.options, conn)?;
 
         // test the key according to
         // https://www.zetetic.net/sqlcipher/sqlcipher-api/#testing-the-key
@@ -271,14 +281,8 @@ impl super::ValidatedConnection for EncryptedConnection {
             self.pragmas()
         ))
         .map_err(|e| {
-            let err_msg = e.to_string();
-            if err_msg.contains("database is locked") {
-                tracing::debug!("Database is locked; retryable error");
-                PlatformStorageError::DatabaseLocked
-            } else {
-                tracing::error!("SQLCipher PRAGMA batch_execute failed: {:?}", e);
-                PlatformStorageError::SqlCipherKeyIncorrect
-            }
+            tracing::error!("SQLCipher PRAGMA batch_execute failed: {:?}", e);
+            PlatformStorageError::SqlCipherKeyIncorrect
         })?;
 
         let CipherProviderVersion {
@@ -306,14 +310,12 @@ impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error>
     for EncryptedConnection
 {
     fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), diesel::r2d2::Error> {
-        conn.batch_execute(&format!(
-            "{}
-            PRAGMA query_only = ON;
-            PRAGMA busy_timeout = 5000;
-            PRAGMA journal_mode = WAL;",
-            self.pragmas()
-        ))
-        .map_err(diesel::r2d2::Error::QueryError)?;
+        if cfg!(any(test, feature = "test-utils")) {
+            conn.set_instrumentation(TestInstrumentation);
+        }
+        conn.batch_execute(&format!("{}", self.pragmas(),))
+            .map_err(diesel::r2d2::Error::QueryError)?;
+        connection_pragmas(conn)?;
         Ok(())
     }
 }
@@ -346,7 +348,8 @@ mod tests {
         let db_path = tmp_path();
         {
             let opts = Persistent(db_path.clone());
-            let v = EncryptedConnection::check_for_sqlcipher(&opts, None).unwrap();
+            let mut conn = SqliteConnection::establish(&db_path).unwrap();
+            let v = EncryptedConnection::check_for_sqlcipher(&opts, &mut conn).unwrap();
             println!("SQLCipher Version {}", v.cipher_version);
         }
     }

@@ -1,47 +1,48 @@
 use super::{
-    preference_sync::{store_preference_updates, PreferenceUpdate},
     DeviceSyncClient, DeviceSyncError, IterWithContent,
+    preference_sync::{PreferenceUpdate, store_preference_updates},
 };
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
     groups::{
+        GroupError,
         device_sync::{archive::insert_importer, default_archive_options},
         device_sync_legacy::{
-            preference_sync_legacy::LegacyUserPreferenceUpdate, DeviceSyncContent,
+            DeviceSyncContent, preference_sync_legacy::LegacyUserPreferenceUpdate,
         },
-        GroupError,
     },
     subscriptions::{LocalEvents, SyncWorkerEvent},
     worker::{
-        metrics::WorkerMetrics, BoxedWorker, DynMetrics, MetricsCasting, Worker, WorkerFactory,
-        WorkerKind, WorkerResult,
+        BoxedWorker, DynMetrics, MetricsCasting, Worker, WorkerFactory, WorkerKind, WorkerResult,
+        metrics::WorkerMetrics,
     },
 };
 use futures::TryFutureExt;
+use owo_colors::OwoColorize;
 use std::{any::Any, sync::Arc};
-use tokio::sync::{broadcast, OnceCell};
+use tokio::sync::{OnceCell, broadcast};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
-use xmtp_archive::{exporter::ArchiveExporter, ArchiveImporter};
+use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
 use xmtp_db::prelude::*;
 use xmtp_db::{
+    StoreOrIgnore,
     group_message::{MsgQueryArgs, StoredGroupMessage},
     processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
-    StoreOrIgnore,
 };
 use xmtp_proto::{
+    ConversionError,
     xmtp::device_sync::{
+        BackupElementSelection, BackupOptions,
         content::{
-            device_sync_content::Content as ContentProto, device_sync_key_type::Key,
             DeviceSyncAcknowledge, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
             DeviceSyncRequest as DeviceSyncRequestProto,
             PreferenceUpdates as PreferenceUpdatesProto,
+            device_sync_content::Content as ContentProto, device_sync_key_type::Key,
         },
-        BackupElementSelection, BackupOptions,
     },
-    ConversionError,
 };
 
 const ENC_KEY_SIZE: usize = xmtp_archive::ENC_KEY_SIZE;
@@ -61,7 +62,7 @@ where
         let receiver = context.worker_events().subscribe();
         let metrics = metrics
             .and_then(|m| m.as_sync_metrics())
-            .unwrap_or_default();
+            .unwrap_or(Arc::new(WorkerMetrics::new(context.installation_id())));
         let client = DeviceSyncClient::new(context, metrics.clone());
 
         Self {
@@ -133,7 +134,10 @@ where
         self.metrics.increment_metric(SyncMetric::Init);
 
         while let Ok(event) = self.receiver.recv().await {
-            tracing::info!("New event: {event:?}");
+            tracing::info!(
+                "[{}] New event: {event:?}",
+                self.client.context.installation_id()
+            );
 
             match event {
                 SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
@@ -165,11 +169,7 @@ where
     //// Will auto-send a sync request if sync group is created.
     #[instrument(level = "trace", skip_all)]
     async fn sync_init(&mut self) -> Result<(), DeviceSyncError> {
-        let Self {
-            ref init,
-            ref client,
-            ..
-        } = self;
+        let Self { init, client, .. } = &self;
 
         init.get_or_try_init(|| async {
             let conn = self.client.context.db();
@@ -357,7 +357,10 @@ where
                 if is_external {
                     tracing::info!("Incoming preference updates: {updates:?}");
                 }
-
+                tracing::info!(
+                    "{} storing preference updates",
+                    self.context.installation_id()
+                );
                 // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
                 let updated = store_preference_updates(updates.clone(), &conn, handle)?;
                 if !updated.is_empty() {
@@ -446,7 +449,7 @@ where
             tracing::info!("No message history payload sent - server url not present.");
             return Ok(());
         };
-        tracing::info!("\x1b[33mSending sync payload.");
+        tracing::info!("{}", "Sending sync payload.".yellow());
 
         let mut request_id = "".to_string();
         let options = if let Some(request) = request {
@@ -505,7 +508,7 @@ where
     }
 
     pub async fn send_sync_request(&self) -> Result<(), ClientError> {
-        tracing::info!("\x1b[33mSending a sync request.");
+        tracing::info!("{}", "Sending a sync request.".yellow());
 
         let sync_group = self.get_sync_group().await?;
         sync_group
@@ -575,13 +578,19 @@ where
         // Check if this reply was asked for by this installation.
         if !self.is_reply_requested_by_installation(&reply).await? {
             // This installation didn't ask for it. Ignore the reply.
-            tracing::info!("Sync response was not intended for this installation.");
+            tracing::info!(
+                "{}",
+                "Sync response was not intended for this installation.".yellow()
+            );
             return Ok(());
         }
 
         // If a payload was sent to this installation,
         // that means they also sent this installation a bunch of welcomes.
-        tracing::info!("Sync response is for this installation. Syncing welcomes.");
+        tracing::info!(
+            "{}",
+            "Sync response is for this installation. Syncing welcomes.".yellow()
+        );
         self.welcome_service.sync_welcomes().await?;
 
         // Get a download stream of the payload.
@@ -658,6 +667,8 @@ pub enum SyncMetric {
 
 impl WorkerMetrics<SyncMetric> {
     pub async fn wait_for_init(&self) -> Result<(), xmtp_common::time::Expired> {
-        self.wait(SyncMetric::SyncGroupCreated, 1).await
+        self.register_interest(SyncMetric::SyncGroupCreated, 1)
+            .wait()
+            .await
     }
 }

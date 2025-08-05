@@ -5,7 +5,7 @@ use futures::{StreamExt, TryFutureExt};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::OnceCell;
-use xmtp_db::{prelude::*, StorageError};
+use xmtp_db::{StorageError, prelude::*};
 
 /// Interval at which the DisappearingMessagesCleanerWorker runs to delete expired messages.
 pub const INTERVAL_DURATION: Duration = Duration::from_secs(1);

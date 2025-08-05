@@ -78,7 +78,7 @@ dyn-clone = "1"
 ed25519 = "2.2.3"
 ed25519-dalek = { version = "2.1.1", features = ["zeroize"] }
 fdlimit = "0.3"
-rstest = "0.25"
+rstest = "0.26"
 rstest_reuse = "0.7.0"
 futures = { version = "0.3.30", default-features = false }
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
@@ -115,7 +115,7 @@ sha2 = "0.10.8"
 sha3 = "0.10.8"
 thiserror = "2.0"
 tls_codec = "0.4.1"
-tokio = { version = "1.43.0", default-features = false }
+tokio = { version = "1.47.0", default-features = false }
 tokio-stream = { version = "0.1", default-features = false }
 tokio-util = { version = "0.7", default-features = false, features = [
   "compat",
@@ -140,6 +140,8 @@ web-sys = "0.3"
 zeroize = "1.8"
 futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
 mockall_double = "0.3.1"
+owo-colors = { version = "4.1" }
+
 
 # Internal Crate Dependencies
 xmtp_api = { path = "xmtp_api" }

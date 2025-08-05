@@ -2,9 +2,9 @@ use super::MlsGroup;
 use crate::{
     context::XmtpSharedContext,
     subscriptions::{
+        Result, SubscribeError,
         process_message::{ProcessFutureFactory, ProcessMessageFuture},
         stream_messages::{MessageStreamError, StreamGroupMessages},
-        Result, SubscribeError,
     },
 };
 use xmtp_common::types::GroupId;
@@ -66,8 +66,8 @@ where
         group_id: Vec<u8>,
         #[cfg(target_arch = "wasm32")] callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
         #[cfg(not(target_arch = "wasm32"))] callback: impl FnMut(Result<StoredGroupMessage>)
-            + Send
-            + 'static,
+        + Send
+        + 'static,
         #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
         #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>>
@@ -91,13 +91,13 @@ where
 pub(crate) fn stream_messages_with_callback<Context>(
     context: Context,
     #[cfg(not(target_arch = "wasm32"))] active_conversations: impl Iterator<Item = GroupId>
-        + Send
-        + 'static,
+    + Send
+    + 'static,
     #[cfg(target_arch = "wasm32")] active_conversations: impl Iterator<Item = GroupId> + 'static,
     #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
     #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<StoredGroupMessage>)
-        + Send
-        + 'static,
+    + Send
+    + 'static,
     #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
     #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
 ) -> impl StreamHandle<StreamOutput = Result<()>>
@@ -226,10 +226,12 @@ pub(crate) mod tests {
         let values = limited_stream.collect::<Vec<_>>().await;
         assert_eq!(values.len(), 10);
         for value in values {
-            assert!(value
-                .unwrap()
-                .decrypted_message_bytes
-                .starts_with("hello".as_bytes()));
+            assert!(
+                value
+                    .unwrap()
+                    .decrypted_message_bytes
+                    .starts_with("hello".as_bytes())
+            );
         }
     }
 

@@ -26,7 +26,7 @@ pub struct WorkerRunner {
 
 impl WorkerRunner {
     pub fn new() -> Self {
-        Self::default()
+        Default::default()
     }
 
     pub fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {

@@ -92,9 +92,9 @@ where
 #[cfg(test)]
 mod tests {
     use crate::groups::mls_sync::GroupMessageProcessingError;
+    use crate::subscriptions::SubscribeError;
     use crate::subscriptions::process_message::factory::MockGroupDatabase;
     use crate::subscriptions::process_message::factory::MockSync;
-    use crate::subscriptions::SubscribeError;
     use crate::test::mock::generate_errored_summary;
     use crate::test::mock::generate_message_v1;
     use crate::test::mock::generate_messages_with_ids;

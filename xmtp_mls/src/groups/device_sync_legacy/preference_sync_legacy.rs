@@ -1,24 +1,24 @@
 use std::sync::Arc;
 
+use crate::Client;
 use crate::client::ClientError;
 use crate::context::{XmtpMlsLocalContext, XmtpSharedContext};
-use crate::groups::device_sync::worker::SyncMetric;
 use crate::groups::device_sync::DeviceSyncClient;
-use crate::Client;
+use crate::groups::device_sync::worker::SyncMetric;
 use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
+use xmtp_db::{ConnectionExt, StorageError, XmtpDb, XmtpOpenMlsProvider};
 use xmtp_db::{
     consent_record::StoredConsentRecord, prelude::*, user_preferences::StoredUserPreferences,
 };
-use xmtp_db::{ConnectionExt, StorageError, XmtpDb, XmtpOpenMlsProvider};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::device_sync::content::{
-    preference_update::Update as PreferenceUpdateProto, HmacKeyUpdate as HmacKeyUpdateProto,
-    PreferenceUpdate as NewUserPreferenceUpdateProto,
+    HmacKeyUpdate as HmacKeyUpdateProto, PreferenceUpdate as NewUserPreferenceUpdateProto,
     V1UserPreferenceUpdate as UserPreferenceUpdateProto,
+    preference_update::Update as PreferenceUpdateProto,
 };
 use xmtp_proto::xmtp::mls::message_contents::PlaintextEnvelope as PlaintextEnvelopeProto;
-use xmtp_proto::ConversionError;
 use xmtp_proto::{
     api_client::XmtpApi,
     xmtp::mls::message_contents::{

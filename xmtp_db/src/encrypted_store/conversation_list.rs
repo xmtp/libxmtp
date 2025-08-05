@@ -58,14 +58,26 @@ pub struct ConversationListItem {
     pub authority_id: Option<String>,
 }
 
-pub trait QueryConversationList<C: ConnectionExt> {
+pub trait QueryConversationList {
     fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
     ) -> Result<Vec<ConversationListItem>, StorageError>;
 }
 
-impl<C: ConnectionExt> QueryConversationList<C> for DbConnection<C> {
+impl<T> QueryConversationList for &T
+where
+    T: QueryConversationList,
+{
+    fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
+        &self,
+        args: A,
+    ) -> Result<Vec<ConversationListItem>, StorageError> {
+        (**self).fetch_conversation_list(args)
+    }
+}
+
+impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
     fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
@@ -215,6 +227,7 @@ pub(crate) mod tests {
                     Some(i * 1000),
                     Some(ContentType::Text),
                     None,
+                    None,
                 );
 
                 message.store(conn).unwrap();
@@ -256,6 +269,7 @@ pub(crate) mod tests {
                 Some(3000), // Last message timestamp
                 None,
                 None,
+                None,
             );
             message.store(conn).unwrap();
 
@@ -295,6 +309,7 @@ pub(crate) mod tests {
                 Some(1000),
                 Some(ContentType::Text),
                 None,
+                None,
             );
             first_message.store(conn).unwrap();
 
@@ -315,6 +330,7 @@ pub(crate) mod tests {
                 Some(&group.id),
                 Some(2000),
                 Some(ContentType::Text),
+                None,
                 None,
             );
             second_message.store(conn).unwrap();

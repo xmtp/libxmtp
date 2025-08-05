@@ -1,11 +1,11 @@
+use crate::GroupCommitLock;
 use crate::builder::SyncWorkerMode;
 use crate::client::DeviceSync;
 use crate::groups::device_sync::worker::SyncMetric;
 use crate::subscriptions::{LocalEvents, SyncWorkerEvent};
 use crate::utils::VersionInfo;
-use crate::worker::metrics::WorkerMetrics;
 use crate::worker::WorkerRunner;
-use crate::GroupCommitLock;
+use crate::worker::metrics::WorkerMetrics;
 use crate::{
     identity::{Identity, IdentityError},
     mutex_registry::MutexRegistry,
@@ -14,11 +14,11 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::types::InstallationId;
-use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProviderRef;
 use xmtp_db::XmtpDb;
 use xmtp_db::XmtpMlsStorageProvider;
+use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProviderRef;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_id::{associations::builder::SignatureRequest, InboxIdRef};
+use xmtp_id::{InboxIdRef, associations::builder::SignatureRequest};
 
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::DeviceSyncClient;
@@ -85,7 +85,30 @@ where
         self: &Arc<XmtpMlsLocalContext<ApiClient, Db, S>>,
     ) -> DeviceSyncClient<Arc<Self>> {
         let metrics = self.sync_metrics();
-        DeviceSyncClient::new(Arc::clone(self), metrics.unwrap_or_default())
+        DeviceSyncClient::new(
+            Arc::clone(self),
+            metrics.unwrap_or(Arc::new(WorkerMetrics::new(self.installation_id()))),
+        )
+    }
+}
+
+impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
+    pub fn replace_mls_store<S2>(self, mls_store: S2) -> XmtpMlsLocalContext<ApiClient, Db, S2> {
+        XmtpMlsLocalContext::<ApiClient, Db, S2> {
+            identity: self.identity,
+            api_client: self.api_client,
+            sync_api_client: self.sync_api_client,
+            store: self.store,
+            mls_storage: mls_store,
+            mutexes: self.mutexes,
+            mls_commit_lock: self.mls_commit_lock,
+            version_info: self.version_info,
+            local_events: self.local_events,
+            worker_events: self.worker_events,
+            scw_verifier: self.scw_verifier,
+            device_sync: self.device_sync,
+            workers: self.workers,
+        }
     }
 }
 
