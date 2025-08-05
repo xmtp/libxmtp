@@ -879,13 +879,13 @@ describe('Conversations', () => {
 
     let messages: Message[] = []
     const stream = agent_client.conversations().streamAllMessages(
-        (err, message) => {
-          messages.push(message!)
-        },
-        () => {
-          console.log('closed')
-        },
-        ConversationType.Dm
+      (err, message) => {
+        messages.push(message!)
+      },
+      () => {
+        console.log('closed')
+      },
+      ConversationType.Dm
     )
     await sleep(1000)
 
