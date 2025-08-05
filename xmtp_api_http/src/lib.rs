@@ -197,7 +197,7 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
         let http_client = self.reqwest.default_headers(self.headers).build()?;
 
         let limiter = self.limiter.unwrap_or_else(|| {
-            let limit = NonZeroU32::new(1900).expect("1900 is greater than 0");
+            let limit = NonZeroU32::new(5000).expect("5000 is greater than 0");
             let quota = Quota::per_minute(limit);
             Limiter::direct(quota)
         });

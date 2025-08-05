@@ -19,7 +19,7 @@ impl<Db> EncryptedMessageStore<Db> {
 
 impl<Db: XmtpDb> EncryptedMessageStore<Db> {
     pub fn new(db: Db) -> Result<Self, StorageError> {
-        db.init(db.opts())?;
+        db.init()?;
         Ok(Self { db })
     }
 
@@ -66,6 +66,10 @@ where
 
     fn db(&self) -> Self::DbQuery {
         self.db.db()
+    }
+
+    fn validate(&self, conn: &mut SqliteConnection) -> Result<(), ConnectionError> {
+        self.db.validate(conn)
     }
 
     fn opts(&self) -> &StorageOption {

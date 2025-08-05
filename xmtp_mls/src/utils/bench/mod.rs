@@ -11,7 +11,7 @@ pub use clients::*;
 use thiserror::Error;
 /// Re-export of functions in private modules for benchmarks
 pub mod re_export {
-    pub use crate::groups::mls_ext::{wrap_welcome, WrapperAlgorithm};
+    pub use crate::groups::mls_ext::{WrapperAlgorithm, wrap_welcome};
 }
 
 #[derive(Debug, Error)]

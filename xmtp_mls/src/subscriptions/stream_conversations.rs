@@ -1,5 +1,5 @@
-use super::{process_welcome::ProcessWelcomeResult, LocalEvents, Result, SubscribeError};
-use crate::subscriptions::stream_utils::{multiplexed, MultiplexedStream};
+use super::{LocalEvents, Result, SubscribeError, process_welcome::ProcessWelcomeResult};
+use crate::subscriptions::stream_utils::{MultiplexedStream, multiplexed};
 use crate::{
     context::XmtpSharedContext, groups::MlsGroup,
     subscriptions::process_welcome::ProcessWelcomeFuture,
@@ -13,7 +13,7 @@ use std::{
     borrow::Cow,
     collections::HashSet,
     pin::Pin,
-    task::{ready, Poll},
+    task::{Poll, ready},
 };
 use tokio_stream::wrappers::BroadcastStream;
 use xmtp_common::FutureWrapper;
@@ -403,8 +403,8 @@ mod test {
     use super::*;
     use crate::builder::ClientBuilder;
     use crate::tester;
-    use crate::utils::fixtures::{alix, bo};
     use crate::utils::FullXmtpClient;
+    use crate::utils::fixtures::{alix, bo};
     use xmtp_db::group::GroupQueryArgs;
 
     use futures::StreamExt;

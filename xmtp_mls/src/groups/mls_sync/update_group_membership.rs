@@ -1,13 +1,12 @@
 use super::*;
 use crate::groups::{
-    build_group_membership_extension,
+    GroupError, build_group_membership_extension,
     intents::{PostCommitAction, UpdateGroupMembershipIntentData},
     validated_commit::extract_group_membership,
-    GroupError,
 };
 use openmls::{
     extensions::Extensions,
-    prelude::{tls_codec::Serialize, LeafNodeIndex, MlsGroup as OpenMlsGroup},
+    prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, tls_codec::Serialize},
 };
 use openmls_traits::signatures::Signer;
 
@@ -98,12 +97,12 @@ mod tests {
             build_starting_group_membership_extension,
         },
         identity::create_credential,
-        test::mock::{context, NewMockContext},
+        test::mock::{NewMockContext, context},
     };
     use openmls::{group::MlsGroupCreateConfig, prelude::CredentialWithKey};
     use rstest::*;
-    use xmtp_cryptography::configuration::CIPHERSUITE;
     use xmtp_cryptography::XmtpInstallationCredential;
+    use xmtp_cryptography::configuration::CIPHERSUITE;
     use xmtp_db::mock::MockDbQuery;
 
     fn generate_config(

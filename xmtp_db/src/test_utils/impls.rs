@@ -183,7 +183,7 @@ mod wasm {
     impl Distribution<crate::PlatformStorageError> for Standard {
         fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> crate::PlatformStorageError {
             match rng.gen_range(0..=2) {
-                0 => PlatformStorageError::SAH(sqlite_wasm_rs::export::OpfsSAHError::Generic(
+                0 => PlatformStorageError::SAH(sqlite_wasm_rs::sahpool_vfs::OpfsSAHError::Generic(
                     "rand test opfs err".to_string(),
                 )),
                 1 => PlatformStorageError::Connection(rand_diesel_conn_err(rng)),

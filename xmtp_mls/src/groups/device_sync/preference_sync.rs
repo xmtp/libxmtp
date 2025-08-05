@@ -3,13 +3,12 @@ use crate::groups::device_sync_legacy::preference_sync_legacy::LegacyUserPrefere
 use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
-use xmtp_db::ConnectionExt;
+use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::device_sync::content::HmacKeyUpdate as HmacKeyUpdateProto;
 use xmtp_proto::xmtp::device_sync::content::{
-    device_sync_content::Content as ContentProto, preference_update::Update as UpdateProto,
     PreferenceUpdate as PreferenceUpdateProto, PreferenceUpdates,
+    device_sync_content::Content as ContentProto, preference_update::Update as UpdateProto,
 };
-use xmtp_proto::ConversionError;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PreferenceUpdate {
@@ -44,7 +43,10 @@ where
     }
 
     pub(crate) async fn cycle_hmac(&self) -> Result<(), ClientError> {
-        tracing::info!("Sending new HMAC key to sync group.");
+        tracing::info!(
+            "[{}] Sending new HMAC key to sync group.",
+            self.context.installation_id()
+        );
 
         self.sync_preferences(vec![PreferenceUpdate::Hmac {
             key: HmacKey::random_key(),
@@ -56,9 +58,9 @@ where
     }
 }
 
-pub(super) fn store_preference_updates<C: ConnectionExt>(
+pub(super) fn store_preference_updates(
     updates: Vec<PreferenceUpdateProto>,
-    conn: &impl DbQuery<C>,
+    conn: &impl DbQuery,
     handle: &WorkerMetrics<SyncMetric>,
 ) -> Result<Vec<PreferenceUpdate>, StorageError> {
     let mut changed = vec![];
@@ -139,10 +141,18 @@ mod tests {
 
         amal_a.test_has_same_sync_group_as(&amal_b).await?;
 
-        amal_a.worker().wait(SyncMetric::HmacSent, 1).await?;
+        amal_a
+            .worker()
+            .register_interest(SyncMetric::HmacSent, 1)
+            .wait()
+            .await?;
 
         amal_a.sync_all_welcomes_and_history_sync_groups().await?;
-        amal_a.worker().wait(SyncMetric::HmacReceived, 1).await?;
+        amal_a
+            .worker()
+            .register_interest(SyncMetric::HmacReceived, 1)
+            .wait()
+            .await?;
 
         // Wait for a to process the new hmac key
         amal_b
@@ -152,7 +162,11 @@ mod tests {
             .await?
             .sync()
             .await?;
-        amal_b.worker().wait(SyncMetric::HmacReceived, 1).await?;
+        amal_b
+            .worker()
+            .register_interest(SyncMetric::HmacReceived, 1)
+            .wait()
+            .await?;
 
         let pref_a = StoredUserPreferences::load(amal_a.context.db())?;
         let pref_b = StoredUserPreferences::load(amal_b.context.db())?;
@@ -165,7 +179,11 @@ mod tests {
             .await?;
 
         amal_a.sync_all_welcomes_and_history_sync_groups().await?;
-        amal_a.worker().wait(SyncMetric::HmacReceived, 2).await?;
+        amal_a
+            .worker()
+            .register_interest(SyncMetric::HmacReceived, 2)
+            .wait()
+            .await?;
         let new_pref_a = StoredUserPreferences::load(amal_a.context.db())?;
         assert_ne!(pref_a.hmac_key, new_pref_a.hmac_key);
     }

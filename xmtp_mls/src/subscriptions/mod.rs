@@ -21,20 +21,20 @@ pub(crate) mod stream_messages;
 mod stream_utils;
 
 use crate::{
+    Client,
     context::XmtpSharedContext,
     groups::{
-        device_sync::preference_sync::PreferenceUpdate, mls_sync::GroupMessageProcessingError,
-        GroupError, MlsGroup,
+        GroupError, MlsGroup, device_sync::preference_sync::PreferenceUpdate,
+        mls_sync::GroupMessageProcessingError,
     },
-    Client,
 };
 use thiserror::Error;
-use xmtp_common::{retryable, RetryableError, StreamHandle};
+use xmtp_common::{RetryableError, StreamHandle, retryable};
 use xmtp_db::{
+    NotFound, StorageError,
     consent_record::{ConsentState, StoredConsentRecord},
     group::ConversationType,
     group_message::StoredGroupMessage,
-    NotFound, StorageError,
 };
 
 pub(crate) type Result<T> = std::result::Result<T, SubscribeError>;
@@ -60,7 +60,7 @@ pub enum LocalEvents {
     PreferencesChanged(Vec<PreferenceUpdate>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum SyncWorkerEvent {
     NewSyncGroupFromWelcome(Vec<u8>),
     NewSyncGroupMsg,
@@ -71,6 +71,28 @@ pub enum SyncWorkerEvent {
     // TODO: Device Sync V1 below - Delete when V1 is deleted
     Request { message_id: Vec<u8> },
     Reply { message_id: Vec<u8> },
+}
+
+impl std::fmt::Debug for SyncWorkerEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NewSyncGroupFromWelcome(arg0) => f
+                .debug_tuple("NewSyncGroupFromWelcome")
+                .field(&hex::encode(arg0))
+                .finish(),
+            Self::NewSyncGroupMsg => write!(f, "NewSyncGroupMsg"),
+            Self::SyncPreferences(arg0) => f.debug_tuple("SyncPreferences").field(arg0).finish(),
+            Self::CycleHMAC => write!(f, "CycleHMAC"),
+            Self::Request { message_id } => f
+                .debug_struct("Request")
+                .field("message_id", message_id)
+                .finish(),
+            Self::Reply { message_id } => f
+                .debug_struct("Reply")
+                .field("message_id", message_id)
+                .finish(),
+        }
+    }
 }
 
 impl LocalEvents {
@@ -271,10 +293,10 @@ where
         client: Arc<Client<Context>>,
         conversation_type: Option<ConversationType>,
         #[cfg(not(target_arch = "wasm32"))] mut convo_callback: impl FnMut(Result<MlsGroup<Context>>)
-            + Send
-            + 'static,
+        + Send
+        + 'static,
         #[cfg(target_arch = "wasm32")] mut convo_callback: impl FnMut(Result<MlsGroup<Context>>)
-            + 'static,
+        + 'static,
         #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
         #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
         include_duplicate_dms: bool,
@@ -347,8 +369,8 @@ where
         conversation_type: Option<ConversationType>,
         consent_state: Option<Vec<ConsentState>>,
         #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<StoredGroupMessage>)
-            + Send
-            + 'static,
+        + Send
+        + 'static,
         #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
         #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
         #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
@@ -381,10 +403,10 @@ where
     pub fn stream_consent_with_callback(
         client: Arc<Client<Context>>,
         #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>)
-            + Send
-            + 'static,
+        + Send
+        + 'static,
         #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>)
-            + 'static,
+        + 'static,
         #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
         #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
@@ -408,8 +430,8 @@ where
     pub fn stream_preferences_with_callback(
         client: Arc<Client<Context>>,
         #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>)
-            + Send
-            + 'static,
+        + Send
+        + 'static,
         #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>) + 'static,
         #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
         #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
@@ -470,13 +492,15 @@ pub(crate) mod tests {
     #[macro_export]
     macro_rules! assert_msg_exists {
         ($stream:expr) => {
-            assert!(!$stream
-                .next()
-                .await
-                .unwrap()
-                .unwrap()
-                .decrypted_message_bytes
-                .is_empty());
+            assert!(
+                !$stream
+                    .next()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .decrypted_message_bytes
+                    .is_empty()
+            );
         };
     }
 }

@@ -1,11 +1,80 @@
+use crate::groups::MlsGroup;
+use crate::groups::PolicySet;
 use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
 use crate::{context::XmtpSharedContext, tester};
 use prost::Message;
 use rand::Rng;
+use xmtp_db::group::GroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::prelude::*;
+use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::mls_v1::QueryCommitLogRequest;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_commit_log_signer_on_group_creation() {
+    tester!(alix);
+    tester!(bo);
+
+    let a = alix
+        .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
+        .await?;
+    let b = bo.sync_welcomes().await?.first()?.to_owned();
+    let a_commit_log_signer = a.mutable_metadata()?.commit_log_signer;
+    let b_commit_log_signer = b.mutable_metadata()?.commit_log_signer;
+
+    assert!(a_commit_log_signer.is_some());
+    assert!(b_commit_log_signer.is_some());
+    assert_eq!(a_commit_log_signer, b_commit_log_signer);
+    assert_eq!(
+        a_commit_log_signer.unwrap().as_slice().len(),
+        xmtp_cryptography::configuration::ED25519_KEY_LENGTH
+    );
+
+    let a = alix
+        .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+        .await?;
+    let b = bo.sync_welcomes().await?.first()?.to_owned();
+    let a_commit_log_signer = a.mutable_metadata()?.commit_log_signer;
+    let b_commit_log_signer = b.mutable_metadata()?.commit_log_signer;
+
+    assert!(a_commit_log_signer.is_some());
+    assert!(b_commit_log_signer.is_some());
+    assert_eq!(a_commit_log_signer, b_commit_log_signer);
+    assert_eq!(
+        a_commit_log_signer.unwrap().as_slice().len(),
+        xmtp_cryptography::configuration::ED25519_KEY_LENGTH
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_device_sync_mutable_metadata_is_overwritten() {
+    tester!(alix);
+    tester!(bo);
+
+    let a = alix
+        .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+        .await?;
+    // Pretend that Bo received the group via device sync
+    // Currently, device sync creates a placeholder OpenMLS group with its own commit log secret
+    MlsGroup::insert(
+        &bo.context,
+        Some(&a.group_id),
+        GroupMembershipState::Restored,
+        PolicySet::default(),
+        GroupMetadataOptions {
+            ..Default::default()
+        },
+    )?;
+    let b = bo.group(&a.group_id)?;
+    let a_commit_log_signer = a.mutable_metadata()?.commit_log_signer;
+    let b_commit_log_signer = b.mutable_metadata()?.commit_log_signer;
+    assert_ne!(a_commit_log_signer, b_commit_log_signer);
+
+    let b = bo.sync_welcomes().await?.first()?.to_owned();
+    let b_commit_log_signer = b.mutable_metadata()?.commit_log_signer;
+    assert_eq!(a_commit_log_signer, b_commit_log_signer);
+}
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_publish_and_query_apis() {
@@ -258,11 +327,13 @@ async fn test_download_commit_log_from_remote() {
         .await
         .unwrap();
     assert_eq!(bo_test_results.len(), 1);
-    assert!(bo_test_results[0]
-        .publish_commit_log_results
-        .as_ref()
-        .unwrap()
-        .is_empty());
+    assert!(
+        bo_test_results[0]
+            .publish_commit_log_results
+            .as_ref()
+            .unwrap()
+            .is_empty()
+    );
 
     // Verify the number of commits published results for alix group 1
     assert_eq!(
