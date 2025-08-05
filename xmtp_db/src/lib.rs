@@ -49,6 +49,7 @@ pub mod prelude {
     pub use super::pragmas::CheckPragmas;
     pub use super::processed_device_sync_messages::QueryDeviceSyncMessages;
     pub use super::refresh_state::QueryRefreshState;
+    pub use super::remote_commit_log::QueryRemoteCommitLog;
     pub use super::traits::*;
 }
 
