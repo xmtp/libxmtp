@@ -6,11 +6,8 @@ use diesel::{
     r2d2::{self, PooledConnection},
 };
 
-use crate::{
-    PlatformStorageError, StorageOption,
-    configuration::{BUSY_TIMEOUT, MIN_DB_POOL_SIZE},
-    native::XmtpConnection,
-};
+use crate::{PlatformStorageError, StorageOption, native::XmtpConnection};
+use xmtp_configuration::{BUSY_TIMEOUT, MAX_DB_POOL_SIZE, MIN_DB_POOL_SIZE};
 type Pool = r2d2::Pool<ConnectionManager>;
 pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
 
@@ -25,7 +22,7 @@ impl DbPool {
         };
         let pool = Pool::builder()
             .connection_customizer(customizer.clone())
-            .max_size(crate::configuration::MAX_DB_POOL_SIZE)
+            .max_size(MAX_DB_POOL_SIZE)
             .min_idle(Some(MIN_DB_POOL_SIZE))
             .build(ConnectionManager::new(path))?;
 
@@ -124,7 +121,8 @@ mod tests {
     #[case(unencrypted_connection())]
     #[test]
     pub fn sets_busy_timeout(#[case] customizer: Box<dyn XmtpConnection>) {
-        use crate::{DbConnection, configuration::BUSY_TIMEOUT};
+        use crate::DbConnection;
+        use xmtp_configuration::BUSY_TIMEOUT;
         let pool = DbPool::new(customizer.clone()).unwrap();
         let dbconn = DbConnection::new(pool);
         let timeout = dbconn.busy_timeout().unwrap();

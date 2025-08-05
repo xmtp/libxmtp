@@ -1,7 +1,8 @@
 use crate::identity_updates::batch_get_association_state_with_verifier;
+use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
+
 use crate::{
     builder::SyncWorkerMode,
-    configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION,
     context::XmtpSharedContext,
     groups::{
         ConversationListItem, GroupError, MlsGroup,

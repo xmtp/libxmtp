@@ -86,9 +86,8 @@ async fn force_add_member(
     sender_mls_group: &mut openmls::prelude::MlsGroup,
     sender_provider: &impl xmtp_db::MlsProviderExt,
 ) {
-    use crate::{
-        configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION, groups::mls_ext::WrapperAlgorithm,
-    };
+    use crate::groups::mls_ext::WrapperAlgorithm;
+    use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
 
     use super::intents::{Installation, SendWelcomesAction};
     use openmls::prelude::tls_codec::Serialize;

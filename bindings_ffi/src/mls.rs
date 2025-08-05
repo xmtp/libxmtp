@@ -3159,6 +3159,7 @@ mod tests {
     use xmtp_common::tmp_path;
     use xmtp_common::{time::now_ns, wait_for_ge};
     use xmtp_common::{wait_for_eq, wait_for_ok};
+    use xmtp_configuration::MAX_INSTALLATIONS_PER_INBOX;
     use xmtp_content_types::{
         attachment::AttachmentCodec, bytes_to_encoded_content, encoded_content_to_bytes,
         group_updated::GroupUpdatedCodec, membership_change::GroupMembershipChangeCodec,
@@ -3175,7 +3176,6 @@ mod tests {
         test_utils::WalletTestExt, unverified::UnverifiedSignature, MemberIdentifier,
     };
     use xmtp_mls::{
-        configuration::MAX_INSTALLATIONS_PER_INBOX,
         groups::{device_sync::worker::SyncMetric, GroupError},
         utils::{PasskeyUser, Tester},
         InboxOwner,

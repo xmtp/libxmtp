@@ -1,11 +1,12 @@
 #![allow(unused)]
 
 use super::FullXmtpClient;
+use xmtp_configuration::DeviceSyncUrls;
+
 use crate::{
     Client,
     builder::{ClientBuilder, SyncWorkerMode},
     client::ClientError,
-    configuration::DeviceSyncUrls,
     context::XmtpSharedContext,
     groups::device_sync::worker::SyncMetric,
     subscriptions::SubscribeError,

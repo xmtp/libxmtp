@@ -4233,6 +4233,7 @@ dependencies = [
  "vergen-git2",
  "warp",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
@@ -8636,6 +8637,7 @@ dependencies = [
  "xmtp_api_d14n",
  "xmtp_api_grpc",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_db",
@@ -8678,6 +8680,15 @@ dependencies = [
  "web-time",
  "xmtp_cryptography",
  "xmtp_macro",
+]
+
+[[package]]
+name = "xmtp_configuration"
+version = "1.4.0-dev"
+dependencies = [
+ "openmls",
+ "xmtp_common",
+ "xmtp_cryptography",
 ]
 
 [[package]]
@@ -8752,6 +8763,7 @@ dependencies = [
  "wasm-bindgen-test",
  "web-sys",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_proto",
@@ -8888,6 +8900,7 @@ dependencies = [
  "xmtp_api_http",
  "xmtp_archive",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_db",
@@ -8907,6 +8920,7 @@ dependencies = [
  "thiserror 2.0.12",
  "wasm-bindgen-test",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
@@ -8966,6 +8980,7 @@ dependencies = [
  "xmtp_api",
  "xmtp_api_grpc",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_db",

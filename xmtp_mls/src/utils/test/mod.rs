@@ -112,7 +112,7 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
             .await
             .with_disable_events(None)
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-            .device_sync_server_url(crate::configuration::DeviceSyncUrls::LOCAL_ADDRESS)
+            .device_sync_server_url(xmtp_configuration::DeviceSyncUrls::LOCAL_ADDRESS)
             .enable_sqlite_triggers()
             .default_mls_store()
             .unwrap()
