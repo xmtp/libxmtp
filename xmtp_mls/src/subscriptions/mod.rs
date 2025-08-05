@@ -323,7 +323,6 @@ where
         &self,
         conversation_type: Option<ConversationType>,
         consent_state: Option<Vec<ConsentState>>,
-        include_duplicate_dms: bool,
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + '_> {
         tracing::debug!(
             inbox_id = self.inbox_id(),
@@ -332,13 +331,7 @@ where
             "stream all messages"
         );
 
-        StreamAllMessages::new(
-            &self.context,
-            conversation_type,
-            consent_state,
-            include_duplicate_dms,
-        )
-        .await
+        StreamAllMessages::new(&self.context, conversation_type, consent_state).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -346,7 +339,6 @@ where
         &self,
         conversation_type: Option<ConversationType>,
         consent_state: Option<Vec<ConsentState>>,
-        include_duplicate_dms: bool,
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static> {
         tracing::debug!(
             inbox_id = self.inbox_id(),
@@ -355,13 +347,7 @@ where
             "stream all messages"
         );
 
-        StreamAllMessages::new_owned(
-            self.context.clone(),
-            conversation_type,
-            consent_state,
-            include_duplicate_dms,
-        )
-        .await
+        StreamAllMessages::new_owned(self.context.clone(), conversation_type, consent_state).await
     }
 
     pub fn stream_all_messages_with_callback(
@@ -374,19 +360,12 @@ where
         #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
         #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
         #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
-        include_duplicate_dms: bool,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
             tracing::debug!("stream all messages with callback");
-            let stream = StreamAllMessages::new(
-                &context,
-                conversation_type,
-                consent_state,
-                include_duplicate_dms,
-            )
-            .await?;
+            let stream = StreamAllMessages::new(&context, conversation_type, consent_state).await?;
 
             futures::pin_mut!(stream);
             let _ = tx.send(());

@@ -633,7 +633,6 @@ impl Conversations {
       move || {
         tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
       },
-      true,
     );
 
     Ok(StreamCloser::new(stream_closer))

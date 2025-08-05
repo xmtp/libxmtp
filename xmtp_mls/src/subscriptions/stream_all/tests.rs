@@ -36,7 +36,7 @@ async fn test_stream_all_messages_changing_group_list() {
         .await
         .unwrap();
 
-    let stream = caro.stream_all_messages(None, None, true).await.unwrap();
+    let stream = caro.stream_all_messages(None, None).await.unwrap();
     futures::pin_mut!(stream);
 
     alix_group.send_message(b"first").await.unwrap();
@@ -85,7 +85,7 @@ async fn test_stream_all_messages_unchanging_group_list() {
         .await
         .unwrap();
 
-    let stream = caro.stream_all_messages(None, None, true).await.unwrap();
+    let stream = caro.stream_all_messages(None, None).await.unwrap();
     futures::pin_mut!(stream);
     bo_group.send_message(b"first").await.unwrap();
     assert_msg!(stream, "first");
@@ -124,7 +124,7 @@ async fn test_dm_stream_all_messages() {
     {
         // start a stream with only group messages
         let stream = bo
-            .stream_all_messages(Some(ConversationType::Group), None, true)
+            .stream_all_messages(Some(ConversationType::Group), None)
             .await
             .unwrap();
         futures::pin_mut!(stream);
@@ -147,7 +147,7 @@ async fn test_dm_stream_all_messages() {
     {
         // Start a stream with only dms
         let stream = bo
-            .stream_all_messages(Some(ConversationType::Dm), None, true)
+            .stream_all_messages(Some(ConversationType::Dm), None)
             .await
             .unwrap();
         futures::pin_mut!(stream);
@@ -168,7 +168,7 @@ async fn test_dm_stream_all_messages() {
     }
     // Start a stream with all conversations
     // Wait for 2 seconds for the group creation to be streamed
-    let stream = bo.stream_all_messages(None, None, true).await.unwrap();
+    let stream = bo.stream_all_messages(None, None).await.unwrap();
     futures::pin_mut!(stream);
 
     alix_group.send_message("first".as_bytes()).await.unwrap();
@@ -213,7 +213,7 @@ async fn test_stream_all_messages_does_not_lose_messages() {
 
     let bo_group = bo.sync_welcomes().await.unwrap()[0].clone();
 
-    let mut stream = caro.stream_all_messages(None, None, true).await.unwrap();
+    let mut stream = caro.stream_all_messages(None, None).await.unwrap();
 
     let alix_group_pointer = alix_group.clone();
     xmtp_common::spawn(None, async move {
@@ -293,7 +293,7 @@ async fn test_stream_all_messages_does_not_lose_messages() {
 async fn test_stream_all_messages_detached_group_changes() {
     let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let hale = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-    let stream = caro.stream_all_messages(None, None, true).await.unwrap();
+    let stream = caro.stream_all_messages(None, None).await.unwrap();
 
     let caro_id = caro.inbox_id().to_string();
     xmtp_common::spawn(None, async move {
@@ -384,7 +384,7 @@ async fn test_stream_all_messages_filters_by_consent_state(
     xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
     let stream = sender
-        .stream_all_messages(None, Some(vec![filter]), true)
+        .stream_all_messages(None, Some(vec![filter]))
         .await
         .unwrap();
     futures::pin_mut!(stream);
@@ -447,7 +447,7 @@ async fn stream_messages_keeps_track_of_cursor(
     // create a new installation for alice
     tester!(alice_2, from: alice);
 
-    let mut s = StreamAllMessages::new(&alice_2.context, None, None, true)
+    let mut s = StreamAllMessages::new(&alice_2.context, None, None)
         .await
         .unwrap();
     // elapse enough time to update installations

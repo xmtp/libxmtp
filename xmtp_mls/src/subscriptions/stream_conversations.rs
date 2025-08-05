@@ -659,7 +659,7 @@ mod test {
             clients.push(client);
         }
 
-        let stream = alix.stream_all_messages(None, None, true).await.unwrap();
+        let stream = alix.stream_all_messages(None, None).await.unwrap();
         for client in clients.iter().take(dms) {
             xmtp_common::task::spawn({
                 let id = alix_inbox_id.clone();

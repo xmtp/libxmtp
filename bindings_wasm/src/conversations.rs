@@ -600,7 +600,6 @@ impl Conversations {
         Err(e) => callback.on_error(JsError::from(e)),
       },
       move || on_close_cb.on_close(),
-      true,
     );
     Ok(StreamCloser::new(stream_closer))
   }
