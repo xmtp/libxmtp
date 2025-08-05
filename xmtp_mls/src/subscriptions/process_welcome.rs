@@ -53,6 +53,7 @@ where
     /// * `client` - The client to use for processing and database operations
     /// * `item` - The welcome message or group to process
     /// * `conversation_type` - Optional filter for specific conversation types
+    /// * `include_duplicate_dms` - Optional filter to include duplicate dms in the stream
     ///
     /// # Returns
     /// * `Result<ProcessWelcomeFuture<C>>` - A new future for processing
