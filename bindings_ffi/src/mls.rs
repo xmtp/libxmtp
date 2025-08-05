@@ -12,7 +12,7 @@ use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
-use xmtp_content_types::reaction::ReactionCodec;
+use xmtp_content_types::reaction::{Reaction, ReactionCodec};
 use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::transaction_reference::TransactionMetadata;
 use xmtp_content_types::transaction_reference::TransactionReference;
@@ -23,6 +23,7 @@ use xmtp_content_types::read_receipt::{ReadReceipt, ReadReceiptCodec};
 use xmtp_content_types::remote_attachment::{RemoteAttachment, RemoteAttachmentCodec};
 use xmtp_content_types::wallet_send_call::{WalletSendCall, WalletSendCallCodec, WalletCall};
 use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
+use xmtp_db::encrypted_store::group_message::{ContentType, StoredGroupMessage};
 use xmtp_db::group::ConversationType;
 use xmtp_db::group::DmIdExt;
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
@@ -1749,6 +1750,47 @@ impl FfiConversationListItem {
     }
 }
 
+#[derive(uniffi::Object)]
+pub struct FfiMessageListItem {
+    message: FfiMessage,
+    reactions: Vec<FfiMessage>,
+    replies: Vec<FfiMessage>,
+    is_read: bool,
+}
+
+#[uniffi::export]
+impl FfiMessageListItem {
+    pub fn message(&self) -> FfiMessage {
+        self.message.clone()
+    }
+    
+    pub fn reactions(&self) -> Vec<FfiMessage> {
+        self.reactions.clone()
+    }
+    
+    pub fn replies(&self) -> Vec<FfiMessage> {
+        self.replies.clone()
+    }
+    
+    pub fn is_read(&self) -> bool {
+        self.is_read
+    }
+}
+
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiListMessageListItemsOptions {
+    pub sent_before_ns: Option<i64>,
+    pub sent_after_ns: Option<i64>,
+    pub limit: Option<i64>,
+    pub delivery_status: Option<FfiDeliveryStatus>,
+    pub direction: Option<FfiDirection>,
+    pub content_types: Option<Vec<FfiContentType>>,
+    pub from: Option<String>,
+    pub include_replies: bool,
+    pub include_reactions: bool,
+    pub include_is_read: bool,
+}
+
 #[derive(uniffi::Record, Debug)]
 pub struct FfiUpdateGroupMembershipResult {
     added_members: HashMap<String, u64>,
@@ -2120,6 +2162,163 @@ impl FfiConversation {
             .map(|msg| msg.into())
             .collect();
         Ok(messages)
+    }
+
+    pub fn find_message_list_items(
+        &self,
+        opts: FfiListMessageListItemsOptions,
+    ) -> Result<Vec<Arc<FfiMessageListItem>>, GenericError> {
+        let delivery_status = opts.delivery_status.map(|status| status.into());
+        let direction = opts.direction.map(|dir| dir.into());
+        let kind = match self.conversation_type() {
+            FfiConversationType::Group => None,
+            FfiConversationType::Dm => None,
+            FfiConversationType::Sync => None,
+        };
+
+        // Build query args for main messages
+        let mut query_args = MsgQueryArgs {
+            sent_before_ns: opts.sent_before_ns,
+            sent_after_ns: opts.sent_after_ns,
+            kind,
+            delivery_status,
+            limit: opts.limit,
+            direction,
+            content_types: opts
+                .content_types
+                .map(|types| types.into_iter().map(Into::into).collect()),
+        };
+
+        // Filter out reactions, replies, and read receipts from main query
+        if let Some(ref mut content_types) = query_args.content_types {
+            content_types.retain(|content_type| {
+                *content_type != ContentType::Reaction
+                    && *content_type != ContentType::Reply
+                    && *content_type != ContentType::ReadReceipt
+            });
+        } else {
+            query_args.content_types = Some(vec![
+                ContentType::Text,
+                ContentType::GroupMembershipChange,
+                ContentType::GroupUpdated,
+                ContentType::Attachment,
+                ContentType::RemoteAttachment,
+                ContentType::TransactionReference,
+                ContentType::Unknown,
+            ]);
+        }
+
+        // Get main messages
+        let messages = self.inner.find_messages(&query_args)?;
+
+        // Get all related messages (reactions, replies, read receipts) in one query
+        let message_ids: Vec<&[u8]> = messages.iter().map(|m| m.id.as_slice()).collect();
+        
+        let mut related_query_args = MsgQueryArgs {
+            sent_before_ns: None,
+            sent_after_ns: None,
+            kind: None,
+            delivery_status: None,
+            limit: None,
+            direction: None,
+            content_types: Some(vec![
+                ContentType::Reaction,
+                ContentType::Reply,
+                ContentType::ReadReceipt,
+            ]),
+        };
+
+        let all_related_messages = self.inner.find_messages(&related_query_args)?;
+        
+        // Filter related messages to only those that reference our main messages
+        let related_messages: Vec<StoredGroupMessage> = all_related_messages
+            .into_iter()
+            .filter(|msg| {
+                if let Some(ref_id) = &msg.reference_id {
+                    message_ids.contains(&ref_id.as_slice())
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        // Group related messages by type and parent message
+        let mut reactions_by_parent: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
+        let mut replies_by_parent: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
+        let mut read_receipts_by_parent: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
+
+        for msg in related_messages {
+            if let Some(ref_id) = &msg.reference_id {
+                match msg.content_type {
+                    ContentType::Reaction => {
+                        reactions_by_parent
+                            .entry(ref_id.clone())
+                            .or_default()
+                            .push(msg);
+                    }
+                    ContentType::Reply => {
+                        replies_by_parent
+                            .entry(ref_id.clone())
+                            .or_default()
+                            .push(msg);
+                    }
+                    ContentType::ReadReceipt => {
+                        read_receipts_by_parent
+                            .entry(ref_id.clone())
+                            .or_default()
+                            .push(msg);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Build message list items
+        let message_list_items: Vec<Arc<FfiMessageListItem>> = messages
+            .into_iter()
+            .map(|message| {
+                let message_id = message.id.clone();
+                
+                let reactions = if opts.include_reactions {
+                    reactions_by_parent
+                        .remove(&message_id)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|msg| msg.into())
+                        .collect()
+                } else {
+                    vec![]
+                };
+
+                let replies = if opts.include_replies {
+                    replies_by_parent
+                        .remove(&message_id)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|msg| msg.into())
+                        .collect()
+                } else {
+                    vec![]
+                };
+
+                let is_read = if opts.include_is_read {
+                    read_receipts_by_parent
+                        .remove(&message_id)
+                        .is_some()
+                } else {
+                    false
+                };
+
+                Arc::new(FfiMessageListItem {
+                    message: message.into(),
+                    reactions,
+                    replies,
+                    is_read,
+                })
+            })
+            .collect();
+
+        Ok(message_list_items)
     }
 
     pub async fn process_streamed_conversation_message(
@@ -2557,40 +2756,31 @@ impl From<StoredGroupMessageWithReactions> for FfiMessageWithReactions {
 pub struct FfiReaction {
     pub reference: String,
     pub reference_inbox_id: String,
-    pub action: FfiReactionAction,
+    pub action: String,
     pub content: String,
-    pub schema: FfiReactionSchema,
+    pub schema: String,
 }
 
-impl From<FfiReaction> for ReactionV2 {
+impl From<FfiReaction> for Reaction {
     fn from(reaction: FfiReaction) -> Self {
-        ReactionV2 {
+        Reaction {
             reference: reaction.reference,
             reference_inbox_id: reaction.reference_inbox_id,
-            action: reaction.action.into(),
+            action: reaction.action,
             content: reaction.content,
-            schema: reaction.schema.into(),
+            schema: reaction.schema,
         }
     }
 }
 
-impl From<ReactionV2> for FfiReaction {
-    fn from(reaction: ReactionV2) -> Self {
+impl From<Reaction> for FfiReaction {
+    fn from(reaction: Reaction) -> Self {
         FfiReaction {
             reference: reaction.reference,
             reference_inbox_id: reaction.reference_inbox_id,
-            action: match reaction.action {
-                1 => FfiReactionAction::Added,
-                2 => FfiReactionAction::Removed,
-                _ => FfiReactionAction::Unknown,
-            },
+            action: reaction.action,
             content: reaction.content,
-            schema: match reaction.schema {
-                1 => FfiReactionSchema::Unicode,
-                2 => FfiReactionSchema::Shortcode,
-                3 => FfiReactionSchema::Custom,
-                _ => FfiReactionSchema::Unknown,
-            },
+            schema: reaction.schema,
         }
     }
 }
@@ -2598,7 +2788,7 @@ impl From<ReactionV2> for FfiReaction {
 #[uniffi::export]
 pub fn encode_reaction(reaction: FfiReaction) -> Result<Vec<u8>, GenericError> {
     // Convert FfiReaction to Reaction
-    let reaction: ReactionV2 = reaction.into();
+    let reaction: Reaction = reaction.into();
 
     // Use ReactionCodec to encode the reaction
     let encoded = ReactionCodec::encode(reaction)
@@ -2623,44 +2813,6 @@ pub fn decode_reaction(bytes: Vec<u8>) -> Result<FfiReaction, GenericError> {
     ReactionCodec::decode(encoded_content)
         .map(Into::into)
         .map_err(|e| GenericError::Generic { err: e.to_string() })
-}
-
-#[derive(uniffi::Enum, Clone, Default, PartialEq, Debug)]
-pub enum FfiReactionAction {
-    Unknown,
-    #[default]
-    Added,
-    Removed,
-}
-
-impl From<FfiReactionAction> for i32 {
-    fn from(action: FfiReactionAction) -> Self {
-        match action {
-            FfiReactionAction::Unknown => 0,
-            FfiReactionAction::Added => 1,
-            FfiReactionAction::Removed => 2,
-        }
-    }
-}
-
-#[derive(uniffi::Enum, Clone, Default, PartialEq, Debug)]
-pub enum FfiReactionSchema {
-    Unknown,
-    #[default]
-    Unicode,
-    Shortcode,
-    Custom,
-}
-
-impl From<FfiReactionSchema> for i32 {
-    fn from(schema: FfiReactionSchema) -> Self {
-        match schema {
-            FfiReactionSchema::Unknown => 0,
-            FfiReactionSchema::Unicode => 1,
-            FfiReactionSchema::Shortcode => 2,
-            FfiReactionSchema::Custom => 3,
-        }
-    }
 }
 
 #[derive(uniffi::Record, Clone, Default)]
@@ -3260,7 +3412,7 @@ impl From<IdentityStats> for FfiIdentityStats {
     }
 }
 
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct FfiConsent {
     pub entity_type: FfiConsentEntityType,
     pub state: FfiConsentState,
@@ -8303,9 +8455,9 @@ mod tests {
         let ffi_reaction = FfiReaction {
             reference: hex::encode(message_to_react_to.id.clone()),
             reference_inbox_id: alix.inbox_id(),
-            action: FfiReactionAction::Added,
+            action: "Added".to_string(),
             content: "👍".to_string(),
-            schema: FfiReactionSchema::Unicode,
+            schema: "Unicode".to_string(),
         };
         let bytes_to_send = encode_reaction(ffi_reaction).unwrap();
         bo_conversation.send(bytes_to_send).await.unwrap();
@@ -8325,13 +8477,13 @@ mod tests {
         let message_content = received_reaction.content.clone();
         let reaction = decode_reaction(message_content).unwrap();
         assert_eq!(reaction.content, "👍");
-        assert_eq!(reaction.action, FfiReactionAction::Added);
+        assert_eq!(reaction.action, "Added");
         assert_eq!(reaction.reference_inbox_id, alix.inbox_id());
         assert_eq!(
             reaction.reference,
             hex::encode(message_to_react_to.id.clone())
         );
-        assert_eq!(reaction.schema, FfiReactionSchema::Unicode);
+        assert_eq!(reaction.schema, "Unicode");
 
         // Test find_messages_with_reactions query
         let messages_with_reactions: Vec<FfiMessageWithReactions> = alix_conversation
@@ -8343,15 +8495,15 @@ mod tests {
         let message_content = message_with_reactions.reactions[0].content.clone();
         let slice: &[u8] = message_content.as_slice();
         let encoded_content = EncodedContent::decode(slice).unwrap();
-        let reaction = ReactionV2::decode(encoded_content.content.as_slice()).unwrap();
+        let reaction = Reaction::decode(encoded_content.content.as_slice()).unwrap();
         assert_eq!(reaction.content, "👍");
-        assert_eq!(reaction.action, ReactionAction::Added as i32);
+        assert_eq!(reaction.action, "Added");
         assert_eq!(reaction.reference_inbox_id, alix.inbox_id());
         assert_eq!(
             reaction.reference,
             hex::encode(message_to_react_to.id.clone())
         );
-        assert_eq!(reaction.schema, ReactionSchema::Unicode as i32);
+        assert_eq!(reaction.schema, "Unicode");
     }
 
     #[tokio::test]
@@ -8360,9 +8512,9 @@ mod tests {
         let original_reaction = FfiReaction {
             reference: "123abc".to_string(),
             reference_inbox_id: "test_inbox_id".to_string(),
-            action: FfiReactionAction::Added,
+            action: "Added".to_string(),
             content: "👍".to_string(),
-            schema: FfiReactionSchema::Unicode,
+            schema: "Unicode".to_string(),
         };
 
         // Encode the reaction
@@ -8379,12 +8531,9 @@ mod tests {
             decoded_reaction.reference_inbox_id,
             original_reaction.reference_inbox_id
         );
-        assert!(matches!(decoded_reaction.action, FfiReactionAction::Added));
+        assert_eq!(decoded_reaction.action, original_reaction.action);
         assert_eq!(decoded_reaction.content, original_reaction.content);
-        assert!(matches!(
-            decoded_reaction.schema,
-            FfiReactionSchema::Unicode
-        ));
+        assert_eq!(decoded_reaction.schema, original_reaction.schema);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
