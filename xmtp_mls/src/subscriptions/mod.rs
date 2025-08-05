@@ -242,8 +242,9 @@ where
             self.context.clone(),
             WelcomeOrGroup::Welcome(envelope),
             None,
+            false,
         )?;
-        match future.process(false).await? {
+        match future.process().await? {
             ProcessWelcomeResult::New { group, .. } => Ok(group),
             ProcessWelcomeResult::NewStored { group, .. } => Ok(group),
             ProcessWelcomeResult::IgnoreId { .. } | ProcessWelcomeResult::Ignore => {

@@ -20,6 +20,8 @@ pub struct ProcessWelcomeFuture<Context> {
     item: WelcomeOrGroup,
     /// Conversation type to filter for, if any.
     conversation_type: Option<ConversationType>,
+    /// To skip or include duplicate dms in the stream
+    include_duplicate_dms: bool,
 }
 
 pub enum ProcessWelcomeResult<Context> {
@@ -65,6 +67,7 @@ where
     ///     client.clone(),
     ///     WelcomeOrGroup::Welcome(welcome),
     ///     Some(ConversationType::Group),
+    ///     false,
     /// )?;
     /// let result = future.process().await?;
     /// ```
@@ -73,12 +76,14 @@ where
         context: Context,
         item: WelcomeOrGroup,
         conversation_type: Option<ConversationType>,
+        include_duplicate_dms: bool,
     ) -> Result<ProcessWelcomeFuture<Context>> {
         Ok(Self {
             known_welcome_ids,
             context,
             item,
             conversation_type,
+            include_duplicate_dms,
         })
     }
 }
@@ -122,10 +127,7 @@ where
     ///
     /// # Tracing
     #[tracing::instrument(skip_all)]
-    pub async fn process(
-        self,
-        include_duplicate_dms: bool,
-    ) -> Result<ProcessWelcomeResult<Context>> {
+    pub async fn process(self) -> Result<ProcessWelcomeResult<Context>> {
         use WelcomeOrGroup::*;
         let process_result = match self.item {
             Welcome(ref w) => {
@@ -141,12 +143,7 @@ where
                         "Found existing welcome. Returning from db & skipping processing"
                     );
                     if let Ok((group, id)) = self.load_from_store(id) {
-                        return self
-                            .filter(
-                                ProcessWelcomeResult::New { group, id },
-                                include_duplicate_dms,
-                            )
-                            .await;
+                        return self.filter(ProcessWelcomeResult::New { group, id }).await;
                     }
                 }
                 tracing::info!("could not find group for welcome {}, processing", id);
@@ -164,7 +161,7 @@ where
                 }
             }
         };
-        self.filter(process_result, include_duplicate_dms).await
+        self.filter(process_result).await
     }
 
     /// Applies conversation type filtering to processed welcome results.
@@ -190,7 +187,6 @@ where
     async fn filter(
         &self,
         processed: ProcessWelcomeResult<Context>,
-        include_duplicate_dms: bool,
     ) -> Result<ProcessWelcomeResult<Context>> {
         use super::ProcessWelcomeResult::*;
         match processed {
@@ -204,7 +200,7 @@ where
                 }
 
                 // If it's a duplicate DM, don’t stream
-                if !include_duplicate_dms
+                if !self.include_duplicate_dms
                     && metadata.conversation_type == ConversationType::Dm
                     && self.context.db().has_duplicate_dm(&group.group_id)?
                 {
@@ -224,7 +220,7 @@ where
             NewStored { group, maybe_id } => {
                 let metadata = group.metadata().await?;
                 // If it's a duplicate DM, don’t stream
-                if !include_duplicate_dms
+                if !self.include_duplicate_dms
                     && metadata.conversation_type == ConversationType::Dm
                     && self.context.db().has_duplicate_dm(&group.group_id)?
                 {

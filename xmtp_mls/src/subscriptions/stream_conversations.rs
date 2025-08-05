@@ -333,9 +333,9 @@ where
                     this.context.clone().into_owned(),
                     welcome_envelope?,
                     *this.conversation_type,
+                    *this.include_duplicated_dms,
                 )?;
-                this.welcome_syncs
-                    .spawn(future.process(*this.include_duplicated_dms));
+                this.welcome_syncs.spawn(future.process());
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
