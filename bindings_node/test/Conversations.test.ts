@@ -901,6 +901,7 @@ describe('Conversations', () => {
     await sleep(2000)
 
     // User introduce Client B
+    user.uuid = v4()
     const user_client_b = await createRegisteredClient(user)
 
     // Client B Creates a DM with the Agent
@@ -914,6 +915,8 @@ describe('Conversations', () => {
     const client_b_conversations = client_a_groups.list()
     expect(client_b_conversations.length).toBe(1)
     await client_b_conversations[0].conversation.send(encodeTextMessage('b'))
+    await sleep(2000)
+
     // confirm the agent received the second message
     expect(messages.length).toBe(2)
 
