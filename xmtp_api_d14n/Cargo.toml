@@ -23,6 +23,7 @@ prost-types.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 xmtp_common.workspace = true
+xmtp_configuration = { workspace = true }
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 # only for tests

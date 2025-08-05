@@ -1268,6 +1268,7 @@ dependencies = [
  "xmtp_api",
  "xmtp_api_http",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_db",
@@ -8548,6 +8549,7 @@ dependencies = [
  "xmtp_api_grpc",
  "xmtp_api_http",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_proto",
 ]
 
@@ -8566,9 +8568,12 @@ dependencies = [
  "tokio",
  "tonic",
  "tower 0.5.2",
+ "toxiproxy_rust",
  "tracing",
+ "url",
  "uuid",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_proto",
 ]
 
@@ -8590,9 +8595,12 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.12",
  "tokio",
+ "toxiproxy_rust",
  "tracing",
+ "url",
  "wasm-bindgen-test",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_proto",
 ]
 
@@ -8698,6 +8706,7 @@ name = "xmtp_configuration"
 version = "1.4.0-dev"
 dependencies = [
  "openmls",
+ "url",
  "xmtp_common",
  "xmtp_cryptography",
 ]
@@ -8825,6 +8834,7 @@ dependencies = [
  "wasm-bindgen-test",
  "xmtp_api",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_proto",
@@ -8957,10 +8967,14 @@ dependencies = [
  "prost",
  "serde",
  "thiserror 2.0.12",
+ "tokio",
  "tonic",
+ "toxiproxy_rust",
  "tracing",
+ "url",
  "wasm-bindgen-test",
  "xmtp_common",
+ "xmtp_configuration",
 ]
 
 [[package]]

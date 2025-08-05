@@ -40,7 +40,7 @@ use crate::{
 };
 use update_group_membership::apply_update_group_membership_intent;
 use xmtp_configuration::{
-    GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
+    GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
     SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_db::XmtpMlsStorageProvider;
@@ -2399,7 +2399,7 @@ where
 
         let welcome = welcomes.first().ok_or(GroupError::NoWelcomesToSend)?;
 
-        let chunk_size = GRPC_DATA_LIMIT
+        let chunk_size = GRPC_PAYLOAD_LIMIT
             / welcome
                 .version
                 .as_ref()
@@ -2410,7 +2410,7 @@ where
                         w
                     }
                 })
-                .unwrap_or(GRPC_DATA_LIMIT / MAX_GROUP_SIZE);
+                .unwrap_or(GRPC_PAYLOAD_LIMIT / MAX_GROUP_SIZE);
 
         tracing::debug!("welcome chunk_size={chunk_size}");
         let api = self.context.api();

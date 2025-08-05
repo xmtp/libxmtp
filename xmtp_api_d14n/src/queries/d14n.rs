@@ -55,15 +55,26 @@ where
         <Builder2 as ApiBuilder>::set_app_version(&mut self.payer_client, version)
     }
 
-    // TODO: Add a builder method for the payer host
     fn set_host(&mut self, host: String) {
-        <Builder1 as ApiBuilder>::set_host(&mut self.message_client, host.clone());
-        <Builder2 as ApiBuilder>::set_host(&mut self.payer_client, host)
+        <Builder1 as ApiBuilder>::set_host(&mut self.message_client, host);
+    }
+
+    fn set_payer(&mut self, payer: String) {
+        <Builder2 as ApiBuilder>::set_host(&mut self.payer_client, payer)
     }
 
     fn set_tls(&mut self, tls: bool) {
         <Builder1 as ApiBuilder>::set_tls(&mut self.message_client, tls);
         <Builder2 as ApiBuilder>::set_tls(&mut self.payer_client, tls)
+    }
+
+    fn rate_per_minute(&mut self, limit: u32) {
+        <Builder1 as ApiBuilder>::rate_per_minute(&mut self.message_client, limit);
+        <Builder2 as ApiBuilder>::rate_per_minute(&mut self.payer_client, limit)
+    }
+
+    fn port(&self) -> Result<Option<String>, Self::Error> {
+        <Builder1 as ApiBuilder>::port(&self.message_client)
     }
 
     async fn build(self) -> Result<Self::Output, Self::Error> {
@@ -73,8 +84,37 @@ where
         ))
     }
 
-    fn rate_per_minute(&mut self, limit: u32) {
-        <Builder1 as ApiBuilder>::rate_per_minute(&mut self.message_client, limit);
-        <Builder2 as ApiBuilder>::rate_per_minute(&mut self.payer_client, limit)
+    fn host(&self) -> Option<&str> {
+        <Builder1 as ApiBuilder>::host(&self.message_client)
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+mod test {
+    use xmtp_configuration::LOCALHOST;
+    use xmtp_proto::{TestApiBuilder, ToxicProxies};
+
+    use super::*;
+    impl<Builder1, Builder2> TestApiBuilder for D14nClientBuilder<Builder1, Builder2>
+    where
+        Builder1: ApiBuilder<Error = <Builder2 as ApiBuilder>::Error>,
+        Builder2: ApiBuilder,
+        <Builder1 as ApiBuilder>::Output: xmtp_proto::traits::Client,
+        <Builder2 as ApiBuilder>::Output: xmtp_proto::traits::Client,
+    {
+        async fn with_toxiproxy(&mut self) -> ToxicProxies {
+            let xmtpd_host = <Builder1 as ApiBuilder>::host(&self.message_client).unwrap();
+            let payer_host = <Builder2 as ApiBuilder>::host(&self.payer_client).unwrap();
+            let proxies = xmtp_proto::init_toxi(&[xmtpd_host, payer_host]).await;
+            <Builder1 as ApiBuilder>::set_host(
+                &mut self.message_client,
+                format!("{LOCALHOST}:{}", proxies.ports()[0]),
+            );
+            <Builder2 as ApiBuilder>::set_host(
+                &mut self.payer_client,
+                format!("{LOCALHOST}:{}", proxies.ports()[1]),
+            );
+            proxies
+        }
     }
 }

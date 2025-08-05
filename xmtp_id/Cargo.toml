@@ -39,6 +39,9 @@ xmtp_db.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
 
 rstest = { workspace = true, optional = true }
+xmtp_configuration = { workspace = true, features = [
+  "test-utils",
+], optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
@@ -66,6 +69,7 @@ rstest.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 wasm-bindgen-test.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_configuration.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 gloo-timers.workspace = true
@@ -82,4 +86,5 @@ test-utils = [
   "alloy/provider-anvil-node",
   "alloy/contract",
   "alloy/rand",
+  "dep:xmtp_configuration",
 ]

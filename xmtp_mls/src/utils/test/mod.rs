@@ -32,7 +32,7 @@ pub type TestXmtpMlsContext =
 pub type FullXmtpClient = Client<TestXmtpMlsContext>;
 pub type TestMlsGroup = crate::groups::MlsGroup<TestXmtpMlsContext>;
 
-#[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
+#[cfg(not(any(feature = "http-api", target_arch = "wasm32", feature = "d14n")))]
 pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
 
 #[cfg(all(
@@ -94,17 +94,6 @@ where
 }
 
 impl ClientBuilder<TestClient, TestMlsStorage> {
-    pub fn local_port() -> &'static str {
-        <TestClient as XmtpTestClient>::local_port()
-    }
-
-    pub async fn new_custom_api_client(addr: &str) -> TestClient {
-        <TestClient as XmtpTestClient>::create_custom(addr)
-            .build()
-            .await
-            .unwrap()
-    }
-
     pub async fn new_test_builder(owner: &impl InboxOwner) -> ClientBuilder<(), TestMlsStorage> {
         let strategy = identity_setup(owner);
         Client::builder(strategy)

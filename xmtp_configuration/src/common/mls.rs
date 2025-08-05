@@ -4,14 +4,6 @@ use openmls::versions::ProtocolVersion;
 use xmtp_common::{NS_IN_30_DAYS, NS_IN_SEC};
 pub use xmtp_cryptography::configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
 
-pub struct DeviceSyncUrls;
-
-impl DeviceSyncUrls {
-    pub const LOCAL_ADDRESS: &'static str = "http://0.0.0.0:5558";
-    pub const DEV_ADDRESS: &'static str = "https://message-history.dev.ephemera.network";
-    pub const PRODUCTION_ADDRESS: &'static str = "https://message-history.ephemera.network";
-}
-
 /// Duration to wait before restarting workers in case of an error.
 pub const WORKER_RESTART_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 
@@ -39,10 +31,6 @@ pub const MAX_GROUP_SIZE: usize = 250;
 pub const MAX_INSTALLATIONS_PER_INBOX: usize = 10;
 
 pub const MAX_PAST_EPOCHS: usize = 3;
-
-/// the max amount of data that can be sent in one gRPC call
-/// should match GRPC_PAYLOAD_LIMIT in xmtp_api_grpc crate
-pub const GRPC_DATA_LIMIT: usize = 1024 * 1024 * 25;
 
 pub const CREATE_PQ_KEY_PACKAGE_EXTENSION: bool = true;
 

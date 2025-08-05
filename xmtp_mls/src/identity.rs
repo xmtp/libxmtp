@@ -663,10 +663,7 @@ impl Identity {
                     .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
                 Ok(())
             }
-            Err(err) => {
-                tracing::info!("Kp err");
-                Err(IdentityError::ApiClient(err))
-            }
+            Err(err) => Err(IdentityError::ApiClient(err)),
         }
     }
 }
