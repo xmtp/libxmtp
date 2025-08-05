@@ -22,20 +22,20 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
       - name: Run build with Gradle Wrapper
         run: ./gradlew build
-      - name: Tag version 4.4.0-dev.7f5d8e0
+      - name: Tag version 4.3.4
         run: |
-          git tag 4.4.0-dev.7f5d8e0
-          git push origin 4.4.0-dev.7f5d8e0
-      - name: Create a GitHub release for version 4.4.0-dev.7f5d8e0
+          git tag 4.3.4
+          git push origin 4.3.4
+      - name: Create a GitHub release for version 4.3.4
         uses: ncipollo/release-action@v1
         with:
-          tag: "4.4.0-dev.7f5d8e0"
-          name: "v4.4.0-dev.7f5d8e0"
+          tag: "4.3.4"
+          name: "v4.3.4"
           body: " "
 
       - name: Gradle Publish
         env:
-          RELEASE_VERSION: "4.4.0-dev.7f5d8e0"
+          RELEASE_VERSION: "4.3.4"
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
           SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
