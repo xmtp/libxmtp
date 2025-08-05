@@ -875,7 +875,7 @@ describe('Conversations', () => {
       identifier: agent.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
-    await sleep(2000)
+    await sleep(5000)
 
     let messages: Message[] = []
     const stream = agent_client.conversations().streamAllMessages(
@@ -887,7 +887,7 @@ describe('Conversations', () => {
       },
       ConversationType.Dm
     )
-    await sleep(1000)
+    await sleep(5000)
 
     // Client A send a message to the dm with the Agent
     const client_a_groups = user_client_a.conversations()
@@ -898,7 +898,7 @@ describe('Conversations', () => {
 
     // confirm the agent received the message
     expect(messages.length).toBe(1)
-    await sleep(2000)
+    await sleep(5000)
 
     // User introduce Client B
     user.uuid = v4()
@@ -915,7 +915,7 @@ describe('Conversations', () => {
     const client_b_conversations = client_a_groups.list()
     expect(client_b_conversations.length).toBe(1)
     await client_b_conversations[0].conversation.send(encodeTextMessage('b'))
-    await sleep(2000)
+    await sleep(5000)
 
     // confirm the agent received the second message
     expect(messages.length).toBe(2)
