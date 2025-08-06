@@ -357,12 +357,12 @@ where
         let mut save_remote_commit_log_results = HashMap::new();
         for response in query_commit_log_responses {
             let group_id = response.group_id.clone();
-            // TODO(rich): Make sure there are no race conditions here
             let mut consensus_public_key: Option<Vec<u8>> = conversation_id_to_public_key
                 .get(&group_id)
                 .and_then(Option::clone);
             if consensus_public_key.is_none() {
-                consensus_public_key = derive_consensus_public_key(&self.context, &response)?;
+                consensus_public_key =
+                    derive_consensus_public_key(&self.context, &response).await?;
             }
             let num_entries = self.save_remote_commit_log_entries_and_update_cursors(
                 conn,
