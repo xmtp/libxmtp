@@ -86,6 +86,7 @@ diesel::table! {
         sequence_id -> Nullable<BigInt>,
         originator_id -> Nullable<BigInt>,
         should_publish_commit_log -> Bool,
+        commit_log_public_key -> Nullable<Binary>,
     }
 }
 
@@ -143,9 +144,9 @@ diesel::table! {
         commit_sequence_id -> BigInt,
         last_epoch_authenticator -> Binary,
         commit_result -> Integer,
-        error_message -> Nullable<Text>,
         applied_epoch_number -> BigInt,
         applied_epoch_authenticator -> Binary,
+        error_message -> Nullable<Text>,
         sender_inbox_id -> Nullable<Text>,
         sender_installation_id -> Nullable<Binary>,
         commit_type -> Nullable<Text>,

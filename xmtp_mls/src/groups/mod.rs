@@ -1,4 +1,5 @@
 pub mod commit_log;
+pub mod commit_log_key;
 pub mod device_sync;
 pub mod device_sync_legacy;
 mod error;
@@ -1584,6 +1585,7 @@ pub fn build_mutable_metadata_extension_default(
 ) -> Result<Extension, GroupError> {
     let mut commit_log_signer = None;
     if xmtp_configuration::ENABLE_COMMIT_LOG {
+        // Optional TODO(rich): Plumb in provider and use traits in commit_log_key.rs to generate and store secret
         commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
     }
     let mutable_metadata: Vec<u8> =
@@ -1605,6 +1607,7 @@ pub fn build_dm_mutable_metadata_extension_default(
 ) -> Result<Extension, MetadataPermissionsError> {
     let mut commit_log_signer = None;
     if xmtp_configuration::ENABLE_COMMIT_LOG {
+        // Optional TODO(rich): Plumb in provider and use traits in commit_log_key.rs to generate and store secret
         commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
     }
     let mutable_metadata: Vec<u8> = GroupMutableMetadata::new_dm_default(
