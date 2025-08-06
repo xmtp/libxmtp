@@ -10,25 +10,40 @@ use xmtp_proto::xmtp::mls::message_contents::{
 
 pub struct ReactionCodec {}
 
-/// Legacy content type id at https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reaction/src/Reaction.ts
+/// Content type id at https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reaction/src/Reaction.ts
 impl ReactionCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
     pub const TYPE_ID: &'static str = "reaction";
 }
 
-impl ContentCodec<ReactionV2> for ReactionCodec {
+// JSON format for reaction is defined here: https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reaction/src/Reaction.ts
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Reaction {
+    /// The message ID for the message that is being reacted to
+    pub reference: String,
+    /// The inbox ID of the user who sent the message that is being reacted to
+    #[serde(rename = "referenceInboxId", skip_serializing_if = "Option::is_none")]
+    pub reference_inbox_id: Option<String>,
+    /// The action of the reaction ("added" or "removed")
+    pub action: String,
+    /// The content of the reaction
+    pub content: String,
+    /// The schema of the content ("unicode", "shortcode", or "custom")
+    pub schema: String,
+}
+
+impl ContentCodec<Reaction> for ReactionCodec {
     fn content_type() -> ContentTypeId {
         ContentTypeId {
             authority_id: ReactionCodec::AUTHORITY_ID.to_string(),
             type_id: ReactionCodec::TYPE_ID.to_string(),
-            version_major: 2,
+            version_major: 1,
             version_minor: 0,
         }
     }
 
-    fn encode(data: ReactionV2) -> Result<EncodedContent, CodecError> {
-        let mut buf = Vec::new();
-        data.encode(&mut buf)
+    fn encode(data: Reaction) -> Result<EncodedContent, CodecError> {
+        let json = serde_json::to_string(&data)
             .map_err(|e| CodecError::Encode(e.to_string()))?;
 
         Ok(EncodedContent {
@@ -36,12 +51,15 @@ impl ContentCodec<ReactionV2> for ReactionCodec {
             parameters: HashMap::new(),
             fallback: None,
             compression: None,
-            content: buf,
+            content: json.into_bytes(),
         })
     }
 
-    fn decode(content: EncodedContent) -> Result<ReactionV2, CodecError> {
-        let decoded = ReactionV2::decode(content.content.as_slice())
+    fn decode(content: EncodedContent) -> Result<Reaction, CodecError> {
+        let json_str = String::from_utf8(content.content)
+            .map_err(|e| CodecError::Decode(e.to_string()))?;
+        
+        let decoded = serde_json::from_str::<Reaction>(&json_str)
             .map_err(|e| CodecError::Decode(e.to_string()))?;
 
         Ok(decoded)
@@ -101,7 +119,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_encode_decode() {
-        let new_reaction_data = ReactionV2 {
+        let new_reaction_data = Reaction {
             reference: rand_string::<24>(),
             reference_inbox_id: rand_string::<24>(),
             action: ReactionAction::Added as i32,

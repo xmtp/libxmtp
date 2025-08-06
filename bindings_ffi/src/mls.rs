@@ -22,17 +22,17 @@ use xmtp_content_types::transaction_reference::TransactionMetadata;
 use xmtp_content_types::transaction_reference::TransactionReference;
 use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
 use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
-use xmtp_db::encrypted_store::group_message::{ContentType, StoredGroupMessage};
+use xmtp_db::encrypted_store::group_message::StoredGroupMessage;
 use xmtp_db::group::ConversationType;
 use xmtp_db::group::DmIdExt;
-use xmtp_db::group_message::{ContentType, MsgQueryArgs};
+use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_db::group_message::{SortDirection, StoredGroupMessageWithReactions};
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::NativeDb;
 use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     group::GroupQueryArgs,
-    group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    group_message::{DeliveryStatus, GroupMessageKind},
     EncryptedMessageStore, EncryptionKey, StorageOption,
 };
 use xmtp_id::associations::{
@@ -1923,6 +1923,7 @@ pub enum FfiPermissionLevel {
 }
 
 #[derive(uniffi::Enum, PartialEq, Debug)]
+#[derive(Clone)]
 pub enum FfiConsentState {
     Unknown,
     Allowed,
@@ -1949,7 +1950,7 @@ impl From<FfiConsentState> for ConsentState {
     }
 }
 
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, Clone)]
 pub enum FfiConsentEntityType {
     ConversationId,
     InboxId,
@@ -2178,8 +2179,7 @@ impl FfiConversation {
             FfiConversationType::Sync => None,
         };
 
-        // Build query args for main messages
-        let mut query_args = MsgQueryArgs {
+        let query_args = MsgQueryArgs {
             sent_before_ns: opts.sent_before_ns,
             sent_after_ns: opts.sent_after_ns,
             kind,
@@ -2191,136 +2191,28 @@ impl FfiConversation {
                 .map(|types| types.into_iter().map(Into::into).collect()),
         };
 
-        // Filter out reactions, replies, and read receipts from main query
-        if let Some(ref mut content_types) = query_args.content_types {
-            content_types.retain(|content_type| {
-                *content_type != ContentType::Reaction
-                    && *content_type != ContentType::Reply
-                    && *content_type != ContentType::ReadReceipt
-            });
-        } else {
-            query_args.content_types = Some(vec![
-                ContentType::Text,
-                ContentType::GroupMembershipChange,
-                ContentType::GroupUpdated,
-                ContentType::Attachment,
-                ContentType::RemoteAttachment,
-                ContentType::TransactionReference,
-                ContentType::Unknown,
-            ]);
-        }
+        // Use the new efficient database-level method
+        let message_list_items = self.inner.find_message_list_items(
+            &query_args,
+            opts.include_reactions,
+            opts.include_replies,
+            opts.include_is_read,
+        )?;
 
-        // Get main messages
-        let messages = self.inner.find_messages(&query_args)?;
-
-        // Get all related messages (reactions, replies, read receipts) in one query
-        let message_ids: Vec<&[u8]> = messages.iter().map(|m| m.id.as_slice()).collect();
-        
-        let mut related_query_args = MsgQueryArgs {
-            sent_before_ns: None,
-            sent_after_ns: None,
-            kind: None,
-            delivery_status: None,
-            limit: None,
-            direction: None,
-            content_types: Some(vec![
-                ContentType::Reaction,
-                ContentType::Reply,
-                ContentType::ReadReceipt,
-            ]),
-        };
-
-        let all_related_messages = self.inner.find_messages(&related_query_args)?;
-        
-        // Filter related messages to only those that reference our main messages
-        let related_messages: Vec<StoredGroupMessage> = all_related_messages
+        // Convert to FFI types
+        let ffi_message_list_items: Vec<Arc<FfiMessageListItem>> = message_list_items
             .into_iter()
-            .filter(|msg| {
-                if let Some(ref_id) = &msg.reference_id {
-                    message_ids.contains(&ref_id.as_slice())
-                } else {
-                    false
-                }
-            })
-            .collect();
-
-        // Group related messages by type and parent message
-        let mut reactions_by_parent: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
-        let mut replies_by_parent: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
-        let mut read_receipts_by_parent: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
-
-        for msg in related_messages {
-            if let Some(ref_id) = &msg.reference_id {
-                match msg.content_type {
-                    ContentType::Reaction => {
-                        reactions_by_parent
-                            .entry(ref_id.clone())
-                            .or_default()
-                            .push(msg);
-                    }
-                    ContentType::Reply => {
-                        replies_by_parent
-                            .entry(ref_id.clone())
-                            .or_default()
-                            .push(msg);
-                    }
-                    ContentType::ReadReceipt => {
-                        read_receipts_by_parent
-                            .entry(ref_id.clone())
-                            .or_default()
-                            .push(msg);
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        // Build message list items
-        let message_list_items: Vec<Arc<FfiMessageListItem>> = messages
-            .into_iter()
-            .map(|message| {
-                let message_id = message.id.clone();
-                
-                let reactions = if opts.include_reactions {
-                    reactions_by_parent
-                        .remove(&message_id)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|msg| msg.into())
-                        .collect()
-                } else {
-                    vec![]
-                };
-
-                let replies = if opts.include_replies {
-                    replies_by_parent
-                        .remove(&message_id)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|msg| msg.into())
-                        .collect()
-                } else {
-                    vec![]
-                };
-
-                let is_read = if opts.include_is_read {
-                    read_receipts_by_parent
-                        .remove(&message_id)
-                        .is_some()
-                } else {
-                    false
-                };
-
+            .map(|item| {
                 Arc::new(FfiMessageListItem {
-                    message: message.into(),
-                    reactions,
-                    replies,
-                    is_read,
+                    message: item.message.into(),
+                    reactions: item.reactions.into_iter().map(|msg| msg.into()).collect(),
+                    replies: item.replies.into_iter().map(|msg| msg.into()).collect(),
+                    is_read: item.is_read,
                 })
             })
             .collect();
 
-        Ok(message_list_items)
+        Ok(ffi_message_list_items)
     }
 
     pub async fn process_streamed_conversation_message(

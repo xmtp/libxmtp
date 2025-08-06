@@ -260,6 +260,46 @@ impl Conversation {
     Ok(messages)
   }
 
+  #[wasm_bindgen(js_name = findMessageListItems)]
+  pub async fn find_message_list_items(
+    &self,
+    opts: Option<ListMessagesOptions>,
+    include_reactions: Option<bool>,
+    include_replies: Option<bool>,
+    include_is_read: Option<bool>,
+  ) -> Result<Vec<MessageListItem>, JsError> {
+    let opts = opts.unwrap_or_default();
+    let group = self.to_mls_group();
+    let conversation_type = group
+      .conversation_type()
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let kind = match conversation_type {
+      ConversationType::Group => None,
+      ConversationType::Dm => None,
+      ConversationType::Sync => None,
+    };
+
+    let opts = MsgQueryArgs {
+      kind,
+      ..opts.into()
+    };
+
+    let messages: Vec<MessageListItem> = group
+      .find_message_list_items(
+        &opts,
+        include_reactions.unwrap_or(true),
+        include_replies.unwrap_or(true),
+        include_is_read.unwrap_or(true),
+      )
+      .map_err(|e| JsError::new(&format!("{e}")))?
+      .into_iter()
+      .map(Into::into)
+      .collect();
+
+    Ok(messages)
+  }
+
   #[wasm_bindgen(js_name = listMembers)]
   pub async fn list_members(&self) -> Result<JsValue, JsError> {
     let group = self.to_mls_group();

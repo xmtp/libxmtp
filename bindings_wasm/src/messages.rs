@@ -212,6 +212,27 @@ pub struct MessageWithReactions {
   pub reactions: Vec<Message>,
 }
 
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Clone)]
+pub struct MessageListItem {
+  pub message: Message,
+  pub reactions: Vec<Message>,
+  pub replies: Vec<Message>,
+  #[wasm_bindgen(js_name = "isRead")]
+  pub is_read: bool,
+}
+
+impl From<xmtp_db::group_message::StoredGroupMessageListItem> for MessageListItem {
+  fn from(item: xmtp_db::group_message::StoredGroupMessageListItem) -> Self {
+    Self {
+      message: item.message.into(),
+      reactions: item.reactions.into_iter().map(|msg| msg.into()).collect(),
+      replies: item.replies.into_iter().map(|msg| msg.into()).collect(),
+      is_read: item.is_read,
+    }
+  }
+}
+
 impl From<StoredGroupMessageWithReactions> for MessageWithReactions {
   fn from(msg_with_reactions: StoredGroupMessageWithReactions) -> Self {
     Self {

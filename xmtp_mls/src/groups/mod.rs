@@ -70,7 +70,7 @@ use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::{Fetch, consent_record::ConsentType};
 use xmtp_db::{
     NotFound, StorageError,
-    group_message::{ContentType, StoredGroupMessageWithReactions},
+    group_message::{ContentType, StoredGroupMessageWithReactions, StoredGroupMessageListItem},
     refresh_state::EntityKind,
 };
 use xmtp_db::{Store, StoreOrIgnore};
@@ -774,6 +774,25 @@ where
     ) -> Result<Vec<StoredGroupMessageWithReactions>, GroupError> {
         let conn = self.context.db();
         let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
+        Ok(messages)
+    }
+
+    /// Query the database for stored messages with their reactions, replies, and read status
+    pub fn find_message_list_items(
+        &self,
+        args: &MsgQueryArgs,
+        include_reactions: bool,
+        include_replies: bool,
+        include_is_read: bool,
+    ) -> Result<Vec<StoredGroupMessageListItem>, GroupError> {
+        let conn = self.context.db();
+        let messages = conn.get_group_message_list_items(
+            &self.group_id,
+            args,
+            include_reactions,
+            include_replies,
+            include_is_read,
+        )?;
         Ok(messages)
     }
 

@@ -226,6 +226,45 @@ impl Conversation {
   }
 
   #[napi]
+  pub async fn find_message_list_items(
+    &self,
+    opts: Option<ListMessagesOptions>,
+    include_reactions: Option<bool>,
+    include_replies: Option<bool>,
+    include_is_read: Option<bool>,
+  ) -> Result<Vec<MessageListItem>> {
+    let opts = opts.unwrap_or_default();
+    let group = self.create_mls_group();
+    let conversation_type = group
+      .conversation_type()
+      .await
+      .map_err(ErrorWrapper::from)?;
+    let kind = match conversation_type {
+      ConversationType::Group => None,
+      ConversationType::Dm => None,
+      ConversationType::Sync => None,
+    };
+    let opts = MsgQueryArgs {
+      kind,
+      ..opts.into()
+    };
+
+    let messages: Vec<MessageListItem> = group
+      .find_message_list_items(
+        &opts,
+        include_reactions.unwrap_or(true),
+        include_replies.unwrap_or(true),
+        include_is_read.unwrap_or(true),
+      )
+      .map_err(ErrorWrapper::from)?
+      .into_iter()
+      .map(Into::into)
+      .collect();
+
+    Ok(messages)
+  }
+
+  #[napi]
   pub async fn process_streamed_group_message(
     &self,
     envelope_bytes: Uint8Array,

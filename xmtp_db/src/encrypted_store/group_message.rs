@@ -78,6 +78,13 @@ pub struct StoredGroupMessageWithReactions {
     pub reactions: Vec<StoredGroupMessage>,
 }
 
+pub struct StoredGroupMessageListItem {
+    pub message: StoredGroupMessage,
+    pub reactions: Vec<StoredGroupMessage>,
+    pub replies: Vec<StoredGroupMessage>,
+    pub is_read: bool,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum SortDirection {
     Ascending,
@@ -287,6 +294,16 @@ pub trait QueryGroupMessage {
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessageWithReactions>, crate::ConnectionError>;
 
+    /// Query for group messages with their reactions, replies, and read status
+    fn get_group_message_list_items(
+        &self,
+        group_id: &[u8],
+        args: &MsgQueryArgs,
+        include_reactions: bool,
+        include_replies: bool,
+        include_is_read: bool,
+    ) -> Result<Vec<StoredGroupMessageListItem>, crate::ConnectionError>;
+
     /// Get a particular group message
     fn get_group_message<MessageId: AsRef<[u8]>>(
         &self,
@@ -368,6 +385,17 @@ where
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessageWithReactions>, crate::ConnectionError> {
         (**self).get_group_messages_with_reactions(group_id, args)
+    }
+
+    fn get_group_message_list_items(
+        &self,
+        group_id: &[u8],
+        args: &MsgQueryArgs,
+        include_reactions: bool,
+        include_replies: bool,
+        include_is_read: bool,
+    ) -> Result<Vec<StoredGroupMessageListItem>, crate::ConnectionError> {
+        (**self).get_group_message_list_items(group_id, args, include_reactions, include_replies, include_is_read)
     }
 
     /// Get a particular group message
@@ -652,6 +680,142 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .collect();
 
         Ok(messages_with_reactions)
+    }
+
+    /// Query for group messages with their reactions, replies, and read status
+    fn get_group_message_list_items(
+        &self,
+        group_id: &[u8],
+        args: &MsgQueryArgs,
+        include_reactions: bool,
+        include_replies: bool,
+        include_is_read: bool,
+    ) -> Result<Vec<StoredGroupMessageListItem>, crate::ConnectionError> {
+        // First get all the main messages (excluding reactions, replies, and read receipts)
+        let mut modified_args = args.clone();
+        let content_types = match modified_args.content_types.clone() {
+            Some(content_types) => {
+                let mut content_types = content_types.clone();
+                content_types.retain(|content_type| {
+                    *content_type != ContentType::Reaction
+                        && *content_type != ContentType::Reply
+                        && *content_type != ContentType::ReadReceipt
+                });
+                Some(content_types)
+            }
+            None => Some(vec![
+                ContentType::Text,
+                ContentType::GroupMembershipChange,
+                ContentType::GroupUpdated,
+                ContentType::Attachment,
+                ContentType::RemoteAttachment,
+                ContentType::TransactionReference,
+                ContentType::Unknown,
+            ]),
+        };
+
+        modified_args.content_types = content_types;
+        let messages = self.get_group_messages(group_id, &modified_args)?;
+
+        if messages.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Get all related messages (reactions, replies, read receipts) in a single query
+        let message_ids: Vec<&[u8]> = messages.iter().map(|m| m.id.as_slice()).collect();
+
+        let mut related_query = dsl::group_messages
+            .filter(dsl::group_id.eq(group_id))
+            .filter(dsl::reference_id.is_not_null())
+            .filter(dsl::reference_id.eq_any(message_ids))
+            .into_boxed();
+
+        // Apply the same sorting as the main messages
+        related_query = match args.direction.as_ref().unwrap_or(&SortDirection::Ascending) {
+            SortDirection::Ascending => related_query.order(dsl::sent_at_ns.asc()),
+            SortDirection::Descending => related_query.order(dsl::sent_at_ns.desc()),
+        };
+
+        let related_messages: Vec<StoredGroupMessage> =
+            self.raw_query_read(|conn| related_query.load(conn))?;
+
+        // Group related messages by type and parent message
+        let mut reactions_by_parent: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
+        let mut replies_by_parent: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
+        let mut read_receipts_by_parent: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
+
+        for msg in related_messages {
+            if let Some(ref_id) = &msg.reference_id {
+                match msg.content_type {
+                    ContentType::Reaction => {
+                        if include_reactions {
+                            reactions_by_parent
+                                .entry(ref_id.clone())
+                                .or_default()
+                                .push(msg);
+                        }
+                    }
+                    ContentType::Reply => {
+                        if include_replies {
+                            replies_by_parent
+                                .entry(ref_id.clone())
+                                .or_default()
+                                .push(msg);
+                        }
+                    }
+                    ContentType::ReadReceipt => {
+                        if include_is_read {
+                            read_receipts_by_parent
+                                .entry(ref_id.clone())
+                                .or_default()
+                                .push(msg);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Build message list items
+        let message_list_items: Vec<StoredGroupMessageListItem> = messages
+            .into_iter()
+            .map(|message| {
+                let message_id = message.id.clone();
+                
+                let reactions = if include_reactions {
+                    reactions_by_parent
+                        .remove(&message_id)
+                        .unwrap_or_default()
+                } else {
+                    vec![]
+                };
+
+                let replies = if include_replies {
+                    replies_by_parent
+                        .remove(&message_id)
+                        .unwrap_or_default()
+                } else {
+                    vec![]
+                };
+
+                let is_read = if include_is_read {
+                    read_receipts_by_parent
+                        .remove(&message_id)
+                        .is_some()
+                } else {
+                    false
+                };
+
+                StoredGroupMessageListItem {
+                    message,
+                    reactions,
+                    replies,
+                    is_read,
+                }
+            })
+            .collect();
+
+        Ok(message_list_items)
     }
 
     /// Get a particular group message
