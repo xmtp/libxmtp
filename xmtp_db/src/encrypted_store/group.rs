@@ -690,7 +690,6 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
-        tracing::info!("Trying to insert group");
         let maybe_inserted_group: Option<StoredGroup> = self.raw_query_write(|conn| {
             diesel::insert_into(dsl::groups)
                 .values(&group)
@@ -737,7 +736,6 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                 Ok(existing_group)
             }
         } else {
-            tracing::info!("Group is inserted");
             Ok(self.raw_query_read(|c| dsl::groups.find(group.id).first(c))?)
         }
     }
