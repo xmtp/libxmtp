@@ -1,6 +1,5 @@
 #![warn(clippy::unwrap_used)]
 
-mod configuration;
 pub mod encrypted_store;
 mod errors;
 pub mod serialization;

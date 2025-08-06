@@ -11,17 +11,16 @@ use xmtp_api::{strategies, ApiClientWrapper, ApiDebugWrapper, ApiIdentifier};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
+use xmtp_content_types::attachment::{Attachment, AttachmentCodec};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::{Reaction, ReactionCodec};
+use xmtp_content_types::read_receipt::{ReadReceipt, ReadReceiptCodec};
+use xmtp_content_types::remote_attachment::{RemoteAttachment, RemoteAttachmentCodec};
+use xmtp_content_types::reply::{Reply, ReplyCodec};
 use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::transaction_reference::TransactionMetadata;
 use xmtp_content_types::transaction_reference::TransactionReference;
 use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
-use xmtp_content_types::attachment::{Attachment, AttachmentCodec};
-use xmtp_content_types::reply::{Reply, ReplyCodec};
-use xmtp_content_types::read_receipt::{ReadReceipt, ReadReceiptCodec};
-use xmtp_content_types::remote_attachment::{RemoteAttachment, RemoteAttachmentCodec};
-use xmtp_content_types::wallet_send_call::{WalletSendCall, WalletSendCallCodec, WalletCall};
 use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
 use xmtp_db::encrypted_store::group_message::{ContentType, StoredGroupMessage};
 use xmtp_db::group::ConversationType;
@@ -1541,6 +1540,7 @@ impl FfiConversations {
                 Err(e) => callback.on_error(e.into()),
             },
             move || close_cb.on_close(),
+            false,
         );
 
         FfiStreamCloser::new(handle)
@@ -1557,6 +1557,7 @@ impl FfiConversations {
                 Err(e) => callback.on_error(e.into()),
             },
             move || close_cb.on_close(),
+            false,
         );
 
         FfiStreamCloser::new(handle)
@@ -1573,6 +1574,7 @@ impl FfiConversations {
                 Err(e) => callback.on_error(e.into()),
             },
             move || close_cb.on_close(),
+            false,
         );
 
         FfiStreamCloser::new(handle)
@@ -3103,8 +3105,8 @@ impl From<Reply> for FfiReply {
 pub fn encode_reply(reply: FfiReply) -> Result<Vec<u8>, GenericError> {
     let reply: Reply = reply.into();
 
-    let encoded = ReplyCodec::encode(reply)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    let encoded =
+        ReplyCodec::encode(reply).map_err(|e| GenericError::Generic { err: e.to_string() })?;
 
     let mut buf = Vec::new();
     encoded
@@ -3221,7 +3223,9 @@ impl From<RemoteAttachment> for FfiRemoteAttachment {
 }
 
 #[uniffi::export]
-pub fn encode_remote_attachment(remote_attachment: FfiRemoteAttachment) -> Result<Vec<u8>, GenericError> {
+pub fn encode_remote_attachment(
+    remote_attachment: FfiRemoteAttachment,
+) -> Result<Vec<u8>, GenericError> {
     let remote_attachment: RemoteAttachment = remote_attachment.into();
 
     let encoded = RemoteAttachmentCodec::encode(remote_attachment)
@@ -3241,98 +3245,6 @@ pub fn decode_remote_attachment(bytes: Vec<u8>) -> Result<FfiRemoteAttachment, G
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;
 
     RemoteAttachmentCodec::decode(encoded_content)
-        .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
-}
-
-// WalletSendCall FFI structures
-#[derive(uniffi::Record, Clone, Default)]
-pub struct FfiWalletCall {
-    pub to: String,
-    pub data: String,
-    pub value: String,
-    pub gas: String,
-    pub metadata: Option<HashMap<String, String>>,
-}
-
-impl From<FfiWalletCall> for WalletCall {
-    fn from(f: FfiWalletCall) -> Self {
-        WalletCall {
-            to: f.to,
-            data: f.data,
-            value: f.value,
-            gas: f.gas,
-            metadata: f.metadata,
-        }
-    }
-}
-
-impl From<WalletCall> for FfiWalletCall {
-    fn from(w: WalletCall) -> Self {
-        FfiWalletCall {
-            to: w.to,
-            data: w.data,
-            value: w.value,
-            gas: w.gas,
-            metadata: w.metadata,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Clone, Default)]
-pub struct FfiWalletSendCall {
-    pub version: String,
-    pub chain_id: String,
-    pub from: String,
-    pub calls: Vec<FfiWalletCall>,
-    pub capabilities: Option<HashMap<String, String>>,
-}
-
-impl From<FfiWalletSendCall> for WalletSendCall {
-    fn from(f: FfiWalletSendCall) -> Self {
-        WalletSendCall {
-            version: f.version,
-            chain_id: f.chain_id,
-            from: f.from,
-            calls: f.calls.into_iter().map(Into::into).collect(),
-            capabilities: f.capabilities,
-        }
-    }
-}
-
-impl From<WalletSendCall> for FfiWalletSendCall {
-    fn from(w: WalletSendCall) -> Self {
-        FfiWalletSendCall {
-            version: w.version,
-            chain_id: w.chain_id,
-            from: w.from,
-            calls: w.calls.into_iter().map(Into::into).collect(),
-            capabilities: w.capabilities,
-        }
-    }
-}
-
-#[uniffi::export]
-pub fn encode_wallet_send_call(wallet_send_call: FfiWalletSendCall) -> Result<Vec<u8>, GenericError> {
-    let wallet_send_call: WalletSendCall = wallet_send_call.into();
-
-    let encoded = WalletSendCallCodec::encode(wallet_send_call)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    let mut buf = Vec::new();
-    encoded
-        .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    Ok(buf)
-}
-
-#[uniffi::export]
-pub fn decode_wallet_send_call(bytes: Vec<u8>) -> Result<FfiWalletSendCall, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    WalletSendCallCodec::decode(encoded_content)
         .map(Into::into)
         .map_err(|e| GenericError::Generic { err: e.to_string() })
 }
@@ -3601,9 +3513,9 @@ mod tests {
     };
     use crate::{
         apply_signature_request, connect_to_backend, decode_attachment,
-        decode_multi_remote_attachment, decode_read_receipt, decode_reaction,
-        decode_remote_attachment, decode_reply, decode_transaction_reference,
-        encode_attachment, encode_multi_remote_attachment, encode_read_receipt, encode_reaction,
+        decode_multi_remote_attachment, decode_reaction, decode_read_receipt,
+        decode_remote_attachment, decode_reply, decode_transaction_reference, encode_attachment,
+        encode_multi_remote_attachment, encode_reaction, encode_read_receipt,
         encode_remote_attachment, encode_reply, encode_transaction_reference,
         get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
@@ -3620,7 +3532,7 @@ mod tests {
         FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
         FfiReactionAction, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment,
         FfiRemoteAttachmentInfo, FfiReply, FfiSubscribeError, FfiTransactionMetadata,
-        FfiTransactionReference, FfiWalletCall, FfiWalletSendCall, GenericError,
+        FfiTransactionReference, GenericError,
     };
     use alloy::signers::local::PrivateKeySigner;
     use futures::future::join_all;
@@ -3642,13 +3554,13 @@ mod tests {
     use xmtp_common::tmp_path;
     use xmtp_common::{time::now_ns, wait_for_ge};
     use xmtp_common::{wait_for_eq, wait_for_ok};
+    use xmtp_configuration::MAX_INSTALLATIONS_PER_INBOX;
     use xmtp_content_types::{
         attachment::AttachmentCodec, bytes_to_encoded_content, encoded_content_to_bytes,
         group_updated::GroupUpdatedCodec, membership_change::GroupMembershipChangeCodec,
         reaction::ReactionCodec, read_receipt::ReadReceiptCodec,
         remote_attachment::RemoteAttachmentCodec, reply::ReplyCodec, text::TextCodec,
-        transaction_reference::TransactionReferenceCodec, wallet_send_call::WalletSendCallCodec,
-        ContentCodec,
+        transaction_reference::TransactionReferenceCodec, ContentCodec,
     };
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::prelude::*;
@@ -3659,7 +3571,6 @@ mod tests {
         test_utils::WalletTestExt, unverified::UnverifiedSignature, MemberIdentifier,
     };
     use xmtp_mls::{
-        configuration::MAX_INSTALLATIONS_PER_INBOX,
         groups::{device_sync::worker::SyncMetric, GroupError},
         utils::{PasskeyUser, Tester},
         InboxOwner,
@@ -8831,6 +8742,82 @@ mod tests {
             original.metadata.as_ref().unwrap().currency,
             decoded.metadata.as_ref().unwrap().currency
         );
+    }
+
+    #[tokio::test]
+    async fn test_attachment_roundtrip() {
+        let original = FfiAttachment {
+            filename: Some("test.txt".to_string()),
+            mime_type: "text/plain".to_string(),
+            size: 1024,
+            content: "Hello, World!".to_string(),
+        };
+
+        let encoded = encode_attachment(original.clone()).unwrap();
+        let decoded = decode_attachment(encoded).unwrap();
+
+        assert_eq!(original.filename, decoded.filename);
+        assert_eq!(original.mime_type, decoded.mime_type);
+        assert_eq!(original.size, decoded.size);
+        assert_eq!(original.content, decoded.content);
+    }
+
+    #[tokio::test]
+    async fn test_reply_roundtrip() {
+        let original = FfiReply {
+            reference: "0x1234567890abcdef".to_string(),
+            reference_inbox_id: Some("test_inbox_id".to_string()),
+            content: "This is a reply".to_string(),
+        };
+
+        let encoded = encode_reply(original.clone()).unwrap();
+        let decoded = decode_reply(encoded).unwrap();
+
+        assert_eq!(original.reference, decoded.reference);
+        assert_eq!(original.reference_inbox_id, decoded.reference_inbox_id);
+        assert_eq!(original.content, decoded.content);
+    }
+
+    #[tokio::test]
+    async fn test_read_receipt_roundtrip() {
+        let original = FfiReadReceipt {
+            reference: "0x1234567890abcdef".to_string(),
+            reference_inbox_id: Some("test_inbox_id".to_string()),
+            read_at_ns: 1234567890000000000,
+        };
+
+        let encoded = encode_read_receipt(original.clone()).unwrap();
+        let decoded = decode_read_receipt(encoded).unwrap();
+
+        assert_eq!(original.reference, decoded.reference);
+        assert_eq!(original.reference_inbox_id, decoded.reference_inbox_id);
+        assert_eq!(original.read_at_ns, decoded.read_at_ns);
+    }
+
+    #[tokio::test]
+    async fn test_remote_attachment_roundtrip() {
+        let original = FfiRemoteAttachment {
+            filename: Some("remote_file.txt".to_string()),
+            mime_type: "text/plain".to_string(),
+            size: 2048,
+            url: "https://example.com/file.txt".to_string(),
+            content_digest: "sha256:abc123def456".to_string(),
+            secret: vec![1, 2, 3, 4, 5],
+            nonce: vec![6, 7, 8, 9, 10],
+            salt: vec![11, 12, 13, 14, 15],
+        };
+
+        let encoded = encode_remote_attachment(original.clone()).unwrap();
+        let decoded = decode_remote_attachment(encoded).unwrap();
+
+        assert_eq!(original.filename, decoded.filename);
+        assert_eq!(original.mime_type, decoded.mime_type);
+        assert_eq!(original.size, decoded.size);
+        assert_eq!(original.url, decoded.url);
+        assert_eq!(original.content_digest, decoded.content_digest);
+        assert_eq!(original.secret, decoded.secret);
+        assert_eq!(original.nonce, decoded.nonce);
+        assert_eq!(original.salt, decoded.salt);
     }
 
     #[tokio::test]

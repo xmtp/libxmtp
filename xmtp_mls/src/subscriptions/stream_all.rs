@@ -132,6 +132,7 @@ where
         let conversations = super::stream_conversations::StreamConversations::from_cow(
             context.clone(),
             conversation_type,
+            true,
         )
         .await?;
         let messages = StreamGroupMessages::from_cow(context.clone(), active_conversations).await?;

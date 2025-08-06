@@ -1,21 +1,30 @@
 use futures::StreamExt;
+use openmls::prelude::OpenMlsCrypto;
+use openmls::prelude::SignatureScheme;
+use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use std::time::Duration;
 use thiserror::Error;
 use xmtp_api::ApiError;
 use xmtp_db::{
     DbQuery, StorageError, Store,
+    group::StoredGroupCommitLogPublicKey,
     prelude::*,
     remote_commit_log::{self, CommitResult, RemoteCommitLog},
 };
-use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
+use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
+use xmtp_proto::{
+    mls_v1::PublishCommitLogRequest, xmtp::mls::message_contents::CommitResult as ProtoCommitResult,
+};
 use xmtp_proto::{
     mls_v1::{PagingInfo, QueryCommitLogRequest, QueryCommitLogResponse},
     xmtp::{message_api::v1::SortDirection, mls::message_contents::PlaintextCommitLogEntry},
 };
 
+use crate::groups::commit_log_key::get_or_create_signing_key;
 use crate::{
     context::XmtpSharedContext,
+    groups::GroupError,
     worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult},
 };
 
@@ -56,6 +65,14 @@ pub enum CommitLogError {
     Connection(#[from] xmtp_db::ConnectionError),
     #[error("prost decode error: {0}")]
     Prost(#[from] prost::DecodeError),
+    #[error("keystore error: {0}")]
+    KeystoreError(#[from] xmtp_db::sql_key_store::SqlKeyStoreError),
+    #[error("group error: {0}")]
+    GroupError(#[from] GroupError),
+    #[error("crypto error: {0}")]
+    CryptoError(#[from] openmls_traits::types::CryptoError),
+    #[error("try from slice error: {0}")]
+    TryFromSliceError(#[from] std::array::TryFromSliceError),
 }
 
 impl NeedsDbReconnect for CommitLogError {
@@ -65,6 +82,10 @@ impl NeedsDbReconnect for CommitLogError {
             Self::Api(_api_error) => false,
             Self::Connection(_connection_error) => true, // TODO(cam): verify this is correct
             Self::Prost(_prost_error) => false,
+            Self::KeystoreError(_keystore_error) => false, // TODO(rich): What does this method do?
+            Self::GroupError(_group_error) => false,       // TODO(rich): What does this method do?
+            Self::CryptoError(_crypto_error) => false,
+            Self::TryFromSliceError(_try_from_slice_error) => false,
         }
     }
 }
@@ -207,12 +228,12 @@ where
             conn.get_conversation_ids_for_remote_log_publish()?;
 
         // Step 2 is to prepare commit log entries for publishing along with the updated cursor for each conversation on publication success
-        let (conversation_cursor_info, all_plaintext_entries) =
+        let (conversation_cursor_info, all_entries) =
             self.prepare_publish_commit_log_info(conn, &conversation_ids_for_remote_log_publish)?;
 
         // Step 3 is to publish commit log entries to the API and update cursors
         let api = self.context.api();
-        match api.publish_commit_log(&all_plaintext_entries).await {
+        match api.publish_commit_log(all_entries).await {
             Ok(_) => {
                 // Publishing was successful, let's update every group's cursor
                 for conversation_cursor_info in &conversation_cursor_info {
@@ -239,20 +260,20 @@ where
     fn prepare_publish_commit_log_info(
         &self,
         conn: &impl DbQuery,
-        conversation_ids: &[Vec<u8>],
-    ) -> Result<(Vec<ConversationCursorInfo>, Vec<PlaintextCommitLogEntry>), CommitLogError> {
+        conversation_keys: &[StoredGroupCommitLogPublicKey],
+    ) -> Result<(Vec<ConversationCursorInfo>, Vec<PublishCommitLogRequest>), CommitLogError> {
         let mut conversation_cursor_info: Vec<ConversationCursorInfo> = Vec::new();
-        let mut all_plaintext_entries = Vec::new();
-        for conversation_id in conversation_ids {
+        let mut all_entries = Vec::new();
+        for conversation in conversation_keys {
             // Step 1: Check each conversation cursors to see if we have new commits that have not been published to remote commit log yet
             let local_commit_log_cursor = conn
-                .get_local_commit_log_cursor(conversation_id)
+                .get_local_commit_log_cursor(&conversation.id)
                 .ok()
                 .flatten()
                 .unwrap_or(0);
             let published_commit_log_cursor = conn
                 .get_last_cursor_for_id(
-                    conversation_id,
+                    &conversation.id,
                     xmtp_db::refresh_state::EntityKind::CommitLogUpload,
                 )
                 .unwrap_or(0);
@@ -266,15 +287,18 @@ where
             // Local commit log entries are returned sorted in ascending order of `rowid`
             // All local commit log will have rowid > 0 since sqlite rowid starts at 1 https://www.sqlite.org/autoinc.html
             let (plaintext_commit_log_entries, rowids): (Vec<PlaintextCommitLogEntry>, Vec<i32>) =
-                conn.get_group_logs_for_publishing(conversation_id, published_commit_log_cursor)?
+                conn.get_group_logs_for_publishing(&conversation.id, published_commit_log_cursor)?
                     .iter()
                     .map(|log| (PlaintextCommitLogEntry::from(log), log.rowid))
                     .unzip();
 
             // Step 3: Compile the conversation cursor info and all the commit log entries for this conversation
             if let Some(max_rowid) = rowids.into_iter().last() {
+                let signed_entries =
+                    self.sign_group_logs(conversation, &plaintext_commit_log_entries)?;
+                all_entries.extend(signed_entries);
                 conversation_cursor_info.push(ConversationCursorInfo {
-                    conversation_id: conversation_id.clone(),
+                    conversation_id: conversation.id.clone(),
                     num_entries_published: plaintext_commit_log_entries.len(),
                     last_entry_published_sequence_id: plaintext_commit_log_entries
                         .last()
@@ -282,10 +306,39 @@ where
                         .unwrap_or(0),
                     last_entry_published_rowid: max_rowid as i64,
                 });
-                all_plaintext_entries.extend(plaintext_commit_log_entries);
             }
         }
-        Ok((conversation_cursor_info, all_plaintext_entries))
+        Ok((conversation_cursor_info, all_entries))
+    }
+
+    fn sign_group_logs(
+        &self,
+        conversation: &StoredGroupCommitLogPublicKey,
+        plaintext_commit_log_entries: &[PlaintextCommitLogEntry],
+    ) -> Result<Vec<PublishCommitLogRequest>, CommitLogError> {
+        let Some(private_key) = get_or_create_signing_key(&self.context, conversation)? else {
+            return Ok(vec![]);
+        };
+
+        let provider = self.context.mls_provider();
+        let mut signed_entries = Vec::new();
+        for entry in plaintext_commit_log_entries {
+            let serialized_commit_log_entry = entry.encode_to_vec();
+            let signature = provider.crypto().sign(
+                SignatureScheme::ED25519,
+                &serialized_commit_log_entry,
+                private_key.as_slice(),
+            )?;
+            signed_entries.push(PublishCommitLogRequest {
+                group_id: conversation.id.clone(),
+                serialized_commit_log_entry,
+                signature: Some(RecoverableEd25519Signature {
+                    bytes: signature,
+                    public_key: xmtp_cryptography::signature::to_public_key(&private_key)?.to_vec(),
+                }),
+            });
+        }
+        Ok(signed_entries)
     }
 
     async fn save_remote_commit_log(

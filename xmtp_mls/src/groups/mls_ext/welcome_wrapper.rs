@@ -1,5 +1,4 @@
 use super::WrapperAlgorithm;
-use crate::configuration::WELCOME_HPKE_LABEL;
 use openmls::ciphersuite::hpke::{Error as OpenmlsHpkeError, encrypt_with_label};
 use openmls::prelude::hpke::decrypt_with_label;
 use openmls::prelude::{Ciphersuite, tls_codec::Error as TlsCodecError};
@@ -9,6 +8,7 @@ use openmls_traits::{crypto::OpenMlsCrypto, types::HpkeCiphertext};
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_common::RetryableError;
+use xmtp_configuration::WELCOME_HPKE_LABEL;
 
 #[derive(Debug, Error)]
 pub enum WrapWelcomeError {

@@ -1,6 +1,7 @@
+//! Common configuration values between dev & prod
 use openmls::versions::ProtocolVersion;
 
-use xmtp_common::{NS_IN_30_DAYS, NS_IN_HOUR, NS_IN_SEC};
+use xmtp_common::{NS_IN_30_DAYS, NS_IN_SEC};
 pub use xmtp_cryptography::configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
 
 pub struct DeviceSyncUrls;
@@ -24,13 +25,12 @@ pub const MAX_INTENT_PUBLISH_ATTEMPTS: usize = 3;
 
 pub const GROUP_KEY_ROTATION_INTERVAL_NS: i64 = NS_IN_30_DAYS;
 
+pub const KEY_PACKAGE_QUEUE_INTERVAL_NS: i64 = 5 * NS_IN_SEC; // 5 secs
+
 /// Interval in NS used to compute `next_key_package_rotation_ns`.
 /// This defines how often a new KeyPackage should be *rotated*,
 /// but does *not* determine the actual KeyPackage expiration.
 pub const KEY_PACKAGE_ROTATION_INTERVAL_NS: i64 = NS_IN_30_DAYS; // 30 days
-
-#[allow(dead_code)]
-const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_HOUR / 2; // 30 min
 
 pub const SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = 5 * NS_IN_SEC;
 
@@ -46,30 +46,7 @@ pub const GRPC_DATA_LIMIT: usize = 1024 * 1024 * 25;
 
 pub const CREATE_PQ_KEY_PACKAGE_EXTENSION: bool = true;
 
-#[cfg(not(test))]
-pub const ENABLE_COMMIT_LOG: bool = false;
-#[cfg(test)]
-pub const ENABLE_COMMIT_LOG: bool = true;
-
 // If a metadata field name starts with this character,
 // and it does not have a policy set, it is a super admin only field
 pub const SUPER_ADMIN_METADATA_PREFIX: &str = "_";
-pub(crate) const HMAC_SALT: &[u8] = b"libXMTP HKDF salt!";
-
-#[cfg(any(test, feature = "test-utils"))]
-pub mod debug_config {
-    use super::*;
-    pub(crate) const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_SEC;
-    // 1 second
-}
-
-pub fn sync_update_installations_interval_ns() -> i64 {
-    #[cfg(any(test, feature = "test-utils"))]
-    {
-        debug_config::SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS
-    }
-    #[cfg(not(any(test, feature = "test-utils")))]
-    {
-        SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS
-    }
-}
+pub const HMAC_SALT: &[u8] = b"libXMTP HKDF salt!";

@@ -33,6 +33,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 xmtp_common.workspace = true
+xmtp_configuration.workspace = true
 xmtp_proto.workspace = true
 zeroize.workspace = true
 
@@ -81,7 +82,9 @@ futures-timer.workspace = true
 mockall = { workspace = true }
 rstest.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_cryptography.workspace = true
+
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = [
@@ -96,4 +99,8 @@ wasm-bindgen-test.workspace = true
 
 [features]
 update-schema = ["dep:toml"]
-test-utils = ["xmtp_common/test-utils", "dep:mockall"]
+test-utils = [
+  "xmtp_common/test-utils",
+  "dep:mockall",
+  "xmtp_configuration/test-utils",
+]
