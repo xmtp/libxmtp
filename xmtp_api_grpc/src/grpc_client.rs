@@ -19,11 +19,65 @@ impl From<GrpcError> for ApiClientError<GrpcError> {
     }
 }
 
+/// Trait to convert type to an HTTP Response
+trait ToHttp {
+    type Body;
+    fn to_http(self) -> http::Response<Self::Body>;
+}
+
+/// Convert a tonic Response to a generic HTTP response
+impl<T> ToHttp for tonic::Response<T> {
+    type Body = T;
+
+    fn to_http(self) -> http::Response<Self::Body> {
+        let (metadata, body, extensions) = self.into_parts();
+        let mut response = http::Response::new(body);
+        *response.version_mut() = http::version::Version::HTTP_2;
+        *response.headers_mut() = metadata.into_headers();
+        *response.extensions_mut() = extensions;
+        response
+    }
+}
+
 #[derive(Clone)]
 pub struct GrpcClient {
     inner: tonic::client::Grpc<Channel>,
     app_version: MetadataValue<metadata::Ascii>,
     libxmtp_version: MetadataValue<metadata::Ascii>,
+}
+
+impl GrpcClient {
+    /// Builds a tonic request from a body and a generic HTTP Request
+    fn build_tonic_request(
+        &self,
+        request: http::request::Builder,
+        body: Bytes,
+    ) -> Result<tonic::Request<Bytes>, ApiClientError<crate::GrpcError>> {
+        let request = request.body(body)?;
+        let (parts, body) = request.into_parts();
+        let mut tonic_request = tonic::Request::from_parts(
+            MetadataMap::from_headers(parts.headers),
+            parts.extensions,
+            body,
+        );
+        let metadata = tonic_request.metadata_mut();
+        // must be lowercase otherwise panics
+        metadata.append("x-app-version", self.app_version.clone());
+        metadata.append("x-libxmtp-version", self.libxmtp_version.clone());
+        Ok(tonic_request)
+    }
+
+    async fn wait_for_ready(&self) -> Result<(), ApiClientError<crate::GrpcError>> {
+        let client = &mut self.inner.clone();
+        client
+            .ready()
+            .await
+            .map_err(|e| {
+                tonic::Status::new(tonic::Code::Unknown, format!("Service was not ready: {e}"))
+            })
+            .map_err(GrpcError::from)?;
+        Ok(())
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -38,48 +92,36 @@ impl Client for GrpcClient {
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+        self.wait_for_ready().await?;
+        let request = self.build_tonic_request(request, body)?;
         let client = &mut self.inner.clone();
-        client
-            .ready()
-            .await
-            .map_err(|e| {
-                tonic::Status::new(tonic::Code::Unknown, format!("Service was not ready: {e}"))
-            })
-            .map_err(GrpcError::from)?;
 
-        let request = request.body(body)?;
-        let (parts, body) = request.into_parts();
-        let mut tonic_request = tonic::Request::from_parts(
-            MetadataMap::from_headers(parts.headers),
-            parts.extensions,
-            body,
-        );
-        let metadata = tonic_request.metadata_mut();
-        // must be lowercase otherwise panics
-        metadata.append("x-app-version", self.app_version.clone());
-        metadata.append("x-libxmtp-version", self.libxmtp_version.clone());
         let codec = TransparentCodec::default();
-
         let response = client
-            .unary(tonic_request, path, codec)
+            .unary(request, path, codec)
             .await
             .map_err(GrpcError::from)?;
 
-        let (metadata, body, extensions) = response.into_parts();
-        let mut response = http::Response::new(body);
-        *response.version_mut() = http::version::Version::HTTP_2;
-        *response.headers_mut() = metadata.into_headers();
-        *response.extensions_mut() = extensions;
-        Ok(response)
+        Ok(response.to_http())
     }
 
     async fn stream(
         &self,
-        _request: http::request::Builder,
-        _body: Vec<u8>,
+        request: http::request::Builder,
+        path: http::uri::PathAndQuery,
+        body: Bytes,
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
-        // same as unary but server_streaming method
-        todo!()
+        self.wait_for_ready().await?;
+        let request = self.build_tonic_request(request, body)?;
+        let client = &mut self.inner.clone();
+
+        let codec = TransparentCodec::default();
+        let response = client
+            .server_streaming(request, path, codec)
+            .await
+            .map_err(GrpcError::from)?;
+
+        Ok(response.to_http())
     }
 }
 
