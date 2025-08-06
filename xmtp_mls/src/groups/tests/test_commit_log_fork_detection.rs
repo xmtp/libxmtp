@@ -74,16 +74,8 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
     // Should detect no fork
     assert_eq!(results.len(), 1);
     let result = &results[0];
-    assert!(result.forked_state_check_results.is_some());
-    assert!(
-        !result
-            .forked_state_check_results
-            .as_ref()
-            .unwrap()
-            .get(&group_id)
-            .unwrap()
-            .is_forked
-    );
+    assert!(result.is_forked.is_some());
+    assert!(!result.is_forked.as_ref().unwrap().get(&group_id).unwrap());
     Ok(())
 }
 
@@ -154,36 +146,8 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
     // Should detect a fork
     assert_eq!(results.len(), 1);
     let result = &results[0];
-    assert!(result.forked_state_check_results.is_some());
-    assert!(
-        result
-            .forked_state_check_results
-            .as_ref()
-            .unwrap()
-            .get(&group_id)
-            .unwrap()
-            .is_forked,
-    );
-    assert_eq!(
-        result
-            .forked_state_check_results
-            .as_ref()
-            .unwrap()
-            .get(&group_id)
-            .unwrap()
-            .forked_epoch_number,
-        Some(1)
-    );
-    assert_eq!(
-        result
-            .forked_state_check_results
-            .as_ref()
-            .unwrap()
-            .get(&group_id)
-            .unwrap()
-            .forked_commit_sequence_id,
-        Some(200)
-    );
+    assert!(result.is_forked.is_some());
+    assert!(result.is_forked.as_ref().unwrap().get(&group_id).unwrap());
 
     Ok(())
 }
@@ -245,15 +209,10 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     // Should detect no fork
     assert_eq!(results.len(), 1);
     let result = &results[0];
-    assert!(result.forked_state_check_results.is_some());
-    let fork_result = result
-        .forked_state_check_results
-        .as_ref()
-        .unwrap()
-        .get(&group_id)
-        .unwrap();
+    assert!(result.is_forked.is_some());
+    let is_forked = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
 
-    assert!(!fork_result.is_forked);
+    assert!(!is_forked);
 
     // Verify cursors were updated
     let updated_local_cursor = alix.context.db().get_last_cursor_for_id(
@@ -307,15 +266,10 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     // Should detect no fork
     assert_eq!(results.len(), 1);
     let result = &results[0];
-    assert!(result.forked_state_check_results.is_some());
-    let fork_result = result
-        .forked_state_check_results
-        .as_ref()
-        .unwrap()
-        .get(&group_id)
-        .unwrap();
+    assert!(result.is_forked.is_some());
+    let is_forked = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
 
-    assert!(fork_result.is_forked);
+    assert!(is_forked);
 
     // Verify cursors were updated
     let updated_two_local_cursor = alix.context.db().get_last_cursor_for_id(
