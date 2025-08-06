@@ -1,4 +1,5 @@
 pub mod commit_log;
+pub mod commit_log_key;
 pub mod device_sync;
 pub mod device_sync_legacy;
 mod error;
@@ -32,14 +33,7 @@ use self::{
 };
 use crate::groups::{intents::QueueIntent, mls_ext::CommitLogStorer};
 use crate::{GroupCommitLock, context::XmtpSharedContext};
-use crate::{
-    client::ClientError,
-    configuration::{
-        CIPHERSUITE, MAX_GROUP_SIZE, MAX_PAST_EPOCHS, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
-    },
-    subscriptions::LocalEvents,
-    utils::id::calculate_message_id,
-};
+use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
 use crate::{subscriptions::SyncWorkerEvent, track};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
@@ -62,6 +56,10 @@ use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_common::time::now_ns;
+use xmtp_configuration::{
+    CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
+    MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
+};
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
@@ -84,10 +82,6 @@ use xmtp_db::{
 use xmtp_id::associations::Identifier;
 use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
 use xmtp_mls_common::{
-    config::{
-        GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID,
-        MUTABLE_METADATA_EXTENSION_ID,
-    },
     group::{DMMetadataOptions, GroupMetadataOptions},
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError, extract_group_metadata},
     group_mutable_metadata::{
@@ -1590,7 +1584,8 @@ pub fn build_mutable_metadata_extension_default(
     opts: GroupMetadataOptions,
 ) -> Result<Extension, GroupError> {
     let mut commit_log_signer = None;
-    if crate::configuration::ENABLE_COMMIT_LOG {
+    if xmtp_configuration::ENABLE_COMMIT_LOG {
+        // Optional TODO(rich): Plumb in provider and use traits in commit_log_key.rs to generate and store secret
         commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
     }
     let mutable_metadata: Vec<u8> =
@@ -1611,7 +1606,8 @@ pub fn build_dm_mutable_metadata_extension_default(
     opts: DMMetadataOptions,
 ) -> Result<Extension, MetadataPermissionsError> {
     let mut commit_log_signer = None;
-    if crate::configuration::ENABLE_COMMIT_LOG {
+    if xmtp_configuration::ENABLE_COMMIT_LOG {
+        // Optional TODO(rich): Plumb in provider and use traits in commit_log_key.rs to generate and store secret
         commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
     }
     let mutable_metadata: Vec<u8> = GroupMutableMetadata::new_dm_default(

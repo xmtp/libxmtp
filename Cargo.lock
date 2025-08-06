@@ -3742,6 +3742,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "libcrux-ed25519"
+version = "0.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e684194634af6a661c167af731a0232990f9987eaed46a9ebb1d01d613d04067"
+dependencies = [
+ "libcrux-hacl-rs 0.0.3",
+ "libcrux-macros 0.0.3",
+ "libcrux-sha2 0.0.3",
+]
+
+[[package]]
 name = "libcrux-hacl-rs"
 version = "0.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4233,6 +4244,7 @@ dependencies = [
  "vergen-git2",
  "warp",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
@@ -4600,7 +4612,7 @@ dependencies = [
  "hpke-rs-crypto 0.3.0",
  "hpke-rs-libcrux",
  "libcrux-chacha20poly1305 0.0.2",
- "libcrux-ed25519",
+ "libcrux-ed25519 0.0.2",
  "libcrux-hkdf 0.0.2",
  "libcrux-sha2 0.0.2",
  "openmls_memory_storage",
@@ -8636,6 +8648,7 @@ dependencies = [
  "xmtp_api_d14n",
  "xmtp_api_grpc",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_db",
@@ -8681,6 +8694,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmtp_configuration"
+version = "1.4.0-dev"
+dependencies = [
+ "openmls",
+ "xmtp_common",
+ "xmtp_cryptography",
+]
+
+[[package]]
 name = "xmtp_content_types"
 version = "1.4.0-dev"
 dependencies = [
@@ -8704,6 +8726,7 @@ dependencies = [
  "const-hex",
  "ed25519-dalek",
  "getrandom 0.3.3",
+ "libcrux-ed25519 0.0.3",
  "openmls",
  "openmls_basic_credential",
  "openmls_traits",
@@ -8752,6 +8775,7 @@ dependencies = [
  "wasm-bindgen-test",
  "web-sys",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_proto",
@@ -8888,6 +8912,7 @@ dependencies = [
  "xmtp_api_http",
  "xmtp_archive",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_db",
@@ -8907,6 +8932,7 @@ dependencies = [
  "thiserror 2.0.12",
  "wasm-bindgen-test",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
@@ -8966,6 +8992,7 @@ dependencies = [
  "xmtp_api",
  "xmtp_api_grpc",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_db",

@@ -2,8 +2,8 @@ use openmls::prelude::UnknownExtension;
 use openmls::prelude::{Ciphersuite, Extension};
 use prost::Message;
 use prost::{DecodeError, EncodeError};
+use xmtp_configuration::WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID;
 use xmtp_cryptography::configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
-use xmtp_mls_common::config::WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID;
 use xmtp_proto::xmtp::mls::message_contents::{
     WelcomeWrapperAlgorithm as WrapperAlgorithmProto,
     WelcomeWrapperEncryption as WelcomeWrapperEncryptionProto,

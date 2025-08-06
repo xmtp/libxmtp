@@ -242,6 +242,7 @@ where
             self.context.clone(),
             WelcomeOrGroup::Welcome(envelope),
             None,
+            false,
         )?;
         match future.process().await? {
             ProcessWelcomeResult::New { group, .. } => Ok(group),
@@ -256,11 +257,12 @@ where
     pub async fn stream_conversations(
         &self,
         conversation_type: Option<ConversationType>,
+        include_duplicate_dms: bool,
     ) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + use<'_, Context>>
     where
         Context::ApiClient: XmtpMlsStreams,
     {
-        StreamConversations::new(&self.context, conversation_type).await
+        StreamConversations::new(&self.context, conversation_type, include_duplicate_dms).await
     }
 
     /// Stream conversations but decouple the lifetime of 'self' from the stream.
@@ -268,11 +270,17 @@ where
     pub async fn stream_conversations_owned(
         &self,
         conversation_type: Option<ConversationType>,
+        include_duplicate_dms: bool,
     ) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + 'static>
     where
         Context::ApiClient: XmtpMlsStreams,
     {
-        StreamConversations::new_owned(self.context.clone(), conversation_type).await
+        StreamConversations::new_owned(
+            self.context.clone(),
+            conversation_type,
+            include_duplicate_dms,
+        )
+        .await
     }
 }
 
@@ -292,11 +300,14 @@ where
         + 'static,
         #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
         #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
+        include_duplicate_dms: bool,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
-            let stream = client.stream_conversations(conversation_type).await?;
+            let stream = client
+                .stream_conversations(conversation_type, include_duplicate_dms)
+                .await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(convo) = stream.next().await {

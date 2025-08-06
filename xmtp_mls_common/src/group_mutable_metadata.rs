@@ -11,7 +11,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use super::group::{DMMetadataOptions, GroupMetadataOptions};
-use crate::config::{
+use xmtp_configuration::{
     DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL_SQUARE, DEFAULT_GROUP_NAME,
     MUTABLE_METADATA_EXTENSION_ID,
 };
@@ -317,7 +317,7 @@ impl TryFrom<&OpenMlsGroup> for GroupMutableMetadata {
 /// Finds the mutable metadata extension in the given MLS Extensions.
 ///
 /// This function searches for an Unknown Extension with the
-/// [MUTABLE_METADATA_EXTENSION_ID](crate::configuration::MUTABLE_METADATA_EXTENSION_ID).
+/// [MUTABLE_METADATA_EXTENSION_ID](xmtp_configuration::MUTABLE_METADATA_EXTENSION_ID).
 pub fn find_mutable_metadata_extension(extensions: &Extensions) -> Option<&Vec<u8>> {
     extensions.iter().find_map(|extension| {
         if let Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, UnknownExtension(metadata)) =

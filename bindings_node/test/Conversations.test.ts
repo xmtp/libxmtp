@@ -865,6 +865,61 @@ describe('Conversations', () => {
     expect(messages.map((m) => m.id)).toEqual([message3])
   })
 
+  it('stream should process dm messages from new installations without sync', async () => {
+    const agent = createUser()
+    const user = createUser()
+    const agent_client = await createRegisteredClient(agent)
+    const user_client_a = await createRegisteredClient(user)
+
+    await user_client_a.conversations().createDm({
+      identifier: agent.account.address,
+      identifierKind: IdentifierKind.Ethereum,
+    })
+
+    let messages: Message[] = []
+    const stream = agent_client.conversations().streamAllMessages(
+      (err, message) => {
+        messages.push(message!)
+      },
+      () => {
+        console.log('closed')
+      },
+      ConversationType.Dm
+    )
+    // Client A send a message to the dm with the Agent
+    const client_a_groups = user_client_a.conversations()
+    // await client_a_groups.sync()
+    const client_a_conversations = client_a_groups.list()
+    expect(client_a_conversations.length).toBe(1)
+    await client_a_conversations[0].conversation.send(encodeTextMessage('gm!'))
+
+    // confirm the agent received the message
+    await sleep(10000)
+    expect(messages.length).toBe(1)
+
+    // User introduce Client B
+    user.uuid = v4()
+    const user_client_b = await createRegisteredClient(user)
+
+    // Client B Creates a DM with the Agent
+    await user_client_b.conversations().createDm({
+      identifier: agent.account.address,
+      identifierKind: IdentifierKind.Ethereum,
+    })
+
+    const client_b_groups = user_client_b.conversations()
+    await client_b_groups.sync()
+    const client_b_conversations = client_a_groups.list()
+    expect(client_b_conversations.length).toBe(1)
+    await client_b_conversations[0].conversation.send(encodeTextMessage('b'))
+
+    // confirm the agent received the second message
+    await sleep(10000)
+    expect(messages.length).toBe(2)
+
+    stream.end()
+  })
+
   it('should get hmac keys', async () => {
     const user1 = createUser()
     const user2 = createUser()
