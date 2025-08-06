@@ -12,14 +12,10 @@ use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::attachment::{Attachment, AttachmentCodec};
-use xmtp_content_types::attachment::{Attachment, AttachmentCodec};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::read_receipt::{ReadReceipt, ReadReceiptCodec};
-use xmtp_content_types::read_receipt::{ReadReceipt, ReadReceiptCodec};
 use xmtp_content_types::remote_attachment::{RemoteAttachment, RemoteAttachmentCodec};
-use xmtp_content_types::remote_attachment::{RemoteAttachment, RemoteAttachmentCodec};
-use xmtp_content_types::reply::{Reply, ReplyCodec};
 use xmtp_content_types::reply::{Reply, ReplyCodec};
 use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::transaction_reference::TransactionMetadata;
@@ -3487,15 +3483,14 @@ mod tests {
         mls::test_utils::{LocalBuilder, LocalTester},
         revoke_installations,
         worker::FfiSyncWorkerMode,
-        FfiAttachment, FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType,
-        FfiConversation, FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
+        FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
+        FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
         FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
         FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
-        FfiReactionAction, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment,
-        FfiRemoteAttachmentInfo, FfiReply, FfiSubscribeError, FfiTransactionMetadata,
-        FfiTransactionReference, FfiWalletCall, FfiWalletSendCall, GenericError,
+        FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
+        FfiTransactionMetadata, FfiTransactionReference, GenericError,
     };
     use alloy::signers::local::PrivateKeySigner;
     use futures::future::join_all;

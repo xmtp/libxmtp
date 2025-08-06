@@ -45,7 +45,7 @@ impl ContentCodec<Attachment> for AttachmentCodec {
 impl AttachmentCodec {
     fn fallback(content: &Attachment) -> String {
         if let Some(filename) = &content.filename {
-            format!("[Attachment] {}", filename)
+            format!("[Attachment] {filename}")
         } else {
             "[Attachment]".to_string()
         }
