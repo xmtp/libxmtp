@@ -262,11 +262,6 @@ impl MsgQueryArgs {
 }
 
 pub trait QueryGroupMessage {
-    fn get_latest_sequence_id_for_group(
-        &self,
-        group_id: &[u8],
-    ) -> Result<Option<i64>, crate::ConnectionError>;
-
     /// Query for group messages
     fn get_group_messages(
         &self,
@@ -337,13 +332,6 @@ impl<T> QueryGroupMessage for &T
 where
     T: QueryGroupMessage,
 {
-    fn get_latest_sequence_id_for_group(
-        &self,
-        group_id: &[u8],
-    ) -> Result<Option<i64>, crate::ConnectionError> {
-        (**self).get_latest_sequence_id_for_group(group_id)
-    }
-
     /// Query for group messages
     fn get_group_messages(
         &self,
@@ -767,25 +755,6 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
                     .filter(dsl::expire_at_ns.le(now)),
             )
             .execute(conn)
-        })
-    }
-
-    fn get_latest_sequence_id_for_group(
-        &self,
-        group_id: &[u8],
-    ) -> Result<Option<i64>, crate::ConnectionError> {
-        use crate::schema::group_messages::dsl;
-
-        self.raw_query_read(|conn| {
-            dsl::group_messages
-                .filter(dsl::group_id.eq(group_id))
-                .filter(dsl::sequence_id.is_not_null())
-                .select(dsl::sequence_id)
-                .order(dsl::sequence_id.desc())
-                .limit(1)
-                .first::<Option<i64>>(conn)
-                .optional()
-                .map(|opt| opt.flatten())
         })
     }
 }
