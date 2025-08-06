@@ -3360,23 +3360,27 @@ mod tests {
         FfiPreferenceUpdate, FfiXmtpClient,
     };
     use crate::{
-        apply_signature_request, connect_to_backend, decode_multi_remote_attachment,
-        decode_reaction, decode_transaction_reference, encode_multi_remote_attachment,
-        encode_reaction, encode_transaction_reference, get_inbox_id_for_identifier,
+        apply_signature_request, connect_to_backend, decode_attachment,
+        decode_multi_remote_attachment, decode_reaction, decode_read_receipt,
+        decode_remote_attachment, decode_reply, decode_transaction_reference, encode_attachment,
+        encode_multi_remote_attachment, encode_reaction, encode_read_receipt,
+        encode_remote_attachment, encode_reply, encode_transaction_reference,
+        get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
         inbox_state_from_inbox_ids, is_connected,
         mls::test_utils::{LocalBuilder, LocalTester},
         revoke_installations,
         worker::FfiSyncWorkerMode,
-        FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
-        FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
+        FfiAttachment, FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType,
+        FfiConversation, FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
         FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
         FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
-        FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
-        FfiTransactionMetadata, FfiTransactionReference, GenericError,
+        FfiReactionAction, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment,
+        FfiRemoteAttachmentInfo, FfiReply, FfiSubscribeError, FfiTransactionMetadata,
+        FfiTransactionReference, GenericError,
     };
     use alloy::signers::local::PrivateKeySigner;
     use futures::future::join_all;
@@ -8589,6 +8593,82 @@ mod tests {
             original.metadata.as_ref().unwrap().currency,
             decoded.metadata.as_ref().unwrap().currency
         );
+    }
+
+    #[tokio::test]
+    async fn test_attachment_roundtrip() {
+        let original = FfiAttachment {
+            filename: Some("test.txt".to_string()),
+            mime_type: "text/plain".to_string(),
+            size: 1024,
+            content: "Hello, World!".to_string(),
+        };
+
+        let encoded = encode_attachment(original.clone()).unwrap();
+        let decoded = decode_attachment(encoded).unwrap();
+
+        assert_eq!(original.filename, decoded.filename);
+        assert_eq!(original.mime_type, decoded.mime_type);
+        assert_eq!(original.size, decoded.size);
+        assert_eq!(original.content, decoded.content);
+    }
+
+    #[tokio::test]
+    async fn test_reply_roundtrip() {
+        let original = FfiReply {
+            reference: "0x1234567890abcdef".to_string(),
+            reference_inbox_id: Some("test_inbox_id".to_string()),
+            content: "This is a reply".to_string(),
+        };
+
+        let encoded = encode_reply(original.clone()).unwrap();
+        let decoded = decode_reply(encoded).unwrap();
+
+        assert_eq!(original.reference, decoded.reference);
+        assert_eq!(original.reference_inbox_id, decoded.reference_inbox_id);
+        assert_eq!(original.content, decoded.content);
+    }
+
+    #[tokio::test]
+    async fn test_read_receipt_roundtrip() {
+        let original = FfiReadReceipt {
+            reference: "0x1234567890abcdef".to_string(),
+            reference_inbox_id: Some("test_inbox_id".to_string()),
+            read_at_ns: 1234567890000000000,
+        };
+
+        let encoded = encode_read_receipt(original.clone()).unwrap();
+        let decoded = decode_read_receipt(encoded).unwrap();
+
+        assert_eq!(original.reference, decoded.reference);
+        assert_eq!(original.reference_inbox_id, decoded.reference_inbox_id);
+        assert_eq!(original.read_at_ns, decoded.read_at_ns);
+    }
+
+    #[tokio::test]
+    async fn test_remote_attachment_roundtrip() {
+        let original = FfiRemoteAttachment {
+            filename: Some("remote_file.txt".to_string()),
+            mime_type: "text/plain".to_string(),
+            size: 2048,
+            url: "https://example.com/file.txt".to_string(),
+            content_digest: "sha256:abc123def456".to_string(),
+            secret: vec![1, 2, 3, 4, 5],
+            nonce: vec![6, 7, 8, 9, 10],
+            salt: vec![11, 12, 13, 14, 15],
+        };
+
+        let encoded = encode_remote_attachment(original.clone()).unwrap();
+        let decoded = decode_remote_attachment(encoded).unwrap();
+
+        assert_eq!(original.filename, decoded.filename);
+        assert_eq!(original.mime_type, decoded.mime_type);
+        assert_eq!(original.size, decoded.size);
+        assert_eq!(original.url, decoded.url);
+        assert_eq!(original.content_digest, decoded.content_digest);
+        assert_eq!(original.secret, decoded.secret);
+        assert_eq!(original.nonce, decoded.nonce);
+        assert_eq!(original.salt, decoded.salt);
     }
 
     #[tokio::test]
