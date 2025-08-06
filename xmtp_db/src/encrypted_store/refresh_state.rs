@@ -34,8 +34,8 @@ impl std::fmt::Display for EntityKind {
             Group => write!(f, "group"),
             CommitLogUpload => write!(f, "commit_log_upload"),
             CommitLogDownload => write!(f, "commit_log_download"),
-            CommitLogForkCheckLocal => write!(f, "commit_log_fork_check"),
-            CommitLogForkCheckRemote => write!(f, "commit_log_fork_check"),
+            CommitLogForkCheckLocal => write!(f, "commit_log_fork_check_local"),
+            CommitLogForkCheckRemote => write!(f, "commit_log_fork_check_remote"),
         }
     }
 }

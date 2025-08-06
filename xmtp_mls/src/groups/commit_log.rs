@@ -318,20 +318,30 @@ where
         let mut latest_download_cursor = 0;
         let mut latest_commit_sequence_id = 0;
         let mut num_entries_saved = 0;
+        // From the stored remote commit log, fetch the following info:
+        // 1. The latest applied epoch authenticator
+        // 2. The latest applied epoch number
+        // 3. The latest stored sequence id
+        let mut validation_info = conn.get_remote_log_validation_info(&group_id)?;
         for entry in &commit_log_response.commit_log_entries {
             let commit_log_entry: &CommitLogEntry = entry;
             let log_entry = PlaintextCommitLogEntry::decode(
                 commit_log_entry.serialized_commit_log_entry.as_slice(),
             )?;
 
-            // From the stored remote commit log, fetch the following info:
-            // 1. The latest applied epoch authenticator
-            // 2. The latest applied epoch number
-            // 3. The latest stored sequence id
-            let validation_info = conn.get_remote_log_validation_info(&group_id)?;
             if self.should_skip_remote_commit_log_entry(&validation_info, &log_entry) {
                 continue;
             }
+
+            // Save Validation info for next iteration
+            // Since we didnt skip, we know the commit sequence id is greater than the latest stored
+            // and that the applied epoch authenticator and epoch number match the latest applied entry
+            validation_info = RemoteLogValidationInfo {
+                requested_group_id: group_id.clone(),
+                latest_stored_commit_sequence_id: log_entry.commit_sequence_id,
+                latest_applied_epoch_authenticator: log_entry.applied_epoch_authenticator.clone(),
+                latest_applied_epoch_number: log_entry.applied_epoch_number,
+            };
 
             num_entries_saved += 1;
             NewRemoteCommitLog {
@@ -378,8 +388,9 @@ where
         // 2. The group_id of the entry does not match the requested group_id.
         // 3. The commit_sequence_id of the entry is <= 0.
         // 4. The commit_sequence_id of the entry is not greater than the most recently stored entry, if one exists.
-        // 5. The last_epoch_authenticator does not match the epoch_authenticatorof the most recently stored entry with a CommitResult of COMMIT_RESULT_APPLIED, if one exists.
-        // 7. The entry has a CommitResult of COMMIT_RESULT_APPLIED, but the epoch number is not exactly 1 greater than the most recently stored entry with a result of COMMIT_RESULT_APPLIED, if one exists.
+        // 5. The last_epoch_authenticator does not match the epoch_authenticator of the most recently stored entry with a CommitResult of COMMIT_RESULT_APPLIED, if one exists.
+        // 6. The entry has a CommitResult of COMMIT_RESULT_APPLIED, but the epoch number is not exactly 1 greater than the most recently stored entry with a result of COMMIT_RESULT_APPLIED, if one exists.
+        // 7. The entry CommitResult is not COMMIT_RESULT_APPLIED, and the epoch authenticator or epoch number does not match the most recently applied values
         entry.group_id != validation_info.requested_group_id
             || entry.commit_sequence_id == 0
             || entry.commit_sequence_id <= validation_info.latest_stored_commit_sequence_id
@@ -391,6 +402,10 @@ where
                     != validation_info.latest_applied_epoch_authenticator)
             || (is_applied
                 && entry.applied_epoch_number != validation_info.latest_applied_epoch_number + 1)
+            || (!is_applied
+                && (entry.applied_epoch_authenticator
+                    != validation_info.latest_applied_epoch_authenticator
+                    || entry.applied_epoch_number != validation_info.latest_applied_epoch_number))
     }
 
     pub async fn check_forked_state(
@@ -547,6 +562,8 @@ where
                 test_result.publish_commit_log_results = Some(publish_commit_log_results);
                 let save_remote_commit_log_results = self.save_remote_commit_log().await?;
                 test_result.save_remote_commit_log_results = Some(save_remote_commit_log_results);
+                let forked_state_check_results = self.check_forked_state().await?;
+                test_result.forked_state_check_results = Some(forked_state_check_results);
             }
         }
         Ok(test_result)

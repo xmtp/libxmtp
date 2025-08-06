@@ -235,10 +235,19 @@ impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
         group_id: &[u8],
         after_cursor: i64,
     ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError> {
+        // If a group hits more than 2^31 entries on the remote commit log rowid, we will hit this error
+        // If we want to address this we can make a new sqlite cursor table/row that stores u64 values
+        if after_cursor > i32::MAX as i64 {
+            return Err(crate::ConnectionError::Database(
+                diesel::result::Error::QueryBuilderError("Cursor value exceeds i32::MAX".into()),
+            ));
+        }
+        let after_cursor: i32 = after_cursor as i32;
+
         self.raw_query_read(|db| {
             dsl::remote_commit_log
                 .filter(dsl::group_id.eq(group_id))
-                .filter(dsl::rowid.gt(after_cursor as i32))
+                .filter(dsl::rowid.gt(after_cursor))
                 .filter(dsl::commit_sequence_id.ne(0))
                 .order_by(dsl::rowid.desc())
                 .load(db)
