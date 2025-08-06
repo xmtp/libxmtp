@@ -12,10 +12,14 @@ use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::attachment::{Attachment, AttachmentCodec};
+use xmtp_content_types::attachment::{Attachment, AttachmentCodec};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::read_receipt::{ReadReceipt, ReadReceiptCodec};
+use xmtp_content_types::read_receipt::{ReadReceipt, ReadReceiptCodec};
 use xmtp_content_types::remote_attachment::{RemoteAttachment, RemoteAttachmentCodec};
+use xmtp_content_types::remote_attachment::{RemoteAttachment, RemoteAttachmentCodec};
+use xmtp_content_types::reply::{Reply, ReplyCodec};
 use xmtp_content_types::reply::{Reply, ReplyCodec};
 use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::transaction_reference::TransactionMetadata;
@@ -3516,8 +3520,7 @@ mod tests {
         group_updated::GroupUpdatedCodec, membership_change::GroupMembershipChangeCodec,
         reaction::ReactionCodec, read_receipt::ReadReceiptCodec,
         remote_attachment::RemoteAttachmentCodec, reply::ReplyCodec, text::TextCodec,
-        transaction_reference::TransactionReferenceCodec, wallet_send_call::WalletSendCallCodec,
-        ContentCodec,
+        transaction_reference::TransactionReferenceCodec, ContentCodec,
     };
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::prelude::*;
