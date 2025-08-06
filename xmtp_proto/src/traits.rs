@@ -58,7 +58,8 @@ pub trait Client {
     async fn stream(
         &self,
         request: request::Builder,
-        body: Vec<u8>,
+        path: http::uri::PathAndQuery,
+        body: Bytes,
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>>;
 }
 
