@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{CodecError, ContentCodec};
+use crate::{utils::get_param_or_default, CodecError, ContentCodec};
 use serde::{Deserialize, Serialize};
 
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
@@ -24,31 +24,61 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
     }
 
     fn encode(data: RemoteAttachment) -> Result<EncodedContent, CodecError> {
-        let json = serde_json::to_vec(&data)
-            .map_err(|e| CodecError::Encode(format!("JSON encode error: {e}")))?;
+        let mut parameters = [
+            ("contentDigest", data.content_digest),
+            ("salt", hex::encode(data.salt)),
+            ("nonce", hex::encode(data.nonce)),
+            ("secret", hex::encode(data.secret)),
+            ("scheme", data.scheme),
+            ("contentLength", data.content_length.to_string()),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect::<HashMap<_, _>>();
+
+        if let Some(filename) = data.filename {
+            parameters.insert("filename".to_string(), filename);
+        }
 
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
-            parameters: HashMap::new(),
-            fallback: Some(Self::fallback(&data)),
+            parameters,
+            fallback: None,
             compression: None,
-            content: json,
+            content: data.url.into_bytes(),
         })
     }
 
     fn decode(encoded: EncodedContent) -> Result<RemoteAttachment, CodecError> {
-        serde_json::from_slice(&encoded.content)
-            .map_err(|e| CodecError::Decode(format!("JSON decode error: {e}")))
-    }
-}
+        // Extract parameters
+        let parameters: &HashMap<String, String> = &encoded.parameters;
 
-impl RemoteAttachmentCodec {
-    fn fallback(content: &RemoteAttachment) -> String {
-        if let Some(filename) = &content.filename {
-            format!("[Remote attachment] {filename}")
-        } else {
-            "[Remote attachment]".to_string()
-        }
+        let content_digest = get_param_or_default(parameters, "contentDigest").to_string();
+        let salt = hex::decode(get_param_or_default(parameters, "salt")).unwrap_or_else(|_| vec![]);
+        let nonce =
+            hex::decode(get_param_or_default(parameters, "nonce")).unwrap_or_else(|_| vec![]);
+        let secret =
+            hex::decode(get_param_or_default(parameters, "secret")).unwrap_or_else(|_| vec![]);
+        let scheme = get_param_or_default(parameters, "scheme").to_string();
+        let content_length = get_param_or_default(parameters, "contentLength")
+            .parse()
+            .unwrap_or(0);
+
+        let filename = parameters.get("filename").cloned();
+
+        let url =
+            String::from_utf8(encoded.content).map_err(|e| CodecError::Decode(e.to_string()))?;
+
+        Ok(RemoteAttachment {
+            filename,
+            url,
+            content_digest,
+            secret,
+            nonce,
+            salt,
+            scheme,
+            content_length,
+        })
     }
 }
 
@@ -58,12 +88,6 @@ pub struct RemoteAttachment {
     /// The filename of the remote attachment
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
-
-    /// The MIME type of the remote attachment
-    pub mime_type: String,
-
-    /// The size of the remote attachment in bytes
-    pub size: u64,
 
     /// The URL where the remote attachment is stored
     pub url: String,
@@ -79,6 +103,11 @@ pub struct RemoteAttachment {
 
     /// The salt used for encryption
     pub salt: Vec<u8>,
+
+    /// The scheme used to fetch the file
+    pub scheme: String,
+
+    pub content_length: usize,
 }
 
 #[cfg(test)]
@@ -92,21 +121,21 @@ pub(crate) mod tests {
     fn test_encode_decode_remote_attachment() {
         let remote_attachment = RemoteAttachment {
             filename: Some("test.pdf".to_string()),
-            mime_type: "application/pdf".to_string(),
-            size: 1024,
+            content_length: 1024,
             url: "https://example.com/file.pdf".to_string(),
             content_digest: "abc123".to_string(),
             secret: vec![1, 2, 3, 4],
             nonce: vec![5, 6, 7, 8],
             salt: vec![9, 10, 11, 12],
+            scheme: "https".to_string(),
         };
 
         let encoded = RemoteAttachmentCodec::encode(remote_attachment.clone()).unwrap();
         let decoded = RemoteAttachmentCodec::decode(encoded).unwrap();
 
         assert_eq!(decoded.filename, remote_attachment.filename);
-        assert_eq!(decoded.mime_type, remote_attachment.mime_type);
-        assert_eq!(decoded.size, remote_attachment.size);
+        assert_eq!(decoded.scheme, remote_attachment.scheme);
+        assert_eq!(decoded.content_length, remote_attachment.content_length);
         assert_eq!(decoded.url, remote_attachment.url);
         assert_eq!(decoded.content_digest, remote_attachment.content_digest);
         assert_eq!(decoded.secret, remote_attachment.secret);

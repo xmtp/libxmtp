@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{CodecError, ContentCodec};
+use crate::{utils::get_param_or_default, CodecError, ContentCodec};
 use serde::{Deserialize, Serialize};
 
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
@@ -24,21 +24,33 @@ impl ContentCodec<Attachment> for AttachmentCodec {
     }
 
     fn encode(data: Attachment) -> Result<EncodedContent, CodecError> {
-        let json = serde_json::to_vec(&data)
-            .map_err(|e| CodecError::Encode(format!("JSON encode error: {e}")))?;
+        let fallback = Self::fallback(&data);
+        let mut parameters = [("mimeType", data.mime_type)]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect::<HashMap<_, _>>();
+
+        if let Some(filename) = data.filename {
+            parameters.insert("filename".to_string(), filename);
+        }
 
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
-            parameters: HashMap::new(),
-            fallback: Some(Self::fallback(&data)),
+            parameters,
+            fallback: Some(fallback),
             compression: None,
-            content: json,
+            content: data.content,
         })
     }
 
     fn decode(encoded: EncodedContent) -> Result<Attachment, CodecError> {
-        serde_json::from_slice(&encoded.content)
-            .map_err(|e| CodecError::Decode(format!("JSON decode error: {e}")))
+        let parameters: &HashMap<String, String> = &encoded.parameters;
+
+        Ok(Attachment {
+            filename: parameters.get("filename").map(|f| f.to_string()),
+            mime_type: get_param_or_default(parameters, "mimeType").to_string(),
+            content: encoded.content,
+        })
     }
 }
 
@@ -62,11 +74,8 @@ pub struct Attachment {
     /// The MIME type of the attachment
     pub mime_type: String,
 
-    /// The size of the attachment in bytes
-    pub size: u64,
-
     /// The content of the attachment (base64 encoded)
-    pub content: String,
+    pub content: Vec<u8>,
 }
 
 #[cfg(test)]
@@ -81,8 +90,7 @@ pub(crate) mod tests {
         let attachment = Attachment {
             filename: Some("test.txt".to_string()),
             mime_type: "text/plain".to_string(),
-            size: 1024,
-            content: "SGVsbG8gV29ybGQ=".to_string(), // "Hello World" in base64
+            content: vec![1, 2, 3, 4],
         };
 
         let encoded = AttachmentCodec::encode(attachment.clone()).unwrap();
@@ -90,7 +98,6 @@ pub(crate) mod tests {
 
         assert_eq!(decoded.filename, attachment.filename);
         assert_eq!(decoded.mime_type, attachment.mime_type);
-        assert_eq!(decoded.size, attachment.size);
         assert_eq!(decoded.content, attachment.content);
     }
 }
