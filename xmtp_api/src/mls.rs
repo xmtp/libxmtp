@@ -84,6 +84,7 @@ where
         &self,
         group_id: Vec<u8>,
         id_cursor: Option<u64>,
+        limit: Option<u32>,
     ) -> Result<Vec<GroupMessage>> {
         tracing::debug!(
             group_id = hex::encode(&group_id),
@@ -102,7 +103,7 @@ where
                             group_id: group_id.clone(),
                             paging_info: Some(PagingInfo {
                                 id_cursor: id_cursor.unwrap_or(0),
-                                limit: MAX_PAGE_SIZE,
+                                limit: limit.unwrap_or(MAX_PAGE_SIZE).min(MAX_PAGE_SIZE),
                                 direction: SortDirection::Ascending as i32,
                             }),
                         })
@@ -115,6 +116,12 @@ where
 
             if num_messages < MAX_PAGE_SIZE as usize || result.paging_info.is_none() {
                 break;
+            }
+
+            if let Some(limit) = limit {
+                if out.len() >= limit as usize {
+                    break;
+                }
             }
 
             let paging_info = result.paging_info.expect("Empty paging info");
@@ -493,7 +500,7 @@ pub mod tests {
         let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
 
         let result = wrapper
-            .query_group_messages(group_id_clone, None)
+            .query_group_messages(group_id_clone, None, None)
             .await
             .unwrap();
         assert_eq!(result.len(), 10);
@@ -525,7 +532,7 @@ pub mod tests {
         let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
 
         let result = wrapper
-            .query_group_messages(group_id_clone, None)
+            .query_group_messages(group_id_clone, None, None)
             .await
             .unwrap();
         assert_eq!(result.len(), 100);
@@ -576,7 +583,7 @@ pub mod tests {
         let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
 
         let result = wrapper
-            .query_group_messages(group_id_clone2, None)
+            .query_group_messages(group_id_clone2, None, None)
             .await
             .unwrap();
         assert_eq!(result.len(), 200);
@@ -610,7 +617,7 @@ pub mod tests {
         let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
 
         let result = wrapper
-            .query_group_messages(group_id_clone, None)
+            .query_group_messages(group_id_clone, None, None)
             .await
             .unwrap();
         assert_eq!(result.len(), 50);
@@ -627,9 +634,9 @@ pub mod tests {
         let _ = client.set_app_version("999.999.999".into());
         let c = client.build().await.unwrap();
         let wrapper = ApiClientWrapper::new(c, Retry::default());
-        let _first = wrapper.query_group_messages(vec![0, 0], None).await;
+        let _first = wrapper.query_group_messages(vec![0, 0], None, None).await;
         let now = std::time::Instant::now();
-        let _second = wrapper.query_group_messages(vec![0, 0], None).await;
+        let _second = wrapper.query_group_messages(vec![0, 0], None, None).await;
         assert!(now.elapsed() > std::time::Duration::from_secs(60));
     }
 
