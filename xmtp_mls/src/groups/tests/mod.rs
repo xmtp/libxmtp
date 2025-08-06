@@ -7,7 +7,6 @@ mod test_network;
 mod test_remote_commit_log;
 mod test_welcomes;
 
-
 use prost::Message;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextEnvelope;

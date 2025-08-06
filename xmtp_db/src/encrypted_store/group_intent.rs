@@ -186,7 +186,11 @@ pub trait QueryGroupIntent {
     ) -> Result<(), StorageError>;
 
     // Set the intent with the given ID to `Committed`
-    fn set_group_intent_committed(&self, intent_id: ID) -> Result<(), StorageError>;
+    fn set_group_intent_committed(
+        &self,
+        intent_id: ID,
+        sequence_id: i64,
+    ) -> Result<(), StorageError>;
 
     // Set the intent with the given ID to `Committed`
     fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError>;
@@ -251,8 +255,12 @@ where
         )
     }
 
-    fn set_group_intent_committed(&self, intent_id: ID) -> Result<(), StorageError> {
-        (**self).set_group_intent_committed(intent_id)
+    fn set_group_intent_committed(
+        &self,
+        intent_id: ID,
+        sequence_id: i64,
+    ) -> Result<(), StorageError> {
+        (**self).set_group_intent_committed(intent_id, sequence_id)
     }
 
     fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError> {

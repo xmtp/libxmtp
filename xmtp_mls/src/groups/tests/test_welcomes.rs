@@ -1,6 +1,6 @@
-use xmtp_db::refresh_state::EntityKind;
-
 use crate::tester;
+use xmtp_db::prelude::QueryRefreshState;
+use xmtp_db::refresh_state::EntityKind;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_welcome_cursor() {
@@ -16,8 +16,9 @@ async fn test_welcome_cursor() {
     group.update_installations().await?;
 
     alix2.sync_welcomes().await?;
-    // let alix2_group = alix2.group(&group.group_id)?;
+    let alix2_group = alix2.group(&group.group_id)?;
     let alix2_refresh_state = alix2
+        .context
         .db()
         .get_refresh_state(&group.group_id, EntityKind::Group)??;
 

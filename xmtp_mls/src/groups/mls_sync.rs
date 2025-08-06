@@ -8,6 +8,7 @@ use super::{
     summary::{MessageIdentifier, MessageIdentifierBuilder, ProcessSummary, SyncSummary},
     validated_commit::{CommitValidationError, LibXMTPVersion, extract_group_membership},
 };
+use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use crate::groups::{
     device_sync_legacy::preference_sync_legacy::process_incoming_preference_update,
     intents::QueueIntent,
@@ -17,9 +18,6 @@ use crate::{
     client::ClientError, context::XmtpSharedContext, groups::mls_ext::MlsGroupReload,
     mls_store::MlsStore, subscriptions::stream_messages::extract_message_cursor,
 };
-use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
-use crate::subscriptions::SyncWorkerEvent;
-use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{
     groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
     utils::id::calculate_message_id_for_intent,
@@ -94,6 +92,8 @@ use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_proto::mls_v1::WelcomeMetadata;
+use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         GroupMessage, GroupMessageInput, WelcomeMessageInput,
@@ -108,6 +108,7 @@ use xmtp_proto::xmtp::mls::{
         plaintext_envelope::{Content, V1, V2, v2::MessageType},
     },
 };
+
 pub mod update_group_membership;
 
 #[derive(Debug, Error)]

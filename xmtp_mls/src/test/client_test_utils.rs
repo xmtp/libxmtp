@@ -25,7 +25,7 @@ where
     pub async fn test_talk_in_new_group_with(
         &self,
         other: &Self,
-    ) -> Result<(MlsGroup<ApiClient, Db>, String), TestError> {
+    ) -> Result<(MlsGroup<Context>, String), TestError> {
         self.sync_welcomes().await?;
         let group = self
             .create_group_with_inbox_ids(&[other.inbox_id()], None, None)

@@ -9,6 +9,9 @@ use diesel::{
     sql_types::Integer,
 };
 
+use super::{ConnectionExt, Sqlite, db_connection::DbConnection, schema::refresh_state};
+use crate::{StorageError, StoreOrIgnore, impl_store_or_ignore};
+
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, Hash, FromSqlRow)]
 #[diesel(sql_type = Integer)]
@@ -229,6 +232,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
+    use crate::StoreOrIgnore;
     use crate::test_utils::with_connection;
 
     #[xmtp_common::test]
