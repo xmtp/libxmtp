@@ -11,16 +11,16 @@ use xmtp_api::{strategies, ApiClientWrapper, ApiDebugWrapper, ApiIdentifier};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
+use xmtp_content_types::attachment::{Attachment, AttachmentCodec};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
+use xmtp_content_types::read_receipt::{ReadReceipt, ReadReceiptCodec};
+use xmtp_content_types::remote_attachment::{RemoteAttachment, RemoteAttachmentCodec};
+use xmtp_content_types::reply::{Reply, ReplyCodec};
 use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::transaction_reference::TransactionMetadata;
 use xmtp_content_types::transaction_reference::TransactionReference;
 use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
-use xmtp_content_types::attachment::{Attachment, AttachmentCodec};
-use xmtp_content_types::reply::{Reply, ReplyCodec};
-use xmtp_content_types::read_receipt::{ReadReceipt, ReadReceiptCodec};
-use xmtp_content_types::remote_attachment::{RemoteAttachment, RemoteAttachmentCodec};
 use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
 use xmtp_db::group::ConversationType;
 use xmtp_db::group::DmIdExt;
@@ -2965,8 +2965,8 @@ impl From<Reply> for FfiReply {
 pub fn encode_reply(reply: FfiReply) -> Result<Vec<u8>, GenericError> {
     let reply: Reply = reply.into();
 
-    let encoded = ReplyCodec::encode(reply)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    let encoded =
+        ReplyCodec::encode(reply).map_err(|e| GenericError::Generic { err: e.to_string() })?;
 
     let mut buf = Vec::new();
     encoded
@@ -3083,7 +3083,9 @@ impl From<RemoteAttachment> for FfiRemoteAttachment {
 }
 
 #[uniffi::export]
-pub fn encode_remote_attachment(remote_attachment: FfiRemoteAttachment) -> Result<Vec<u8>, GenericError> {
+pub fn encode_remote_attachment(
+    remote_attachment: FfiRemoteAttachment,
+) -> Result<Vec<u8>, GenericError> {
     let remote_attachment: RemoteAttachment = remote_attachment.into();
 
     let encoded = RemoteAttachmentCodec::encode(remote_attachment)
@@ -3370,27 +3372,23 @@ mod tests {
         FfiPreferenceUpdate, FfiXmtpClient,
     };
     use crate::{
-        apply_signature_request, connect_to_backend, decode_attachment,
-        decode_multi_remote_attachment, decode_read_receipt, decode_reaction,
-        decode_remote_attachment, decode_reply, decode_transaction_reference,
-        encode_attachment, encode_multi_remote_attachment, encode_read_receipt, encode_reaction,
-        encode_remote_attachment, encode_reply, encode_transaction_reference,
-        get_inbox_id_for_identifier,
+        apply_signature_request, connect_to_backend, decode_multi_remote_attachment,
+        decode_reaction, decode_transaction_reference, encode_multi_remote_attachment,
+        encode_reaction, encode_transaction_reference, get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
         inbox_state_from_inbox_ids, is_connected,
         mls::test_utils::{LocalBuilder, LocalTester},
         revoke_installations,
         worker::FfiSyncWorkerMode,
-        FfiAttachment, FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType,
-        FfiConversation, FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
+        FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
+        FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
         FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
         FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
-        FfiReactionAction, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment,
-        FfiRemoteAttachmentInfo, FfiReply, FfiSubscribeError, FfiTransactionMetadata,
-        FfiTransactionReference, FfiWalletCall, FfiWalletSendCall, GenericError,
+        FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
+        FfiTransactionMetadata, FfiTransactionReference, GenericError,
     };
     use alloy::signers::local::PrivateKeySigner;
     use futures::future::join_all;
@@ -3419,8 +3417,7 @@ mod tests {
         group_updated::GroupUpdatedCodec, membership_change::GroupMembershipChangeCodec,
         reaction::ReactionCodec, read_receipt::ReadReceiptCodec,
         remote_attachment::RemoteAttachmentCodec, reply::ReplyCodec, text::TextCodec,
-        transaction_reference::TransactionReferenceCodec,
-        ContentCodec,
+        transaction_reference::TransactionReferenceCodec, ContentCodec,
     };
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::prelude::*;
