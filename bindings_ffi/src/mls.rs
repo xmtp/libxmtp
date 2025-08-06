@@ -11,16 +11,9 @@ use xmtp_api::{strategies, ApiClientWrapper, ApiDebugWrapper, ApiIdentifier};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
-use xmtp_content_types::attachment::{Attachment, AttachmentCodec};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
-use xmtp_content_types::read_receipt::{ReadReceipt, ReadReceiptCodec};
-use xmtp_content_types::remote_attachment::{RemoteAttachment, RemoteAttachmentCodec};
-use xmtp_content_types::reply::{Reply, ReplyCodec};
 use xmtp_content_types::text::TextCodec;
-use xmtp_content_types::transaction_reference::TransactionMetadata;
-use xmtp_content_types::transaction_reference::TransactionReference;
-use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
 use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
 use xmtp_db::group::ConversationType;
 use xmtp_db::group::DmIdExt;
@@ -2782,333 +2775,6 @@ pub fn decode_multi_remote_attachment(
         .map_err(|e| GenericError::Generic { err: e.to_string() })
 }
 
-#[derive(uniffi::Record, Clone, Default)]
-pub struct FfiTransactionMetadata {
-    pub transaction_type: String,
-    pub currency: String,
-    pub amount: f64,
-    pub decimals: u32,
-    pub from_address: String,
-    pub to_address: String,
-}
-
-impl From<FfiTransactionMetadata> for TransactionMetadata {
-    fn from(f: FfiTransactionMetadata) -> Self {
-        TransactionMetadata {
-            transaction_type: f.transaction_type,
-            currency: f.currency,
-            amount: f.amount,
-            decimals: f.decimals,
-            from_address: f.from_address,
-            to_address: f.to_address,
-        }
-    }
-}
-
-impl From<TransactionMetadata> for FfiTransactionMetadata {
-    fn from(t: TransactionMetadata) -> Self {
-        FfiTransactionMetadata {
-            transaction_type: t.transaction_type,
-            currency: t.currency,
-            amount: t.amount,
-            decimals: t.decimals,
-            from_address: t.from_address,
-            to_address: t.to_address,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Clone, Default)]
-pub struct FfiTransactionReference {
-    pub namespace: Option<String>,
-    pub network_id: String,
-    pub reference: String,
-    pub metadata: Option<FfiTransactionMetadata>,
-}
-
-impl From<FfiTransactionReference> for TransactionReference {
-    fn from(f: FfiTransactionReference) -> Self {
-        TransactionReference {
-            namespace: f.namespace,
-            network_id: f.network_id,
-            reference: f.reference,
-            metadata: f.metadata.map(Into::into),
-        }
-    }
-}
-
-impl From<TransactionReference> for FfiTransactionReference {
-    fn from(t: TransactionReference) -> Self {
-        FfiTransactionReference {
-            namespace: t.namespace,
-            network_id: t.network_id,
-            reference: t.reference,
-            metadata: t.metadata.map(Into::into),
-        }
-    }
-}
-
-#[uniffi::export]
-pub fn encode_transaction_reference(
-    reference: FfiTransactionReference,
-) -> Result<Vec<u8>, GenericError> {
-    let reference: TransactionReference = reference.into();
-
-    let encoded = TransactionReferenceCodec::encode(reference)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    let mut buf = Vec::new();
-    encoded
-        .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    Ok(buf)
-}
-
-#[uniffi::export]
-pub fn decode_transaction_reference(
-    bytes: Vec<u8>,
-) -> Result<FfiTransactionReference, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    TransactionReferenceCodec::decode(encoded_content)
-        .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
-}
-
-// Attachment FFI structures
-#[derive(uniffi::Record, Clone, Default)]
-pub struct FfiAttachment {
-    pub filename: Option<String>,
-    pub mime_type: String,
-    pub size: u64,
-    pub content: String,
-}
-
-impl From<FfiAttachment> for Attachment {
-    fn from(f: FfiAttachment) -> Self {
-        Attachment {
-            filename: f.filename,
-            mime_type: f.mime_type,
-            size: f.size,
-            content: f.content,
-        }
-    }
-}
-
-impl From<Attachment> for FfiAttachment {
-    fn from(a: Attachment) -> Self {
-        FfiAttachment {
-            filename: a.filename,
-            mime_type: a.mime_type,
-            size: a.size,
-            content: a.content,
-        }
-    }
-}
-
-#[uniffi::export]
-pub fn encode_attachment(attachment: FfiAttachment) -> Result<Vec<u8>, GenericError> {
-    let attachment: Attachment = attachment.into();
-
-    let encoded = AttachmentCodec::encode(attachment)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    let mut buf = Vec::new();
-    encoded
-        .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    Ok(buf)
-}
-
-#[uniffi::export]
-pub fn decode_attachment(bytes: Vec<u8>) -> Result<FfiAttachment, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    AttachmentCodec::decode(encoded_content)
-        .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
-}
-
-// Reply FFI structures
-#[derive(uniffi::Record, Clone, Default)]
-pub struct FfiReply {
-    pub reference: String,
-    pub reference_inbox_id: Option<String>,
-    pub content: String,
-}
-
-impl From<FfiReply> for Reply {
-    fn from(f: FfiReply) -> Self {
-        Reply {
-            reference: f.reference,
-            reference_inbox_id: f.reference_inbox_id,
-            content: f.content,
-        }
-    }
-}
-
-impl From<Reply> for FfiReply {
-    fn from(r: Reply) -> Self {
-        FfiReply {
-            reference: r.reference,
-            reference_inbox_id: r.reference_inbox_id,
-            content: r.content,
-        }
-    }
-}
-
-#[uniffi::export]
-pub fn encode_reply(reply: FfiReply) -> Result<Vec<u8>, GenericError> {
-    let reply: Reply = reply.into();
-
-    let encoded =
-        ReplyCodec::encode(reply).map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    let mut buf = Vec::new();
-    encoded
-        .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    Ok(buf)
-}
-
-#[uniffi::export]
-pub fn decode_reply(bytes: Vec<u8>) -> Result<FfiReply, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    ReplyCodec::decode(encoded_content)
-        .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
-}
-
-// ReadReceipt FFI structures
-#[derive(uniffi::Record, Clone, Default)]
-pub struct FfiReadReceipt {
-    pub reference: String,
-    pub reference_inbox_id: Option<String>,
-    pub read_at_ns: i64,
-}
-
-impl From<FfiReadReceipt> for ReadReceipt {
-    fn from(f: FfiReadReceipt) -> Self {
-        ReadReceipt {
-            reference: f.reference,
-            reference_inbox_id: f.reference_inbox_id,
-            read_at_ns: f.read_at_ns,
-        }
-    }
-}
-
-impl From<ReadReceipt> for FfiReadReceipt {
-    fn from(r: ReadReceipt) -> Self {
-        FfiReadReceipt {
-            reference: r.reference,
-            reference_inbox_id: r.reference_inbox_id,
-            read_at_ns: r.read_at_ns,
-        }
-    }
-}
-
-#[uniffi::export]
-pub fn encode_read_receipt(read_receipt: FfiReadReceipt) -> Result<Vec<u8>, GenericError> {
-    let read_receipt: ReadReceipt = read_receipt.into();
-
-    let encoded = ReadReceiptCodec::encode(read_receipt)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    let mut buf = Vec::new();
-    encoded
-        .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    Ok(buf)
-}
-
-#[uniffi::export]
-pub fn decode_read_receipt(bytes: Vec<u8>) -> Result<FfiReadReceipt, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    ReadReceiptCodec::decode(encoded_content)
-        .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
-}
-
-// RemoteAttachment FFI structures
-#[derive(uniffi::Record, Clone, Default)]
-pub struct FfiRemoteAttachment {
-    pub filename: Option<String>,
-    pub mime_type: String,
-    pub size: u64,
-    pub url: String,
-    pub content_digest: String,
-    pub secret: Vec<u8>,
-    pub nonce: Vec<u8>,
-    pub salt: Vec<u8>,
-}
-
-impl From<FfiRemoteAttachment> for RemoteAttachment {
-    fn from(f: FfiRemoteAttachment) -> Self {
-        RemoteAttachment {
-            filename: f.filename,
-            mime_type: f.mime_type,
-            size: f.size,
-            url: f.url,
-            content_digest: f.content_digest,
-            secret: f.secret,
-            nonce: f.nonce,
-            salt: f.salt,
-        }
-    }
-}
-
-impl From<RemoteAttachment> for FfiRemoteAttachment {
-    fn from(r: RemoteAttachment) -> Self {
-        FfiRemoteAttachment {
-            filename: r.filename,
-            mime_type: r.mime_type,
-            size: r.size,
-            url: r.url,
-            content_digest: r.content_digest,
-            secret: r.secret,
-            nonce: r.nonce,
-            salt: r.salt,
-        }
-    }
-}
-
-#[uniffi::export]
-pub fn encode_remote_attachment(
-    remote_attachment: FfiRemoteAttachment,
-) -> Result<Vec<u8>, GenericError> {
-    let remote_attachment: RemoteAttachment = remote_attachment.into();
-
-    let encoded = RemoteAttachmentCodec::encode(remote_attachment)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    let mut buf = Vec::new();
-    encoded
-        .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    Ok(buf)
-}
-
-#[uniffi::export]
-pub fn decode_remote_attachment(bytes: Vec<u8>) -> Result<FfiRemoteAttachment, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    RemoteAttachmentCodec::decode(encoded_content)
-        .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
-}
-
 #[derive(uniffi::Record, Clone)]
 pub struct FfiMessage {
     pub id: Vec<u8>,
@@ -3373,8 +3039,8 @@ mod tests {
     };
     use crate::{
         apply_signature_request, connect_to_backend, decode_multi_remote_attachment,
-        decode_reaction, decode_transaction_reference, encode_multi_remote_attachment,
-        encode_reaction, encode_transaction_reference, get_inbox_id_for_identifier,
+        decode_reaction, encode_multi_remote_attachment, encode_reaction,
+        get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
         inbox_state_from_inbox_ids, is_connected,
@@ -3388,7 +3054,7 @@ mod tests {
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
         FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
         FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
-        FfiTransactionMetadata, FfiTransactionReference, GenericError,
+        GenericError,
     };
     use alloy::signers::local::PrivateKeySigner;
     use futures::future::join_all;
@@ -8553,32 +8219,6 @@ mod tests {
             assert_eq!(decoded.scheme, original.scheme);
             assert_eq!(decoded.url, original.url);
         }
-    }
-
-    #[tokio::test]
-    async fn test_transaction_reference_roundtrip() {
-        let original = FfiTransactionReference {
-            namespace: Some("eip155".to_string()),
-            network_id: "1".to_string(),
-            reference: "0xabc123".to_string(),
-            metadata: Some(FfiTransactionMetadata {
-                transaction_type: "transfer".to_string(),
-                currency: "ETH".to_string(),
-                amount: 0.42,
-                decimals: 18,
-                from_address: "0xfrom".to_string(),
-                to_address: "0xto".to_string(),
-            }),
-        };
-
-        let encoded = encode_transaction_reference(original.clone()).unwrap();
-        let decoded = decode_transaction_reference(encoded).unwrap();
-
-        assert_eq!(original.reference, decoded.reference);
-        assert_eq!(
-            original.metadata.as_ref().unwrap().currency,
-            decoded.metadata.as_ref().unwrap().currency
-        );
     }
 
     #[tokio::test]
