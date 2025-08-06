@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use crate::{CodecError, ContentCodec};
+use crate::{utils::get_param_or_default, CodecError, ContentCodec};
+use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
@@ -24,27 +25,53 @@ impl ContentCodec<Reply> for ReplyCodec {
     }
 
     fn encode(data: Reply) -> Result<EncodedContent, CodecError> {
-        let json = serde_json::to_vec(&data)
-            .map_err(|e| CodecError::Encode(format!("JSON encode error: {e}")))?;
+        let inner_type = &data.content.r#type;
+        // Set the reference and reference inbox ID as parameters.
+        let mut parameters = HashMap::new();
+        parameters.insert("reference".to_string(), data.reference);
+        if let Some(content_type) = inner_type {
+            parameters.insert(
+                "contentType".to_string(),
+                format!(
+                    "{}/{}:{}.{}",
+                    content_type.authority_id,
+                    content_type.type_id,
+                    content_type.version_major,
+                    content_type.version_minor
+                ),
+            );
+        }
+        if let Some(reference_inbox_id) = data.reference_inbox_id {
+            parameters.insert("referenceInboxId".to_string(), reference_inbox_id);
+        }
+
+        let content_bytes = data.content.encode_to_vec();
 
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
-            parameters: HashMap::new(),
-            fallback: Some(Self::fallback(&data)),
+            parameters,
+            fallback: None,
             compression: None,
-            content: json,
+            content: content_bytes,
         })
     }
 
     fn decode(encoded: EncodedContent) -> Result<Reply, CodecError> {
-        serde_json::from_slice(&encoded.content)
-            .map_err(|e| CodecError::Decode(format!("JSON decode error: {e}")))
-    }
-}
+        let inner_content = EncodedContent::decode(encoded.content.as_slice())
+            .map_err(|e| CodecError::Decode(e.to_string()))?;
 
-impl ReplyCodec {
-    fn fallback(content: &Reply) -> String {
-        format!("[Reply to message] {}", content.content)
+        let reference = get_param_or_default(&encoded.parameters, "reference").to_string();
+
+        let reference_inbox_id = encoded
+            .parameters
+            .get("referenceInboxId")
+            .map(|id| id.to_string());
+
+        Ok(Reply {
+            reference,
+            reference_inbox_id,
+            content: inner_content,
+        })
     }
 }
 
@@ -59,22 +86,25 @@ pub struct Reply {
     pub reference_inbox_id: Option<String>,
 
     /// The content of the reply
-    pub content: String,
+    pub content: EncodedContent,
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use crate::text::TextCodec;
+
     use super::*;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_encode_decode_reply() {
+        let text_message = TextCodec::encode("This is a reply".to_string()).unwrap();
         let reply = Reply {
             reference: "msg_123".to_string(),
             reference_inbox_id: Some("inbox_456".to_string()),
-            content: "This is a reply".to_string(),
+            content: text_message,
         };
 
         let encoded = ReplyCodec::encode(reply.clone()).unwrap();

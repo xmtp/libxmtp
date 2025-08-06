@@ -51,17 +51,17 @@ impl ContentCodec<ReactionV2> for ReactionCodec {
 // JSON format for legacy reaction is defined here: https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reaction/src/Reaction.ts
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LegacyReaction {
+    /// The action of the reaction ("added" or "removed")
+    pub action: String,
     /// The message ID for the message that is being reacted to
     pub reference: String,
     /// The inbox ID of the user who sent the message that is being reacted to
     #[serde(rename = "referenceInboxId", skip_serializing_if = "Option::is_none")]
     pub reference_inbox_id: Option<String>,
-    /// The action of the reaction ("added" or "removed")
-    pub action: String,
-    /// The content of the reaction
-    pub content: String,
     /// The schema of the content ("unicode", "shortcode", or "custom")
     pub schema: String,
+    /// The content of the reaction
+    pub content: String,
 }
 
 impl LegacyReaction {
@@ -81,6 +81,45 @@ impl LegacyReaction {
             tracing::error!("utf-8 deserialization failed");
         }
         None
+    }
+}
+
+pub struct LegacyReactionCodec {}
+
+/// Legacy content type id at https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reaction/src/Reaction.ts
+impl LegacyReactionCodec {
+    const AUTHORITY_ID: &'static str = "xmtp.org";
+    pub const TYPE_ID: &'static str = "reaction";
+    const VERSION_MAJOR: u32 = 1;
+    const VERSION_MINOR: u32 = 0;
+}
+
+impl ContentCodec<LegacyReaction> for LegacyReactionCodec {
+    fn content_type() -> ContentTypeId {
+        ContentTypeId {
+            authority_id: LegacyReactionCodec::AUTHORITY_ID.to_string(),
+            type_id: LegacyReactionCodec::TYPE_ID.to_string(),
+            version_major: LegacyReactionCodec::VERSION_MAJOR,
+            version_minor: LegacyReactionCodec::VERSION_MINOR,
+        }
+    }
+
+    fn encode(data: LegacyReaction) -> Result<EncodedContent, CodecError> {
+        let json = serde_json::to_string(&data).map_err(|e| CodecError::Encode(e.to_string()))?;
+        Ok(EncodedContent {
+            r#type: Some(LegacyReactionCodec::content_type()),
+            parameters: std::collections::HashMap::new(),
+            fallback: None,
+            compression: None,
+            content: json.into_bytes(),
+        })
+    }
+
+    fn decode(content: EncodedContent) -> Result<LegacyReaction, CodecError> {
+        let decoded = serde_json::from_slice::<LegacyReaction>(&content.content)
+            .map_err(|e| CodecError::Decode(e.to_string()))?;
+
+        Ok(decoded)
     }
 }
 
