@@ -1,5 +1,7 @@
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub mod native;
+
+use diesel::SqliteConnection;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub use native::*;
 
@@ -14,34 +16,21 @@ pub use wasm_exports::*;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub use native_exports::*;
 
-use super::{ConnectionExt, TransactionGuard};
+use super::ConnectionExt;
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 pub mod wasm_exports {
     pub type RawDbConnection = diesel::prelude::SqliteConnection;
     pub type DefaultDatabase = super::wasm::WasmDb;
-
-    pub(super) type DefaultConnectionInner =
-        super::PersistentOrMem<super::wasm::WasmDbConnection, super::wasm::WasmDbConnection>;
-
-    pub type DefaultConnection = std::sync::Arc<DefaultConnectionInner>;
 }
 
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub mod native_exports {
     pub type DefaultDatabase = super::native::NativeDb;
     pub use super::native::EncryptedConnection;
-    /// The 'inner' default connection
-    /// 'DefaultConnection' is preferred here
-    pub(super) type DefaultConnectionInner = super::PersistentOrMem<
-        super::native::NativeDbConnection,
-        super::native::EphemeralDbConnection,
-    >;
-
-    // the native module already defines this
-    // pub type RawDbConnection = native::RawDbConnection;
-    pub type DefaultConnection = std::sync::Arc<DefaultConnectionInner>;
 }
+
+mod instrumentation;
 
 #[derive(Debug)]
 pub enum PersistentOrMem<P, M> {
@@ -53,20 +42,11 @@ pub enum PersistentOrMem<P, M> {
 impl<P, M> ConnectionExt for PersistentOrMem<P, M>
 where
     P: ConnectionExt,
-    M: ConnectionExt<Connection = P::Connection>,
+    M: ConnectionExt,
 {
-    type Connection = P::Connection;
-
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
-        match self {
-            Self::Persistent(p) => p.start_transaction(),
-            Self::Mem(m) => m.start_transaction(),
-        }
-    }
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         match self {
@@ -77,7 +57,7 @@ where
 
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         match self {
@@ -86,10 +66,17 @@ where
         }
     }
 
-    fn is_in_transaction(&self) -> bool {
+    fn disconnect(&self) -> Result<(), crate::ConnectionError> {
         match self {
-            Self::Persistent(p) => p.is_in_transaction(),
-            Self::Mem(m) => m.is_in_transaction(),
+            Self::Persistent(p) => p.disconnect(),
+            Self::Mem(m) => m.disconnect(),
+        }
+    }
+
+    fn reconnect(&self) -> Result<(), crate::ConnectionError> {
+        match self {
+            Self::Persistent(p) => p.reconnect(),
+            Self::Mem(m) => m.reconnect(),
         }
     }
 }

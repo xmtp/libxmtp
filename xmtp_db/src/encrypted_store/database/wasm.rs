@@ -2,16 +2,12 @@
 //! Stores a single connection behind a mutex that's used for every libxmtp operation
 use crate::DbConnection;
 use crate::PersistentOrMem;
-use crate::{ConnectionExt, StorageOption, TransactionGuard, XmtpDb};
-use diesel::{connection::TransactionManager, prelude::SqliteConnection};
-use diesel::{
-    connection::{AnsiTransactionManager, SimpleConnection},
-    prelude::*,
-};
+use crate::{ConnectionExt, StorageOption, XmtpDb};
+use diesel::prelude::SqliteConnection;
+use diesel::{connection::SimpleConnection, prelude::*};
 use parking_lot::Mutex;
-use sqlite_wasm_rs::export::OpfsSAHPoolCfg;
+use sqlite_wasm_rs::sahpool_vfs::OpfsSAHPoolCfg;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use web_sys::wasm_bindgen::JsCast;
 
@@ -37,13 +33,13 @@ impl xmtp_common::RetryableError for PlatformStorageError {
 
 #[derive(Clone)]
 pub struct WasmDb {
-    conn: super::DefaultConnection,
+    conn: Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>,
     opts: StorageOption,
 }
 
 pub static SQLITE: tokio::sync::OnceCell<Result<OpfsSAHPoolUtil, String>> =
     tokio::sync::OnceCell::const_new();
-pub use sqlite_wasm_rs::export::{OpfsSAHError, OpfsSAHPoolUtil};
+pub use sqlite_wasm_rs::sahpool_vfs::{OpfsSAHError, OpfsSAHPoolUtil};
 
 /// Initialize the SQLite WebAssembly Library
 /// Generally this should not be required to call, since it
@@ -59,7 +55,7 @@ pub async fn init_sqlite() {
 async fn maybe_resize() -> Result<(), PlatformStorageError> {
     if let Some(Ok(util)) = SQLITE.get() {
         let capacity = util.get_capacity();
-        let used = util.get_file_count();
+        let used = util.count();
         if used >= capacity / 2 {
             let adding = (capacity * 2) - capacity;
             tracing::debug!(
@@ -74,13 +70,13 @@ async fn maybe_resize() -> Result<(), PlatformStorageError> {
 
 async fn init_opfs() -> Result<OpfsSAHPoolUtil, String> {
     let cfg = OpfsSAHPoolCfg {
-        vfs_name: crate::configuration::VFS_NAME.into(),
-        directory: crate::configuration::VFS_DIRECTORY.into(),
+        vfs_name: xmtp_configuration::WASM_VFS_NAME.into(),
+        directory: xmtp_configuration::WASM_VFS_DIRECTORY.into(),
         clear_on_init: false,
         initial_capacity: 6,
     };
 
-    let r = sqlite_wasm_rs::export::install_opfs_sahpool(Some(&cfg), true).await;
+    let r = sqlite_wasm_rs::sahpool_vfs::install(&cfg, true).await;
     if let Err(ref e) = r {
         match e {
             OpfsSAHError::CreateSyncAccessHandle(e) => log_exception(e),
@@ -141,8 +137,6 @@ impl WasmDb {
 
 pub struct WasmDbConnection {
     conn: Arc<Mutex<SqliteConnection>>,
-    transaction_lock: Arc<Mutex<()>>,
-    in_transaction: Arc<AtomicBool>,
     path: String,
 }
 
@@ -151,8 +145,6 @@ impl WasmDbConnection {
         let mut conn = SqliteConnection::establish(path)?;
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
         Ok(Self {
-            transaction_lock: Arc::new(Mutex::new(())),
-            in_transaction: Arc::new(AtomicBool::new(false)),
             conn: Arc::new(Mutex::new(conn)),
             path: path.to_string(),
         })
@@ -165,8 +157,6 @@ impl WasmDbConnection {
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
 
         Ok(Self {
-            transaction_lock: Arc::new(Mutex::new(())),
-            in_transaction: Arc::new(AtomicBool::new(false)),
             conn: Arc::new(Mutex::new(conn)),
             path,
         })
@@ -178,23 +168,9 @@ impl WasmDbConnection {
 }
 
 impl ConnectionExt for WasmDbConnection {
-    type Connection = SqliteConnection;
-
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
-        let guard = self.transaction_lock.lock();
-        let mut c = self.conn.lock();
-        AnsiTransactionManager::begin_transaction(&mut *c)?;
-        self.in_transaction.store(true, Ordering::SeqCst);
-
-        Ok(TransactionGuard {
-            _mutex_guard: guard,
-            in_transaction: self.in_transaction.clone(),
-        })
-    }
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut conn = self.conn.lock();
@@ -203,30 +179,35 @@ impl ConnectionExt for WasmDbConnection {
 
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut conn = self.conn.lock();
         Ok(fun(&mut conn)?)
     }
 
-    fn is_in_transaction(&self) -> bool {
-        self.in_transaction.load(Ordering::SeqCst)
+    fn disconnect(&self) -> Result<(), crate::ConnectionError> {
+        Ok(())
+    }
+
+    fn reconnect(&self) -> Result<(), crate::ConnectionError> {
+        Ok(())
     }
 }
 
 impl XmtpDb for WasmDb {
-    type Connection = super::DefaultConnection;
+    type Connection = Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>;
+    type DbQuery = DbConnection<Self::Connection>;
 
     fn conn(&self) -> Self::Connection {
         self.conn.clone()
     }
 
-    fn db(&self) -> DbConnection<Self::Connection> {
+    fn db(&self) -> Self::DbQuery {
         DbConnection::new(self.conn.clone())
     }
 
-    fn validate(&self, _opts: &StorageOption) -> Result<(), crate::ConnectionError> {
+    fn validate(&self, _c: &mut SqliteConnection) -> Result<(), crate::ConnectionError> {
         Ok(())
     }
 
@@ -253,7 +234,7 @@ mod tests {
 
     pub async fn with_opfs<'a, F, R>(path: impl Into<Option<&'a str>>, f: F) -> R
     where
-        F: FnOnce(crate::DbConnection) -> R,
+        F: FnOnce(crate::DefaultDbConnection) -> R,
     {
         let util = init_opfs().await;
         let o: Option<&'a str> = path.into();
@@ -267,7 +248,7 @@ mod tests {
         let conn = store.conn();
         let r = f(DbConnection::new(conn));
         if let Ok(u) = util {
-            u.wipe_files().await.unwrap();
+            u.clear_all().await.unwrap();
         }
         r
     }
@@ -275,7 +256,7 @@ mod tests {
     #[allow(unused)]
     pub async fn with_opfs_async<'a, F, T, R>(path: impl Into<Option<&'a str>>, f: F) -> R
     where
-        F: FnOnce(crate::DbConnection) -> T,
+        F: FnOnce(crate::DefaultDbConnection) -> T,
         T: Future<Output = R>,
     {
         let util = init_opfs().await;
@@ -290,7 +271,7 @@ mod tests {
         let conn = store.conn();
         let r = f(DbConnection::new(conn)).await;
         if let Ok(u) = util {
-            u.wipe_files().await.unwrap();
+            u.clear_all().await.unwrap();
         }
         r
     }
@@ -318,7 +299,7 @@ mod tests {
         use xmtp_common::tmp_path as path;
         init_sqlite().await;
         if let Some(Ok(util)) = SQLITE.get() {
-            util.wipe_files().await.unwrap();
+            util.clear_all().await.unwrap();
             let current_capacity = util.get_capacity();
             if current_capacity > 6 {
                 util.reduce_capacity(current_capacity - 6).await.unwrap();

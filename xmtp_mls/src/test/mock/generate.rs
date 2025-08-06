@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use xmtp_db::group_message::StoredGroupMessage;
+use xmtp_db::{MemoryStorage, group_message::StoredGroupMessage, sql_key_store::SqlKeyStore};
 use xmtp_proto::{mls_v1::group_message, xmtp::mls::api::v1};
 
 use crate::{
@@ -12,10 +12,10 @@ use super::*;
 use rstest::*;
 
 #[fixture]
-pub fn context() -> MockContext {
+pub fn context() -> NewMockContext {
     let (tx, _) = tokio::sync::broadcast::channel(32);
     let (worker_tx, _) = tokio::sync::broadcast::channel(32);
-    MockContext {
+    XmtpMlsLocalContext {
         identity: Identity::mock_identity(),
         api_client: ApiClientWrapper::new(MockApiClient::new(), Default::default()),
         store: xmtp_db::MockXmtpDb::new(),
@@ -30,6 +30,8 @@ pub fn context() -> MockContext {
             mode: SyncWorkerMode::Disabled,
         },
         workers: WorkerRunner::new(),
+        mls_storage: SqlKeyStore::new(MemoryStorage::new()),
+        sync_api_client: ApiClientWrapper::new(MockApiClient::new(), Default::default()),
     }
 }
 

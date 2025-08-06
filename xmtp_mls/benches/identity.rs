@@ -1,9 +1,9 @@
 use crate::tracing::Instrument;
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use tokio::runtime::{Builder, Runtime};
-use xmtp_common::bench::{self, bench_async_setup, BENCH_ROOT_SPAN};
-use xmtp_id::{associations::builder::SignatureRequest, InboxOwner};
-use xmtp_mls::utils::bench::{clients, BenchClient};
+use xmtp_common::bench::{self, BENCH_ROOT_SPAN, bench_async_setup};
+use xmtp_id::{InboxOwner, associations::builder::SignatureRequest};
+use xmtp_mls::utils::bench::{BenchClient, clients};
 
 #[macro_use]
 extern crate tracing;
@@ -18,7 +18,7 @@ fn setup() -> Runtime {
 }
 
 async fn ecdsa_signature(client: &BenchClient, owner: impl InboxOwner) -> SignatureRequest {
-    let mut signature_request = client.context().signature_request().unwrap();
+    let mut signature_request = client.context.signature_request().unwrap();
     let signature_text = signature_request.signature_text();
     let unverified_signature = owner.sign(&signature_text).unwrap();
     signature_request

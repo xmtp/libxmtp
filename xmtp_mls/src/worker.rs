@@ -1,11 +1,9 @@
-use crate::{
-    configuration::WORKER_RESTART_DELAY, context::XmtpSharedContext,
-    groups::device_sync::worker::SyncMetric,
-};
+use crate::{context::XmtpSharedContext, groups::device_sync::worker::SyncMetric};
 use metrics::WorkerMetrics;
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::{any::Any, collections::HashMap, hash::Hash, sync::Arc};
+use xmtp_configuration::WORKER_RESTART_DELAY;
 
 pub mod metrics;
 
@@ -26,7 +24,7 @@ pub struct WorkerRunner {
 
 impl WorkerRunner {
     pub fn new() -> Self {
-        Self::default()
+        Default::default()
     }
 
     pub fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
@@ -40,9 +38,7 @@ impl WorkerRunner {
 impl WorkerRunner {
     pub fn register_new_worker<W: Worker, C>(&mut self, ctx: C)
     where
-        C: XmtpSharedContext,
-        <C as XmtpSharedContext>::Db: 'static,
-        <C as XmtpSharedContext>::ApiClient: 'static,
+        C: XmtpSharedContext + 'static,
     {
         let factory = W::factory(ctx);
         self.factories.push(Arc::new(factory))
@@ -94,9 +90,7 @@ pub trait Worker {
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
         Self: Sized,
-        C: XmtpSharedContext,
-        <C as XmtpSharedContext>::Db: 'static,
-        <C as XmtpSharedContext>::ApiClient: 'static;
+        C: XmtpSharedContext + Send + Sync + 'static;
 
     /// Box the worker, erasing its type
     fn boxed(self) -> Box<dyn Worker>
@@ -157,9 +151,9 @@ pub trait LocalNeedsDbReconnect: std::error::Error {
     fn needs_db_reconnect(&self) -> bool;
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(WorkerFactory: Send + Sync))]
-#[cfg_attr(target_arch = "wasm32", trait_variant::make(WorkerFactory: xmtp_common::Wasm))]
-pub trait LocalWorkerFactory {
+// #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(WorkerFactory: Send + Sync))]
+// #[cfg_attr(target_arch = "wasm32", trait_variant::make(WorkerFactory: xmtp_common::Wasm))]
+pub trait WorkerFactory: Send + Sync {
     fn kind(&self) -> WorkerKind;
     /// Create a new worker
     fn create(&self, metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>);

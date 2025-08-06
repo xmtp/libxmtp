@@ -1,5 +1,5 @@
 use super::{
-    ConnectionExt, DbConnection,
+    ConnectionExt,
     schema::user_preferences::{self, dsl},
 };
 use crate::{StorageError, Store};
@@ -36,6 +36,7 @@ where
 
 #[derive(Debug)]
 pub struct HmacKey {
+    // TODO: Use xmtp_cryptography::Secret for Zeroize support
     pub key: [u8; 42],
     // # of 30 day periods since unix epoch
     pub epoch: i64,
@@ -48,12 +49,12 @@ impl HmacKey {
 }
 
 impl StoredUserPreferences {
-    pub fn load<C: ConnectionExt>(conn: &DbConnection<C>) -> Result<Self, StorageError> {
+    pub fn load(conn: impl ConnectionExt) -> Result<Self, StorageError> {
         let pref = conn.raw_query_read(|conn| dsl::user_preferences.first(conn).optional())?;
         Ok(pref.unwrap_or_default())
     }
 
-    fn store<C: ConnectionExt>(&self, conn: &DbConnection<C>) -> Result<(), StorageError> {
+    fn store(&self, conn: &impl crate::DbQuery) -> Result<(), StorageError> {
         conn.raw_query_write(|conn| {
             insert_into(dsl::user_preferences)
                 .values(self)
@@ -66,8 +67,8 @@ impl StoredUserPreferences {
         Ok(())
     }
 
-    pub fn store_hmac_key<C: ConnectionExt>(
-        conn: &DbConnection<C>,
+    pub fn store_hmac_key(
+        conn: &impl crate::DbQuery,
         key: &[u8],
         cycled_at: Option<i64>,
     ) -> Result<(), StorageError> {

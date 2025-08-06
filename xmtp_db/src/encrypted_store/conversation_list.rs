@@ -58,8 +58,27 @@ pub struct ConversationListItem {
     pub authority_id: Option<String>,
 }
 
-impl<C: ConnectionExt> DbConnection<C> {
-    pub fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
+pub trait QueryConversationList {
+    fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
+        &self,
+        args: A,
+    ) -> Result<Vec<ConversationListItem>, StorageError>;
+}
+
+impl<T> QueryConversationList for &T
+where
+    T: QueryConversationList,
+{
+    fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
+        &self,
+        args: A,
+    ) -> Result<Vec<ConversationListItem>, StorageError> {
+        (**self).fetch_conversation_list(args)
+    }
+}
+
+impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
+    fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
     ) -> Result<Vec<ConversationListItem>, StorageError> {
@@ -190,6 +209,7 @@ pub(crate) mod tests {
     };
     use crate::group::{GroupMembershipState, GroupQueryArgs};
     use crate::group_message::ContentType;
+    use crate::prelude::*;
     use crate::test_utils::with_connection;
 
     #[xmtp_common::test]
@@ -206,6 +226,7 @@ pub(crate) mod tests {
                     Some(&group.id),
                     Some(i * 1000),
                     Some(ContentType::Text),
+                    None,
                     None,
                 );
 
@@ -248,6 +269,7 @@ pub(crate) mod tests {
                 Some(3000), // Last message timestamp
                 None,
                 None,
+                None,
             );
             message.store(conn).unwrap();
 
@@ -287,6 +309,7 @@ pub(crate) mod tests {
                 Some(1000),
                 Some(ContentType::Text),
                 None,
+                None,
             );
             first_message.store(conn).unwrap();
 
@@ -307,6 +330,7 @@ pub(crate) mod tests {
                 Some(&group.id),
                 Some(2000),
                 Some(ContentType::Text),
+                None,
                 None,
             );
             second_message.store(conn).unwrap();

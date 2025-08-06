@@ -50,8 +50,7 @@ mod test {
         use xmtp_proto::xmtp::identity::api::v1::{
             FILE_DESCRIPTOR_SET, PublishIdentityUpdateRequest,
         };
-        let pnq = crate::path_and_query::<PublishIdentityUpdateRequest>(FILE_DESCRIPTOR_SET);
-        println!("{}", pnq);
+        let _pnq = crate::path_and_query::<PublishIdentityUpdateRequest>(FILE_DESCRIPTOR_SET);
     }
 
     #[xmtp_common::test]

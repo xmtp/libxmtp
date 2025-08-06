@@ -37,10 +37,15 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn create(host: impl ToString, is_secure: bool) -> Result<Self, GrpcBuilderError> {
+    pub async fn create(
+        host: impl ToString,
+        is_secure: bool,
+        app_version: Option<impl ToString>,
+    ) -> Result<Self, GrpcBuilderError> {
         let mut b = Self::builder();
         b.set_tls(is_secure);
         b.set_host(host.to_string());
+        b.set_app_version(app_version.map_or("0.0.0".to_string(), |v| v.to_string()))?;
         b.build().await
     }
 
@@ -109,9 +114,9 @@ impl ApiBuilder for ClientBuilder {
     async fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
         let channel = match self.tls_channel {
-            true => create_tls_channel(host, self.limit.unwrap_or(1900)).await?,
+            true => create_tls_channel(host, self.limit.unwrap_or(5000)).await?,
             false => {
-                apply_channel_options(Channel::from_shared(host)?, self.limit.unwrap_or(1900))
+                apply_channel_options(Channel::from_shared(host)?, self.limit.unwrap_or(5000))
                     .connect()
                     .await?
             }
@@ -337,10 +342,10 @@ mod test {
         }
 
         fn create_local_payer() -> Self::Builder {
-            let mut client = Client::builder();
-            client.set_host("http://localhost:5050".into());
-            client.set_tls(false);
-            client
+            let mut payer = Client::builder();
+            payer.set_host("http://localhost:5052".into());
+            payer.set_tls(false);
+            payer
         }
 
         fn create_dev() -> Self::Builder {

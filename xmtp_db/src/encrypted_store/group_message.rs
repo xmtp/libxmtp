@@ -261,9 +261,185 @@ impl MsgQueryArgs {
     }
 }
 
-impl<C: ConnectionExt> DbConnection<C> {
+pub trait QueryGroupMessage {
+    fn get_latest_sequence_id_for_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<i64>, crate::ConnectionError>;
+
     /// Query for group messages
-    pub fn get_group_messages(
+    fn get_group_messages(
+        &self,
+        group_id: &[u8],
+        args: &MsgQueryArgs,
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
+
+    fn group_messages_paged(
+        &self,
+        args: &MsgQueryArgs,
+        offset: i64,
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
+
+    /// Query for group messages with their reactions
+    fn get_group_messages_with_reactions(
+        &self,
+        group_id: &[u8],
+        args: &MsgQueryArgs,
+    ) -> Result<Vec<StoredGroupMessageWithReactions>, crate::ConnectionError>;
+
+    /// Get a particular group message
+    fn get_group_message<MessageId: AsRef<[u8]>>(
+        &self,
+        id: MessageId,
+    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
+
+    /// Get a particular group message using the write connection
+    fn write_conn_get_group_message<MessageId: AsRef<[u8]>>(
+        &self,
+        id: MessageId,
+    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
+
+    fn get_group_message_by_timestamp<GroupId: AsRef<[u8]>>(
+        &self,
+        group_id: GroupId,
+        timestamp: i64,
+    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
+
+    fn get_group_message_by_sequence_id<GroupId: AsRef<[u8]>>(
+        &self,
+        group_id: GroupId,
+        sequence_id: i64,
+    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
+
+    fn get_sync_group_messages(
+        &self,
+        group_id: &[u8],
+        offset: i64,
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
+
+    fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
+        &self,
+        msg_id: &MessageId,
+        timestamp: u64,
+        sequence_id: i64,
+        message_expire_at_ns: Option<i64>,
+    ) -> Result<usize, crate::ConnectionError>;
+
+    fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(
+        &self,
+        msg_id: &MessageId,
+    ) -> Result<usize, crate::ConnectionError>;
+
+    fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError>;
+}
+
+impl<T> QueryGroupMessage for &T
+where
+    T: QueryGroupMessage,
+{
+    fn get_latest_sequence_id_for_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<i64>, crate::ConnectionError> {
+        (**self).get_latest_sequence_id_for_group(group_id)
+    }
+
+    /// Query for group messages
+    fn get_group_messages(
+        &self,
+        group_id: &[u8],
+        args: &MsgQueryArgs,
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+        (**self).get_group_messages(group_id, args)
+    }
+
+    fn group_messages_paged(
+        &self,
+        args: &MsgQueryArgs,
+        offset: i64,
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+        (**self).group_messages_paged(args, offset)
+    }
+
+    /// Query for group messages with their reactions
+    fn get_group_messages_with_reactions(
+        &self,
+        group_id: &[u8],
+        args: &MsgQueryArgs,
+    ) -> Result<Vec<StoredGroupMessageWithReactions>, crate::ConnectionError> {
+        (**self).get_group_messages_with_reactions(group_id, args)
+    }
+
+    /// Get a particular group message
+    fn get_group_message<MessageId: AsRef<[u8]>>(
+        &self,
+        id: MessageId,
+    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+        (**self).get_group_message(id)
+    }
+
+    /// Get a particular group message using the write connection
+    fn write_conn_get_group_message<MessageId: AsRef<[u8]>>(
+        &self,
+        id: MessageId,
+    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+        (**self).write_conn_get_group_message(id)
+    }
+
+    fn get_group_message_by_timestamp<GroupId: AsRef<[u8]>>(
+        &self,
+        group_id: GroupId,
+        timestamp: i64,
+    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+        (**self).get_group_message_by_timestamp(group_id, timestamp)
+    }
+
+    fn get_group_message_by_sequence_id<GroupId: AsRef<[u8]>>(
+        &self,
+        group_id: GroupId,
+        sequence_id: i64,
+    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+        (**self).get_group_message_by_sequence_id(group_id, sequence_id)
+    }
+
+    fn get_sync_group_messages(
+        &self,
+        group_id: &[u8],
+        offset: i64,
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+        (**self).get_sync_group_messages(group_id, offset)
+    }
+
+    fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
+        &self,
+        msg_id: &MessageId,
+        timestamp: u64,
+        sequence_id: i64,
+        message_expire_at_ns: Option<i64>,
+    ) -> Result<usize, crate::ConnectionError> {
+        (**self).set_delivery_status_to_published(
+            msg_id,
+            timestamp,
+            sequence_id,
+            message_expire_at_ns,
+        )
+    }
+
+    fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(
+        &self,
+        msg_id: &MessageId,
+    ) -> Result<usize, crate::ConnectionError> {
+        (**self).set_delivery_status_to_failed(msg_id)
+    }
+
+    fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError> {
+        (**self).delete_expired_messages()
+    }
+}
+
+impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
+    /// Query for group messages
+    fn get_group_messages(
         &self,
         group_id: &[u8],
         args: &MsgQueryArgs,
@@ -369,7 +545,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(messages)
     }
 
-    pub fn group_messages_paged(
+    fn group_messages_paged(
         &self,
         args: &MsgQueryArgs,
         offset: i64,
@@ -401,7 +577,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     }
 
     /// Query for group messages with their reactions
-    pub fn get_group_messages_with_reactions(
+    fn get_group_messages_with_reactions(
         &self,
         group_id: &[u8],
         args: &MsgQueryArgs,
@@ -479,7 +655,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     }
 
     /// Get a particular group message
-    pub fn get_group_message<MessageId: AsRef<[u8]>>(
+    fn get_group_message<MessageId: AsRef<[u8]>>(
         &self,
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
@@ -492,7 +668,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     }
 
     /// Get a particular group message using the write connection
-    pub fn write_conn_get_group_message<MessageId: AsRef<[u8]>>(
+    fn write_conn_get_group_message<MessageId: AsRef<[u8]>>(
         &self,
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
@@ -504,7 +680,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         })
     }
 
-    pub fn get_group_message_by_timestamp<GroupId: AsRef<[u8]>>(
+    fn get_group_message_by_timestamp<GroupId: AsRef<[u8]>>(
         &self,
         group_id: GroupId,
         timestamp: i64,
@@ -518,7 +694,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         })
     }
 
-    pub fn get_group_message_by_sequence_id<GroupId: AsRef<[u8]>>(
+    fn get_group_message_by_sequence_id<GroupId: AsRef<[u8]>>(
         &self,
         group_id: GroupId,
         sequence_id: i64,
@@ -532,7 +708,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         })
     }
 
-    pub fn get_sync_group_messages(
+    fn get_sync_group_messages(
         &self,
         group_id: &[u8],
         offset: i64,
@@ -546,7 +722,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         self.raw_query_write(|conn| query.load(conn))
     }
 
-    pub fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
+    fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
         &self,
         msg_id: &MessageId,
         timestamp: u64,
@@ -566,7 +742,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         })
     }
 
-    pub fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(
+    fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(
         &self,
         msg_id: &MessageId,
     ) -> Result<usize, crate::ConnectionError> {
@@ -578,7 +754,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         })
     }
 
-    pub fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError> {
+    fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError> {
         self.raw_query_write(|conn| {
             use diesel::prelude::*;
             let now = now_ns();
@@ -591,6 +767,25 @@ impl<C: ConnectionExt> DbConnection<C> {
                     .filter(dsl::expire_at_ns.le(now)),
             )
             .execute(conn)
+        })
+    }
+
+    fn get_latest_sequence_id_for_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<i64>, crate::ConnectionError> {
+        use crate::schema::group_messages::dsl;
+
+        self.raw_query_read(|conn| {
+            dsl::group_messages
+                .filter(dsl::group_id.eq(group_id))
+                .filter(dsl::sequence_id.is_not_null())
+                .select(dsl::sequence_id)
+                .order(dsl::sequence_id.desc())
+                .limit(1)
+                .first::<Option<i64>>(conn)
+                .optional()
+                .map(|opt| opt.flatten())
         })
     }
 }

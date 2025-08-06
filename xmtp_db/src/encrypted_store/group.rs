@@ -22,6 +22,9 @@ mod convert;
 mod dms;
 mod version;
 
+pub use dms::QueryDms;
+pub use version::QueryGroupVersion;
+
 pub type ID = Vec<u8>;
 
 #[derive(
@@ -81,6 +84,16 @@ pub struct StoredGroup {
     /// Whether the user should publish the commit log for this group
     #[builder(default = false)]
     pub should_publish_commit_log: bool,
+    #[builder(default = None)]
+    pub commit_log_public_key: Option<Vec<u8>>,
+}
+
+/// A subset of the group table for fetching the commit log public key
+#[derive(Queryable)]
+#[diesel(table_name = groups)]
+pub struct StoredGroupCommitLogPublicKey {
+    pub id: Vec<u8>,
+    pub commit_log_public_key: Option<Vec<u8>>,
 }
 
 // TODO: Create two more structs that delegate to StoredGroup
@@ -103,8 +116,8 @@ impl StoredGroup {
         StoredGroupBuilder::default()
     }
 
-    pub fn create_sync_group<C: ConnectionExt>(
-        conn: &DbConnection<C>,
+    pub fn create_sync_group(
+        conn: &impl crate::DbQuery,
         id: ID,
         created_at_ns: i64,
         membership_state: GroupMembershipState,
@@ -144,9 +157,231 @@ impl AsRef<GroupQueryArgs> for GroupQueryArgs {
     }
 }
 
-impl<C: ConnectionExt> DbConnection<C> {
+pub trait QueryGroup {
     /// Return regular [`Purpose::Conversation`] groups with additional optional filters
-    pub fn find_groups<A: AsRef<GroupQueryArgs>>(
+    fn find_groups<A: AsRef<GroupQueryArgs>>(
+        &self,
+        args: A,
+    ) -> Result<Vec<StoredGroup>, crate::ConnectionError>;
+
+    fn find_groups_by_id_paged<A: AsRef<GroupQueryArgs>>(
+        &self,
+        args: A,
+        offset: i64,
+    ) -> Result<Vec<StoredGroup>, crate::ConnectionError>;
+
+    /// Updates group membership state
+    fn update_group_membership<GroupId: AsRef<[u8]>>(
+        &self,
+        group_id: GroupId,
+        state: GroupMembershipState,
+    ) -> Result<(), crate::ConnectionError>;
+
+    fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError>;
+
+    fn find_sync_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, crate::ConnectionError>;
+
+    fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError>;
+
+    /// Return a single group that matches the given ID
+    fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, crate::ConnectionError>;
+
+    /// Return a single group that matches the given welcome ID
+    fn find_group_by_welcome_id(
+        &self,
+        welcome_id: i64,
+    ) -> Result<Option<StoredGroup>, crate::ConnectionError>;
+
+    fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError>;
+
+    /// Updates the 'last time checked' we checked for new installations.
+    fn update_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<(), StorageError>;
+
+    fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError>;
+
+    /// Updates the 'last time checked' we checked for new installations.
+    fn update_installations_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError>;
+
+    fn update_message_disappearing_from_ns(
+        &self,
+        group_id: Vec<u8>,
+        from_ns: Option<i64>,
+    ) -> Result<(), StorageError>;
+
+    fn update_message_disappearing_in_ns(
+        &self,
+        group_id: Vec<u8>,
+        in_ns: Option<i64>,
+    ) -> Result<(), StorageError>;
+
+    fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError>;
+
+    /// Get all the welcome ids turned into groups
+    fn group_welcome_ids(&self) -> Result<Vec<i64>, crate::ConnectionError>;
+
+    fn mark_group_as_maybe_forked(
+        &self,
+        group_id: &[u8],
+        fork_details: String,
+    ) -> Result<(), StorageError>;
+
+    fn clear_fork_flag_for_group(&self, group_id: &[u8]) -> Result<(), crate::ConnectionError>;
+
+    fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError>;
+
+    /// Get conversation IDs for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
+    fn get_conversation_ids_for_remote_log_publish(
+        &self,
+    ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
+
+    /// Get conversation IDs for all conversations that require a remote commit log download (DMs and groups that are not sync groups)
+    fn get_conversation_ids_for_remote_log_download(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+
+    fn get_conversation_type(
+        &self,
+        group_id: &[u8],
+    ) -> Result<ConversationType, crate::ConnectionError>;
+}
+
+impl<T> QueryGroup for &T
+where
+    T: QueryGroup,
+{
+    /// Return regular [`Purpose::Conversation`] groups with additional optional filters
+    fn find_groups<A: AsRef<GroupQueryArgs>>(
+        &self,
+        args: A,
+    ) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
+        (**self).find_groups(args)
+    }
+
+    fn find_groups_by_id_paged<A: AsRef<GroupQueryArgs>>(
+        &self,
+        args: A,
+        offset: i64,
+    ) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
+        (**self).find_groups_by_id_paged(args, offset)
+    }
+
+    /// Updates group membership state
+    fn update_group_membership<GroupId: AsRef<[u8]>>(
+        &self,
+        group_id: GroupId,
+        state: GroupMembershipState,
+    ) -> Result<(), crate::ConnectionError> {
+        (**self).update_group_membership(group_id, state)
+    }
+
+    fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
+        (**self).all_sync_groups()
+    }
+
+    fn find_sync_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+        (**self).find_sync_group(id)
+    }
+
+    fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+        (**self).primary_sync_group()
+    }
+
+    /// Return a single group that matches the given ID
+    fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+        (**self).find_group(id)
+    }
+
+    /// Return a single group that matches the given welcome ID
+    fn find_group_by_welcome_id(
+        &self,
+        welcome_id: i64,
+    ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+        (**self).find_group_by_welcome_id(welcome_id)
+    }
+
+    fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
+        (**self).get_rotated_at_ns(group_id)
+    }
+
+    /// Updates the 'last time checked' we checked for new installations.
+    fn update_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
+        (**self).update_rotated_at_ns(group_id)
+    }
+
+    fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
+        (**self).get_installations_time_checked(group_id)
+    }
+
+    /// Updates the 'last time checked' we checked for new installations.
+    fn update_installations_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
+        (**self).update_installations_time_checked(group_id)
+    }
+
+    fn update_message_disappearing_from_ns(
+        &self,
+        group_id: Vec<u8>,
+        from_ns: Option<i64>,
+    ) -> Result<(), StorageError> {
+        (**self).update_message_disappearing_from_ns(group_id, from_ns)
+    }
+
+    fn update_message_disappearing_in_ns(
+        &self,
+        group_id: Vec<u8>,
+        in_ns: Option<i64>,
+    ) -> Result<(), StorageError> {
+        (**self).update_message_disappearing_in_ns(group_id, in_ns)
+    }
+
+    fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
+        (**self).insert_or_replace_group(group)
+    }
+
+    /// Get all the welcome ids turned into groups
+    fn group_welcome_ids(&self) -> Result<Vec<i64>, crate::ConnectionError> {
+        (**self).group_welcome_ids()
+    }
+
+    fn mark_group_as_maybe_forked(
+        &self,
+        group_id: &[u8],
+        fork_details: String,
+    ) -> Result<(), StorageError> {
+        (**self).mark_group_as_maybe_forked(group_id, fork_details)
+    }
+
+    fn clear_fork_flag_for_group(&self, group_id: &[u8]) -> Result<(), crate::ConnectionError> {
+        (**self).clear_fork_flag_for_group(group_id)
+    }
+
+    fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError> {
+        (**self).has_duplicate_dm(group_id)
+    }
+
+    /// Get conversation IDs for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
+    fn get_conversation_ids_for_remote_log_publish(
+        &self,
+    ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
+        (**self).get_conversation_ids_for_remote_log_publish()
+    }
+
+    fn get_conversation_ids_for_remote_log_download(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+        (**self).get_conversation_ids_for_remote_log_download()
+    }
+
+    fn get_conversation_type(
+        &self,
+        group_id: &[u8],
+    ) -> Result<ConversationType, crate::ConnectionError> {
+        (**self).get_conversation_type(group_id)
+    }
+}
+
+impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
+    /// Return regular [`Purpose::Conversation`] groups with additional optional filters
+    fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
     ) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
@@ -277,7 +512,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(groups)
     }
 
-    pub fn find_groups_by_id_paged<A: AsRef<GroupQueryArgs>>(
+    fn find_groups_by_id_paged<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
         offset: i64,
@@ -307,7 +542,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     }
 
     /// Updates group membership state
-    pub fn update_group_membership<GroupId: AsRef<[u8]>>(
+    fn update_group_membership<GroupId: AsRef<[u8]>>(
         &self,
         group_id: GroupId,
         state: GroupMembershipState,
@@ -321,7 +556,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(())
     }
 
-    pub fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
+    fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
@@ -329,10 +564,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         self.raw_query_read(|conn| query.load(conn))
     }
 
-    pub fn find_sync_group(
-        &self,
-        id: &[u8],
-    ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+    fn find_sync_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
             .filter(dsl::id.eq(id));
@@ -340,7 +572,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         self.raw_query_read(|conn| query.first(conn).optional())
     }
 
-    pub fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+    fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
@@ -349,7 +581,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     }
 
     /// Return a single group that matches the given ID
-    pub fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+    fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.asc())
             .limit(1)
@@ -360,7 +592,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     }
 
     /// Return a single group that matches the given welcome ID
-    pub fn find_group_by_welcome_id(
+    fn find_group_by_welcome_id(
         &self,
         welcome_id: i64,
     ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
@@ -379,7 +611,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(groups.into_iter().next())
     }
 
-    pub fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
+    fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
         let last_ts: Option<i64> = self.raw_query_read(|conn| {
             dsl::groups
                 .find(&group_id)
@@ -394,7 +626,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    pub fn update_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
+    fn update_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
             let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))
@@ -405,7 +637,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(())
     }
 
-    pub fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
+    fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
         let last_ts = self.raw_query_read(|conn| {
             dsl::groups
                 .find(&group_id)
@@ -418,7 +650,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    pub fn update_installations_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
+    fn update_installations_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
             let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))
@@ -429,7 +661,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(())
     }
 
-    pub fn update_message_disappearing_from_ns(
+    fn update_message_disappearing_from_ns(
         &self,
         group_id: Vec<u8>,
         from_ns: Option<i64>,
@@ -443,7 +675,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(())
     }
 
-    pub fn update_message_disappearing_in_ns(
+    fn update_message_disappearing_in_ns(
         &self,
         group_id: Vec<u8>,
         in_ns: Option<i64>,
@@ -457,7 +689,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(())
     }
 
-    pub fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
+    fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
         tracing::info!("Trying to insert group");
         let maybe_inserted_group: Option<StoredGroup> = self.raw_query_write(|conn| {
             diesel::insert_into(dsl::groups)
@@ -511,7 +743,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     }
 
     /// Get all the welcome ids turned into groups
-    pub fn group_welcome_ids(&self) -> Result<Vec<i64>, crate::ConnectionError> {
+    fn group_welcome_ids(&self) -> Result<Vec<i64>, crate::ConnectionError> {
         self.raw_query_read(|conn| {
             Ok(dsl::groups
                 .filter(dsl::welcome_id.is_not_null())
@@ -523,9 +755,9 @@ impl<C: ConnectionExt> DbConnection<C> {
         })
     }
 
-    pub fn mark_group_as_maybe_forked(
+    fn mark_group_as_maybe_forked(
         &self,
-        group_id: &Vec<u8>,
+        group_id: &[u8],
         fork_details: String,
     ) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
@@ -540,10 +772,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(())
     }
 
-    pub fn clear_fork_flag_for_group(
-        &self,
-        group_id: &Vec<u8>,
-    ) -> Result<(), crate::ConnectionError> {
+    fn clear_fork_flag_for_group(&self, group_id: &[u8]) -> Result<(), crate::ConnectionError> {
         self.raw_query_write(|conn| {
             diesel::update(dsl::groups.find(&group_id))
                 .set((dsl::maybe_forked.eq(false), dsl::fork_details.eq("")))
@@ -552,7 +781,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(())
     }
 
-    pub fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError> {
+    fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError> {
         self.raw_query_read(|conn| {
             let dm_id: Option<String> = dsl::groups
                 .filter(dsl::id.eq(group_id))
@@ -575,10 +804,11 @@ impl<C: ConnectionExt> DbConnection<C> {
         })
     }
 
-    /// Get conversation IDs for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
-    pub fn get_conversation_ids_for_remote_log(
+    /// Get conversation IDs for all conversations that require a remote commit log publish
+    /// (DMs and groups where user is super admin, excluding sync groups and rejected groups)
+    fn get_conversation_ids_for_remote_log_publish(
         &self,
-    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+    ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(
                 dsl::conversation_type
@@ -587,10 +817,32 @@ impl<C: ConnectionExt> DbConnection<C> {
                         .eq(ConversationType::Group)
                         .and(dsl::should_publish_commit_log.eq(true))),
             )
-            .select(dsl::id)
+            .select((dsl::id, dsl::commit_log_public_key))
             .order(dsl::created_at_ns.asc());
 
+        self.raw_query_read(|conn| query.load::<StoredGroupCommitLogPublicKey>(conn))
+    }
+
+    // All dms and groups that are note sync groups or rejected
+    fn get_conversation_ids_for_remote_log_download(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+        let query = dsl::groups
+            .filter(dsl::conversation_type.ne(ConversationType::Sync))
+            .select(dsl::id);
+
         self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
+    }
+
+    fn get_conversation_type(
+        &self,
+        group_id: &[u8],
+    ) -> Result<ConversationType, crate::ConnectionError> {
+        let query = dsl::groups
+            .filter(dsl::id.eq(group_id))
+            .select(dsl::conversation_type);
+        let conversation_type = self.raw_query_read(|conn| query.first(conn))?;
+        Ok(conversation_type)
     }
 }
 
@@ -1141,6 +1393,34 @@ pub(crate) mod tests {
             assert!(returned_ids.contains(&&allowed_group.id));
             assert!(returned_ids.contains(&&unknown_group.id));
             assert!(!returned_ids.contains(&&denied_group.id));
+        })
+        .await
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_get_conversation_ids_for_remote_log_publish() {
+        with_connection(|conn| {
+            let mut group1 = generate_group(None);
+            let mut group2 = generate_group(None);
+            let mut group3 = generate_group(None);
+            group1.should_publish_commit_log = true;
+            group1.commit_log_public_key = None;
+            group2.should_publish_commit_log = true;
+            group2.commit_log_public_key = Some(rand_vec::<32>());
+            group3.should_publish_commit_log = false;
+            group1.store(conn)?;
+            group2.store(conn)?;
+            group3.store(conn)?;
+
+            let commit_log_keys = conn.get_conversation_ids_for_remote_log_publish().unwrap();
+            assert_eq!(commit_log_keys.len(), 2);
+            assert_eq!(commit_log_keys[0].id, group1.id);
+            assert_eq!(commit_log_keys[1].id, group2.id);
+            assert_eq!(commit_log_keys[0].commit_log_public_key, None);
+            assert_eq!(
+                commit_log_keys[1].commit_log_public_key,
+                group2.commit_log_public_key
+            );
         })
         .await
     }

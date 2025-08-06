@@ -1,5 +1,6 @@
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::consent_record::{ConsentState, ConsentType};
+use xmtp_db::prelude::*;
 
 use crate::tester;
 
@@ -49,7 +50,7 @@ async fn test_dm_welcome_with_preexisting_consent() {
         ConsentState::Allowed,
         hex::encode(&a_group.group_id),
     );
-    bo2.context().db().insert_newer_consent_record(cr)?;
+    bo2.context.db().insert_newer_consent_record(cr)?;
     // Now bo2 processes the welcome
     bo1.find_or_create_dm_by_inbox_id(alix.inbox_id(), None)
         .await?

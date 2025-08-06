@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use super::ApiClientWrapper;
 use crate::{Result, XmtpApi};
-use prost::Message;
 use xmtp_common::retry_async;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1::{
@@ -17,7 +16,6 @@ use xmtp_proto::xmtp::mls::api::v1::{
     SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
     UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
-use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 // the max page size for queries
 const MAX_PAGE_SIZE: u32 = 100;
 
@@ -374,15 +372,10 @@ where
             .map_err(crate::dyn_err)
     }
 
-    pub async fn publish_commit_log(&self, commit_log: &[PlaintextCommitLogEntry]) -> Result<()> {
+    pub async fn publish_commit_log(&self, requests: Vec<PublishCommitLogRequest>) -> Result<()> {
         tracing::debug!(inbox_id = self.inbox_id, "publishing commit log");
         self.api_client
-            .publish_commit_log(BatchPublishCommitLogRequest {
-                requests: commit_log
-                    .iter()
-                    .map(convert_plaintext_to_publish_request)
-                    .collect(),
-            })
+            .publish_commit_log(BatchPublishCommitLogRequest { requests })
             .await
             .map_err(crate::dyn_err)
     }
@@ -402,16 +395,6 @@ where
             .responses;
 
         Ok(responses)
-    }
-}
-
-/// TODO(cvoell): Encrypt the commit log entry instead of just encoding to bytes
-pub fn convert_plaintext_to_publish_request(
-    entry: &PlaintextCommitLogEntry,
-) -> PublishCommitLogRequest {
-    PublishCommitLogRequest {
-        group_id: entry.group_id.clone(),
-        encrypted_commit_log_entry: entry.encode_to_vec(),
     }
 }
 

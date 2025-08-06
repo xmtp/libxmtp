@@ -1,21 +1,19 @@
 //! Stream message processor that uses Syning to handle out of order messages
-use std::sync::Arc;
 
 use super::ProcessedMessage;
-use crate::subscriptions::process_message::MessageIdentifierBuilder;
-use crate::{context::XmtpContextProvider, subscriptions::SubscribeError};
-use crate::{
-    context::XmtpMlsLocalContext,
-    groups::{
-        mls_sync::GroupMessageProcessingError,
-        summary::{MessageIdentifier, SyncSummary},
-        MlsGroup,
-    },
+use crate::context::XmtpSharedContext;
+use crate::groups::{
+    MlsGroup,
+    mls_sync::GroupMessageProcessingError,
+    summary::{MessageIdentifier, SyncSummary},
 };
+use crate::subscriptions::SubscribeError;
+use crate::subscriptions::process_message::MessageIdentifierBuilder;
 use tracing::Instrument;
-use xmtp_api::XmtpApi;
-use xmtp_common::{retry_async, Retry};
-use xmtp_db::{group_message::StoredGroupMessage, refresh_state::EntityKind, StorageError, XmtpDb};
+use xmtp_common::{Retry, retry_async};
+use xmtp_db::group::ConversationType;
+use xmtp_db::prelude::*;
+use xmtp_db::{StorageError, group_message::StoredGroupMessage, refresh_state::EntityKind};
 use xmtp_proto::mls_v1::group_message;
 
 #[cfg_attr(test, mockall::automock)]
@@ -33,18 +31,17 @@ pub trait GroupDatabase {
 }
 
 #[derive(Clone)]
-pub struct GroupDb<ApiClient, Db>(Arc<XmtpMlsLocalContext<ApiClient, Db>>);
+pub struct GroupDb<Context>(Context);
 
-impl<ApiClient, Db> GroupDb<ApiClient, Db> {
-    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+impl<Context> GroupDb<Context> {
+    pub fn new(context: Context) -> Self {
         Self(context)
     }
 }
 
-impl<ApiClient, Db> GroupDatabase for GroupDb<ApiClient, Db>
+impl<Context> GroupDatabase for GroupDb<Context>
 where
-    Db: XmtpDb,
-    ApiClient: XmtpApi,
+    Context: XmtpSharedContext,
 {
     fn last_cursor(&self, group_id: &[u8]) -> Result<i64, StorageError> {
         self.0
@@ -79,17 +76,16 @@ pub trait Sync {
 }
 
 #[derive(Clone)]
-pub struct Syncer<ApiClient, Db>(Arc<XmtpMlsLocalContext<ApiClient, Db>>);
-impl<ApiClient, Db> Syncer<ApiClient, Db> {
-    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+pub struct Syncer<Context>(Context);
+impl<Context> Syncer<Context> {
+    pub fn new(context: Context) -> Self {
         Self(context)
     }
 }
 
-impl<ApiClient, Db> Sync for Syncer<ApiClient, Db>
+impl<Context> Sync for Syncer<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     async fn process(&self, msg: &group_message::V1) -> Result<MessageIdentifier, SubscribeError> {
         let (group, _) = MlsGroup::new_cached(self.0.clone(), &msg.group_id)?;
@@ -112,6 +108,7 @@ where
             self.0.clone(),
             msg.group_id.clone(),
             None,
+            ConversationType::Group,
             msg.created_ns as i64,
         );
         match group.sync_with_conn().await {

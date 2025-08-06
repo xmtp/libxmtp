@@ -2,45 +2,39 @@ use super::{
     group_membership::GroupMembership,
     group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
     mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension},
-    GroupError, MlsGroup,
 };
-use crate::{
-    configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
-    track,
-    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-};
+use xmtp_configuration::GROUP_KEY_ROTATION_INTERVAL_NS;
+
+use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use openmls::prelude::{
-    tls_codec::{Error as TlsCodecError, Serialize},
     MlsMessageOut,
+    tls_codec::{Error as TlsCodecError, Serialize},
 };
-use prost::{bytes::Bytes, DecodeError, Message};
+use prost::{DecodeError, Message, bytes::Bytes};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_api::XmtpApi;
 use xmtp_common::types::Address;
-use xmtp_db::{
-    db_connection::DbConnection,
-    group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
-    MlsProviderExt, XmtpDb,
-};
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 use xmtp_proto::xmtp::mls::database::{
+    AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
+    InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
+    UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
     addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
     post_commit_action::{
         Installation as InstallationProto, Kind as PostCommitActionKind,
         SendWelcomes as SendWelcomesProto,
     },
-    send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
-    update_admin_lists_data::{Version as UpdateAdminListsVersion, V1 as UpdateAdminListsV1},
+    send_message_data::{V1 as SendMessageV1, Version as SendMessageVersion},
+    update_admin_lists_data::{V1 as UpdateAdminListsV1, Version as UpdateAdminListsVersion},
     update_group_membership_data::{
-        Version as UpdateGroupMembershipVersion, V1 as UpdateGroupMembershipV1,
+        V1 as UpdateGroupMembershipV1, Version as UpdateGroupMembershipVersion,
     },
-    update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
-    update_permission_data::{self, Version as UpdatePermissionVersion, V1 as UpdatePermissionV1},
-    AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
-    InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
-    UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
+    update_metadata_data::{V1 as UpdateMetadataV1, Version as UpdateMetadataVersion},
+    update_permission_data::{self, V1 as UpdatePermissionV1, Version as UpdatePermissionVersion},
 };
+
+mod queue;
+pub use queue::*;
 
 #[derive(Debug, Error)]
 pub enum IntentError {
@@ -68,73 +62,6 @@ pub enum IntentError {
     UnknownPermissionPolicyOption,
     #[error("unknown value for AdminListActionType")]
     UnknownAdminListAction,
-}
-
-impl<ApiClient, Db> MlsGroup<ApiClient, Db>
-where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
-{
-    pub fn queue_intent(
-        &self,
-        intent_kind: IntentKind,
-        intent_data: Vec<u8>,
-        should_push: bool,
-    ) -> Result<StoredGroupIntent, GroupError> {
-        let provider = self.mls_provider();
-        let res = provider.transaction(|provider| {
-            let conn = provider.db();
-            self.queue_intent_with_conn(conn, intent_kind, intent_data, should_push)
-        });
-
-        res
-    }
-
-    fn queue_intent_with_conn(
-        &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
-        intent_kind: IntentKind,
-        intent_data: Vec<u8>,
-        should_push: bool,
-    ) -> Result<StoredGroupIntent, GroupError> {
-        if intent_kind == IntentKind::SendMessage {
-            self.maybe_insert_key_update_intent(conn)?;
-        }
-
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            intent_kind,
-            self.group_id.clone(),
-            intent_data,
-            should_push,
-        ))?;
-
-        if intent_kind != IntentKind::SendMessage {
-            conn.update_rotated_at_ns(self.group_id.clone())?;
-
-            track!(
-                "Queue Intent",
-                { "intent_kind": intent_kind },
-                group: &self.group_id
-            );
-        }
-        tracing::debug!(inbox_id = self.context.inbox_id(), intent_kind = %intent_kind, "queued intent");
-
-        Ok(intent)
-    }
-
-    #[tracing::instrument(level = "trace", skip_all)]
-    fn maybe_insert_key_update_intent(
-        &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
-    ) -> Result<(), GroupError> {
-        let last_rotated_at_ns = conn.get_rotated_at_ns(self.group_id.clone())?;
-        let now_ns = xmtp_common::time::now_ns();
-        let elapsed_ns = now_ns - last_rotated_at_ns;
-        if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
-            self.queue_intent_with_conn(conn, IntentKind::KeyUpdate, vec![], false)?;
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -817,13 +744,15 @@ impl TryFrom<Vec<u8>> for PostCommitAction {
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use crate::context::XmtpSharedContext;
     use openmls::prelude::{MlsMessageBodyIn, MlsMessageIn, ProcessedMessageContent};
     use tls_codec::Deserialize;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_db::XmtpOpenMlsProviderRef;
 
-    use xmtp_proto::xmtp::mls::api::v1::{group_message, GroupMessage};
+    use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, group_message};
 
-    use crate::{builder::ClientBuilder, context::XmtpContextProvider, utils::ConcreteMlsGroup};
+    use crate::{builder::ClientBuilder, utils::TestMlsGroup};
 
     use super::*;
 
@@ -866,8 +795,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_serialize_update_metadata() {
         let intent = UpdateMetadataIntentData::new_update_group_name("group name".to_string());
         let as_bytes: Vec<u8> = intent.clone().into();
@@ -877,8 +805,7 @@ pub(crate) mod tests {
         assert_eq!(intent.field_value, restored_intent.field_value);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_key_rotation_before_first_message() {
         let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -931,7 +858,7 @@ pub(crate) mod tests {
     }
 
     async fn verify_num_payloads_in_group(
-        group: &ConcreteMlsGroup,
+        group: &TestMlsGroup,
         num_messages: usize,
     ) -> Vec<GroupMessage> {
         let messages = group
@@ -944,7 +871,7 @@ pub(crate) mod tests {
         messages
     }
 
-    fn verify_commit_updates_leaf_node(group: &ConcreteMlsGroup, payload: &GroupMessage) {
+    fn verify_commit_updates_leaf_node(group: &TestMlsGroup, payload: &GroupMessage) {
         let msgv1 = match &payload.version {
             Some(group_message::Version::V1(value)) => value,
             _ => panic!("error msgv1"),
@@ -956,11 +883,11 @@ pub(crate) mod tests {
             _ => panic!("error mls_message"),
         };
 
-        let provider = group.context.mls_provider();
+        let storage = group.context.mls_storage();
         let decrypted_message = group
-            .load_mls_group_with_lock(&provider, |mut mls_group| {
+            .load_mls_group_with_lock(storage, |mut mls_group| {
                 Ok(mls_group
-                    .process_message(&provider, mls_message.clone())
+                    .process_message(&XmtpOpenMlsProviderRef::new(storage), mls_message.clone())
                     .unwrap())
             })
             .unwrap();

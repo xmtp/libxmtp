@@ -1,5 +1,5 @@
-use super::{ConnectionExt, Sqlite, db_connection::DbConnection, schema::refresh_state};
-use crate::{StorageError, StoreOrIgnore, impl_store_or_ignore};
+use std::collections::HashMap;
+
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -15,7 +15,8 @@ use diesel::{
 pub enum EntityKind {
     Welcome = 1,
     Group = 2,
-    PublishedCommitLog = 3,
+    CommitLogUpload = 3, // Last local entry we uploaded to the remote commit log
+    CommitLogDownload = 4, // Last remote entry we downloaded from the remote commit log
 }
 
 impl std::fmt::Display for EntityKind {
@@ -24,7 +25,8 @@ impl std::fmt::Display for EntityKind {
         match self {
             Welcome => write!(f, "welcome"),
             Group => write!(f, "group"),
-            PublishedCommitLog => write!(f, "commit_log"),
+            CommitLogUpload => write!(f, "commit_log_upload"),
+            CommitLogDownload => write!(f, "commit_log_download"),
         }
     }
 }
@@ -47,7 +49,8 @@ where
         match i32::from_sql(bytes)? {
             1 => Ok(EntityKind::Welcome),
             2 => Ok(EntityKind::Group),
-            3 => Ok(EntityKind::PublishedCommitLog),
+            3 => Ok(EntityKind::CommitLogUpload),
+            4 => Ok(EntityKind::CommitLogDownload),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -64,8 +67,68 @@ pub struct RefreshState {
 
 impl_store_or_ignore!(RefreshState, refresh_state);
 
-impl<C: ConnectionExt> DbConnection<C> {
-    pub fn get_refresh_state<EntityId: AsRef<[u8]>>(
+pub trait QueryRefreshState {
+    fn get_refresh_state<EntityId: AsRef<[u8]>>(
+        &self,
+        entity_id: EntityId,
+        entity_kind: EntityKind,
+    ) -> Result<Option<RefreshState>, StorageError>;
+
+    fn get_last_cursor_for_id<Id: AsRef<[u8]>>(
+        &self,
+        id: Id,
+        entity_kind: EntityKind,
+    ) -> Result<i64, StorageError>;
+
+    fn update_cursor<Id: AsRef<[u8]>>(
+        &self,
+        entity_id: Id,
+        entity_kind: EntityKind,
+        cursor: i64,
+    ) -> Result<bool, StorageError>;
+
+    fn get_remote_log_cursors(
+        &self,
+        conversation_ids: &[Vec<u8>],
+    ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError>;
+}
+
+impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
+    fn get_refresh_state<EntityId: AsRef<[u8]>>(
+        &self,
+        entity_id: EntityId,
+        entity_kind: EntityKind,
+    ) -> Result<Option<RefreshState>, StorageError> {
+        (**self).get_refresh_state(entity_id, entity_kind)
+    }
+
+    fn get_last_cursor_for_id<Id: AsRef<[u8]>>(
+        &self,
+        id: Id,
+        entity_kind: EntityKind,
+    ) -> Result<i64, StorageError> {
+        (**self).get_last_cursor_for_id(id, entity_kind)
+    }
+
+    fn update_cursor<Id: AsRef<[u8]>>(
+        &self,
+        entity_id: Id,
+        entity_kind: EntityKind,
+        cursor: i64,
+    ) -> Result<bool, StorageError> {
+        (**self).update_cursor(entity_id, entity_kind, cursor)
+    }
+
+    fn get_remote_log_cursors(
+        &self,
+        conversation_ids: &[Vec<u8>],
+    ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError> {
+        (**self).get_remote_log_cursors(conversation_ids)
+    }
+}
+
+impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
+    fn get_refresh_state<EntityId: AsRef<[u8]>>(
         &self,
         entity_id: EntityId,
         entity_kind: EntityKind,
@@ -81,7 +144,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(res)
     }
 
-    pub fn get_last_cursor_for_id<Id: AsRef<[u8]>>(
+    fn get_last_cursor_for_id<Id: AsRef<[u8]>>(
         &self,
         id: Id,
         entity_kind: EntityKind,
@@ -101,7 +164,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         }
     }
 
-    pub fn update_cursor<Id: AsRef<[u8]>>(
+    fn update_cursor<Id: AsRef<[u8]>>(
         &self,
         entity_id: Id,
         entity_kind: EntityKind,
@@ -143,6 +206,20 @@ impl<C: ConnectionExt> DbConnection<C> {
         });
 
         Ok(result?)
+    }
+
+    fn get_remote_log_cursors(
+        &self,
+        conversation_ids: &[Vec<u8>],
+    ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError> {
+        let mut cursor_map: HashMap<Vec<u8>, i64> = HashMap::new();
+        for conversation_id in conversation_ids {
+            let cursor = self
+                .get_last_cursor_for_id(conversation_id, EntityKind::CommitLogDownload)
+                .unwrap_or(0);
+            cursor_map.insert(conversation_id.clone(), cursor);
+        }
+        Ok(cursor_map)
     }
 }
 

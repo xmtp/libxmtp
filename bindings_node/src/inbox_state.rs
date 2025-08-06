@@ -91,7 +91,7 @@ pub async fn inbox_state_from_inbox_ids(
   host: String,
   inbox_ids: Vec<String>,
 ) -> Result<Vec<InboxState>> {
-  let api_client = TonicApiClient::create(host, true)
+  let api_client = TonicApiClient::create(&host, true, None::<String>)
     .await
     .map_err(ErrorWrapper::from)?;
 
@@ -135,7 +135,7 @@ impl Client {
 
   #[napi]
   pub async fn get_latest_inbox_state(&self, inbox_id: String) -> Result<InboxState> {
-    let conn = self.inner_client().store().db();
+    let conn = self.inner_client().context.store().db();
     let state = self
       .inner_client()
       .identity_updates()

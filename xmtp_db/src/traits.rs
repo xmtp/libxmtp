@@ -1,4 +1,18 @@
+use crate::ConnectionExt;
 use crate::StorageError;
+use crate::association_state::QueryAssociationStateCache;
+use crate::prelude::*;
+
+/// Get an MLS Key store in the context of a transaction
+/// this must only be used within transactions.
+#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Store = crate::sql_key_store::mock::MockSqlKeyStore;))]
+pub trait TransactionalKeyStore {
+    type Store<'a>: XmtpMlsStorageProvider
+    where
+        Self: 'a;
+
+    fn key_store<'a>(&'a mut self) -> Self::Store<'a>;
+}
 
 /// Inserts a model to the underlying data store, erroring if it already exists
 pub trait Store<StorageConnection> {
@@ -39,3 +53,56 @@ pub trait Delete<Model> {
     type Key;
     fn delete(&self, key: Self::Key) -> Result<usize, StorageError>;
 }
+
+pub trait IntoConnection {
+    type Connection: ConnectionExt;
+    fn into_connection(self) -> Self::Connection;
+}
+
+pub trait DbQuery:
+    ReadOnly
+    + QueryConsentRecord
+    + QueryConversationList
+    + QueryDms
+    + QueryGroup
+    + QueryGroupVersion
+    + QueryGroupIntent
+    + QueryGroupMessage
+    + QueryIdentity
+    + QueryIdentityCache
+    + QueryKeyPackageHistory
+    + QueryKeyStoreEntry
+    + QueryDeviceSyncMessages
+    + QueryRefreshState
+    + QueryIdentityUpdates
+    + QueryLocalCommitLog
+    + QueryAssociationStateCache
+    + CheckPragmas
+    + crate::ConnectionExt
+{
+}
+
+impl<T: ?Sized> DbQuery for T where
+    T: ReadOnly
+        + QueryConsentRecord
+        + QueryConversationList
+        + QueryDms
+        + QueryGroup
+        + QueryGroupVersion
+        + QueryGroupIntent
+        + QueryGroupMessage
+        + QueryIdentity
+        + QueryIdentityCache
+        + QueryKeyPackageHistory
+        + QueryKeyStoreEntry
+        + QueryDeviceSyncMessages
+        + QueryRefreshState
+        + QueryIdentityUpdates
+        + QueryLocalCommitLog
+        + QueryAssociationStateCache
+        + CheckPragmas
+        + crate::ConnectionExt
+{
+}
+
+pub use crate::xmtp_openmls_provider::XmtpMlsStorageProvider;

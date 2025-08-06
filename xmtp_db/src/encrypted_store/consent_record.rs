@@ -6,7 +6,7 @@ use super::{
         groups::dsl as groups_dsl,
     },
 };
-use crate::{StorageError, impl_store};
+use crate::{DbQuery, StorageError, impl_store};
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -59,10 +59,7 @@ impl StoredConsentRecord {
 
     /// This function will perform some logic to see if a new group should be auto-consented
     /// or auto-denied based on past consent.
-    pub fn stitch_dm_consent<C: ConnectionExt>(
-        conn: &DbConnection<C>,
-        group: &StoredGroup,
-    ) -> Result<(), StorageError> {
+    pub fn stitch_dm_consent(conn: &impl DbQuery, group: &StoredGroup) -> Result<(), StorageError> {
         if let Some(dm_id) = &group.dm_id {
             let mut past_consent = conn.find_consent_by_dm_id(dm_id)?;
             let Some(last_consent) = past_consent.pop() else {
@@ -83,9 +80,48 @@ impl StoredConsentRecord {
 
 impl_store!(StoredConsentRecord, consent_records);
 
-impl<C: ConnectionExt> DbConnection<C> {
+pub trait QueryConsentRecord {
     /// Returns the consent_records for the given entity up
-    pub fn get_consent_record(
+    fn get_consent_record(
+        &self,
+        entity: String,
+        entity_type: ConsentType,
+    ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError>;
+
+    fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError>;
+
+    fn consent_records_paged(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError>;
+
+    // returns true if newer
+    fn insert_newer_consent_record(
+        &self,
+        record: StoredConsentRecord,
+    ) -> Result<bool, crate::ConnectionError>;
+
+    /// Insert consent_records, and replace existing entries, returns records that are new or changed
+    fn insert_or_replace_consent_records(
+        &self,
+        records: &[StoredConsentRecord],
+    ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError>;
+
+    fn maybe_insert_consent_record_return_existing(
+        &self,
+        record: &StoredConsentRecord,
+    ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError>;
+
+    fn find_consent_by_dm_id(
+        &self,
+        dm_id: &str,
+    ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError>;
+}
+
+impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
+    /// Returns the consent_records for the given entity up
+    fn get_consent_record(
         &self,
         entity: String,
         entity_type: ConsentType,
@@ -99,11 +135,11 @@ impl<C: ConnectionExt> DbConnection<C> {
         })
     }
 
-    pub fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
+    fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
         self.raw_query_read(|conn| super::schema::consent_records::table.load(conn))
     }
 
-    pub fn consent_records_paged(
+    fn consent_records_paged(
         &self,
         limit: i64,
         offset: i64,
@@ -117,7 +153,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     }
 
     // returns true if newer
-    pub fn insert_newer_consent_record(
+    fn insert_newer_consent_record(
         &self,
         record: StoredConsentRecord,
     ) -> Result<bool, crate::ConnectionError> {
@@ -156,7 +192,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     }
 
     /// Insert consent_records, and replace existing entries, returns records that are new or changed
-    pub fn insert_or_replace_consent_records(
+    fn insert_or_replace_consent_records(
         &self,
         records: &[StoredConsentRecord],
     ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
@@ -201,7 +237,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(changed)
     }
 
-    pub fn maybe_insert_consent_record_return_existing(
+    fn maybe_insert_consent_record_return_existing(
         &self,
         record: &StoredConsentRecord,
     ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError> {
@@ -225,7 +261,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         })
     }
 
-    pub fn find_consent_by_dm_id(
+    fn find_consent_by_dm_id(
         &self,
         dm_id: &str,
     ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
@@ -241,6 +277,56 @@ impl<C: ConnectionExt> DbConnection<C> {
                 .select(dsl::consent_records::all_columns())
                 .load::<StoredConsentRecord>(conn)
         })
+    }
+}
+
+impl<T: QueryConsentRecord + ?Sized> QueryConsentRecord for &T {
+    fn get_consent_record(
+        &self,
+        entity: String,
+        entity_type: ConsentType,
+    ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError> {
+        (**self).get_consent_record(entity, entity_type)
+    }
+
+    fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
+        (**self).consent_records()
+    }
+
+    fn consent_records_paged(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
+        (**self).consent_records_paged(limit, offset)
+    }
+
+    fn insert_newer_consent_record(
+        &self,
+        record: StoredConsentRecord,
+    ) -> Result<bool, crate::ConnectionError> {
+        (**self).insert_newer_consent_record(record)
+    }
+
+    fn insert_or_replace_consent_records(
+        &self,
+        records: &[StoredConsentRecord],
+    ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
+        (**self).insert_or_replace_consent_records(records)
+    }
+
+    fn maybe_insert_consent_record_return_existing(
+        &self,
+        record: &StoredConsentRecord,
+    ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError> {
+        (**self).maybe_insert_consent_record_return_existing(record)
+    }
+
+    fn find_consent_by_dm_id(
+        &self,
+        dm_id: &str,
+    ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
+        (**self).find_consent_by_dm_id(dm_id)
     }
 }
 

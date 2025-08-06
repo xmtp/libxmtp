@@ -47,7 +47,6 @@ impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
             .await?;
         client.register_identity(signature_request).await?;
 
-        let provider = client.inner_client.mls_provider();
         let worker = client.inner_client.context.sync_metrics();
 
         if let Some(worker) = &worker {
@@ -59,7 +58,6 @@ impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
         Ok(Tester {
             builder: self.clone(),
             client,
-            provider: Arc::new(provider),
             worker,
             stream_handle: None,
             replace,
@@ -102,7 +100,6 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
             .unwrap();
         client.register_identity(signature_request).await?;
 
-        let provider = client.inner_client.mls_provider();
         let worker = client.inner_client.context.sync_metrics();
 
         if let Some(worker) = &worker {
@@ -114,7 +111,6 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
         Ok(Tester {
             builder: self.clone(),
             client,
-            provider: Arc::new(provider),
             worker,
             stream_handle: None,
             replace,
@@ -143,7 +139,7 @@ impl LocalTester for Tester<PrivateKeySigner, FfiXmtpClient> {
     }
 }
 
-async fn create_raw_client<Owner>(builder: &TesterBuilder<Owner>) -> Arc<FfiXmtpClient>
+async fn create_raw_client<Owner>(builder: &TesterBuilder<Owner>) -> FfiXmtpClient
 where
     Owner: InboxOwner,
 {
@@ -152,7 +148,10 @@ where
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
     let client = create_client(
-        connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+        connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            .await
+            .unwrap(),
+        connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
             .await
             .unwrap(),
         Some(tmp_path()),
@@ -168,7 +167,9 @@ where
     )
     .await
     .unwrap();
-    let conn = client.inner_client.context().db();
+    let client = Arc::into_inner(client)
+        .expect("Client was just created so no other strong references exist");
+    let conn = client.inner_client.context.db();
     conn.register_triggers();
 
     client

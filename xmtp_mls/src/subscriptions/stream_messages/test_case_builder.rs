@@ -5,14 +5,15 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use crate::subscriptions::process_message::ProcessedMessage;
+use crate::test::mock::{MockContext, MockProcessFutureFactory, NewMockContext};
 use crate::test::mock::{context, generate_message, generate_message_and_v1, generate_stored_msg};
-use crate::test::mock::{MockContext, MockProcessFutureFactory};
 use mockall::Sequence;
 use parking_lot::Mutex;
 use pin_project_lite::pin_project;
 use xmtp_api::test_utils::MockGroupStream;
-use xmtp_common::types::GroupId;
 use xmtp_common::FutureWrapper;
+use xmtp_common::types::GroupId;
+
 use xmtp_proto::mls_v1::QueryGroupMessagesResponse;
 
 pin_project! {
@@ -207,7 +208,7 @@ pub struct StreamSequenceBuilder {
     session_counter: usize,
     sessions: HashMap<usize, StreamSession>,
     factory: MockProcessFutureFactory,
-    context: MockContext,
+    context: NewMockContext,
     case_state: Arc<Mutex<CaseState>>,
     process_sequence: Sequence,
 }
@@ -226,7 +227,7 @@ impl Default for StreamSequenceBuilder {
 }
 
 pub struct FinishedSequence {
-    pub context: Arc<MockContext>,
+    pub context: MockContext,
     // dont want to drop them
     #[allow(unused)]
     pub case_state: Arc<Mutex<CaseState>>,
@@ -298,6 +299,17 @@ impl StreamSequenceBuilder {
     }
 
     fn init_session(&mut self, groups: Vec<GroupTestCase>) {
+        // Set up db mock expectation
+        let db_calls = || {
+            let mut mock_db = xmtp_db::mock::MockDbQuery::new();
+            // Set up expectations for commonly called db methods
+            mock_db
+                .expect_get_latest_sequence_id_for_group()
+                .returning(|_| Ok(None));
+            mock_db
+        };
+        self.context.store.expect_db().returning(db_calls);
+
         let times = groups.len();
         self.context
             .api_client
@@ -329,6 +341,7 @@ impl StreamSequenceBuilder {
 
     fn create_session(&mut self, groups: Vec<GroupTestCase>) {
         let times = groups.len();
+
         self.context
             .api_client
             .api_client

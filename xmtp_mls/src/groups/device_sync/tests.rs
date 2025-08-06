@@ -18,7 +18,11 @@ async fn basic_sync() {
     tester!(alix2, from: alix1);
 
     // Have alix2 receive payload and process it
-    alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
+    alix2
+        .worker()
+        .register_interest(SyncMetric::PayloadProcessed, 1)
+        .wait()
+        .await?;
 
     // Ensure the DM is present on the second device.
     let alix2_dm = alix2.group(&dm.group_id)?;
@@ -33,18 +37,25 @@ async fn basic_sync() {
 async fn only_one_payload_sent() {
     use std::time::Duration;
 
-    tester!(alix1, sync_worker, sync_server);
-    tester!(alix2, from: alix1);
-    tester!(alix3, from: alix1);
+    use crate::utils::{LocalTesterBuilder, Tester};
+
+    let alix1 = Tester::builder()
+        .sync_server()
+        .sync_worker()
+        .with_name("alix1")
+        .build()
+        .await;
+    let alix2 = alix1.builder.clone().with_name("alix2").build().await;
+    let alix3 = alix1.builder.clone().with_name("alix3").build().await;
 
     // They should all have the same sync group
     alix1.test_has_same_sync_group_as(&alix3).await?;
     alix2.test_has_same_sync_group_as(&alix3).await?;
 
-    let wait1 = alix1.worker().wait(SyncMetric::PayloadSent, 1);
-    let timeout1 = xmtp_common::time::timeout(Duration::from_secs(3), wait1).await;
-    let wait2 = alix2.worker().wait(SyncMetric::PayloadSent, 1);
-    let timeout2 = xmtp_common::time::timeout(Duration::from_secs(3), wait2).await;
+    let wait1 = alix1.worker().register_interest(SyncMetric::PayloadSent, 1);
+    let timeout1 = xmtp_common::time::timeout(Duration::from_secs(3), wait1.wait()).await;
+    let wait2 = alix2.worker().register_interest(SyncMetric::PayloadSent, 1);
+    let timeout2 = xmtp_common::time::timeout(Duration::from_secs(3), wait2.wait()).await;
 
     // We want one of them to timeout (only one payload sent)
     assert_ne!(timeout1.is_ok(), timeout2.is_ok());
@@ -62,32 +73,55 @@ async fn test_double_sync_works_fine() {
 
     // Pull down the new sync group, triggering a payload to be sent
     alix1.sync_welcomes().await?;
-    alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
-
-    alix2
-        .device_sync_client()
-        .get_sync_group()
-        .await?
-        .sync()
-        .await?;
-    alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
-
-    alix2.device_sync_client().send_sync_request().await?;
     alix1
-        .device_sync_client()
-        .get_sync_group()
-        .await?
-        .sync()
+        .worker()
+        .register_interest(SyncMetric::PayloadSent, 1)
+        .wait()
         .await?;
-    alix1.worker().wait(SyncMetric::PayloadSent, 2).await?;
 
     alix2
+        .context
         .device_sync_client()
         .get_sync_group()
         .await?
         .sync()
         .await?;
-    alix2.worker().wait(SyncMetric::PayloadProcessed, 2).await?;
+    alix2
+        .worker()
+        .register_interest(SyncMetric::PayloadProcessed, 1)
+        .wait()
+        .await?;
+
+    alix2
+        .context
+        .device_sync_client()
+        .send_sync_request()
+        .await?;
+    alix1
+        .context
+        .device_sync_client()
+        .get_sync_group()
+        .await?
+        .sync()
+        .await?;
+    alix1
+        .worker()
+        .register_interest(SyncMetric::PayloadSent, 2)
+        .wait()
+        .await?;
+
+    alix2
+        .context
+        .device_sync_client()
+        .get_sync_group()
+        .await?
+        .sync()
+        .await?;
+    alix2
+        .worker()
+        .register_interest(SyncMetric::PayloadProcessed, 2)
+        .wait()
+        .await?;
 
     // Alix2 should be able to talk fine with bo
     alix2.test_talk_in_dm_with(&bo).await?;
@@ -106,13 +140,29 @@ async fn test_hmac_and_consent_preference_sync() {
 
     alix1.test_has_same_sync_group_as(&alix2).await?;
 
-    alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
+    alix2
+        .worker()
+        .register_interest(SyncMetric::PayloadProcessed, 1)
+        .wait()
+        .await?;
 
-    alix1.worker().wait(SyncMetric::HmacSent, 1).await?;
-    alix1.worker().wait(SyncMetric::HmacReceived, 1).await?;
+    alix1
+        .worker()
+        .register_interest(SyncMetric::HmacSent, 1)
+        .wait()
+        .await?;
+    alix1
+        .worker()
+        .register_interest(SyncMetric::HmacReceived, 1)
+        .wait()
+        .await?;
     let alix1_keys = dm.hmac_keys(-1..=1)?;
 
-    alix2.worker().wait(SyncMetric::HmacReceived, 1).await?;
+    alix2
+        .worker()
+        .register_interest(SyncMetric::HmacReceived, 1)
+        .wait()
+        .await?;
 
     let alix2_dm = alix2.group(&dm.group_id)?;
     let alix2_keys = alix2_dm.hmac_keys(-1..=1)?;
@@ -122,7 +172,11 @@ async fn test_hmac_and_consent_preference_sync() {
 
     // Stream consent
     dm.update_consent_state(ConsentState::Denied)?;
-    alix2.worker().wait(SyncMetric::ConsentReceived, 1).await?;
+    alix2
+        .worker()
+        .register_interest(SyncMetric::ConsentReceived, 1)
+        .wait()
+        .await?;
 
     let alix2_dm = alix2.group(&dm.group_id)?;
     assert_eq!(alix2_dm.consent_state()?, ConsentState::Denied);
@@ -136,7 +190,11 @@ async fn test_hmac_and_consent_preference_sync() {
     assert_eq!(alix1_group.consent_state()?, ConsentState::Unknown);
     alix1_group.update_consent_state(ConsentState::Allowed)?;
 
-    alix2.worker().wait(SyncMetric::ConsentReceived, 2).await?;
+    alix2
+        .worker()
+        .register_interest(SyncMetric::ConsentReceived, 2)
+        .wait()
+        .await?;
     let alix2_group = alix2.group(&bo_group.group_id)?;
     assert_eq!(alix2_group.consent_state()?, ConsentState::Allowed);
 }
@@ -155,7 +213,7 @@ async fn test_only_added_to_correct_groups() {
         .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
         .await?;
     old_group.send_message(b"hi there").await?;
-    alix1.provider.db().raw_query_write(|conn| {
+    alix1.context.db().raw_query_write(|conn| {
         diesel::update(dsl::groups.find(&old_group.group_id))
             .set((dsl::last_message_ns.eq(0), dsl::created_at_ns.eq(0)))
             .execute(conn)
@@ -188,7 +246,8 @@ async fn test_only_added_to_correct_groups() {
 
     alix1
         .worker()
-        .wait(SyncMetric::SyncGroupWelcomesProcessed, 1)
+        .register_interest(SyncMetric::SyncGroupWelcomesProcessed, 1)
+        .wait()
         .await?;
     alix2.sync_welcomes().await?;
 
@@ -234,7 +293,7 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     }
 
     // alix1 should have it's own created sync group and alix2's sync group
-    let alix1_sync_groups: Vec<StoredGroup> = alix1.provider.db().raw_query_read(|conn| {
+    let alix1_sync_groups: Vec<StoredGroup> = alix1.context.db().raw_query_read(|conn| {
         dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
             .load(conn)
@@ -244,7 +303,7 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     // alix2 should not be added to alix1's old sync group
 
     alix2.sync_welcomes().await?;
-    let alix2_sync_groups: Vec<StoredGroup> = alix2.provider.db().raw_query_read(|conn| {
+    let alix2_sync_groups: Vec<StoredGroup> = alix2.context.db().raw_query_read(|conn| {
         dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
             .load(conn)

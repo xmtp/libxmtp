@@ -1,71 +1,68 @@
 use super::{
-    preference_sync::{store_preference_updates, PreferenceUpdate},
     DeviceSyncClient, DeviceSyncError, IterWithContent,
+    preference_sync::{PreferenceUpdate, store_preference_updates},
 };
 use crate::{
     client::ClientError,
-    context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext},
+    context::XmtpSharedContext,
     groups::{
+        GroupError,
         device_sync::{archive::insert_importer, default_archive_options},
         device_sync_legacy::{
-            preference_sync_legacy::LegacyUserPreferenceUpdate, DeviceSyncContent,
+            DeviceSyncContent, preference_sync_legacy::LegacyUserPreferenceUpdate,
         },
-        GroupError,
     },
     subscriptions::{LocalEvents, SyncWorkerEvent},
     worker::{
-        metrics::WorkerMetrics, BoxedWorker, DynMetrics, MetricsCasting, Worker, WorkerFactory,
-        WorkerKind, WorkerResult,
+        BoxedWorker, DynMetrics, MetricsCasting, Worker, WorkerFactory, WorkerKind, WorkerResult,
+        metrics::WorkerMetrics,
     },
 };
 use futures::TryFutureExt;
+use owo_colors::OwoColorize;
 use std::{any::Any, sync::Arc};
-use tokio::sync::{broadcast, OnceCell};
+use tokio::sync::{OnceCell, broadcast};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
-use xmtp_archive::{exporter::ArchiveExporter, ArchiveImporter};
+use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
+use xmtp_db::prelude::*;
 use xmtp_db::{
+    StoreOrIgnore,
     group_message::{MsgQueryArgs, StoredGroupMessage},
     processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
-    StoreOrIgnore, XmtpDb,
 };
 use xmtp_proto::{
-    api_client::trait_impls::XmtpApi,
+    ConversionError,
     xmtp::device_sync::{
+        BackupElementSelection, BackupOptions,
         content::{
-            device_sync_content::Content as ContentProto, device_sync_key_type::Key,
             DeviceSyncAcknowledge, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
             DeviceSyncRequest as DeviceSyncRequestProto,
             PreferenceUpdates as PreferenceUpdatesProto,
+            device_sync_content::Content as ContentProto, device_sync_key_type::Key,
         },
-        BackupElementSelection, BackupOptions,
     },
-    ConversionError,
 };
 
 const ENC_KEY_SIZE: usize = xmtp_archive::ENC_KEY_SIZE;
 
-pub struct SyncWorker<ApiClient, Db> {
-    client: DeviceSyncClient<ApiClient, Db>,
+pub struct SyncWorker<Context> {
+    client: DeviceSyncClient<Context>,
     receiver: broadcast::Receiver<SyncWorkerEvent>,
     init: OnceCell<()>,
     metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
 
-impl<ApiClient, Db> SyncWorker<ApiClient, Db>
+impl<Context> SyncWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
-    pub fn new(
-        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-        metrics: Option<DynMetrics>,
-    ) -> Self {
-        let receiver = context.worker_events.subscribe();
+    pub fn new(context: Context, metrics: Option<DynMetrics>) -> Self {
+        let receiver = context.worker_events().subscribe();
         let metrics = metrics
             .and_then(|m| m.as_sync_metrics())
-            .unwrap_or_default();
+            .unwrap_or(Arc::new(WorkerMetrics::new(context.installation_id())));
         let client = DeviceSyncClient::new(context, metrics.clone());
 
         Self {
@@ -77,17 +74,16 @@ where
     }
 }
 
-struct Factory<ApiClient, Db> {
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+struct Factory<Context> {
+    context: Context,
 }
 
-impl<ApiClient, Db> WorkerFactory for Factory<ApiClient, Db>
+impl<Context> WorkerFactory for Factory<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + Send + Sync + 'static,
 {
     fn create(&self, metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>) {
-        let worker = SyncWorker::new(&self.context, metrics);
+        let worker = SyncWorker::new(self.context.clone(), metrics);
         let metrics = worker.metrics.clone();
 
         (Box::new(worker) as Box<_>, Some(metrics as Arc<_>))
@@ -100,10 +96,9 @@ where
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<ApiClient, Db> Worker for SyncWorker<ApiClient, Db>
+impl<Context> Worker for SyncWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::DeviceSync
@@ -116,11 +111,8 @@ where
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
         Self: Sized,
-        C: XmtpSharedContext,
-        <C as XmtpSharedContext>::Db: 'static,
-        <C as XmtpSharedContext>::ApiClient: 'static,
+        C: XmtpSharedContext + Send + Sync + 'static,
     {
-        let context = context.context_ref().clone();
         Factory { context }
     }
 
@@ -129,21 +121,23 @@ where
     }
 }
 
-impl<ApiClient, Db> SyncWorker<ApiClient, Db>
+impl<Context> SyncWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
         // Wait for the identity to be ready & verified before doing anything
         while !self.client.context.identity().is_ready() {
-            xmtp_common::yield_().await
+            xmtp_common::task::yield_now().await
         }
         self.sync_init().await?;
         self.metrics.increment_metric(SyncMetric::Init);
 
         while let Ok(event) = self.receiver.recv().await {
-            tracing::info!("New event: {event:?}");
+            tracing::info!(
+                "[{}] New event: {event:?}",
+                self.client.context.installation_id()
+            );
 
             match event {
                 SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
@@ -175,23 +169,19 @@ where
     //// Will auto-send a sync request if sync group is created.
     #[instrument(level = "trace", skip_all)]
     async fn sync_init(&mut self) -> Result<(), DeviceSyncError> {
-        let Self {
-            ref init,
-            ref client,
-            ..
-        } = self;
+        let Self { init, client, .. } = &self;
 
         init.get_or_try_init(|| async {
-            let provider = self.client.context.mls_provider();
+            let conn = self.client.context.db();
             tracing::info!(
                 inbox_id = client.inbox_id(),
-                installation_id = hex::encode(client.context.installation_public_key()),
+                installation_id = hex::encode(client.context.installation_id()),
                 "Initializing device sync... url: {:?}",
-                client.context.device_sync.server_url
+                client.context.device_sync().server_url
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
-            if provider.db().primary_sync_group()?.is_none() {
+            if conn.primary_sync_group()?.is_none() {
                 client.get_sync_group().await?;
 
                 // Ask the sync group for a sync payload if the url is present.
@@ -202,7 +192,7 @@ where
 
             tracing::info!(
                 inbox_id = client.inbox_id(),
-                installation_id = hex::encode(client.context.installation_public_key()),
+                installation_id = hex::encode(client.context.installation_id()),
                 "Device sync initialized."
             );
 
@@ -266,8 +256,8 @@ where
 
     /// Called when this device has received a device sync v1 sync reply
     async fn evt_v1_device_sync_reply(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
-        let provider = self.client.context.mls_provider();
-        if let Some(msg) = provider.db().get_group_message(&message_id)? {
+        let conn = self.client.context.db();
+        if let Some(msg) = conn.get_group_message(&message_id)? {
             let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
             if let DeviceSyncContent::Reply(reply) = content {
                 self.client.v1_process_sync_reply(reply).await?;
@@ -278,8 +268,8 @@ where
 
     /// Called when this device has received a device sync v1 sync request
     async fn evt_v1_device_sync_request(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
-        let provider = self.client.context.mls_provider();
-        if let Some(msg) = provider.db().get_group_message(&message_id)? {
+        let conn = self.client.context.db();
+        if let Some(msg) = conn.get_group_message(&message_id)? {
             let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
             if let DeviceSyncContent::Request(request) = content {
                 self.client
@@ -291,17 +281,16 @@ where
     }
 }
 
-impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db>
+impl<Context> DeviceSyncClient<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     async fn process_new_sync_group_messages(
         &self,
         handle: &WorkerMetrics<SyncMetric>,
     ) -> Result<(), DeviceSyncError>
     where
-        <Db as xmtp_db::XmtpDb>::Connection: 'static,
+        Context::Db: 'static,
     {
         let unprocessed_messages = self.context.db().unprocessed_sync_group_messages()?;
         let installation_id = self.installation_id();
@@ -336,10 +325,10 @@ where
         content: ContentProto,
     ) -> Result<(), DeviceSyncError>
     where
-        <Db as xmtp_db::XmtpDb>::Connection: 'static,
+        Context::Db: 'static,
     {
-        let provider = self.context.mls_provider();
-        let installation_id = self.installation_id();
+        let conn = self.context.db();
+        let installation_id = self.context.installation_id();
         let is_external = msg.sender_installation_id != installation_id;
 
         match content {
@@ -368,13 +357,16 @@ where
                 if is_external {
                     tracing::info!("Incoming preference updates: {updates:?}");
                 }
-
+                tracing::info!(
+                    "{} storing preference updates",
+                    self.context.installation_id()
+                );
                 // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
-                let updated = store_preference_updates(updates.clone(), provider, handle)?;
+                let updated = store_preference_updates(updates.clone(), &conn, handle)?;
                 if !updated.is_empty() {
                     let _ = self
                         .context
-                        .local_events
+                        .local_events()
                         .send(LocalEvents::PreferencesChanged(updated));
                 }
             }
@@ -436,7 +428,7 @@ where
     where
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<(), DeviceSyncError>>,
-        <Db as xmtp_db::XmtpDb>::Connection: 'static,
+        Context::Db: 'static,
     {
         if let Some(request) = &request {
             if request.kind() != BackupElementSelection::Unspecified {
@@ -444,8 +436,6 @@ where
                 return Ok(());
             }
         }
-
-        let provider = Arc::new(self.context.mls_provider());
 
         match acknowledge().await {
             Err(DeviceSyncError::AlreadyAcknowledged) => {
@@ -455,11 +445,11 @@ where
             result => result?,
         }
 
-        let Some(device_sync_server_url) = &self.context.device_sync.server_url else {
+        let Some(device_sync_server_url) = &self.context.device_sync().server_url else {
             tracing::info!("No message history payload sent - server url not present.");
             return Ok(());
         };
-        tracing::info!("\x1b[33mSending sync payload.");
+        tracing::info!("{}", "Sending sync payload.".yellow());
 
         let mut request_id = "".to_string();
         let options = if let Some(request) = request {
@@ -478,7 +468,8 @@ where
         // Now we want to create an encrypted stream from our database to the history server.
         //
         // 1. Build the exporter
-        let exporter = ArchiveExporter::new(options, provider.clone(), &key);
+        let db = self.context.db();
+        let exporter = ArchiveExporter::new(options, db, &key);
         let metadata = exporter.metadata().clone();
 
         // 5. Make the request
@@ -517,7 +508,7 @@ where
     }
 
     pub async fn send_sync_request(&self) -> Result<(), ClientError> {
-        tracing::info!("\x1b[33mSending a sync request.");
+        tracing::info!("{}", "Sending a sync request.".yellow());
 
         let sync_group = self.get_sync_group().await?;
         sync_group
@@ -587,13 +578,19 @@ where
         // Check if this reply was asked for by this installation.
         if !self.is_reply_requested_by_installation(&reply).await? {
             // This installation didn't ask for it. Ignore the reply.
-            tracing::info!("Sync response was not intended for this installation.");
+            tracing::info!(
+                "{}",
+                "Sync response was not intended for this installation.".yellow()
+            );
             return Ok(());
         }
 
         // If a payload was sent to this installation,
         // that means they also sent this installation a bunch of welcomes.
-        tracing::info!("Sync response is for this installation. Syncing welcomes.");
+        tracing::info!(
+            "{}",
+            "Sync response is for this installation. Syncing welcomes.".yellow()
+        );
         self.welcome_service.sync_welcomes().await?;
 
         // Get a download stream of the payload.
@@ -670,6 +667,8 @@ pub enum SyncMetric {
 
 impl WorkerMetrics<SyncMetric> {
     pub async fn wait_for_init(&self) -> Result<(), xmtp_common::time::Expired> {
-        self.wait(SyncMetric::SyncGroupCreated, 1).await
+        self.register_interest(SyncMetric::SyncGroupCreated, 1)
+            .wait()
+            .await
     }
 }

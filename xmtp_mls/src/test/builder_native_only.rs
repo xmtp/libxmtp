@@ -1,9 +1,9 @@
 use crate::{client::Client, identity::IdentityStrategy};
 use alloy::{dyn_abi::SolType, primitives::U256, providers::Provider, signers::Signer};
 use xmtp_id::associations::Identifier;
-use xmtp_id::utils::test::{docker_smart_wallet, SmartWalletContext};
+use xmtp_id::utils::test::{SmartWalletContext, docker_smart_wallet};
 use xmtp_id::{
-    associations::{unverified::NewUnverifiedSmartContractWalletSignature, AccountId},
+    associations::{AccountId, unverified::NewUnverifiedSmartContractWalletSignature},
     utils::test::SignatureWithNonce,
 };
 
@@ -35,6 +35,8 @@ async fn test_remote_is_valid_signature(#[future] docker_smart_wallet: SmartWall
         .await
         .local_client()
         .await
+        .default_mls_store()
+        .unwrap()
         .with_remote_verifier()
         .unwrap()
         .build()

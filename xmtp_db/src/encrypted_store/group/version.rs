@@ -2,8 +2,33 @@ use crate::ConnectionExt;
 
 use super::*;
 
-impl<C: ConnectionExt> DbConnection<C> {
-    pub fn set_group_paused(&self, group_id: &[u8], min_version: &str) -> Result<(), StorageError> {
+pub trait QueryGroupVersion {
+    fn set_group_paused(&self, group_id: &[u8], min_version: &str) -> Result<(), StorageError>;
+
+    fn unpause_group(&self, group_id: &[u8]) -> Result<(), StorageError>;
+
+    fn get_group_paused_version(&self, group_id: &[u8]) -> Result<Option<String>, StorageError>;
+}
+
+impl<T> QueryGroupVersion for &T
+where
+    T: QueryGroupVersion,
+{
+    fn set_group_paused(&self, group_id: &[u8], min_version: &str) -> Result<(), StorageError> {
+        (**self).set_group_paused(group_id, min_version)
+    }
+
+    fn unpause_group(&self, group_id: &[u8]) -> Result<(), StorageError> {
+        (**self).unpause_group(group_id)
+    }
+
+    fn get_group_paused_version(&self, group_id: &[u8]) -> Result<Option<String>, StorageError> {
+        (**self).get_group_paused_version(group_id)
+    }
+}
+
+impl<C: ConnectionExt> QueryGroupVersion for DbConnection<C> {
+    fn set_group_paused(&self, group_id: &[u8], min_version: &str) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
 
         self.raw_query_write(|conn| {
@@ -15,7 +40,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(())
     }
 
-    pub fn unpause_group(&self, group_id: &[u8]) -> Result<(), StorageError> {
+    fn unpause_group(&self, group_id: &[u8]) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
 
         self.raw_query_write(|conn| {
@@ -27,10 +52,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(())
     }
 
-    pub fn get_group_paused_version(
-        &self,
-        group_id: &[u8],
-    ) -> Result<Option<String>, StorageError> {
+    fn get_group_paused_version(&self, group_id: &[u8]) -> Result<Option<String>, StorageError> {
         use crate::schema::groups::dsl;
 
         let paused_version = self.raw_query_read(|conn| {

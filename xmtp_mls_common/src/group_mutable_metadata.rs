@@ -5,12 +5,13 @@ use openmls::{
 use prost::Message;
 use std::{collections::HashMap, fmt};
 use thiserror::Error;
+use xmtp_cryptography::Secret;
 use xmtp_proto::xmtp::mls::message_contents::{
     GroupMutableMetadataV1 as GroupMutableMetadataProto, Inboxes as InboxesProto,
 };
 
 use super::group::{DMMetadataOptions, GroupMetadataOptions};
-use crate::config::{
+use xmtp_configuration::{
     DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL_SQUARE, DEFAULT_GROUP_NAME,
     MUTABLE_METADATA_EXTENSION_ID,
 };
@@ -100,6 +101,8 @@ pub struct GroupMutableMetadata {
     /// List of super admin inbox IDs for this group.
     /// See [GroupMutablePermissions](crate::groups::GroupMutablePermissions) for more details on super admin permissions.
     pub super_admin_list: Vec<String>,
+    /// The secret used to derive the commit log signing key.
+    pub commit_log_signer: Option<Secret>,
 }
 
 impl GroupMutableMetadata {
@@ -108,18 +111,24 @@ impl GroupMutableMetadata {
         attributes: HashMap<String, String>,
         admin_list: Vec<String>,
         super_admin_list: Vec<String>,
+        commit_log_signer: Option<Secret>,
     ) -> Self {
         Self {
             attributes,
             admin_list,
             super_admin_list,
+            commit_log_signer,
         }
     }
 
     /// Creates a new GroupMutableMetadata instance with default values.
     /// The creator is automatically added as a super admin.
     /// See [GroupMutablePermissions](crate::groups::GroupMutablePermissions) for more details on super admin permissions.
-    pub fn new_default(creator_inbox_id: String, opts: GroupMetadataOptions) -> Self {
+    pub fn new_default(
+        creator_inbox_id: String,
+        commit_log_signer: Option<Secret>,
+        opts: GroupMetadataOptions,
+    ) -> Self {
         let mut attributes = HashMap::new();
         attributes.insert(
             MetadataField::GroupName.to_string(),
@@ -153,6 +162,7 @@ impl GroupMutableMetadata {
             attributes,
             admin_list,
             super_admin_list,
+            commit_log_signer,
         }
     }
 
@@ -160,6 +170,7 @@ impl GroupMutableMetadata {
     pub fn new_dm_default(
         _creator_inbox_id: String,
         _dm_target_inbox_id: &str,
+        commit_log_signer: Option<Secret>,
         opts: DMMetadataOptions,
     ) -> Self {
         let mut attributes = HashMap::new();
@@ -193,6 +204,7 @@ impl GroupMutableMetadata {
             attributes,
             admin_list,
             super_admin_list,
+            commit_log_signer,
         }
     }
 
@@ -235,6 +247,10 @@ impl TryFrom<GroupMutableMetadata> for Vec<u8> {
             super_admin_list: Some(InboxesProto {
                 inbox_ids: value.super_admin_list,
             }),
+            commit_log_signer: value
+                .commit_log_signer
+                .clone()
+                .map(|secret| secret.as_slice().to_vec()), // TODO: add zeroize support
         };
         proto_val.encode(&mut buf)?;
 
@@ -271,6 +287,7 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
             value.attributes.clone(),
             admin_list,
             super_admin_list,
+            value.commit_log_signer.clone().map(Secret::from),
         ))
     }
 }
@@ -300,7 +317,7 @@ impl TryFrom<&OpenMlsGroup> for GroupMutableMetadata {
 /// Finds the mutable metadata extension in the given MLS Extensions.
 ///
 /// This function searches for an Unknown Extension with the
-/// [MUTABLE_METADATA_EXTENSION_ID](crate::configuration::MUTABLE_METADATA_EXTENSION_ID).
+/// [MUTABLE_METADATA_EXTENSION_ID](xmtp_configuration::MUTABLE_METADATA_EXTENSION_ID).
 pub fn find_mutable_metadata_extension(extensions: &Extensions) -> Option<&Vec<u8>> {
     extensions.iter().find_map(|extension| {
         if let Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, UnknownExtension(metadata)) =

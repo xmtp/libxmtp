@@ -3,39 +3,41 @@
 use super::device_sync::preference_sync::PreferenceUpdate;
 use super::device_sync::worker::SyncMetric;
 use super::device_sync::{DeviceSyncClient, DeviceSyncError};
+use crate::context::XmtpSharedContext;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::worker::metrics::WorkerMetrics;
-use crate::{subscriptions::LocalEvents, Client};
+use crate::{Client, subscriptions::LocalEvents};
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
-    aead::{Aead, KeyInit},
     Aes256Gcm,
+    aead::{Aead, KeyInit},
 };
 use preference_sync_legacy::LegacyUserPreferenceUpdate;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
-use xmtp_common::time::now_ns;
 use xmtp_common::NS_IN_HOUR;
-use xmtp_cryptography::utils as crypto_utils;
+use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::group::{ConversationType, GroupQueryArgs, StoredGroup};
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage};
+use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::StoredUserPreferences;
 use xmtp_db::{DbConnection, StorageError, Store, XmtpOpenMlsProvider};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::api_client::trait_impls::XmtpApi;
+use xmtp_proto::api_client::XmtpApi;
 use xmtp_proto::xmtp::device_sync::{
-    content::{
-        device_sync_key_type::Key as EncKeyProto, DeviceSyncKeyType as DeviceSyncKeyTypeProto,
-        DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
-        V1UserPreferenceUpdate as UserPreferenceUpdateProto,
-    },
     BackupElementSelection,
+    content::{
+        DeviceSyncKeyType as DeviceSyncKeyTypeProto, DeviceSyncReply as DeviceSyncReplyProto,
+        DeviceSyncRequest as DeviceSyncRequestProto,
+        V1UserPreferenceUpdate as UserPreferenceUpdateProto,
+        device_sync_key_type::Key as EncKeyProto,
+    },
 };
 
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
 use xmtp_proto::xmtp::mls::message_contents::{
-    plaintext_envelope::v2::MessageType, plaintext_envelope::V2, PlaintextEnvelope,
+    PlaintextEnvelope, plaintext_envelope::V2, plaintext_envelope::v2::MessageType,
 };
 
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
@@ -57,10 +59,9 @@ pub(super) enum Syncable {
     ConsentRecord(StoredConsentRecord),
 }
 
-impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db>
+impl<Context> DeviceSyncClient<Context>
 where
-    ApiClient: XmtpApi,
-    Db: xmtp_db::XmtpDb,
+    Context: XmtpSharedContext,
 {
     pub(super) async fn v1_send_sync_request(
         &self,
@@ -206,7 +207,6 @@ where
     #[cfg(test)]
     async fn v1_get_latest_sync_reply(
         &self,
-        provider: &XmtpOpenMlsProvider,
         kind: BackupElementSelection,
     ) -> Result<Option<(StoredGroupMessage, DeviceSyncReplyProto)>, DeviceSyncError> {
         let sync_group = self.get_sync_group().await?;
@@ -283,13 +283,13 @@ where
         let (payload, enc_key) = encrypt_syncables(syncables)?;
 
         // upload the payload
-        let Some(url) = &self.context.device_sync.server_url else {
+        let Some(url) = &self.context.device_sync().server_url else {
             return Err(DeviceSyncError::MissingSyncServerUrl);
         };
         let upload_url = format!("{url}/upload");
         tracing::info!(
             inbox_id = self.inbox_id(),
-            installation_id = hex::encode(self.context.installation_public_key()),
+            installation_id = hex::encode(self.context.installation_id()),
             "Using upload url {upload_url}",
         );
 
@@ -302,7 +302,7 @@ where
         if !response.status().is_success() {
             tracing::error!(
                 inbox_id = self.inbox_id(),
-                installation_id = hex::encode(self.context.installation_public_key()),
+                installation_id = hex::encode(self.context.installation_id()),
                 "Failed to upload file. Status code: {} Response: {response:?}",
                 response.status()
             );
@@ -496,12 +496,13 @@ impl From<DeviceSyncReply> for DeviceSyncReplyProto {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) enum DeviceSyncKeyType {
+    // TODO: Use xmtp_cryptography::Secret for Zeroize support
     Aes256Gcm([u8; ENC_KEY_SIZE]),
 }
 
 impl DeviceSyncKeyType {
     fn new_aes_256_gcm_key() -> Self {
-        let mut rng = crypto_utils::rng();
+        let mut rng = xmtp_cryptography::rand::rng();
         let mut key = [0u8; ENC_KEY_SIZE];
         rng.fill_bytes(&mut key);
         DeviceSyncKeyType::Aes256Gcm(key)
@@ -557,7 +558,7 @@ pub(super) fn generate_nonce() -> [u8; NONCE_SIZE] {
 }
 
 pub(super) fn new_pin() -> String {
-    let mut rng = crypto_utils::rng();
+    let mut rng = xmtp_cryptography::rand::rng();
     let pin: u32 = rng.gen_range(0..10000);
     format!("{:04}", pin)
 }
@@ -608,43 +609,64 @@ mod tests {
 
         alix1.test_has_same_sync_group_as(&alix2).await?;
 
-        alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
+        alix1
+            .worker()
+            .register_interest(SyncMetric::PayloadSent, 1)
+            .wait()
+            .await?;
 
         alix2
+            .context
             .device_sync_client()
             .get_sync_group()
             .await?
             .sync()
             .await?;
-        alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
+        alix2
+            .worker()
+            .register_interest(SyncMetric::PayloadProcessed, 1)
+            .wait()
+            .await?;
 
         assert_eq!(alix1.worker().get(SyncMetric::V1PayloadSent), 0);
         assert_eq!(alix2.worker().get(SyncMetric::V1PayloadProcessed), 0);
 
         alix2
+            .context
             .device_sync_client()
             .v1_send_sync_request(BackupElementSelection::Messages)
             .await?;
         alix1.sync_all_welcomes_and_history_sync_groups().await?;
-        alix1.worker().wait(SyncMetric::V1PayloadSent, 1).await?;
+        alix1
+            .worker()
+            .register_interest(SyncMetric::V1PayloadSent, 1)
+            .wait()
+            .await?;
 
         alix2.sync_all_welcomes_and_history_sync_groups().await?;
         alix2
             .worker()
-            .wait(SyncMetric::V1PayloadProcessed, 1)
+            .register_interest(SyncMetric::V1PayloadProcessed, 1)
+            .wait()
             .await?;
 
         alix2
+            .context
             .device_sync_client()
             .v1_send_sync_request(BackupElementSelection::Consent)
             .await?;
         alix1.sync_all_welcomes_and_history_sync_groups().await?;
-        alix1.worker().wait(SyncMetric::V1PayloadSent, 2).await?;
+        alix1
+            .worker()
+            .register_interest(SyncMetric::V1PayloadSent, 2)
+            .wait()
+            .await?;
 
         alix2.sync_all_welcomes_and_history_sync_groups().await?;
         alix2
             .worker()
-            .wait(SyncMetric::V1PayloadProcessed, 2)
+            .register_interest(SyncMetric::V1PayloadProcessed, 2)
+            .wait()
             .await?;
     }
 }

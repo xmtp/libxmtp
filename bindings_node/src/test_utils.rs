@@ -65,6 +65,7 @@ pub async fn create_local_toxic_client(
     log_options,
     allow_offline,
     disable_events,
+    None,
   )
   .await?;
   Ok(TestClient { inner: c, proxy })

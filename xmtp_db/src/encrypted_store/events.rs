@@ -122,9 +122,7 @@ impl Events {
         }
     }
 
-    pub fn clear_old_events<C: ConnectionExt>(
-        db: &DbConnection<C>,
-    ) -> Result<(), crate::ConnectionError> {
+    pub fn clear_old_events(db: &impl crate::DbQuery) -> Result<(), crate::ConnectionError> {
         db.raw_query_write(|db| {
             diesel::delete(dsl::events.filter(dsl::created_at_ns.lt(now_ns() - NS_IN_DAY * 15)))
                 .execute(db)?;
@@ -132,7 +130,9 @@ impl Events {
         })
     }
 
-    pub fn all_events(db: &DbConnection) -> Result<Vec<Self>, crate::ConnectionError> {
+    pub fn all_events<C: ConnectionExt>(
+        db: &DbConnection<C>,
+    ) -> Result<Vec<Self>, crate::ConnectionError> {
         db.raw_query_read(|db| dsl::events.load(db))
     }
 
@@ -148,7 +148,9 @@ impl Events {
         db.raw_query_read(|db| query.load(db))
     }
 
-    pub fn key_updates(db: &DbConnection) -> Result<Vec<Self>, crate::ConnectionError> {
+    pub fn key_updates<C: ConnectionExt>(
+        db: &DbConnection<C>,
+    ) -> Result<Vec<Self>, crate::ConnectionError> {
         db.raw_query_read(|db| {
             let query = dsl::events.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
                 "jsonb_extract(details, '$.intent_kind') = 'KeyUpdate'",

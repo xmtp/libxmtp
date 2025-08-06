@@ -3,9 +3,9 @@ use xmtp_db::{ConnectionError, XmtpTestDb};
 use xmtp_db_test::ChaosDb;
 use xmtp_id::InboxOwner;
 use xmtp_mls::{
-    identity::IdentityStrategy,
-    utils::test::{register_client, TestClient},
     Client,
+    identity::IdentityStrategy,
+    utils::test::{TestClient, register_client},
 };
 use xmtp_proto::api_client::ApiBuilder;
 use xmtp_proto::api_client::XmtpTestClient;
@@ -25,7 +25,12 @@ async fn chaos_demo() {
     let (chaos, store) = ChaosDb::builder(store).error_frequency(0.0).build();
     let alix = Client::builder(new_identity(&owner))
         .store(store)
-        .api_client(TestClient::create_local().build().await.unwrap())
+        .api_clients(
+            TestClient::create_local().build().await.unwrap(),
+            TestClient::create_local().build().await.unwrap(),
+        )
+        .default_mls_store()
+        .unwrap()
         .with_remote_verifier()
         .unwrap()
         .build()

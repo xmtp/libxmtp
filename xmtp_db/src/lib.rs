@@ -1,6 +1,5 @@
 #![warn(clippy::unwrap_used)]
 
-mod configuration;
 pub mod encrypted_store;
 mod errors;
 pub mod serialization;
@@ -19,25 +18,85 @@ pub mod test_utils;
 pub use test_utils::*;
 
 pub use diesel;
-use diesel::connection::SimpleConnection;
 pub use encrypted_store::*;
 pub use errors::*;
 
+use diesel::connection::SimpleConnection;
+
+use crate::sql_key_store::SqlKeyStore;
+
 /// The default platform-specific store
 pub type DefaultStore = EncryptedMessageStore<database::DefaultDatabase>;
+pub type DefaultDbConnection = <DefaultStore as XmtpDb>::DbQuery;
+pub type DefaultMlsStore = SqlKeyStore<<DefaultStore as XmtpDb>::DbQuery>;
 
-impl<C: ConnectionExt> DbConnection<C> {
+pub mod prelude {
+    pub use super::ReadOnly;
+    pub use super::association_state::QueryAssociationStateCache;
+    pub use super::consent_record::QueryConsentRecord;
+    pub use super::conversation_list::QueryConversationList;
+    pub use super::group::QueryDms;
+    pub use super::group::QueryGroup;
+    pub use super::group::QueryGroupVersion;
+    pub use super::group_intent::QueryGroupIntent;
+    pub use super::group_message::QueryGroupMessage;
+    pub use super::identity::QueryIdentity;
+    pub use super::identity_cache::QueryIdentityCache;
+    pub use super::identity_update::QueryIdentityUpdates;
+    pub use super::key_package_history::QueryKeyPackageHistory;
+    pub use super::key_store_entry::QueryKeyStoreEntry;
+    pub use super::local_commit_log::QueryLocalCommitLog;
+    pub use super::pragmas::CheckPragmas;
+    pub use super::processed_device_sync_messages::QueryDeviceSyncMessages;
+    pub use super::refresh_state::QueryRefreshState;
+    pub use super::traits::*;
+}
+
+pub trait ReadOnly {
     #[allow(unused)]
-    pub(crate) fn enable_readonly(&self) -> Result<(), StorageError> {
+    fn enable_readonly(&self) -> Result<(), StorageError>;
+
+    #[allow(unused)]
+    fn disable_readonly(&self) -> Result<(), StorageError>;
+}
+
+impl<C: ConnectionExt> ReadOnly for DbConnection<C> {
+    #[allow(unused)]
+    fn enable_readonly(&self) -> Result<(), StorageError> {
         self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = ON;"))?;
         Ok(())
     }
 
     #[allow(unused)]
-    pub(crate) fn disable_readonly(&self) -> Result<(), StorageError> {
+    fn disable_readonly(&self) -> Result<(), StorageError> {
         self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = OFF;"))?;
         Ok(())
     }
+}
+
+impl<T> ReadOnly for &T
+where
+    T: ReadOnly,
+{
+    #[allow(unused)]
+    fn enable_readonly(&self) -> Result<(), StorageError> {
+        (**self).enable_readonly()
+    }
+
+    #[allow(unused)]
+    fn disable_readonly(&self) -> Result<(), StorageError> {
+        (**self).disable_readonly()
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn init_sqlite() {
+    // This is a no-op for wasm32
+}
+#[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
+fn test_setup() {
+    xmtp_common::logger();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -112,7 +171,6 @@ pub mod test_util {
                     intents_processed
                 ) VALUES (0, 0, 0, 0);"#,
             ];
-
             for query in queries {
                 let query = diesel::sql_query(query);
                 let _ = self.raw_query_write(|conn| query.execute(conn)).unwrap();

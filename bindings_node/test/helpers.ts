@@ -34,7 +34,7 @@ export const createUser = () => {
 
 export type User = ReturnType<typeof createUser>
 
-export const createClient = async (user: User) => {
+export const createClient = async (user: User, appVersion?: string) => {
   const dbPath = join(__dirname, `${user.uuid}.db3`)
   const inboxId =
     (await getInboxIdForIdentifier(TEST_API_URL, false, {
@@ -59,12 +59,16 @@ export const createClient = async (user: User) => {
     SyncWorkerMode.disabled,
     { level: LogLevel.error },
     undefined,
-    true
+    true,
+    appVersion ?? null
   )
 }
 
-export const createRegisteredClient = async (user: User) => {
-  const client = await createClient(user)
+export const createRegisteredClient = async (
+  user: User,
+  appVersion?: string
+) => {
+  const client = await createClient(user, appVersion)
   if (!client.isRegistered()) {
     const signatureRequest = await client.createInboxSignatureRequest()
     if (signatureRequest) {

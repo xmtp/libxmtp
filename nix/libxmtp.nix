@@ -1,7 +1,6 @@
 { stdenv
 , darwin
 , lib
-, fenix
 , mkToolchain
 , pkg-config
 , mktemp
@@ -11,8 +10,8 @@
 , gnuplot
 , flamegraph
 , cargo-flamegraph
-, cargo-udeps
 , cargo-nextest
+, cargo-deny
 , inferno
 , openssl
 , sqlcipher
@@ -33,20 +32,15 @@
 , wasm-pack
 , binaryen
 , emscripten
+, taplo
 , ...
 }:
 
 let
   inherit (stdenv) isDarwin;
-  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
-  darwinAttrs = {
-    # set the linker for macos
-    # libcxx is needed to find standard library headers (like 'limits.h')
-    CC_wasm32_unknown_unknown = "${llvmPackages.libcxxClang}/bin/clang";
-    AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
-  };
+  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
 in
-mkShell ({
+mkShell {
   OPENSSL_DIR = "${openssl.dev}";
   # LLVM_PATH = "${llvmPackages_19.stdenv}";
   # CXX_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/clang++";
@@ -57,11 +51,14 @@ mkShell ({
   OPENSSL_LIB_DIR = "${lib.getLib openssl}/lib";
   OPENSSL_NO_VENDOR = 1;
   STACK_OVERFLOW_CHECK = 0;
-  nativeBuildInputs = [ pkg-config wasm-pack wasm-bindgen-cli_0_2_100 binaryen emscripten ];
+  CC_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/clang";
+  AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
+  CFLAGS_wasm32_unknown_unknown = "-I ${llvmPackages.clang-unwrapped.lib}/lib/clang/19/include";
+
+  nativeBuildInputs = [ pkg-config zstd sqlite wasm-pack wasm-bindgen-cli_0_2_100 binaryen emscripten ];
   buildInputs =
     [
       rust-toolchain
-      fenix.rust-analyzer
       foundry-bin
 
       # native libs
@@ -69,8 +66,9 @@ mkShell ({
       sqlite
       sqlcipher
       zstd
-      # emscripten
+      emscripten
 
+      # Misc tools
       mktemp
       jdk21
       kotlin
@@ -81,7 +79,7 @@ mkShell ({
       # tokio-console
       gnuplot
       flamegraph
-      cargo-udeps
+      cargo-deny
       cargo-flamegraph
       cargo-nextest
       inferno
@@ -94,12 +92,13 @@ mkShell ({
       protobuf
       protolint
 
+
+      # lint
+      taplo
       # yarn/nodejs
       corepack
     ]
     ++ lib.optionals isDarwin [
       darwin.cctools
-    ] ++ lib.optionals stdenv.isLinux [
-
     ];
-} // lib.optionalAttrs isDarwin darwinAttrs)
+}

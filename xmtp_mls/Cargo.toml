@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = "2024"
 license.workspace = true
 name = "xmtp_mls"
 version.workspace = true
@@ -25,6 +25,7 @@ test-utils = [
   "xmtp_api/test-utils",
   "xmtp_api_http/test-utils",
   "xmtp_api_grpc/test-utils",
+  "xmtp_configuration/test-utils",
   "xmtp_common/test-utils",
   "dep:alloy",
   "dep:passkey",
@@ -61,10 +62,12 @@ futures = { workspace = true, features = ["alloc", "std"] }
 futures-util.workspace = true
 hex.workspace = true
 hkdf.workspace = true
+itertools.workspace = true
 json-patch = "4"
 openmls_libcrux_crypto = { workspace = true }
 openmls_rust_crypto = { workspace = true }
 openmls_traits = { workspace = true }
+owo-colors.workspace = true
 parking_lot.workspace = true
 pin-project-lite.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
@@ -83,6 +86,7 @@ tracing.workspace = true
 trait-variant.workspace = true
 xmtp_archive.workspace = true
 xmtp_common.workspace = true
+xmtp_configuration.workspace = true
 xmtp_mls_common.workspace = true
 
 # XMTP/Local
@@ -153,6 +157,7 @@ futures-test = "0.3.31"
 futures-timer.workspace = true
 mockall.workspace = true
 once_cell.workspace = true
+openmls = { workspace = true, features = ["test-utils"] }
 openmls_basic_credential.workspace = true
 passkey = { version = "0.4" }
 public-suffix = { version = "0.1.2" }
@@ -164,6 +169,7 @@ wasm-bindgen-test.workspace = true
 xmtp_api = { workspace = true, features = ["test-utils"] }
 xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_db_test.workspace = true
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
@@ -171,7 +177,8 @@ xmtp_proto = { workspace = true, features = ["test-utils"] }
 # Required for traced_test! macro
 tracing-subscriber = { workspace = true }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
 ctor.workspace = true
 mockito = "1.6.1"
 openmls = { workspace = true }
@@ -179,11 +186,13 @@ tempfile = "3.15.0"
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_api_http = { workspace = true, features = ["test-utils"] }
 
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 openmls = { workspace = true, features = ["js"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 wasm-bindgen-test.workspace = true
 xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }
+futures-timer = { version = "3.0.3", features = ["wasm-bindgen"] }
 
 [[bench]]
 harness = false

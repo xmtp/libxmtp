@@ -53,7 +53,7 @@ pub async fn revoke_installations_signature_request(
   inbox_id: String,
   installation_ids: Vec<Uint8Array>,
 ) -> Result<SignatureRequestHandle> {
-  let api_client = TonicApiClient::create(host, true)
+  let api_client = TonicApiClient::create(host, true, None::<String>)
     .await
     .map_err(ErrorWrapper::from)?;
 
@@ -81,7 +81,7 @@ pub async fn apply_signature_request(
   host: String,
   signature_request: &SignatureRequestHandle,
 ) -> Result<()> {
-  let api_client = TonicApiClient::create(host, true)
+  let api_client = TonicApiClient::create(host, true, None::<String>)
     .await
     .map_err(ErrorWrapper::from)?;
 
@@ -326,7 +326,7 @@ impl Client {
   pub fn sign_with_installation_key(&self, signature_text: String) -> Result<Uint8Array> {
     let result = self
       .inner_client()
-      .context()
+      .context
       .sign_with_public_context(signature_text)
       .map_err(ErrorWrapper::from)?;
 

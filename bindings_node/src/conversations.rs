@@ -551,6 +551,7 @@ impl Conversations {
       move || {
         tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
       },
+      false,
     );
 
     Ok(StreamCloser::new(stream_closer))
@@ -584,7 +585,7 @@ impl Conversations {
     });
 
     let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
-      self.inner_client.clone(),
+      self.inner_client.context.clone(),
       conversation_type.map(Into::into),
       consents,
       move |message| {
@@ -674,9 +675,7 @@ impl Conversations {
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: null | Error, result: any[] | undefined) => void, onClose: () => void"
-  )]
+  #[napi(ts_args_type = "callback: (err: null | Error, result: any) => void, onClose: () => void")]
   pub fn stream_preferences(
     &self,
     callback: JsFunction,

@@ -2,14 +2,14 @@
 //! Benchmarks for group limit
 //! using `RUST_LOG=trace` will additionally output a `tracing.folded` file, which
 //! may be used to generate a flamegraph of execution from tracing logs.
-use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
+use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::{collections::HashMap, sync::Arc};
 use tokio::runtime::{Builder, Runtime};
-use tracing::{trace_span, Instrument};
-use xmtp_common::bench::{self, bench_async_setup, BENCH_ROOT_SPAN};
+use tracing::{Instrument, trace_span};
+use xmtp_common::bench::{self, BENCH_ROOT_SPAN, bench_async_setup};
 use xmtp_mls::{
     builder::ClientBuilder,
-    utils::bench::{create_identities_if_dont_exist, BenchClient, Identity},
+    utils::bench::{BenchClient, Identity, create_identities_if_dont_exist},
 };
 
 pub const IDENTITY_SAMPLES: [usize; 9] = [10, 20, 40, 80, 100, 200, 300, 400, 450];
@@ -32,9 +32,23 @@ fn setup() -> (Arc<BenchClient>, Vec<Identity>, Runtime) {
         let is_dev_network = matches!(dev, Ok(d) if d == "true" || d == "1");
         let client = if is_dev_network {
             tracing::info!("Using Dev GRPC");
-            Arc::new(ClientBuilder::new_dev_client(&wallet).await)
+            Arc::new(
+                ClientBuilder::new_test_builder(&wallet)
+                    .await
+                    .dev()
+                    .await
+                    .build_unchecked()
+                    .await,
+            )
         } else {
-            Arc::new(ClientBuilder::new_local_client(&wallet).await)
+            Arc::new(
+                ClientBuilder::new_test_builder(&wallet)
+                    .await
+                    .local()
+                    .await
+                    .build_unchecked()
+                    .await,
+            )
         };
 
         let identities: Vec<Identity> =

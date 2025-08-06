@@ -1,4 +1,5 @@
 use ed25519_dalek::SigningKey;
+use openmls::prelude::SignaturePublicKey;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::signatures::Signer;
 use openmls_traits::{signatures, types::SignatureScheme};
@@ -76,14 +77,14 @@ pub struct XmtpInstallationCredential(Box<SigningKey>);
 
 impl Default for XmtpInstallationCredential {
     fn default() -> Self {
-        Self(Box::new(SigningKey::generate(&mut crate::utils::rng())))
+        Self(Box::new(SigningKey::generate(&mut crate::rand::rng())))
     }
 }
 
 impl XmtpInstallationCredential {
     /// Create a new [`XmtpInstallationCredential`] with [`rand_chacha::ChaCha20Rng`]
     pub fn new() -> Self {
-        Self(Box::new(SigningKey::generate(&mut crate::utils::rng())))
+        Self(Box::new(SigningKey::generate(&mut crate::rand::rng())))
     }
 
     /// Get a reference to the public [`ed25519_dalek::VerifyingKey`]
@@ -138,6 +139,12 @@ impl XmtpInstallationCredential {
     #[cfg(feature = "exposed-keys")]
     pub fn private_bytes(&self) -> [u8; 32] {
         self.0.to_bytes()
+    }
+}
+
+impl From<XmtpInstallationCredential> for SignaturePublicKey {
+    fn from(value: XmtpInstallationCredential) -> Self {
+        SignaturePublicKey::from(value.verifying_key().as_ref())
     }
 }
 

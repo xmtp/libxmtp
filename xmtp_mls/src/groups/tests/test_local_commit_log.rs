@@ -1,10 +1,10 @@
 use crate::{
     groups::{
-        intents::{PermissionPolicyOption, PermissionUpdateType},
         UpdateAdminListType,
+        intents::{PermissionPolicyOption, PermissionUpdateType},
     },
     tester,
-    utils::{ConcreteMlsGroup, FullXmtpClient},
+    utils::{FullXmtpClient, TestMlsGroup},
 };
 use toxiproxy_rust::proxy::Proxy;
 use xmtp_db::{
@@ -13,11 +13,11 @@ use xmtp_db::{
 };
 
 #[allow(dead_code)]
-async fn print_commit_log(group: &ConcreteMlsGroup) {
+async fn print_commit_log(group: &TestMlsGroup) {
     println!("{:?}\n", group.local_commit_log().await.unwrap());
 }
 
-async fn last_commit_log(group: &ConcreteMlsGroup) -> LocalCommitLog {
+async fn last_commit_log(group: &TestMlsGroup) -> LocalCommitLog {
     group
         .local_commit_log()
         .await
@@ -28,8 +28,8 @@ async fn last_commit_log(group: &ConcreteMlsGroup) -> LocalCommitLog {
 }
 
 async fn last_commit_type_matches(
-    group1: &ConcreteMlsGroup,
-    group2: &ConcreteMlsGroup,
+    group1: &TestMlsGroup,
+    group2: &TestMlsGroup,
     expected: CommitType,
 ) -> bool {
     print_commit_log(group1).await;

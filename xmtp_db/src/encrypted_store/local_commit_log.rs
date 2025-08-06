@@ -38,9 +38,9 @@ pub struct NewLocalCommitLog {
     pub commit_sequence_id: i64,
     pub last_epoch_authenticator: Vec<u8>,
     pub commit_result: CommitResult,
-    pub error_message: Option<String>,
     pub applied_epoch_number: i64,
     pub applied_epoch_authenticator: Vec<u8>,
+    pub error_message: Option<String>,
     pub sender_inbox_id: Option<String>,
     pub sender_installation_id: Option<Vec<u8>>,
     pub commit_type: Option<String>,
@@ -55,9 +55,9 @@ pub struct LocalCommitLog {
     pub commit_sequence_id: i64,
     pub last_epoch_authenticator: Vec<u8>,
     pub commit_result: CommitResult,
-    pub error_message: Option<String>,
     pub applied_epoch_number: i64,
     pub applied_epoch_authenticator: Vec<u8>,
+    pub error_message: Option<String>,
     pub sender_inbox_id: Option<String>,
     pub sender_installation_id: Option<Vec<u8>>,
     pub commit_type: Option<String>,
@@ -120,8 +120,67 @@ impl std::fmt::Debug for LocalCommitLog {
     }
 }
 
-impl<C: ConnectionExt> DbConnection<C> {
-    pub fn get_group_logs(
+pub trait QueryLocalCommitLog {
+    fn get_group_logs(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
+
+    // Local commit log entries are returned sorted in ascending order of `rowid`
+    // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
+    fn get_group_logs_for_publishing(
+        &self,
+        group_id: &[u8],
+        after_cursor: i64,
+    ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
+
+    fn get_latest_log_for_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<LocalCommitLog>, crate::ConnectionError>;
+
+    fn get_local_commit_log_cursor(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<i32>, crate::ConnectionError>;
+}
+
+impl<T> QueryLocalCommitLog for &T
+where
+    T: QueryLocalCommitLog,
+{
+    fn get_group_logs(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
+        (**self).get_group_logs(group_id)
+    }
+
+    fn get_group_logs_for_publishing(
+        &self,
+        group_id: &[u8],
+        after_cursor: i64,
+    ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
+        (**self).get_group_logs_for_publishing(group_id, after_cursor)
+    }
+
+    fn get_latest_log_for_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<LocalCommitLog>, crate::ConnectionError> {
+        (**self).get_latest_log_for_group(group_id)
+    }
+
+    fn get_local_commit_log_cursor(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<i32>, crate::ConnectionError> {
+        (**self).get_local_commit_log_cursor(group_id)
+    }
+}
+
+impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
+    fn get_group_logs(
         &self,
         group_id: &[u8],
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
@@ -135,7 +194,7 @@ impl<C: ConnectionExt> DbConnection<C> {
 
     // Local commit log entries are returned sorted in ascending order of `rowid`
     // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
-    pub fn get_group_logs_for_publishing(
+    fn get_group_logs_for_publishing(
         &self,
         group_id: &[u8],
         after_cursor: i64,
@@ -158,7 +217,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         })
     }
 
-    pub fn get_latest_log_for_group(
+    fn get_latest_log_for_group(
         &self,
         group_id: &[u8],
     ) -> Result<Option<LocalCommitLog>, crate::ConnectionError> {
@@ -172,7 +231,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         })
     }
 
-    pub fn get_local_commit_log_cursor(
+    fn get_local_commit_log_cursor(
         &self,
         group_id: &[u8],
     ) -> Result<Option<i32>, crate::ConnectionError> {

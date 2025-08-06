@@ -84,9 +84,10 @@ async fn new_client_inner(
         nonce,
         None,
     ))
-    .api_client(api)
-    .with_remote_verifier()?
+    .api_clients(api.clone(), api)
     .store(EncryptedMessageStore::new(db)?)
+    .default_mls_store()?
+    .with_remote_verifier()?
     .build()
     .await?;
 
@@ -96,7 +97,7 @@ async fn new_client_inner(
 }
 
 pub async fn register_client(client: &crate::DbgClient, owner: impl InboxOwner) -> Result<()> {
-    let signature_request = client.context().signature_request();
+    let signature_request = client.context.signature_request();
     let ident = owner.get_identifier()?;
 
     trace!(
@@ -136,9 +137,10 @@ async fn existing_client_inner(
         error!(db_path = %(&db_path.as_path().display()), "{e}");
     }
     let client = xmtp_mls::Client::builder(IdentityStrategy::CachedOnly)
-        .api_client(api)
+        .api_clients(api.clone(), api)
         .with_remote_verifier()?
         .store(store?)
+        .default_mls_store()?
         .build()
         .await?;
 

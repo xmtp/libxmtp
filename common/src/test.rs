@@ -96,6 +96,9 @@ where
                 fmt::layer()
                     .compact()
                     .with_ansi(true)
+                    .with_thread_ids(true)
+                    .with_target(true)
+                    .with_test_writer()
                     .fmt_fields({
                         format::debug_fn(move |writer, field, value| {
                             if field.name() == "message" {
@@ -223,7 +226,7 @@ where
             if let Some(r) = f().await {
                 return r;
             } else {
-                crate::yield_().await;
+                crate::task::yield_now().await;
             }
         }
     })
@@ -241,7 +244,7 @@ where
             if let Ok(r) = f().await {
                 return r;
             } else {
-                crate::yield_().await;
+                crate::task::yield_now().await;
             }
         }
     })
@@ -260,7 +263,7 @@ where
             if expected == result {
                 return result;
             } else {
-                crate::yield_().await;
+                crate::task::yield_now().await;
             }
         }
     })
@@ -282,7 +285,7 @@ where
             if result >= expected {
                 return result;
             } else {
-                crate::yield_().await;
+                crate::task::yield_now().await;
             }
         }
     })

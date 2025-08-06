@@ -1,6 +1,9 @@
 use xmtp_common::{RetryableError, retryable};
 
-use crate::{ConnectionExt, DbConnection};
+use crate::{
+    ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider,
+    sql_key_store::transactions::MutableTransactionConnection,
+};
 
 use bincode;
 use diesel::{
@@ -10,6 +13,10 @@ use diesel::{
 };
 use openmls_traits::storage::*;
 use serde::Serialize;
+
+#[cfg(any(feature = "test-utils", test))]
+pub mod mock;
+mod transactions;
 
 const SELECT_QUERY: &str =
     "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
@@ -26,23 +33,40 @@ struct StorageData {
     value_bytes: Vec<u8>,
 }
 
-pub struct SqlKeyStore<C = crate::DefaultConnection> {
-    // Directly wrap the DbConnection which is a SqliteConnection in this case
-    conn: DbConnection<C>,
+impl TransactionalKeyStore for diesel::SqliteConnection {
+    type Store<'a>
+        = SqlKeyStore<MutableTransactionConnection<'a>>
+    where
+        Self: 'a;
+
+    fn key_store<'a>(&'a mut self) -> Self::Store<'a> {
+        SqlKeyStore::new_transactional(self)
+    }
 }
 
-impl<C> SqlKeyStore<C> {
-    pub fn new(conn: C) -> Self {
-        Self {
-            conn: DbConnection::<_>::new(conn),
+#[derive(Clone)]
+pub struct SqlKeyStore<T> {
+    // Directly wrap the DbConnection which is a SqliteConnection in this case
+    conn: T,
+}
+
+impl<A> SqlKeyStore<A> {
+    pub fn new(conn: A) -> Self {
+        Self { conn }
+    }
+}
+
+impl<'a> SqlKeyStore<SqliteConnection> {
+    pub fn new_transactional(
+        conn: &'a mut SqliteConnection,
+    ) -> SqlKeyStore<MutableTransactionConnection<'a>> {
+        SqlKeyStore {
+            conn: MutableTransactionConnection::new(conn),
         }
     }
-
-    pub fn db(&self) -> &DbConnection<C> {
-        &self.conn
-    }
 }
 
+// refactor to use diesel directly
 impl<C> SqlKeyStore<C>
 where
     C: ConnectionExt,
@@ -51,7 +75,7 @@ where
         &self,
         storage_key: &Vec<u8>,
     ) -> Result<Vec<StorageData>, crate::ConnectionError> {
-        self.db().raw_query_read(|conn| {
+        self.conn.raw_query_read(|conn| {
             sql_query(SELECT_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -64,7 +88,7 @@ where
         storage_key: &Vec<u8>,
         value: &[u8],
     ) -> Result<usize, crate::ConnectionError> {
-        self.db().raw_query_write(|conn| {
+        self.conn.raw_query_write(|conn| {
             sql_query(REPLACE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -78,7 +102,7 @@ where
         storage_key: &Vec<u8>,
         modified_data: &Vec<u8>,
     ) -> Result<usize, crate::ConnectionError> {
-        self.db().raw_query_write(|conn| {
+        self.conn.raw_query_write(|conn| {
             sql_query(UPDATE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&modified_data)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
@@ -217,7 +241,7 @@ where
         key: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        self.db().raw_query_write(|conn| {
+        self.conn.raw_query_write(|conn| {
             sql_query(DELETE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -228,6 +252,7 @@ where
 }
 
 /// Errors thrown by the key store.
+/// General error type for Mls Storage Trait
 #[derive(thiserror::Error, Debug)]
 pub enum SqlKeyStoreError {
     #[error("The key store does not allow storing serialized values.")]
@@ -264,6 +289,7 @@ const SIGNATURE_KEY_PAIR_LABEL: &[u8] = b"SignatureKeyPair";
 const EPOCH_KEY_PAIRS_LABEL: &[u8] = b"EpochKeyPairs";
 pub const KEY_PACKAGE_REFERENCES: &[u8] = b"KeyPackageReferences";
 pub const KEY_PACKAGE_WRAPPER_PRIVATE_KEY: &[u8] = b"KeyPackageWrapperPrivateKey";
+pub const COMMIT_LOG_SIGNER_PRIVATE_KEY: &[u8] = b"CommitLogSignerPrivateKey";
 
 // related to PublicGroup
 const TREE_LABEL: &[u8] = b"Tree";
@@ -807,7 +833,7 @@ where
 
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
-        let data: Vec<StorageData> = self.db().raw_query_read(|conn| {
+        let data: Vec<StorageData> = self.conn.raw_query_read(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
@@ -1019,6 +1045,17 @@ impl From<bincode::Error> for SqlKeyStoreError {
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+impl SqlKeyStore<crate::test_utils::MemoryStorage> {
+    pub fn kv_pairs(&self) -> String {
+        self.conn.key_value_pairs()
+    }
+
+    pub fn kv_pairs_utf8(&self) -> String {
+        self.conn.key_value_pairs_utf8()
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
@@ -1036,6 +1073,7 @@ pub(crate) mod tests {
     use serde::{Deserialize, Serialize};
 
     use super::SqlKeyStore;
+    use crate::encrypted_store::MlsProviderExt;
     use crate::{
         XmtpTestDb, sql_key_store::SqlKeyStoreError, xmtp_openmls_provider::XmtpOpenMlsProvider,
     };
@@ -1090,11 +1128,47 @@ pub(crate) mod tests {
     impl Key<CURRENT_VERSION> for ProposalRef {}
     impl Entity<CURRENT_VERSION> for ProposalRef {}
 
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_read_write() {
+        let store = crate::TestDb::create_persistent_store(None).await;
+        let conn = store.conn();
+        let mls_store = SqlKeyStore::new(conn);
+        let provider = XmtpOpenMlsProvider::new(mls_store);
+        let key_store = provider.key_store();
+
+        let raw_value = vec![3u8; 32];
+        let group_1 = bincode::serialize(&[1u8; 32])?;
+        let group_2 = bincode::serialize(&[2u8; 32])?;
+        let value_1 = bincode::serialize(&raw_value)?;
+
+        key_store.write::<CURRENT_VERSION>(
+            crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+            &group_1,
+            &value_1,
+        )?;
+
+        // Query on a value that hasn't been written
+        let result = key_store.read::<CURRENT_VERSION, Vec<u8>>(
+            crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+            &group_2,
+        );
+        assert!(result.is_ok(), "{}", result.err().unwrap());
+        assert!(result.unwrap().is_none());
+
+        let result = key_store.read::<CURRENT_VERSION, Vec<u8>>(
+            crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+            &group_1,
+        );
+        assert!(result.is_ok(), "{}", result.err().unwrap());
+        assert_eq!(result.unwrap(), Some(raw_value));
+    }
+
     #[xmtp_common::test]
     async fn list_append_remove() {
         let store = crate::TestDb::create_persistent_store(None).await;
         let conn = store.conn();
-        let provider = XmtpOpenMlsProvider::new(conn);
+        let mls_store = SqlKeyStore::new(conn);
+        let provider = XmtpOpenMlsProvider::new(mls_store);
         let group_id = GroupId::random(provider.rand());
         let proposals = (0..10)
             .map(|i| Proposal(format!("TestProposal{i}").as_bytes().to_vec()))
@@ -1171,7 +1245,8 @@ pub(crate) mod tests {
     async fn group_state() {
         let store = crate::TestDb::create_persistent_store(None).await;
         let conn = store.conn();
-        let provider = XmtpOpenMlsProvider::new(conn);
+        let store = SqlKeyStore::new(conn);
+        let provider = XmtpOpenMlsProvider::new(store);
 
         #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
         struct GroupState(usize);

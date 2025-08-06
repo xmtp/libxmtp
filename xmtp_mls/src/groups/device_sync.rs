@@ -1,41 +1,42 @@
-use super::{summary::SyncSummary, welcome_sync::WelcomeService, GroupError, MlsGroup};
+use super::{GroupError, MlsGroup, summary::SyncSummary, welcome_sync::WelcomeService};
 use crate::{
     client::ClientError,
-    context::XmtpMlsLocalContext,
+    context::XmtpSharedContext,
+    groups::intents::QueueIntent,
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{SubscribeError, SyncWorkerEvent},
-    worker::{metrics::WorkerMetrics, NeedsDbReconnect},
+    worker::{NeedsDbReconnect, metrics::WorkerMetrics},
 };
-use futures::future::join_all;
+use futures::{StreamExt, TryStreamExt, stream};
 use prost::Message;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
 use worker::SyncMetric;
 use xmtp_archive::ArchiveError;
-use xmtp_common::{time::now_ns, types::InstallationId, RetryableError, NS_IN_DAY};
+use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns, types::InstallationId};
 use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::{
-    consent_record::ConsentState, group::GroupQueryArgs, group_message::StoredGroupMessage,
-    NotFound, StorageError,
+    NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs,
+    group_message::StoredGroupMessage,
 };
-use xmtp_db::{DbConnection, XmtpDb};
-use xmtp_id::{associations::DeserializationError, InboxIdRef};
-use xmtp_proto::{
-    api_client::trait_impls::XmtpApi,
-    xmtp::{
-        device_sync::{
-            content::{
-                device_sync_content::Content as ContentProto,
-                DeviceSyncContent as DeviceSyncContentProto,
-            },
-            BackupElementSelection, BackupOptions,
+use xmtp_db::{XmtpDb, prelude::*};
+use xmtp_id::{InboxIdRef, associations::DeserializationError};
+use xmtp_proto::xmtp::{
+    device_sync::{
+        BackupElementSelection, BackupOptions,
+        content::{
+            DeviceSyncContent as DeviceSyncContentProto,
+            device_sync_content::Content as ContentProto,
         },
-        mls::message_contents::{
-            plaintext_envelope::{Content, V1},
-            ContentTypeId, EncodedContent, PlaintextEnvelope,
-        },
+    },
+    mls::message_contents::{
+        ContentTypeId, EncodedContent, PlaintextEnvelope,
+        plaintext_envelope::{Content, V1},
     },
 };
 
@@ -132,41 +133,37 @@ impl From<NotFound> for DeviceSyncError {
 }
 
 #[derive(Clone)]
-pub struct DeviceSyncClient<ApiClient, Db> {
-    pub(crate) context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-    pub(crate) welcome_service: WelcomeService<ApiClient, Db>,
-    pub(crate) mls_store: MlsStore<ApiClient, Db>,
+pub struct DeviceSyncClient<Context> {
+    pub(crate) context: Context,
+    pub(crate) welcome_service: WelcomeService<Context>,
+    pub(crate) mls_store: MlsStore<Context>,
     pub(crate) metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
 
-impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db> {
-    pub fn new(
-        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-        metrics: Arc<WorkerMetrics<SyncMetric>>,
-    ) -> Self {
+impl<Context: XmtpSharedContext> DeviceSyncClient<Context> {
+    pub fn new(context: Context, metrics: Arc<WorkerMetrics<SyncMetric>>) -> Self {
         Self {
             context: context.clone(),
             welcome_service: WelcomeService::new(context.clone()),
-            mls_store: MlsStore::new(context.clone()),
+            mls_store: MlsStore::new(context),
             metrics,
         }
     }
 }
 
-impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db>
+impl<Context> DeviceSyncClient<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     pub fn inbox_id(&self) -> InboxIdRef<'_> {
-        self.context.identity.inbox_id()
+        self.context.identity().inbox_id()
     }
 
     pub fn installation_id(&self) -> InstallationId {
         self.context.installation_id()
     }
 
-    pub fn db(&self) -> DbConnection<<Db as XmtpDb>::Connection> {
+    pub fn db(&self) -> <Context::Db as XmtpDb>::DbQuery {
         self.context.db()
     }
 
@@ -189,8 +186,9 @@ where
         let sync_group = self.get_sync_group().await?;
 
         tracing::info!(
-            "\x1b[33mSending sync message to group {:?}: \x1b[0m{content:?}",
-            &sync_group.group_id[..4]
+            "\x1b[33m[{}] Sending sync message to group {:?}: \x1b[0m{content:?}",
+            self.context.installation_id(),
+            xmtp_common::fmt::debug_hex(&sync_group.group_id)
         );
 
         let mut content_bytes = vec![];
@@ -224,20 +222,24 @@ where
         // Notify our own worker of our own message so it can process it.
         let _ = self
             .context
-            .worker_events
+            .worker_events()
             .send(SyncWorkerEvent::NewSyncGroupMsg);
 
         Ok(message_id)
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub async fn get_sync_group(&self) -> Result<MlsGroup<ApiClient, Db>, GroupError> {
+    pub async fn get_sync_group(&self) -> Result<MlsGroup<Context>, GroupError> {
         let db = self.context.db();
         let sync_group = match db.primary_sync_group()? {
             Some(sync_group) => self.mls_store.group(&sync_group.id)?,
             None => {
                 let sync_group = MlsGroup::create_and_insert_sync_group(self.context.clone())?;
-                tracing::info!("Creating sync group: {:?}", sync_group.group_id);
+                tracing::info!(
+                    "[{}] Creating sync group: {}",
+                    hex::encode(self.context.installation_id()),
+                    hex::encode(&sync_group.group_id)
+                );
                 sync_group.add_missing_installations().await?;
                 sync_group.sync_with_conn().await?;
 
@@ -259,19 +261,25 @@ where
             ..Default::default()
         })?;
 
-        // Add the new installation to groups in batches
-        for chunk in groups.chunks(10) {
-            let mut add_futs = vec![];
-            for group in chunk {
-                add_futs.push(group.add_missing_installations());
-            }
-            let results = join_all(add_futs).await;
-            for result in results {
-                if let Err(err) = result {
-                    tracing::warn!("Unable to add new installation to group. {err:?}");
-                }
-            }
-        }
+        let groups = HashSet::from_iter(groups);
+        let intents = QueueIntent::update_group_membership()
+            .queue_for_each(groups, move |group| async move {
+                let intent = group.get_membership_update_intent(&[], &[]).await?;
+                let intent: Vec<u8> = intent.into();
+                Ok::<_, GroupError>(intent)
+            })
+            .await?;
+
+        let context = &self.context;
+        stream::iter(intents)
+            .map(Ok::<_, GroupError>)
+            .try_for_each_concurrent(10, |intent| async move {
+                let (group, _) = MlsGroup::new_cached(context, &intent.group_id)?;
+                group.sync_until_intent_resolved(intent.id).await?;
+                Ok(())
+            })
+            .await?;
+
         Ok(())
     }
 }

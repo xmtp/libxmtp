@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use diesel::SqliteConnection;
 use parking_lot::Mutex;
 use rand::{Rng, distributions::Standard, prelude::Distribution};
 use std::{collections::HashMap, sync::Arc};
@@ -242,20 +243,9 @@ impl<C> ConnectionExt for ChaosConnection<C>
 where
     C: ConnectionExt,
 {
-    type Connection = C::Connection;
-
-    #[tracing::instrument(skip_all)]
-    fn start_transaction(&self) -> Result<xmtp_db::TransactionGuard<'_>, xmtp_db::ConnectionError> {
-        self.maybe_random_error::<xmtp_db::ConnectionError>()?;
-        let result = self.db.start_transaction()?;
-        self.run_static_hooks(STATIC_TRANSACTION_START_HOOK)?;
-        self.run_hook(TRANSACTION_START_HOOK)?;
-        Ok(result)
-    }
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, xmtp_db::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         self.run_static_hooks(STATIC_PRE_READ_HOOK)?;
@@ -272,7 +262,7 @@ where
 
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, xmtp_db::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         self.run_static_hooks(STATIC_PRE_WRITE_HOOK)?;
@@ -284,7 +274,11 @@ where
         Ok(result)
     }
 
-    fn is_in_transaction(&self) -> bool {
-        self.db.is_in_transaction()
+    fn disconnect(&self) -> Result<(), xmtp_db::ConnectionError> {
+        self.db.disconnect()
+    }
+
+    fn reconnect(&self) -> Result<(), xmtp_db::ConnectionError> {
+        self.db.reconnect()
     }
 }

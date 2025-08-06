@@ -1,24 +1,26 @@
 use std::sync::Arc;
 
-use crate::client::ClientError;
-use crate::context::{XmtpContextProvider, XmtpMlsLocalContext};
-use crate::groups::device_sync::worker::SyncMetric;
-use crate::groups::device_sync::DeviceSyncClient;
 use crate::Client;
+use crate::client::ClientError;
+use crate::context::{XmtpMlsLocalContext, XmtpSharedContext};
+use crate::groups::device_sync::DeviceSyncClient;
+use crate::groups::device_sync::worker::SyncMetric;
 use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
-use xmtp_db::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences};
 use xmtp_db::{ConnectionExt, StorageError, XmtpDb, XmtpOpenMlsProvider};
+use xmtp_db::{
+    consent_record::StoredConsentRecord, prelude::*, user_preferences::StoredUserPreferences,
+};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::device_sync::content::{
-    preference_update::Update as PreferenceUpdateProto, HmacKeyUpdate as HmacKeyUpdateProto,
-    PreferenceUpdate as NewUserPreferenceUpdateProto,
+    HmacKeyUpdate as HmacKeyUpdateProto, PreferenceUpdate as NewUserPreferenceUpdateProto,
     V1UserPreferenceUpdate as UserPreferenceUpdateProto,
+    preference_update::Update as PreferenceUpdateProto,
 };
 use xmtp_proto::xmtp::mls::message_contents::PlaintextEnvelope as PlaintextEnvelopeProto;
-use xmtp_proto::ConversionError;
 use xmtp_proto::{
-    api_client::trait_impls::XmtpApi,
+    api_client::XmtpApi,
     xmtp::mls::message_contents::{
         plaintext_envelope::v2::MessageType,
         plaintext_envelope::{Content, V2},
@@ -51,15 +53,11 @@ impl LegacyUserPreferenceUpdate {
 }
 
 /// Process and insert incoming preference updates over the sync group
-pub(crate) fn process_incoming_preference_update<ApiClient, Db>(
+pub(crate) fn process_incoming_preference_update(
     update_proto: UserPreferenceUpdateProto,
-    context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-) -> Result<Vec<PreferenceUpdate>, StorageError>
-where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
-{
-    let db = context.db();
+    context: &impl XmtpSharedContext,
+    storage: &impl XmtpMlsStorageProvider,
+) -> Result<Vec<PreferenceUpdate>, StorageError> {
     let proto_content = update_proto.contents;
 
     let mut updates = vec![];
@@ -73,7 +71,7 @@ where
                 }
                 PreferenceUpdate::Hmac { key, .. } => {
                     updates.push(update);
-                    StoredUserPreferences::store_hmac_key(&db, &key, None)?;
+                    StoredUserPreferences::store_hmac_key(&storage.db(), &key, None)?;
                 }
             }
         } else {
@@ -87,12 +85,14 @@ where
 
     // Insert all of the consent records at once.
     if !consent_updates.is_empty() {
-        let changed = db.insert_or_replace_consent_records(&consent_updates)?;
+        let changed = storage
+            .db()
+            .insert_or_replace_consent_records(&consent_updates)?;
         let changed: Vec<_> = changed.into_iter().map(PreferenceUpdate::Consent).collect();
         updates.extend(changed);
     }
 
-    if let Some(handle) = context.workers.sync_metrics() {
+    if let Some(handle) = context.workers().sync_metrics() {
         updates.iter().for_each(|u| match u {
             PreferenceUpdate::Consent(_) => handle.increment_metric(SyncMetric::V1ConsentReceived),
             PreferenceUpdate::Hmac { .. } => handle.increment_metric(SyncMetric::V1HmacReceived),
@@ -105,9 +105,9 @@ where
 impl LegacyUserPreferenceUpdate {
     /// Send a preference update through the sync group for other devices to consume
     /// Returns updates synced
-    pub(crate) async fn v1_sync_across_devices<C: XmtpApi, Db: XmtpDb>(
+    pub(crate) async fn v1_sync_across_devices<C: XmtpSharedContext>(
         updates: Vec<Self>,
-        device_sync: &DeviceSyncClient<C, Db>,
+        device_sync: &DeviceSyncClient<C>,
     ) -> Result<Vec<Self>, ClientError> {
         let sync_group = device_sync.get_sync_group().await?;
 

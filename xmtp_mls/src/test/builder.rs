@@ -3,23 +3,24 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 use std::sync::atomic::AtomicBool;
 
 use crate::builder::ClientBuilderError;
+use crate::context::XmtpSharedContext;
 use crate::identity::Identity;
 use crate::identity::IdentityError;
 use crate::utils::test::TestClient;
-use crate::XmtpApi;
-use xmtp_api::test_utils::*;
 use xmtp_api::ApiClientWrapper;
-use xmtp_common::{rand_vec, tmp_path, ExponentialBackoff, Retry};
-use xmtp_db::events::Events;
-use xmtp_db::XmtpDb;
+use xmtp_api::test_utils::*;
+use xmtp_common::{ExponentialBackoff, Retry, rand_vec, tmp_path};
 use xmtp_db::XmtpTestDb;
-use xmtp_db::{identity::StoredIdentity, Store};
+use xmtp_db::events::Events;
+use xmtp_db::sql_key_store::SqlKeyStore;
+use xmtp_db::{Store, identity::StoredIdentity};
 
 use openmls::credentials::{Credential, CredentialType};
 use prost::Message;
 use xmtp_common::rand_u64;
-use xmtp_cryptography::utils::{generate_local_wallet, rng};
 use xmtp_cryptography::XmtpInstallationCredential;
+use xmtp_cryptography::rand::rng;
+use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_id::associations::test_utils::{MockSmartContractSignatureVerifier, WalletTestExt};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{Identifier, ValidatedLegacySignedPublicKey};
@@ -29,28 +30,28 @@ use xmtp_proto::xmtp::message_contents::signature::WalletEcdsaCompact;
 use xmtp_proto::xmtp::message_contents::signed_private_key::{Secp256k1, Union};
 use xmtp_proto::xmtp::message_contents::unsigned_public_key::{self, Secp256k1Uncompressed};
 use xmtp_proto::xmtp::message_contents::{
-    signature, Signature, SignedPrivateKey, SignedPublicKey, UnsignedPublicKey,
+    Signature, SignedPrivateKey, SignedPublicKey, UnsignedPublicKey, signature,
 };
 
 use xmtp_proto::xmtp::identity::api::v1::{
-    get_inbox_ids_response::Response as GetInboxIdsResponseItem, GetInboxIdsResponse,
+    GetInboxIdsResponse, get_inbox_ids_response::Response as GetInboxIdsResponseItem,
 };
 
 use xmtp_proto::identity_v1::{
-    get_identity_updates_response::{IdentityUpdateLog, Response},
     GetIdentityUpdatesResponse,
+    get_identity_updates_response::{IdentityUpdateLog, Response},
 };
 
 use xmtp_proto::xmtp::identity::associations::{
-    identity_action::Kind as IdentityActionKindProto, signature::Signature as SignatureEnum,
     CreateInbox as CreateInboxProto, IdentifierKind, IdentityAction, IdentityUpdate,
     RecoverableEcdsaSignature, Signature as ProtoSignature,
+    identity_action::Kind as IdentityActionKindProto, signature::Signature as SignatureEnum,
 };
 
-use crate::{builder::ClientBuilder, identity::IdentityStrategy};
 use crate::{Client, InboxOwner};
+use crate::{builder::ClientBuilder, identity::IdentityStrategy};
 
-async fn register_client<C: XmtpApi, Db: XmtpDb>(client: &Client<C, Db>, owner: &impl InboxOwner) {
+async fn register_client<C: XmtpSharedContext>(client: &Client<C>, owner: &impl InboxOwner) {
     let mut signature_request = client.context.signature_request().unwrap();
     let signature_text = signature_request.signature_text();
     let scw_verifier = MockSmartContractSignatureVerifier::new(true);
@@ -209,12 +210,18 @@ async fn test_client_creation() {
         let result = Client::builder(test_case.strategy)
             .temp_store()
             .await
-            .api_client(
+            .api_clients(
+                <TestClient as XmtpTestClient>::create_local()
+                    .build()
+                    .await
+                    .unwrap(),
                 <TestClient as XmtpTestClient>::create_local()
                     .build()
                     .await
                     .unwrap(),
             )
+            .default_mls_store()
+            .unwrap()
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .build()
             .await;
@@ -249,19 +256,24 @@ async fn test_turn_local_telemetry_off() {
     let store = xmtp_db::TestDb::create_persistent_store(None).await;
     let client = Client::builder(identity_strategy.clone())
         .store(store)
-        .api_client(
+        .api_clients(
+            <TestClient as XmtpTestClient>::create_local()
+                .build()
+                .await
+                .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
                 .await
                 .unwrap(),
         )
+        .default_mls_store()
+        .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
         .with_disable_events(Some(true))
         .build()
         .await?;
 
-    let provider = client.mls_provider();
-    let events = Events::all_events(provider.db())?;
+    let events = Events::all_events(&client.context.db())?;
 
     // No events should be logged if telemetry is turned off.
     assert!(events.is_empty());
@@ -287,12 +299,18 @@ async fn test_2nd_time_client_creation() {
 
     let client1 = Client::builder(identity_strategy.clone())
         .store(store.clone())
-        .api_client(
+        .api_clients(
+            <TestClient as XmtpTestClient>::create_local()
+                .build()
+                .await
+                .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
                 .await
                 .unwrap(),
         )
+        .default_mls_store()
+        .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
         .build()
         .await
@@ -301,12 +319,18 @@ async fn test_2nd_time_client_creation() {
 
     let client2 = Client::builder(IdentityStrategy::CachedOnly)
         .store(store.clone())
-        .api_client(
+        .api_clients(
+            <TestClient as XmtpTestClient>::create_local()
+                .build()
+                .await
+                .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
                 .await
                 .unwrap(),
         )
+        .default_mls_store()
+        .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
         .build()
         .await
@@ -322,12 +346,18 @@ async fn test_2nd_time_client_creation() {
         None,
     ))
     .store(store.clone())
-    .api_client(
+    .api_clients(
+        <TestClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap(),
         <TestClient as XmtpTestClient>::create_local()
             .build()
             .await
             .unwrap(),
     )
+    .default_mls_store()
+    .unwrap()
     .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
     .build()
     .await
@@ -339,12 +369,18 @@ async fn test_2nd_time_client_creation() {
     let client4 = Client::builder(identity_strategy)
         .temp_store()
         .await
-        .api_client(
+        .api_clients(
+            <TestClient as XmtpTestClient>::create_local()
+                .build()
+                .await
+                .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
                 .await
                 .unwrap(),
         )
+        .default_mls_store()
+        .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
         .build()
         .await
@@ -385,7 +421,7 @@ async fn api_identity_mismatch() {
     let identity = IdentityStrategy::new("other_inbox_id".to_string(), ident, nonce, None);
     assert!(matches!(
         identity
-            .initialize_identity(&wrapper, &store.mls_provider(), &scw_verifier)
+            .initialize_identity(&wrapper, &SqlKeyStore::new(&store.db()), &scw_verifier)
             .await
             .unwrap_err(),
         IdentityError::NewIdentity(msg) if msg == "Inbox ID mismatch"
@@ -475,12 +511,14 @@ async fn api_identity_happy_path() {
 
     stored.store(&store.conn()).unwrap();
     let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
-    assert!(dbg!(
-        identity
-            .initialize_identity(&wrapper, &store.mls_provider(), &scw_verifier)
-            .await
-    )
-    .is_ok());
+    assert!(
+        dbg!(
+            identity
+                .initialize_identity(&wrapper, &SqlKeyStore::new(&store.db()), &scw_verifier)
+                .await
+        )
+        .is_ok()
+    );
 }
 
 // Use a stored identity as long as the inbox_id matches the one provided.
@@ -509,10 +547,12 @@ async fn stored_identity_happy_path() {
     stored.store(&store.conn()).unwrap();
     let wrapper = ApiClientWrapper::new(mock_api, retry());
     let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
-    assert!(identity
-        .initialize_identity(&wrapper, &store.mls_provider(), &scw_verifier)
-        .await
-        .is_ok());
+    assert!(
+        identity
+            .initialize_identity(&wrapper, &SqlKeyStore::new(&store.db()), &scw_verifier)
+            .await
+            .is_ok()
+    );
 }
 
 #[xmtp_common::test]
@@ -544,7 +584,7 @@ async fn stored_identity_mismatch() {
     let inbox_id = "inbox_id".to_string();
     let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
     let err = identity
-        .initialize_identity(&wrapper, &store.mls_provider(), &scw_verifier)
+        .initialize_identity(&wrapper, &SqlKeyStore::new(&store.db()), &scw_verifier)
         .await
         .unwrap_err();
 
@@ -571,13 +611,19 @@ async fn identity_persistence_test() {
         nonce,
         None,
     ))
-    .api_client(
+    .api_clients(
+        <TestClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap(),
         <TestClient as XmtpTestClient>::create_local()
             .build()
             .await
             .unwrap(),
     )
     .store(store_a)
+    .default_mls_store()
+    .unwrap()
     .with_scw_verifier(MockSmartContractSignatureVerifier::new(true));
     let client_a = client_a.build().await.unwrap();
 
@@ -596,13 +642,19 @@ async fn identity_persistence_test() {
         nonce,
         None,
     ))
-    .api_client(
+    .api_clients(
+        <TestClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap(),
         <TestClient as XmtpTestClient>::create_local()
             .build()
             .await
             .unwrap(),
     )
     .store(store_b)
+    .default_mls_store()
+    .unwrap()
     .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
     .build()
     .await
@@ -632,13 +684,19 @@ async fn identity_persistence_test() {
     // Use cached only strategy
     let store_d = xmtp_db::TestDb::create_persistent_store(Some(tmpdb.clone())).await;
     let client_d = Client::builder(IdentityStrategy::CachedOnly)
-        .api_client(
+        .api_clients(
+            <TestClient as XmtpTestClient>::create_local()
+                .build()
+                .await
+                .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
                 .await
                 .unwrap(),
         )
         .store(store_d)
+        .default_mls_store()
+        .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
         .build()
         .await
