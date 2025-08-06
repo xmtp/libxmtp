@@ -128,22 +128,16 @@ async fn test_dm_stream_all_messages() {
             .await
             .unwrap();
         futures::pin_mut!(stream);
-
         alix_dm
             .send_message("first DM msg".as_bytes())
             .await
             .unwrap();
-        bo.sync_all_welcomes_and_groups(None).await.unwrap();
-
         alix_group
             .send_message("second GROUP msg".as_bytes())
             .await
             .unwrap();
-        bo.sync_all_welcomes_and_groups(None).await.unwrap();
-
         assert_msg!(stream, "second GROUP msg");
     }
-
     {
         // Start a stream with only dms
         let stream = bo
@@ -151,32 +145,24 @@ async fn test_dm_stream_all_messages() {
             .await
             .unwrap();
         futures::pin_mut!(stream);
-
         alix_group
             .send_message("second GROUP msg".as_bytes())
             .await
             .unwrap();
-        bo.sync_all_welcomes_and_groups(None).await.unwrap();
-
         alix_dm
             .send_message("second DM msg".as_bytes())
             .await
             .unwrap();
-        bo.sync_all_welcomes_and_groups(None).await.unwrap();
-
         assert_msg!(stream, "second DM msg");
     }
     // Start a stream with all conversations
     // Wait for 2 seconds for the group creation to be streamed
     let stream = bo.stream_all_messages(None, None).await.unwrap();
     futures::pin_mut!(stream);
-
     alix_group.send_message("first".as_bytes()).await.unwrap();
-    bo.sync_all_welcomes_and_groups(None).await.unwrap();
     assert_msg!(stream, "first");
 
     alix_dm.send_message("second".as_bytes()).await.unwrap();
-    bo.sync_all_welcomes_and_groups(None).await.unwrap();
     assert_msg!(stream, "second");
 }
 
