@@ -21,7 +21,6 @@ use xmtp_content_types::attachment::{Attachment, AttachmentCodec};
 use xmtp_content_types::reply::{Reply, ReplyCodec};
 use xmtp_content_types::read_receipt::{ReadReceipt, ReadReceiptCodec};
 use xmtp_content_types::remote_attachment::{RemoteAttachment, RemoteAttachmentCodec};
-use xmtp_content_types::wallet_send_call::{WalletSendCall, WalletSendCallCodec, WalletCall};
 use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
 use xmtp_db::group::ConversationType;
 use xmtp_db::group::DmIdExt;
@@ -3096,98 +3095,6 @@ pub fn decode_remote_attachment(bytes: Vec<u8>) -> Result<FfiRemoteAttachment, G
         .map_err(|e| GenericError::Generic { err: e.to_string() })
 }
 
-// WalletSendCall FFI structures
-#[derive(uniffi::Record, Clone, Default)]
-pub struct FfiWalletCall {
-    pub to: String,
-    pub data: String,
-    pub value: String,
-    pub gas: String,
-    pub metadata: Option<HashMap<String, String>>,
-}
-
-impl From<FfiWalletCall> for WalletCall {
-    fn from(f: FfiWalletCall) -> Self {
-        WalletCall {
-            to: f.to,
-            data: f.data,
-            value: f.value,
-            gas: f.gas,
-            metadata: f.metadata,
-        }
-    }
-}
-
-impl From<WalletCall> for FfiWalletCall {
-    fn from(w: WalletCall) -> Self {
-        FfiWalletCall {
-            to: w.to,
-            data: w.data,
-            value: w.value,
-            gas: w.gas,
-            metadata: w.metadata,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Clone, Default)]
-pub struct FfiWalletSendCall {
-    pub version: String,
-    pub chain_id: String,
-    pub from: String,
-    pub calls: Vec<FfiWalletCall>,
-    pub capabilities: Option<HashMap<String, String>>,
-}
-
-impl From<FfiWalletSendCall> for WalletSendCall {
-    fn from(f: FfiWalletSendCall) -> Self {
-        WalletSendCall {
-            version: f.version,
-            chain_id: f.chain_id,
-            from: f.from,
-            calls: f.calls.into_iter().map(Into::into).collect(),
-            capabilities: f.capabilities,
-        }
-    }
-}
-
-impl From<WalletSendCall> for FfiWalletSendCall {
-    fn from(w: WalletSendCall) -> Self {
-        FfiWalletSendCall {
-            version: w.version,
-            chain_id: w.chain_id,
-            from: w.from,
-            calls: w.calls.into_iter().map(Into::into).collect(),
-            capabilities: w.capabilities,
-        }
-    }
-}
-
-#[uniffi::export]
-pub fn encode_wallet_send_call(wallet_send_call: FfiWalletSendCall) -> Result<Vec<u8>, GenericError> {
-    let wallet_send_call: WalletSendCall = wallet_send_call.into();
-
-    let encoded = WalletSendCallCodec::encode(wallet_send_call)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    let mut buf = Vec::new();
-    encoded
-        .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    Ok(buf)
-}
-
-#[uniffi::export]
-pub fn decode_wallet_send_call(bytes: Vec<u8>) -> Result<FfiWalletSendCall, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    WalletSendCallCodec::decode(encoded_content)
-        .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
-}
-
 #[derive(uniffi::Record, Clone)]
 pub struct FfiMessage {
     pub id: Vec<u8>,
@@ -3499,7 +3406,7 @@ mod tests {
         group_updated::GroupUpdatedCodec, membership_change::GroupMembershipChangeCodec,
         reaction::ReactionCodec, read_receipt::ReadReceiptCodec,
         remote_attachment::RemoteAttachmentCodec, reply::ReplyCodec, text::TextCodec,
-        transaction_reference::TransactionReferenceCodec, wallet_send_call::WalletSendCallCodec,
+        transaction_reference::TransactionReferenceCodec,
         ContentCodec,
     };
     use xmtp_cryptography::utils::generate_local_wallet;
