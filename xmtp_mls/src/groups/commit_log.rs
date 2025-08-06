@@ -118,8 +118,6 @@ pub struct ConversationCursorInfo {
 pub struct SaveRemoteCommitLogResult {
     pub conversation_id: Vec<u8>,
     pub num_entries_saved: usize,
-    pub last_entry_saved_commit_sequence_id: i64,
-    pub last_entry_saved_remote_log_sequence_id: i64,
 }
 
 pub struct UpdateCursorsResult {
@@ -146,7 +144,7 @@ pub enum CommitLogTestFunction {
 
 #[cfg(test)]
 pub struct TestResult {
-    pub save_remote_commit_log_results: Option<Vec<SaveRemoteCommitLogResult>>,
+    pub save_remote_commit_log_results: Option<HashMap<Vec<u8>, usize>>,
     pub publish_commit_log_results: Option<Vec<ConversationCursorInfo>>,
     pub forked_state_check_results: Option<HashMap<Vec<u8>, ForkedStateCheckResult>>,
 }
@@ -260,9 +258,8 @@ where
         Ok((conversation_cursor_info, all_plaintext_entries))
     }
 
-    async fn save_remote_commit_log(
-        &mut self,
-    ) -> Result<Vec<SaveRemoteCommitLogResult>, CommitLogError> {
+    // Returns a map of conversation_id to the number of entries saved
+    async fn save_remote_commit_log(&mut self) -> Result<HashMap<Vec<u8>, usize>, CommitLogError> {
         let conn = &self.context.db();
         // This should be all groups we are in, and all dms are in except sync groups
         let conversation_ids_for_remote_log_download =
@@ -289,21 +286,13 @@ where
         let api = self.context.api();
         let query_commit_log_responses = api.query_commit_log(query_log_requests).await?;
 
-        // Step 3 save the remote commit log entries to the local commit log
-        let mut save_remote_commit_log_results = Vec::new();
+        // Step 3 save the remote commit log entries to the local saved remote commit log
+        let mut save_remote_commit_log_results = HashMap::new();
         for response in query_commit_log_responses {
-            let num_entries = response.commit_log_entries.len();
             let group_id = response.group_id.clone();
-            let update_cursors_result =
+            let num_entries =
                 self.save_remote_commit_log_entries_and_update_cursors(conn, response)?;
-            save_remote_commit_log_results.push(SaveRemoteCommitLogResult {
-                conversation_id: group_id,
-                num_entries_saved: num_entries,
-                last_entry_saved_commit_sequence_id: update_cursors_result
-                    .last_entry_saved_commit_sequence_id,
-                last_entry_saved_remote_log_sequence_id: update_cursors_result
-                    .last_entry_saved_remote_log_sequence_id,
-            });
+            save_remote_commit_log_results.insert(group_id, num_entries);
         }
 
         Ok(save_remote_commit_log_results)
@@ -313,10 +302,8 @@ where
         &self,
         conn: &impl DbQuery,
         commit_log_response: QueryCommitLogResponse,
-    ) -> Result<UpdateCursorsResult, CommitLogError> {
+    ) -> Result<usize, CommitLogError> {
         let group_id = commit_log_response.group_id;
-        let mut latest_download_cursor = 0;
-        let mut latest_commit_sequence_id = 0;
         let mut num_entries_saved = 0;
         // From the stored remote commit log, fetch the following info:
         // 1. The latest applied epoch authenticator
@@ -356,25 +343,16 @@ where
                 applied_epoch_authenticator: log_entry.applied_epoch_authenticator,
             }
             .store(conn)?;
-            if log_entry.commit_sequence_id as i64 > latest_commit_sequence_id {
-                latest_commit_sequence_id = log_entry.commit_sequence_id as i64;
-            }
         }
         if let Some(last_entry) = commit_log_response.commit_log_entries.last() {
-            latest_download_cursor = last_entry.sequence_id as i64;
             conn.update_cursor(
                 &group_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogDownload,
-                latest_download_cursor,
+                last_entry.sequence_id as i64,
             )?;
         }
 
-        Ok(UpdateCursorsResult {
-            conversation_id: group_id,
-            num_entries_saved,
-            last_entry_saved_commit_sequence_id: latest_commit_sequence_id,
-            last_entry_saved_remote_log_sequence_id: latest_download_cursor,
-        })
+        Ok(num_entries_saved)
     }
 
     fn should_skip_remote_commit_log_entry(

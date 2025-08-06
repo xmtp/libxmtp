@@ -390,20 +390,14 @@ async fn test_download_commit_log_from_remote() {
             .len(),
         1
     );
+
     assert_eq!(
-        alix_test_results[0]
+        *alix_test_results[0]
             .save_remote_commit_log_results
             .as_ref()
-            .unwrap()[0]
-            .conversation_id,
-        alix_group.group_id
-    );
-    assert_eq!(
-        alix_test_results[0]
-            .save_remote_commit_log_results
-            .as_ref()
-            .unwrap()[0]
-            .num_entries_saved,
+            .unwrap()
+            .get(&alix_group.group_id)
+            .unwrap(),
         4
     );
 
@@ -416,20 +410,14 @@ async fn test_download_commit_log_from_remote() {
             .len(),
         1
     );
+
     assert_eq!(
-        bo_test_results[0]
+        *bo_test_results[0]
             .save_remote_commit_log_results
             .as_ref()
-            .unwrap()[0]
-            .conversation_id,
-        bo_group.group_id
-    );
-    assert_eq!(
-        bo_test_results[0]
-            .save_remote_commit_log_results
-            .as_ref()
-            .unwrap()[0]
-            .num_entries_saved,
+            .unwrap()
+            .get(&alix_group.group_id)
+            .unwrap(),
         4
     );
 
@@ -491,22 +479,15 @@ async fn test_download_commit_log_from_remote() {
             .len(),
         1
     );
-    // The saved results matches the conversation id
-    assert_eq!(
-        alix_test_results[0]
-            .save_remote_commit_log_results
-            .as_ref()
-            .unwrap()[0]
-            .conversation_id,
-        alix_group.group_id
-    );
+
     // We should have saved 2 new entries...
     assert_eq!(
-        alix_test_results[0]
+        *alix_test_results[0]
             .save_remote_commit_log_results
             .as_ref()
-            .unwrap()[0]
-            .num_entries_saved,
+            .unwrap()
+            .get(&alix_group.group_id)
+            .unwrap(),
         2
     );
 
@@ -542,20 +523,14 @@ async fn test_download_commit_log_from_remote() {
             .len(),
         1
     );
+
     assert_eq!(
-        alix_test_results[0]
+        *alix_test_results[0]
             .save_remote_commit_log_results
             .as_ref()
-            .unwrap()[0]
-            .conversation_id,
-        alix_group.group_id
-    );
-    assert_eq!(
-        alix_test_results[0]
-            .save_remote_commit_log_results
-            .as_ref()
-            .unwrap()[0]
-            .num_entries_saved,
+            .unwrap()
+            .get(&bo_group.group_id)
+            .unwrap(),
         2
     );
 
@@ -567,20 +542,14 @@ async fn test_download_commit_log_from_remote() {
             .len(),
         1
     );
+
     assert_eq!(
-        bo_test_results[0]
+        *bo_test_results[0]
             .save_remote_commit_log_results
             .as_ref()
-            .unwrap()[0]
-            .conversation_id,
-        bo_group.group_id
-    );
-    assert_eq!(
-        bo_test_results[0]
-            .save_remote_commit_log_results
-            .as_ref()
-            .unwrap()[0]
-            .num_entries_saved,
+            .unwrap()
+            .get(&bo_group.group_id)
+            .unwrap(),
         4
     );
 }
