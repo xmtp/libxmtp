@@ -9,6 +9,8 @@ use rand::Rng;
 use xmtp_db::group::GroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::prelude::*;
+use xmtp_db::remote_commit_log::CommitResult;
+use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
 use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
@@ -300,16 +302,20 @@ async fn test_download_commit_log_from_remote() {
     tester!(alix);
     tester!(bo);
 
+    // Alix creates a group with Bo (1 commit)
     let alix_group = alix.create_group(None, None).unwrap();
     alix_group
         .add_members_by_inbox_id(&[bo.inbox_id()])
         .await
         .unwrap();
 
+    // Alix updates the group name (2 commits)
     alix_group
         .update_group_name("foo".to_string())
         .await
         .unwrap();
+
+    // Alix updates the group name again (3 commits)
     alix_group
         .update_group_name("bar".to_string())
         .await
@@ -319,6 +325,8 @@ async fn test_download_commit_log_from_remote() {
     let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
     let bo_group = binding.first().unwrap();
     bo_group.sync().await.unwrap();
+
+    // Bo updates the group name (4 commits)
     bo_group
         .update_group_name("bo group name".to_string())
         .await
@@ -356,7 +364,7 @@ async fn test_download_commit_log_from_remote() {
     // We have saved zero remote commit log entries so far
     assert!(test_results[0].save_remote_commit_log_results.is_none());
 
-    // Running for bo and charlie should have no publish commit log results since they are not super admins
+    // Running for bo  should have no publish commit log results since they are not super admins
     let mut commit_log_worker = CommitLogWorker::new(bo.context.clone());
     let bo_test_results = commit_log_worker
         .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, Some(1))
@@ -376,12 +384,13 @@ async fn test_download_commit_log_from_remote() {
         test_results[0].publish_commit_log_results.clone().unwrap()[0].conversation_id,
         alix_group.group_id
     );
+    // We should have published 4 commits
     assert_eq!(
         test_results[0].publish_commit_log_results.clone().unwrap()[0].num_entries_published,
         4
     );
 
-    // After Alix publishes commits upload commit cursor should be equal to publish results last rowid for both groups:
+    // After Alix publishes commits upload commit cursor should be equal to publish results last rowid:
     let alix_group_1_cursor = alix
         .context
         .db()
@@ -418,20 +427,14 @@ async fn test_download_commit_log_from_remote() {
             .len(),
         1
     );
+
     assert_eq!(
-        alix_test_results[0]
+        *alix_test_results[0]
             .save_remote_commit_log_results
             .as_ref()
-            .unwrap()[0]
-            .conversation_id,
-        alix_group.group_id
-    );
-    assert_eq!(
-        alix_test_results[0]
-            .save_remote_commit_log_results
-            .as_ref()
-            .unwrap()[0]
-            .num_entries_saved,
+            .unwrap()
+            .get(&alix_group.group_id)
+            .unwrap(),
         4
     );
 
@@ -444,28 +447,25 @@ async fn test_download_commit_log_from_remote() {
             .len(),
         1
     );
+
     assert_eq!(
-        bo_test_results[0]
+        *bo_test_results[0]
             .save_remote_commit_log_results
             .as_ref()
-            .unwrap()[0]
-            .conversation_id,
-        bo_group.group_id
-    );
-    assert_eq!(
-        bo_test_results[0]
-            .save_remote_commit_log_results
-            .as_ref()
-            .unwrap()[0]
-            .num_entries_saved,
+            .unwrap()
+            .get(&alix_group.group_id)
+            .unwrap(),
         4
     );
 
     // Verify that cursor works as expected for saving new remote commit log entries
+    // Alix updates the group name (1 new commit (6 total))
     alix_group
         .update_group_name("one".to_string())
         .await
         .unwrap();
+
+    // Alix updates the group name again (2 new commits (8 total))
     alix_group
         .update_group_name("two".to_string())
         .await
@@ -474,12 +474,13 @@ async fn test_download_commit_log_from_remote() {
     bo_group.sync().await.unwrap();
 
     let mut commit_log_worker_alix = CommitLogWorker::new(alix.context.clone());
+    // Alix publishes commits and saves remote commit log entries
     let alix_test_results = commit_log_worker_alix
         .run_test(CommitLogTestFunction::All, None)
         .await
         .unwrap();
 
-    // Alix should only have saved 2 new remote commit log entries
+    // Alix should published for one conversation
     assert_eq!(
         alix_test_results[0]
             .publish_commit_log_results
@@ -488,6 +489,7 @@ async fn test_download_commit_log_from_remote() {
             .len(),
         1
     );
+    // The publish matches the conversation id
     assert_eq!(
         alix_test_results[0]
             .publish_commit_log_results
@@ -496,6 +498,7 @@ async fn test_download_commit_log_from_remote() {
             .conversation_id,
         alix_group.group_id
     );
+    // We published 2 new commits
     assert_eq!(
         alix_test_results[0]
             .publish_commit_log_results
@@ -504,6 +507,7 @@ async fn test_download_commit_log_from_remote() {
             .num_entries_published,
         2
     );
+    // We saved results for one conversation
     assert_eq!(
         alix_test_results[0]
             .save_remote_commit_log_results
@@ -512,20 +516,15 @@ async fn test_download_commit_log_from_remote() {
             .len(),
         1
     );
+
+    // We should have saved 2 new entries...
     assert_eq!(
-        alix_test_results[0]
+        *alix_test_results[0]
             .save_remote_commit_log_results
             .as_ref()
-            .unwrap()[0]
-            .conversation_id,
-        alix_group.group_id
-    );
-    assert_eq!(
-        alix_test_results[0]
-            .save_remote_commit_log_results
-            .as_ref()
-            .unwrap()[0]
-            .num_entries_saved,
+            .unwrap()
+            .get(&alix_group.group_id)
+            .unwrap(),
         2
     );
 
@@ -561,20 +560,14 @@ async fn test_download_commit_log_from_remote() {
             .len(),
         1
     );
+
     assert_eq!(
-        alix_test_results[0]
+        *alix_test_results[0]
             .save_remote_commit_log_results
             .as_ref()
-            .unwrap()[0]
-            .conversation_id,
-        alix_group.group_id
-    );
-    assert_eq!(
-        alix_test_results[0]
-            .save_remote_commit_log_results
-            .as_ref()
-            .unwrap()[0]
-            .num_entries_saved,
+            .unwrap()
+            .get(&bo_group.group_id)
+            .unwrap(),
         2
     );
 
@@ -586,20 +579,230 @@ async fn test_download_commit_log_from_remote() {
             .len(),
         1
     );
+
     assert_eq!(
-        bo_test_results[0]
+        *bo_test_results[0]
             .save_remote_commit_log_results
             .as_ref()
-            .unwrap()[0]
-            .conversation_id,
-        bo_group.group_id
-    );
-    assert_eq!(
-        bo_test_results[0]
-            .save_remote_commit_log_results
-            .as_ref()
-            .unwrap()[0]
-            .num_entries_saved,
+            .unwrap()
+            .get(&bo_group.group_id)
+            .unwrap(),
         4
     );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_should_skip_remote_log_entry() {
+    tester!(alix);
+    let commit_log_worker = CommitLogWorker::new(alix.context.clone());
+
+    // Does not skip if entry meets all conditions
+    let latest_saved_remote_log = RemoteCommitLog {
+        rowid: 0,
+        log_sequence_id: 0,
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 100,
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+    };
+
+    let entry = PlaintextCommitLogEntry {
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 101,
+        last_epoch_authenticator: vec![0x01, 0x02, 0x03],
+        commit_result: 1,
+        applied_epoch_number: 4,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
+    };
+    assert!(!commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log.clone()),
+        &entry,
+    ));
+
+    // Skips if Group ID does not match
+    let latest_saved_remote_log = RemoteCommitLog {
+        rowid: 0,
+        log_sequence_id: 0,
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 100,
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+    };
+    let entry = PlaintextCommitLogEntry {
+        group_id: vec![0xff, 0x22, 0x33],
+        commit_sequence_id: 101,
+        last_epoch_authenticator: vec![0x01, 0x02, 0x03],
+        commit_result: 1,
+        applied_epoch_number: 4,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
+    };
+    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log),
+        &entry
+    ));
+
+    // Skips if commit_sequence_id of the entry is not greater than the most recently stored entry, if one exists.
+    let latest_saved_remote_log = RemoteCommitLog {
+        rowid: 0,
+        log_sequence_id: 0,
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 100,
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+    };
+    let entry = PlaintextCommitLogEntry {
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 99,
+        last_epoch_authenticator: vec![0x01, 0x02, 0x03],
+        commit_result: 1,
+        applied_epoch_number: 4,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
+    };
+    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log),
+        &entry
+    ));
+
+    // Skips if the last_epoch_authenticator does not match the epoch_authenticator of
+    // the most recently stored entry with a CommitResult of COMMIT_RESULT_APPLIED, if one exists.
+    let latest_saved_remote_log = RemoteCommitLog {
+        rowid: 0,
+        log_sequence_id: 0,
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 100,
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+    };
+    let entry = PlaintextCommitLogEntry {
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 101,
+        last_epoch_authenticator: vec![0x01, 0x02, 0x05],
+        commit_result: 1,
+        applied_epoch_number: 4,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
+    };
+    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log),
+        &entry
+    ));
+
+    // Skips if the applied_epoch_number of the entry is not exactly 1 greater than
+    // the latest_applied_epoch_number of the remote validation info. (skipped from 3 to 5)
+    let latest_saved_remote_log = RemoteCommitLog {
+        rowid: 0,
+        log_sequence_id: 0,
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 100,
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+    };
+    let entry = PlaintextCommitLogEntry {
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 101,
+        last_epoch_authenticator: vec![0x01, 0x02, 0x03],
+        commit_result: 1,
+        applied_epoch_number: 5,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
+    };
+    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log),
+        &entry
+    ));
+
+    // Skips if the applied_epoch_number of the entry is not exactly 1 greater than
+    // the latest_applied_epoch_number of the remote validation info. (stayed at 3)
+    let latest_saved_remote_log = RemoteCommitLog {
+        rowid: 0,
+        log_sequence_id: 0,
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 100,
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+    };
+    let entry = PlaintextCommitLogEntry {
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 101,
+        last_epoch_authenticator: vec![0x01, 0x02, 0x03],
+        commit_result: 1,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
+    };
+    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log),
+        &entry
+    ));
+
+    // Skips if the applied_epoch_number of the entry is not exactly 1 greater than
+    // the latest_applied_epoch_number of the remote validation info. (decreased from 3 to 2)
+    let latest_saved_remote_log = RemoteCommitLog {
+        rowid: 0,
+        log_sequence_id: 0,
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 100,
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+    };
+    let entry = PlaintextCommitLogEntry {
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 101,
+        last_epoch_authenticator: vec![0x01, 0x02, 0x03],
+        commit_result: 1,
+        applied_epoch_number: 2,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
+    };
+    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log),
+        &entry
+    ));
+
+    // Skips if entry CommitResult is not COMMIT_RESULT_APPLIED, and the epoch authenticator or epoch number does not match the most recently applied values
+    let latest_saved_remote_log = RemoteCommitLog {
+        rowid: 0,
+        log_sequence_id: 0,
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 100,
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+    };
+    let entry = PlaintextCommitLogEntry {
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 101,
+        last_epoch_authenticator: vec![0x01, 0x02, 0x03],
+        commit_result: 2,
+        applied_epoch_number: 4,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+    };
+    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log.clone()),
+        &entry
+    ));
+    let entry = PlaintextCommitLogEntry {
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 101,
+        last_epoch_authenticator: vec![0x01, 0x02, 0x03],
+        commit_result: 2,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
+    };
+    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log),
+        &entry
+    ));
 }

@@ -1,22 +1,41 @@
 use diesel::RunQueryDsl;
 
-use crate::{impl_store, schema::remote_commit_log};
+use crate::{
+    ConnectionExt, DbConnection, impl_store, schema::remote_commit_log,
+    schema::remote_commit_log::dsl,
+};
 use diesel::{
     Insertable, Queryable,
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
     expression::AsExpression,
+    prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
     sqlite::Sqlite,
 };
+
 use serde::{Deserialize, Serialize};
 use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 
+#[derive(Insertable, Debug, Clone)]
+#[diesel(table_name = remote_commit_log)]
+pub struct NewRemoteCommitLog {
+    pub log_sequence_id: i64,
+    pub group_id: Vec<u8>,
+    pub commit_sequence_id: i64,
+    pub commit_result: CommitResult,
+    pub applied_epoch_number: i64,
+    pub applied_epoch_authenticator: Vec<u8>,
+}
+
+impl_store!(NewRemoteCommitLog, remote_commit_log);
+
 #[derive(Insertable, Queryable, Debug, Clone)]
 #[diesel(table_name = remote_commit_log)]
-#[diesel(primary_key(sequence_id))]
+#[diesel(primary_key(rowid))]
 pub struct RemoteCommitLog {
+    pub rowid: i32,
     // The sequence ID of the log entry on the server
     pub log_sequence_id: i64,
     // The group ID of the conversation
@@ -27,9 +46,9 @@ pub struct RemoteCommitLog {
     // 1 = Applied, all other values are failures matching the protobuf enum
     pub commit_result: CommitResult,
     // The epoch number after the commit was applied, or the existing number otherwise
-    pub applied_epoch_number: Option<i64>,
+    pub applied_epoch_number: i64,
     // The state after the commit was applied, or the existing state otherwise
-    pub applied_epoch_authenticator: Option<Vec<u8>>,
+    pub applied_epoch_authenticator: Vec<u8>,
 }
 
 impl_store!(RemoteCommitLog, remote_commit_log);
@@ -98,3 +117,76 @@ impl From<ProtoCommitResult> for CommitResult {
 
 // the max page size for queries
 pub const MAX_PAGE_SIZE: u32 = 100;
+
+pub trait QueryRemoteCommitLog {
+    fn get_latest_remote_log_for_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
+
+    fn get_remote_commit_log_after_cursor(
+        &self,
+        group_id: &[u8],
+        after_cursor: i64,
+    ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError>;
+}
+
+impl<T> QueryRemoteCommitLog for &T
+where
+    T: QueryRemoteCommitLog,
+{
+    fn get_latest_remote_log_for_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
+        (**self).get_latest_remote_log_for_group(group_id)
+    }
+
+    fn get_remote_commit_log_after_cursor(
+        &self,
+        group_id: &[u8],
+        after_cursor: i64,
+    ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError> {
+        (**self).get_remote_commit_log_after_cursor(group_id, after_cursor)
+    }
+}
+
+impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
+    fn get_latest_remote_log_for_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
+        self.raw_query_read(|db| {
+            dsl::remote_commit_log
+                .filter(remote_commit_log::group_id.eq(group_id))
+                .order(remote_commit_log::log_sequence_id.desc())
+                .limit(1)
+                .first(db)
+                .optional()
+        })
+    }
+
+    fn get_remote_commit_log_after_cursor(
+        &self,
+        group_id: &[u8],
+        after_cursor: i64,
+    ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError> {
+        // If a group hits more than 2^31 entries on the remote commit log rowid, we will hit this error
+        // If we want to address this we can make a new sqlite cursor table/row that stores u64 values
+        if after_cursor > i32::MAX as i64 {
+            return Err(crate::ConnectionError::Database(
+                diesel::result::Error::QueryBuilderError("Cursor value exceeds i32::MAX".into()),
+            ));
+        }
+        let after_cursor: i32 = after_cursor as i32;
+
+        self.raw_query_read(|db| {
+            dsl::remote_commit_log
+                .filter(dsl::group_id.eq(group_id))
+                .filter(dsl::rowid.gt(after_cursor))
+                .filter(dsl::commit_sequence_id.ne(0))
+                .order_by(dsl::rowid.desc())
+                .load(db)
+        })
+    }
+}

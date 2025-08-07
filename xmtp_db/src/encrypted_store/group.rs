@@ -823,7 +823,8 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         self.raw_query_read(|conn| query.load::<StoredGroupCommitLogPublicKey>(conn))
     }
 
-    // All dms and groups that are note sync groups or rejected
+    // All dms and groups that are not sync groups or rejected
+    // TODO(cam): Add a filter for groups that are not rejected
     fn get_conversation_ids_for_remote_log_download(
         &self,
     ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
