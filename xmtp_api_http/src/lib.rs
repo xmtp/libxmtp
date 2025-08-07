@@ -1,15 +1,18 @@
 #![warn(clippy::unwrap_used)]
 
 pub mod error;
-pub mod stream;
 pub mod http_client;
+pub mod stream;
+#[cfg(test)]
+mod test;
 pub mod util;
 
 use futures::stream as futures_stream;
-use stream::create_grpc_stream;
 use prost::Message;
 use reqwest::header::HeaderMap;
-use reqwest::{Url, header};
+
+use reqwest::{header, Url};
+use stream::create_grpc_stream;
 use util::handle_error_proto;
 
 use governor::clock::DefaultClock;
@@ -463,10 +466,12 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
     #[cfg(not(target_arch = "wasm32"))]
     type GroupMessageStream = futures_stream::BoxStream<'static, Result<GroupMessage, Self::Error>>;
     #[cfg(not(target_arch = "wasm32"))]
-    type WelcomeMessageStream = futures_stream::BoxStream<'static, Result<WelcomeMessage, Self::Error>>;
+    type WelcomeMessageStream =
+        futures_stream::BoxStream<'static, Result<WelcomeMessage, Self::Error>>;
 
     #[cfg(target_arch = "wasm32")]
-    type GroupMessageStream = futures_stream::LocalBoxStream<'static, Result<GroupMessage, Self::Error>>;
+    type GroupMessageStream =
+        futures_stream::LocalBoxStream<'static, Result<GroupMessage, Self::Error>>;
     #[cfg(target_arch = "wasm32")]
     type WelcomeMessageStream =
         futures_stream::LocalBoxStream<'static, Result<WelcomeMessage, Self::Error>>;
