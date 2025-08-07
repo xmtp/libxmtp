@@ -4,8 +4,8 @@ license.workspace = true
 name = "xmtp_mls"
 version.workspace = true
 
-[lints.clippy]
-uninlined_format_args = "allow"
+[lints]
+workspace = true
 
 [package.metadata.docs.rs]
 all-features = true

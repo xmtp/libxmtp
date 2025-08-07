@@ -198,13 +198,7 @@ where
         if db.find_group(group_id.as_slice())?.is_some() {
             // Fetch the original MLS group, rather than the one from the welcome
             let result = MlsGroup::new_cached(self.context.clone(), group_id.as_slice());
-            if result.is_err() {
-                tracing::error!(
-                    "Error fetching group while validating welcome: {:?}",
-                    result.err()
-                );
-            } else {
-                let (group, _) = result.expect("No error");
+            if let Ok((group, _)) = result {
                 // Check the group epoch as well, because we may not have synced the latest is_active state
                 // TODO(rich): Design a better way to detect if incoming welcomes are valid
                 if group.is_active()?
@@ -222,6 +216,11 @@ where
                     );
                     return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
                 }
+            } else {
+                tracing::error!(
+                    "Error fetching group while validating welcome: {:?}",
+                    result.err()
+                );
             }
         }
         Ok(())

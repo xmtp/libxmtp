@@ -1302,7 +1302,7 @@ where
             hex::encode(self.group_id.clone()),
         );
 
-        Ok(db.insert_or_replace_consent_records(&[consent_record.clone()])?)
+        Ok(db.insert_or_replace_consent_records(std::slice::from_ref(&consent_record))?)
     }
 
     #[tracing::instrument(skip_all, level = "trace")]

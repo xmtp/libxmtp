@@ -4,8 +4,8 @@ edition = "2024"
 license.workspace = true
 version.workspace = true
 
-[lints.clippy]
-uninlined_format_args = "allow"
+[lints]
+workspace = true
 
 [dependencies]
 aes-gcm.workspace = true
