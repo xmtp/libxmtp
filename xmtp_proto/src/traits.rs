@@ -46,7 +46,7 @@ pub type BoxedClient = Box<
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait Client {
     type Error: std::error::Error + Send + Sync + 'static;
-    type Stream: futures::Stream;
+    type Stream: futures::Stream<Item = Result<Bytes, Self::Error>>;
 
     async fn request(
         &self,
@@ -298,7 +298,8 @@ pub mod mock {
             async fn stream(
                 &self,
                 request: http::request::Builder,
-                body: Vec<u8>,
+                path: http::uri::PathAndQuery,
+                body: Bytes,
             ) -> Result<http::Response<MockStreamT>, ApiClientError<MockError>>;
         }
 

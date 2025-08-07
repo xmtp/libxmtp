@@ -13,48 +13,17 @@ use std::{
     collections::VecDeque,
     marker::PhantomData,
     pin::Pin,
-    task::{Context, Poll, ready},
+    task::{ready, Poll},
 };
 use xmtp_common::StreamWrapper;
 use xmtp_proto::traits::ApiClientError;
 
+mod establish;
+use establish::*;
+
 #[derive(Deserialize, Serialize, Debug)]
 pub(crate) struct SubscriptionItem<T> {
     pub result: T,
-}
-
-pin_project! {
-    /// The establish future for the http post stream
-    struct HttpStreamEstablish<'a, F> {
-        #[pin] inner: F,
-        _marker: PhantomData<&'a F>
-    }
-}
-
-impl<F> HttpStreamEstablish<'_, F> {
-    fn new(inner: F) -> Self {
-        Self {
-            inner,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<'a, F> Future for HttpStreamEstablish<'a, F>
-where
-    F: Future<Output = Result<Response, reqwest::Error>>,
-{
-    type Output = Result<StreamWrapper<'a, Result<bytes::Bytes, reqwest::Error>>, HttpClientError>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        use Poll::*;
-        let this = self.as_mut().project();
-        let response = ready!(this.inner.poll(cx));
-        let stream = response.inspect_err(|e| {
-            tracing::error!("Error during http subscription with grpc http gateway {e}");
-        })?;
-        Ready(Ok(StreamWrapper::new(stream.bytes_stream())))
-    }
 }
 
 pin_project! {
@@ -153,7 +122,7 @@ where
 }
 
 pin_project! {
-    struct HttpStream<'a, F, R> {
+    pub(crate) struct HttpStream<'a, F, R> {
         #[pin] state: HttpStreamState<'a, F, R>,
         id: String,
     }
@@ -177,7 +146,7 @@ impl<F, R> HttpStream<'_, F, R>
 where
     F: Future<Output = Result<Response, reqwest::Error>>,
 {
-    fn new(request: F) -> Self {
+    pub(crate) fn new(request: F) -> Self {
         let id = xmtp_common::rand_string::<12>();
         tracing::info!("new http stream id={}", &id);
         Self {
@@ -260,7 +229,7 @@ where
     for<'de> R: Deserialize<'de> + DeserializeOwned + Send + 'static,
 {
     /// Establish the initial HTTP Stream connection
-    async fn establish(&mut self) {
+    pub(crate) async fn establish(&mut self) {
         // we need to poll the future once to progress the future state &
         // establish the initial POST request.
         // It should always be pending
@@ -280,7 +249,7 @@ where
     F: Future<Output = Result<Response, reqwest::Error>>,
     for<'de> R: Deserialize<'de> + DeserializeOwned + Send + 'static,
 {
-    async fn establish(&mut self) {
+    pub(crate) async fn establish(&mut self) {
         tracing::debug!("establishing new http stream {}...", self.id);
         // we need to poll the future once to progress the future state &
         // establish the initial POST request.

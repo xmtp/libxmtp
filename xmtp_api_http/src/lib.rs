@@ -1,13 +1,12 @@
 #![warn(clippy::unwrap_used)]
 
 pub mod error;
+pub mod stream;
 pub mod http_client;
-pub mod http_stream;
-
 pub mod util;
 
-use futures::stream;
-use http_stream::create_grpc_stream;
+use futures::stream as futures_stream;
+use stream::create_grpc_stream;
 use prost::Message;
 use reqwest::header::HeaderMap;
 use reqwest::{Url, header};
@@ -462,15 +461,15 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
     // `Trait` yet.
 
     #[cfg(not(target_arch = "wasm32"))]
-    type GroupMessageStream = stream::BoxStream<'static, Result<GroupMessage, Self::Error>>;
+    type GroupMessageStream = futures_stream::BoxStream<'static, Result<GroupMessage, Self::Error>>;
     #[cfg(not(target_arch = "wasm32"))]
-    type WelcomeMessageStream = stream::BoxStream<'static, Result<WelcomeMessage, Self::Error>>;
+    type WelcomeMessageStream = futures_stream::BoxStream<'static, Result<WelcomeMessage, Self::Error>>;
 
     #[cfg(target_arch = "wasm32")]
-    type GroupMessageStream = stream::LocalBoxStream<'static, Result<GroupMessage, Self::Error>>;
+    type GroupMessageStream = futures_stream::LocalBoxStream<'static, Result<GroupMessage, Self::Error>>;
     #[cfg(target_arch = "wasm32")]
     type WelcomeMessageStream =
-        stream::LocalBoxStream<'static, Result<WelcomeMessage, Self::Error>>;
+        futures_stream::LocalBoxStream<'static, Result<WelcomeMessage, Self::Error>>;
 
     #[tracing::instrument(skip_all)]
     async fn subscribe_group_messages(

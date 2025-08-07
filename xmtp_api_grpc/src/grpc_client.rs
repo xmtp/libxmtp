@@ -1,5 +1,11 @@
+use futures::Stream;
+use pin_project_lite::pin_project;
 use prost::bytes::Bytes;
-use std::time::Duration;
+use std::{
+    pin::Pin,
+    task::{ready, Context, Poll},
+    time::Duration,
+};
 use tonic::{
     metadata::{self, MetadataMap, MetadataValue},
     transport::Channel,
@@ -19,7 +25,7 @@ impl From<GrpcError> for ApiClientError<GrpcError> {
     }
 }
 
-/// Trait to convert type to an HTTP Response
+/// Private trait to convert type to an HTTP Response
 trait ToHttp {
     type Body;
     fn to_http(self) -> http::Response<Self::Body>;
@@ -80,11 +86,37 @@ impl GrpcClient {
     }
 }
 
+pin_project! {
+    /// A stream of bytes from a GRPC Network Source
+    pub struct GrpcStream {
+        #[pin] inner: tonic::Streaming<Bytes>
+    }
+}
+
+impl From<tonic::Streaming<Bytes>> for GrpcStream {
+    fn from(value: tonic::Streaming<Bytes>) -> GrpcStream {
+        GrpcStream { inner: value }
+    }
+}
+
+// just a more convenient way to map the stream type to
+// something more customized to the trait, without playing around with getting the
+// generics right on nested futures combinators.
+impl Stream for GrpcStream {
+    type Item = Result<Bytes, crate::GrpcError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.project();
+        let item = ready!(this.inner.poll_next(cx));
+        Poll::Ready(item.map(|i| i.map_err(crate::GrpcError::from)))
+    }
+}
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl Client for GrpcClient {
     type Error = crate::GrpcError;
-    type Stream = tonic::Streaming<Bytes>;
+    type Stream = GrpcStream;
 
     async fn request(
         &self,
@@ -120,8 +152,7 @@ impl Client for GrpcClient {
             .server_streaming(request, path, codec)
             .await
             .map_err(GrpcError::from)?;
-
-        Ok(response.to_http())
+        Ok(response.to_http().map(Into::into))
     }
 }
 
