@@ -84,6 +84,16 @@ pub struct StoredGroup {
     /// Whether the user should publish the commit log for this group
     #[builder(default = false)]
     pub should_publish_commit_log: bool,
+    #[builder(default = None)]
+    pub commit_log_public_key: Option<Vec<u8>>,
+}
+
+/// A subset of the group table for fetching the commit log public key
+#[derive(Queryable)]
+#[diesel(table_name = groups)]
+pub struct StoredGroupCommitLogPublicKey {
+    pub id: Vec<u8>,
+    pub commit_log_public_key: Option<Vec<u8>>,
 }
 
 // TODO: Create two more structs that delegate to StoredGroup
@@ -222,7 +232,7 @@ pub trait QueryGroup {
     /// Get conversation IDs for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
     fn get_conversation_ids_for_remote_log_publish(
         &self,
-    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+    ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
 
     /// Get conversation IDs for all conversations that require a remote commit log download (DMs and groups that are not sync groups)
     fn get_conversation_ids_for_remote_log_download(
@@ -351,7 +361,7 @@ where
     /// Get conversation IDs for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
     fn get_conversation_ids_for_remote_log_publish(
         &self,
-    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+    ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
         (**self).get_conversation_ids_for_remote_log_publish()
     }
 
@@ -798,7 +808,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     /// (DMs and groups where user is super admin, excluding sync groups and rejected groups)
     fn get_conversation_ids_for_remote_log_publish(
         &self,
-    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+    ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(
                 dsl::conversation_type
@@ -807,10 +817,10 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                         .eq(ConversationType::Group)
                         .and(dsl::should_publish_commit_log.eq(true))),
             )
-            .select(dsl::id)
+            .select((dsl::id, dsl::commit_log_public_key))
             .order(dsl::created_at_ns.asc());
 
-        self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
+        self.raw_query_read(|conn| query.load::<StoredGroupCommitLogPublicKey>(conn))
     }
 
     // All dms and groups that are not sync groups or rejected
@@ -1384,6 +1394,34 @@ pub(crate) mod tests {
             assert!(returned_ids.contains(&&allowed_group.id));
             assert!(returned_ids.contains(&&unknown_group.id));
             assert!(!returned_ids.contains(&&denied_group.id));
+        })
+        .await
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_get_conversation_ids_for_remote_log_publish() {
+        with_connection(|conn| {
+            let mut group1 = generate_group(None);
+            let mut group2 = generate_group(None);
+            let mut group3 = generate_group(None);
+            group1.should_publish_commit_log = true;
+            group1.commit_log_public_key = None;
+            group2.should_publish_commit_log = true;
+            group2.commit_log_public_key = Some(rand_vec::<32>());
+            group3.should_publish_commit_log = false;
+            group1.store(conn)?;
+            group2.store(conn)?;
+            group3.store(conn)?;
+
+            let commit_log_keys = conn.get_conversation_ids_for_remote_log_publish().unwrap();
+            assert_eq!(commit_log_keys.len(), 2);
+            assert_eq!(commit_log_keys[0].id, group1.id);
+            assert_eq!(commit_log_keys[1].id, group2.id);
+            assert_eq!(commit_log_keys[0].commit_log_public_key, None);
+            assert_eq!(
+                commit_log_keys[1].commit_log_public_key,
+                group2.commit_log_public_key
+            );
         })
         .await
     }

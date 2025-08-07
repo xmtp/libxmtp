@@ -1,5 +1,6 @@
 use crate::association_state::QueryAssociationStateCache;
 use crate::group::ConversationType;
+use crate::group::StoredGroupCommitLogPublicKey;
 use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
 use crate::remote_commit_log::{RemoteCommitLog, RemoteLogValidationInfo};
 use std::collections::HashMap;
@@ -214,7 +215,7 @@ mock! {
 
         fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError>;
 
-        fn get_conversation_ids_for_remote_log_publish(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+        fn get_conversation_ids_for_remote_log_publish(&self) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
 
         fn get_conversation_ids_for_remote_log_download(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
 
@@ -355,11 +356,6 @@ mock! {
         ) -> Result<usize, crate::ConnectionError>;
 
         fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError>;
-
-        fn get_latest_sequence_id_for_group(
-            &self,
-            group_id: &[u8],
-        ) -> Result<Option<i64>, crate::ConnectionError>;
     }
 
     impl QueryIdentity for DbQuery {

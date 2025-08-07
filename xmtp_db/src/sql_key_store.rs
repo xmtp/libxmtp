@@ -1073,6 +1073,7 @@ pub(crate) mod tests {
     use serde::{Deserialize, Serialize};
 
     use super::SqlKeyStore;
+    use crate::encrypted_store::MlsProviderExt;
     use crate::{
         XmtpTestDb, sql_key_store::SqlKeyStoreError, xmtp_openmls_provider::XmtpOpenMlsProvider,
     };
@@ -1126,6 +1127,41 @@ pub(crate) mod tests {
     impl traits::ProposalRef<CURRENT_VERSION> for ProposalRef {}
     impl Key<CURRENT_VERSION> for ProposalRef {}
     impl Entity<CURRENT_VERSION> for ProposalRef {}
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_read_write() {
+        let store = crate::TestDb::create_persistent_store(None).await;
+        let conn = store.conn();
+        let mls_store = SqlKeyStore::new(conn);
+        let provider = XmtpOpenMlsProvider::new(mls_store);
+        let key_store = provider.key_store();
+
+        let raw_value = vec![3u8; 32];
+        let group_1 = bincode::serialize(&[1u8; 32])?;
+        let group_2 = bincode::serialize(&[2u8; 32])?;
+        let value_1 = bincode::serialize(&raw_value)?;
+
+        key_store.write::<CURRENT_VERSION>(
+            crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+            &group_1,
+            &value_1,
+        )?;
+
+        // Query on a value that hasn't been written
+        let result = key_store.read::<CURRENT_VERSION, Vec<u8>>(
+            crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+            &group_2,
+        );
+        assert!(result.is_ok(), "{}", result.err().unwrap());
+        assert!(result.unwrap().is_none());
+
+        let result = key_store.read::<CURRENT_VERSION, Vec<u8>>(
+            crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+            &group_1,
+        );
+        assert!(result.is_ok(), "{}", result.err().unwrap());
+        assert_eq!(result.unwrap(), Some(raw_value));
+    }
 
     #[xmtp_common::test]
     async fn list_append_remove() {

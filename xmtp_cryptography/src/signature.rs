@@ -1,7 +1,18 @@
+use std::array::TryFromSliceError;
+
 use alloy::primitives::{self as alloy_types, Address};
 use hex::FromHexError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+use crate::{configuration::ED25519_KEY_LENGTH, Secret};
+
+pub fn to_public_key(private_key: &Secret) -> Result<[u8; ED25519_KEY_LENGTH], TryFromSliceError> {
+    let private_key = private_key.as_slice().try_into()?;
+    let mut computed_public_key = [0u8; ED25519_KEY_LENGTH];
+    libcrux_ed25519::secret_to_public(&mut computed_public_key, &private_key);
+    Ok(computed_public_key)
+}
 
 #[derive(Error, Debug)]
 pub enum SignatureError {
