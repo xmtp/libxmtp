@@ -38,8 +38,8 @@ impl<Builder1, Builder2> ApiBuilder for D14nClientBuilder<Builder1, Builder2>
 where
     Builder1: ApiBuilder<Error = <Builder2 as ApiBuilder>::Error>,
     Builder2: ApiBuilder,
-    <Builder1 as ApiBuilder>::Output: xmtp_proto::traits::Client,
-    <Builder2 as ApiBuilder>::Output: xmtp_proto::traits::Client,
+    <Builder1 as ApiBuilder>::Output: xmtp_proto::client_traits::Client,
+    <Builder2 as ApiBuilder>::Output: xmtp_proto::client_traits::Client,
 {
     type Output = D14nClient<<Builder1 as ApiBuilder>::Output, <Builder2 as ApiBuilder>::Output>;
 
@@ -99,8 +99,8 @@ mod test {
     where
         Builder1: ApiBuilder<Error = <Builder2 as ApiBuilder>::Error>,
         Builder2: ApiBuilder,
-        <Builder1 as ApiBuilder>::Output: xmtp_proto::traits::Client,
-        <Builder2 as ApiBuilder>::Output: xmtp_proto::traits::Client,
+        <Builder1 as ApiBuilder>::Output: xmtp_proto::client_traits::Client,
+        <Builder2 as ApiBuilder>::Output: xmtp_proto::client_traits::Client,
     {
         async fn with_toxiproxy(&mut self) -> ToxicProxies {
             let xmtpd_host = <Builder1 as ApiBuilder>::host(&self.message_client).unwrap();

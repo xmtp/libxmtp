@@ -3,7 +3,7 @@ use bytes::Bytes;
 use futures::TryStreamExt;
 use xmtp_common::StreamWrapper;
 use std::future::Future;
-use xmtp_proto::traits::{ApiClientError, Client};
+use xmtp_proto::client_traits::{ApiClientError, Client};
 
 impl From<HttpClientError> for ApiClientError<HttpClientError> {
     fn from(value: HttpClientError) -> Self {

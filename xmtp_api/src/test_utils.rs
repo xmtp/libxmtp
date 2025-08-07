@@ -4,7 +4,7 @@ use std::pin::Pin;
 
 use futures::Stream;
 use mockall::mock;
-use xmtp_proto::traits::mock::MockApiBuilder;
+use xmtp_proto::client_traits::mock::MockApiBuilder;
 use xmtp_proto::{
     api_client::{ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
     mls_v1::WelcomeMessage,

@@ -8,8 +8,8 @@ use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
 };
-use xmtp_proto::traits::ApiClientError;
-use xmtp_proto::traits::HasStats;
+use xmtp_proto::client_traits::ApiClientError;
+use xmtp_proto::client_traits::HasStats;
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
     api_client::XmtpMlsClient,

@@ -9,7 +9,7 @@ use color_eyre::eyre::Result;
 use std::sync::Arc;
 use xmtp_api_grpc::{GrpcError, grpc_api_helper::Client as GrpcClient};
 use xmtp_mls::context::XmtpMlsLocalContext;
-use xmtp_proto::traits::ApiClientError;
+use xmtp_proto::client_traits::ApiClientError;
 
 pub type MlsContext =
     Arc<XmtpMlsLocalContext<DbgClientApi, xmtp_db::DefaultStore, xmtp_db::DefaultMlsStore>>;

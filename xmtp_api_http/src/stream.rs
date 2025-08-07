@@ -16,7 +16,7 @@ use std::{
     task::{ready, Poll},
 };
 use xmtp_common::StreamWrapper;
-use xmtp_proto::traits::ApiClientError;
+use xmtp_proto::client_traits::ApiClientError;
 
 mod establish;
 use establish::*;

@@ -7,7 +7,7 @@ use xmtp_proto::api_client::{
 use xmtp_proto::identity_v1;
 use xmtp_proto::mls_v1;
 use xmtp_proto::prelude::ApiBuilder;
-use xmtp_proto::traits::{ApiClientError, Client, Query};
+use xmtp_proto::client_traits::{ApiClientError, Client, Query};
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
 #[derive(Clone)]
@@ -34,7 +34,7 @@ impl<Builder> V3ClientBuilder<Builder> {
 impl<Builder> ApiBuilder for V3ClientBuilder<Builder>
 where
     Builder: ApiBuilder,
-    <Builder as ApiBuilder>::Output: xmtp_proto::traits::Client,
+    <Builder as ApiBuilder>::Output: xmtp_proto::client_traits::Client,
 {
     type Output = V3Client<<Builder as ApiBuilder>::Output>;
 

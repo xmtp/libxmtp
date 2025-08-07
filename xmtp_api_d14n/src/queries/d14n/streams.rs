@@ -3,7 +3,7 @@ use futures::stream;
 use xmtp_common::RetryableError;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1;
-use xmtp_proto::traits::{ApiClientError, Client};
+use xmtp_proto::client_traits::{ApiClientError, Client};
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]

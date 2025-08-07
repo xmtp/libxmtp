@@ -12,8 +12,8 @@ use tonic::{
 };
 use xmtp_proto::{
     api_client::ApiBuilder,
+    client_traits::{ApiClientError, Client},
     codec::TransparentCodec,
-    traits::{ApiClientError, Client},
 };
 
 use crate::{create_tls_channel, GrpcBuilderError, GrpcError};

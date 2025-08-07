@@ -24,7 +24,7 @@ pub mod tests {
     #[cfg(test)]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
     // #[cfg(any(not(feature = "grpc-api"), not(feature = "http-api")))]
-    // pub type TestClient = xmtp_proto::traits::mock::MockClient;
+    // pub type TestClient = xmtp_proto::client_traits::mock::MockClient;
     #[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
     pub type TestClient = xmtp_api_grpc::grpc_client::GrpcClient;
 
