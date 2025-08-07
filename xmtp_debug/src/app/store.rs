@@ -139,7 +139,7 @@ pub trait Database<Key, Value> {
     fn load(
         &self,
         network: impl Into<u64>,
-    ) -> Result<Option<impl Iterator<Item = AccessGuard<Value>>>>
+    ) -> Result<Option<impl Iterator<Item = AccessGuard<'_, Value>>>>
     where
         Value: redb::Value + 'static;
 
@@ -274,7 +274,7 @@ where
     fn load(
         &self,
         network: impl Into<u64>,
-    ) -> Result<Option<impl Iterator<Item = AccessGuard<Value>>>>
+    ) -> Result<Option<impl Iterator<Item = AccessGuard<'_, Value>>>>
     where
         Value: redb::Value + 'static,
     {

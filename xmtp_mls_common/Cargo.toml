@@ -8,6 +8,7 @@ version.workspace = true
 uninlined_format_args = "allow"
 
 [dependencies]
+hex.workspace = true
 openmls.workspace = true
 prost.workspace = true
 serde.workspace = true
