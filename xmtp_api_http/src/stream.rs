@@ -320,6 +320,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::task::Context;
+
     use bytes::Bytes;
     use futures::{FutureExt, Stream};
 
