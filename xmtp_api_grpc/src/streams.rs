@@ -8,7 +8,7 @@ use futures::{stream::FusedStream, Stream, TryStream};
 use pin_project_lite::pin_project;
 use std::error::Error;
 use tonic::Status;
-use xmtp_proto::{traits::ApiClientError, ApiEndpoint};
+use xmtp_proto::{client_traits::ApiClientError, ApiEndpoint};
 
 pin_project! {
     /// Wraps a tonic stream which exits once it encounters

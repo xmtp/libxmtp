@@ -48,9 +48,3 @@ where
         Ready(Ok(StreamWrapper::new(stream.bytes_stream())))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    // TODO: Test the establish
-}

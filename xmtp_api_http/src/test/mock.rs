@@ -1,5 +1,4 @@
 //! Native-only HTTP mock for testing streams
-
 use xmtp_proto::mls_v1::{
     group_message::{self, V1},
     GroupMessage,
