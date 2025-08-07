@@ -9,7 +9,8 @@ use rand::Rng;
 use xmtp_db::group::GroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::prelude::*;
-use xmtp_db::remote_commit_log::RemoteLogValidationInfo;
+use xmtp_db::remote_commit_log::CommitResult;
+use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
 use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
@@ -596,12 +597,16 @@ async fn test_should_skip_remote_log_entry() {
     let commit_log_worker = CommitLogWorker::new(alix.context.clone());
 
     // Does not skip if entry meets all conditions
-    let remote_validation_info = RemoteLogValidationInfo {
-        requested_group_id: vec![0x11, 0x22, 0x33],
-        latest_stored_commit_sequence_id: 100,
-        latest_applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
-        latest_applied_epoch_number: 3,
+    let latest_saved_remote_log = RemoteCommitLog {
+        rowid: 0,
+        log_sequence_id: 0,
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 100,
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
     };
+
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0x11, 0x22, 0x33],
         commit_sequence_id: 101,
@@ -610,17 +615,21 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 4,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
-    assert!(
-        !commit_log_worker
-            .should_skip_remote_commit_log_entry_test(&remote_validation_info, &entry)
-    );
+    assert!(!commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log.clone()),
+        &entry,
+    ));
 
     // Skips if Group ID does not match
-    let remote_validation_info = RemoteLogValidationInfo {
-        requested_group_id: vec![0x11, 0x22, 0x33],
-        latest_stored_commit_sequence_id: 100,
-        latest_applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
-        latest_applied_epoch_number: 3,
+    let latest_saved_remote_log = RemoteCommitLog {
+        rowid: 0,
+        log_sequence_id: 0,
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 100,
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
     };
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0xff, 0x22, 0x33],
@@ -630,16 +639,21 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 4,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
-    assert!(
-        commit_log_worker.should_skip_remote_commit_log_entry_test(&remote_validation_info, &entry)
-    );
+    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log),
+        &entry
+    ));
 
     // Skips if commit_sequence_id of the entry is not greater than the most recently stored entry, if one exists.
-    let remote_validation_info = RemoteLogValidationInfo {
-        requested_group_id: vec![0x11, 0x22, 0x33],
-        latest_stored_commit_sequence_id: 100,
-        latest_applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
-        latest_applied_epoch_number: 3,
+    let latest_saved_remote_log = RemoteCommitLog {
+        rowid: 0,
+        log_sequence_id: 0,
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 100,
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
     };
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0x11, 0x22, 0x33],
@@ -649,17 +663,22 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 4,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
-    assert!(
-        commit_log_worker.should_skip_remote_commit_log_entry_test(&remote_validation_info, &entry)
-    );
+    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log),
+        &entry
+    ));
 
     // Skips if the last_epoch_authenticator does not match the epoch_authenticator of
     // the most recently stored entry with a CommitResult of COMMIT_RESULT_APPLIED, if one exists.
-    let remote_validation_info = RemoteLogValidationInfo {
-        requested_group_id: vec![0x11, 0x22, 0x33],
-        latest_stored_commit_sequence_id: 100,
-        latest_applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
-        latest_applied_epoch_number: 3,
+    let latest_saved_remote_log = RemoteCommitLog {
+        rowid: 0,
+        log_sequence_id: 0,
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 100,
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
     };
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0x11, 0x22, 0x33],
@@ -669,17 +688,22 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 4,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
-    assert!(
-        commit_log_worker.should_skip_remote_commit_log_entry_test(&remote_validation_info, &entry)
-    );
+    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log),
+        &entry
+    ));
 
     // Skips if the applied_epoch_number of the entry is not exactly 1 greater than
     // the latest_applied_epoch_number of the remote validation info. (skipped from 3 to 5)
-    let remote_validation_info = RemoteLogValidationInfo {
-        requested_group_id: vec![0x11, 0x22, 0x33],
-        latest_stored_commit_sequence_id: 100,
-        latest_applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
-        latest_applied_epoch_number: 3,
+    let latest_saved_remote_log = RemoteCommitLog {
+        rowid: 0,
+        log_sequence_id: 0,
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 100,
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
     };
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0x11, 0x22, 0x33],
@@ -689,17 +713,22 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 5,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
-    assert!(
-        commit_log_worker.should_skip_remote_commit_log_entry_test(&remote_validation_info, &entry)
-    );
+    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log),
+        &entry
+    ));
 
     // Skips if the applied_epoch_number of the entry is not exactly 1 greater than
     // the latest_applied_epoch_number of the remote validation info. (stayed at 3)
-    let remote_validation_info = RemoteLogValidationInfo {
-        requested_group_id: vec![0x11, 0x22, 0x33],
-        latest_stored_commit_sequence_id: 100,
-        latest_applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
-        latest_applied_epoch_number: 3,
+    let latest_saved_remote_log = RemoteCommitLog {
+        rowid: 0,
+        log_sequence_id: 0,
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 100,
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
     };
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0x11, 0x22, 0x33],
@@ -709,17 +738,22 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 3,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
-    assert!(
-        commit_log_worker.should_skip_remote_commit_log_entry_test(&remote_validation_info, &entry)
-    );
+    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log),
+        &entry
+    ));
 
     // Skips if the applied_epoch_number of the entry is not exactly 1 greater than
     // the latest_applied_epoch_number of the remote validation info. (decreased from 3 to 2)
-    let remote_validation_info = RemoteLogValidationInfo {
-        requested_group_id: vec![0x11, 0x22, 0x33],
-        latest_stored_commit_sequence_id: 100,
-        latest_applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
-        latest_applied_epoch_number: 3,
+    let latest_saved_remote_log = RemoteCommitLog {
+        rowid: 0,
+        log_sequence_id: 0,
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 100,
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
     };
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0x11, 0x22, 0x33],
@@ -729,16 +763,21 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 2,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
-    assert!(
-        commit_log_worker.should_skip_remote_commit_log_entry_test(&remote_validation_info, &entry)
-    );
+    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log),
+        &entry
+    ));
 
     // Skips if entry CommitResult is not COMMIT_RESULT_APPLIED, and the epoch authenticator or epoch number does not match the most recently applied values
-    let remote_validation_info = RemoteLogValidationInfo {
-        requested_group_id: vec![0x11, 0x22, 0x33],
-        latest_stored_commit_sequence_id: 100,
-        latest_applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
-        latest_applied_epoch_number: 3,
+    let latest_saved_remote_log = RemoteCommitLog {
+        rowid: 0,
+        log_sequence_id: 0,
+        group_id: vec![0x11, 0x22, 0x33],
+        commit_sequence_id: 100,
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 3,
+        applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
     };
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0x11, 0x22, 0x33],
@@ -748,9 +787,11 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 4,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
     };
-    assert!(
-        commit_log_worker.should_skip_remote_commit_log_entry_test(&remote_validation_info, &entry)
-    );
+    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log.clone()),
+        &entry
+    ));
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0x11, 0x22, 0x33],
         commit_sequence_id: 101,
@@ -759,7 +800,9 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 3,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
-    assert!(
-        commit_log_worker.should_skip_remote_commit_log_entry_test(&remote_validation_info, &entry)
-    );
+    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+        &[0x11, 0x22, 0x33],
+        Some(latest_saved_remote_log),
+        &entry
+    ));
 }

@@ -2,7 +2,7 @@ use crate::association_state::QueryAssociationStateCache;
 use crate::group::ConversationType;
 use crate::group::StoredGroupCommitLogPublicKey;
 use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
-use crate::remote_commit_log::{RemoteCommitLog, RemoteLogValidationInfo};
+use crate::remote_commit_log::RemoteCommitLog;
 use std::collections::HashMap;
 use std::sync::Arc;
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
@@ -513,10 +513,6 @@ mock! {
 
     impl QueryRemoteCommitLog for DbQuery {
         fn get_latest_remote_log_for_group(&self, group_id: &[u8]) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
-
-        fn get_latest_applied_entry(&self, group_id: &[u8]) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
-
-        fn get_remote_log_validation_info(&self, group_id: &[u8]) -> Result<RemoteLogValidationInfo, crate::ConnectionError>;
 
         fn get_remote_commit_log_after_cursor(
             &self,

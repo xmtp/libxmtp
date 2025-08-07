@@ -6,12 +6,13 @@ use prost::Message;
 use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
 use xmtp_api::ApiError;
+use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_db::{
     DbQuery, StorageError, Store,
     group::StoredGroupCommitLogPublicKey,
     local_commit_log::LocalCommitLogOrder,
     prelude::*,
-    remote_commit_log::{self, CommitResult, NewRemoteCommitLog, RemoteLogValidationInfo},
+    remote_commit_log::{self, CommitResult, NewRemoteCommitLog},
 };
 use xmtp_proto::mls_v1::PublishCommitLogRequest;
 use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
@@ -355,7 +356,7 @@ where
         // 1. The latest applied epoch authenticator
         // 2. The latest applied epoch number
         // 3. The latest stored sequence id
-        let mut validation_info = conn.get_remote_log_validation_info(&group_id)?;
+        let mut latest_saved_remote_log = conn.get_latest_remote_log_for_group(&group_id)?;
         for entry in &commit_log_response.commit_log_entries {
             let commit_log_entry: &CommitLogEntry = entry;
             let log_entry = match PlaintextCommitLogEntry::decode(
@@ -371,22 +372,30 @@ where
                     continue;
                 }
             };
-            if self.should_skip_remote_commit_log_entry(&validation_info, &log_entry) {
+            if self.should_skip_remote_commit_log_entry(
+                &group_id,
+                latest_saved_remote_log.clone(),
+                &log_entry,
+            ) {
                 continue;
             }
 
-            // Save Validation info for next iteration
-            // Since we didnt skip, we know the commit sequence id is greater than the latest stored
-            // and that the applied epoch authenticator and epoch number match the latest applied entry
-            validation_info = RemoteLogValidationInfo {
-                requested_group_id: group_id.clone(),
-                latest_stored_commit_sequence_id: log_entry.commit_sequence_id,
-                latest_applied_epoch_authenticator: log_entry.applied_epoch_authenticator.clone(),
-                latest_applied_epoch_number: log_entry.applied_epoch_number,
-            };
-
             num_entries_saved += 1;
             NewRemoteCommitLog {
+                log_sequence_id: commit_log_entry.sequence_id as i64,
+                group_id: log_entry.group_id.clone(),
+                commit_sequence_id: log_entry.commit_sequence_id as i64,
+                commit_result: CommitResult::from(
+                    ProtoCommitResult::try_from(log_entry.commit_result)
+                        .unwrap_or(ProtoCommitResult::Unspecified),
+                ),
+                applied_epoch_number: log_entry.applied_epoch_number as i64,
+                applied_epoch_authenticator: log_entry.applied_epoch_authenticator.clone(),
+            }
+            .store(conn)?;
+
+            latest_saved_remote_log = Some(RemoteCommitLog {
+                rowid: 0,
                 log_sequence_id: commit_log_entry.sequence_id as i64,
                 group_id: log_entry.group_id,
                 commit_sequence_id: log_entry.commit_sequence_id as i64,
@@ -396,8 +405,7 @@ where
                 ),
                 applied_epoch_number: log_entry.applied_epoch_number as i64,
                 applied_epoch_authenticator: log_entry.applied_epoch_authenticator,
-            }
-            .store(conn)?;
+            });
         }
         if let Some(last_entry) = commit_log_response.commit_log_entries.last() {
             conn.update_cursor(
@@ -410,35 +418,46 @@ where
         Ok(num_entries_saved)
     }
 
+    // Should skip if:
+    // 1. The entry signature is invalid - TODO(cam)
+    // 2. The group_id of the entry does not match the requested group_id.
+    // 3. The commit_sequence_id of the entry is <= 0.
+    // 4. The commit_sequence_id of the entry is not greater than the most recently stored entry, if one exists.
+    // 5. The last_epoch_authenticator does not match the epoch_authenticator of the most recently stored entry with a CommitResult of COMMIT_RESULT_APPLIED, if one exists.
+    // 6. The entry has a CommitResult of COMMIT_RESULT_APPLIED, but the epoch number is not exactly 1 greater than the most recently stored entry with a result of COMMIT_RESULT_APPLIED, if one exists.
+    // 7. The entry CommitResult is not COMMIT_RESULT_APPLIED, and the epoch authenticator or epoch number does not match the most recently applied values
     fn should_skip_remote_commit_log_entry(
         &self,
-        validation_info: &RemoteLogValidationInfo,
+        group_id: &[u8],
+        latest_saved_remote_log: Option<RemoteCommitLog>,
         entry: &PlaintextCommitLogEntry,
     ) -> bool {
+        // These checks apply even if there is no latest saved remote log
+        if entry.group_id != group_id || entry.commit_sequence_id == 0 {
+            return true;
+        }
+
+        let Some(latest_saved_remote_log) = latest_saved_remote_log else {
+            return false;
+        };
+
         let is_applied = entry.commit_result == ProtoCommitResult::Applied as i32;
-        // Should skip if:
-        // 1. The entry signature is invalid - TODO(cam)
-        // 2. The group_id of the entry does not match the requested group_id.
-        // 3. The commit_sequence_id of the entry is <= 0.
-        // 4. The commit_sequence_id of the entry is not greater than the most recently stored entry, if one exists.
-        // 5. The last_epoch_authenticator does not match the epoch_authenticator of the most recently stored entry with a CommitResult of COMMIT_RESULT_APPLIED, if one exists.
-        // 6. The entry has a CommitResult of COMMIT_RESULT_APPLIED, but the epoch number is not exactly 1 greater than the most recently stored entry with a result of COMMIT_RESULT_APPLIED, if one exists.
-        // 7. The entry CommitResult is not COMMIT_RESULT_APPLIED, and the epoch authenticator or epoch number does not match the most recently applied values
-        entry.group_id != validation_info.requested_group_id
-            || entry.commit_sequence_id == 0
-            || entry.commit_sequence_id <= validation_info.latest_stored_commit_sequence_id
+
+        entry.commit_sequence_id <= latest_saved_remote_log.commit_sequence_id as u64
             || (is_applied
-                && !validation_info
-                    .latest_applied_epoch_authenticator
+                && !latest_saved_remote_log
+                    .applied_epoch_authenticator
                     .is_empty()
                 && entry.last_epoch_authenticator
-                    != validation_info.latest_applied_epoch_authenticator)
+                    != latest_saved_remote_log.applied_epoch_authenticator)
             || (is_applied
-                && entry.applied_epoch_number != validation_info.latest_applied_epoch_number + 1)
+                && entry.applied_epoch_number as i64
+                    != latest_saved_remote_log.applied_epoch_number + 1)
             || (!is_applied
                 && (entry.applied_epoch_authenticator
-                    != validation_info.latest_applied_epoch_authenticator
-                    || entry.applied_epoch_number != validation_info.latest_applied_epoch_number))
+                    != latest_saved_remote_log.applied_epoch_authenticator
+                    || entry.applied_epoch_number as i64
+                        != latest_saved_remote_log.applied_epoch_number))
     }
 
     // Returns a map of conversation_id to boolean with true if forked, false otherwise
@@ -594,9 +613,10 @@ where
     #[cfg(test)]
     pub(crate) fn should_skip_remote_commit_log_entry_test(
         &self,
-        validation_info: &RemoteLogValidationInfo,
+        group_id: &[u8],
+        latest_saved_remote_log: Option<RemoteCommitLog>,
         entry: &PlaintextCommitLogEntry,
     ) -> bool {
-        self.should_skip_remote_commit_log_entry(validation_info, entry)
+        self.should_skip_remote_commit_log_entry(group_id, latest_saved_remote_log, entry)
     }
 }

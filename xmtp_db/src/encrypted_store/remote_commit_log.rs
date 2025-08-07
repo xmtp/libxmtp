@@ -51,13 +51,6 @@ pub struct RemoteCommitLog {
     pub applied_epoch_authenticator: Vec<u8>,
 }
 
-pub struct RemoteLogValidationInfo {
-    pub requested_group_id: Vec<u8>,
-    pub latest_stored_commit_sequence_id: u64,
-    pub latest_applied_epoch_authenticator: Vec<u8>,
-    pub latest_applied_epoch_number: u64,
-}
-
 impl_store!(RemoteCommitLog, remote_commit_log);
 
 #[repr(i32)]
@@ -130,14 +123,7 @@ pub trait QueryRemoteCommitLog {
         &self,
         group_id: &[u8],
     ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
-    fn get_latest_applied_entry(
-        &self,
-        group_id: &[u8],
-    ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
-    fn get_remote_log_validation_info(
-        &self,
-        group_id: &[u8],
-    ) -> Result<RemoteLogValidationInfo, crate::ConnectionError>;
+
     fn get_remote_commit_log_after_cursor(
         &self,
         group_id: &[u8],
@@ -154,20 +140,6 @@ where
         group_id: &[u8],
     ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
         (**self).get_latest_remote_log_for_group(group_id)
-    }
-
-    fn get_latest_applied_entry(
-        &self,
-        group_id: &[u8],
-    ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
-        (**self).get_latest_applied_entry(group_id)
-    }
-
-    fn get_remote_log_validation_info(
-        &self,
-        group_id: &[u8],
-    ) -> Result<RemoteLogValidationInfo, crate::ConnectionError> {
-        (**self).get_remote_log_validation_info(group_id)
     }
 
     fn get_remote_commit_log_after_cursor(
@@ -191,42 +163,6 @@ impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
                 .limit(1)
                 .first(db)
                 .optional()
-        })
-    }
-
-    fn get_latest_applied_entry(
-        &self,
-        group_id: &[u8],
-    ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
-        self.raw_query_read(|db| {
-            dsl::remote_commit_log
-                .filter(remote_commit_log::group_id.eq(group_id))
-                .filter(remote_commit_log::commit_result.eq(CommitResult::Success))
-                .order(remote_commit_log::log_sequence_id.desc())
-                .first(db)
-                .optional()
-        })
-    }
-
-    fn get_remote_log_validation_info(
-        &self,
-        group_id: &[u8],
-    ) -> Result<RemoteLogValidationInfo, crate::ConnectionError> {
-        let latest_applied_entry = self.get_latest_applied_entry(group_id)?;
-        let latest_commit_sequence_id = self
-            .get_latest_remote_log_for_group(group_id)?
-            .map(|e| e.commit_sequence_id)
-            .unwrap_or(0);
-        Ok(RemoteLogValidationInfo {
-            requested_group_id: group_id.to_vec(),
-            latest_stored_commit_sequence_id: latest_commit_sequence_id as u64,
-            latest_applied_epoch_authenticator: latest_applied_entry
-                .clone()
-                .map(|e| e.applied_epoch_authenticator)
-                .unwrap_or(Vec::new()),
-            latest_applied_epoch_number: latest_applied_entry
-                .map(|e| e.applied_epoch_number)
-                .unwrap_or(0) as u64,
         })
     }
 
