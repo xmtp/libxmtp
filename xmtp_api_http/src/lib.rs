@@ -2,15 +2,17 @@
 
 pub mod error;
 pub mod http_client;
-pub mod http_stream;
-
+pub mod stream;
+#[cfg(test)]
+mod test;
 pub mod util;
 
-use futures::stream;
-use http_stream::create_grpc_stream;
+use futures::stream as futures_stream;
 use prost::Message;
 use reqwest::header::HeaderMap;
-use reqwest::{Url, header};
+
+use reqwest::{header, Url};
+use stream::create_grpc_stream;
 use util::handle_error_proto;
 
 use governor::clock::DefaultClock;
@@ -28,7 +30,7 @@ use xmtp_proto::api_client::{
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
 };
-use xmtp_proto::traits::{ApiClientError, HasStats};
+use xmtp_proto::client_traits::{ApiClientError, HasStats};
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
@@ -462,15 +464,17 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
     // `Trait` yet.
 
     #[cfg(not(target_arch = "wasm32"))]
-    type GroupMessageStream = stream::BoxStream<'static, Result<GroupMessage, Self::Error>>;
+    type GroupMessageStream = futures_stream::BoxStream<'static, Result<GroupMessage, Self::Error>>;
     #[cfg(not(target_arch = "wasm32"))]
-    type WelcomeMessageStream = stream::BoxStream<'static, Result<WelcomeMessage, Self::Error>>;
+    type WelcomeMessageStream =
+        futures_stream::BoxStream<'static, Result<WelcomeMessage, Self::Error>>;
 
     #[cfg(target_arch = "wasm32")]
-    type GroupMessageStream = stream::LocalBoxStream<'static, Result<GroupMessage, Self::Error>>;
+    type GroupMessageStream =
+        futures_stream::LocalBoxStream<'static, Result<GroupMessage, Self::Error>>;
     #[cfg(target_arch = "wasm32")]
     type WelcomeMessageStream =
-        stream::LocalBoxStream<'static, Result<WelcomeMessage, Self::Error>>;
+        futures_stream::LocalBoxStream<'static, Result<WelcomeMessage, Self::Error>>;
 
     #[tracing::instrument(skip_all)]
     async fn subscribe_group_messages(

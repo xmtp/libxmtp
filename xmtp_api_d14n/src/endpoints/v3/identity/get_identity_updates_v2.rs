@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::client_traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request::Request;
 use xmtp_proto::xmtp::identity::api::v1::{
     FILE_DESCRIPTOR_SET, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,

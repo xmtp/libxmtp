@@ -28,6 +28,7 @@ xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 
+anyhow = { workspace = true, optional = true }
 toxiproxy_rust = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -39,6 +40,7 @@ xmtp_proto = { path = "../xmtp_proto", features = ["test-utils"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 ctor.workspace = true
+httpmock = "0.8.0-alpha.1"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 tokio = { workspace = true, features = ["macros", "time"] }
@@ -46,3 +48,5 @@ wasm-bindgen-test.workspace = true
 
 [features]
 test-utils = ["xmtp_proto/test-utils", "dep:toxiproxy_rust"]
+# Record new responses
+record = ["dep:anyhow"]

@@ -19,6 +19,12 @@ impl InstallationId {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GroupId(bytes::Bytes);
 
+impl Default for GroupId {
+    fn default() -> Self {
+        GroupId(Default::default())
+    }
+}
+
 impl std::fmt::Debug for GroupId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("GroupId")

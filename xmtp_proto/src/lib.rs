@@ -14,8 +14,8 @@ pub mod api_client;
 #[cfg(any(test, feature = "test-utils"))]
 pub use api_client::tests::*;
 
+pub mod client_traits;
 pub mod codec;
-pub mod traits;
 
 #[cfg(feature = "convert")]
 pub mod convert;
@@ -36,7 +36,7 @@ pub mod prelude {
     pub use super::api_client::{
         ApiBuilder, ArcedXmtpApi, BoxedXmtpApi, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
     };
-    pub use super::traits::{ApiClientError, Client, Endpoint, Query};
+    pub use super::client_traits::{ApiClientError, Client, Endpoint, Query};
 }
 
 pub mod identity_v1 {

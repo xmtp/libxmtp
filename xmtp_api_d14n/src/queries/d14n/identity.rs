@@ -11,8 +11,8 @@ use xmtp_proto::ConversionError;
 use xmtp_proto::api_client::{IdentityStats, XmtpIdentityClient};
 use xmtp_proto::identity_v1;
 use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
-use xmtp_proto::traits::Client;
-use xmtp_proto::traits::{ApiClientError, Query};
+use xmtp_proto::client_traits::Client;
+use xmtp_proto::client_traits::{ApiClientError, Query};
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
@@ -27,7 +27,7 @@ where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client<Error = E>,
     C: Send + Sync + Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<P as xmtp_proto::traits::Client>::Error>>,
+    ApiClientError<E>: From<ApiClientError<<P as xmtp_proto::client_traits::Client>::Error>>,
 {
     type Error = ApiClientError<E>;
 
