@@ -32,6 +32,7 @@ impl TryFrom<GroupSave> for StoredGroup {
             originator_id: None,
             should_publish_commit_log: false, // TODO(cvoell): verify we update when we receive a welcome
             commit_log_public_key: None,
+            is_commit_log_forked: None,
         })
     }
 }

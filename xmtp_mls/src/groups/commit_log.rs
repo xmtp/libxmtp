@@ -518,7 +518,7 @@ where
         &self,
         conn: &impl DbQuery,
         conversation_id: &[u8],
-    ) -> Result<bool, CommitLogError> {
+    ) -> Result<Option<bool>, CommitLogError> {
         // Get cursors for this conversation
         let fork_check_local_cursor = conn.get_last_cursor_for_id(
             conversation_id,
@@ -538,45 +538,54 @@ where
         let remote_logs =
             conn.get_remote_commit_log_after_cursor(conversation_id, fork_check_remote_cursor)?;
 
+        let mut is_remote_log_up_to_date = true;
         // Check each local log against remote logs for matching commit_sequence_id
         for local_log in &local_logs {
-            if let Some(matching_remote_log) =
+            let Some(matching_remote_log) =
                 self.find_matching_remote_log(&remote_logs, local_log.commit_sequence_id)
-            {
-                // Found a matching commit_sequence_id - check if forked
-                let is_forked = local_log.applied_epoch_authenticator
-                    != matching_remote_log.applied_epoch_authenticator;
+            else {
+                is_remote_log_up_to_date = false;
+                continue;
+            };
+            // Found a matching commit_sequence_id - check if forked
+            let is_mismatched = local_log.applied_epoch_authenticator
+                != matching_remote_log.applied_epoch_authenticator;
 
-                if is_forked {
-                    tracing::warn!(
-                        "Detected forked state for conversation_id: {:?}\n\
+            if is_mismatched {
+                tracing::warn!(
+                    "Detected forked state for conversation_id: {:?}\n\
                             Local log: {:?}\n\
                             Remote log: {:?}",
-                        conversation_id,
-                        local_log,
-                        matching_remote_log
-                    );
-                }
-
-                // Update cursors regardless of fork status (we found a match)
-                conn.update_cursor(
                     conversation_id,
-                    xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-                    local_log.rowid as i64,
-                )?;
-                conn.update_cursor(
-                    conversation_id,
-                    xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-                    matching_remote_log.rowid as i64,
-                )?;
+                    local_log,
+                    matching_remote_log
+                );
+            }
 
-                // Return the result
-                return Ok(is_forked);
+            // Update cursors regardless of fork status (we found a match)
+            conn.update_cursor(
+                conversation_id,
+                xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
+                local_log.rowid as i64,
+            )?;
+            conn.update_cursor(
+                conversation_id,
+                xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
+                matching_remote_log.rowid as i64,
+            )?;
+
+            if is_mismatched {
+                return Ok(Some(true));
+            } else if is_remote_log_up_to_date {
+                return Ok(Some(false));
+            } else {
+                // If we haven't verified that the latest commits are up to date,
+                // we don't know if we are forked or not
+                return Ok(None);
             }
         }
 
-        // No matching commit_sequence_id found for any local log = no fork detected
-        Ok(false)
+        Ok(None)
     }
 
     fn find_matching_remote_log<'a>(

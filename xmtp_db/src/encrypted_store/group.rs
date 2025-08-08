@@ -84,8 +84,14 @@ pub struct StoredGroup {
     /// Whether the user should publish the commit log for this group
     #[builder(default = false)]
     pub should_publish_commit_log: bool,
+    /// The consensus public key of the commit log for this group
+    /// Derived from the first entry of the commit log
     #[builder(default = None)]
     pub commit_log_public_key: Option<Vec<u8>>,
+    /// Whether the latest sequence ID in the local commit log matches the remote commit log
+    /// NULL if the remote commit log is not up to date yet
+    #[builder(default = None)]
+    pub is_commit_log_forked: Option<bool>,
 }
 
 /// A subset of the group table for fetching the commit log public key
