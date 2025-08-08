@@ -36,6 +36,7 @@ use xmtp_proto::xmtp::identity::api::v1::{
 };
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
+    ApiEndpoint,
     api_client::{XmtpMlsClient, XmtpMlsStreams},
     xmtp::mls::api::v1::{
         FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
@@ -43,7 +44,6 @@ use xmtp_proto::{
         SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
         SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
     },
-    ApiEndpoint,
 };
 
 #[macro_use]
@@ -614,18 +614,20 @@ pub mod tests {
 
         assert!(result.is_err());
         println!("{:?}", result);
-        assert!(result
-            .as_ref()
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("invalid identity"));
+        assert!(
+            result
+                .as_ref()
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("invalid identity")
+        );
     }
 
     #[xmtp_common::test]
     async fn test_get_inbox_ids() {
         use xmtp_proto::xmtp::identity::api::v1::{
-            get_inbox_ids_request::Request, GetInboxIdsRequest,
+            GetInboxIdsRequest, get_inbox_ids_request::Request,
         };
         use xmtp_proto::xmtp::identity::associations::IdentifierKind;
         let mut client = XmtpHttpApiClient::builder();

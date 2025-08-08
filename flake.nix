@@ -13,7 +13,7 @@
       url = "github:ipetkov/crane";
     };
     rust-manifest = {
-      url = "https://static.rust-lang.org/dist/channel-rust-1.88.0.toml";
+      url = "https://static.rust-lang.org/dist/channel-rust-1.89.0.toml";
       flake = false;
     };
   };

@@ -1,11 +1,10 @@
 [package]
-edition = "2021"
+edition = "2024"
 license.workspace = true
 name = "xmtp_api_http"
 version.workspace = true
 
 [lints]
-workspace = true
 
 [dependencies]
 async-trait.workspace = true

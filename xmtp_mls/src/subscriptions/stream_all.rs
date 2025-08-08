@@ -171,15 +171,15 @@ where
 
         let next_message = this.messages.as_mut().poll_next(cx);
         if let Ready(Some(msg)) = next_message {
-            if let Ok(msg) = &msg {
-                if self.sync_groups.contains(&msg.group_id) {
-                    let _ = self
-                        .context
-                        .worker_events()
-                        .send(SyncWorkerEvent::NewSyncGroupMsg);
-                    cx.waker().wake_by_ref();
-                    return Poll::Pending;
-                }
+            if let Ok(msg) = &msg
+                && self.sync_groups.contains(&msg.group_id)
+            {
+                let _ = self
+                    .context
+                    .worker_events()
+                    .send(SyncWorkerEvent::NewSyncGroupMsg);
+                cx.waker().wake_by_ref();
+                return Poll::Pending;
             }
             return Ready(Some(msg));
         }
