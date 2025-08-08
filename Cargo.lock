@@ -8956,6 +8956,7 @@ dependencies = [
 name = "xmtp_api_http"
 version = "1.4.0-dev"
 dependencies = [
+ "anyhow",
  "async-trait",
  "bytes",
  "const-hex",
