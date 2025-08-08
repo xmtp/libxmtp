@@ -87,10 +87,10 @@ pub async fn get_association_state_with_verifier(
         .last()
         .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
         .sequence_id;
-    if let Some(to_sequence_id) = to_sequence_id {
-        if to_sequence_id != last_sequence_id {
-            return Err(AssociationError::MissingIdentityUpdate.into());
-        }
+    if let Some(to_sequence_id) = to_sequence_id
+        && to_sequence_id != last_sequence_id
+    {
+        return Err(AssociationError::MissingIdentityUpdate.into());
     }
 
     if let Some(association_state) = conn.read_from_cache(inbox_id, last_sequence_id)? {

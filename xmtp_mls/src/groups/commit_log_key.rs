@@ -70,22 +70,22 @@ pub(crate) fn get_or_create_signing_key(
     // If there is none, we use any existing private key from the same locations, creating a new key if not found.
     let consensus_public_key = conversation.commit_log_public_key.as_ref();
 
-    if let Some(private_key) = key_store.read_commit_log_key(&conversation.id)? {
-        if consensus_public_key.is_none_or(|consensus_public_key| {
+    if let Some(private_key) = key_store.read_commit_log_key(&conversation.id)?
+        && consensus_public_key.is_none_or(|consensus_public_key| {
             RustCrypto::public_key_matches_private_key(consensus_public_key, &private_key)
-        }) {
-            return Ok(Some(private_key));
-        }
+        })
+    {
+        return Ok(Some(private_key));
     }
 
     let (group, _) = MlsGroup::new_cached(context, &conversation.id)?;
-    if let Some(private_key) = group.mutable_metadata()?.commit_log_signer {
-        if consensus_public_key.is_none_or(|consensus_public_key| {
+    if let Some(private_key) = group.mutable_metadata()?.commit_log_signer
+        && consensus_public_key.is_none_or(|consensus_public_key| {
             RustCrypto::public_key_matches_private_key(consensus_public_key, &private_key)
-        }) {
-            key_store.write_commit_log_key(&conversation.id, &private_key)?;
-            return Ok(Some(private_key));
-        }
+        })
+    {
+        key_store.write_commit_log_key(&conversation.id, &private_key)?;
+        return Ok(Some(private_key));
     }
 
     if consensus_public_key.is_none() {

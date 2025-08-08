@@ -62,12 +62,11 @@ where
         if meta.name() == BENCH_ROOT_SPAN {
             return true;
         }
-        if let Some(id) = cx.current_span().id() {
-            if let Some(s) = cx.span_scope(id) {
-                if let Some(s) = s.from_root().take(1).collect::<Vec<_>>().first() {
-                    return s.name() == BENCH_ROOT_SPAN;
-                }
-            }
+        if let Some(id) = cx.current_span().id()
+            && let Some(s) = cx.span_scope(id)
+            && let Some(s) = s.from_root().take(1).collect::<Vec<_>>().first()
+        {
+            return s.name() == BENCH_ROOT_SPAN;
         }
         false
     }

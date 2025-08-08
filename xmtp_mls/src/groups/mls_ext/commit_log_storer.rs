@@ -206,10 +206,10 @@ impl CommitLogStorer for MlsGroup {
         let conn = provider.key_store().db();
         let mut maybe_recently_welcomed = true;
         // Latest log may not exist if a client upgraded from a version without local commit logs
-        if let Some(latest_log) = conn.get_latest_log_for_group(&group_id)? {
-            if latest_log.commit_type != Some(CommitType::Welcome.to_string()) {
-                maybe_recently_welcomed = false;
-            }
+        if let Some(latest_log) = conn.get_latest_log_for_group(&group_id)?
+            && latest_log.commit_type != Some(CommitType::Welcome.to_string())
+        {
+            maybe_recently_welcomed = false;
         }
         // If we've recently joined the group, we may get a bunch of wrong epoch errors
         // until we 'catch up' to the commit that spawned the welcome. We can ignore these for now.

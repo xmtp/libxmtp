@@ -430,11 +430,11 @@ where
         Fut: std::future::Future<Output = Result<(), DeviceSyncError>>,
         Context::Db: 'static,
     {
-        if let Some(request) = &request {
-            if request.kind() != BackupElementSelection::Unspecified {
-                // This is a v1 request
-                return Ok(());
-            }
+        if let Some(request) = &request
+            && request.kind() != BackupElementSelection::Unspecified
+        {
+            // This is a v1 request
+            return Ok(());
         }
 
         match acknowledge().await {
@@ -553,12 +553,11 @@ where
         let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
 
         for (msg, content) in messages.iter_with_content() {
-            if let ContentProto::Request(DeviceSyncRequestProto { request_id, .. }) = content {
-                if *request_id == reply.request_id
-                    && msg.sender_installation_id == self.installation_id()
-                {
-                    return Ok(true);
-                }
+            if let ContentProto::Request(DeviceSyncRequestProto { request_id, .. }) = content
+                && *request_id == reply.request_id
+                && msg.sender_installation_id == self.installation_id()
+            {
+                return Ok(true);
             }
         }
         Ok(false)

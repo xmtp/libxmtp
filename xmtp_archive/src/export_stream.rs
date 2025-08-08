@@ -136,10 +136,10 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         let batch = R::backup_records(self.db.clone(), self.start_ns, self.end_ns, self.cursor);
 
-        if let Ok(batch) = &batch {
-            if batch.is_empty() {
-                return None::<Self::Item>;
-            }
+        if let Ok(batch) = &batch
+            && batch.is_empty()
+        {
+            return None::<Self::Item>;
         }
 
         self.cursor += R::BATCH_SIZE;
