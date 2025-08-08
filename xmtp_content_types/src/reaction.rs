@@ -90,7 +90,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use xmtp_proto::xmtp::mls::message_contents::content_types::{
-        ReactionAction, ReactionSchema, ReactionV2,
+        ReactionAction, ReactionSchema,
     };
 
     use serde_json::json;
