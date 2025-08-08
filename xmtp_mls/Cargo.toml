@@ -214,6 +214,7 @@ harness = true
 name = "chaos"
 required-features = ["test-utils"]
 
+doctest = false
 #[[bench]]
 #harness = false
 #name = "sync"
