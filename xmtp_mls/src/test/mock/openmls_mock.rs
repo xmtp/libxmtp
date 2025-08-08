@@ -161,7 +161,7 @@ impl<P: MlsProviderExt> OpenMlsTestExt for BarebonesMlsClient<P> {
         let kp = new_member.key_package().unwrap();
         let (_, welcome, _) = self
             .client
-            .add_members(ActionType::Commit, group_id, &[kp.clone()])
+            .add_members(ActionType::Commit, group_id, std::slice::from_ref(&kp))
             .unwrap();
         (kp, welcome.unwrap())
     }
@@ -194,7 +194,7 @@ impl<P: MlsProviderExt> OpenMlsTestExt for BarebonesMlsClient<P> {
             .update_group_membership(
                 &anon.client.provider,
                 &anon.installation_key,
-                &[kp.clone()],
+                std::slice::from_ref(&kp),
                 &[],
                 new_extensions,
             )

@@ -98,3 +98,6 @@ bench = [
   "dep:once_cell",
   "dep:tracing-flame",
 ]
+
+[lints]
+workspace = true

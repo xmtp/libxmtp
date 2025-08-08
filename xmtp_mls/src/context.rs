@@ -58,7 +58,7 @@ where
     }
 
     /// Creates a new MLS Provider
-    pub fn mls_provider(&self) -> XmtpOpenMlsProviderRef<S> {
+    pub fn mls_provider(&'_ self) -> XmtpOpenMlsProviderRef<'_, S> {
         XmtpOpenMlsProviderRef::new(&self.mls_storage)
     }
 
@@ -175,7 +175,7 @@ where
         !matches!(self.device_sync().mode, SyncWorkerMode::Disabled)
     }
     /// Creates a new MLS Provider
-    fn mls_provider(&self) -> XmtpOpenMlsProviderRef<Self::MlsStorage> {
+    fn mls_provider(&'_ self) -> XmtpOpenMlsProviderRef<'_, Self::MlsStorage> {
         XmtpOpenMlsProviderRef::new(self.mls_storage())
     }
 
