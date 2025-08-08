@@ -229,7 +229,7 @@ impl RetryableError for BodyError {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod mock {
     use super::*;
-    use crate::prelude::*;
+    use crate::{prelude::*, ToxicProxies};
 
     pub struct MockClient;
     pub struct MockStream;
@@ -247,11 +247,25 @@ pub mod mock {
         fn set_host(&mut self, _host: String) {}
         fn set_payer(&mut self, _host: String) {}
         fn set_tls(&mut self, _tls: bool) {}
+        fn rate_per_minute(&mut self, _limit: u32) {}
+
+        fn port(&self) -> Result<Option<String>, Self::Error> {
+            Ok(None)
+        }
+
         async fn build(self) -> Result<Self::Output, Self::Error> {
             Ok(MockClient)
         }
 
-        fn rate_per_minute(&mut self, _limit: u32) {}
+        fn host(&self) -> Option<&str> {
+            None
+        }
+    }
+
+    impl crate::TestApiBuilder for MockApiBuilder {
+        async fn with_toxiproxy(&mut self) -> ToxicProxies {
+            unimplemented!()
+        }
     }
 
     #[derive(thiserror::Error, Debug)]
@@ -289,13 +303,10 @@ pub mod mock {
 
         impl XmtpTestClient for MockClient {
             type Builder = MockApiBuilder;
-            fn local_port() -> &'static str;
-            fn create_custom(addr: &str) -> MockApiBuilder { MockApiBuilder }
             fn create_local() -> MockApiBuilder { MockApiBuilder }
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
             fn create_local_payer() -> MockApiBuilder { MockApiBuilder }
             fn create_local_d14n() -> MockApiBuilder { MockApiBuilder }
-
         }
     }
 
@@ -323,8 +334,6 @@ pub mod mock {
 
         impl XmtpTestClient for MockClient {
             type Builder = MockApiBuilder;
-            fn local_port() -> &'static str;
-            fn create_custom(addr: &str) -> MockApiBuilder { MockApiBuilder }
             fn create_local() -> MockApiBuilder { MockApiBuilder }
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
             fn create_local_payer() -> MockApiBuilder { MockApiBuilder }

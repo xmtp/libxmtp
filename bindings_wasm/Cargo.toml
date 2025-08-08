@@ -43,6 +43,7 @@ xmtp_proto = { workspace = true, features = ["proto_full"] }
 
 alloy = { workspace = true, optional = true }
 wasm-bindgen-test = { workspace = true, optional = true }
+xmtp_configuration = { workspace = true, optional = true }
 
 
 [dev-dependencies]
@@ -51,7 +52,14 @@ chrono = { workspace = true }
 tokio.workspace = true
 wasm-bindgen-test.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_configuration.workspace = true
 xmtp_mls = { workspace = true, features = ["http-api", "test-utils"] }
 
 [features]
-test-utils = ["dep:alloy", "dep:wasm-bindgen-test", "xmtp_common/test-utils"]
+test-utils = [
+  "dep:alloy",
+  "dep:wasm-bindgen-test",
+  "xmtp_common/test-utils",
+  "dep:xmtp_configuration",
+  "xmtp_configuration/test-utils",
+]

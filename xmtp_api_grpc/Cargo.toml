@@ -16,8 +16,13 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tower = "0.5.2"
 tracing.workspace = true
+url.workspace = true
 xmtp_common.workspace = true
+xmtp_configuration.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
+
+toxiproxy_rust = { workspace = true, optional = true }
+
 
 # Anything but iOS and Android will use either webpki or native.
 # If native certs are not found, it will fallback to webpki
@@ -34,8 +39,9 @@ tonic = { workspace = true, features = [
 tonic = { workspace = true, features = ["default", "tls", "tls-webpki-roots"] }
 
 [dev-dependencies]
+toxiproxy_rust = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["test-utils"] }
 
 [features]
-test-utils = ["xmtp_proto/test-utils"]
+test-utils = ["xmtp_proto/test-utils", "dep:toxiproxy_rust"]

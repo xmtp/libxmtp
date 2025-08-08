@@ -10,6 +10,7 @@ use alloy::sol;
 use alloy::sol_types::SolValue;
 use alloy::{primitives::U256, providers::ext::AnvilApi};
 use rstest::*;
+use xmtp_configuration::DockerUrls;
 use CoinbaseSmartWallet::CoinbaseSmartWalletInstance;
 use CoinbaseSmartWalletFactory::CoinbaseSmartWalletFactoryInstance;
 
@@ -26,8 +27,6 @@ sol!(
     CoinbaseSmartWalletFactory,
     "artifact/CoinbaseSmartWalletFactory.json",
 );
-
-pub const ANVIL_ENDPOINT: &str = "http://localhost:8545";
 
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn fund_user(user: PrivateKeySigner, anvil: impl AnvilApi<Ethereum>) {
@@ -139,7 +138,7 @@ pub async fn spawned_provider() -> EthereumProvider {
 #[cfg(not(target_arch = "wasm32"))]
 #[fixture]
 pub async fn docker_provider() -> EthereumProvider {
-    provider(Some(ANVIL_ENDPOINT.to_string())).await
+    provider(Some(DockerUrls::ANVIL.to_string())).await
 }
 
 pub struct SmartWalletContext {

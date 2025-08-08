@@ -11,6 +11,9 @@ mod impls;
 pub use error::*;
 
 pub mod api_client;
+#[cfg(any(test, feature = "test-utils"))]
+pub use api_client::tests::*;
+
 pub mod codec;
 pub mod traits;
 

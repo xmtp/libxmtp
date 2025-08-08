@@ -4,10 +4,10 @@ use std::pin::Pin;
 
 use futures::Stream;
 use mockall::mock;
+use xmtp_proto::traits::mock::MockApiBuilder;
 use xmtp_proto::{
     api_client::{ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
     mls_v1::WelcomeMessage,
-    prelude::ApiBuilder,
     xmtp::{
         identity::api::v1::{
             GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -71,28 +71,6 @@ impl xmtp_common::RetryableError for MockError {
 pub use not_wasm::*;
 #[cfg(target_arch = "wasm32")]
 pub use wasm::*;
-
-pub struct MockApiBuilder;
-
-impl ApiBuilder for MockApiBuilder {
-    type Output = ApiClient;
-    type Error = MockError;
-
-    fn set_libxmtp_version(&mut self, _version: String) -> Result<(), Self::Error> {
-        Ok(())
-    }
-    fn set_app_version(&mut self, _version: String) -> Result<(), Self::Error> {
-        Ok(())
-    }
-    fn set_host(&mut self, _host: String) {}
-    fn set_payer(&mut self, _host: String) {}
-    fn set_tls(&mut self, _tls: bool) {}
-    async fn build(self) -> Result<Self::Output, Self::Error> {
-        Ok(ApiClient)
-    }
-
-    fn rate_per_minute(&mut self, _limit: u32) {}
-}
 
 mock! {
     pub GroupStream { }
@@ -171,8 +149,6 @@ mod not_wasm {
 
         impl XmtpTestClient for ApiClient {
             type Builder = MockApiBuilder;
-            fn local_port() -> &'static str;
-            fn create_custom(addr: &str) -> MockApiBuilder { MockApiBuilder }
             fn create_local() -> MockApiBuilder { MockApiBuilder }
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
             fn create_local_d14n() -> MockApiBuilder { MockApiBuilder }
@@ -235,13 +211,10 @@ mod wasm {
         #[async_trait::async_trait(?Send)]
         impl XmtpTestClient for ApiClient {
             type Builder = MockApiBuilder;
-            fn local_port() -> &'static str;
-            fn create_custom(addr: &str) -> MockApiBuilder { MockApiBuilder }
             fn create_local() -> MockApiBuilder { MockApiBuilder }
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
             fn create_local_d14n() -> MockApiBuilder { MockApiBuilder }
             fn create_local_payer() -> MockApiBuilder { MockApiBuilder }
-
         }
     }
 }

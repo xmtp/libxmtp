@@ -1,6 +1,9 @@
 [profile.default]
 default-filter = "not test(test_stream_all_messages_does_not_lose_messages)"
-retries = 1
+retries = 0
+status-level = "skip"
+failure-output = "final"
+fail-fast = false
 
 [profile.ci]
 default-filter = "not test(test_stream_all_messages_does_not_lose_messages)"

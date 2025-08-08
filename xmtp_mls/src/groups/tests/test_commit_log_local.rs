@@ -154,7 +154,7 @@ async fn test_commit_log_retriable_error() {
     tester!(caro);
     let a_client: &FullXmtpClient = &alix;
     let b_client: &FullXmtpClient = &bo;
-    let proxy: &Proxy = bo.proxy();
+    let proxy: &Proxy = bo.proxy(0);
 
     let a = a_client
         .create_group_with_inbox_ids(&[bo.inbox_id(), caro.inbox_id()], None, None)

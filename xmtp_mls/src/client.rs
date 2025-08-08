@@ -1686,7 +1686,7 @@ pub(crate) mod tests {
                 .unwrap()
         };
 
-        let proxy = alix.proxy.as_ref().unwrap();
+        let proxy = &alix.proxy(0);
 
         let stream = alix.client.stream_conversations(None, false).await.unwrap();
         futures::pin_mut!(stream);
