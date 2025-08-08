@@ -28,7 +28,7 @@ use xmtp_proto::xmtp::mls::api::v1::SubscribeWelcomeMessagesRequest;
 use xmtp_proto::xmtp::mls::api::v1::UploadKeyPackageRequest;
 use xmtp_proto::{
     prelude::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
-    traits::ApiClientError,
+    client_traits::ApiClientError,
 };
 
 #[derive(Clone)]
