@@ -187,10 +187,10 @@ where
             replace.add(client.inbox_id(), name);
         }
         let worker = client.context.sync_metrics();
-        if let Some(worker) = &worker {
-            if self.wait_for_init {
-                worker.wait_for_init().await.unwrap();
-            }
+        if let Some(worker) = &worker
+            && self.wait_for_init
+        {
+            worker.wait_for_init().await.unwrap();
         }
         client.sync_welcomes().await;
 

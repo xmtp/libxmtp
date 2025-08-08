@@ -223,4 +223,3 @@ tracing-forest = { git = "https://github.com/QnnOkabayashi/tracing-forest", bran
 
 [workspace.lints.clippy]
 uninlined_format_args = "allow"
-collapsible_if = "allow"

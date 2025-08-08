@@ -1824,10 +1824,10 @@ pub fn filter_inbox_ids_needing_updates<'a>(
         .iter()
         .filter_map(|filter| {
             let existing_sequence_id = existing_sequence_ids.get(filter.0);
-            if let Some(sequence_id) = existing_sequence_id {
-                if sequence_id.ge(&filter.1) {
-                    return None;
-                }
+            if let Some(sequence_id) = existing_sequence_id
+                && sequence_id.ge(&filter.1)
+            {
+                return None;
             }
 
             Some(filter.0)
