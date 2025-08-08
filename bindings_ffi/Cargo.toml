@@ -4,9 +4,6 @@ name = "xmtpv3"
 version.workspace = true
 license.workspace = true
 
-[lints.clippy]
-uninlined_format_args = "allow"
-
 [lib]
 crate-type = ["lib", "cdylib", "staticlib"]
 
@@ -83,3 +80,6 @@ bench = ["xmtp_mls/bench", "xmtp_common/bench", "dep:criterion", "dep:fdlimit"]
 harness = false
 name = "create_client"
 required-features = ["bench"]
+
+[lints]
+workspace = true
