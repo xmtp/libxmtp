@@ -11,8 +11,12 @@ use xmtp_api::{strategies, ApiClientWrapper, ApiDebugWrapper, ApiIdentifier};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
+use xmtp_content_types::attachment::{Attachment, AttachmentCodec};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
+use xmtp_content_types::read_receipt::{ReadReceipt, ReadReceiptCodec};
+use xmtp_content_types::remote_attachment::{RemoteAttachment, RemoteAttachmentCodec};
+use xmtp_content_types::reply::{Reply, ReplyCodec};
 use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::transaction_reference::TransactionMetadata;
 use xmtp_content_types::transaction_reference::TransactionReference;
@@ -2861,6 +2865,238 @@ pub fn decode_transaction_reference(
         .map_err(|e| GenericError::Generic { err: e.to_string() })
 }
 
+// Attachment FFI structures
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiAttachment {
+    pub filename: Option<String>,
+    pub mime_type: String,
+    pub size: u64,
+    pub content: String,
+}
+
+impl From<FfiAttachment> for Attachment {
+    fn from(f: FfiAttachment) -> Self {
+        Attachment {
+            filename: f.filename,
+            mime_type: f.mime_type,
+            size: f.size,
+            content: f.content,
+        }
+    }
+}
+
+impl From<Attachment> for FfiAttachment {
+    fn from(a: Attachment) -> Self {
+        FfiAttachment {
+            filename: a.filename,
+            mime_type: a.mime_type,
+            size: a.size,
+            content: a.content,
+        }
+    }
+}
+
+#[uniffi::export]
+pub fn encode_attachment(attachment: FfiAttachment) -> Result<Vec<u8>, GenericError> {
+    let attachment: Attachment = attachment.into();
+
+    let encoded = AttachmentCodec::encode(attachment)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_attachment(bytes: Vec<u8>) -> Result<FfiAttachment, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    AttachmentCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
+// Reply FFI structures
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiReply {
+    pub reference: String,
+    pub reference_inbox_id: Option<String>,
+    pub content: String,
+}
+
+impl From<FfiReply> for Reply {
+    fn from(f: FfiReply) -> Self {
+        Reply {
+            reference: f.reference,
+            reference_inbox_id: f.reference_inbox_id,
+            content: f.content,
+        }
+    }
+}
+
+impl From<Reply> for FfiReply {
+    fn from(r: Reply) -> Self {
+        FfiReply {
+            reference: r.reference,
+            reference_inbox_id: r.reference_inbox_id,
+            content: r.content,
+        }
+    }
+}
+
+#[uniffi::export]
+pub fn encode_reply(reply: FfiReply) -> Result<Vec<u8>, GenericError> {
+    let reply: Reply = reply.into();
+
+    let encoded =
+        ReplyCodec::encode(reply).map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_reply(bytes: Vec<u8>) -> Result<FfiReply, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    ReplyCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
+// ReadReceipt FFI structures
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiReadReceipt {
+    pub reference: String,
+    pub reference_inbox_id: Option<String>,
+    pub read_at_ns: i64,
+}
+
+impl From<FfiReadReceipt> for ReadReceipt {
+    fn from(f: FfiReadReceipt) -> Self {
+        ReadReceipt {
+            reference: f.reference,
+            reference_inbox_id: f.reference_inbox_id,
+            read_at_ns: f.read_at_ns,
+        }
+    }
+}
+
+impl From<ReadReceipt> for FfiReadReceipt {
+    fn from(r: ReadReceipt) -> Self {
+        FfiReadReceipt {
+            reference: r.reference,
+            reference_inbox_id: r.reference_inbox_id,
+            read_at_ns: r.read_at_ns,
+        }
+    }
+}
+
+#[uniffi::export]
+pub fn encode_read_receipt(read_receipt: FfiReadReceipt) -> Result<Vec<u8>, GenericError> {
+    let read_receipt: ReadReceipt = read_receipt.into();
+
+    let encoded = ReadReceiptCodec::encode(read_receipt)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_read_receipt(bytes: Vec<u8>) -> Result<FfiReadReceipt, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    ReadReceiptCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
+// RemoteAttachment FFI structures
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiRemoteAttachment {
+    pub filename: Option<String>,
+    pub mime_type: String,
+    pub size: u64,
+    pub url: String,
+    pub content_digest: String,
+    pub secret: Vec<u8>,
+    pub nonce: Vec<u8>,
+    pub salt: Vec<u8>,
+}
+
+impl From<FfiRemoteAttachment> for RemoteAttachment {
+    fn from(f: FfiRemoteAttachment) -> Self {
+        RemoteAttachment {
+            filename: f.filename,
+            mime_type: f.mime_type,
+            size: f.size,
+            url: f.url,
+            content_digest: f.content_digest,
+            secret: f.secret,
+            nonce: f.nonce,
+            salt: f.salt,
+        }
+    }
+}
+
+impl From<RemoteAttachment> for FfiRemoteAttachment {
+    fn from(r: RemoteAttachment) -> Self {
+        FfiRemoteAttachment {
+            filename: r.filename,
+            mime_type: r.mime_type,
+            size: r.size,
+            url: r.url,
+            content_digest: r.content_digest,
+            secret: r.secret,
+            nonce: r.nonce,
+            salt: r.salt,
+        }
+    }
+}
+
+#[uniffi::export]
+pub fn encode_remote_attachment(
+    remote_attachment: FfiRemoteAttachment,
+) -> Result<Vec<u8>, GenericError> {
+    let remote_attachment: RemoteAttachment = remote_attachment.into();
+
+    let encoded = RemoteAttachmentCodec::encode(remote_attachment)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_remote_attachment(bytes: Vec<u8>) -> Result<FfiRemoteAttachment, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    RemoteAttachmentCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
 #[derive(uniffi::Record, Clone)]
 pub struct FfiMessage {
     pub id: Vec<u8>,
@@ -3124,23 +3360,27 @@ mod tests {
         FfiPreferenceUpdate, FfiXmtpClient,
     };
     use crate::{
-        apply_signature_request, connect_to_backend, decode_multi_remote_attachment,
-        decode_reaction, decode_transaction_reference, encode_multi_remote_attachment,
-        encode_reaction, encode_transaction_reference, get_inbox_id_for_identifier,
+        apply_signature_request, connect_to_backend, decode_attachment,
+        decode_multi_remote_attachment, decode_reaction, decode_read_receipt,
+        decode_remote_attachment, decode_reply, decode_transaction_reference, encode_attachment,
+        encode_multi_remote_attachment, encode_reaction, encode_read_receipt,
+        encode_remote_attachment, encode_reply, encode_transaction_reference,
+        get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
         inbox_state_from_inbox_ids, is_connected,
         mls::test_utils::{LocalBuilder, LocalTester},
         revoke_installations,
         worker::FfiSyncWorkerMode,
-        FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
-        FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
+        FfiAttachment, FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType,
+        FfiConversation, FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
         FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
         FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
-        FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
-        FfiTransactionMetadata, FfiTransactionReference, GenericError,
+        FfiReactionAction, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment,
+        FfiRemoteAttachmentInfo, FfiReply, FfiSubscribeError, FfiTransactionMetadata,
+        FfiTransactionReference, GenericError,
     };
     use alloy::signers::local::PrivateKeySigner;
     use futures::future::join_all;
@@ -8328,6 +8568,82 @@ mod tests {
             original.metadata.as_ref().unwrap().currency,
             decoded.metadata.as_ref().unwrap().currency
         );
+    }
+
+    #[tokio::test]
+    async fn test_attachment_roundtrip() {
+        let original = FfiAttachment {
+            filename: Some("test.txt".to_string()),
+            mime_type: "text/plain".to_string(),
+            size: 1024,
+            content: "Hello, World!".to_string(),
+        };
+
+        let encoded = encode_attachment(original.clone()).unwrap();
+        let decoded = decode_attachment(encoded).unwrap();
+
+        assert_eq!(original.filename, decoded.filename);
+        assert_eq!(original.mime_type, decoded.mime_type);
+        assert_eq!(original.size, decoded.size);
+        assert_eq!(original.content, decoded.content);
+    }
+
+    #[tokio::test]
+    async fn test_reply_roundtrip() {
+        let original = FfiReply {
+            reference: "0x1234567890abcdef".to_string(),
+            reference_inbox_id: Some("test_inbox_id".to_string()),
+            content: "This is a reply".to_string(),
+        };
+
+        let encoded = encode_reply(original.clone()).unwrap();
+        let decoded = decode_reply(encoded).unwrap();
+
+        assert_eq!(original.reference, decoded.reference);
+        assert_eq!(original.reference_inbox_id, decoded.reference_inbox_id);
+        assert_eq!(original.content, decoded.content);
+    }
+
+    #[tokio::test]
+    async fn test_read_receipt_roundtrip() {
+        let original = FfiReadReceipt {
+            reference: "0x1234567890abcdef".to_string(),
+            reference_inbox_id: Some("test_inbox_id".to_string()),
+            read_at_ns: 1234567890000000000,
+        };
+
+        let encoded = encode_read_receipt(original.clone()).unwrap();
+        let decoded = decode_read_receipt(encoded).unwrap();
+
+        assert_eq!(original.reference, decoded.reference);
+        assert_eq!(original.reference_inbox_id, decoded.reference_inbox_id);
+        assert_eq!(original.read_at_ns, decoded.read_at_ns);
+    }
+
+    #[tokio::test]
+    async fn test_remote_attachment_roundtrip() {
+        let original = FfiRemoteAttachment {
+            filename: Some("remote_file.txt".to_string()),
+            mime_type: "text/plain".to_string(),
+            size: 2048,
+            url: "https://example.com/file.txt".to_string(),
+            content_digest: "sha256:abc123def456".to_string(),
+            secret: vec![1, 2, 3, 4, 5],
+            nonce: vec![6, 7, 8, 9, 10],
+            salt: vec![11, 12, 13, 14, 15],
+        };
+
+        let encoded = encode_remote_attachment(original.clone()).unwrap();
+        let decoded = decode_remote_attachment(encoded).unwrap();
+
+        assert_eq!(original.filename, decoded.filename);
+        assert_eq!(original.mime_type, decoded.mime_type);
+        assert_eq!(original.size, decoded.size);
+        assert_eq!(original.url, decoded.url);
+        assert_eq!(original.content_digest, decoded.content_digest);
+        assert_eq!(original.secret, decoded.secret);
+        assert_eq!(original.nonce, decoded.nonce);
+        assert_eq!(original.salt, decoded.salt);
     }
 
     #[tokio::test]
