@@ -152,6 +152,7 @@ where
 pub struct ConversationListItem<Context> {
     pub group: MlsGroup<Context>,
     pub last_message: Option<StoredGroupMessage>,
+    pub is_commit_log_forked: Option<bool>,
 }
 
 impl<Context: XmtpSharedContext> Clone for MlsGroup<Context> {
@@ -173,6 +174,7 @@ pub struct ConversationDebugInfo {
     pub epoch: u64,
     pub maybe_forked: bool,
     pub fork_details: String,
+    pub is_commit_log_forked: Option<bool>,
     pub local_commit_log: String,
     pub cursor: i64,
 }
@@ -1387,6 +1389,7 @@ where
             epoch,
             maybe_forked: stored_group.maybe_forked,
             fork_details: stored_group.fork_details,
+            is_commit_log_forked: stored_group.is_commit_log_forked,
             local_commit_log: format!("{:?}", commit_log),
             cursor,
         })

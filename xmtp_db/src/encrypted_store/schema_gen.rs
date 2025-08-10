@@ -87,6 +87,7 @@ diesel::table! {
         originator_id -> Nullable<BigInt>,
         should_publish_commit_log -> Bool,
         commit_log_public_key -> Nullable<Binary>,
+        is_commit_log_forked -> Nullable<Bool>,
     }
 }
 
