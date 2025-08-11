@@ -28,9 +28,19 @@ xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 
-anyhow = { workspace = true, optional = true }
+color-eyre = { workspace = true, optional = true }
+const_format = { workspace = true, optional = true }
+httpmock = { version = "0.8.0-alpha.1", optional = true, features = ["record"] }
+rustls = { version = "0.23.31", features = ["ring"], optional = true }
+tokio = { workspace = true, features = [
+  "sync",
+  "rt",
+  "macros",
+], optional = true }
 toxiproxy_rust = { workspace = true, optional = true }
 xshell = { version = "0.2.7", optional = true }
+hex = { workspace = true, optional = true }
+
 
 [dev-dependencies]
 hex.workspace = true
@@ -50,4 +60,20 @@ wasm-bindgen-test.workspace = true
 [features]
 test-utils = ["xmtp_proto/test-utils", "dep:toxiproxy_rust"]
 # Record new responses
-record = ["dep:anyhow", "dep:xshell"]
+record = [
+  "dep:color-eyre",
+  "dep:xshell",
+  "dep:httpmock",
+  "httpmock/record",
+  "rustls",
+  "const_format",
+  "tokio",
+  "xmtp_configuration/test-utils",
+  "hex",
+]
+
+[[bin]]
+doc = false
+name = "record-http"
+path = "bin/record/main.rs"
+required-features = ["record"]

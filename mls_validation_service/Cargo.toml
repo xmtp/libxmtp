@@ -35,7 +35,6 @@ xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
 
 
 [dev-dependencies]
-anyhow.workspace = true
 rand = { workspace = true }
 rstest.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }

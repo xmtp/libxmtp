@@ -6,6 +6,9 @@ wasm-pack.log
 
 !xmtp/src/bin/
 !xmtp_mls/src/bin/
+!xmtp_api_http/bin
+!xmtp_db/bin
+!xmtp_db/src/bin
 
 # generated
 bindings_swift/Sources

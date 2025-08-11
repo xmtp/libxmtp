@@ -459,7 +459,7 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
 
     // hard to avoid boxing here:
     // 1.) use `hyper` instead of `reqwest` and create our own `Stream` type
-    // 2.) ise `impl Stream` in return of `XmtpMlsStreams` but that
+    // 2.) use `impl Stream` in return of `XmtpMlsStreams` but that
     // breaks the `mockall::` functionality, since `mockall` does not support `impl Trait` in
     // `Trait` yet.
 

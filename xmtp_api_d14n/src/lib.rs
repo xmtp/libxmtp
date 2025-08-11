@@ -13,10 +13,9 @@ pub mod protocol;
 pub use tests::*;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-
     use xmtp_proto::{
+        client_traits::Client,
         prelude::{ApiBuilder, XmtpTestClient},
-        traits::Client,
     };
 
     use crate::{D14nClient, D14nClientBuilder, V3Client, V3ClientBuilder};

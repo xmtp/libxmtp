@@ -4,7 +4,8 @@ use super::*;
 use crate::app::types::*;
 use alloy::signers::local::PrivateKeySigner;
 use color_eyre::eyre;
-use xmtp_db::NativeDb;
+use xmtp_db::{NativeDb, XmtpDb, prelude::*};
+use xmtp_mls::builder::SyncWorkerMode;
 
 pub async fn new_registered_client(
     network: args::BackendOpts,
@@ -78,6 +79,7 @@ async fn new_client_inner(
         .into_string()
         .map_err(|_| eyre::eyre!("Conversion failed from OsString"))?;
     let db = NativeDb::new(&StorageOption::Persistent(path), [0u8; 32])?;
+    db.db().set_sqlcipher_log("NONE")?;
     let client = xmtp_mls::Client::builder(IdentityStrategy::new(
         inbox_id,
         wallet.get_identifier()?,
@@ -88,6 +90,7 @@ async fn new_client_inner(
     .store(EncryptedMessageStore::new(db)?)
     .default_mls_store()?
     .with_remote_verifier()?
+    .with_device_sync_worker_mode(Some(SyncWorkerMode::Disabled))
     .build()
     .await?;
 
@@ -131,6 +134,7 @@ async fn existing_client_inner(
         &StorageOption::Persistent(db_path.clone().into_os_string().into_string().unwrap()),
         [0u8; 32],
     )?;
+    db.db().set_sqlcipher_log("NONE")?;
     let store = EncryptedMessageStore::new(db);
 
     if let Err(e) = &store {
@@ -141,6 +145,7 @@ async fn existing_client_inner(
         .with_remote_verifier()?
         .store(store?)
         .default_mls_store()?
+        .with_device_sync_worker_mode(Some(SyncWorkerMode::Disabled))
         .build()
         .await?;
 

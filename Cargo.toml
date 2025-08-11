@@ -58,7 +58,6 @@ version = "1.4.0-dev"
 [workspace.dependencies]
 alloy = { version = "1.0", default-features = false }
 aes-gcm = { version = "0.10.3", features = ["std"] }
-anyhow = "1.0"
 async-compression = { default-features = false, version = "0.4", features = [
   "futures-io",
   "zstd",
@@ -136,6 +135,8 @@ zeroize = "1.8"
 futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
 mockall_double = "0.3.1"
 owo-colors = { version = "4.1" }
+color-eyre = "0.6"
+
 
 # Internal Crate Dependencies
 xmtp_api = { path = "xmtp_api" }
@@ -196,6 +197,8 @@ diesel = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_derives = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_migrations = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 tracing-forest = { git = "https://github.com/QnnOkabayashi/tracing-forest", branch = "main" }
+# Recording and RecordingRuleBuilder are public on main but not on 0.8.0-alpha
+httpmock = { git = "https://github.com/alexliesenfeld/httpmock", branch = "master" }
 
 [workspace.lints.clippy]
 uninlined_format_args = "allow"

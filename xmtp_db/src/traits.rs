@@ -78,7 +78,7 @@ pub trait DbQuery:
     + QueryLocalCommitLog
     + QueryRemoteCommitLog
     + QueryAssociationStateCache
-    + CheckPragmas
+    + Pragmas
     + crate::ConnectionExt
 {
 }
@@ -102,7 +102,7 @@ impl<T: ?Sized> DbQuery for T where
         + QueryLocalCommitLog
         + QueryRemoteCommitLog
         + QueryAssociationStateCache
-        + CheckPragmas
+        + Pragmas
         + crate::ConnectionExt
 {
 }
