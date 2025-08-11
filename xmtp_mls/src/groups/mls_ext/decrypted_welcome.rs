@@ -61,7 +61,12 @@ impl DecryptedWelcome {
                 &private_key,
                 wrapper_ciphersuite,
             )?;
-            welcome_metadata = Some(deserialize_welcome_metadata(&metadata_bytes)?);
+
+            welcome_metadata = deserialize_welcome_metadata(&metadata_bytes)
+                .map_err(|e| {
+                    tracing::warn!(?e, "Failed to deserialize welcome metadata; ignoring.")
+                })
+                .ok();
         } else {
             tracing::warn!("Welcome Metadata is empty; proceeding without metadata.");
         }
