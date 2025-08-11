@@ -1,2 +1,0 @@
-ALTER TABLE group_intents
-ADD COLUMN sequence_id BIGINT;
