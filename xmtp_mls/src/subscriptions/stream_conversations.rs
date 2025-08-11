@@ -220,10 +220,6 @@ where
     /// - Database operations fail
     /// - API subscription creation fails
     ///
-    /// # Example
-    /// ```
-    /// let stream = StreamConversations::new(&client, Some(ConversationType::Dm), include_duplicate_dms).await?;
-    /// ```
     pub async fn new(
         context: &'a C,
         conversation_type: Option<ConversationType>,

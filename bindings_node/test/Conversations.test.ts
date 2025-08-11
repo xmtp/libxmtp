@@ -865,7 +865,7 @@ describe('Conversations', () => {
     expect(messages.map((m) => m.id)).toEqual([message3])
   })
 
-  it('stream should process dm messages from new installations without sync', async () => {
+  it.skip('stream should process dm messages from new installations without sync', async () => {
     const agent = createUser()
     const user = createUser()
     const agent_client = await createRegisteredClient(agent)

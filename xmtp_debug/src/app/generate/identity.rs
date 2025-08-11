@@ -97,15 +97,15 @@ impl GenerateIdentity {
                 Identity::from_libxmtp(user.identity(), wallet)
             });
 
-            if set.len() == app::get_fdlimit() {
-                if let Some(identity) = set.join_next().await {
-                    match identity {
-                        Ok(identity) => {
-                            identities.push(identity?);
-                        }
-                        Err(e) => {
-                            error!("{}", e.to_string());
-                        }
+            if set.len() == app::get_fdlimit()
+                && let Some(identity) = set.join_next().await
+            {
+                match identity {
+                    Ok(identity) => {
+                        identities.push(identity?);
+                    }
+                    Err(e) => {
+                        error!("{}", e.to_string());
                     }
                 }
             }

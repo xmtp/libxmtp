@@ -18,8 +18,10 @@ use crate::{StorageError, StoreOrIgnore, impl_store_or_ignore};
 pub enum EntityKind {
     Welcome = 1,
     Group = 2,
-    CommitLogUpload = 3, // Last local entry we uploaded to the remote commit log
-    CommitLogDownload = 4, // Last remote entry we downloaded from the remote commit log
+    CommitLogUpload = 3, // Rowid of the last local entry we uploaded to the remote commit log
+    CommitLogDownload = 4, // Server log sequence id of last remote entry we downloaded from the remote commit log
+    CommitLogForkCheckLocal = 5, // Last rowid verified in local commit log
+    CommitLogForkCheckRemote = 6, // Last rowid verified in remote commit log
 }
 
 impl std::fmt::Display for EntityKind {
@@ -30,6 +32,8 @@ impl std::fmt::Display for EntityKind {
             Group => write!(f, "group"),
             CommitLogUpload => write!(f, "commit_log_upload"),
             CommitLogDownload => write!(f, "commit_log_download"),
+            CommitLogForkCheckLocal => write!(f, "commit_log_fork_check_local"),
+            CommitLogForkCheckRemote => write!(f, "commit_log_fork_check_remote"),
         }
     }
 }
@@ -54,6 +58,8 @@ where
             2 => Ok(EntityKind::Group),
             3 => Ok(EntityKind::CommitLogUpload),
             4 => Ok(EntityKind::CommitLogDownload),
+            5 => Ok(EntityKind::CommitLogForkCheckLocal),
+            6 => Ok(EntityKind::CommitLogForkCheckRemote),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

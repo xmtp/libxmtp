@@ -5,10 +5,6 @@ pub use error::*;
 mod identity;
 mod streams;
 
-pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
-pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
-pub const GRPC_PAYLOAD_LIMIT: usize = 1024 * 1024 * 25;
-
 pub use grpc_api_helper::Client;
 use std::time::Duration;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
@@ -66,6 +62,7 @@ pub mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
+    use xmtp_configuration::GrpcUrls;
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::xmtp::message_api::v1::{Envelope, PublishRequest};
 
@@ -83,7 +80,7 @@ pub mod tests {
     #[tokio::test]
     async fn metadata_test() {
         let mut client = Client::builder();
-        client.set_host(DEV_ADDRESS.to_string());
+        client.set_host(GrpcUrls::NODE_DEV.to_string());
         client.set_tls(true);
         let app_version = "test/1.0.0".to_string();
         let libxmtp_version = "0.0.1".to_string();

@@ -1,7 +1,9 @@
+mod test_commit_log_fork_detection;
+mod test_commit_log_local;
+mod test_commit_log_remote;
 mod test_consent;
 mod test_dm;
 mod test_key_updates;
-mod test_local_commit_log;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_network;
 mod test_remote_commit_log;

@@ -74,12 +74,12 @@ impl<C> ChaosConnectionBuilder<C> {
     // validate that the frequency is between the correct values
     fn validate(&self) -> Result<(), String> {
         // ensure error frequency is a percentage
-        if let Some(frequency) = self.error_frequency {
-            if !(0.0..1.0).contains(&frequency) {
-                return Err(
-                    "error_frequency must be a value between 0.0 and 1.0 (EX: 0.40)".to_string(),
-                );
-            }
+        if let Some(frequency) = self.error_frequency
+            && !(0.0..1.0).contains(&frequency)
+        {
+            return Err(
+                "error_frequency must be a value between 0.0 and 1.0 (EX: 0.40)".to_string(),
+            );
         }
         Ok(())
     }

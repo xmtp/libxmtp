@@ -5,8 +5,8 @@ edition = "2024"
 version = "0.1.0"
 license.workspace = true
 
-[lints.clippy]
-uninlined_format_args = "allow"
+[lints]
+workspace = true
 
 [build-dependencies]
 vergen-git2 = { workspace = true, features = ["build"] }

@@ -41,7 +41,7 @@ use crate::{
 };
 use update_group_membership::apply_update_group_membership_intent;
 use xmtp_configuration::{
-    GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
+    GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
     SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_db::XmtpMlsStorageProvider;
@@ -1627,35 +1627,33 @@ where
 
                 // Do not update the cursor if you have been removed from the group - you may be readded
                 // later
-                if !e.is_retryable() && mls_group.is_active() {
-                    if let Err(transaction_error) = self.context.mls_storage().transaction(|conn| {
-                        let storage = conn.key_store();
-                        let provider = XmtpOpenMlsProviderRef::new(&storage);
-                        // TODO(rich): Add log_err! macro/trait for swallowing errors
-                        if let Err(update_cursor_error) =
-                            self.update_cursor_if_needed(&storage.db(), &self.group_id, message_cursor)
-                        {
-                            // We don't need to propagate the error if the cursor fails to update - the worst case is
-                            // that the non-retriable error is processed again
-                            tracing::error!("Error updating cursor for non-retriable error: {update_cursor_error:?}");
-                        } else if message_type == MlsContentType::Commit {
-                            if let Err(accounting_error) = mls_group.mark_failed_commit_logged(
-                                &provider,
-                                message_cursor,
-                                message_epoch,
-                                &e,
-                            ) {
-                                tracing::error!(
-                                    "Error inserting commit entry for failed commit: {}",
-                                    accounting_error
-                                );
-                            }
-                        }
-                        Ok::<(), GroupMessageProcessingError>(())
-                    }) {
-                        tracing::error!("Error post-processing non-retryable error: {transaction_error:?}");
-                    };
-                }
+                if !e.is_retryable() && mls_group.is_active()
+                && let Err(transaction_error) = self.context.mls_storage().transaction(|conn| {
+                    let storage = conn.key_store();
+                    let provider = XmtpOpenMlsProviderRef::new(&storage);
+                    // TODO(rich): Add log_err! macro/trait for swallowing errors
+                    if let Err(update_cursor_error) =
+                        self.update_cursor_if_needed(&storage.db(), &self.group_id, message_cursor)
+                    {
+                        // We don't need to propagate the error if the cursor fails to update - the worst case is
+                        // that the non-retriable error is processed again
+                        tracing::error!("Error updating cursor for non-retriable error: {update_cursor_error:?}");
+                    } else if message_type == MlsContentType::Commit
+                    && let Err(accounting_error) = mls_group.mark_failed_commit_logged(
+                            &provider,
+                            message_cursor,
+                            message_epoch,
+                            &e,
+                        ) {
+                            tracing::error!(
+                                "Error inserting commit entry for failed commit: {}",
+                                accounting_error
+                        );
+                    }
+                    Ok::<(), GroupMessageProcessingError>(())
+                }) {
+                    tracing::error!("Error post-processing non-retryable error: {transaction_error:?}");
+                };
 
                 if let Err(accounting_error) = self
                     .process_group_message_error_for_fork_detection(
@@ -2416,7 +2414,7 @@ where
 
         let welcome = welcomes.first().ok_or(GroupError::NoWelcomesToSend)?;
 
-        let chunk_size = GRPC_DATA_LIMIT
+        let chunk_size = GRPC_PAYLOAD_LIMIT
             / welcome
                 .version
                 .as_ref()
@@ -2427,7 +2425,7 @@ where
                         w
                     }
                 })
-                .unwrap_or(GRPC_DATA_LIMIT / MAX_GROUP_SIZE);
+                .unwrap_or(GRPC_PAYLOAD_LIMIT / MAX_GROUP_SIZE);
 
         tracing::debug!("welcome chunk_size={chunk_size}");
         let api = self.context.api();
@@ -2516,14 +2514,13 @@ fn extract_message_sender(
     decrypted_message: &ProcessedMessage,
     message_created_ns: u64,
 ) -> Result<(InboxId, Vec<u8>), GroupMessageProcessingError> {
-    if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
-        if let Some(member) = openmls_group.member_at(*leaf_node_index) {
-            if member.credential.eq(decrypted_message.credential()) {
-                let basic_credential = BasicCredential::try_from(member.credential)?;
-                let sender_inbox_id = parse_credential(basic_credential.identity())?;
-                return Ok((sender_inbox_id, member.signature_key));
-            }
-        }
+    if let Sender::Member(leaf_node_index) = decrypted_message.sender()
+        && let Some(member) = openmls_group.member_at(*leaf_node_index)
+        && member.credential.eq(decrypted_message.credential())
+    {
+        let basic_credential = BasicCredential::try_from(member.credential)?;
+        let sender_inbox_id = parse_credential(basic_credential.identity())?;
+        return Ok((sender_inbox_id, member.signature_key));
     }
 
     let basic_credential = BasicCredential::try_from(decrypted_message.credential().clone())?;

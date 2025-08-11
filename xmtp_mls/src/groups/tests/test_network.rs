@@ -8,7 +8,10 @@ async fn test_bad_network() {
     tester!(bo);
 
     // Cut the network connection and make a group with members
-    alix.proxy().disable().await?;
+    alix.for_each_proxy(async |p| {
+        p.disable().await.unwrap();
+    })
+    .await;
     let result = alix
         .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
         .await;
@@ -25,7 +28,7 @@ async fn test_bad_network() {
     assert!(bo.group(&g.group_id).is_err());
 
     // Turn alix's connection back on.
-    alix.proxy().enable().await?;
+    alix.proxy(0).enable().await?;
     // Try adding bo again.
     g.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
 

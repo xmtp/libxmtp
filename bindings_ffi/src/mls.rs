@@ -3162,6 +3162,7 @@ mod tests {
     use xmtp_common::tmp_path;
     use xmtp_common::{time::now_ns, wait_for_ge};
     use xmtp_common::{wait_for_eq, wait_for_ok};
+    use xmtp_configuration::GrpcUrls;
     use xmtp_configuration::MAX_INSTALLATIONS_PER_INBOX;
     use xmtp_content_types::{
         attachment::AttachmentCodec, bytes_to_encoded_content, encoded_content_to_bytes,
@@ -3426,10 +3427,10 @@ mod tests {
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -3464,10 +3465,10 @@ mod tests {
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -3510,7 +3511,7 @@ mod tests {
         let ident = &client.account_identifier;
         let real_inbox_id = client.inbox_id();
 
-        let api = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+        let api = connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
             .await
             .unwrap();
 
@@ -3535,10 +3536,10 @@ mod tests {
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -3568,10 +3569,10 @@ mod tests {
         let path = tmp_path();
 
         let client_a = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -3593,10 +3594,10 @@ mod tests {
         drop(client_a);
 
         let client_b = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path),
@@ -3634,10 +3635,10 @@ mod tests {
         let key = static_enc_key().to_vec();
 
         let client_a = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -3660,10 +3661,10 @@ mod tests {
         other_key[31] = 1;
 
         let result_errored = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path),
@@ -3710,13 +3711,12 @@ mod tests {
         let path = tmp_path();
         let key = static_enc_key().to_vec();
 
-        let connection =
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
-                .await
-                .unwrap();
+        let connection = connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
+            .await
+            .unwrap();
         let client = create_client(
             connection.clone(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -3759,7 +3759,7 @@ mod tests {
 
         let build = create_client(
             connection.clone(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -3923,10 +3923,10 @@ mod tests {
         let path = tmp_path();
         let key = static_enc_key().to_vec();
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -4045,10 +4045,10 @@ mod tests {
         let key = static_enc_key().to_vec();
 
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -4143,10 +4143,10 @@ mod tests {
         let path = tmp_path();
 
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -4180,10 +4180,10 @@ mod tests {
         let path = tmp_path();
 
         let client_amal = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -4226,10 +4226,10 @@ mod tests {
         );
 
         let client_bola = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -6938,7 +6938,6 @@ mod tests {
     async fn test_stream_all_dm_messages() {
         let alix = Tester::new().await;
         let bo = Tester::new().await;
-
         let alix_dm = alix
             .conversations()
             .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
@@ -6966,18 +6965,10 @@ mod tests {
         stream.wait_for_ready().await;
 
         alix_group.send("first".as_bytes().to_vec()).await.unwrap();
-        bo.conversations()
-            .sync_all_conversations(None)
-            .await
-            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
 
         alix_dm.send("second".as_bytes().to_vec()).await.unwrap();
-        bo.conversations()
-            .sync_all_conversations(None)
-            .await
-            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 2);
 
@@ -6993,18 +6984,10 @@ mod tests {
         stream.wait_for_ready().await;
 
         alix_group.send("first".as_bytes().to_vec()).await.unwrap();
-        bo.conversations()
-            .sync_all_conversations(None)
-            .await
-            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
 
         alix_dm.send("second".as_bytes().to_vec()).await.unwrap();
-        bo.conversations()
-            .sync_all_conversations(None)
-            .await
-            .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(result.is_err(), "Stream unexpectedly received a DM message");
         assert_eq!(stream_callback.message_count(), 1);
@@ -7012,7 +6995,7 @@ mod tests {
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
 
-        // Stream just DMs
+        // Stream just dms
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
@@ -7021,18 +7004,10 @@ mod tests {
         stream.wait_for_ready().await;
 
         alix_dm.send("first".as_bytes().to_vec()).await.unwrap();
-        bo.conversations()
-            .sync_all_conversations(None)
-            .await
-            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
 
         alix_group.send("second".as_bytes().to_vec()).await.unwrap();
-        bo.conversations()
-            .sync_all_conversations(None)
-            .await
-            .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(
             result.is_err(),
@@ -7553,10 +7528,10 @@ mod tests {
         let wallet_a_inbox_id = ident_a.inbox_id(1).unwrap();
         let ffi_ident: FfiIdentifier = wallet_a.identifier().into();
         let client_a = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7598,10 +7573,10 @@ mod tests {
 
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7681,10 +7656,10 @@ mod tests {
         let client_b_inbox_id = wallet_b_ident.inbox_id(nonce).unwrap();
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b_new_result = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7722,10 +7697,10 @@ mod tests {
         let wallet_a_inbox_id = ident_a.inbox_id(1).unwrap();
         let ffi_ident: FfiIdentifier = wallet_a.identifier().into();
         let client_a = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7750,10 +7725,10 @@ mod tests {
         let wallet_b_inbox_id = ident_b.inbox_id(1).unwrap();
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b1 = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7775,10 +7750,10 @@ mod tests {
         // Step 3: Wallet B creates a second client for inbox_id B
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let _client_b2 = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7811,10 +7786,10 @@ mod tests {
         // Step 5: Wallet B tries to create another new client for inbox_id B, but it fails
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b3 = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -9001,10 +8976,9 @@ mod tests {
 
         let ident = wallet.identifier();
         let ffi_ident: FfiIdentifier = ident.clone().into();
-        let api_backend =
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
-                .await
-                .unwrap();
+        let api_backend = connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
+            .await
+            .unwrap();
 
         let client_1 = new_test_client_with_wallet(wallet.clone()).await;
         let client_2 = new_test_client_with_wallet(wallet.clone()).await;
@@ -9063,10 +9037,9 @@ mod tests {
         assert_eq!(client_a_state.installations.len(), 2);
 
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
-        let api_backend =
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
-                .await
-                .unwrap();
+        let api_backend = connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
+            .await
+            .unwrap();
 
         let revoke_request = revoke_installations(
             api_backend.clone(),
@@ -9102,10 +9075,9 @@ mod tests {
             .await
             .unwrap();
 
-        let api_backend =
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
-                .await
-                .unwrap();
+        let api_backend = connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
+            .await
+            .unwrap();
 
         let state = inbox_state_from_inbox_ids(api_backend, vec![alix.inbox_id()])
             .await
@@ -9123,10 +9095,10 @@ mod tests {
         let path = tmp_path();
         let key = static_enc_key().to_vec();
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -9221,10 +9193,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_connected_after_connect() {
-        let api_backend =
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
-                .await
-                .expect("should connect to local grpc server");
+        let api_backend = connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
+            .await
+            .expect("should connect to local grpc server");
 
         let connected = is_connected(api_backend).await;
 

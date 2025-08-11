@@ -13,7 +13,6 @@ use pin_project_lite::pin_project;
 use xmtp_api::test_utils::MockGroupStream;
 use xmtp_common::FutureWrapper;
 use xmtp_common::types::GroupId;
-
 use xmtp_proto::mls_v1::QueryGroupMessagesResponse;
 
 pin_project! {
@@ -299,17 +298,6 @@ impl StreamSequenceBuilder {
     }
 
     fn init_session(&mut self, groups: Vec<GroupTestCase>) {
-        // Set up db mock expectation
-        let db_calls = || {
-            let mut mock_db = xmtp_db::mock::MockDbQuery::new();
-            // Set up expectations for commonly called db methods
-            mock_db
-                .expect_get_latest_sequence_id_for_group()
-                .returning(|_| Ok(None));
-            mock_db
-        };
-        self.context.store.expect_db().returning(db_calls);
-
         let times = groups.len();
         self.context
             .api_client
@@ -341,7 +329,6 @@ impl StreamSequenceBuilder {
 
     fn create_session(&mut self, groups: Vec<GroupTestCase>) {
         let times = groups.len();
-
         self.context
             .api_client
             .api_client
