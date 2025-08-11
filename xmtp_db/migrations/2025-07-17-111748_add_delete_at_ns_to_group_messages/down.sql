@@ -1,1 +1,0 @@
-ALTER TABLE group_messages DROP COLUMN expire_at_ns;

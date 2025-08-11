@@ -730,7 +730,6 @@ mod tests {
       reference_id: None,
       originator_id: None,
       sequence_id: None,
-      expire_at_ns: None,
     };
     crate::to_value(&stored_message).unwrap();
   }

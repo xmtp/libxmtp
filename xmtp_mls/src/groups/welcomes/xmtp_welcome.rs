@@ -459,7 +459,6 @@ where
             reference_id: None,
             sequence_id: Some(welcome.id as i64),
             originator_id: None,
-            expire_at_ns: None,
         };
 
         added_msg.store_or_ignore(&db)?;

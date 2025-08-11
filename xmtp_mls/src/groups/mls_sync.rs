@@ -56,7 +56,7 @@ use xmtp_db::{
     user_preferences::StoredUserPreferences,
 };
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
-use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
+use xmtp_mls_common::group_mutable_metadata::{MetadataField};
 
 use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
@@ -87,7 +87,6 @@ use std::{
 };
 use thiserror::Error;
 use tracing::debug;
-use xmtp_common::time::now_ns;
 use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
@@ -113,8 +112,7 @@ pub mod update_group_membership;
 pub enum GroupMessageProcessingError {
     #[error("intent already processed")]
     IntentAlreadyProcessed,
-    #[error("message with cursor [{}] for group [{}] already processed", _0.cursor, xmtp_common::fmt::debug_hex(&_0.group_id)
-    )]
+    #[error("message with cursor [{}] for group [{}] already processed", _0.cursor, xmtp_common::fmt::debug_hex(&_0.group_id))]
     MessageAlreadyProcessed(MessageIdentifier),
     #[error("message identifier not found")]
     MessageIdentifierNotFound,
@@ -795,14 +793,12 @@ where
             return Ok(None);
         };
         tracing::debug!("setting message @cursor=[{}] to published", envelope.id);
-        let message_expire_at_ns = Self::get_message_expire_at_ns(mls_group);
         storage
             .db()
             .set_delivery_status_to_published(
                 &id,
                 envelope_timestamp_ns,
                 envelope.id as i64,
-                message_expire_at_ns,
             )
             .map_err(|err| IntentResolutionError {
                 processing_error: GroupMessageProcessingError::Db(err),
@@ -1049,7 +1045,6 @@ where
                             reference_id: queryable_content_fields.reference_id,
                             sequence_id: Some(*cursor as i64),
                             originator_id: None,
-                            expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                         };
                         message.store_or_ignore(&storage.db())?;
                         // make sure internal id is on return type after its stored successfully
@@ -1104,7 +1099,6 @@ where
                                     reference_id: None,
                                     sequence_id: Some(*cursor as i64),
                                     originator_id: None,
-                                    expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                                 };
                                 message.store_or_ignore(&storage.db())?;
                                 identifier.internal_id(message_id.clone());
@@ -1141,7 +1135,6 @@ where
                                     reference_id: None,
                                     sequence_id: Some(*cursor as i64),
                                     originator_id: None,
-                                    expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                                 };
                                 message.store_or_ignore(&storage.db())?;
                                 identifier.internal_id(message_id.clone());
@@ -1252,15 +1245,6 @@ where
         identifier.build()
     }
 
-    fn get_message_expire_at_ns(mls_group: &OpenMlsGroup) -> Option<i64> {
-        let mutable_metadata = extract_group_mutable_metadata(mls_group).ok()?;
-        let group_disappearing_settings =
-            Self::conversation_message_disappearing_settings_from_extensions(&mutable_metadata)
-                .ok()?;
-
-        Some(now_ns() + group_disappearing_settings.in_ns)
-    }
-
     /// This function is idempotent. No need to wrap in a transaction.
     ///
     /// # Parameters
@@ -1357,7 +1341,7 @@ where
 
         let group_cursor = db.get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
         if group_cursor >= cursor as i64 {
-            // early return if the message is already processed
+            // early return if the message is already procesed
             // _NOTE_: Not early returning and re-processing a message that
             // has already been processed, has the potential to result in forks.
             return MessageIdentifierBuilder::from(envelope)
@@ -1448,7 +1432,7 @@ where
                                 tracing::error!("Error inserting commit entry for failed self commit: {}", accounting_error);
                             }
                             (err.next_intent_state, None)
-                        }
+                        },
                         Ok(internal_message_id) => (IntentState::Committed, internal_message_id)
                     };
                     identifier.internal_id(internal_message_id.clone());
@@ -1833,7 +1817,6 @@ where
             reference_id: None,
             sequence_id: Some(cursor as i64),
             originator_id: None,
-            expire_at_ns: None,
         };
         msg.store_or_ignore(&storage.db())?;
         Ok(Some(msg))
@@ -1996,6 +1979,7 @@ where
                         db.set_group_intent_processed(intent.id)?
                     }
                 }
+
             }
 
             Ok(())

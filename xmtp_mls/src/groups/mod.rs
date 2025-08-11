@@ -739,7 +739,6 @@ where
             reference_id: queryable_content_fields.reference_id,
             sequence_id: None,
             originator_id: None,
-            expire_at_ns: None,
         };
         group_message.store(&self.context.db())?;
 

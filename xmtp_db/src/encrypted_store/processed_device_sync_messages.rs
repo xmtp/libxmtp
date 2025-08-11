@@ -81,9 +81,9 @@ mod tests {
             group2.conversation_type = ConversationType::Sync;
             group2.store(conn)?;
 
-            let message = generate_message(None, Some(&group.id), None, None, None);
+            let message = generate_message(None, Some(&group.id), None, None);
             message.store(conn)?;
-            let message = generate_message(None, Some(&group2.id), None, None, None);
+            let message = generate_message(None, Some(&group2.id), None, None);
             message.store(conn)?;
 
             let unprocessed = conn.unprocessed_sync_group_messages()?;
