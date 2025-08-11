@@ -484,7 +484,7 @@ where
         let cursor = welcome_metadata
             .map(|m| m.message_cursor as i64)
             .unwrap_or_default();
-        let _ = &db.update_cursor(&group.group_id, EntityKind::Group, cursor)?;
+        db.update_cursor(&group.group_id, EntityKind::Group, cursor)?;
 
         Ok(group)
     }
