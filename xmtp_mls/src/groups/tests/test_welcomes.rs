@@ -16,7 +16,6 @@ async fn test_welcome_cursor() {
     group.update_installations().await?;
 
     alix2.sync_welcomes().await?;
-    let alix2_group = alix2.group(&group.group_id)?;
     let alix2_refresh_state = alix2
         .context
         .db()
