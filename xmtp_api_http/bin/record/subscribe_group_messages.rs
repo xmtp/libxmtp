@@ -2,15 +2,11 @@
 use color_eyre::{Result, eyre::eyre};
 use const_format::concatcp;
 use httpmock::{MockServer, Recording};
-use prost::Message;
-use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::str::FromStr;
 use xmtp_common::types::GroupId;
 use xmtp_configuration::RestApiEndpoints;
-use xmtp_proto::xmtp::mls::api::v1::SubscribeGroupMessagesRequest;
-use xmtp_proto::xmtp::mls::api::v1::subscribe_group_messages_request::Filter;
 use xshell::{Shell, cmd};
 
 pub const RECORDINGS_PATH: &str = concatcp!(env!("CARGO_MANIFEST_DIR"), "/", "recordings");

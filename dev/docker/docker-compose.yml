@@ -1,7 +1,6 @@
 services:
   node:
-    image: ghcr.io/xmtp/node-go:dev
-    pull_policy: never
+    image: ghcr.io/xmtp/node-go:main
     platform: linux/amd64
     environment:
       - GOWAKU-NODEKEY=8a30dcb604b0b53627a5adc054dbf434b446628d4bd1eccc681d223f0550ce67
@@ -20,6 +19,17 @@ services:
       - 5556:5556
     depends_on:
       - db
+  node-web:
+    image: ghcr.io/xmtp/grpc-web
+    pull_policy: never
+    platform: linux/amd64
+    depends_on:
+      - node
+    ports:
+      - 8080:5557
+    build:
+      context: ../..
+      dockerfile: ./dev/docker/envoy/Dockerfile
   validation:
     image: ghcr.io/xmtp/mls-validation-service:main
     platform: linux/amd64

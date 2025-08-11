@@ -37,7 +37,7 @@ pub async fn main() -> Result<()> {
         }],
     };
     let body = request.encode_to_vec();
-    let json_body = serde_json::to_string_pretty(&request)?;
+    let json_body = serde_json::to_string(&request)?;
     println!("pb body {}\njson body {}", &hex::encode(&body), &json_body);
 
     let request = client
@@ -50,7 +50,7 @@ pub async fn main() -> Result<()> {
         .build()?;
     println!("sending to={}", request.url());
     let mut response = client.execute(request).await?;
-    let mut response = response.error_for_status()?;
+    // let mut response = response.error_for_status()?;
     let msg_count = 20;
     send_messages(msg_count)?;
     // let mut s = response.bytes_stream();
@@ -65,7 +65,7 @@ pub async fn main() -> Result<()> {
     }
     // let msgs = s.as_mut().take(msg_count).collect::<Vec<_>>().await;
     // println!("Messages: {:?}", msgs);
-    clear()?;
+    // clear()?;
     save_recording(&recording)?;
 
     Ok(())
