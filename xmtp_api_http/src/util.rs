@@ -1,6 +1,6 @@
-use crate::http_stream::SubscriptionItem;
 use crate::ErrorResponse;
 use crate::HttpClientError;
+use crate::http_stream::SubscriptionItem;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
@@ -35,14 +35,11 @@ where
 #[allow(clippy::unwrap_used)]
 impl xmtp_proto::api_client::XmtpTestClient for crate::XmtpHttpApiClient {
     type Builder = crate::XmtpHttpApiClientBuilder;
-    fn local_port() -> &'static str {
-        "5555"
-    }
 
     fn create_local_d14n() -> Self::Builder {
         use xmtp_proto::api_client::ApiBuilder;
         let mut api = crate::XmtpHttpApiClient::builder();
-        api.set_host(crate::constants::ApiUrls::LOCAL_D14N_ADDRESS.into());
+        api.set_host(xmtp_configuration::HttpGatewayUrls::XMTPD.into());
         api.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
             .unwrap();
         api.set_app_version("0.0.0".into()).unwrap();
@@ -53,17 +50,7 @@ impl xmtp_proto::api_client::XmtpTestClient for crate::XmtpHttpApiClient {
         use xmtp_proto::api_client::ApiBuilder;
         let mut api = crate::XmtpHttpApiClient::builder();
         // payer has same address as d14n locally
-        api.set_host(crate::constants::ApiUrls::LOCAL_D14N_ADDRESS.into());
-        api.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
-            .unwrap();
-        api.set_app_version("0.0.0".into()).unwrap();
-        api
-    }
-
-    fn create_custom(addr: &str) -> Self::Builder {
-        use xmtp_proto::api_client::ApiBuilder;
-        let mut api = crate::XmtpHttpApiClient::builder();
-        api.set_host(addr.into());
+        api.set_host(xmtp_configuration::HttpGatewayUrls::PAYER.into());
         api.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
             .unwrap();
         api.set_app_version("0.0.0".into()).unwrap();
@@ -71,13 +58,19 @@ impl xmtp_proto::api_client::XmtpTestClient for crate::XmtpHttpApiClient {
     }
 
     fn create_local() -> Self::Builder {
-        Self::create_custom(crate::constants::ApiUrls::LOCAL_ADDRESS)
+        use xmtp_proto::api_client::ApiBuilder;
+        let mut api = crate::XmtpHttpApiClient::builder();
+        api.set_host(xmtp_configuration::HttpGatewayUrls::NODE.into());
+        api.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
+            .unwrap();
+        api.set_app_version("0.0.0".into()).unwrap();
+        api
     }
 
     fn create_dev() -> Self::Builder {
         use xmtp_proto::api_client::ApiBuilder;
         let mut api = crate::XmtpHttpApiClient::builder();
-        api.set_host(crate::constants::ApiUrls::DEV_ADDRESS.into());
+        api.set_host(xmtp_configuration::HttpGatewayUrls::NODE_DEV.into());
         api.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
             .unwrap();
         api.set_app_version("0.0.0".into()).unwrap();

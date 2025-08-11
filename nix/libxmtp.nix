@@ -33,6 +33,7 @@
 , binaryen
 , emscripten
 , taplo
+, shellcheck
 , ...
 }:
 
@@ -95,6 +96,8 @@ mkShell {
 
       # lint
       taplo
+      # dev/up
+      shellcheck
       # yarn/nodejs
       corepack
     ]

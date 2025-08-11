@@ -4,8 +4,8 @@ edition = "2024"
 license.workspace = true
 version.workspace = true
 
-[lints.clippy]
-uninlined_format_args = "allow"
+[lints]
+workspace = true
 
 [dependencies]
 async-trait.workspace = true
@@ -23,6 +23,7 @@ prost-types.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 xmtp_common.workspace = true
+xmtp_configuration = { workspace = true }
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 # only for tests

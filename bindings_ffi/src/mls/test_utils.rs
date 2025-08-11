@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use alloy::signers::local::PrivateKeySigner;
 use xmtp_common::{tmp_path, TestLogReplace};
+use xmtp_configuration::GrpcUrls;
 use xmtp_id::InboxOwner;
 use xmtp_mls::utils::test::tester_utils::*;
 
@@ -148,10 +149,10 @@ where
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
     let client = create_client(
-        connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+        connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
             .await
             .unwrap(),
-        connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+        connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
             .await
             .unwrap(),
         Some(tmp_path()),

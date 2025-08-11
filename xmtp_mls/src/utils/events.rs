@@ -99,7 +99,8 @@ where
 ///
 /// The macro requires an event name and details object as the first two arguments:
 ///
-/// ```rust
+/// ```rust,ignore
+/// use xmtp_mls::track;
 /// track!("user_login", {
 ///     "timestamp": "2024-01-01T12:00:00Z",
 ///     "method": "oauth"
@@ -107,7 +108,8 @@ where
 /// ```
 ///
 /// Track a message event with details:
-/// ```rust
+/// ```rust,ignore
+/// use xmtp_mls::track;
 /// track!("message_sent", {
 ///     "recipient": "alice@example.com",
 ///     "message_type": "text",
@@ -131,7 +133,8 @@ where
 /// # Examples
 ///
 /// Track an event with group association:
-/// ```rust
+/// ```rust,ignore
+/// use xmtp_mls::track;
 /// track!("group_created", {
 ///     "name": "Team Chat",
 ///     "member_count": 5
@@ -139,7 +142,8 @@ where
 /// ```
 ///
 /// Track an event with custom level:
-/// ```rust
+/// ```rust,ignore
+/// use xmtp_mls::track;
 /// track!("error_occurred", {
 ///     "error_type": "network_timeout",
 ///     "retry_count": 3
@@ -147,7 +151,9 @@ where
 /// ```
 ///
 /// Track an event with both group and level:
-/// ```rust
+/// ```rust,ignore
+/// use xmtp_mls::track;
+/// use xmtp_db::events::EventLevel;
 /// track!("message_delivery_failed", {
 ///     "reason": "recipient_offline",
 ///     "will_retry": true
@@ -253,7 +259,7 @@ macro_rules! track {
 ///
 /// # Usage
 ///
-/// ```rust
+/// ```rust,ignore
 /// // Track with default "Error" label
 /// let result = track_err!(some_operation());
 ///

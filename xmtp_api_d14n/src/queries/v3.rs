@@ -60,10 +60,18 @@ where
         <Builder as ApiBuilder>::rate_per_minute(&mut self.client, limit)
     }
 
+    fn port(&self) -> Result<Option<String>, Self::Error> {
+        <Builder as ApiBuilder>::port(&self.client)
+    }
+
     async fn build(self) -> Result<Self::Output, Self::Error> {
         Ok(V3Client::new(
             <Builder as ApiBuilder>::build(self.client).await?,
         ))
+    }
+
+    fn host(&self) -> Option<&str> {
+        <Builder as ApiBuilder>::host(&self.client)
     }
 }
 

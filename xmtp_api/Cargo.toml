@@ -4,8 +4,8 @@ edition = "2021"
 license.workspace = true
 version.workspace = true
 
-[lints.clippy]
-uninlined_format_args = "allow"
+[lints]
+workspace = true
 
 [dependencies]
 async-trait.workspace = true
@@ -14,17 +14,17 @@ hex.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
 thiserror.workspace = true
 tracing.workspace = true
-xmtp_api_http = { workspace = true, optional = true, features = ["test-utils"] }
+xmtp_api_http = { workspace = true, optional = true }
 xmtp_common.workspace = true
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 mockall = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-xmtp_api_http = { workspace = true, optional = true, features = ["test-utils"] }
+xmtp_api_http = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-xmtp_api_grpc = { workspace = true, optional = true, features = ["test-utils"] }
+xmtp_api_grpc = { workspace = true, optional = true }
 
 # test utils
 [dev-dependencies]

@@ -78,10 +78,10 @@ impl StoredUserPreferences {
 
         let mut preferences = Self::load(conn)?;
 
-        if let (Some(old), Some(new)) = (preferences.hmac_key_cycled_at_ns, cycled_at) {
-            if old > new {
-                return Ok(());
-            }
+        if let (Some(old), Some(new)) = (preferences.hmac_key_cycled_at_ns, cycled_at)
+            && old > new
+        {
+            return Ok(());
         }
 
         preferences.hmac_key = Some(key.to_vec());

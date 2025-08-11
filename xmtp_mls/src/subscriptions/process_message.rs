@@ -79,11 +79,6 @@ where
     /// # Returns
     /// * `Result<ProcessMessageFuture<C>>` - A new future for processing the message, or an error if initialization fails
     ///
-    /// # Example
-    /// ```no_run
-    /// let future = ProcessMessageFuture::new(client, incoming_message)?;
-    /// let processed = future.process().await?;
-    /// ```
     pub fn new(context: Context) -> ProcessMessageFuture<Context> {
         Self { context }
     }

@@ -17,6 +17,8 @@ pub enum GrpcBuilderError {
     Transport(#[from] tonic::transport::Error),
     #[error("Invalid URI during channel creation")]
     InvalidUri(#[from] http::uri::InvalidUri),
+    #[error(transparent)]
+    Url(#[from] url::ParseError),
 }
 
 #[derive(Debug, Error)]

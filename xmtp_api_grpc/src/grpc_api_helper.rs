@@ -1,9 +1,8 @@
 use crate::streams::{EscapableTonicStream, XmtpTonicStream};
-use crate::{
-    apply_channel_options, create_tls_channel, GrpcBuilderError, GrpcError, GRPC_PAYLOAD_LIMIT,
-};
+use crate::{apply_channel_options, create_tls_channel, GrpcBuilderError, GrpcError};
 use tonic::{metadata::MetadataValue, transport::Channel, Request};
 use tower::ServiceExt;
+use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams};
 use xmtp_proto::mls_v1::{
@@ -111,6 +110,15 @@ impl ApiBuilder for ClientBuilder {
         self.limit = Some(limit.into());
     }
 
+    fn port(&self) -> Result<Option<String>, Self::Error> {
+        if let Some(h) = &self.host {
+            let u = url::Url::parse(h)?;
+            Ok(u.port().map(|u| u.to_string()))
+        } else {
+            Err(GrpcBuilderError::MissingHostUrl)
+        }
+    }
+
     async fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
         let channel = match self.tls_channel {
@@ -143,6 +151,10 @@ impl ApiBuilder for ClientBuilder {
             identity_stats: IdentityStats::default(),
             channel,
         })
+    }
+
+    fn host(&self) -> Option<&str> {
+        self.host.as_deref()
     }
 }
 
@@ -312,47 +324,51 @@ impl XmtpMlsStreams for Client {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+#[allow(clippy::unwrap_used)]
 mod test {
     use super::*;
-    use xmtp_proto::api_client::XmtpTestClient;
+    use xmtp_configuration::GrpcUrls;
+    use xmtp_configuration::LOCALHOST;
+    use xmtp_proto::{api_client::XmtpTestClient, TestApiBuilder, ToxicProxies};
 
     impl XmtpTestClient for Client {
         type Builder = ClientBuilder;
 
-        fn local_port() -> &'static str {
-            "5556"
-        }
-
-        fn create_custom(addr: &str) -> Self::Builder {
+        fn create_local() -> Self::Builder {
             let mut client = Client::builder();
-            client.set_host(addr.into());
+            client.set_host(GrpcUrls::NODE.into());
             client.set_tls(false);
             client
         }
 
-        fn create_local() -> Self::Builder {
-            Self::create_custom("http://localhost:5556")
-        }
-
         fn create_local_d14n() -> Self::Builder {
             let mut client = Client::builder();
-            client.set_host("http://localhost:5050".into());
+            client.set_host(GrpcUrls::XMTPD.into());
             client.set_tls(false);
             client
         }
 
         fn create_local_payer() -> Self::Builder {
             let mut payer = Client::builder();
-            payer.set_host("http://localhost:5052".into());
+            payer.set_host(GrpcUrls::PAYER.into());
             payer.set_tls(false);
             payer
         }
 
         fn create_dev() -> Self::Builder {
             let mut client = Client::builder();
-            client.set_host("https://grpc.dev.xmtp.network:443".into());
+            client.set_host(GrpcUrls::NODE_DEV.into());
             client.set_tls(true);
             client
+        }
+    }
+
+    impl TestApiBuilder for ClientBuilder {
+        async fn with_toxiproxy(&mut self) -> ToxicProxies {
+            let proxy = xmtp_proto::init_toxi(&[self.host().unwrap()]).await;
+            self.set_host(format!("{LOCALHOST}:{}", proxy.ports()[0]));
+            tracing::info!("new host with toxiproxy={:?}", self.host());
+            proxy
         }
     }
 }

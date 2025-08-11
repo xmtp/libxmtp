@@ -32,9 +32,9 @@ fn network_url() -> (String, bool) {
     let is_dev_network = matches!(dev, Ok(d) if d == "true" || d == "1");
 
     if is_dev_network {
-        (xmtp_api_grpc::DEV_ADDRESS.to_string(), true)
+        (xmtp_configuration::GrpcUrls::NODE_DEV.to_string(), true)
     } else {
-        (xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+        (xmtp_configuration::GrpcUrls::NODE.to_string(), false)
     }
 }
 

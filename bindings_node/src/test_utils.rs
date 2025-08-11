@@ -5,14 +5,12 @@ use crate::{
 };
 use napi::bindgen_prelude::Uint8Array;
 use napi_derive::napi;
-use std::sync::atomic::Ordering;
-use toxiproxy_rust::proxy::{Proxy, ProxyPack};
-use xmtp_mls::utils::{TOXIPROXY, TOXI_PORT};
+use xmtp_proto::{init_toxi, ToxicProxies};
 
 #[napi]
 pub struct TestClient {
   inner: Client,
-  proxy: Proxy,
+  proxy: ToxicProxies,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -28,30 +26,8 @@ pub async fn create_local_toxic_client(
   allow_offline: Option<bool>,
   disable_events: Option<bool>,
 ) -> Result<TestClient, napi::Error> {
-  let toxiproxy = TOXIPROXY
-    .get_or_init(|| async {
-      let toxiproxy = toxiproxy_rust::client::Client::new("0.0.0.0:8474");
-      toxiproxy.reset().await.unwrap();
-      toxiproxy
-    })
-    .await;
-
-  let port = TOXI_PORT.fetch_add(1, Ordering::SeqCst);
-
-  let result = toxiproxy
-    .populate(vec![
-      ProxyPack::new(
-        format!("Proxy {port}"),
-        format!("[::]:{port}"),
-        format!("node:{}", "5556"),
-      )
-      .await,
-    ])
-    .await
-    .unwrap();
-
-  let proxy = result.into_iter().next().unwrap();
-  let api_addr = format!("http://localhost:{port}");
+  let proxy = init_toxi(&["http://localhost:5556"]).await;
+  let api_addr = format!("http://localhost:{}", proxy.port(0));
 
   let c = create_client(
     api_addr,
@@ -82,12 +58,13 @@ impl TestClient {
   pub async fn with_timeout(&self, stream: String, duration: u32, toxicity: f64) {
     self
       .proxy
+      .proxy(0)
       .with_timeout(stream, duration, toxicity as f32)
       .await;
   }
 
   #[napi]
   pub async fn delete_all_toxics(&self) {
-    self.proxy.delete_all_toxics().await.unwrap()
+    self.proxy.proxy(0).delete_all_toxics().await.unwrap()
   }
 }

@@ -1,6 +1,5 @@
 #![warn(clippy::unwrap_used)]
 
-pub mod constants;
 pub mod error;
 pub mod http_client;
 pub mod http_stream;
@@ -10,8 +9,8 @@ pub mod util;
 use futures::stream;
 use http_stream::create_grpc_stream;
 use prost::Message;
-use reqwest::header;
 use reqwest::header::HeaderMap;
+use reqwest::{Url, header};
 use util::handle_error_proto;
 
 use governor::clock::DefaultClock;
@@ -21,6 +20,8 @@ use governor::{Jitter, Quota};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
+#[cfg(any(test, feature = "test-utils"))]
+use xmtp_proto::ToxicProxies;
 use xmtp_proto::api_client::{
     AggregateStats, ApiBuilder, ApiStats, IdentityStats, XmtpIdentityClient,
 };
@@ -36,6 +37,7 @@ use xmtp_proto::xmtp::identity::api::v1::{
 };
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
+    ApiEndpoint,
     api_client::{XmtpMlsClient, XmtpMlsStreams},
     xmtp::mls::api::v1::{
         FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
@@ -43,15 +45,13 @@ use xmtp_proto::{
         SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
         SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
     },
-    ApiEndpoint,
 };
 
 #[macro_use]
 extern crate tracing;
 
-use crate::constants::ApiEndpoints;
 pub use crate::error::{ErrorResponse, HttpClientError};
-pub const LOCALHOST_ADDRESS: &str = "http://localhost:5555";
+use xmtp_configuration::RestApiEndpoints;
 
 type Limiter = governor::RateLimiter<NotKeyed, InMemoryState, DefaultClock, NoOpMiddleware>;
 
@@ -133,6 +133,8 @@ pub enum HttpClientBuilderError {
     InvalidUri(#[from] http::uri::InvalidUri),
     #[error(transparent)]
     InvalidUriParts(#[from] http::uri::InvalidUriParts),
+    #[error(transparent)]
+    ParseUrl(#[from] url::ParseError),
 }
 
 #[derive(Debug)]
@@ -183,6 +185,20 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
         self.tls = tls;
     }
 
+    fn rate_per_minute(&mut self, limit: u32) {
+        let limit = if limit == 0 {
+            NonZeroU32::new(1_u32).expect("1 is greater than 0")
+        } else {
+            NonZeroU32::new(limit).expect("checked for 0")
+        };
+        let quota = Quota::per_minute(limit);
+        self.limiter = Some(Limiter::direct(quota));
+    }
+
+    fn port(&self) -> Result<Option<String>, Self::Error> {
+        Ok(Url::parse(&self.host_url)?.port().map(|u| u.to_string()))
+    }
+
     async fn build(mut self) -> Result<Self::Output, Self::Error> {
         let libxmtp_version = self
             .libxmtp_version
@@ -213,14 +229,22 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
         })
     }
 
-    fn rate_per_minute(&mut self, limit: u32) {
-        let limit = if limit == 0 {
-            NonZeroU32::new(1_u32).expect("1 is greater than 0")
-        } else {
-            NonZeroU32::new(limit).expect("checked for 0")
-        };
-        let quota = Quota::per_minute(limit);
-        self.limiter = Some(Limiter::direct(quota));
+    fn host(&self) -> Option<&str> {
+        Some(&self.host_url)
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl xmtp_proto::TestApiBuilder for XmtpHttpApiClientBuilder {
+    #[allow(clippy::unwrap_used)] // unwrap ok for tests
+    async fn with_toxiproxy(&mut self) -> ToxicProxies {
+        let proxy = xmtp_proto::init_toxi(&[self.host().unwrap()]).await;
+        self.set_host(format!(
+            "{}:{}",
+            xmtp_configuration::LOCALHOST,
+            proxy.port(0)
+        ));
+        proxy
     }
 }
 
@@ -246,7 +270,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
 
         let res = self
             .http_client
-            .post(self.endpoint(ApiEndpoints::UPLOAD_KEY_PACKAGE))
+            .post(self.endpoint(RestApiEndpoints::UPLOAD_KEY_PACKAGE))
             .headers(protobuf_headers()?)
             .body(request.encode_to_vec())
             .send()
@@ -268,7 +292,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         self.stats.fetch_key_package.count_request();
         let res = self
             .http_client
-            .post(self.endpoint(ApiEndpoints::FETCH_KEY_PACKAGES))
+            .post(self.endpoint(RestApiEndpoints::FETCH_KEY_PACKAGES))
             .headers(protobuf_headers()?)
             .body(request.encode_to_vec())
             .send()
@@ -291,7 +315,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
 
         let res = self
             .http_client
-            .post(self.endpoint(ApiEndpoints::SEND_GROUP_MESSAGES))
+            .post(self.endpoint(RestApiEndpoints::SEND_GROUP_MESSAGES))
             .headers(protobuf_headers()?)
             .body(request.encode_to_vec())
             .send()
@@ -314,7 +338,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         self.stats.send_welcome_messages.count_request();
         let res = self
             .http_client
-            .post(self.endpoint(ApiEndpoints::SEND_WELCOME_MESSAGES))
+            .post(self.endpoint(RestApiEndpoints::SEND_WELCOME_MESSAGES))
             .headers(protobuf_headers()?)
             .body(request.encode_to_vec())
             .send()
@@ -337,7 +361,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         self.stats.query_group_messages.count_request();
         let res = self
             .http_client
-            .post(self.endpoint(ApiEndpoints::QUERY_GROUP_MESSAGES))
+            .post(self.endpoint(RestApiEndpoints::QUERY_GROUP_MESSAGES))
             .headers(protobuf_headers()?)
             .body(request.encode_to_vec())
             .send()
@@ -360,7 +384,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         self.stats.query_welcome_messages.count_request();
         let res = self
             .http_client
-            .post(self.endpoint(ApiEndpoints::QUERY_WELCOME_MESSAGES))
+            .post(self.endpoint(RestApiEndpoints::QUERY_WELCOME_MESSAGES))
             .headers(protobuf_headers()?)
             .body(request.encode_to_vec())
             .send()
@@ -383,7 +407,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         self.stats.publish_commit_log.count_request();
         let res = self
             .http_client
-            .post(self.endpoint(ApiEndpoints::PUBLISH_COMMIT_LOG))
+            .post(self.endpoint(RestApiEndpoints::PUBLISH_COMMIT_LOG))
             .headers(protobuf_headers()?)
             .body(request.encode_to_vec())
             .send()
@@ -406,7 +430,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         self.stats.query_commit_log.count_request();
         let res = self
             .http_client
-            .post(self.endpoint(ApiEndpoints::QUERY_COMMIT_LOG))
+            .post(self.endpoint(RestApiEndpoints::QUERY_COMMIT_LOG))
             .headers(protobuf_headers()?)
             .body(request.encode_to_vec())
             .send()
@@ -457,7 +481,7 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
         self.stats.subscribe_messages.count_request();
         Ok(create_grpc_stream::<_, GroupMessage>(
             request,
-            self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES),
+            self.endpoint(RestApiEndpoints::SUBSCRIBE_GROUP_MESSAGES),
             self.http_client.clone(),
         )
         .await?)
@@ -473,7 +497,7 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
         tracing::debug!("subscribe_welcome_messages");
         Ok(create_grpc_stream::<_, WelcomeMessage>(
             request,
-            self.endpoint(ApiEndpoints::SUBSCRIBE_WELCOME_MESSAGES),
+            self.endpoint(RestApiEndpoints::SUBSCRIBE_WELCOME_MESSAGES),
             self.http_client.clone(),
         )
         .await?)
@@ -493,7 +517,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         self.identity_stats.publish_identity_update.count_request();
         let res = self
             .http_client
-            .post(self.endpoint(ApiEndpoints::PUBLISH_IDENTITY_UPDATE))
+            .post(self.endpoint(RestApiEndpoints::PUBLISH_IDENTITY_UPDATE))
             .headers(protobuf_headers()?)
             .body(request.encode_to_vec())
             .send()
@@ -516,7 +540,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         self.identity_stats.get_identity_updates_v2.count_request();
         let res = self
             .http_client
-            .post(self.endpoint(ApiEndpoints::GET_IDENTITY_UPDATES))
+            .post(self.endpoint(RestApiEndpoints::GET_IDENTITY_UPDATES))
             .headers(protobuf_headers()?)
             .body(request.encode_to_vec())
             .send()
@@ -539,7 +563,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         self.identity_stats.get_inbox_ids.count_request();
         let res = self
             .http_client
-            .post(self.endpoint(ApiEndpoints::GET_INBOX_IDS))
+            .post(self.endpoint(RestApiEndpoints::GET_INBOX_IDS))
             .headers(protobuf_headers()?)
             .body(request.encode_to_vec())
             .send()
@@ -562,7 +586,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
             .count_request();
         let res = self
             .http_client
-            .post(self.endpoint(ApiEndpoints::VERIFY_SMART_CONTRACT_WALLET_SIGNATURES))
+            .post(self.endpoint(RestApiEndpoints::VERIFY_SMART_CONTRACT_WALLET_SIGNATURES))
             .headers(protobuf_headers()?)
             .body(request.encode_to_vec())
             .send()
@@ -589,7 +613,7 @@ pub mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use xmtp_proto::xmtp::mls::api::v1::KeyPackageUpload;
 
-    use crate::constants::ApiUrls;
+    use xmtp_configuration::HttpGatewayUrls as ApiUrls;
 
     use super::*;
 
@@ -597,7 +621,7 @@ pub mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_upload_key_package() {
         let mut client = XmtpHttpApiClient::builder();
-        client.set_host(ApiUrls::LOCAL_ADDRESS.to_string());
+        client.set_host(ApiUrls::NODE.to_string());
         client.set_app_version("".into()).unwrap();
         client
             .set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
@@ -614,22 +638,24 @@ pub mod tests {
 
         assert!(result.is_err());
         println!("{:?}", result);
-        assert!(result
-            .as_ref()
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("invalid identity"));
+        assert!(
+            result
+                .as_ref()
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("invalid identity")
+        );
     }
 
     #[xmtp_common::test]
     async fn test_get_inbox_ids() {
         use xmtp_proto::xmtp::identity::api::v1::{
-            get_inbox_ids_request::Request, GetInboxIdsRequest,
+            GetInboxIdsRequest, get_inbox_ids_request::Request,
         };
         use xmtp_proto::xmtp::identity::associations::IdentifierKind;
         let mut client = XmtpHttpApiClient::builder();
-        client.set_host(ApiUrls::LOCAL_ADDRESS.to_string());
+        client.set_host(ApiUrls::NODE.to_string());
         client.set_app_version("".into()).unwrap();
         client
             .set_libxmtp_version(env!("CARGO_PKG_VERSION").into())

@@ -62,16 +62,6 @@ where
     /// Returns an error if initialization fails
     ///
     /// # Example
-    /// ```no_run
-    /// let future = ProcessWelcomeFuture::new(
-    ///     known_ids,
-    ///     client.clone(),
-    ///     WelcomeOrGroup::Welcome(welcome),
-    ///     Some(ConversationType::Group),
-    ///     false,
-    /// )?;
-    /// let result = future.process().await?;
-    /// ```
     pub fn new(
         known_welcome_ids: HashSet<i64>,
         context: Context,
