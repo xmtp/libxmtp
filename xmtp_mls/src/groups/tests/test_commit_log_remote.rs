@@ -274,7 +274,8 @@ async fn test_should_publish_commit_log() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_publish_commit_log_to_remote() {
-    tester!(alix);
+    // Disable background CommitLogWorker for deterministic testing
+    tester!(alix, with_commit_log_worker: false);
     tester!(bo);
 
     // Alix creates a group with Bo
@@ -356,8 +357,9 @@ async fn test_publish_commit_log_to_remote() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_download_commit_log_from_remote() {
-    tester!(alix);
-    tester!(bo);
+    // Disable background CommitLogWorker for deterministic testing
+    tester!(alix, with_commit_log_worker: false);
+    tester!(bo, with_commit_log_worker: false);
 
     // Alix creates a group with Bo (1 commit)
     let alix_group = alix.create_group(None, None).unwrap();
@@ -653,7 +655,8 @@ async fn test_download_commit_log_from_remote() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_should_skip_remote_log_entry() {
-    tester!(alix);
+    // Disable background CommitLogWorker for deterministic testing
+    tester!(alix, with_commit_log_worker: false);
     let commit_log_worker = CommitLogWorker::new(alix.context.clone());
 
     // Generate a signing key for the test
@@ -1002,8 +1005,9 @@ async fn test_all_users_use_same_signing_key_for_publishing() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_consecutive_entries_verification_happy_case() {
-    tester!(alix);
-    tester!(bo);
+    // Disable background CommitLogWorker for deterministic testing
+    tester!(alix, with_commit_log_worker: false);
+    tester!(bo, with_commit_log_worker: false);
 
     // Create a DM between alix and bo
     let alix_dm = alix
@@ -1450,9 +1454,10 @@ async fn test_updating_group_name_preserves_commit_log_signer() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
-    tester!(alix);
-    tester!(bo);
-    tester!(charlie);
+    // Disable background CommitLogWorker for deterministic testing
+    tester!(alix, with_commit_log_worker: false);
+    tester!(bo, with_commit_log_worker: false);
+    tester!(charlie, with_commit_log_worker: false);
 
     // Create a group - this will have a commit log signer in mutable metadata by default
     // We'll simulate a legacy group by having alix use a different key

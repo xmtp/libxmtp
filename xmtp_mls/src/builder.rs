@@ -74,6 +74,7 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     version_info: VersionInfo,
     allow_offline: bool,
     disable_events: bool,
+    disable_commit_log_worker: bool,
     mls_storage: Option<S>,
     sync_api_client: Option<ApiClientWrapper<ApiClient>>,
 }
@@ -108,6 +109,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_events: false,
             #[cfg(test)]
             disable_events: true,
+            disable_commit_log_worker: false,
             mls_storage: None,
             sync_api_client: None,
         }
@@ -140,6 +142,7 @@ where
             disable_events: true,
             #[cfg(not(test))]
             disable_events: false,
+            disable_commit_log_worker: false,
             mls_storage: Some(client.context.mls_storage.clone()),
             sync_api_client: Some(cloned_sync_api),
         }
@@ -165,9 +168,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info,
             allow_offline,
             disable_events,
+            disable_commit_log_worker,
             mut mls_storage,
             mut sync_api_client,
-            ..
         } = self;
 
         let api_client = api_client
@@ -264,6 +267,13 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             .register_new_worker::<DisappearingMessagesWorker<ContextParts<ApiClient, S, Db>>, _>(
                 context.clone(),
             );
+        // Enable CommitLogWorker based on configuration
+        if xmtp_configuration::ENABLE_COMMIT_LOG && !disable_commit_log_worker {
+            workers.register_new_worker::<
+                crate::groups::commit_log::CommitLogWorker<ContextParts<ApiClient, S, Db>>,
+                _,
+            >(context.clone());
+        }
         workers.spawn();
         let client = Client {
             context,
@@ -299,6 +309,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
+            disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
         }
@@ -324,6 +335,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
+            disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: Some(SqlKeyStore::new(
                 self.store
                     .as_ref()
@@ -349,6 +361,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
+            disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: Some(mls_storage),
             sync_api_client: self.sync_api_client,
         }
@@ -397,6 +410,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
+            disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
             sync_api_client: Some(sync_api_client),
         }
@@ -463,6 +477,16 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
+    /// Control whether the CommitLogWorker background task is enabled.
+    /// Useful for tests that need deterministic commit log operations.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn with_commit_log_worker(self, enabled: bool) -> Self {
+        Self {
+            disable_commit_log_worker: !enabled,
+            ..self
+        }
+    }
+
     #[cfg(any(test, feature = "test-utils"))]
     pub fn enable_sqlite_triggers(self) -> Self
     where
@@ -502,6 +526,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
+            disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
             sync_api_client: Some(
                 self.sync_api_client
@@ -527,6 +552,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
+            disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
         }
@@ -559,6 +585,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
+            disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
         })
