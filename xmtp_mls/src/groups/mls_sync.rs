@@ -2420,7 +2420,7 @@ where
                 .as_ref()
                 .map(|w| match w {
                     WelcomeMessageInputVersion::V1(w) => {
-                        let w = w.installation_key.len() + w.data.len() + w.hpke_public_key.len();
+                        let w = w.installation_key.len() + w.data.len() + w.hpke_public_key.len() + w.welcome_metadata.len();
                         tracing::debug!("total welcome message proto bytes={w}");
                         w
                     }

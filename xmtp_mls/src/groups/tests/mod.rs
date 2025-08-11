@@ -6,7 +6,6 @@ mod test_dm;
 mod test_key_updates;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_network;
-mod test_remote_commit_log;
 mod test_welcomes;
 
 use prost::Message;
