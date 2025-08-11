@@ -1415,23 +1415,40 @@ pub(crate) mod tests {
             let mut group1 = generate_group(None);
             let mut group2 = generate_group(None);
             let mut group3 = generate_group(None);
+            let mut group4 = generate_group(None);
             group1.should_publish_commit_log = true;
             group1.commit_log_public_key = None;
+            generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                hex::encode(group1.id.clone()),
+            )
+            .store(conn)?;
             group2.should_publish_commit_log = true;
             group2.commit_log_public_key = Some(rand_vec::<32>());
-            group3.should_publish_commit_log = false;
+
+            group3.should_publish_commit_log = true;
+            group3.commit_log_public_key = Some(rand_vec::<32>());
+            generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                hex::encode(group3.id.clone()),
+            )
+            .store(conn)?;
+            group4.should_publish_commit_log = false;
             group1.store(conn)?;
             group2.store(conn)?;
             group3.store(conn)?;
+            group4.store(conn)?;
 
             let commit_log_keys = conn.get_conversation_ids_for_remote_log_publish().unwrap();
             assert_eq!(commit_log_keys.len(), 2);
             assert_eq!(commit_log_keys[0].id, group1.id);
-            assert_eq!(commit_log_keys[1].id, group2.id);
+            assert_eq!(commit_log_keys[1].id, group3.id);
             assert_eq!(commit_log_keys[0].commit_log_public_key, None);
             assert_eq!(
                 commit_log_keys[1].commit_log_public_key,
-                group2.commit_log_public_key
+                group3.commit_log_public_key
             );
         })
         .await
