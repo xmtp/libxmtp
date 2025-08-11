@@ -86,6 +86,16 @@ public class Conversations {
 		self.ffiClient = ffiClient
 	}
 
+	/// Helper function to convert DisappearingMessageSettings to FfiMessageDisappearingSettings
+	/// Returns nil if the input is nil, making it explicit that nil will be passed to FFI
+	private func toFfiDisappearingMessageSettings(_ settings: DisappearingMessageSettings?) -> FfiMessageDisappearingSettings? {
+		guard let settings = settings else { return nil }
+		return FfiMessageDisappearingSettings(
+			fromNs: settings.disappearStartingAtNs,
+			inNs: settings.retentionDurationInNs
+		)
+	}
+
 	public func findGroup(groupId: String) throws -> Group? {
 		do {
 			return Group(
@@ -350,11 +360,8 @@ public class Conversations {
 			.findOrCreateDm(
 				targetIdentity: peerIdentity.ffiPrivate,
 				opts: FfiCreateDmOptions(
-					messageDisappearingSettings: FfiMessageDisappearingSettings(
-						fromNs: disappearingMessageSettings?
-							.disappearStartingAtNs ?? 0,
-						inNs: disappearingMessageSettings?.retentionDurationInNs
-							?? 0)))
+					messageDisappearingSettings: toFfiDisappearingMessageSettings(disappearingMessageSettings)
+					))
 
 		return dm.dmFromFFI(client: client)
 	}
@@ -384,11 +391,8 @@ public class Conversations {
 			.findOrCreateDmByInboxId(
 				inboxId: peerInboxId,
 				opts: FfiCreateDmOptions(
-					messageDisappearingSettings: FfiMessageDisappearingSettings(
-						fromNs: disappearingMessageSettings?
-							.disappearStartingAtNs ?? 0,
-						inNs: disappearingMessageSettings?.retentionDurationInNs
-							?? 0)))
+					messageDisappearingSettings: toFfiDisappearingMessageSettings(disappearingMessageSettings)
+					))
 		return dm.dmFromFFI(client: client)
 
 	}
@@ -451,12 +455,7 @@ public class Conversations {
 				groupImageUrlSquare: imageUrl,
 				groupDescription: description,
 				customPermissionPolicySet: permissionPolicySet,
-				messageDisappearingSettings: FfiMessageDisappearingSettings(
-					fromNs: disappearingMessageSettings?
-						.disappearStartingAtNs ?? 0,
-					inNs: disappearingMessageSettings?
-						.retentionDurationInNs ?? 0
-				)
+				messageDisappearingSettings: toFfiDisappearingMessageSettings(disappearingMessageSettings)
 			)
 		).groupFromFFI(client: client)
 		return group
@@ -521,12 +520,7 @@ public class Conversations {
 				groupImageUrlSquare: imageUrl,
 				groupDescription: description,
 				customPermissionPolicySet: permissionPolicySet,
-				messageDisappearingSettings: FfiMessageDisappearingSettings(
-					fromNs: disappearingMessageSettings?
-						.disappearStartingAtNs ?? 0,
-					inNs: disappearingMessageSettings?
-						.retentionDurationInNs ?? 0
-				)
+				messageDisappearingSettings: toFfiDisappearingMessageSettings(disappearingMessageSettings)
 			)
 		).groupFromFFI(client: client)
 		return group
@@ -547,13 +541,7 @@ public class Conversations {
 			groupImageUrlSquare: groupImageUrlSquare,
 			groupDescription: groupDescription,
 			customPermissionPolicySet: nil,
-			messageDisappearingSettings: disappearingMessageSettings.map {
-				settings in
-				FfiMessageDisappearingSettings(
-					fromNs: settings.disappearStartingAtNs,
-					inNs: settings.retentionDurationInNs
-				)
-			}
+			messageDisappearingSettings: toFfiDisappearingMessageSettings(disappearingMessageSettings)
 		)
 
 		let ffiGroup = try ffiConversations.createGroupOptimistic(opts: ffiOpts)
