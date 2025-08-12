@@ -551,10 +551,15 @@ mock! {
         ) -> Result<Vec<AssociationStateProto>, StorageError>;
     }
 
-    impl CheckPragmas for DbQuery {
+    impl Pragmas for DbQuery {
         fn busy_timeout(
             &self,
         ) -> Result<i32, crate::ConnectionError>;
+        #[mockall::concretize]
+        fn set_sqlcipher_log<S: AsRef<str>>(
+            &self,
+            level: S
+        ) -> Result<(), crate::ConnectionError>;
     }
 }
 
