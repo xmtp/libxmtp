@@ -3,6 +3,7 @@
 pub mod identity;
 pub mod inbox_owner;
 pub mod logger;
+pub mod message;
 pub mod mls;
 pub mod worker;
 
