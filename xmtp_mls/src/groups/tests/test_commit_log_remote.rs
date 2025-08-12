@@ -326,7 +326,11 @@ async fn test_download_commit_log_from_remote() {
     let bo_group = binding.first().unwrap();
     bo_group.sync().await.unwrap();
 
-    // Bo updates the group name (4 commits)
+    // Bo sends a message which updates the group to be consent state allowed
+    // and queues a key update intent (4 commits)
+    bo_group.send_message(b"foo").await.unwrap();
+
+    // Bo updates the group name (5 commits)
     bo_group
         .update_group_name("bo group name".to_string())
         .await
@@ -387,7 +391,7 @@ async fn test_download_commit_log_from_remote() {
     // We should have published 4 commits
     assert_eq!(
         test_results[0].publish_commit_log_results.clone().unwrap()[0].num_entries_published,
-        4
+        5
     );
 
     // After Alix publishes commits upload commit cursor should be equal to publish results last rowid:
@@ -435,7 +439,7 @@ async fn test_download_commit_log_from_remote() {
             .unwrap()
             .get(&alix_group.group_id)
             .unwrap(),
-        4
+        5
     );
 
     assert_eq!(bo_test_results.len(), 1);
@@ -455,7 +459,7 @@ async fn test_download_commit_log_from_remote() {
             .unwrap()
             .get(&alix_group.group_id)
             .unwrap(),
-        4
+        5
     );
 
     // Verify that cursor works as expected for saving new remote commit log entries
