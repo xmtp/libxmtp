@@ -1,37 +1,39 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::mls::FfiReaction;
-
 use xmtp_content_types::{
     attachment::Attachment,
     read_receipt::ReadReceipt,
     remote_attachment::RemoteAttachment,
+    reply::Reply,
     transaction_reference::{TransactionMetadata, TransactionReference},
 };
-use xmtp_mls::groups::message_list_item::{
-    MessageListItem, MessageListItemContent, Reaction, Reply, Text,
+use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
+use xmtp_mls::groups::decoded_message::{
+    DecodedMessage, DecodedMessageMetadata, MessageBody, Reaction, ReactionAction, ReactionSchema,
+    Reply as ProcessedReply, Text,
 };
 use xmtp_proto::xmtp::mls::message_contents::content_types::{
-    MultiRemoteAttachment, RemoteAttachmentInfo,
+    MultiRemoteAttachment, ReactionV2, RemoteAttachmentInfo,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent, GroupMembershipChanges, GroupUpdated, MembershipChange,
 };
 
 #[derive(uniffi::Record, Clone)]
-pub struct FfiReplyContent {
+pub struct FfiEnrichedReply {
     // The original message that this reply is in reply to.
     // This goes at most one level deep from the original message, and won't happen recursively if there are replies to replies to replies
-    pub in_reply_to: Option<Arc<FfiProcessedMessage>>,
-    pub content: Option<FfiProcessedMessageBody>,
+    pub in_reply_to: Option<Arc<FfiDecodedMessage>>,
+    pub content: Option<FfiDecodedMessageBody>,
 }
 
 // Create a separate enum for the body of the message, which excludes replies and reactions
 // This prevents circular references
 #[derive(uniffi::Enum, Clone)]
-pub enum FfiProcessedMessageBody {
+pub enum FfiDecodedMessageBody {
     Text(FfiTextContent),
+    Reaction(FfiReactionPayload),
     Attachment(FfiAttachment),
     RemoteAttachment(FfiRemoteAttachment),
     MultiRemoteAttachment(FfiMultiRemoteAttachment),
@@ -48,14 +50,22 @@ pub struct FfiTextContent {
     pub content: String,
 }
 
+// Using a separate struct for the reaction payload to both avoid circular references and to have a less ambiguous type than if I embedded a complete message
+#[derive(uniffi::Record, Clone)]
+pub struct FfiEnrichedReaction {
+    pub message_metadata: FfiDecodedMessageMetadata,
+    pub action: FfiReactionAction,
+    pub content: String,
+    pub schema: FfiReactionSchema,
+}
+
 // FfiReaction is defined in mls.rs with proper enum types for action and schema
 
 #[derive(uniffi::Record, Clone)]
 pub struct FfiAttachment {
     pub filename: Option<String>,
     pub mime_type: String,
-    pub size: u64,
-    pub content: String,
+    pub content: Vec<u8>,
 }
 
 #[derive(uniffi::Record, Clone)]
@@ -65,9 +75,89 @@ pub struct FfiRemoteAttachment {
     pub secret: Vec<u8>,
     pub salt: Vec<u8>,
     pub nonce: Vec<u8>,
-    pub size: u64,
-    pub mime_type: String,
+    pub scheme: String,
+    pub content_length: u64,
     pub filename: Option<String>,
+}
+
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiReactionPayload {
+    pub reference: String,
+    pub reference_inbox_id: String,
+    pub action: FfiReactionAction,
+    pub content: String,
+    pub schema: FfiReactionSchema,
+}
+
+impl From<FfiReactionPayload> for ReactionV2 {
+    fn from(reaction: FfiReactionPayload) -> Self {
+        ReactionV2 {
+            reference: reaction.reference,
+            reference_inbox_id: reaction.reference_inbox_id,
+            action: reaction.action.into(),
+            content: reaction.content,
+            schema: reaction.schema.into(),
+        }
+    }
+}
+
+impl From<ReactionV2> for FfiReactionPayload {
+    fn from(reaction: ReactionV2) -> Self {
+        FfiReactionPayload {
+            reference: reaction.reference,
+            reference_inbox_id: reaction.reference_inbox_id,
+            action: match reaction.action {
+                1 => FfiReactionAction::Added,
+                2 => FfiReactionAction::Removed,
+                _ => FfiReactionAction::Unknown,
+            },
+            content: reaction.content,
+            schema: match reaction.schema {
+                1 => FfiReactionSchema::Unicode,
+                2 => FfiReactionSchema::Shortcode,
+                3 => FfiReactionSchema::Custom,
+                _ => FfiReactionSchema::Unknown,
+            },
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Clone, Default, PartialEq, Debug)]
+pub enum FfiReactionAction {
+    Unknown,
+    #[default]
+    Added,
+    Removed,
+}
+
+impl From<FfiReactionAction> for i32 {
+    fn from(action: FfiReactionAction) -> Self {
+        match action {
+            FfiReactionAction::Unknown => 0,
+            FfiReactionAction::Added => 1,
+            FfiReactionAction::Removed => 2,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Clone, Default, PartialEq, Debug)]
+pub enum FfiReactionSchema {
+    Unknown,
+    #[default]
+    Unicode,
+    Shortcode,
+    Custom,
+}
+
+impl From<FfiReactionSchema> for i32 {
+    fn from(schema: FfiReactionSchema) -> Self {
+        match schema {
+            FfiReactionSchema::Unknown => 0,
+            FfiReactionSchema::Unicode => 1,
+            FfiReactionSchema::Shortcode => 2,
+            FfiReactionSchema::Custom => 3,
+        }
+    }
 }
 
 #[derive(uniffi::Record, Clone)]
@@ -85,6 +175,14 @@ pub struct FfiRemoteAttachmentInfo {
     pub scheme: String,
     pub content_length: Option<u32>,
     pub filename: Option<String>,
+}
+
+// Reply FFI structures
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiReply {
+    pub reference: String,
+    pub reference_inbox_id: Option<String>,
+    pub content: FfiEncodedContent,
 }
 
 #[derive(uniffi::Record, Clone, Default)]
@@ -141,11 +239,7 @@ pub struct FfiMembershipChange {
 }
 
 #[derive(uniffi::Record, Clone)]
-pub struct FfiReadReceipt {
-    pub reference: String,
-    pub reference_inbox_id: Option<String>,
-    pub read_at_ns: i64,
-}
+pub struct FfiReadReceipt {}
 
 #[derive(uniffi::Record, Clone, Default, Debug, PartialEq)]
 pub struct FfiEncodedContent {
@@ -165,10 +259,34 @@ pub struct FfiContentTypeId {
 }
 
 #[derive(uniffi::Enum, Clone)]
-pub enum FfiProcessedMessageContent {
+pub enum FfiGroupMessageKind {
+    Application,
+    MembershipChange,
+}
+
+#[derive(uniffi::Enum, Clone)]
+pub enum FfiDeliveryStatus {
+    Unpublished,
+    Published,
+    Failed,
+}
+
+#[derive(uniffi::Record, Clone)]
+pub struct FfiDecodedMessageMetadata {
+    pub id: Vec<u8>,
+    pub sent_at_ns: i64,
+    pub kind: FfiGroupMessageKind,
+    pub sender_installation_id: Vec<u8>,
+    pub sender_inbox_id: String,
+    pub delivery_status: FfiDeliveryStatus,
+    pub content_type: FfiContentTypeId,
+}
+
+#[derive(uniffi::Enum, Clone)]
+pub enum FfiDecodedMessageContent {
     Text(FfiTextContent),
-    Reply(FfiReplyContent),
-    Reaction(FfiReaction),
+    Reply(FfiEnrichedReply),
+    Reaction(FfiReactionPayload),
     Attachment(FfiAttachment),
     RemoteAttachment(FfiRemoteAttachment),
     MultiRemoteAttachment(FfiMultiRemoteAttachment),
@@ -189,10 +307,41 @@ impl From<Text> for FfiTextContent {
     }
 }
 
-impl From<Reaction> for FfiReaction {
+impl From<Reaction> for FfiEnrichedReaction {
     fn from(reaction: Reaction) -> Self {
-        // Convert via ReactionV2 which has the From implementation in mls.rs
-        reaction.reaction.into()
+        FfiEnrichedReaction {
+            message_metadata: reaction.metadata.into(),
+            action: match reaction.action {
+                ReactionAction::Added => FfiReactionAction::Added,
+                ReactionAction::Removed => FfiReactionAction::Removed,
+            },
+            content: reaction.content,
+            schema: match reaction.schema {
+                ReactionSchema::Unicode => FfiReactionSchema::Unicode,
+                ReactionSchema::Shortcode => FfiReactionSchema::Shortcode,
+                ReactionSchema::Custom => FfiReactionSchema::Custom,
+            },
+        }
+    }
+}
+
+impl From<FfiReply> for Reply {
+    fn from(f: FfiReply) -> Self {
+        Reply {
+            reference: f.reference,
+            reference_inbox_id: f.reference_inbox_id,
+            content: f.content.into(),
+        }
+    }
+}
+
+impl From<Reply> for FfiReply {
+    fn from(r: Reply) -> Self {
+        FfiReply {
+            reference: r.reference,
+            reference_inbox_id: r.reference_inbox_id,
+            content: r.content.into(),
+        }
     }
 }
 
@@ -201,7 +350,6 @@ impl From<Attachment> for FfiAttachment {
         FfiAttachment {
             filename: attachment.filename,
             mime_type: attachment.mime_type,
-            size: attachment.size,
             content: attachment.content,
         }
     }
@@ -212,7 +360,6 @@ impl From<FfiAttachment> for Attachment {
         Attachment {
             filename: ffi.filename,
             mime_type: ffi.mime_type,
-            size: ffi.size,
             content: ffi.content,
         }
     }
@@ -226,8 +373,8 @@ impl From<RemoteAttachment> for FfiRemoteAttachment {
             secret: remote.secret,
             salt: remote.salt,
             nonce: remote.nonce,
-            size: remote.size,
-            mime_type: remote.mime_type,
+            scheme: remote.scheme,
+            content_length: remote.content_length as u64,
             filename: remote.filename,
         }
     }
@@ -241,8 +388,8 @@ impl From<FfiRemoteAttachment> for RemoteAttachment {
             secret: ffi.secret,
             salt: ffi.salt,
             nonce: ffi.nonce,
-            size: ffi.size,
-            mime_type: ffi.mime_type,
+            scheme: ffi.scheme,
+            content_length: ffi.content_length as usize,
             filename: ffi.filename,
         }
     }
@@ -411,22 +558,14 @@ impl From<MembershipChange> for FfiMembershipChange {
 }
 
 impl From<ReadReceipt> for FfiReadReceipt {
-    fn from(receipt: ReadReceipt) -> Self {
-        FfiReadReceipt {
-            reference: receipt.reference,
-            reference_inbox_id: receipt.reference_inbox_id,
-            read_at_ns: receipt.read_at_ns,
-        }
+    fn from(_ffi: ReadReceipt) -> Self {
+        FfiReadReceipt {}
     }
 }
 
 impl From<FfiReadReceipt> for ReadReceipt {
-    fn from(ffi: FfiReadReceipt) -> Self {
-        ReadReceipt {
-            reference: ffi.reference,
-            reference_inbox_id: ffi.reference_inbox_id,
-            read_at_ns: ffi.read_at_ns,
-        }
+    fn from(_ffi: FfiReadReceipt) -> Self {
+        ReadReceipt {}
     }
 }
 
@@ -459,8 +598,8 @@ impl From<ContentTypeId> for FfiContentTypeId {
         FfiContentTypeId {
             authority_id: type_id.authority_id,
             type_id: type_id.type_id,
-            version_major: type_id.version_major as u32,
-            version_minor: type_id.version_minor as u32,
+            version_major: type_id.version_major,
+            version_minor: type_id.version_minor,
         }
     }
 }
@@ -476,102 +615,157 @@ impl From<FfiContentTypeId> for ContentTypeId {
     }
 }
 
-impl From<Reply> for FfiReplyContent {
-    fn from(reply: Reply) -> Self {
-        FfiReplyContent {
+impl From<ProcessedReply> for FfiEnrichedReply {
+    fn from(reply: ProcessedReply) -> Self {
+        FfiEnrichedReply {
             in_reply_to: reply.in_reply_to.map(|m| Arc::new((*m).into())),
             content: content_to_optional_body(*reply.content),
         }
     }
 }
 
-// Main From implementation for MessageListItemContent using the individual implementations
-
-impl From<MessageListItemContent> for FfiProcessedMessageContent {
-    fn from(content: MessageListItemContent) -> Self {
-        match content {
-            MessageListItemContent::Text(text) => FfiProcessedMessageContent::Text(text.into()),
-            MessageListItemContent::Reply(reply) => FfiProcessedMessageContent::Reply(reply.into()),
-            MessageListItemContent::Reaction(reaction) => {
-                FfiProcessedMessageContent::Reaction(reaction.into())
-            }
-            MessageListItemContent::Attachment(attachment) => {
-                FfiProcessedMessageContent::Attachment(attachment.into())
-            }
-            MessageListItemContent::RemoteAttachment(remote) => {
-                FfiProcessedMessageContent::RemoteAttachment(remote.into())
-            }
-            MessageListItemContent::MultiRemoteAttachment(multi) => {
-                FfiProcessedMessageContent::MultiRemoteAttachment(multi.into())
-            }
-            MessageListItemContent::TransactionReference(tx_ref) => {
-                FfiProcessedMessageContent::TransactionReference(tx_ref.into())
-            }
-            MessageListItemContent::GroupUpdated(updated) => {
-                FfiProcessedMessageContent::GroupUpdated(updated.into())
-            }
-            MessageListItemContent::GroupMembershipChanges(changes) => {
-                FfiProcessedMessageContent::GroupMembershipChanges(changes.into())
-            }
-            MessageListItemContent::ReadReceipt(receipt) => {
-                FfiProcessedMessageContent::ReadReceipt(receipt.into())
-            }
-            MessageListItemContent::Custom(encoded) => {
-                FfiProcessedMessageContent::Custom(encoded.into())
-            }
+impl From<DeliveryStatus> for FfiDeliveryStatus {
+    fn from(status: DeliveryStatus) -> Self {
+        match status {
+            DeliveryStatus::Unpublished => FfiDeliveryStatus::Unpublished,
+            DeliveryStatus::Published => FfiDeliveryStatus::Published,
+            DeliveryStatus::Failed => FfiDeliveryStatus::Failed,
         }
     }
 }
 
-// Helper function to convert MessageListItemContent to Option<FfiProcessedMessageBody>
-pub fn content_to_optional_body(
-    content: MessageListItemContent,
-) -> Option<FfiProcessedMessageBody> {
+impl From<FfiDeliveryStatus> for DeliveryStatus {
+    fn from(status: FfiDeliveryStatus) -> Self {
+        match status {
+            FfiDeliveryStatus::Unpublished => DeliveryStatus::Unpublished,
+            FfiDeliveryStatus::Published => DeliveryStatus::Published,
+            FfiDeliveryStatus::Failed => DeliveryStatus::Failed,
+        }
+    }
+}
+
+impl From<DecodedMessageMetadata> for FfiDecodedMessageMetadata {
+    fn from(metadata: DecodedMessageMetadata) -> Self {
+        FfiDecodedMessageMetadata {
+            id: metadata.id,
+            sent_at_ns: metadata.sent_at_ns,
+            kind: match metadata.kind {
+                GroupMessageKind::Application => FfiGroupMessageKind::Application,
+                GroupMessageKind::MembershipChange => FfiGroupMessageKind::MembershipChange,
+            },
+            sender_installation_id: metadata.sender_installation_id,
+            sender_inbox_id: metadata.sender_inbox_id,
+            delivery_status: metadata.delivery_status.into(),
+            content_type: metadata.content_type.into(),
+        }
+    }
+}
+
+// Main From implementation for MessageBody using the individual implementations
+
+impl From<MessageBody> for FfiDecodedMessageContent {
+    fn from(content: MessageBody) -> Self {
+        match content {
+            MessageBody::Text(text) => FfiDecodedMessageContent::Text(text.into()),
+            MessageBody::Reply(reply) => FfiDecodedMessageContent::Reply(reply.into()),
+            MessageBody::Reaction(reaction) => FfiDecodedMessageContent::Reaction(reaction.into()),
+            MessageBody::Attachment(attachment) => {
+                FfiDecodedMessageContent::Attachment(attachment.into())
+            }
+            MessageBody::RemoteAttachment(remote) => {
+                FfiDecodedMessageContent::RemoteAttachment(remote.into())
+            }
+            MessageBody::MultiRemoteAttachment(multi) => {
+                FfiDecodedMessageContent::MultiRemoteAttachment(multi.into())
+            }
+            MessageBody::TransactionReference(tx_ref) => {
+                FfiDecodedMessageContent::TransactionReference(tx_ref.into())
+            }
+            MessageBody::GroupUpdated(updated) => {
+                FfiDecodedMessageContent::GroupUpdated(updated.into())
+            }
+            MessageBody::GroupMembershipChanges(changes) => {
+                FfiDecodedMessageContent::GroupMembershipChanges(changes.into())
+            }
+            MessageBody::ReadReceipt(receipt) => {
+                FfiDecodedMessageContent::ReadReceipt(receipt.into())
+            }
+            MessageBody::Custom(encoded) => FfiDecodedMessageContent::Custom(encoded.into()),
+        }
+    }
+}
+
+// Helper function to convert MessageBody to Option<FfiProcessedMessageBody>
+pub fn content_to_optional_body(content: MessageBody) -> Option<FfiDecodedMessageBody> {
     match content {
-        MessageListItemContent::Text(text) => Some(FfiProcessedMessageBody::Text(text.into())),
-        MessageListItemContent::Reply(_) => None,
-        MessageListItemContent::Reaction(_) => None,
-        MessageListItemContent::Attachment(attachment) => {
-            Some(FfiProcessedMessageBody::Attachment(attachment.into()))
+        MessageBody::Text(text) => Some(FfiDecodedMessageBody::Text(text.into())),
+        MessageBody::Reply(_) => None,
+        MessageBody::Reaction(reaction) => Some(FfiDecodedMessageBody::Reaction(reaction.into())),
+        MessageBody::Attachment(attachment) => {
+            Some(FfiDecodedMessageBody::Attachment(attachment.into()))
         }
-        MessageListItemContent::RemoteAttachment(remote) => {
-            Some(FfiProcessedMessageBody::RemoteAttachment(remote.into()))
+        MessageBody::RemoteAttachment(remote) => {
+            Some(FfiDecodedMessageBody::RemoteAttachment(remote.into()))
         }
-        MessageListItemContent::MultiRemoteAttachment(multi) => {
-            Some(FfiProcessedMessageBody::MultiRemoteAttachment(multi.into()))
+        MessageBody::MultiRemoteAttachment(multi) => {
+            Some(FfiDecodedMessageBody::MultiRemoteAttachment(multi.into()))
         }
-        MessageListItemContent::TransactionReference(tx_ref) => {
-            Some(FfiProcessedMessageBody::TransactionReference(tx_ref.into()))
+        MessageBody::TransactionReference(tx_ref) => {
+            Some(FfiDecodedMessageBody::TransactionReference(tx_ref.into()))
         }
-        MessageListItemContent::GroupUpdated(updated) => {
-            Some(FfiProcessedMessageBody::GroupUpdated(updated.into()))
+        MessageBody::GroupUpdated(updated) => {
+            Some(FfiDecodedMessageBody::GroupUpdated(updated.into()))
         }
-        MessageListItemContent::GroupMembershipChanges(changes) => Some(
-            FfiProcessedMessageBody::GroupMembershipChanges(changes.into()),
+        MessageBody::GroupMembershipChanges(changes) => Some(
+            FfiDecodedMessageBody::GroupMembershipChanges(changes.into()),
         ),
-        MessageListItemContent::ReadReceipt(receipt) => {
-            Some(FfiProcessedMessageBody::ReadReceipt(receipt.into()))
+        MessageBody::ReadReceipt(receipt) => {
+            Some(FfiDecodedMessageBody::ReadReceipt(receipt.into()))
         }
-        MessageListItemContent::Custom(encoded) => {
-            Some(FfiProcessedMessageBody::Custom(encoded.into()))
-        }
+        MessageBody::Custom(encoded) => Some(FfiDecodedMessageBody::Custom(encoded.into())),
     }
 }
 
 #[derive(uniffi::Object, Clone)]
-pub struct FfiProcessedMessage {
-    record: MessageListItem,
+pub struct FfiDecodedMessage {
+    metadata: FfiDecodedMessageMetadata,
+    content: FfiDecodedMessageContent,
+    fallback_text: String,
+    reactions: Vec<FfiEnrichedReaction>,
+    num_replies: u64,
 }
 
 #[uniffi::export]
-impl FfiProcessedMessage {
-    pub fn content(&self) -> FfiProcessedMessageContent {
-        self.record.content.clone().into()
+impl FfiDecodedMessage {
+    pub fn metadata(&self) -> FfiDecodedMessageMetadata {
+        self.metadata.clone()
+    }
+
+    pub fn content(&self) -> FfiDecodedMessageContent {
+        self.content.clone()
+    }
+
+    pub fn fallback_text(&self) -> String {
+        self.fallback_text.clone()
+    }
+
+    pub fn reactions(&self) -> Vec<FfiEnrichedReaction> {
+        self.reactions.clone()
+    }
+
+    pub fn num_replies(&self) -> u64 {
+        self.num_replies
     }
 }
 
-impl From<MessageListItem> for FfiProcessedMessage {
-    fn from(item: MessageListItem) -> Self {
-        FfiProcessedMessage { record: item }
+impl From<DecodedMessage> for FfiDecodedMessage {
+    fn from(item: DecodedMessage) -> Self {
+        FfiDecodedMessage {
+            metadata: item.metadata.into(),
+            content: item.content.into(),
+            fallback_text: item.fallback_text,
+            reactions: item.reactions.into_iter().map(|r| r.into()).collect(),
+            num_replies: item.num_replies as u64,
+        }
     }
 }
