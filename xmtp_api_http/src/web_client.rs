@@ -1,9 +1,7 @@
-use crate::{ErrorResponse, HttpClientError, XmtpHttpApiClient};
 use bytes::Bytes;
+use crate::GrpcError;
 use futures::Stream;
-use futures::TryStreamExt;
 use pin_project_lite::pin_project;
-use std::future::Future;
 use std::{
     pin::Pin,
     task::{Context, Poll, ready},
@@ -13,16 +11,11 @@ use tonic_web_wasm_client::Client as WasmClient;
 use xmtp_proto::client_traits::{ApiClientError, Client};
 use xmtp_proto::codec::TransparentCodec;
 
-impl From<HttpClientError> for ApiClientError<HttpClientError> {
-    fn from(value: HttpClientError) -> Self {
-        ApiClientError::Client { source: value }
-    }
-}
 
 pub struct GrpcWebClient {
-    inner: tonic::client::Grpc<WasmClient>,
-    app_version: MetadataValue<metadata::Ascii>,
-    libxmtp_version: MetadataValue<metadata::Ascii>,
+    pub(super) inner: tonic::client::Grpc<WasmClient>,
+    pub(super) app_version: MetadataValue<metadata::Ascii>,
+    pub(super) libxmtp_version: MetadataValue<metadata::Ascii>,
 }
 
 /// this code is the same for web and grpc, and can be put into the xmtp_proto crate
@@ -54,7 +47,7 @@ impl GrpcWebClient {
         &self,
         request: http::request::Builder,
         body: Bytes,
-    ) -> Result<tonic::Request<Bytes>, ApiClientError<crate::HttpClientError>> {
+    ) -> Result<tonic::Request<Bytes>, ApiClientError<crate::GrpcError>> {
         let request = request.body(body)?;
         let (parts, body) = request.into_parts();
         let mut tonic_request = tonic::Request::from_parts(
@@ -69,7 +62,7 @@ impl GrpcWebClient {
         Ok(tonic_request)
     }
     /*
-    async fn wait_for_ready(&self) -> Result<(), ApiClientError<crate::HttpClientError>> {
+    async fn wait_for_ready(&self) -> Result<(), ApiClientError<crate::GrpcError>> {
         let client = &mut self.inner.clone();
         client
             .ready()
@@ -100,7 +93,7 @@ impl From<tonic::Streaming<Bytes>> for GrpcStream {
 // something more customized to the trait, without playing around with getting the
 // generics right on nested futures combinators.
 impl Stream for GrpcStream {
-    type Item = Result<Bytes, crate::HttpClientError>;
+    type Item = Result<Bytes, crate::GrpcError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.project();
@@ -112,7 +105,7 @@ impl Stream for GrpcStream {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl Client for GrpcWebClient {
-    type Error = HttpClientError;
+    type Error = GrpcError;
     type Stream = GrpcStream;
     async fn request(
         &self,
@@ -122,10 +115,10 @@ impl Client for GrpcWebClient {
     ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
         // self.wait_for_ready().await?;
         let request = self.build_tonic_request(request, body)?;
-        // let client = &mut self.inner.clone();
+        let client = &mut self.inner.clone();
 
         let codec = TransparentCodec::default();
-        let response = self.inner.unary(request, path, codec).await.unwrap();
+        let response = client.unary(request, path, codec).await.unwrap();
 
         Ok(response.to_http())
     }
