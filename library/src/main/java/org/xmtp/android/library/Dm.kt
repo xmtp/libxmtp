@@ -195,6 +195,10 @@ class Dm(
         return metadata().creatorInboxId() == client.inboxId
     }
 
+    fun isActive(): Boolean {
+        return libXMTPGroup.isActive()
+    }
+
     suspend fun members(): List<Member> {
         return libXMTPGroup.listMembers().map { Member(it) }
     }

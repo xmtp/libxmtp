@@ -237,4 +237,11 @@ sealed class Conversation {
             is Dm -> dm.getDebugInformation()
         }
     }
+
+    fun isActive(): Boolean {
+        return when (this) {
+            is Group -> group.isActive()
+            is Dm -> dm.isActive()
+        }
+    }
 }

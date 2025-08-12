@@ -7,10 +7,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.TextCodec
+import org.xmtp.android.library.libxmtp.ArchiveMetadata
+import org.xmtp.android.library.libxmtp.ArchiveOptions
 import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.InboxState
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.libxmtp.SignatureRequest
+import org.xmtp.android.library.libxmtp.toFfi
 import uniffi.xmtpv3.FfiKeyPackageStatus
 import uniffi.xmtpv3.FfiLogLevel
 import uniffi.xmtpv3.FfiLogRotation
@@ -551,6 +554,22 @@ class Client(
 
     suspend fun inboxState(refreshFromNetwork: Boolean): InboxState {
         return InboxState(ffiClient.inboxState(refreshFromNetwork))
+    }
+
+    suspend fun createArchive(
+        path: String,
+        encryptionKey: ByteArray,
+        opts: ArchiveOptions = ArchiveOptions(),
+    ) {
+        ffiClient.createArchive(path, opts.toFfi(), encryptionKey)
+    }
+
+    suspend fun importArchive(path: String, encryptionKey: ByteArray) {
+        ffiClient.importArchive(path, encryptionKey)
+    }
+
+    suspend fun archiveMetadata(path: String, encryptionKey: ByteArray): ArchiveMetadata {
+        return ArchiveMetadata(ffiClient.archiveMetadata(path, encryptionKey))
     }
 
     @DelicateApi("This function is delicate and should be used with caution. Should only be used if trying to manage the signature flow independently otherwise use `addAccount(), removeAccount(), or revoke()` instead")
