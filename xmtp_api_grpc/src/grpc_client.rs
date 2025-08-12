@@ -53,13 +53,6 @@ pub struct GrpcClient {
 }
 
 impl GrpcClient {
-    pub async fn new(host_url: String, app_version: String) -> Result<Self, ClientBuilderError> {
-        let mut b = Self::builder();
-        b.set_host(host_url);
-        b.set_app_version(app_version)?;
-        b.build().await
-    }
-
     /// Builds a tonic request from a body and a generic HTTP Request
     fn build_tonic_request(
         &self,

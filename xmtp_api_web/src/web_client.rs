@@ -61,7 +61,7 @@ impl GrpcWebClient {
         metadata.append("x-libxmtp-version", self.libxmtp_version.clone());
         Ok(tonic_request)
     }
-    /*
+
     async fn wait_for_ready(&self) -> Result<(), ApiClientError<crate::GrpcError>> {
         let client = &mut self.inner.clone();
         client
@@ -73,7 +73,6 @@ impl GrpcWebClient {
             .map_err(GrpcError::from)?;
         Ok(())
     }
-    */
 }
 
 pin_project! {
@@ -113,7 +112,7 @@ impl Client for GrpcWebClient {
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
-        // self.wait_for_ready().await?;
+        self.wait_for_ready().await?;
         let request = self.build_tonic_request(request, body)?;
         let client = &mut self.inner.clone();
 
@@ -129,7 +128,7 @@ impl Client for GrpcWebClient {
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
-        // self.wait_for_ready().await?;
+        self.wait_for_ready().await?;
         let request = self.build_tonic_request(request, body)?;
         let client = &mut self.inner.clone();
 

@@ -1,36 +1,41 @@
-use thiserror::Error;
-use xmtp_proto::ConversionError;
+use serde::{Deserialize, Serialize};
 
-// This can also be shared with gRPC
-#[derive(Debug, Error)]
-pub enum GrpcError {
-    #[error("Invalid URI during channel creation")]
-    InvalidUri(#[from] http::uri::InvalidUri),
-    #[error(transparent)]
-    Metadata(#[from] tonic::metadata::errors::InvalidMetadataValue),
-    #[error(transparent)]
-    Status(#[from] tonic::Status),
-    #[error("{0} not found/empty")]
-    NotFound(String),
-    #[error("Payload not expected")]
-    UnexpectedPayload,
-    #[error("payload is missing")]
-    MissingPayload,
-    #[error(transparent)]
-    Proto(#[from] xmtp_proto::ProtoError),
-    #[error(transparent)]
-    Decode(#[from] prost::DecodeError),
-    #[error("unreachable (Infallible)")]
-    Unreachable,
+#[derive(Deserialize, Serialize, Debug)]
+pub struct ErrorResponse {
+    pub code: usize,
+    pub message: String,
+    pub details: Vec<String>,
 }
 
-impl From<ConversionError> for GrpcError {
-    fn from(error: ConversionError) -> Self {
-        GrpcError::NotFound(error.to_string())
+impl From<ErrorResponse> for HttpClientError {
+    fn from(e: ErrorResponse) -> HttpClientError {
+        HttpClientError::Grpc(e)
     }
 }
 
-impl xmtp_common::retry::RetryableError for GrpcError {
+#[derive(Debug, thiserror::Error)]
+pub enum HttpClientError {
+    #[error(transparent)]
+    Reqwest(#[from] reqwest::Error),
+    #[error("grpc error {} at http gateway {}", _0.code, _0.message)]
+    Grpc(ErrorResponse),
+    #[error(transparent)]
+    HeaderValue(#[from] reqwest::header::InvalidHeaderValue),
+    #[error(transparent)]
+    HeaderName(#[from] reqwest::header::InvalidHeaderName),
+    #[error("error deserializing json response {0}")]
+    Json(#[from] serde_json::Error),
+    #[error(transparent)]
+    Decode(#[from] prost::DecodeError),
+    #[error(transparent)]
+    Uri(#[from] http::uri::InvalidUri),
+    #[error(transparent)]
+    InvalidUri(#[from] http::uri::InvalidUriParts),
+    #[error(transparent)]
+    Http(#[from] http::Error),
+}
+
+impl xmtp_common::RetryableError for HttpClientError {
     fn is_retryable(&self) -> bool {
         true
     }
