@@ -1094,10 +1094,7 @@ async fn test_query_group_messages_respects_limit_over_page_size() {
 
     // Produce 2 * MAX_PAGE_SIZE messages on the group topic by sending messages.
     for _ in 0..2 * MAX_PAGE_SIZE {
-        group
-            .send_message(b"First message from B")
-            .await
-            .expect("send message");
+        group.send_message(b"message").await.expect("send message");
     }
 
     // Query with a limit that is greater than the page size (e.g., page_max_size=5, limit=6).

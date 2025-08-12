@@ -1,7 +1,7 @@
 //! Test constants/configuration for API
 
 /// the max page size for queries
-pub const MAX_PAGE_SIZE: u32 = 5;
+pub const MAX_PAGE_SIZE: u32 = 20;
 
 /// poor-mans dns docker resolution
 /// Resolves a host docker address to an internal docker address
