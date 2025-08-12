@@ -1,10 +1,10 @@
 use crate::identity::{FfiCollectionExt, FfiCollectionTryExt, FfiIdentifier};
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
-use crate::message::FfiEncodedContent;
+use crate::message::{FfiDeliveryStatus, FfiReactionPayload};
 use crate::worker::FfiSyncWorker;
 use crate::worker::FfiSyncWorkerMode;
-use crate::{FfiSubscribeError, GenericError};
+use crate::{FfiReply, FfiSubscribeError, GenericError};
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
@@ -23,7 +23,6 @@ use xmtp_content_types::remote_attachment::RemoteAttachmentCodec;
 use xmtp_content_types::reply::Reply;
 use xmtp_content_types::reply::ReplyCodec;
 use xmtp_content_types::text::TextCodec;
-use xmtp_content_types::transaction_reference::TransactionMetadata;
 use xmtp_content_types::transaction_reference::TransactionReference;
 use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
 use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
@@ -36,7 +35,7 @@ use xmtp_db::NativeDb;
 use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     group::GroupQueryArgs,
-    group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    group_message::{GroupMessageKind, StoredGroupMessage},
     EncryptedMessageStore, EncryptionKey, StorageOption,
 };
 use xmtp_id::associations::{
@@ -2530,33 +2529,6 @@ impl From<ConversationType> for FfiConversationType {
     }
 }
 
-#[derive(uniffi::Enum, Clone)]
-pub enum FfiDeliveryStatus {
-    Unpublished,
-    Published,
-    Failed,
-}
-
-impl From<DeliveryStatus> for FfiDeliveryStatus {
-    fn from(status: DeliveryStatus) -> Self {
-        match status {
-            DeliveryStatus::Unpublished => FfiDeliveryStatus::Unpublished,
-            DeliveryStatus::Published => FfiDeliveryStatus::Published,
-            DeliveryStatus::Failed => FfiDeliveryStatus::Failed,
-        }
-    }
-}
-
-impl From<FfiDeliveryStatus> for DeliveryStatus {
-    fn from(status: FfiDeliveryStatus) -> Self {
-        match status {
-            FfiDeliveryStatus::Unpublished => DeliveryStatus::Unpublished,
-            FfiDeliveryStatus::Published => DeliveryStatus::Published,
-            FfiDeliveryStatus::Failed => DeliveryStatus::Failed,
-        }
-    }
-}
-
 #[derive(uniffi::Record)]
 pub struct FfiMessageWithReactions {
     pub message: FfiMessage,
@@ -2577,7 +2549,7 @@ impl From<StoredGroupMessageWithReactions> for FfiMessageWithReactions {
 }
 
 #[uniffi::export]
-pub fn encode_reaction(reaction: FfiReaction) -> Result<Vec<u8>, GenericError> {
+pub fn encode_reaction(reaction: FfiReactionPayload) -> Result<Vec<u8>, GenericError> {
     // Convert FfiReaction to Reaction
     let reaction: ReactionV2 = reaction.into();
 
@@ -2595,7 +2567,7 @@ pub fn encode_reaction(reaction: FfiReaction) -> Result<Vec<u8>, GenericError> {
 }
 
 #[uniffi::export]
-pub fn decode_reaction(bytes: Vec<u8>) -> Result<FfiReaction, GenericError> {
+pub fn decode_reaction(bytes: Vec<u8>) -> Result<FfiReactionPayload, GenericError> {
     // Decode bytes into EncodedContent
     let encoded_content = EncodedContent::decode(bytes.as_slice())
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;
@@ -2604,44 +2576,6 @@ pub fn decode_reaction(bytes: Vec<u8>) -> Result<FfiReaction, GenericError> {
     ReactionCodec::decode(encoded_content)
         .map(Into::into)
         .map_err(|e| GenericError::Generic { err: e.to_string() })
-}
-
-#[derive(uniffi::Enum, Clone, Default, PartialEq, Debug)]
-pub enum FfiReactionAction {
-    Unknown,
-    #[default]
-    Added,
-    Removed,
-}
-
-impl From<FfiReactionAction> for i32 {
-    fn from(action: FfiReactionAction) -> Self {
-        match action {
-            FfiReactionAction::Unknown => 0,
-            FfiReactionAction::Added => 1,
-            FfiReactionAction::Removed => 2,
-        }
-    }
-}
-
-#[derive(uniffi::Enum, Clone, Default, PartialEq, Debug)]
-pub enum FfiReactionSchema {
-    Unknown,
-    #[default]
-    Unicode,
-    Shortcode,
-    Custom,
-}
-
-impl From<FfiReactionSchema> for i32 {
-    fn from(schema: FfiReactionSchema) -> Self {
-        match schema {
-            FfiReactionSchema::Unknown => 0,
-            FfiReactionSchema::Unicode => 1,
-            FfiReactionSchema::Shortcode => 2,
-            FfiReactionSchema::Custom => 3,
-        }
-    }
 }
 
 // RemoteAttachmentInfo and MultiRemoteAttachment FFI structures - using types from message module
@@ -3096,12 +3030,12 @@ mod tests {
         revoke_installations,
         worker::FfiSyncWorkerMode,
         FfiAttachment, FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType,
-        FfiConversation, FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
-        FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
+        FfiConversation, FfiConversationCallback, FfiConversationMessageKind, FfiConversationType,
+        FfiCreateDMOptions, FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
-        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
-        FfiReactionAction, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply,
+        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction,
+        FfiReactionPayload, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply,
         FfiSubscribeError, FfiTransactionReference, GenericError,
     };
     use alloy::signers::local::PrivateKeySigner;
@@ -7935,7 +7869,7 @@ mod tests {
         let message_to_react_to = &messages[1];
 
         // Create and send reaction
-        let ffi_reaction = FfiReaction {
+        let ffi_reaction = FfiReactionPayload {
             reference: hex::encode(message_to_react_to.id.clone()),
             reference_inbox_id: alix.inbox_id(),
             action: FfiReactionAction::Added,
@@ -7992,7 +7926,7 @@ mod tests {
     #[tokio::test]
     async fn test_reaction_encode_decode() {
         // Create a test reaction
-        let original_reaction = FfiReaction {
+        let original_reaction = FfiReactionPayload {
             reference: "123abc".to_string(),
             reference_inbox_id: "test_inbox_id".to_string(),
             action: FfiReactionAction::Added,
@@ -8324,8 +8258,7 @@ mod tests {
         let original = FfiAttachment {
             filename: Some("test.txt".to_string()),
             mime_type: "text/plain".to_string(),
-            size: 1024,
-            content: "Hello, World!".to_string(),
+            content: "Hello, World!".as_bytes().to_vec(),
         };
 
         let encoded = encode_attachment(original.clone()).unwrap();
@@ -8333,7 +8266,6 @@ mod tests {
 
         assert_eq!(original.filename, decoded.filename);
         assert_eq!(original.mime_type, decoded.mime_type);
-        assert_eq!(original.size, decoded.size);
         assert_eq!(original.content, decoded.content);
     }
 
@@ -8361,28 +8293,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_receipt_roundtrip() {
-        let original = FfiReadReceipt {
-            reference: "0x1234567890abcdef".to_string(),
-            reference_inbox_id: Some("test_inbox_id".to_string()),
-            read_at_ns: 1234567890000000000,
-        };
+        let original = FfiReadReceipt {};
 
         let encoded = encode_read_receipt(original.clone()).unwrap();
-        let decoded = decode_read_receipt(encoded).unwrap();
-
-        assert_eq!(original.reference, decoded.reference);
-        assert_eq!(original.reference_inbox_id, decoded.reference_inbox_id);
-        assert_eq!(original.read_at_ns, decoded.read_at_ns);
+        decode_read_receipt(encoded).unwrap();
     }
 
     #[tokio::test]
     async fn test_remote_attachment_roundtrip() {
         let original = FfiRemoteAttachment {
             filename: Some("remote_file.txt".to_string()),
-            mime_type: "text/plain".to_string(),
-            size: 2048,
+            content_length: 2048,
             url: "https://example.com/file.txt".to_string(),
             content_digest: "sha256:abc123def456".to_string(),
+            scheme: "https".to_string(),
             secret: vec![1, 2, 3, 4, 5],
             nonce: vec![6, 7, 8, 9, 10],
             salt: vec![11, 12, 13, 14, 15],
@@ -8392,8 +8316,7 @@ mod tests {
         let decoded = decode_remote_attachment(encoded).unwrap();
 
         assert_eq!(original.filename, decoded.filename);
-        assert_eq!(original.mime_type, decoded.mime_type);
-        assert_eq!(original.size, decoded.size);
+        assert_eq!(original.content_length, decoded.content_length);
         assert_eq!(original.url, decoded.url);
         assert_eq!(original.content_digest, decoded.content_digest);
         assert_eq!(original.secret, decoded.secret);
