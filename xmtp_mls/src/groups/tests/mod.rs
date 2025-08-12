@@ -199,9 +199,9 @@ async fn test_receive_message_from_other() {
 
     let bo_group = receive_group_invite(&bo).await;
     // test with a limit
-    bo_group.receive(Some(5)).await?;
+    bo_group.receive(Some(3)).await?;
     let messages = bo_group.find_messages(&MsgQueryArgs::default())?;
-    assert_eq!(messages.len(), 6);
+    assert_eq!(messages.len(), 4);
     assert_eq!(messages[1].decrypted_message_bytes, b"hello from alix 10");
 
     // fetch the rest of the messages
@@ -1101,7 +1101,7 @@ async fn test_query_group_messages_respects_limit_over_page_size() {
     }
 
     // Query with a limit that is greater than the page size (e.g., page_max_size=5, limit=6).
-    let limit = (MAX_PAGE_SIZE + 1) as u32;
+    let limit = MAX_PAGE_SIZE + 1;
 
     let messages = client
         .context
@@ -1118,7 +1118,7 @@ async fn test_query_group_messages_respects_limit_over_page_size() {
     );
 
     // Query with a limit that is less than the page size (e.g., page_max_size=5, limit=4).
-    let limit = (MAX_PAGE_SIZE - 1) as u32;
+    let limit = MAX_PAGE_SIZE - 1;
 
     let messages = client
         .context
@@ -1135,7 +1135,7 @@ async fn test_query_group_messages_respects_limit_over_page_size() {
     );
 
     // Query with a limit that is equal than the page size (e.g., page_max_size=5, limit=5).
-    let limit = (MAX_PAGE_SIZE) as u32;
+    let limit = MAX_PAGE_SIZE;
 
     let messages = client
         .context

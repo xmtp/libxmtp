@@ -300,15 +300,20 @@ mod tests {
         )
         .unwrap();
 
-        let welcome_metadata = WelcomeMetadata {
-            message_cursor: message_cursor.unwrap_or(0),
+        let wrapped_welcome_metadata: Vec<u8> = if let Some(cursor) = message_cursor {
+            let welcome_metadata = WelcomeMetadata {
+                message_cursor: cursor,
+            }
+            .encode_to_vec();
+            wrap_welcome(
+                &welcome_metadata,
+                &public_key,
+                &WrapperAlgorithm::Curve25519,
+            )
+            .unwrap()
+        } else {
+            Vec::new()
         };
-        let wrapped_welcome_metadata = wrap_welcome(
-            &welcome_metadata.encode_to_vec(),
-            &public_key,
-            &WrapperAlgorithm::Curve25519,
-        )
-        .unwrap();
 
         welcome_message::V1 {
             id,
