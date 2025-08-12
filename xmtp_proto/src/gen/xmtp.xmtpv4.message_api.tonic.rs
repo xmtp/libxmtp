@@ -1,6 +1,5 @@
 // @generated
 /// Generated client implementations.
-#[cfg(not(target_arch = "wasm32"))]
 pub mod replication_api_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
@@ -9,17 +8,6 @@ pub mod replication_api_client {
     #[derive(Debug, Clone)]
     pub struct ReplicationApiClient<T> {
         inner: tonic::client::Grpc<T>,
-    }
-    impl ReplicationApiClient<tonic::transport::Channel> {
-        /// Attempt to create a new client by connecting to a given endpoint.
-        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
-        where
-            D: TryInto<tonic::transport::Endpoint>,
-            D::Error: Into<StdError>,
-        {
-            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
-            Ok(Self::new(conn))
-        }
     }
     impl<T> ReplicationApiClient<T>
     where
@@ -649,7 +637,6 @@ pub mod replication_api_server {
     }
 }
 /// Generated client implementations.
-#[cfg(not(target_arch = "wasm32"))]
 pub mod misbehavior_api_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
@@ -658,17 +645,6 @@ pub mod misbehavior_api_client {
     #[derive(Debug, Clone)]
     pub struct MisbehaviorApiClient<T> {
         inner: tonic::client::Grpc<T>,
-    }
-    impl MisbehaviorApiClient<tonic::transport::Channel> {
-        /// Attempt to create a new client by connecting to a given endpoint.
-        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
-        where
-            D: TryInto<tonic::transport::Endpoint>,
-            D::Error: Into<StdError>,
-        {
-            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
-            Ok(Self::new(conn))
-        }
     }
     impl<T> MisbehaviorApiClient<T>
     where

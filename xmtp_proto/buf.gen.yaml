@@ -18,17 +18,18 @@ plugins:
     out: src/gen
     opt:
       - no_server=false
+      - no_transport=true
       - compile_well_known_types
       - extern_path=.google.protobuf=::pbjson_types
       # Exclude it from non-tonic builds (so we can use the rest in Wasm)
-      - client_mod_attribute=xmtp.identity.api.v1=#[cfg(not(target_arch = "wasm32"))]
-      - client_mod_attribute=xmtp.message_api.v1=#[cfg(not(target_arch = "wasm32"))]
-      - client_mod_attribute=xmtp.mls.api.v1=#[cfg(not(target_arch = "wasm32"))]
-      - client_mod_attribute=xmtp.mls_validation.v1=#[cfg(not(target_arch = "wasm32"))]
-      - client_mod_attribute=xmtp.xmtpv4=#[cfg(not(target_arch = "wasm32"))]
-      - client_mod_attribute=xmtp.xmtpv4.payer_api=#[cfg(not(target_arch = "wasm32"))]
-      - client_mod_attribute=xmtp.xmtpv4.message_api=#[cfg(not(target_arch = "wasm32"))]
-      - client_mod_attribute=xmtp.xmtpv4.metadata_api=#[cfg(not(target_arch = "wasm32"))]
+      # - client_mod_attribute=xmtp.identity.api.v1=#[cfg(not(target_arch = "wasm32"))]
+      # - client_mod_attribute=xmtp.message_api.v1=#[cfg(not(target_arch = "wasm32"))]
+      # - client_mod_attribute=xmtp.mls.api.v1=#[cfg(not(target_arch = "wasm32"))]
+      # - client_mod_attribute=xmtp.mls_validation.v1=#[cfg(not(target_arch = "wasm32"))]
+      # - client_mod_attribute=xmtp.xmtpv4=#[cfg(not(target_arch = "wasm32"))]
+      # - client_mod_attribute=xmtp.xmtpv4.payer_api=#[cfg(not(target_arch = "wasm32"))]
+      # - client_mod_attribute=xmtp.xmtpv4.message_api=#[cfg(not(target_arch = "wasm32"))]
+      # - client_mod_attribute=xmtp.xmtpv4.metadata_api=#[cfg(not(target_arch = "wasm32"))]
       - server_mod_attribute=xmtp.identity.api.v1=#[cfg(not(target_arch = "wasm32"))]
       - server_mod_attribute=xmtp.mls_validation.v1=#[cfg(not(target_arch = "wasm32"))]
       - server_mod_attribute=xmtp.message_api.v1=#[cfg(not(target_arch = "wasm32"))]
