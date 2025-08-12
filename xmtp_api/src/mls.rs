@@ -115,7 +115,7 @@ where
             let num_messages = result.messages.len();
             out.append(&mut result.messages);
 
-            if num_messages <= MAX_PAGE_SIZE as usize || result.paging_info.is_none() {
+            if num_messages <= request_page_limit as usize || result.paging_info.is_none() {
                 break;
             }
 
