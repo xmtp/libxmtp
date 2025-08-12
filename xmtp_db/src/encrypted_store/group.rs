@@ -809,6 +809,8 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     fn get_conversation_ids_for_remote_log_publish(
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
+        use crate::schema::consent_records::dsl as consent_dsl;
+
         let query = dsl::groups
             .filter(
                 dsl::conversation_type
@@ -817,19 +819,28 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                         .eq(ConversationType::Group)
                         .and(dsl::should_publish_commit_log.eq(true))),
             )
+            .inner_join(consent_dsl::consent_records.on(
+                sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
+            ))
+            .filter(consent_dsl::state.eq(ConsentState::Allowed))
             .select((dsl::id, dsl::commit_log_public_key))
             .order(dsl::created_at_ns.asc());
 
         self.raw_query_read(|conn| query.load::<StoredGroupCommitLogPublicKey>(conn))
     }
 
-    // All dms and groups that are not sync groups or rejected
-    // TODO(cam): Add a filter for groups that are not rejected
+    // All dms and groups that are not sync groups and have consent state Allowed
     fn get_conversation_ids_for_remote_log_download(
         &self,
     ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+        use crate::schema::consent_records::dsl as consent_dsl;
+
         let query = dsl::groups
             .filter(dsl::conversation_type.ne(ConversationType::Sync))
+            .inner_join(consent_dsl::consent_records.on(
+                sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
+            ))
+            .filter(consent_dsl::state.eq(ConsentState::Allowed))
             .select(dsl::id);
 
         self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
@@ -1404,24 +1415,127 @@ pub(crate) mod tests {
             let mut group1 = generate_group(None);
             let mut group2 = generate_group(None);
             let mut group3 = generate_group(None);
+            let mut group4 = generate_group(None);
             group1.should_publish_commit_log = true;
             group1.commit_log_public_key = None;
+            generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                hex::encode(group1.id.clone()),
+            )
+            .store(conn)?;
             group2.should_publish_commit_log = true;
             group2.commit_log_public_key = Some(rand_vec::<32>());
-            group3.should_publish_commit_log = false;
+
+            group3.should_publish_commit_log = true;
+            group3.commit_log_public_key = Some(rand_vec::<32>());
+            generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                hex::encode(group3.id.clone()),
+            )
+            .store(conn)?;
+            group4.should_publish_commit_log = false;
             group1.store(conn)?;
             group2.store(conn)?;
             group3.store(conn)?;
+            group4.store(conn)?;
 
             let commit_log_keys = conn.get_conversation_ids_for_remote_log_publish().unwrap();
             assert_eq!(commit_log_keys.len(), 2);
             assert_eq!(commit_log_keys[0].id, group1.id);
-            assert_eq!(commit_log_keys[1].id, group2.id);
+            assert_eq!(commit_log_keys[1].id, group3.id);
             assert_eq!(commit_log_keys[0].commit_log_public_key, None);
             assert_eq!(
                 commit_log_keys[1].commit_log_public_key,
-                group2.commit_log_public_key
+                group3.commit_log_public_key
             );
+        })
+        .await
+    }
+
+    #[xmtp_common::test]
+    async fn test_get_conversation_ids_for_remote_log_publish_with_consent() {
+        with_connection(|conn| {
+            // Create groups: one with Allowed consent, one with Denied consent, one with no consent
+            let mut allowed_group = generate_group(None);
+            allowed_group.should_publish_commit_log = true;
+            allowed_group.store(conn).unwrap();
+
+            let mut denied_group = generate_group(None);
+            denied_group.should_publish_commit_log = true;
+            denied_group.store(conn).unwrap();
+
+            let mut no_consent_group = generate_group(None);
+            no_consent_group.should_publish_commit_log = true;
+            no_consent_group.store(conn).unwrap();
+
+            // Create consent records
+            let allowed_consent = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                hex::encode(allowed_group.id.clone()),
+            );
+            allowed_consent.store(conn).unwrap();
+
+            let denied_consent = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Denied,
+                hex::encode(denied_group.id.clone()),
+            );
+            denied_consent.store(conn).unwrap();
+
+            // Function should only return groups with Allowed consent state
+            let commit_log_keys = conn.get_conversation_ids_for_remote_log_publish().unwrap();
+            assert_eq!(commit_log_keys.len(), 1);
+            assert_eq!(commit_log_keys[0].id, allowed_group.id);
+        })
+        .await
+    }
+
+    #[xmtp_common::test]
+    async fn test_get_conversation_ids_for_remote_log_download_with_consent() {
+        with_connection(|conn| {
+            // Create groups: one with Allowed consent, one with Denied consent, one with no consent
+            let allowed_group = generate_group(None);
+            allowed_group.store(conn).unwrap();
+
+            let denied_group = generate_group(None);
+            denied_group.store(conn).unwrap();
+
+            let no_consent_group = generate_group(None);
+            no_consent_group.store(conn).unwrap();
+
+            // Create a sync group (should be excluded regardless of consent)
+            let mut sync_group = generate_group(None);
+            sync_group.conversation_type = ConversationType::Sync;
+            sync_group.store(conn).unwrap();
+            let sync_consent = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                hex::encode(sync_group.id.clone()),
+            );
+            sync_consent.store(conn).unwrap();
+
+            // Create consent records
+            let allowed_consent = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                hex::encode(allowed_group.id.clone()),
+            );
+            allowed_consent.store(conn).unwrap();
+
+            let denied_consent = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Denied,
+                hex::encode(denied_group.id.clone()),
+            );
+            denied_consent.store(conn).unwrap();
+
+            // Function should only return groups with Allowed consent state, excluding sync groups
+            let conversation_ids = conn.get_conversation_ids_for_remote_log_download().unwrap();
+            assert_eq!(conversation_ids.len(), 1);
+            assert_eq!(conversation_ids[0], allowed_group.id);
         })
         .await
     }
