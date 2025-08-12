@@ -1,17 +1,15 @@
 pub mod commit_log;
 pub mod commit_log_key;
+pub mod decoded_message;
 pub mod device_sync;
 pub mod device_sync_legacy;
+pub mod disappearing_messages;
 mod error;
 pub mod group_membership;
 pub mod group_permissions;
 pub mod intents;
-pub mod members;
-pub mod welcome_sync;
-
-pub mod disappearing_messages;
 pub mod key_package_cleaner_worker;
-pub mod message_list_item;
+pub mod members;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;
 pub(super) mod subscriptions;
@@ -19,6 +17,7 @@ pub mod summary;
 #[cfg(test)]
 mod tests;
 pub mod validated_commit;
+pub mod welcome_sync;
 mod welcomes;
 pub use welcomes::*;
 
@@ -228,7 +227,7 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
         let type_id_str = content_type_id.type_id.clone();
 
         let reference_id = match (type_id_str.as_str(), content_type_id.version_major) {
-            (ReplyCodec::TYPE_ID, major) if major == 1 => ReplyCodec::decode(content)
+            (ReplyCodec::TYPE_ID, 1) => ReplyCodec::decode(content)
                 .ok()
                 .and_then(|reply| hex::decode(reply.reference).ok()),
             (ReactionCodec::TYPE_ID, major) if major >= 2 => {
