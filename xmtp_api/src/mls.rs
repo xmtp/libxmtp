@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use super::ApiClientWrapper;
 use crate::{Result, XmtpApi};
 use xmtp_common::retry_async;
+use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, PublishCommitLogRequest,
@@ -16,8 +17,6 @@ use xmtp_proto::xmtp::mls::api::v1::{
     SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
     UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
-// the max page size for queries
-const MAX_PAGE_SIZE: u32 = 100;
 
 /// A filter for querying group messages
 #[derive(Clone)]
@@ -95,6 +94,8 @@ where
         let mut out: Vec<GroupMessage> = vec![];
         let mut id_cursor = id_cursor;
         loop {
+            let request_page_limit = limit.unwrap_or(MAX_PAGE_SIZE).min(MAX_PAGE_SIZE);
+
             let mut result = retry_async!(
                 self.retry_strategy,
                 (async {
@@ -103,7 +104,7 @@ where
                             group_id: group_id.clone(),
                             paging_info: Some(PagingInfo {
                                 id_cursor: id_cursor.unwrap_or(0),
-                                limit: limit.unwrap_or(MAX_PAGE_SIZE).min(MAX_PAGE_SIZE),
+                                limit: request_page_limit,
                                 direction: SortDirection::Ascending as i32,
                             }),
                         })
@@ -116,12 +117,6 @@ where
 
             if num_messages < MAX_PAGE_SIZE as usize || result.paging_info.is_none() {
                 break;
-            }
-
-            if let Some(limit) = limit {
-                if out.len() >= limit as usize {
-                    break;
-                }
             }
 
             let paging_info = result.paging_info.expect("Empty paging info");

@@ -8521,6 +8521,7 @@ dependencies = [
  "xmtp_api_grpc",
  "xmtp_api_http",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_id",
  "xmtp_proto",
 ]

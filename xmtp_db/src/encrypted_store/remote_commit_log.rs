@@ -115,9 +115,6 @@ impl From<ProtoCommitResult> for CommitResult {
     }
 }
 
-// the max page size for queries
-pub const MAX_PAGE_SIZE: u32 = 100;
-
 pub trait QueryRemoteCommitLog {
     fn get_latest_remote_log_for_group(
         &self,

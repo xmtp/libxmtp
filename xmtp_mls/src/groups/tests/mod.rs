@@ -1086,6 +1086,73 @@ async fn test_remove_inbox() {
 }
 
 #[xmtp_common::test]
+async fn test_query_group_messages_respects_limit_over_page_size() {
+    use xmtp_configuration::MAX_PAGE_SIZE;
+
+    let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let group = client.create_group(None, None).expect("create group");
+
+    // Produce 2 * MAX_PAGE_SIZE messages on the group topic by sending messages.
+    for _ in 0..2 * MAX_PAGE_SIZE {
+        group
+            .send_message(b"First message from B")
+            .await
+            .expect("send message");
+    }
+
+    // Query with a limit that is greater than the page size (e.g., page_max_size=5, limit=6).
+    let limit = (MAX_PAGE_SIZE + 1) as u32;
+
+    let messages = client
+        .context
+        .api()
+        .query_group_messages(group.group_id.clone(), None, Some(limit))
+        .await
+        .expect("query group messages");
+
+    // Expect exactly `max_page_size` messages, not a full extra page.
+    assert_eq!(
+        messages.len(),
+        MAX_PAGE_SIZE as usize,
+        "query_group_messages should honor the caller-provided limit even when it spans pages"
+    );
+
+    // Query with a limit that is less than the page size (e.g., page_max_size=5, limit=4).
+    let limit = (MAX_PAGE_SIZE - 1) as u32;
+
+    let messages = client
+        .context
+        .api()
+        .query_group_messages(group.group_id.clone(), None, Some(limit))
+        .await
+        .expect("query group messages");
+
+    // Expect exactly `limit` messages
+    assert_eq!(
+        messages.len(),
+        limit as usize,
+        "query_group_messages should honor the caller-provided limit even when it spans pages"
+    );
+
+    // Query with a limit that is equal than the page size (e.g., page_max_size=5, limit=5).
+    let limit = (MAX_PAGE_SIZE) as u32;
+
+    let messages = client
+        .context
+        .api()
+        .query_group_messages(group.group_id.clone(), None, Some(limit))
+        .await
+        .expect("query group messages");
+
+    // Expect exactly `limit` = `MAX_PAGE_SIZE` messages, not a full extra page.
+    assert_eq!(
+        messages.len(),
+        limit as usize,
+        "query_group_messages should honor the caller-provided limit even when it spans pages"
+    );
+}
+
+#[xmtp_common::test]
 async fn test_key_update() {
     tester!(client);
     tester!(bola_client);

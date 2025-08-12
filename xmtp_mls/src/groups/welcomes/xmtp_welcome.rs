@@ -486,6 +486,15 @@ where
             .unwrap_or_default();
         db.update_cursor(&group.group_id, EntityKind::Group, cursor)?;
 
+        tracing::info!(
+            inbox_id = %current_inbox_id,
+            installation_id = %self.context.installation_id(),
+            group_id = %hex::encode(&group.group_id),
+            welcome_id = welcome.id,
+            cursor = cursor,
+            "updated message cursor from welcome metadata"
+        );
+
         Ok(group)
     }
 }
