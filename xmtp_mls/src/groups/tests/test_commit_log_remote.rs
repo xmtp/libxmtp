@@ -326,8 +326,11 @@ async fn test_download_commit_log_from_remote() {
     let bo_group = binding.first().unwrap();
     bo_group.sync().await.unwrap();
 
-    // Bo updates the group name (4 commits)
+    // Bo sends a message which updates the group to be consent state allowed
+    // and queues a key update intent (4 commits)
     bo_group.send_message(b"foo").await.unwrap();
+
+    // Bo updates the group name (5 commits)
     bo_group
         .update_group_name("bo group name".to_string())
         .await
