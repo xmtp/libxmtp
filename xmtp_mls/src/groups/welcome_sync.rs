@@ -304,7 +304,7 @@ mod tests {
             data: w,
             hpke_public_key: public_key,
             wrapper_algorithm: WrapperAlgorithm::Curve25519.into(),
-            welcome_metadata: vec![0],
+            welcome_metadata: vec![],
         }
     }
 

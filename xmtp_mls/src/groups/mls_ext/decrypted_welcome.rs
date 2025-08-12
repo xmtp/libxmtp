@@ -46,8 +46,6 @@ impl DecryptedWelcome {
         let hash_ref = find_key_package_hash_ref(provider, hpke_public_key)?;
         let private_key = find_private_key(provider, &hash_ref, &wrapper_ciphersuite)?;
 
-        let mut welcome_metadata = None;
-
         let welcome_bytes = unwrap_welcome(
             encrypted_welcome_bytes,
             &private_key,
@@ -55,21 +53,29 @@ impl DecryptedWelcome {
         )?;
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
-        if !encrypted_welcome_metadata_bytes.is_empty() {
-            let metadata_bytes = unwrap_welcome(
+        let welcome_metadata = if encrypted_welcome_metadata_bytes.is_empty() {
+            tracing::debug!("Welcome Metadata is empty; proceeding without metadata.");
+            None
+        } else {
+            match unwrap_welcome(
                 encrypted_welcome_metadata_bytes,
                 &private_key,
                 wrapper_ciphersuite,
-            )?;
-
-            welcome_metadata = deserialize_welcome_metadata(&metadata_bytes)
-                .map_err(|e| {
-                    tracing::warn!(?e, "Failed to deserialize welcome metadata; ignoring.")
-                })
-                .ok();
-        } else {
-            tracing::warn!("Welcome Metadata is empty; proceeding without metadata.");
-        }
+            ) {
+                Ok(metadata_bytes) => deserialize_welcome_metadata(&metadata_bytes)
+                    .map_err(|e| {
+                        tracing::debug!(?e, "Failed to deserialize welcome metadata; ignoring.")
+                    })
+                    .ok(),
+                Err(e) => {
+                    tracing::debug!(
+                        ?e,
+                        "Could not read welcome metadata; proceeding without it."
+                    );
+                    None
+                }
+            }
+        };
 
         let join_config = build_group_join_config();
 
