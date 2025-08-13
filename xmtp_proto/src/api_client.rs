@@ -373,7 +373,7 @@ where
 pub trait XmtpMlsStreams {
     type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>> + Send;
 
-    type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>> + Send;
+    type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>> +  Send;
     type Error: RetryableError + Send + Sync + 'static;
 
     async fn subscribe_group_messages(

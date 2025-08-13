@@ -1,5 +1,5 @@
 use crate::error::{GrpcBuilderError, GrpcError};
-use crate::streams::{EscapableTonicStream, XmtpTonicStream};
+use crate::streams::{self, EscapableTonicStream, XmtpTonicStream};
 use tonic::{metadata::MetadataValue, Request};
 use tower::ServiceExt;
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
@@ -269,25 +269,19 @@ impl XmtpMlsClient for Client {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl XmtpMlsStreams for Client {
     type Error = ApiClientError<crate::error::GrpcError>;
-    type GroupMessageStream = XmtpTonicStream<EscapableTonicStream<GroupMessage>>;
-    type WelcomeMessageStream = XmtpTonicStream<EscapableTonicStream<WelcomeMessage>>;
+    type GroupMessageStream = streams::XmtpStream<'static, GroupMessage>;
+    type WelcomeMessageStream = streams::XmtpStream<'static, WelcomeMessage>;
 
     async fn subscribe_group_messages(
         &self,
         req: SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         self.stats.subscribe_messages.count_request();
-        let client = &mut self.mls_client.clone();
-        let res = client
-            .subscribe_group_messages(self.build_request(req))
-            .await
-            .map_err(|e| ApiClientError::new(ApiEndpoint::SubscribeGroupMessages, e.into()))?;
-
-        let stream = res.into_inner();
-        Ok(XmtpTonicStream::new(
-            stream.into(),
-            ApiEndpoint::SubscribeGroupMessages,
-        ))
+        let mut client = self.mls_client.clone();
+        let response = client
+            .subscribe_group_messages(self.build_request(req));
+        Ok(XmtpTonicStream::from_response(response, ApiEndpoint::SubscribeGroupMessages).await
+            .map_err(|e| ApiClientError::new(ApiEndpoint::SubscribeGroupMessages, e.into()))?)
     }
 
     async fn subscribe_welcome_messages(
@@ -296,16 +290,14 @@ impl XmtpMlsStreams for Client {
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         self.stats.subscribe_welcomes.count_request();
         let client = &mut self.mls_client.clone();
-        let res = client
-            .subscribe_welcome_messages(self.build_request(req))
-            .await
-            .map_err(|e| ApiClientError::new(ApiEndpoint::SubscribeWelcomes, e.into()))?;
-
-        let stream = res.into_inner();
-        Ok(XmtpTonicStream::new(
-            stream.into(),
+        let res = client.subscribe_welcome_messages(self.build_request(req));
+        todo!()
+        /*
+        Ok(XmtpTonicStream::from_response(
+            res,
             ApiEndpoint::SubscribeWelcomes,
-        ))
+        ).await)
+*/
     }
 }
 
