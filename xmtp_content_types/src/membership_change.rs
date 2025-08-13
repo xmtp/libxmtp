@@ -13,6 +13,8 @@ pub struct GroupMembershipChangeCodec {}
 impl GroupMembershipChangeCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
     pub const TYPE_ID: &'static str = "group_membership_change";
+    pub const MAJOR_VERSION: u32 = 1;
+    pub const MINOR_VERSION: u32 = 0;
 }
 
 impl ContentCodec<GroupMembershipChanges> for GroupMembershipChangeCodec {
@@ -20,8 +22,8 @@ impl ContentCodec<GroupMembershipChanges> for GroupMembershipChangeCodec {
         ContentTypeId {
             authority_id: GroupMembershipChangeCodec::AUTHORITY_ID.to_string(),
             type_id: GroupMembershipChangeCodec::TYPE_ID.to_string(),
-            version_major: 1,
-            version_minor: 0,
+            version_major: GroupMembershipChangeCodec::MAJOR_VERSION,
+            version_minor: GroupMembershipChangeCodec::MINOR_VERSION,
         }
     }
 
