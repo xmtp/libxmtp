@@ -322,4 +322,13 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			return try await dm.getDebugInformation()
 		}
 	}
+	
+	public func isActive() throws -> Bool {
+		switch self {
+		case let .group(group):
+			return try group.isActive()
+		case let .dm(dm):
+			return try dm.isActive()
+		}
+	}
 }

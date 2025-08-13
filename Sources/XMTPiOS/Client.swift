@@ -35,11 +35,12 @@ public struct ClientOptions {
 
 		/// Specify whether the API client should use TLS security. In general this should only be false when using the `.local` environment.
 		public var isSecure: Bool = true
-		
+
 		public var appVersion: String? = nil
 
 		public init(
-			env: XMTPEnvironment = .dev, isSecure: Bool = true, appVersion: String? = nil
+			env: XMTPEnvironment = .dev, isSecure: Bool = true,
+			appVersion: String? = nil
 		) {
 			self.env = env
 			self.isSecure = isSecure
@@ -740,6 +741,27 @@ public final class Client {
 		return try await ffiClient.addressesFromInboxId(
 			refreshFromNetwork: refreshFromNetwork, inboxIds: inboxIds
 		).map { InboxState(ffiInboxState: $0) }
+	}
+
+	public func createArchive(
+		path: String,
+		encryptionKey: Data,
+		opts: ArchiveOptions = ArchiveOptions()
+	) async throws {
+		try await ffiClient.createArchive(
+			path: path, opts: opts.toFfi(), key: encryptionKey)
+	}
+
+	public func importArchive(path: String, encryptionKey: Data) async throws {
+		try await ffiClient.importArchive(path: path, key: encryptionKey)
+	}
+
+	public func archiveMetadata(path: String, encryptionKey: Data) async throws
+		-> ArchiveMetadata
+	{
+		let ffiMetadata = try await ffiClient.archiveMetadata(
+			path: path, key: encryptionKey)
+		return ArchiveMetadata(ffiMetadata)
 	}
 
 	@available(

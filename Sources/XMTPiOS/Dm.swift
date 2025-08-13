@@ -61,6 +61,10 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	public func isCreator() async throws -> Bool {
 		return try await metadata().creatorInboxId() == client.inboxID
 	}
+	
+	public func isActive() throws -> Bool {
+		return try ffiConversation.isActive()
+	}
 
 	public func creatorInboxId() async throws -> InboxId {
 		return try await metadata().creatorInboxId()
