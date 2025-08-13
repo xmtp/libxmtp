@@ -4,6 +4,9 @@ name = "xmtp_content_types"
 version.workspace = true
 license.workspace = true
 
+[features]
+test-utils = []
+
 [dependencies]
 base64 = "0.21"
 hex = { workspace = true }
