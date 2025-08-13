@@ -5383,6 +5383,9 @@ mod tests {
             .await
             .unwrap();
 
+        // Wait for 2 seconds to make sure message does not get streamed to Bo's new installation
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
         // Bo logs back in with a new installation
         let bo2 = new_test_client_with_wallet(bo_wallet).await;
 

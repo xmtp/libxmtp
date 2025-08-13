@@ -167,9 +167,9 @@ where
     async fn run(&mut self) -> Result<(), CommitLogError> {
         let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
         while (intervals.next().await).is_some() {
-            self.publish_commit_logs_to_remote().await?;
             self.save_remote_commit_log().await?;
             self.update_forked_state().await?;
+            self.publish_commit_logs_to_remote().await?;
         }
         Ok(())
     }
