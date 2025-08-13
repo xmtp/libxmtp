@@ -11,6 +11,8 @@ pub struct GroupUpdatedCodec {}
 impl GroupUpdatedCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
     pub const TYPE_ID: &'static str = "group_updated";
+    pub const MAJOR_VERSION: u32 = 1;
+    pub const MINOR_VERSION: u32 = 0;
 }
 
 impl ContentCodec<GroupUpdated> for GroupUpdatedCodec {
@@ -18,8 +20,8 @@ impl ContentCodec<GroupUpdated> for GroupUpdatedCodec {
         ContentTypeId {
             authority_id: GroupUpdatedCodec::AUTHORITY_ID.to_string(),
             type_id: GroupUpdatedCodec::TYPE_ID.to_string(),
-            version_major: 1,
-            version_minor: 0,
+            version_major: GroupUpdatedCodec::MAJOR_VERSION,
+            version_minor: GroupUpdatedCodec::MINOR_VERSION,
         }
     }
 
