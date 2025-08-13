@@ -394,12 +394,12 @@ where
 
 #[cfg(test)]
 mod test {
+    use crate::utils::ClientTester;
     use std::sync::Arc;
 
     use super::*;
     use crate::builder::ClientBuilder;
     use crate::tester;
-    use crate::utils::FullXmtpClient;
     use crate::utils::fixtures::{alix, bo};
     use xmtp_db::group::GroupQueryArgs;
 
@@ -416,8 +416,8 @@ mod test {
     #[timeout(std::time::Duration::from_secs(5))]
     #[awt]
     async fn stream_welcomes(
-        #[future] alix: FullXmtpClient,
-        #[future] bo: FullXmtpClient,
+        #[future] alix: ClientTester,
+        #[future] bo: ClientTester,
         #[case] group_size: usize,
     ) {
         let mut groups = vec![];
@@ -646,7 +646,7 @@ mod test {
     #[xmtp_common::test]
     #[timeout(std::time::Duration::from_secs(120))]
     #[awt]
-    async fn test_many_concurrent_dm_invites(#[future] alix: FullXmtpClient, #[case] dms: usize) {
+    async fn test_many_concurrent_dm_invites(#[future] alix: ClientTester, #[case] dms: usize) {
         let alix_inbox_id = Arc::new(alix.inbox_id().to_string());
         let mut clients = vec![];
         for _ in 0..dms {
