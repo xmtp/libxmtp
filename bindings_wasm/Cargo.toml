@@ -22,7 +22,7 @@ serde_bytes = "0.11"
 tracing = { workspace = true, features = ["release_max_level_debug"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 tracing-web = "0.1"
-tsify-next = { version = "0.5", default-features = false, features = ["js"] }
+tsify = { version = "0.5", default-features = false, features = ["js"] }
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
 wasm-streams = { version = "0.4" }
