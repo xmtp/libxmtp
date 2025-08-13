@@ -132,6 +132,23 @@ pub enum ContentType {
     TransactionReference = 9,
 }
 
+impl ContentType {
+    pub fn all() -> Vec<ContentType> {
+        vec![
+            ContentType::Unknown,
+            ContentType::Text,
+            ContentType::GroupMembershipChange,
+            ContentType::GroupUpdated,
+            ContentType::Reaction,
+            ContentType::ReadReceipt,
+            ContentType::Reply,
+            ContentType::Attachment,
+            ContentType::RemoteAttachment,
+            ContentType::TransactionReference,
+        ]
+    }
+}
+
 impl std::fmt::Display for ContentType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let as_string = match self {
@@ -261,6 +278,28 @@ impl MsgQueryArgs {
     }
 }
 
+#[derive(Default, Clone, Builder)]
+pub struct RelationQuery {
+    #[builder(default = None)]
+    pub content_types: Option<Vec<ContentType>>,
+    #[builder(default = None)]
+    pub limit: Option<i64>,
+}
+
+impl RelationQuery {
+    pub fn builder() -> RelationQueryBuilder {
+        RelationQueryBuilder::default()
+    }
+}
+
+pub struct MessagesWithRelations {
+    pub messages: Vec<StoredGroupMessage>,
+    /// Messages referenced by any item in the `messages` vector, keyed by their ID
+    pub outbound_relations: HashMap<Vec<u8>, StoredGroupMessage>,
+    /// Messages that reference any item in the `messages` vector, grouped by the reference_id
+    pub inbound_relations: HashMap<Vec<u8>, Vec<StoredGroupMessage>>,
+}
+
 pub trait QueryGroupMessage {
     /// Query for group messages
     fn get_group_messages(
@@ -281,6 +320,14 @@ pub trait QueryGroupMessage {
         group_id: &[u8],
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessageWithReactions>, crate::ConnectionError>;
+
+    fn get_group_messages_with_relations(
+        &self,
+        group_id: &[u8],
+        args: &MsgQueryArgs,
+        inbound_relations: Option<RelationQuery>,
+        outbound_relations: Option<RelationQuery>,
+    ) -> Result<MessagesWithRelations, crate::ConnectionError>;
 
     /// Get a particular group message
     fn get_group_message<MessageId: AsRef<[u8]>>(
@@ -356,6 +403,21 @@ where
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessageWithReactions>, crate::ConnectionError> {
         (**self).get_group_messages_with_reactions(group_id, args)
+    }
+
+    fn get_group_messages_with_relations(
+        &self,
+        group_id: &[u8],
+        args: &MsgQueryArgs,
+        inbound_relations: Option<RelationQuery>,
+        outbound_relations: Option<RelationQuery>,
+    ) -> Result<MessagesWithRelations, crate::ConnectionError> {
+        (**self).get_group_messages_with_relations(
+            group_id,
+            args,
+            inbound_relations,
+            outbound_relations,
+        )
     }
 
     /// Get a particular group message
@@ -640,6 +702,93 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .collect();
 
         Ok(messages_with_reactions)
+    }
+
+    fn get_group_messages_with_relations(
+        &self,
+        group_id: &[u8],
+        args: &MsgQueryArgs,
+        inbound_relations_filter: Option<RelationQuery>,
+        outbound_relations_filter: Option<RelationQuery>,
+    ) -> Result<MessagesWithRelations, crate::ConnectionError> {
+        let mut modified_args = args.clone();
+        // filter out reactions from the main query so we don't get them twice
+        let mut content_types = match modified_args.content_types {
+            Some(content_types) => content_types,
+            None => ContentType::all(),
+        };
+        content_types.retain(|content_type| *content_type != ContentType::Reaction);
+
+        modified_args.content_types = Some(content_types);
+
+        let core_messages = self.get_group_messages(group_id, &modified_args)?;
+
+        let message_ids: Vec<&[u8]> = core_messages.iter().map(|m| m.id.as_slice()).collect();
+        let outbound_reference_ids = core_messages
+            .iter()
+            .filter_map(|m| m.reference_id.as_ref())
+            .collect::<Vec<_>>();
+
+        let mut outbound_relations: HashMap<Vec<u8>, StoredGroupMessage> = HashMap::new();
+        let mut inbound_relations: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
+
+        if let Some(filter) = inbound_relations_filter {
+            let mut inbound_relations_query = dsl::group_messages
+                .filter(dsl::group_id.eq(group_id))
+                .filter(dsl::reference_id.is_not_null())
+                .filter(dsl::reference_id.eq_any(message_ids))
+                .into_boxed();
+
+            if let Some(content_types) = filter.content_types {
+                inbound_relations_query =
+                    inbound_relations_query.filter(dsl::content_type.eq_any(content_types));
+            }
+
+            if let Some(limit) = filter.limit {
+                inbound_relations_query = inbound_relations_query.limit(limit);
+            }
+
+            let raw_inbound_relations: Vec<StoredGroupMessage> =
+                self.raw_query_read(|conn| inbound_relations_query.load(conn))?;
+
+            for inbound_reference in raw_inbound_relations {
+                if let Some(reference_id) = &inbound_reference.reference_id {
+                    inbound_relations
+                        .entry(reference_id.clone())
+                        .or_default()
+                        .push(inbound_reference);
+                }
+            }
+        }
+
+        if let Some(filter) = outbound_relations_filter {
+            let mut outbound_references_query = dsl::group_messages
+                .filter(dsl::group_id.eq(group_id))
+                .filter(dsl::id.eq_any(outbound_reference_ids))
+                .into_boxed();
+
+            if let Some(content_types) = filter.content_types {
+                outbound_references_query =
+                    outbound_references_query.filter(dsl::content_type.eq_any(content_types));
+            }
+
+            if let Some(limit) = filter.limit {
+                outbound_references_query = outbound_references_query.limit(limit);
+            }
+
+            let raw_outbound_references: Vec<StoredGroupMessage> =
+                self.raw_query_read(|conn| outbound_references_query.load(conn))?;
+
+            for outbound_reference in raw_outbound_references {
+                outbound_relations.insert(outbound_reference.id.clone(), outbound_reference);
+            }
+        }
+
+        Ok(MessagesWithRelations {
+            messages: core_messages,
+            outbound_relations,
+            inbound_relations,
+        })
     }
 
     /// Get a particular group message
