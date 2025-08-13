@@ -22,6 +22,7 @@ diesel::table! {
     dm_id -> Nullable<Text>,
     rotated_at_ns -> BigInt,
     conversation_type -> Integer,
+    is_commit_log_forked -> Nullable<Bool>,
     message_id -> Nullable<Binary>,
     decrypted_message_bytes -> Nullable<Binary>,
     sent_at_ns -> Nullable<BigInt>,

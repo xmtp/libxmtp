@@ -84,8 +84,14 @@ pub struct StoredGroup {
     /// Whether the user should publish the commit log for this group
     #[builder(default = false)]
     pub should_publish_commit_log: bool,
+    /// The consensus public key of the commit log for this group
+    /// Derived from the first entry of the commit log
     #[builder(default = None)]
     pub commit_log_public_key: Option<Vec<u8>>,
+    /// Whether the local commit log has diverged from the remote commit log
+    /// NULL if the remote commit log is not up to date yet
+    #[builder(default = None)]
+    pub is_commit_log_forked: Option<bool>,
 }
 
 /// A subset of the group table for fetching the commit log public key
@@ -239,6 +245,9 @@ pub trait QueryGroup {
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
 
+    /// Get conversation IDs for fork checking (excludes already forked conversations and sync groups)
+    fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+
     fn get_conversation_type(
         &self,
         group_id: &[u8],
@@ -250,6 +259,19 @@ pub trait QueryGroup {
         group_id: &[u8],
         public_key: &[u8],
     ) -> Result<(), StorageError>;
+
+    /// Updates the is_commit_log_forked status for a group
+    fn set_group_commit_log_forked_status(
+        &self,
+        group_id: &[u8],
+        is_forked: Option<bool>,
+    ) -> Result<(), StorageError>;
+
+    /// Gets the is_commit_log_forked status for a group
+    fn get_group_commit_log_forked_status(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<bool>, StorageError>;
 }
 
 impl<T> QueryGroup for &T
@@ -378,6 +400,10 @@ where
         (**self).get_conversation_ids_for_remote_log_download()
     }
 
+    fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+        (**self).get_conversation_ids_for_fork_check()
+    }
+
     fn get_conversation_type(
         &self,
         group_id: &[u8],
@@ -391,6 +417,21 @@ where
         public_key: &[u8],
     ) -> Result<(), StorageError> {
         (**self).set_group_commit_log_public_key(group_id, public_key)
+    }
+
+    fn set_group_commit_log_forked_status(
+        &self,
+        group_id: &[u8],
+        is_forked: Option<bool>,
+    ) -> Result<(), StorageError> {
+        (**self).set_group_commit_log_forked_status(group_id, is_forked)
+    }
+
+    fn get_group_commit_log_forked_status(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<bool>, StorageError> {
+        (**self).get_group_commit_log_forked_status(group_id)
     }
 }
 
@@ -861,6 +902,21 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         self.raw_query_read(|conn| query.load::<StoredGroupCommitLogPublicKey>(conn))
     }
 
+    // Get conversation IDs for fork checking (excludes already forked conversations and sync groups)
+    fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+        let query = dsl::groups
+            .filter(
+                dsl::conversation_type.ne(ConversationType::Sync).and(
+                    dsl::is_commit_log_forked
+                        .is_null()
+                        .or(dsl::is_commit_log_forked.ne(Some(true))),
+                ),
+            )
+            .select(dsl::id);
+
+        self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
+    }
+
     fn get_conversation_type(
         &self,
         group_id: &[u8],
@@ -894,6 +950,34 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             )));
         }
         Ok(())
+    }
+
+    fn set_group_commit_log_forked_status(
+        &self,
+        group_id: &[u8],
+        is_forked: Option<bool>,
+    ) -> Result<(), StorageError> {
+        use crate::schema::groups::dsl;
+        self.raw_query_write(|conn| {
+            diesel::update(dsl::groups.find(group_id))
+                .set(dsl::is_commit_log_forked.eq(is_forked))
+                .execute(conn)
+        })?;
+        Ok(())
+    }
+
+    fn get_group_commit_log_forked_status(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<bool>, StorageError> {
+        use crate::schema::groups::dsl;
+        self.raw_query_read(|conn| {
+            dsl::groups
+                .find(group_id)
+                .select(dsl::is_commit_log_forked)
+                .first::<Option<bool>>(conn)
+        })
+        .map_err(StorageError::from)
     }
 }
 

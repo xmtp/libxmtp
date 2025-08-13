@@ -181,6 +181,9 @@ pub struct ConversationDebugInfo {
   #[wasm_bindgen(js_name = forkDetails)]
   #[serde(rename = "forkDetails")]
   pub fork_details: String,
+  #[wasm_bindgen(js_name = isCommitLogForked)]
+  #[serde(rename = "isCommitLogForked")]
+  pub is_commit_log_forked: Option<bool>,
   #[wasm_bindgen(js_name = localCommitLog)]
   #[serde(rename = "localCommitLog")]
   pub local_commit_log: String,
@@ -290,15 +293,22 @@ pub struct ConversationListItem {
   pub conversation: Conversation,
   #[wasm_bindgen(js_name = lastMessage)]
   pub last_message: Option<Message>,
+  #[wasm_bindgen(js_name = isCommitLogForked)]
+  pub is_commit_log_forked: Option<bool>,
 }
 
 #[wasm_bindgen]
 impl ConversationListItem {
   #[wasm_bindgen(constructor)]
-  pub fn new(conversation: Conversation, last_message: Option<Message>) -> Self {
+  pub fn new(
+    conversation: Conversation,
+    last_message: Option<Message>,
+    is_commit_log_forked: Option<bool>,
+  ) -> Self {
     Self {
       conversation,
       last_message,
+      is_commit_log_forked,
     }
   }
 }
@@ -513,6 +523,7 @@ impl Conversations {
         JsValue::from(ConversationListItem::new(
           group.group.into(),
           group.last_message.map(|m| m.into()),
+          group.is_commit_log_forked,
         ))
       })
       .collect();
