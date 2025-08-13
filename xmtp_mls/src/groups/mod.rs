@@ -970,6 +970,27 @@ where
         Ok(())
     }
 
+    /// Updates the commit log signer of the group. Will error if the user does not have the appropriate permissions
+    /// to perform these updates.
+    pub async fn update_commit_log_signer(
+        &self,
+        commit_log_signer: xmtp_cryptography::Secret,
+    ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
+        if self.metadata().await?.conversation_type == ConversationType::Dm {
+            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
+        }
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_commit_log_signer(commit_log_signer).into();
+        let intent = QueueIntent::metadata_update()
+            .data(intent_data)
+            .queue(self)?;
+
+        let _ = self.sync_until_intent_resolved(intent.id).await?;
+        Ok(())
+    }
+
     fn min_protocol_version_from_extensions(
         mutable_metadata: &GroupMutableMetadata,
     ) -> Option<String> {
@@ -1638,7 +1659,6 @@ pub fn build_extensions_for_metadata_update(
         attributes,
         existing_metadata.admin_list,
         existing_metadata.super_admin_list,
-        existing_metadata.commit_log_signer,
     )
     .try_into()?;
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
@@ -1739,13 +1759,8 @@ pub fn build_extensions_for_admin_lists_update(
             super_admin_list.retain(|x| x != &admin_lists_update.inbox_id)
         }
     }
-    let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(
-        attributes,
-        admin_list,
-        super_admin_list,
-        existing_metadata.commit_log_signer,
-    )
-    .try_into()?;
+    let new_mutable_metadata: Vec<u8> =
+        GroupMutableMetadata::new(attributes, admin_list, super_admin_list).try_into()?;
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
     let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
     let mut extensions = group.extensions().clone();

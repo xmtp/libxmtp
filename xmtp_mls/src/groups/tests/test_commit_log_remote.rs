@@ -1,12 +1,15 @@
 use crate::groups::MlsGroup;
 use crate::groups::PolicySet;
 use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
-use crate::groups::commit_log_key::get_or_create_signing_key;
+use crate::groups::commit_log_key::{
+    CommitLogKeyCrypto, CommitLogKeyStore, get_or_create_signing_key,
+};
 use crate::{context::XmtpSharedContext, tester};
 use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use rand::Rng;
+use xmtp_db::MlsProviderExt;
 use xmtp_db::consent_record::ConsentState;
 use xmtp_db::group::GroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
@@ -57,12 +60,17 @@ async fn test_commit_log_signer_on_group_creation() {
         .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
         .await?;
     let b = bo.sync_welcomes().await?.first()?.to_owned();
-    let a_commit_log_signer = a.mutable_metadata()?.commit_log_signer;
-    let b_commit_log_signer = b.mutable_metadata()?.commit_log_signer;
+    let a_metadata = a.mutable_metadata()?;
+    let b_metadata = b.mutable_metadata()?;
+    let a_commit_log_signer = a_metadata.commit_log_signer();
+    let b_commit_log_signer = b_metadata.commit_log_signer();
 
     assert!(a_commit_log_signer.is_some());
     assert!(b_commit_log_signer.is_some());
-    assert_eq!(a_commit_log_signer, b_commit_log_signer);
+    assert_eq!(
+        a_commit_log_signer.as_ref().unwrap().as_slice(),
+        b_commit_log_signer.as_ref().unwrap().as_slice()
+    );
     assert_eq!(
         a_commit_log_signer.unwrap().as_slice().len(),
         xmtp_cryptography::configuration::ED25519_KEY_LENGTH
@@ -72,12 +80,17 @@ async fn test_commit_log_signer_on_group_creation() {
         .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
         .await?;
     let b = bo.sync_welcomes().await?.first()?.to_owned();
-    let a_commit_log_signer = a.mutable_metadata()?.commit_log_signer;
-    let b_commit_log_signer = b.mutable_metadata()?.commit_log_signer;
+    let a_metadata = a.mutable_metadata()?;
+    let b_metadata = b.mutable_metadata()?;
+    let a_commit_log_signer = a_metadata.commit_log_signer();
+    let b_commit_log_signer = b_metadata.commit_log_signer();
 
     assert!(a_commit_log_signer.is_some());
     assert!(b_commit_log_signer.is_some());
-    assert_eq!(a_commit_log_signer, b_commit_log_signer);
+    assert_eq!(
+        a_commit_log_signer.as_ref().unwrap().as_slice(),
+        b_commit_log_signer.as_ref().unwrap().as_slice()
+    );
     assert_eq!(
         a_commit_log_signer.unwrap().as_slice().len(),
         xmtp_cryptography::configuration::ED25519_KEY_LENGTH
@@ -104,13 +117,22 @@ async fn test_device_sync_mutable_metadata_is_overwritten() {
         },
     )?;
     let b = bo.group(&a.group_id)?;
-    let a_commit_log_signer = a.mutable_metadata()?.commit_log_signer;
-    let b_commit_log_signer = b.mutable_metadata()?.commit_log_signer;
-    assert_ne!(a_commit_log_signer, b_commit_log_signer);
+    let a_metadata = a.mutable_metadata()?;
+    let b_metadata = b.mutable_metadata()?;
+    let a_commit_log_signer = a_metadata.commit_log_signer();
+    let b_commit_log_signer = b_metadata.commit_log_signer();
+    assert_ne!(
+        a_commit_log_signer.as_ref().map(|s| s.as_slice()),
+        b_commit_log_signer.as_ref().map(|s| s.as_slice())
+    );
 
     let b = bo.sync_welcomes().await?.first()?.to_owned();
-    let b_commit_log_signer = b.mutable_metadata()?.commit_log_signer;
-    assert_eq!(a_commit_log_signer, b_commit_log_signer);
+    let b_metadata = b.mutable_metadata()?;
+    let b_commit_log_signer = b_metadata.commit_log_signer();
+    assert_eq!(
+        a_commit_log_signer.as_ref().unwrap().as_slice(),
+        b_commit_log_signer.as_ref().unwrap().as_slice()
+    );
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -1220,6 +1242,368 @@ async fn test_bad_signature_handling() {
     assert!(
         second_verification_correct.is_ok(),
         "Entry should verify against its own public key"
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_update_commit_log_signer_sync_across_parties() {
+    tester!(alix);
+    tester!(bo);
+    tester!(charlie);
+
+    println!("Creating group with alix, bo, and charlie");
+    let alix_group = alix
+        .create_group_with_inbox_ids(&[bo.inbox_id(), charlie.inbox_id()], None, None)
+        .await
+        .unwrap();
+
+    // Bo and charlie sync welcomes to join the group
+    let bo_welcomes = bo.sync_welcomes().await.unwrap();
+    assert_eq!(bo_welcomes.len(), 1);
+    let bo_group = bo_welcomes[0].clone();
+
+    let charlie_welcomes = charlie.sync_welcomes().await.unwrap();
+    assert_eq!(charlie_welcomes.len(), 1);
+    let charlie_group = charlie_welcomes[0].clone();
+
+    // Get initial commit log signer for all parties
+    let initial_alix_signer = alix_group
+        .mutable_metadata()
+        .unwrap()
+        .commit_log_signer()
+        .unwrap();
+    let initial_bo_signer = bo_group
+        .mutable_metadata()
+        .unwrap()
+        .commit_log_signer()
+        .unwrap();
+    let initial_charlie_signer = charlie_group
+        .mutable_metadata()
+        .unwrap()
+        .commit_log_signer()
+        .unwrap();
+
+    // All parties should have the same initial signer
+    assert_eq!(initial_alix_signer.as_slice(), initial_bo_signer.as_slice());
+    assert_eq!(
+        initial_alix_signer.as_slice(),
+        initial_charlie_signer.as_slice()
+    );
+    println!("✓ All parties have the same initial commit log signer");
+
+    // Alix (super admin) updates the commit log signer
+    let new_signer = alix
+        .context
+        .mls_provider()
+        .crypto()
+        .generate_commit_log_key()
+        .unwrap();
+    println!("Alix updating commit log signer...");
+    alix_group
+        .update_commit_log_signer(new_signer.clone())
+        .await
+        .unwrap();
+
+    // Alix should see the new signer immediately
+    let alix_updated_signer = alix_group
+        .mutable_metadata()
+        .unwrap()
+        .commit_log_signer()
+        .unwrap();
+    assert_eq!(alix_updated_signer.as_slice(), new_signer.as_slice());
+    assert_ne!(
+        alix_updated_signer.as_slice(),
+        initial_alix_signer.as_slice()
+    );
+    println!("✓ Alix sees the updated commit log signer immediately");
+
+    // Bo and charlie shouldn't see the change yet (before sync)
+    let bo_pre_sync_signer = bo_group
+        .mutable_metadata()
+        .unwrap()
+        .commit_log_signer()
+        .unwrap();
+    let charlie_pre_sync_signer = charlie_group
+        .mutable_metadata()
+        .unwrap()
+        .commit_log_signer()
+        .unwrap();
+    assert_eq!(
+        bo_pre_sync_signer.as_slice(),
+        initial_alix_signer.as_slice()
+    );
+    assert_eq!(
+        charlie_pre_sync_signer.as_slice(),
+        initial_alix_signer.as_slice()
+    );
+    println!("✓ Bo and Charlie still have the old signer before sync");
+
+    // Now everyone syncs
+    println!("All parties syncing...");
+    alix_group.sync_with_conn().await.unwrap();
+    bo_group.sync_with_conn().await.unwrap();
+    charlie_group.sync_with_conn().await.unwrap();
+
+    // After sync, everyone should see the new signer
+    let final_alix_signer = alix_group
+        .mutable_metadata()
+        .unwrap()
+        .commit_log_signer()
+        .unwrap();
+    let final_bo_signer = bo_group
+        .mutable_metadata()
+        .unwrap()
+        .commit_log_signer()
+        .unwrap();
+    let final_charlie_signer = charlie_group
+        .mutable_metadata()
+        .unwrap()
+        .commit_log_signer()
+        .unwrap();
+
+    // All parties should now have the new signer
+    assert_eq!(final_alix_signer.as_slice(), new_signer.as_slice());
+    assert_eq!(final_bo_signer.as_slice(), new_signer.as_slice());
+    assert_eq!(final_charlie_signer.as_slice(), new_signer.as_slice());
+
+    // None should have the old signer
+    assert_ne!(final_alix_signer.as_slice(), initial_alix_signer.as_slice());
+    assert_ne!(final_bo_signer.as_slice(), initial_alix_signer.as_slice());
+    assert_ne!(
+        final_charlie_signer.as_slice(),
+        initial_alix_signer.as_slice()
+    );
+
+    println!("✓ After sync, all parties have the updated commit log signer");
+    println!("Test passed: update_commit_log_signer properly syncs across all parties");
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_updating_group_name_preserves_commit_log_signer() {
+    tester!(alix);
+    tester!(bo);
+
+    let group = alix.create_group(Some(PolicySet::default()), None).unwrap();
+
+    // Add bo to the group
+    group
+        .add_members_by_inbox_id(&[bo.inbox_id()])
+        .await
+        .unwrap();
+
+    let bo_groups = bo.sync_welcomes().await.unwrap();
+    assert_eq!(bo_groups.len(), 1);
+    let bo_group = &bo_groups[0];
+
+    // Get the initial signing key from alix's perspective
+    let alix_initial_metadata = group.mutable_metadata().unwrap();
+    let initial_signer = alix_initial_metadata.commit_log_signer().unwrap();
+    let bo_initial_metadata = bo_group.mutable_metadata().unwrap();
+    let bo_initial_signer = bo_initial_metadata.commit_log_signer().unwrap();
+
+    // Verify both parties have the same signing key initially
+    assert_eq!(initial_signer.as_slice(), bo_initial_signer.as_slice());
+
+    println!("✓ Both parties have the same initial commit log signer");
+
+    // Update the group name
+    group
+        .update_group_name("New Group Name".to_string())
+        .await
+        .unwrap();
+
+    // Sync bo to get the group name update
+    bo_group.sync().await.unwrap();
+
+    println!("✓ Updated group name and synced to all parties");
+
+    // Verify the signing key is preserved on alix's side
+    let alix_updated_metadata = group.mutable_metadata().unwrap();
+    let alix_updated_signer = alix_updated_metadata.commit_log_signer().unwrap();
+
+    // Verify the signing key is preserved on bo's side
+    let bo_updated_metadata = bo_group.mutable_metadata().unwrap();
+    let bo_updated_signer = bo_updated_metadata.commit_log_signer().unwrap();
+
+    // Verify the group name was actually updated
+    assert_eq!(
+        alix_updated_metadata.attributes.get("group_name").unwrap(),
+        "New Group Name"
+    );
+    assert_eq!(
+        bo_updated_metadata.attributes.get("group_name").unwrap(),
+        "New Group Name"
+    );
+
+    println!("✓ Group name was successfully updated");
+
+    // The key assertion: signing keys should be identical before and after the update
+    assert_eq!(initial_signer.as_slice(), alix_updated_signer.as_slice());
+    assert_eq!(initial_signer.as_slice(), bo_updated_signer.as_slice());
+
+    // Verify both parties still have the same signing key
+    assert_eq!(alix_updated_signer.as_slice(), bo_updated_signer.as_slice());
+
+    println!("✓ Commit log signer preserved after group name update");
+    println!("Test passed: Updating group name preserves commit log signing key");
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
+    tester!(alix);
+    tester!(bo);
+    tester!(charlie);
+
+    // Create a group - this will have a commit log signer in mutable metadata by default
+    // We'll simulate a legacy group by having alix use a different key
+    let group = alix.create_group(Some(PolicySet::default()), None).unwrap();
+
+    // Add bo and charlie to the group
+    group
+        .add_members_by_inbox_id(&[bo.inbox_id(), charlie.inbox_id()])
+        .await
+        .unwrap();
+
+    let bo_groups = bo.sync_welcomes().await.unwrap();
+    assert_eq!(bo_groups.len(), 1);
+    let bo_group = &bo_groups[0];
+
+    let charlie_groups = charlie.sync_welcomes().await.unwrap();
+    assert_eq!(charlie_groups.len(), 1);
+    let charlie_group = &charlie_groups[0];
+
+    println!("✓ Created group with all participants");
+
+    // LEGACY GROUP SIMULATION: Generate a new signing key and store it only in the key store
+    // This simulates a legacy group where signing keys weren't in mutable metadata
+    let provider = alix.context.mls_provider();
+    let key_store = provider.key_store();
+    let crypto = provider.crypto();
+
+    // Generate a new signing key
+    let new_signing_key = crypto.generate_commit_log_key().unwrap();
+    let new_public_key = xmtp_cryptography::signature::to_public_key(&new_signing_key)
+        .unwrap()
+        .to_vec();
+
+    // Store this key in alix's key store (overwriting any existing key)
+    key_store
+        .write_commit_log_key(&group.group_id, &new_signing_key)
+        .unwrap();
+
+    println!("✓ Generated and stored new signing key for alix in key store");
+
+    // Create commit log worker for alix
+    let mut alix_worker = CommitLogWorker::new(alix.context.clone());
+
+    // Alix publishes a commit log entry using the new key from the key store
+    let alix_publish_results = alix_worker
+        .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, None)
+        .await?;
+
+    assert!(!alix_publish_results.is_empty());
+    println!("✓ Alix published commit log entries with new signing key");
+
+    // Now alix saves/processes the remote commit log
+    // This should trigger maybe_share_private_key to update mutable metadata
+    let alix_save_results = alix_worker
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await?;
+
+    assert!(!alix_save_results.is_empty());
+    println!("✓ Alix saved remote commit logs and processed them");
+
+    // Verify alix now has the new signing key in mutable metadata
+    let alix_metadata_after = group.mutable_metadata().unwrap();
+    let alix_signer_after = alix_metadata_after.commit_log_signer();
+
+    assert!(
+        alix_signer_after.is_some(),
+        "Alix should have signing key in mutable metadata after processing remote log"
+    );
+    assert_eq!(
+        alix_signer_after.unwrap().as_slice(),
+        new_signing_key.as_slice()
+    );
+
+    println!("✓ Alix's mutable metadata was updated with the new signing key");
+
+    // Bo and Charlie sync to get the metadata update
+    bo_group.sync().await.unwrap();
+    charlie_group.sync().await.unwrap();
+
+    println!("✓ Bo and Charlie synced to get metadata updates");
+
+    // Verify bo and charlie now have the signing key in their mutable metadata
+    let bo_metadata = bo_group.mutable_metadata().unwrap();
+    let bo_signer = bo_metadata.commit_log_signer();
+
+    let charlie_metadata = charlie_group.mutable_metadata().unwrap();
+    let charlie_signer = charlie_metadata.commit_log_signer();
+
+    assert!(
+        bo_signer.is_some(),
+        "Bo should have signing key in mutable metadata after sync"
+    );
+    assert!(
+        charlie_signer.is_some(),
+        "Charlie should have signing key in mutable metadata after sync"
+    );
+
+    // Verify all parties have the same new signing key
+    assert_eq!(bo_signer.unwrap().as_slice(), new_signing_key.as_slice());
+    assert_eq!(
+        charlie_signer.unwrap().as_slice(),
+        new_signing_key.as_slice()
+    );
+
+    println!("✓ All participants now have the new signing key in mutable metadata");
+
+    // Additional verification: the consensus key should be set in the database
+    let stored_group = alix.context.db().find_group(&group.group_id)?.unwrap();
+    assert_eq!(
+        stored_group.commit_log_public_key,
+        Some(new_public_key.clone())
+    );
+
+    println!("✓ Consensus public key correctly stored in database");
+
+    // Final verification: all parties should be able to verify signatures with this key
+    let test_entry = xmtp_proto::xmtp::mls::message_contents::CommitLogEntry {
+        sequence_id: 999,
+        serialized_commit_log_entry: b"test message".to_vec(),
+        signature: None,
+    };
+
+    let signature_bytes = crypto
+        .sign(
+            openmls::prelude::SignatureScheme::ED25519,
+            &test_entry.serialized_commit_log_entry,
+            new_signing_key.as_slice(),
+        )
+        .unwrap();
+
+    let signed_entry = xmtp_proto::xmtp::mls::message_contents::CommitLogEntry {
+        sequence_id: 999,
+        serialized_commit_log_entry: test_entry.serialized_commit_log_entry.clone(),
+        signature: Some(
+            xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature {
+                public_key: new_public_key.clone(),
+                bytes: signature_bytes,
+            },
+        ),
+    };
+
+    // All parties should be able to verify this signature
+    assert!(
+        crypto
+            .verify_commit_log_signature(&signed_entry, &new_public_key)
+            .is_ok()
+    );
+
+    println!("✓ All parties can verify signatures with the discovered signing key");
+    println!(
+        "Test passed: Legacy group signing key discovery via remote commit log works correctly"
     );
 }
 

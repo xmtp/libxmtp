@@ -1441,7 +1441,7 @@ async fn test_group_mutable_data() {
     amal_group.sync().await.unwrap();
 
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
-    assert!(group_mutable_metadata.attributes.len().eq(&3));
+    assert!(group_mutable_metadata.attributes.len().eq(&4));
     assert!(
         group_mutable_metadata
             .attributes
