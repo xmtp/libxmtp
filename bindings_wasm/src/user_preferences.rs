@@ -1,6 +1,6 @@
 use crate::consent_state::Consent;
 use serde::{Deserialize, Serialize};
-use tsify_next::Tsify;
+use tsify::Tsify;
 use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate;
 
