@@ -1,7 +1,7 @@
 use crate::identity::{FfiCollectionExt, FfiCollectionTryExt, FfiIdentifier};
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
-use crate::message::{FfiDeliveryStatus, FfiReactionPayload};
+use crate::message::{FfiDecodedMessage, FfiDeliveryStatus, FfiReactionPayload};
 use crate::worker::FfiSyncWorker;
 use crate::worker::FfiSyncWorkerMode;
 use crate::{FfiReply, FfiSubscribeError, GenericError};
@@ -2144,6 +2144,37 @@ impl FfiConversation {
         Ok(messages)
     }
 
+    pub fn find_messages_v2(
+        &self,
+        opts: FfiListMessagesOptions,
+    ) -> Result<Vec<Arc<FfiDecodedMessage>>, GenericError> {
+        let delivery_status = opts.delivery_status.map(|status| status.into());
+        let direction = opts.direction.map(|dir| dir.into());
+        let kind = match self.conversation_type() {
+            FfiConversationType::Group => None,
+            FfiConversationType::Dm => None,
+            FfiConversationType::Sync => None,
+        };
+
+        let messages: Vec<Arc<FfiDecodedMessage>> = self
+            .inner
+            .find_messages_v2(&MsgQueryArgs {
+                sent_before_ns: opts.sent_before_ns,
+                sent_after_ns: opts.sent_after_ns,
+                kind,
+                delivery_status,
+                limit: opts.limit,
+                direction,
+                content_types: opts
+                    .content_types
+                    .map(|types| types.into_iter().map(Into::into).collect()),
+            })?
+            .into_iter()
+            .map(|msg| Arc::new(msg.into()))
+            .collect();
+        Ok(messages)
+    }
+
     pub async fn process_streamed_conversation_message(
         &self,
         envelope_bytes: Vec<u8>,
@@ -3031,12 +3062,13 @@ mod tests {
         worker::FfiSyncWorkerMode,
         FfiAttachment, FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType,
         FfiConversation, FfiConversationCallback, FfiConversationMessageKind, FfiConversationType,
-        FfiCreateDMOptions, FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
-        FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
-        FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
-        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction,
-        FfiReactionPayload, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply,
-        FfiSubscribeError, FfiTransactionReference, GenericError,
+        FfiCreateDMOptions, FfiCreateGroupOptions, FfiDecodedMessageBody, FfiDecodedMessageContent,
+        FfiDirection, FfiGroupMessageKind, FfiGroupPermissionsOptions, FfiListConversationsOptions,
+        FfiListMessagesOptions, FfiMessageDisappearingSettings, FfiMessageWithReactions,
+        FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature, FfiPermissionPolicy,
+        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction, FfiReactionPayload,
+        FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply, FfiSubscribeError,
+        FfiTransactionReference, GenericError,
     };
     use alloy::signers::local::PrivateKeySigner;
     use futures::future::join_all;
@@ -8289,6 +8321,215 @@ mod tests {
         assert_eq!(original.reference, decoded.reference);
         assert_eq!(original.reference_inbox_id, decoded.reference_inbox_id);
         assert_eq!(original.content, decoded.content);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_find_messages_v2_with_reactions() {
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
+
+        // Create a group with both participants
+        let alix_group = alix
+            .client
+            .conversations()
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Bo accepts the invitation
+        bo.client.conversations().sync().await.unwrap();
+        let bo_group = bo.client.conversation(alix_group.id()).unwrap();
+
+        // Send a few initial messages using proper text encoding
+        let text1 = TextCodec::encode("Message 1".to_string()).unwrap();
+        alix_group
+            .send(encoded_content_to_bytes(text1))
+            .await
+            .unwrap();
+
+        let text2 = TextCodec::encode("Message 2".to_string()).unwrap();
+        alix_group
+            .send(encoded_content_to_bytes(text2))
+            .await
+            .unwrap();
+
+        let text3 = TextCodec::encode("Message 3".to_string()).unwrap();
+        bo_group
+            .send(encoded_content_to_bytes(text3))
+            .await
+            .unwrap();
+
+        // Sync both clients
+        alix_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
+
+        // Get messages to react to
+        let all_messages = bo_group
+            .find_messages_v2(FfiListMessagesOptions::default())
+            .unwrap();
+
+        // Filter for just text messages to react to
+        let text_messages: Vec<_> = all_messages
+            .into_iter()
+            .filter(|m| {
+                m.kind() == FfiGroupMessageKind::Application
+                    && m.content_type_id().type_id == "text"
+            })
+            .collect();
+
+        assert_eq!(text_messages.len(), 3);
+        let messages = text_messages;
+
+        // Add reactions to different messages
+        let reaction1 = FfiReactionPayload {
+            reference: hex::encode(messages[0].id()),
+            reference_inbox_id: alix.client.inbox_id(),
+            action: FfiReactionAction::Added,
+            content: "👍".to_string(),
+            schema: FfiReactionSchema::Unicode,
+        };
+        bo_group
+            .send(encode_reaction(reaction1).unwrap())
+            .await
+            .unwrap();
+
+        let reaction2 = FfiReactionPayload {
+            reference: hex::encode(messages[1].id()),
+            reference_inbox_id: alix.client.inbox_id(),
+            action: FfiReactionAction::Added,
+            content: "❤️".to_string(),
+            schema: FfiReactionSchema::Unicode,
+        };
+        alix_group
+            .send(encode_reaction(reaction2).unwrap())
+            .await
+            .unwrap();
+
+        // Remove a reaction
+        let reaction3 = FfiReactionPayload {
+            reference: hex::encode(messages[0].id()),
+            reference_inbox_id: alix.client.inbox_id(),
+            action: FfiReactionAction::Removed,
+            content: "👍".to_string(),
+            schema: FfiReactionSchema::Unicode,
+        };
+        bo_group
+            .send(encode_reaction(reaction3).unwrap())
+            .await
+            .unwrap();
+
+        // Sync and verify messages with reactions
+        alix_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
+
+        // Test find_messages_v2 returns all messages including reactions
+        let all_messages = alix_group
+            .find_messages_v2(FfiListMessagesOptions::default())
+            .unwrap();
+
+        // Should have 1 membership change + 3 text messages
+        assert_eq!(all_messages.len(), 4);
+
+        let message_0 = all_messages
+            .iter()
+            .find(|m| m.id() == messages[0].id())
+            .unwrap();
+
+        // Verify reaction content
+        for reaction in message_0.reactions() {
+            if let FfiDecodedMessageContent::Reaction(reaction) = reaction.content() {
+                assert!(reaction.content == "👍" || reaction.content == "❤️");
+            } else {
+                panic!("Expected reaction content type");
+            }
+        }
+
+        assert_eq!(message_0.reactions().len(), 2);
+        assert_eq!(message_0.reaction_count(), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_find_messages_v2_with_replies() {
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
+
+        // Create a DM conversation
+        let alix_dm = alix
+            .client
+            .conversations()
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+            .await
+            .unwrap();
+
+        // Bo finds the DM
+        bo.client.conversations().sync().await.unwrap();
+        let bo_dm = bo.client.dm_conversation(alix.client.inbox_id()).unwrap();
+
+        // Send initial messages using proper text encoding
+        let text1 = TextCodec::encode("Hello!".to_string()).unwrap();
+        let msg1_id = alix_dm.send(encoded_content_to_bytes(text1)).await.unwrap();
+
+        let text2 = TextCodec::encode("Hi there!".to_string()).unwrap();
+        let msg2_id = bo_dm.send(encoded_content_to_bytes(text2)).await.unwrap();
+
+        let text3 = TextCodec::encode("How are you?".to_string()).unwrap();
+        alix_dm.send(encoded_content_to_bytes(text3)).await.unwrap();
+
+        // Sync both clients
+        alix_dm.sync().await.unwrap();
+        bo_dm.sync().await.unwrap();
+
+        // Get messages to reply to
+        let messages = alix_dm
+            .find_messages_v2(FfiListMessagesOptions::default())
+            .unwrap();
+        // 3 messages sent + group membership change
+        assert_eq!(messages.len(), 4);
+
+        // Create replies to different messages
+        let reply1 = FfiReply {
+            reference: hex::encode(msg1_id),
+            reference_inbox_id: Some(alix.client.inbox_id()),
+            content: TextCodec::encode("Replying to Hello".to_string())
+                .unwrap()
+                .into(),
+        };
+        bo_dm.send(encode_reply(reply1).unwrap()).await.unwrap();
+
+        let reply2 = FfiReply {
+            reference: hex::encode(msg2_id),
+            reference_inbox_id: Some(bo.client.inbox_id()),
+            content: TextCodec::encode("Replying to Hi there".to_string())
+                .unwrap()
+                .into(),
+        };
+        alix_dm.send(encode_reply(reply2).unwrap()).await.unwrap();
+
+        // Add a reaction to a reply
+        alix_dm.sync().await.unwrap();
+        let updated_messages = alix_dm
+            .find_messages_v2(FfiListMessagesOptions::default())
+            .unwrap();
+
+        // Find the first reply message
+        updated_messages
+            .iter()
+            .find(|m| {
+                if let FfiDecodedMessageContent::Reply(reply) = m.content() {
+                    // Check if the content matches
+                    if let Some(FfiDecodedMessageBody::Text(text)) = &reply.content {
+                        text.content == "Replying to Hello"
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            })
+            .unwrap();
     }
 
     #[tokio::test]
