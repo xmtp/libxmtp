@@ -4,6 +4,7 @@ use std::{
     task::{ready, Context, Poll},
 };
 
+use crate::error::GrpcError;
 use futures::{stream::FusedStream, Stream, TryStream};
 use pin_project_lite::pin_project;
 use std::error::Error;
@@ -106,9 +107,9 @@ impl<S> XmtpTonicStream<S> {
 impl<S> Stream for XmtpTonicStream<S>
 where
     S: TryStream,
-    crate::GrpcError: From<<S as TryStream>::Error>,
+    GrpcError: From<<S as TryStream>::Error>,
 {
-    type Item = Result<S::Ok, ApiClientError<crate::GrpcError>>;
+    type Item = Result<S::Ok, ApiClientError<GrpcError>>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.as_mut().project();
