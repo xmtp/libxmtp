@@ -14,6 +14,7 @@ use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
 use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
+use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -83,6 +84,9 @@ async fn test_device_sync_mutable_metadata_is_overwritten() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_publish_and_query_apis() {
+    use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
+    use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
+
     tester!(alix);
 
     // There is no way to clear commit log on the local node between tests, so we'll just write to
@@ -461,7 +465,6 @@ async fn test_download_commit_log_from_remote() {
             .unwrap(),
         5
     );
-
     // Verify that cursor works as expected for saving new remote commit log entries
     // Alix updates the group name (1 new commit (6 total))
     alix_group
@@ -600,6 +603,33 @@ async fn test_should_skip_remote_log_entry() {
     tester!(alix);
     let commit_log_worker = CommitLogWorker::new(alix.context.clone());
 
+    // Generate a signing key for the test
+    let provider = alix.context.mls_provider();
+    let crypto = provider.crypto();
+    let (private_key_bytes, _) = crypto.signature_key_gen(SignatureScheme::ED25519)?;
+    let private_key = xmtp_cryptography::Secret::new(private_key_bytes.clone());
+    let public_key = xmtp_cryptography::signature::to_public_key(&private_key)?.to_vec();
+
+    // Helper function to create a signed CommitLogEntry
+    let create_signed_entry =
+        |entry: &PlaintextCommitLogEntry| -> Result<CommitLogEntry, Box<dyn std::error::Error>> {
+            let serialized_entry = entry.encode_to_vec();
+            let signature = crypto.sign(
+                SignatureScheme::ED25519,
+                &serialized_entry,
+                &private_key_bytes,
+            )?;
+
+            Ok(CommitLogEntry {
+                sequence_id: 1, // This can be any value for the test
+                serialized_commit_log_entry: serialized_entry,
+                signature: Some(RecoverableEd25519Signature {
+                    bytes: signature,
+                    public_key: public_key.clone(),
+                }),
+            })
+        };
+
     // Does not skip if entry meets all conditions
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
@@ -619,10 +649,13 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 4,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
+    let signed_entry = create_signed_entry(&entry)?;
     assert!(!commit_log_worker.should_skip_remote_commit_log_entry_test(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log.clone()),
+        &signed_entry,
         &entry,
+        &public_key,
     ));
 
     // Skips if Group ID does not match
@@ -643,10 +676,13 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 4,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
+    let signed_entry = create_signed_entry(&entry)?;
     assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
-        &entry
+        &signed_entry,
+        &entry,
+        &public_key,
     ));
 
     // Skips if commit_sequence_id of the entry is not greater than the most recently stored entry, if one exists.
@@ -667,10 +703,13 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 4,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
+    let signed_entry = create_signed_entry(&entry)?;
     assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
-        &entry
+        &signed_entry,
+        &entry,
+        &public_key,
     ));
 
     // Skips if the last_epoch_authenticator does not match the epoch_authenticator of
@@ -692,10 +731,13 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 4,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
+    let signed_entry = create_signed_entry(&entry)?;
     assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
-        &entry
+        &signed_entry,
+        &entry,
+        &public_key,
     ));
 
     // Skips if the applied_epoch_number of the entry is not exactly 1 greater than
@@ -717,10 +759,13 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 5,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
+    let signed_entry = create_signed_entry(&entry)?;
     assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
-        &entry
+        &signed_entry,
+        &entry,
+        &public_key,
     ));
 
     // Skips if the applied_epoch_number of the entry is not exactly 1 greater than
@@ -742,10 +787,13 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 3,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
+    let signed_entry = create_signed_entry(&entry)?;
     assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
-        &entry
+        &signed_entry,
+        &entry,
+        &public_key,
     ));
 
     // Skips if the applied_epoch_number of the entry is not exactly 1 greater than
@@ -767,10 +815,13 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 2,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
+    let signed_entry = create_signed_entry(&entry)?;
     assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
-        &entry
+        &signed_entry,
+        &entry,
+        &public_key,
     ));
 
     // Skips if entry CommitResult is not COMMIT_RESULT_APPLIED, and the epoch authenticator or epoch number does not match the most recently applied values
@@ -791,10 +842,13 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 4,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
     };
+    let signed_entry = create_signed_entry(&entry)?;
     assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log.clone()),
-        &entry
+        &signed_entry,
+        &entry,
+        &public_key,
     ));
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0x11, 0x22, 0x33],
@@ -804,9 +858,12 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_number: 3,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
+    let signed_entry = create_signed_entry(&entry)?;
     assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
-        &entry
+        &signed_entry,
+        &entry,
+        &public_key,
     ));
 }

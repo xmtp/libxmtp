@@ -217,9 +217,15 @@ mock! {
 
         fn get_conversation_ids_for_remote_log_publish(&self) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
 
-        fn get_conversation_ids_for_remote_log_download(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+        fn get_conversation_ids_for_remote_log_download(&self) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
 
         fn get_conversation_type(&self, group_id: &[u8]) -> Result<ConversationType, crate::ConnectionError>;
+
+        fn set_group_commit_log_public_key(
+            &self,
+            group_id: &[u8],
+            public_key: &[u8],
+        ) -> Result<(), StorageError>;
     }
 
     impl QueryGroupVersion for DbQuery {
@@ -456,7 +462,7 @@ mock! {
         #[mockall::concretize]
         fn get_remote_log_cursors(
             &self,
-            conversation_ids: &[Vec<u8>],
+            conversation_ids: &[&Vec<u8>],
         ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError>;
     }
 
