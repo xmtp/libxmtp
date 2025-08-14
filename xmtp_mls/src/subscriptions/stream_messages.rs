@@ -400,6 +400,10 @@ where
                     next_msg.id
                 );
                 if let Some(stored) = self.factory.retrieve(&next_msg)? {
+                    tracing::debug!(
+                        "retrieved existing message from database with msg_id=[{}]",
+                        hex::encode(&stored.id)
+                    );
                     return Poll::Ready(Some(Ok(stored)));
                 } else {
                     cx.waker().wake_by_ref();
@@ -407,7 +411,7 @@ where
                 }
             }
             tracing::debug!(
-                "stream @cursor=[{}] for group_id@[{}] encountered newly unprocessed message @cursor=[{}]",
+                "stream @cursor=[{}] for group_id@[{}] encountered newly unprocessed message @cursor=[{}] (message ID will be calculated after processing)",
                 position.last_streamed(),
                 xmtp_common::fmt::debug_hex(next_msg.group_id.as_slice()),
                 next_msg.id
@@ -548,9 +552,10 @@ where
                 self.as_mut()
                     .set_cursor(msg.group_id.as_slice(), processed.next_message);
                 tracing::trace!(
-                    "returning new message for group=[{}] @cursor=[{:?}], total messages={}",
+                    "returning new message for group=[{}] @cursor=[{:?}] msg_id=[{}], total messages={}",
                     xmtp_common::fmt::debug_hex(msg.group_id.as_slice()),
                     processed.tried_to_process,
+                    hex::encode(&msg.id),
                     self.returned.len()
                 );
                 return Poll::Ready(Some(Ok(msg)));
