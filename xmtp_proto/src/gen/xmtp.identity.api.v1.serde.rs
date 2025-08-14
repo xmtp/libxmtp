@@ -1,4 +1,3 @@
-// @generated
 impl serde::Serialize for GetIdentityUpdatesRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
