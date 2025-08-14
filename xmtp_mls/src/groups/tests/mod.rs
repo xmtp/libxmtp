@@ -581,6 +581,129 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
             .decrypted_message_bytes
     );
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test(flavor = "current_thread")]
+async fn test_group_should_readd_recovered_bad_installations() {
+    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
+    use xmtp_id::associations::test_utils::WalletTestExt;
+
+    // 1) Prepare clients
+    let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let bola_wallet = generate_local_wallet();
+
+    // bola has two installations
+    let bola_1 = ClientBuilder::new_test_client(&bola_wallet).await;
+    let bola_2 = ClientBuilder::new_test_client(&bola_wallet).await;
+
+    // 2) Mark the second installation as malformed
+    set_test_mode_upload_malformed_keypackage(
+        true,
+        Some(vec![bola_2.context.installation_id().to_vec()]),
+    );
+
+    // 3) Create the group, inviting bola (which internally includes bola_1 and bola_2)
+    let group = alix
+        .create_group_with_members(&[bola_wallet.identifier()], None, None)
+        .await
+        .unwrap();
+
+    // 4) Sync from Alix's side
+    group.sync().await.unwrap();
+    xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    // 5) Bola_1 syncs welcomes and checks for groups
+    bola_1.sync_welcomes().await.unwrap();
+    bola_2.sync_welcomes().await.unwrap();
+    xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    let bola_1_groups = bola_1.find_groups(GroupQueryArgs::default()).unwrap();
+    let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).unwrap();
+
+    assert_eq!(bola_1_groups.len(), 1, "Bola_1 should see exactly 1 group");
+    assert_eq!(bola_2_groups.len(), 0, "Bola_2 should see no groups!");
+
+    let bola_1_group = bola_1_groups.first().unwrap();
+    bola_1_group.sync().await.unwrap();
+
+    // 2) Mark the second installation as malformed
+    set_test_mode_upload_malformed_keypackage(false, None);
+
+    let bola_1_group = bola_1_groups.first().unwrap();
+    bola_1_group.sync().await.unwrap();
+    xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    let message = b"Hello";
+    group.send_message(message).await.unwrap();
+    bola_1_group.send_message(message).await.unwrap();
+    xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
+    bola_1_group.send_message(message).await.unwrap();
+
+    bola_2.sync_welcomes().await.unwrap();
+    xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    let bola_1_groups = bola_1.find_groups(GroupQueryArgs::default()).unwrap();
+    let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).unwrap();
+
+    assert_eq!(bola_1_groups.len(), 1, "Bola_1 should see exactly 1 group");
+    assert_eq!(bola_2_groups.len(), 1, "Bola_2 should see no groups!");
+
+    let bola_1_group = bola_1_groups.first().unwrap();
+    bola_1_group.sync().await.unwrap();
+
+    // // 6) Verify group membership from both sides
+    // //    Here we expect 2 *members* (Alix + Bola), though internally Bola might have 2 installations.
+    // assert_eq!(
+    //     group.members().await.unwrap().len(),
+    //     2,
+    //     "Group should have 2 members"
+    // );
+    // assert_eq!(
+    //     bola_1_group.members().await.unwrap().len(),
+    //     2,
+    //     "Bola_1 should also see 2 members in the group"
+    // );
+    //
+    // // 7) Send a message from Alix and confirm Bola_1 receives it
+    // let message = b"Hello";
+    // group.send_message(message).await.unwrap();
+    // bola_1_group.send_message(message).await.unwrap();
+    //
+    // // Sync both sides again
+    // group.sync().await.unwrap();
+    // bola_1_group.sync().await.unwrap();
+    //
+    // // Query messages from Bola_1's perspective
+    // let messages_bola_1 = bola_1
+    //     .api()
+    //     .query_group_messages(group.clone().group_id.clone(), None)
+    //     .await
+    //     .unwrap();
+    //
+    // // The last message should be our "Hello from Alix"
+    // assert_eq!(messages_bola_1.len(), 3);
+    //
+    // // Query messages from Alix's perspective
+    // let messages_alix = alix
+    //     .api()
+    //     .query_group_messages(group.clone().group_id, None)
+    //     .await
+    //     .unwrap();
+    //
+    // // The last message should be our "Hello from Alix"
+    // assert_eq!(messages_alix.len(), 3);
+    // assert_eq!(
+    //     message.to_vec(),
+    //     get_latest_message(&group).await.decrypted_message_bytes
+    // );
+    // assert_eq!(
+    //     message.to_vec(),
+    //     get_latest_message(bola_1_group)
+    //         .await
+    //         .decrypted_message_bytes
+    // );
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "current_thread")]
 async fn test_create_group_with_member_all_malformed_installations() {

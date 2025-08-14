@@ -2534,15 +2534,32 @@ async fn calculate_membership_changes_with_keypackages<'a>(
 
     let mut new_installations = Vec::new();
     let mut new_key_packages = Vec::new();
-    let mut new_failed_installations = Vec::new();
+    let mut failed_installations = Vec::new();
 
-    if !installation_diff.added_installations.is_empty() {
+    // Early return if no installations to process
+    let has_installations_to_process = !installation_diff.added_installations.is_empty()
+        || !old_group_membership.failed_installations.is_empty();
+
+    if has_installations_to_process {
+        let installations_to_process: HashSet<Vec<u8>> = installation_diff
+            .added_installations
+            .union(
+                &old_group_membership
+                    .failed_installations
+                    .iter()
+                    .cloned()
+                    .collect(),
+            )
+            .cloned()
+            .collect();
+
         let key_packages = get_keypackages_for_installation_ids(
             context,
-            installation_diff.added_installations,
-            &mut new_failed_installations,
+            installations_to_process,
+            &mut failed_installations,
         )
         .await?;
+
         for (installation_id, result) in key_packages {
             match result {
                 Ok(verified_key_package) => {
@@ -2551,34 +2568,53 @@ async fn calculate_membership_changes_with_keypackages<'a>(
                     )?);
                     new_key_packages.push(verified_key_package.inner.clone());
                 }
-                Err(_) => new_failed_installations.push(installation_id.clone()),
+                Err(_) => failed_installations.push(installation_id),
             }
         }
     }
 
-    let mut failed_installations: HashSet<Vec<u8>> = old_group_membership
-        .failed_installations
-        .clone()
-        .into_iter()
-        .chain(new_failed_installations)
+    // filter old failed installations to retain only those that still exist in new installations
+    // Merge old and new failed installations
+
+    // Build a set of installation_keys from new_installations for fast lookup
+    let new_installation_keys: HashSet<&Vec<u8>> = new_installations
+        .iter()
+        .map(|inst| &inst.installation_key)
         .collect();
 
-    let common: HashSet<_> = failed_installations
+    // Filter old failed installations to only include those that still exist in new_installations
+    let all_failed_installations: HashSet<Vec<u8>> = failed_installations
+        .into_iter()
+        .chain(
+            old_group_membership
+                .failed_installations
+                .iter()
+                .filter(|key| new_installation_keys.contains(key))
+                .cloned(),
+        )
+        .collect();
+
+    // Remove installations that appear in both failed and removed lists
+    // Combine old + new failed installations into a HashSet<Vec<u8>>
+    let common_installations: HashSet<Vec<u8>> = all_failed_installations
         .intersection(&installation_diff.removed_installations)
         .cloned()
         .collect();
 
-    failed_installations.retain(|item| !common.contains(item));
+    let final_failed_installations: Vec<Vec<u8>> = all_failed_installations
+        .into_iter()
+        .filter(|item| !common_installations.contains(item))
+        .collect();
 
     installation_diff
         .removed_installations
-        .retain(|item| !common.contains(item));
+        .retain(|item| !common_installations.contains(item));
 
     Ok(MembershipDiffWithKeyPackages::new(
         new_installations,
         new_key_packages,
         installation_diff.removed_installations,
-        failed_installations.into_iter().collect(),
+        final_failed_installations,
     ))
 }
 #[allow(dead_code)]
