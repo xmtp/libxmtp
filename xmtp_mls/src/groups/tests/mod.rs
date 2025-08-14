@@ -646,7 +646,7 @@ async fn test_group_should_readd_recovered_bad_installations() {
     let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).unwrap();
 
     assert_eq!(bola_1_groups.len(), 1, "Bola_1 should see exactly 1 group");
-    assert_eq!(bola_2_groups.len(), 1, "Bola_2 should see no groups!");
+    assert_eq!(bola_2_groups.len(), 1, "Bola_2 should see exactly 1 group");
 
     let bola_1_group = bola_1_groups.first().unwrap();
     bola_1_group.sync().await.unwrap();

@@ -2582,16 +2582,16 @@ async fn calculate_membership_changes_with_keypackages<'a>(
         .map(|inst| &inst.installation_key)
         .collect();
 
-    // Filter old failed installations to only include those that still exist in new_installations
+    // Filter old failed installations to exclude those that are being successfully added back
+    let filtered_old_failed_installations = old_group_membership
+        .failed_installations
+        .iter()
+        .filter(|key| !new_installation_keys.contains(key)) // Changed from contains to !contains
+        .cloned();
+
     let all_failed_installations: HashSet<Vec<u8>> = failed_installations
         .into_iter()
-        .chain(
-            old_group_membership
-                .failed_installations
-                .iter()
-                .filter(|key| new_installation_keys.contains(key))
-                .cloned(),
-        )
+        .chain(filtered_old_failed_installations)
         .collect();
 
     // Remove installations that appear in both failed and removed lists
@@ -2605,7 +2605,6 @@ async fn calculate_membership_changes_with_keypackages<'a>(
         .into_iter()
         .filter(|item| !common_installations.contains(item))
         .collect();
-
     installation_diff
         .removed_installations
         .retain(|item| !common_installations.contains(item));
