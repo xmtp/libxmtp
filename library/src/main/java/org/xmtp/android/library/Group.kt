@@ -10,6 +10,7 @@ import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.compress
 import org.xmtp.android.library.libxmtp.Member
 import org.xmtp.android.library.libxmtp.ConversationDebugInfo
+import org.xmtp.android.library.libxmtp.ConversationDebugInfo.CommitLogForkStatus
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.libxmtp.DecodedMessage.MessageDeliveryStatus
 import org.xmtp.android.library.libxmtp.DecodedMessage.SortDirection
@@ -38,6 +39,7 @@ class Group(
     val client: Client,
     private val libXMTPGroup: FfiConversation,
     private val ffiLastMessage: FfiMessage? = null,
+    private val ffiIsCommitLogForked: Boolean? = null
 ) {
     val id: String
         get() = libXMTPGroup.id().toHex()
@@ -136,6 +138,14 @@ class Group(
             DecodedMessage.create(ffiLastMessage)
         } else {
             messages(limit = 1).firstOrNull()
+        }
+    }
+
+    fun commitLogForkStatus(): CommitLogForkStatus {
+        return when (ffiIsCommitLogForked) {
+            true -> CommitLogForkStatus.FORKED
+            false -> CommitLogForkStatus.NOT_FORKED
+            null -> CommitLogForkStatus.UNKNOWN
         }
     }
 

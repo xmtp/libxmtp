@@ -70,6 +70,13 @@ sealed class Conversation {
         }
     }
 
+    fun commitLogForkStatus(): ConversationDebugInfo.CommitLogForkStatus {
+        return when (this) {
+            is Group -> group.commitLogForkStatus()
+            is Dm -> dm.commitLogForkStatus()
+        }
+    }
+
     suspend fun members(): List<Member> {
         return when (this) {
             is Group -> group.members()

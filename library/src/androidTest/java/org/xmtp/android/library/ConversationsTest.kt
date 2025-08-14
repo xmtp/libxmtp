@@ -17,6 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
@@ -100,6 +101,38 @@ class ConversationsTest {
             2
         )
         assertEquals(runBlocking { caroClient.conversations.listGroups().size }, 1)
+    }
+
+    @Test
+    fun testsCanListConversationsAndCheckCommitLogForkStatus() {
+        runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
+        runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
+        assertEquals(runBlocking { boClient.conversations.list().size }, 2)
+        assertEquals(runBlocking { boClient.conversations.listDms().size }, 1)
+        assertEquals(runBlocking { boClient.conversations.listGroups().size }, 1)
+
+        runBlocking { caroClient.conversations.sync() }
+        val caroConversations = runBlocking {
+            caroClient.conversations.list()
+        }
+        assertEquals(
+            caroConversations.size,
+            2
+        )
+        var numForkStatusUnknown = 0
+        var numForkStatusForked = 0
+        var numForkStatusNotForked = 0
+        for (conversation in caroConversations) {
+            when (conversation.commitLogForkStatus()) {
+                ConversationDebugInfo.CommitLogForkStatus.FORKED -> numForkStatusForked += 1
+                ConversationDebugInfo.CommitLogForkStatus.NOT_FORKED -> numForkStatusNotForked += 1
+                ConversationDebugInfo.CommitLogForkStatus.UNKNOWN -> numForkStatusUnknown += 1
+            }
+        }
+        // Right now worker runs every 5 minutes so we'd need to wait that long to verify not forked
+        assertEquals(numForkStatusForked, 0)
+        assertEquals(numForkStatusNotForked, 0)
+        assertEquals(numForkStatusUnknown, 2)
     }
 
     @Test

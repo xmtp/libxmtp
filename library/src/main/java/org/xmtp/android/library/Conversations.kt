@@ -431,11 +431,19 @@ data class Conversations(
                 Dm(
                     client,
                     conversation(),
-                    lastMessage()
+                    lastMessage(),
+                    isCommitLogForked()
                 )
             )
 
-            else -> Conversation.Group(Group(client, conversation(), lastMessage()))
+            else -> Conversation.Group(
+                Group(
+                    client,
+                    conversation(),
+                    lastMessage(),
+                    isCommitLogForked()
+                )
+            )
         }
     }
 

@@ -1211,6 +1211,8 @@ internal open class UniffiVTableCallbackInterfaceFfiPreferenceCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1369,6 +1371,8 @@ fun uniffi_xmtpv3_checksum_method_fficonversationcallback_on_error(
 fun uniffi_xmtpv3_checksum_method_fficonversationcallback_on_close(
 ): Short
 fun uniffi_xmtpv3_checksum_method_fficonversationlistitem_conversation(
+): Short
+fun uniffi_xmtpv3_checksum_method_fficonversationlistitem_is_commit_log_forked(
 ): Short
 fun uniffi_xmtpv3_checksum_method_fficonversationlistitem_last_message(
 ): Short
@@ -1716,6 +1720,8 @@ fun uniffi_xmtpv3_fn_free_fficonversationlistitem(`ptr`: Pointer,uniffi_out_err:
 ): Unit
 fun uniffi_xmtpv3_fn_method_fficonversationlistitem_conversation(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
+fun uniffi_xmtpv3_fn_method_fficonversationlistitem_is_commit_log_forked(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_method_fficonversationlistitem_last_message(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_clone_fficonversationmetadata(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -2306,6 +2312,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversationlistitem_conversation() != 20525.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversationlistitem_is_commit_log_forked() != 16358.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversationlistitem_last_message() != 42510.toShort()) {
@@ -4874,6 +4883,8 @@ public interface FfiConversationListItemInterface {
     
     fun `conversation`(): FfiConversation
     
+    fun `isCommitLogForked`(): kotlin.Boolean?
+    
     fun `lastMessage`(): FfiMessage?
     
     companion object
@@ -4966,6 +4977,18 @@ open class FfiConversationListItem: Disposable, AutoCloseable, FfiConversationLi
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversationlistitem_conversation(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `isCommitLogForked`(): kotlin.Boolean? {
+            return FfiConverterOptionalBoolean.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversationlistitem_is_commit_log_forked(
         it, _status)
 }
     }
@@ -9525,6 +9548,7 @@ data class FfiConversationDebugInfo (
     var `epoch`: kotlin.ULong, 
     var `maybeForked`: kotlin.Boolean, 
     var `forkDetails`: kotlin.String, 
+    var `isCommitLogForked`: kotlin.Boolean?, 
     var `localCommitLog`: kotlin.String, 
     var `cursor`: kotlin.Long
 ) {
@@ -9541,6 +9565,7 @@ public object FfiConverterTypeFfiConversationDebugInfo: FfiConverterRustBuffer<F
             FfiConverterULong.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
             FfiConverterString.read(buf),
             FfiConverterLong.read(buf),
         )
@@ -9550,6 +9575,7 @@ public object FfiConverterTypeFfiConversationDebugInfo: FfiConverterRustBuffer<F
             FfiConverterULong.allocationSize(value.`epoch`) +
             FfiConverterBoolean.allocationSize(value.`maybeForked`) +
             FfiConverterString.allocationSize(value.`forkDetails`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`isCommitLogForked`) +
             FfiConverterString.allocationSize(value.`localCommitLog`) +
             FfiConverterLong.allocationSize(value.`cursor`)
     )
@@ -9558,6 +9584,7 @@ public object FfiConverterTypeFfiConversationDebugInfo: FfiConverterRustBuffer<F
             FfiConverterULong.write(value.`epoch`, buf)
             FfiConverterBoolean.write(value.`maybeForked`, buf)
             FfiConverterString.write(value.`forkDetails`, buf)
+            FfiConverterOptionalBoolean.write(value.`isCommitLogForked`, buf)
             FfiConverterString.write(value.`localCommitLog`, buf)
             FfiConverterLong.write(value.`cursor`, buf)
     }
