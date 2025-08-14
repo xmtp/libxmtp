@@ -52,6 +52,15 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			return try await dm.lastMessage()
 		}
 	}
+    
+    public func commitLogForkStatus() -> CommitLogForkStatus {
+        switch self {
+        case let .group(group):
+            return group.commitLogForkStatus()
+        case let .dm(dm):
+            return dm.commitLogForkStatus()
+        }
+    }
 
 	public func isCreator() async throws -> Bool {
 		switch self {

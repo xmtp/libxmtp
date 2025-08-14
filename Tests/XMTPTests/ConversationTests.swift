@@ -519,4 +519,42 @@ class ConversationTests: XCTestCase {
 		}
 		try fixtures.cleanUpDatabases()
 	}
+
+	func testCanListConversationsAndCheckCommitLogForkStatus() async throws {
+		let fixtures = try await fixtures()
+		
+		_ = try await fixtures.boClient.conversations.findOrCreateDm(
+			with: fixtures.caroClient.inboxID)
+		_ = try await fixtures.boClient.conversations.newGroup(with: [
+			fixtures.caroClient.inboxID
+		])
+		
+		try await fixtures.caroClient.conversations.sync()
+		let caroConversations = try await fixtures.caroClient.conversations.list()
+		
+		XCTAssertEqual(caroConversations.count, 2)
+		
+		var numForkStatusUnknown = 0
+		var numForkStatusForked = 0
+		var numForkStatusNotForked = 0
+		
+		for conversation in caroConversations {
+			let forkStatus =  conversation.commitLogForkStatus()
+			switch forkStatus {
+			case .forked:
+				numForkStatusForked += 1
+			case .notForked:
+				numForkStatusNotForked += 1
+			case .unknown:
+				numForkStatusUnknown += 1
+			}
+		}
+		
+		// Right now worker runs every 5 minutes so we'd need to wait that long to verify not forked
+		XCTAssertEqual(numForkStatusForked, 0)
+		XCTAssertEqual(numForkStatusNotForked, 0)
+		XCTAssertEqual(numForkStatusUnknown, 2)
+		
+		try fixtures.cleanUpDatabases()
+	}
 }

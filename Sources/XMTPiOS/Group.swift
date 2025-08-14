@@ -33,6 +33,7 @@ final class StreamHolder {
 public struct Group: Identifiable, Equatable, Hashable {
 	var ffiGroup: FfiConversation
 	var ffiLastMessage: FfiMessage? = nil
+    var ffiCommitLogForkStatus: Bool? = nil
 	var client: Client
 	let streamHolder = StreamHolder()
 
@@ -435,6 +436,14 @@ public struct Group: Identifiable, Equatable, Hashable {
 			return try await messages(limit: 1).first
 		}
 	}
+    
+    public func commitLogForkStatus() -> CommitLogForkStatus {
+        switch ffiCommitLogForkStatus {
+            case true : return .forked
+            case false : return .notForked
+            default: return .unknown
+        }
+    }
 
 	public func messages(
 		beforeNs: Int64? = nil,
