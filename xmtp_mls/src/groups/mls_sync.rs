@@ -1051,6 +1051,12 @@ where
                             originator_id: None,
                             expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                         };
+                        tracing::debug!(
+                            "Storing new message with msg_id=[{}] for group=[{}] at cursor=[{}]",
+                            hex::encode(&message_id),
+                            hex::encode(&self.group_id),
+                            cursor
+                        );
                         message.store_or_ignore(&storage.db())?;
                         // make sure internal id is on return type after its stored successfully
                         identifier.internal_id(message_id);
@@ -1088,6 +1094,12 @@ where
                                 );
 
                                 // store the request message
+                                tracing::debug!(
+                                    "Storing device sync request message with msg_id=[{}] for group=[{}] at cursor=[{}]",
+                                    hex::encode(&message_id),
+                                    hex::encode(&self.group_id),
+                                    cursor
+                                );
                                 let message = StoredGroupMessage {
                                     id: message_id.clone(),
                                     group_id: self.group_id.clone(),
@@ -1125,6 +1137,12 @@ where
                                 );
 
                                 // store the reply message
+                                tracing::debug!(
+                                    "Storing device sync reply message with msg_id=[{}] for group=[{}] at cursor=[{}]",
+                                    hex::encode(&message_id),
+                                    hex::encode(&self.group_id),
+                                    cursor
+                                );
                                 let message = StoredGroupMessage {
                                     id: message_id.clone(),
                                     group_id: self.group_id.clone(),
