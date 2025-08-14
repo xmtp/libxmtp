@@ -34,6 +34,8 @@ pub struct ConversationListItem {
     pub rotated_at_ns: i64,
     /// Enum, [`ConversationType`] signifies the group conversation type which extends to who can access it.
     pub conversation_type: ConversationType,
+    /// Whether the commit log for this conversation is forked
+    pub is_commit_log_forked: Option<bool>,
     /// Id of the message. Nullable because not every group has messages.
     pub message_id: Option<Vec<u8>>,
     /// Contents of message after decryption.

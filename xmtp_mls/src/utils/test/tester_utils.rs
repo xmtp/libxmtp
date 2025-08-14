@@ -157,6 +157,7 @@ where
             .with_device_sync_server_url(self.sync_url.clone())
             .maybe_version(self.version.clone())
             .with_disable_events(Some(!self.events))
+            .with_commit_log_worker(self.commit_log_worker)
             .build()
             .await
             .unwrap();
@@ -271,6 +272,7 @@ where
     pub events: bool,
     pub version: Option<VersionInfo>,
     pub proxy: bool,
+    pub commit_log_worker: bool,
 }
 
 impl TesterBuilder<PrivateKeySigner> {
@@ -291,6 +293,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             events: false,
             version: None,
             proxy: false,
+            commit_log_worker: true, // Default to enabled to match production
         }
     }
 }
@@ -313,6 +316,7 @@ where
             events: self.events,
             version: self.version,
             proxy: self.proxy,
+            commit_log_worker: self.commit_log_worker,
         }
     }
 
@@ -361,6 +365,13 @@ where
     pub fn proxy(self) -> Self {
         Self {
             proxy: true,
+            ..self
+        }
+    }
+
+    pub fn with_commit_log_worker(self, enabled: bool) -> Self {
+        Self {
+            commit_log_worker: enabled,
             ..self
         }
     }

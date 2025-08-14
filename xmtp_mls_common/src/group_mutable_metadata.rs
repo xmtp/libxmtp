@@ -47,6 +47,7 @@ pub enum MetadataField {
     MessageDisappearFromNS,
     MessageDisappearInNS,
     MinimumSupportedProtocolVersion,
+    CommitLogSigner,
 }
 
 impl MetadataField {
@@ -59,6 +60,8 @@ impl MetadataField {
             MetadataField::MessageDisappearFromNS => "message_disappear_from_ns",
             MetadataField::MessageDisappearInNS => "message_disappear_in_ns",
             MetadataField::MinimumSupportedProtocolVersion => "minimum_supported_protocol_version",
+            // Uses SUPER_ADMIN_METADATA_PREFIX ("_") to make this field super-admin only
+            MetadataField::CommitLogSigner => "_commit_log_signer",
         }
     }
 }
@@ -101,8 +104,6 @@ pub struct GroupMutableMetadata {
     /// List of super admin inbox IDs for this group.
     /// See [GroupMutablePermissions](crate::groups::GroupMutablePermissions) for more details on super admin permissions.
     pub super_admin_list: Vec<String>,
-    /// The secret used to derive the commit log signing key.
-    pub commit_log_signer: Option<Secret>,
 }
 
 impl GroupMutableMetadata {
@@ -111,13 +112,11 @@ impl GroupMutableMetadata {
         attributes: HashMap<String, String>,
         admin_list: Vec<String>,
         super_admin_list: Vec<String>,
-        commit_log_signer: Option<Secret>,
     ) -> Self {
         Self {
             attributes,
             admin_list,
             super_admin_list,
-            commit_log_signer,
         }
     }
 
@@ -156,13 +155,19 @@ impl GroupMutableMetadata {
             );
         }
 
+        if let Some(signer) = commit_log_signer {
+            attributes.insert(
+                MetadataField::CommitLogSigner.to_string(),
+                hex::encode(signer.as_slice()),
+            );
+        }
+
         let admin_list = vec![];
         let super_admin_list = vec![creator_inbox_id.clone()];
         Self {
             attributes,
             admin_list,
             super_admin_list,
-            commit_log_signer,
         }
     }
 
@@ -198,13 +203,19 @@ impl GroupMutableMetadata {
             );
         }
 
+        if let Some(signer) = commit_log_signer {
+            attributes.insert(
+                MetadataField::CommitLogSigner.to_string(),
+                hex::encode(signer.as_slice()),
+            );
+        }
+
         let admin_list = vec![];
         let super_admin_list = vec![];
         Self {
             attributes,
             admin_list,
             super_admin_list,
-            commit_log_signer,
         }
     }
 
@@ -231,6 +242,15 @@ impl GroupMutableMetadata {
     pub fn is_super_admin(&self, inbox_id: &String) -> bool {
         self.super_admin_list.contains(inbox_id)
     }
+
+    /// Retrieves the commit log signer secret from the metadata attributes.
+    /// Returns None if the field is not present or if hex decoding fails.
+    pub fn commit_log_signer(&self) -> Option<Secret> {
+        self.attributes
+            .get(&MetadataField::CommitLogSigner.to_string())
+            .and_then(|hex_str| hex::decode(hex_str).ok())
+            .map(Secret::new)
+    }
 }
 
 impl TryFrom<GroupMutableMetadata> for Vec<u8> {
@@ -247,10 +267,8 @@ impl TryFrom<GroupMutableMetadata> for Vec<u8> {
             super_admin_list: Some(InboxesProto {
                 inbox_ids: value.super_admin_list,
             }),
-            commit_log_signer: value
-                .commit_log_signer
-                .clone()
-                .map(|secret| secret.as_slice().to_vec()), // TODO: add zeroize support
+            // Deprecated field - use attributes instead
+            commit_log_signer: None,
         };
         proto_val.encode(&mut buf)?;
 
@@ -287,7 +305,6 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
             value.attributes.clone(),
             admin_list,
             super_admin_list,
-            value.commit_log_signer.clone().map(Secret::from),
         ))
     }
 }
@@ -335,4 +352,42 @@ pub fn extract_group_mutable_metadata(
     find_mutable_metadata_extension(group.extensions())
         .ok_or(GroupMutableMetadataError::MissingExtension)?
         .try_into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_commit_log_signer_utility_method() {
+        // Test with valid hex-encoded signer
+        let test_secret_bytes = vec![1u8; 32];
+        let test_secret_hex = hex::encode(&test_secret_bytes);
+
+        let mut attributes = HashMap::new();
+        attributes.insert(
+            MetadataField::CommitLogSigner.to_string(),
+            test_secret_hex.clone(),
+        );
+
+        let metadata = GroupMutableMetadata::new(attributes, vec![], vec![]);
+
+        let retrieved_secret = metadata.commit_log_signer().unwrap();
+        assert_eq!(retrieved_secret.as_slice(), &test_secret_bytes);
+
+        // Test with missing signer
+        let empty_metadata = GroupMutableMetadata::new(HashMap::new(), vec![], vec![]);
+        assert!(empty_metadata.commit_log_signer().is_none());
+
+        // Test with invalid hex
+        let mut bad_attributes = HashMap::new();
+        bad_attributes.insert(
+            MetadataField::CommitLogSigner.to_string(),
+            "invalid_hex".to_string(),
+        );
+
+        let bad_metadata = GroupMutableMetadata::new(bad_attributes, vec![], vec![]);
+        assert!(bad_metadata.commit_log_signer().is_none());
+    }
 }

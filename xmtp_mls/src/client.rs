@@ -707,6 +707,7 @@ where
                         conversation_item.created_at_ns,
                     ),
                     last_message: message,
+                    is_commit_log_forked: conversation_item.is_commit_log_forked,
                 }
             })
             .collect())

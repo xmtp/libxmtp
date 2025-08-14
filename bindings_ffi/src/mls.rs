@@ -1466,6 +1466,7 @@ impl FfiConversations {
                     last_message: conversation_item
                         .last_message
                         .map(|stored_message| stored_message.into()),
+                    is_commit_log_forked: conversation_item.is_commit_log_forked,
                 })
             })
             .collect();
@@ -1490,6 +1491,7 @@ impl FfiConversations {
                     last_message: conversation_item
                         .last_message
                         .map(|stored_message| stored_message.into()),
+                    is_commit_log_forked: conversation_item.is_commit_log_forked,
                 })
             })
             .collect();
@@ -1514,6 +1516,7 @@ impl FfiConversations {
                     last_message: conversation_item
                         .last_message
                         .map(|stored_message| stored_message.into()),
+                    is_commit_log_forked: conversation_item.is_commit_log_forked,
                 })
             })
             .collect();
@@ -1735,6 +1738,7 @@ pub struct FfiConversation {
 pub struct FfiConversationListItem {
     conversation: FfiConversation,
     last_message: Option<FfiMessage>,
+    is_commit_log_forked: Option<bool>,
 }
 
 #[uniffi::export]
@@ -1744,6 +1748,10 @@ impl FfiConversationListItem {
     }
     pub fn last_message(&self) -> Option<FfiMessage> {
         self.last_message.clone()
+    }
+
+    pub fn is_commit_log_forked(&self) -> Option<bool> {
+        self.is_commit_log_forked
     }
 }
 
@@ -1807,6 +1815,7 @@ pub struct FfiConversationDebugInfo {
     pub epoch: u64,
     pub maybe_forked: bool,
     pub fork_details: String,
+    pub is_commit_log_forked: Option<bool>,
     pub local_commit_log: String,
     pub cursor: i64,
 }
@@ -1816,6 +1825,7 @@ impl FfiConversationDebugInfo {
         epoch: u64,
         maybe_forked: bool,
         fork_details: String,
+        is_commit_log_forked: Option<bool>,
         local_commit_log: String,
         cursor: i64,
     ) -> Self {
@@ -1823,6 +1833,7 @@ impl FfiConversationDebugInfo {
             epoch,
             maybe_forked,
             fork_details,
+            is_commit_log_forked,
             local_commit_log,
             cursor,
         }
@@ -1835,6 +1846,7 @@ impl From<ConversationDebugInfo> for FfiConversationDebugInfo {
             value.epoch,
             value.maybe_forked,
             value.fork_details,
+            value.is_commit_log_forked,
             value.local_commit_log,
             value.cursor,
         )
@@ -5370,6 +5382,9 @@ mod tests {
             .send("Second message".as_bytes().to_vec())
             .await
             .unwrap();
+
+        // Wait for 2 seconds to make sure message does not get streamed to Bo's new installation
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
         // Bo logs back in with a new installation
         let bo2 = new_test_client_with_wallet(bo_wallet).await;

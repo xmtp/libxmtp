@@ -8969,6 +8969,7 @@ dependencies = [
 name = "xmtp_mls_common"
 version = "1.4.0-dev"
 dependencies = [
+ "const-hex",
  "openmls",
  "prost",
  "serde",

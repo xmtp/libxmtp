@@ -75,7 +75,8 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
     assert_eq!(results.len(), 1);
     let result = &results[0];
     assert!(result.is_forked.is_some());
-    assert!(!result.is_forked.as_ref().unwrap().get(&group_id).unwrap());
+    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    assert_eq!(*fork_status, Some(false), "Should detect no fork");
     Ok(())
 }
 
@@ -147,7 +148,8 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
     assert_eq!(results.len(), 1);
     let result = &results[0];
     assert!(result.is_forked.is_some());
-    assert!(result.is_forked.as_ref().unwrap().get(&group_id).unwrap());
+    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    assert_eq!(*fork_status, Some(true), "Should detect a fork");
 
     Ok(())
 }
@@ -210,9 +212,12 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     assert_eq!(results.len(), 1);
     let result = &results[0];
     assert!(result.is_forked.is_some());
-    let is_forked = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
-
-    assert!(!is_forked);
+    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    assert_eq!(
+        *fork_status,
+        Some(false),
+        "Should detect no fork when authenticators match"
+    );
 
     // Verify cursors were updated
     let updated_local_cursor = alix.context.db().get_last_cursor_for_id(
@@ -263,13 +268,16 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
         .await
         .unwrap();
 
-    // Should detect no fork
+    // Should detect a fork
     assert_eq!(results.len(), 1);
     let result = &results[0];
     assert!(result.is_forked.is_some());
-    let is_forked = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
-
-    assert!(is_forked);
+    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    assert_eq!(
+        *fork_status,
+        Some(true),
+        "Should detect a fork when authenticators differ"
+    );
 
     // Verify cursors were updated
     let updated_two_local_cursor = alix.context.db().get_last_cursor_for_id(
@@ -298,6 +306,76 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     // Verify that the cursor positions are different
     assert!(updated_two_local_cursor > updated_local_cursor);
     assert!(updated_two_remote_cursor > updated_remote_cursor);
+
+    Ok(())
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
+-> Result<(), Box<dyn std::error::Error>> {
+    tester!(alix);
+    let group = alix.create_group(None, None).unwrap();
+    let group_id = group.group_id.clone();
+
+    // Insert local commit log entries
+    let local_entry_1 = NewLocalCommitLog {
+        group_id: group_id.clone(),
+        commit_sequence_id: 1,
+        last_epoch_authenticator: vec![0x11, 0x22, 0x33],
+        commit_result: CommitResult::Success,
+        error_message: None,
+        applied_epoch_number: 1,
+        applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
+        sender_inbox_id: None,
+        sender_installation_id: None,
+        commit_type: None,
+    };
+
+    let local_entry_2 = NewLocalCommitLog {
+        group_id: group_id.clone(),
+        commit_sequence_id: 2,
+        last_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
+        commit_result: CommitResult::Success,
+        error_message: None,
+        applied_epoch_number: 2,
+        applied_epoch_authenticator: vec![0xDD, 0xEE, 0xFF],
+        sender_inbox_id: None,
+        sender_installation_id: None,
+        commit_type: None,
+    };
+
+    local_entry_1.store(&alix.context.db())?;
+    local_entry_2.store(&alix.context.db())?;
+
+    // Insert remote commit log entries with different commit_sequence_ids (no match for latest local)
+    let remote_entry = NewRemoteCommitLog {
+        log_sequence_id: 100,
+        group_id: group_id.clone(),
+        commit_sequence_id: 1, // Only matches first local entry
+        commit_result: CommitResult::Success,
+        applied_epoch_number: 1,
+        applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC], // Same as local
+    };
+
+    remote_entry.store(&alix.context.db())?;
+    // Note: No remote entry for commit_sequence_id 2
+
+    // Test fork detection
+    let mut worker = CommitLogWorker::new(alix.context.clone());
+    let results = worker
+        .run_test(CommitLogTestFunction::CheckForkedState, None)
+        .await
+        .unwrap();
+
+    // Should return None because latest local commit has no matching remote entry
+    assert_eq!(results.len(), 1);
+    let result = &results[0];
+    assert!(result.is_forked.is_some());
+    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    assert_eq!(
+        *fork_status, None,
+        "Should return None when latest local commit has no matching remote entry"
+    );
 
     Ok(())
 }

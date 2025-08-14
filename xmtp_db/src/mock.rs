@@ -219,6 +219,10 @@ mock! {
 
         fn get_conversation_ids_for_remote_log_download(&self) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
 
+        fn get_conversation_ids_for_fork_check(
+            &self,
+        ) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+
         fn get_conversation_type(&self, group_id: &[u8]) -> Result<ConversationType, crate::ConnectionError>;
 
         fn set_group_commit_log_public_key(
@@ -226,6 +230,17 @@ mock! {
             group_id: &[u8],
             public_key: &[u8],
         ) -> Result<(), StorageError>;
+
+        fn set_group_commit_log_forked_status(
+            &self,
+            group_id: &[u8],
+            is_forked: Option<bool>,
+        ) -> Result<(), StorageError>;
+
+        fn get_group_commit_log_forked_status(
+            &self,
+            group_id: &[u8],
+        ) -> Result<Option<bool>, StorageError>;
     }
 
     impl QueryGroupVersion for DbQuery {

@@ -157,7 +157,7 @@ pub enum CommitLogTestFunction {
 pub struct TestResult {
     pub save_remote_commit_log_results: Option<HashMap<Vec<u8>, usize>>,
     pub publish_commit_log_results: Option<Vec<ConversationCursorInfo>>,
-    pub is_forked: Option<HashMap<Vec<u8>, bool>>,
+    pub is_forked: Option<HashMap<Vec<u8>, Option<bool>>>,
 }
 
 // CommitLogWorker implementation
@@ -168,9 +168,9 @@ where
     async fn run(&mut self) -> Result<(), CommitLogError> {
         let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
         while (intervals.next().await).is_some() {
-            self.publish_commit_logs_to_remote().await?;
             self.save_remote_commit_log().await?;
-            self.check_forked_state().await?;
+            self.update_forked_state().await?;
+            self.publish_commit_logs_to_remote().await?;
         }
         Ok(())
     }
@@ -358,12 +358,12 @@ where
         let mut save_remote_commit_log_results = HashMap::new();
         for response in query_commit_log_responses {
             let group_id = response.group_id.clone();
-            // TODO(rich): Make sure there are no race conditions here
             let mut consensus_public_key: Option<Vec<u8>> = conversation_id_to_public_key
                 .get(&group_id)
                 .and_then(Option::clone);
             if consensus_public_key.is_none() {
-                consensus_public_key = derive_consensus_public_key(&self.context, &response)?;
+                consensus_public_key =
+                    derive_consensus_public_key(&self.context, &response).await?;
             }
             let num_entries = self.save_remote_commit_log_entries_and_update_cursors(
                 conn,
@@ -511,27 +511,49 @@ where
                         != latest_saved_remote_log.applied_epoch_number))
     }
 
-    // Returns a map of conversation_id to boolean with true if forked, false otherwise
-    pub async fn check_forked_state(&mut self) -> Result<HashMap<Vec<u8>, bool>, CommitLogError> {
+    // Updates fork status for conversations in the database
+    pub async fn update_forked_state(&mut self) -> Result<(), CommitLogError> {
         let conn = &self.context.db();
-        let conversation_ids_for_forked_state_check =
-            conn.get_conversation_ids_for_remote_log_download()?;
+        let conversation_ids_for_forked_state_check = conn.get_conversation_ids_for_fork_check()?;
 
-        let mut forked_state_check_results = HashMap::new();
-
-        for conversation in conversation_ids_for_forked_state_check {
-            let is_forked = self.check_conversation_fork_state(conn, &conversation.id)?;
-            forked_state_check_results.insert(conversation.id, is_forked);
+        for conversation_id in conversation_ids_for_forked_state_check {
+            let is_forked = self.check_conversation_fork_state(conn, &conversation_id)?;
+            // Persist the fork status to the database
+            conn.set_group_commit_log_forked_status(&conversation_id, is_forked)?;
         }
 
-        Ok(forked_state_check_results)
+        Ok(())
+    }
+
+    // Test helper to get fork status for a specific group
+    #[cfg(test)]
+    pub fn get_group_fork_status(&self, group_id: &[u8]) -> Result<Option<bool>, CommitLogError> {
+        let conn = &self.context.db();
+        Ok(conn.get_group_commit_log_forked_status(group_id)?)
+    }
+
+    // Test helper to get fork status for all groups that would be checked (for backward compatibility with tests)
+    #[cfg(test)]
+    pub fn get_all_fork_statuses(&self) -> Result<HashMap<Vec<u8>, Option<bool>>, CommitLogError> {
+        use xmtp_db::group::GroupQueryArgs;
+        let conn = &self.context.db();
+        // Get all groups (not just those with commit log keys)
+        let all_groups = conn.find_groups(GroupQueryArgs::default())?;
+
+        let mut results = HashMap::new();
+        for group in all_groups {
+            let fork_status = conn.get_group_commit_log_forked_status(&group.id)?;
+            results.insert(group.id, fork_status);
+        }
+
+        Ok(results)
     }
 
     fn check_conversation_fork_state(
         &self,
         conn: &impl DbQuery,
         conversation_id: &[u8],
-    ) -> Result<bool, CommitLogError> {
+    ) -> Result<Option<bool>, CommitLogError> {
         // Get cursors for this conversation
         let fork_check_local_cursor = conn.get_last_cursor_for_id(
             conversation_id,
@@ -551,45 +573,54 @@ where
         let remote_logs =
             conn.get_remote_commit_log_after_cursor(conversation_id, fork_check_remote_cursor)?;
 
+        let mut is_remote_log_up_to_date = true;
         // Check each local log against remote logs for matching commit_sequence_id
         for local_log in &local_logs {
-            if let Some(matching_remote_log) =
+            let Some(matching_remote_log) =
                 self.find_matching_remote_log(&remote_logs, local_log.commit_sequence_id)
-            {
-                // Found a matching commit_sequence_id - check if forked
-                let is_forked = local_log.applied_epoch_authenticator
-                    != matching_remote_log.applied_epoch_authenticator;
+            else {
+                is_remote_log_up_to_date = false;
+                continue;
+            };
+            // Found a matching commit_sequence_id - check if forked
+            let is_mismatched = local_log.applied_epoch_authenticator
+                != matching_remote_log.applied_epoch_authenticator;
 
-                if is_forked {
-                    tracing::warn!(
-                        "Detected forked state for conversation_id: {:?}\n\
+            if is_mismatched {
+                tracing::warn!(
+                    "Detected forked state for conversation_id: {:?}\n\
                             Local log: {:?}\n\
                             Remote log: {:?}",
-                        conversation_id,
-                        local_log,
-                        matching_remote_log
-                    );
-                }
-
-                // Update cursors regardless of fork status (we found a match)
-                conn.update_cursor(
                     conversation_id,
-                    xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-                    local_log.rowid as i64,
-                )?;
-                conn.update_cursor(
-                    conversation_id,
-                    xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-                    matching_remote_log.rowid as i64,
-                )?;
+                    local_log,
+                    matching_remote_log
+                );
+            }
 
-                // Return the result
-                return Ok(is_forked);
+            // Update cursors regardless of fork status (we found a match)
+            conn.update_cursor(
+                conversation_id,
+                xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
+                local_log.rowid as i64,
+            )?;
+            conn.update_cursor(
+                conversation_id,
+                xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
+                matching_remote_log.rowid as i64,
+            )?;
+
+            if is_mismatched {
+                return Ok(Some(true));
+            } else if is_remote_log_up_to_date {
+                return Ok(Some(false));
+            } else {
+                // If we haven't verified the latest commit local commit logs, we
+                // don't know if we are forked or not
+                return Ok(None);
             }
         }
 
-        // No matching commit_sequence_id found for any local log = no fork detected
-        Ok(false)
+        Ok(None)
     }
 
     fn find_matching_remote_log<'a>(
@@ -646,7 +677,8 @@ where
                 test_result.save_remote_commit_log_results = Some(save_remote_commit_log_results);
             }
             CommitLogTestFunction::CheckForkedState => {
-                let is_forked = self.check_forked_state().await?;
+                self.update_forked_state().await?;
+                let is_forked = self.get_all_fork_statuses()?;
                 test_result.is_forked = Some(is_forked);
             }
             CommitLogTestFunction::All => {
@@ -654,7 +686,8 @@ where
                 test_result.publish_commit_log_results = Some(publish_commit_log_results);
                 let save_remote_commit_log_results = self.save_remote_commit_log().await?;
                 test_result.save_remote_commit_log_results = Some(save_remote_commit_log_results);
-                let is_forked = self.check_forked_state().await?;
+                self.update_forked_state().await?;
+                let is_forked = self.get_all_fork_statuses()?;
                 test_result.is_forked = Some(is_forked);
             }
         }

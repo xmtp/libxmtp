@@ -213,6 +213,13 @@ impl UpdateMetadataIntentData {
             field_value: min_version,
         }
     }
+
+    pub fn new_update_commit_log_signer(commit_log_signer: xmtp_cryptography::Secret) -> Self {
+        Self {
+            field_name: MetadataField::CommitLogSigner.to_string(),
+            field_value: hex::encode(commit_log_signer.as_slice()),
+        }
+    }
 }
 
 impl From<UpdateMetadataIntentData> for Vec<u8> {
