@@ -329,6 +329,14 @@ mock! {
             args: &crate::group_message::MsgQueryArgs,
         ) -> Result<Vec<crate::group_message::StoredGroupMessageWithReactions>, crate::ConnectionError>;
 
+        fn get_group_messages_with_relations(
+            &self,
+            group_id: &[u8],
+            args: &crate::group_message::MsgQueryArgs,
+            inbound_relations_filter: Option<crate::group_message::RelationQuery>,
+            outbound_relations_filter: Option<crate::group_message::RelationQuery>,
+        ) -> Result<crate::group_message::MessagesWithRelations, crate::ConnectionError>;
+
         #[mockall::concretize]
         fn get_group_message<MessageId: AsRef<[u8]>>(
             &self,
