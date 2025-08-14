@@ -39,7 +39,7 @@ xmtp_cryptography.workspace = true
 xmtp_db.workspace = true
 xmtp_id.workspace = true
 xmtp_mls = { workspace = true, features = ["http-api"] }
-xmtp_proto = { workspace = true, features = ["proto_full"] }
+xmtp_proto = { workspace = true }
 
 alloy = { workspace = true, optional = true }
 wasm-bindgen-test = { workspace = true, optional = true }
