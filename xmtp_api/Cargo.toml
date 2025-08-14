@@ -16,6 +16,7 @@ thiserror.workspace = true
 tracing.workspace = true
 xmtp_api_http = { workspace = true, optional = true }
 xmtp_common.workspace = true
+xmtp_configuration.workspace = true
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 mockall = { workspace = true, optional = true }
@@ -31,6 +32,7 @@ xmtp_api_grpc = { workspace = true, optional = true }
 futures-timer.workspace = true
 mockall.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 
@@ -47,6 +49,7 @@ ctor.workspace = true
 default = ["grpc-api"]
 test-utils = [
   "xmtp_common/test-utils",
+  "xmtp_configuration/test-utils",
   "xmtp_proto/test-utils",
   "xmtp_id/test-utils",
   "xmtp_api_http/test-utils",
