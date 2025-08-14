@@ -8,10 +8,14 @@ pub mod remote_attachment;
 pub mod reply;
 pub mod text;
 pub mod transaction_reference;
+mod utils;
 
 use prost::Message;
 use thiserror::Error;
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
+
+#[cfg(test)]
+mod compatibility_test;
 
 #[derive(Debug, Error)]
 pub enum CodecError {

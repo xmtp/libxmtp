@@ -8747,6 +8747,8 @@ dependencies = [
 name = "xmtp_content_types"
 version = "1.4.0-dev"
 dependencies = [
+ "base64 0.21.7",
+ "const-hex",
  "prost",
  "serde",
  "serde_json",
