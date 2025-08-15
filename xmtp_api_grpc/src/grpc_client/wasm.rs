@@ -1,7 +1,7 @@
 use crate::error::GrpcBuilderError;
 use http::Request;
 use std::task::{Context, Poll};
-use tonic::{body::BoxBody as Body, client::GrpcService};
+use tonic::{body::Body, client::GrpcService};
 use tonic_web_wasm_client::{
     options::{FetchOptions, ReferrerPolicy},
     Client,

@@ -24,6 +24,7 @@ tracing.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 tonic-prost = "0.14"
+prost-types = "0.14"
 
 tokio = { workspace = true, default-features = false, features = [
   "sync",
@@ -44,6 +45,7 @@ url = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["sync"] }
 toxiproxy_rust = { workspace = true }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
+xmtp_common = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 openmls = { workspace = true, features = ["js"] }

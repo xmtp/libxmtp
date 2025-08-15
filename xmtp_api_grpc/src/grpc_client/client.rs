@@ -3,7 +3,10 @@
 //! The  inner channel must implement a tower service to implicitly
 //! implement the gRPC Service
 
-use crate::error::{GrpcBuilderError, GrpcError};
+use crate::{
+    error::{GrpcBuilderError, GrpcError},
+    streams::EscapableTonicStream,
+};
 use futures::Stream;
 use pin_project_lite::pin_project;
 use prost::bytes::Bytes;
@@ -38,7 +41,11 @@ impl<T> ToHttp for tonic::Response<T> {
     fn to_http(self) -> http::Response<Self::Body> {
         let (metadata, body, extensions) = self.into_parts();
         let mut response = http::Response::new(body);
-        *response.version_mut() = http::version::Version::HTTP_2;
+        if cfg!(target_arch = "wasm32") {
+            *response.version_mut() = http::version::Version::HTTP_11;
+        } else {
+            *response.version_mut() = http::version::Version::HTTP_2;
+        }
         *response.headers_mut() = metadata.into_headers();
         *response.extensions_mut() = extensions;
         response
@@ -53,6 +60,18 @@ pub struct GrpcClient {
 }
 
 impl GrpcClient {
+    pub fn new(
+        service: crate::GrpcService,
+        app_version: MetadataValue<metadata::Ascii>,
+        libxmtp_version: MetadataValue<metadata::Ascii>,
+    ) -> Self {
+        Self {
+            inner: tonic::client::Grpc::new(service),
+            app_version,
+            libxmtp_version,
+        }
+    }
+
     /// Builds a tonic request from a body and a generic HTTP Request
     fn build_tonic_request(
         &self,
@@ -89,12 +108,12 @@ impl GrpcClient {
 pin_project! {
     /// A stream of bytes from a GRPC Network Source
     pub struct GrpcStream {
-        #[pin] inner: tonic::Streaming<Bytes>
+        #[pin] inner: crate::streams::NonBlocking
     }
 }
 
-impl From<tonic::Streaming<Bytes>> for GrpcStream {
-    fn from(value: tonic::Streaming<Bytes>) -> GrpcStream {
+impl From<crate::streams::NonBlocking> for GrpcStream {
+    fn from(value: crate::streams::NonBlocking) -> GrpcStream {
         GrpcStream { inner: value }
     }
 }
@@ -145,13 +164,20 @@ impl Client for GrpcClient {
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
         self.wait_for_ready().await?;
         let request = self.build_tonic_request(request, body)?;
-        let client = &mut self.inner.clone();
+        let client = self.inner.clone();
 
-        let codec = TransparentCodec::default();
-        let response = client
-            .server_streaming(request, path, codec)
-            .await
-            .map_err(GrpcError::from)?;
+        let response = async move {
+            let mut client = client;
+            let codec = TransparentCodec::default();
+            (&mut client).server_streaming(request, path, codec).await
+        };
+        let req = crate::streams::NonBlockingStreamRequest::new(Box::pin(response) as Pin<Box<_>>);
+        let s = crate::streams::send(req).await.map_err(GrpcError::from)?;
+        let (meta, stream, extensions) = s.into_parts();
+        let stream = GrpcStream {
+            inner: EscapableTonicStream::new(stream),
+        };
+        let response = tonic::Response::from_parts(meta, stream, extensions);
         Ok(response.to_http().map(Into::into))
     }
 }

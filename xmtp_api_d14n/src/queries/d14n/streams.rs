@@ -5,6 +5,8 @@ use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1;
 use xmtp_proto::traits::{ApiClientError, Client};
 
+// #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+// #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C, P, E> XmtpMlsStreams for D14nClient<C, P>

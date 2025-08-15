@@ -28,7 +28,7 @@ impl Endpoint for VerifySmartContractWalletSignatures {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<VerifySmartContractWalletSignaturesRequest>()
+        xmtp_proto::path_and_query::<VerifySmartContractWalletSignaturesRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -47,7 +47,7 @@ mod test {
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
-        let pnq = crate::path_and_query::<VerifySmartContractWalletSignaturesRequest>();
+        let pnq = xmtp_proto::path_and_query::<VerifySmartContractWalletSignaturesRequest>();
         println!("{}", pnq);
     }
 

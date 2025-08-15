@@ -2,7 +2,7 @@ use crate::error::GrpcBuilderError;
 use http::Request;
 use std::time::Duration;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
-use tonic::{body::BoxBody as Body, client::GrpcService};
+use tonic::{body::Body, client::GrpcService};
 use tower::Service;
 use tracing::Instrument;
 

@@ -1,5 +1,5 @@
 use crate::error::{GrpcBuilderError, GrpcError};
-use crate::streams::{self, EscapableTonicStream, XmtpTonicStream};
+use crate::streams::{self, XmtpTonicStream};
 use tonic::{metadata::MetadataValue, Request};
 use tower::ServiceExt;
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
@@ -71,6 +71,14 @@ impl Client {
 
     pub async fn is_connected(&self) -> bool {
         self.channel.clone().ready().await.is_ok()
+    }
+
+    fn client(&self) -> crate::GrpcClient {
+        crate::GrpcClient::new(
+            self.channel.clone(),
+            self.app_version.clone(),
+            self.libxmtp_version.clone(),
+        )
     }
 }
 
@@ -269,19 +277,15 @@ impl XmtpMlsClient for Client {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl XmtpMlsStreams for Client {
     type Error = ApiClientError<crate::error::GrpcError>;
-    type GroupMessageStream = streams::XmtpStream<'static, GroupMessage>;
-    type WelcomeMessageStream = streams::XmtpStream<'static, WelcomeMessage>;
+    type GroupMessageStream = streams::XmtpStream<GroupMessage>;
+    type WelcomeMessageStream = streams::XmtpStream<WelcomeMessage>;
 
     async fn subscribe_group_messages(
         &self,
         req: SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         self.stats.subscribe_messages.count_request();
-        let mut client = self.mls_client.clone();
-        let response = client
-            .subscribe_group_messages(self.build_request(req));
-        Ok(XmtpTonicStream::from_response(response, ApiEndpoint::SubscribeGroupMessages).await
-            .map_err(|e| ApiClientError::new(ApiEndpoint::SubscribeGroupMessages, e.into()))?)
+        XmtpTonicStream::from_body(req, self.client(), ApiEndpoint::SubscribeGroupMessages).await
     }
 
     async fn subscribe_welcome_messages(
@@ -289,15 +293,7 @@ impl XmtpMlsStreams for Client {
         req: SubscribeWelcomeMessagesRequest,
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         self.stats.subscribe_welcomes.count_request();
-        let client = &mut self.mls_client.clone();
-        let res = client.subscribe_welcome_messages(self.build_request(req));
-        todo!()
-        /*
-        Ok(XmtpTonicStream::from_response(
-            res,
-            ApiEndpoint::SubscribeWelcomes,
-        ).await)
-*/
+        XmtpTonicStream::from_body(req, self.client(), ApiEndpoint::SubscribeWelcomes).await
     }
 }
 

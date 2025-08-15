@@ -15,14 +15,17 @@ pub use generated::*;
 mod error;
 mod impls;
 
+mod proto_cache;
+pub use proto_cache::*;
+
 pub use error::*;
 
 pub mod api_client;
 #[cfg(any(test, feature = "test-utils"))]
 pub use api_client::tests::*;
 
-pub mod traits;
 pub mod codec;
+pub mod traits;
 
 #[cfg(feature = "convert")]
 pub mod convert;

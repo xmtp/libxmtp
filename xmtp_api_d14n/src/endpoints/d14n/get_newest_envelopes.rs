@@ -32,7 +32,7 @@ impl Endpoint for GetNewestEnvelopes {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<GetNewestEnvelopeRequest>()
+        xmtp_proto::path_and_query::<GetNewestEnvelopeRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -50,7 +50,7 @@ mod test {
     #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeRequest;
-        let pnq = crate::path_and_query::<GetNewestEnvelopeRequest>();
+        let pnq = xmtp_proto::path_and_query::<GetNewestEnvelopeRequest>();
         println!("{}", pnq);
     }
 

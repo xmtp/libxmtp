@@ -3,17 +3,27 @@ use std::{future::Future, pin::Pin};
 
 pub use escapable::*;
 
-mod web_compat;
-pub use web_compat::*;
-
 mod default;
 pub use default::*;
 
+mod non_blocking_request;
+pub use non_blocking_request::*;
+
+mod non_blocking_stream;
+pub use non_blocking_stream::*;
+
+use prost::bytes::Bytes;
 use tonic::{Response, Status, Streaming};
 
-type ResponseFuture<T> = Pin<Box<dyn Future<Output = Result<Response<Streaming<T>>, Status>> + Send + Sync + Unpin>>;
+type Stream = Streaming<Bytes>;
+#[cfg(target_arch = "wasm32")]
+type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response<Stream>, Status>>>>;
 
-type NonBlocking<'a, T> =
-    NonBlockingWebStream<'a, ResponseFuture<T>, EscapableTonicStream<Streaming<T>, T>, T>;
+#[cfg(not(target_arch = "wasm32"))]
+type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response<Stream>, Status>> + Send>>;
 
-pub type XmtpStream<'a, T> = XmtpTonicStream<NonBlocking<'a, T>>;
+pub(crate) type NonBlocking = EscapableTonicStream<
+    NonBlockingWebStream<NonBlockingStreamRequest<ResponseFuture>, Stream>,
+>;
+
+pub type XmtpStream<T> = XmtpTonicStream<crate::GrpcStream, T>;
