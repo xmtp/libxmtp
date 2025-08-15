@@ -31,7 +31,7 @@ xmtp_configuration.workspace = true
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id.workspace = true
 xmtp_mls.workspace = true
-xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
+xmtp_proto = { path = "../xmtp_proto", features = ["convert"] }
 
 
 [dev-dependencies]

@@ -1,20 +1,10 @@
 #!/bin/bash
 
 BRANCH=${PROTO_BRANCH:-main}
+REV=$(git ls-remote https://github.com/xmtp/proto $BRANCH | awk '{print $1}')
+WORKSPACE_MANIFEST="$(cargo locate-project --workspace --message-format=plain)"
+WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
 
-pushd xmtp_proto > /dev/null
-if ! cargo install --list | grep "protoc-gen-prost-crate" > /dev/null; then
-    # If upgrading tonic, requires installing from git b/c https://github.com/neoeinstein/protoc-gen-prost/pull/119
-    if ! cargo install protoc-gen-prost-crate; then
-        echo "Failed to install protoc-gen-prost-crate"
-        exit 1
-    fi
-fi
-
-echo "Generating protos from branch ${BRANCH}..."
-
-if ! buf generate "https://github.com/xmtp/proto.git#branch=${BRANCH},subdir=proto"; then
-    echo "Failed to generate protobuf definitions"
-    exit 1
-fi
-popd > /dev/null
+export GEN_PROTOS=1
+echo $REV > $WORKSPACE_PATH/xmtp_proto/proto_version
+cargo build -p xmtp_proto

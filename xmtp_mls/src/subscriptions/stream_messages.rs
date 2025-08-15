@@ -493,7 +493,6 @@ where
         let this = self.as_mut().project();
         if let Some(envelope) = ready!(this.inner.poll_next(cx)) {
             let envelope = envelope.map_err(|e| SubscribeError::BoxError(Box::new(e)))?;
-
             if let Some(msg) = extract_message_v1(envelope) {
                 this.got.push(msg.id);
                 tracing::trace!(

@@ -4,7 +4,7 @@ use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::identity::api::v1::{
-    FILE_DESCRIPTOR_SET, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
+    PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
 };
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 
@@ -28,7 +28,7 @@ impl Endpoint for PublishIdentityUpdate {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<PublishIdentityUpdateRequest>(FILE_DESCRIPTOR_SET)
+        crate::path_and_query::<PublishIdentityUpdateRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -47,10 +47,8 @@ mod test {
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
-        use xmtp_proto::xmtp::identity::api::v1::{
-            FILE_DESCRIPTOR_SET, PublishIdentityUpdateRequest,
-        };
-        let _pnq = crate::path_and_query::<PublishIdentityUpdateRequest>(FILE_DESCRIPTOR_SET);
+        use xmtp_proto::xmtp::identity::api::v1::PublishIdentityUpdateRequest;
+        let _pnq = crate::path_and_query::<PublishIdentityUpdateRequest>();
     }
 
     #[xmtp_common::test]

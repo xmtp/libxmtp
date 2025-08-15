@@ -31,7 +31,7 @@ num_cpus = "1.16.0"
 openmls.workspace = true
 owo-colors.workspace = true
 prost.workspace = true
-rand.workspace = true
+rand = { workspace = true, features = ["small_rng"] }
 redb = "2.6"
 speedy = "0.8"
 tempfile = "3.15"
