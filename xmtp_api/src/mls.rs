@@ -367,10 +367,20 @@ where
 
     pub async fn publish_commit_log(&self, requests: Vec<PublishCommitLogRequest>) -> Result<()> {
         tracing::debug!(inbox_id = self.inbox_id, "publishing commit log");
-        self.api_client
-            .publish_commit_log(BatchPublishCommitLogRequest { requests })
-            .await
-            .map_err(crate::dyn_err)
+
+        const BATCH_SIZE: usize = 10;
+
+        // Process requests in batches of 10
+        for batch in requests.chunks(BATCH_SIZE) {
+            self.api_client
+                .publish_commit_log(BatchPublishCommitLogRequest {
+                    requests: batch.to_vec(),
+                })
+                .await
+                .map_err(crate::dyn_err)?;
+        }
+
+        Ok(())
     }
 
     pub async fn query_commit_log(
@@ -378,16 +388,25 @@ where
         query_log_requests: Vec<QueryCommitLogRequest>,
     ) -> Result<Vec<QueryCommitLogResponse>> {
         tracing::debug!(inbox_id = self.inbox_id, "querying commit log");
-        let responses: Vec<QueryCommitLogResponse> = self
-            .api_client
-            .query_commit_log(BatchQueryCommitLogRequest {
-                requests: query_log_requests,
-            })
-            .await
-            .map_err(crate::dyn_err)?
-            .responses;
 
-        Ok(responses)
+        const BATCH_SIZE: usize = 20;
+        let mut all_responses = Vec::new();
+
+        // Process requests in batches of 20
+        for batch in query_log_requests.chunks(BATCH_SIZE) {
+            let batch_responses: Vec<QueryCommitLogResponse> = self
+                .api_client
+                .query_commit_log(BatchQueryCommitLogRequest {
+                    requests: batch.to_vec(),
+                })
+                .await
+                .map_err(crate::dyn_err)?
+                .responses;
+
+            all_responses.extend(batch_responses);
+        }
+
+        Ok(all_responses)
     }
 }
 
@@ -402,11 +421,11 @@ pub mod tests {
     use crate::test_utils::MockError;
     use xmtp_common::rand_vec;
     use xmtp_proto::api_client::ApiBuilder;
-    use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
     use xmtp_proto::mls_v1::{
         welcome_message_input::{Version as WelcomeVersion, V1 as WelcomeV1},
         WelcomeMessageInput,
     };
+    use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
     use xmtp_proto::xmtp::mls::api::v1::{
         fetch_key_packages_response::KeyPackage, FetchKeyPackagesResponse, PagingInfo,
         QueryGroupMessagesResponse,
@@ -749,12 +768,17 @@ pub mod tests {
             Ok(responses) => {
                 // With batching, we should receive responses for all our requests
                 // (though they might be empty if the server has no data)
-                assert!(responses.len() <= 21, "Should not receive more responses than requests");
+                assert!(
+                    responses.len() <= 21,
+                    "Should not receive more responses than requests"
+                );
             }
             Err(e) => {
-                panic!("Query commit log requests must succeed for this test to pass. Error: {}", e);
+                panic!(
+                    "Query commit log requests must succeed for this test to pass. Error: {}",
+                    e
+                );
             }
         }
     }
-
 }
