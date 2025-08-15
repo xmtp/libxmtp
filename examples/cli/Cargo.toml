@@ -12,6 +12,14 @@ version.workspace = true
 name = "xmtp_cli"
 path = "cli-client.rs"
 
+[[bin]]
+name = "stream-monitor"
+path = "stream-monitor.rs"
+
+[[bin]]
+name = "message-sender"
+path = "message-sender.rs"
+
 [dependencies]
 alloy = { workspace = true, features = ["signer-mnemonic"] }
 chrono.workspace = true
@@ -22,6 +30,7 @@ hex.workspace = true
 openmls = { workspace = true }
 owo-colors.workspace = true
 prost.workspace = true
+rand.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 thiserror.workspace = true
