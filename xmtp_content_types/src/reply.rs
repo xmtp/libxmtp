@@ -12,6 +12,8 @@ pub struct ReplyCodec {}
 impl ReplyCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
     pub const TYPE_ID: &'static str = "reply";
+    pub const MAJOR_VERSION: u32 = 1;
+    pub const MINOR_VERSION: u32 = 0;
 }
 
 impl ContentCodec<Reply> for ReplyCodec {
@@ -19,8 +21,8 @@ impl ContentCodec<Reply> for ReplyCodec {
         ContentTypeId {
             authority_id: Self::AUTHORITY_ID.to_string(),
             type_id: Self::TYPE_ID.to_string(),
-            version_major: 1,
-            version_minor: 0,
+            version_major: ReplyCodec::MAJOR_VERSION,
+            version_minor: ReplyCodec::MINOR_VERSION,
         }
     }
 

@@ -5,7 +5,8 @@ use prost::Message;
 
 use serde::{Deserialize, Serialize};
 use xmtp_proto::xmtp::mls::message_contents::{
-    content_types::ReactionV2, ContentTypeId, EncodedContent,
+    content_types::{ReactionAction, ReactionSchema, ReactionV2},
+    ContentTypeId, EncodedContent,
 };
 
 pub struct ReactionCodec {}
@@ -14,6 +15,8 @@ pub struct ReactionCodec {}
 impl ReactionCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
     pub const TYPE_ID: &'static str = "reaction";
+    pub const MAJOR_VERSION: u32 = 2;
+    pub const MINOR_VERSION: u32 = 0;
 }
 
 impl ContentCodec<ReactionV2> for ReactionCodec {
@@ -64,6 +67,31 @@ pub struct LegacyReaction {
     pub content: String,
 }
 
+impl From<LegacyReaction> for ReactionV2 {
+    fn from(legacy: LegacyReaction) -> Self {
+        let action = match legacy.action.as_str() {
+            "added" => ReactionAction::Added as i32,
+            "removed" => ReactionAction::Removed as i32,
+            _ => ReactionAction::Unspecified as i32,
+        };
+
+        let schema = match legacy.schema.as_str() {
+            "unicode" => ReactionSchema::Unicode as i32,
+            "shortcode" => ReactionSchema::Shortcode as i32,
+            "custom" => ReactionSchema::Custom as i32,
+            _ => ReactionSchema::Unspecified as i32,
+        };
+
+        ReactionV2 {
+            reference: legacy.reference,
+            reference_inbox_id: legacy.reference_inbox_id.unwrap_or_default(),
+            action,
+            content: legacy.content,
+            schema,
+        }
+    }
+}
+
 impl LegacyReaction {
     pub fn decode(content: &[u8]) -> Option<LegacyReaction> {
         // Try to decode the content as UTF-8 string first
@@ -90,8 +118,8 @@ pub struct LegacyReactionCodec {}
 impl LegacyReactionCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
     pub const TYPE_ID: &'static str = "reaction";
-    const VERSION_MAJOR: u32 = 1;
-    const VERSION_MINOR: u32 = 0;
+    pub const MAJOR_VERSION: u32 = 1;
+    pub const MINOR_VERSION: u32 = 0;
 }
 
 impl ContentCodec<LegacyReaction> for LegacyReactionCodec {
@@ -99,8 +127,8 @@ impl ContentCodec<LegacyReaction> for LegacyReactionCodec {
         ContentTypeId {
             authority_id: LegacyReactionCodec::AUTHORITY_ID.to_string(),
             type_id: LegacyReactionCodec::TYPE_ID.to_string(),
-            version_major: LegacyReactionCodec::VERSION_MAJOR,
-            version_minor: LegacyReactionCodec::VERSION_MINOR,
+            version_major: LegacyReactionCodec::MAJOR_VERSION,
+            version_minor: LegacyReactionCodec::MINOR_VERSION,
         }
     }
 

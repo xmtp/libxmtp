@@ -11,6 +11,8 @@ impl TextCodec {
     pub const TYPE_ID: &'static str = "text";
     const ENCODING_KEY: &'static str = "encoding";
     const ENCODING_UTF8: &'static str = "UTF-8";
+    pub const MAJOR_VERSION: u32 = 1;
+    pub const MINOR_VERSION: u32 = 0;
 }
 
 impl ContentCodec<String> for TextCodec {
@@ -18,8 +20,8 @@ impl ContentCodec<String> for TextCodec {
         ContentTypeId {
             authority_id: TextCodec::AUTHORITY_ID.to_string(),
             type_id: TextCodec::TYPE_ID.to_string(),
-            version_major: 1,
-            version_minor: 0,
+            version_major: TextCodec::MAJOR_VERSION,
+            version_minor: TextCodec::MINOR_VERSION,
         }
     }
 

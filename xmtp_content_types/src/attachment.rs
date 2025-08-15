@@ -11,6 +11,8 @@ pub struct AttachmentCodec {}
 impl AttachmentCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
     pub const TYPE_ID: &'static str = "attachment";
+    pub const MAJOR_VERSION: u32 = 1;
+    pub const MINOR_VERSION: u32 = 0;
 }
 
 impl ContentCodec<Attachment> for AttachmentCodec {
@@ -18,8 +20,8 @@ impl ContentCodec<Attachment> for AttachmentCodec {
         ContentTypeId {
             authority_id: Self::AUTHORITY_ID.to_string(),
             type_id: Self::TYPE_ID.to_string(),
-            version_major: 1,
-            version_minor: 0,
+            version_major: AttachmentCodec::MAJOR_VERSION,
+            version_minor: AttachmentCodec::MINOR_VERSION,
         }
     }
 

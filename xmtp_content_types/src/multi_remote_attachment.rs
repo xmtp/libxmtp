@@ -11,6 +11,8 @@ pub struct MultiRemoteAttachmentCodec {}
 impl MultiRemoteAttachmentCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
     pub const TYPE_ID: &'static str = "multiRemoteStaticAttachment";
+    pub const MAJOR_VERSION: u32 = 1;
+    pub const MINOR_VERSION: u32 = 0;
 }
 
 impl ContentCodec<MultiRemoteAttachment> for MultiRemoteAttachmentCodec {
@@ -18,8 +20,8 @@ impl ContentCodec<MultiRemoteAttachment> for MultiRemoteAttachmentCodec {
         ContentTypeId {
             authority_id: MultiRemoteAttachmentCodec::AUTHORITY_ID.to_string(),
             type_id: MultiRemoteAttachmentCodec::TYPE_ID.to_string(),
-            version_major: 1,
-            version_minor: 0,
+            version_major: MultiRemoteAttachmentCodec::MAJOR_VERSION,
+            version_minor: MultiRemoteAttachmentCodec::MINOR_VERSION,
         }
     }
 

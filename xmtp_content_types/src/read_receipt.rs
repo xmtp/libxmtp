@@ -11,6 +11,8 @@ pub struct ReadReceiptCodec {}
 impl ReadReceiptCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
     pub const TYPE_ID: &'static str = "readReceipt";
+    pub const MAJOR_VERSION: u32 = 1;
+    pub const MINOR_VERSION: u32 = 0;
 }
 
 impl ContentCodec<ReadReceipt> for ReadReceiptCodec {
@@ -18,8 +20,8 @@ impl ContentCodec<ReadReceipt> for ReadReceiptCodec {
         ContentTypeId {
             authority_id: Self::AUTHORITY_ID.to_string(),
             type_id: Self::TYPE_ID.to_string(),
-            version_major: 1,
-            version_minor: 0,
+            version_major: ReadReceiptCodec::MAJOR_VERSION,
+            version_minor: ReadReceiptCodec::MINOR_VERSION,
         }
     }
 

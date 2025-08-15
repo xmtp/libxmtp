@@ -10,6 +10,7 @@ pub mod group_permissions;
 pub mod intents;
 pub mod key_package_cleaner_worker;
 pub mod members;
+pub mod message_list;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;
 pub(super) mod subscriptions;
