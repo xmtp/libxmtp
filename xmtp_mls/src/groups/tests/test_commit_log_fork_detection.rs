@@ -442,7 +442,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     // First fork detection run - should detect no fork and set status to Some(false)
     let mut worker = CommitLogWorker::new(alix.context.clone());
     let results = worker
-        .run_test(CommitLogTestFunction::CheckForkedState, None)
+        .run_test(CommitLogTestFunction::All, None)
         .await
         .unwrap();
 
@@ -467,7 +467,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     // Second fork detection run - no new commits have been added
     // This should preserve the existing fork status (Some(false))
     let results_second = worker
-        .run_test(CommitLogTestFunction::CheckForkedState, None)
+        .run_test(CommitLogTestFunction::All, None)
         .await
         .unwrap();
 
