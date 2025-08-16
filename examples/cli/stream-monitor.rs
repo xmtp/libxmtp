@@ -124,7 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Timeout will start when first message is received and reset on each new message
     let timeout_duration = Duration::from_secs(args.timeout);
-    let mut start_time: Option<std::time::Instant> = None;
+    let mut first_message_time: Option<std::time::Instant> = None;
     let mut last_message_time: Option<std::time::Instant> = None;
 
     info!(
@@ -195,7 +195,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let now = std::time::Instant::now();
 
                     // Start timer on first message
-                    start_time = Some(now);
+                    first_message_time = Some(now);
                     last_message_time = Some(now);
                     
                     info!("First message received! Timeout timer started.");
@@ -226,17 +226,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         message_count
     );
 
-    // Calculate messages per second
-    if let Some(timer_start) = start_time {
-        let total_duration = timer_start.elapsed();
-        let duration_seconds = total_duration.as_secs_f64();
-        if duration_seconds > 0.0 {
-            let messages_per_second = message_count as f64 / duration_seconds;
+    // Calculate messages per second based on first-to-last message duration
+    if let (Some(first_msg_time), Some(last_msg_time)) = (first_message_time, last_message_time) {
+        let message_duration = last_msg_time.duration_since(first_msg_time);
+        let duration_seconds = message_duration.as_secs_f64();
+        
+        if message_count > 1 && duration_seconds > 0.0 {
+            let messages_per_second = (message_count - 1) as f64 / duration_seconds;
             info!(
-                "Performance: {:.2} messages/second over {:.2} seconds",
+                "Performance: {:.2} messages/second over {:.2} seconds (excluding timeout)",
                 messages_per_second, duration_seconds
             );
+        } else if message_count == 1 {
+            info!("Performance: Only 1 message received, no rate calculation possible");
         }
+    } else if message_count > 0 {
+        info!("Performance: Unable to calculate rate - timing data incomplete");
     }
 
     // Write message IDs to file if enabled

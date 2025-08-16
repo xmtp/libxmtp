@@ -33,7 +33,7 @@ struct Args {
 
     /// Number of messages to send per thread
     #[arg(long, default_value = "500")]
-    messages_per_thread: usize,
+    messages: usize,
 
     /// Output file for sent message IDs
     #[arg(long, default_value = "sent-message-ids.txt")]
@@ -197,11 +197,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting XMTP Message Sender");
     info!("Target inbox ID: {}", args.inbox_id);
     info!("Threads: {}", args.threads);
-    info!("Messages per thread: {}", args.messages_per_thread);
-    info!(
-        "Total messages to send: {}",
-        args.threads * args.messages_per_thread
-    );
+    info!("Messages per thread: {}", args.messages);
+    info!("Total messages to send: {}", args.threads * args.messages);
 
     let message_ids = Arc::new(Mutex::new(Vec::new()));
     let start_time = Instant::now();
@@ -213,13 +210,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let message_ids_clone = Arc::clone(&message_ids);
 
         let handle = tokio::spawn(async move {
-            send_messages_in_thread(
-                thread_id,
-                target_inbox_id,
-                args.messages_per_thread,
-                message_ids_clone,
-            )
-            .await
+            send_messages_in_thread(thread_id, target_inbox_id, args.messages, message_ids_clone)
+                .await
         });
 
         handles.push(handle);
