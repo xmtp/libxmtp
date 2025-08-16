@@ -1,9 +1,11 @@
 use alloy::signers::local::PrivateKeySigner;
 use clap::Parser;
 use futures::StreamExt;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::fs::File;
 use std::io::Write;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::time::{Duration, timeout};
 use tracing::{error, info};
 use xmtp_api_grpc::Client as GrpcApiClient;
@@ -127,10 +129,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut first_message_time: Option<std::time::Instant> = None;
     let mut last_message_time: Option<std::time::Instant> = None;
 
-    info!(
-        "Listening for messages (timeout: {}s after last message, max messages: {})...",
-        args.timeout, args.max_messages
+    // Create progress bar
+    let progress = ProgressBar::new(args.max_messages as u64);
+    progress.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({percent}%) | {msg}")
+            .expect("Failed to set progress bar template")
+            .progress_chars("#>-")
     );
+    progress.set_message(format!("Waiting for messages... (timeout: {}s after last message)", args.timeout));
 
     loop {
         // Check for message limit first (fastest check)
@@ -156,7 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match timeout(remaining_timeout, message_stream.next()).await {
                 Ok(Some(Ok(message))) => {
                     message_count += 1;
-                    let now = std::time::Instant::now();
+                    let now = Instant::now();
 
                     // Reset timeout timer on each message
                     last_message_time = Some(now);
@@ -164,11 +171,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Store message ID
                     message_ids.push(hex::encode(&message.id));
 
-                    info!(
-                        "Received message #{}: ID={}",
-                        message_count,
-                        hex::encode(&message.id)
-                    );
+                    // Update progress bar with rate calculation
+                    progress.inc(1);
+                    if let Some(first_time) = first_message_time {
+                        let elapsed = now.duration_since(first_time).as_secs_f64();
+                        if elapsed > 0.0 {
+                            let rate = message_count as f64 / elapsed;
+                            progress.set_message(format!("{:.1} msg/s", rate));
+                        }
+                    } else {
+                        progress.set_message("First message received!");
+                    }
                 }
                 Ok(Some(Err(e))) => {
                     error!("Error receiving message: {}", e);
@@ -192,22 +205,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match message_stream.next().await {
                 Some(Ok(message)) => {
                     message_count += 1;
-                    let now = std::time::Instant::now();
+                    let now = Instant::now();
 
                     // Start timer on first message
                     first_message_time = Some(now);
                     last_message_time = Some(now);
-                    
-                    info!("First message received! Timeout timer started.");
 
                     // Store message ID
                     message_ids.push(hex::encode(&message.id));
 
-                    info!(
-                        "Received message #{}: ID={}",
-                        message_count,
-                        hex::encode(&message.id)
-                    );
+                    // Update progress bar for first message
+                    progress.inc(1);
+                    progress.set_message("First message received! Timer started.");
                 }
                 Some(Err(e)) => {
                     error!("Error receiving message: {}", e);
@@ -220,6 +229,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+
+    // Finish progress bar
+    progress.finish_with_message(format!("Completed: {} messages received", message_count));
 
     info!(
         "Stream monitoring completed. Total messages received: {}",

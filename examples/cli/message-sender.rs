@@ -1,5 +1,6 @@
 use alloy::signers::local::PrivateKeySigner;
 use clap::Parser;
+use indicatif::{ProgressBar, ProgressStyle};
 use prost::Message;
 use std::fs::File;
 use std::io::Write;
@@ -57,7 +58,6 @@ async fn create_client_with_wallet() -> Result<ClientType, Box<dyn std::error::E
 {
     // Generate a random wallet for signing
     let wallet = PrivateKeySigner::random();
-    info!("Created wallet address: {}", wallet.address());
 
     // Create XMTP client
     let nonce = 0;
@@ -97,12 +97,8 @@ async fn create_client_with_wallet() -> Result<ClientType, Box<dyn std::error::E
         .unwrap();
 
     if let Err(e) = client.register_identity(signature_request).await {
-        error!("Identity registration failed: {}", e);
         return Err(e.into());
     }
-
-    info!("Client created and registered successfully!");
-    info!("Client Inbox ID: {}", client.inbox_id());
 
     Ok(client)
 }
@@ -112,30 +108,15 @@ async fn send_messages_in_thread(
     target_inbox_id: String,
     messages_to_send: usize,
     message_ids: Arc<Mutex<Vec<String>>>,
+    progress: Arc<ProgressBar>,
 ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
-    info!(
-        "Thread {} starting, will send {} messages",
-        thread_id, messages_to_send
-    );
-
     let client = create_client_with_wallet().await?;
 
     // Create or find DM with target inbox ID
-    info!(
-        "Thread {} creating DM with target inbox ID: {}",
-        thread_id, target_inbox_id
-    );
-
     let group = client
         .find_or_create_dm_by_inbox_id(target_inbox_id.clone(), None)
         .await
         .expect("Failed to create DM");
-
-    info!(
-        "Thread {} created/found DM: {}",
-        thread_id,
-        hex::encode(&group.group_id)
-    );
 
     let mut sent_count = 0;
 
@@ -159,29 +140,15 @@ async fn send_messages_in_thread(
                     ids.push(hex_id.clone());
                 }
 
-                info!(
-                    "Thread {} sent message {}/{}: ID={}",
-                    thread_id,
-                    i + 1,
-                    messages_to_send,
-                    hex_id
-                );
+                // Update progress bar
+                progress.inc(1);
             }
-            Err(e) => {
-                error!(
-                    "Thread {} failed to send message {}: {}",
-                    thread_id,
-                    i + 1,
-                    e
-                );
+            Err(_e) => {
+                // Continue on error without updating progress
             }
         }
     }
 
-    info!(
-        "Thread {} completed, sent {} messages",
-        thread_id, sent_count
-    );
     Ok(sent_count)
 }
 
@@ -203,15 +170,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let message_ids = Arc::new(Mutex::new(Vec::new()));
     let start_time = Instant::now();
 
+    // Create single progress bar for all threads
+    let total_messages = args.threads * args.messages;
+    let progress = Arc::new(ProgressBar::new(total_messages as u64));
+    progress.set_style(
+        ProgressStyle::default_bar()
+            .template(
+                "[{elapsed_precise}] [{bar:50.cyan/blue}] {pos}/{len} ({percent}%) | {msg}",
+            )
+            .expect("Failed to set progress bar template")
+            .progress_chars("#>-"),
+    );
+    progress.set_message("Starting threads...");
+
+    // Spawn a task to update progress bar message with current rate
+    let rate_progress = Arc::clone(&progress);
+    let rate_start_time = start_time;
+    let rate_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
+        loop {
+            interval.tick().await;
+            let elapsed = rate_start_time.elapsed().as_secs_f64();
+            if elapsed > 0.0 {
+                let current_pos = rate_progress.position();
+                let rate = current_pos as f64 / elapsed;
+                rate_progress.set_message(format!("{:.1} msg/s", rate));
+            }
+            
+            if rate_progress.is_finished() {
+                break;
+            }
+        }
+    });
+
     // Spawn threads
     let mut handles = Vec::new();
     for thread_id in 0..args.threads {
         let target_inbox_id = args.inbox_id.clone();
         let message_ids_clone = Arc::clone(&message_ids);
+        let progress_clone = Arc::clone(&progress);
 
         let handle = tokio::spawn(async move {
-            send_messages_in_thread(thread_id, target_inbox_id, args.messages, message_ids_clone)
-                .await
+            send_messages_in_thread(
+                thread_id,
+                target_inbox_id,
+                args.messages,
+                message_ids_clone,
+                progress_clone,
+            )
+            .await
         });
 
         handles.push(handle);
@@ -240,6 +247,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         0.0
     };
+
+    // Finish progress bar
+    progress.finish_with_message(format!(
+        "Completed: {} messages sent at {:.1} msg/s",
+        total_sent, messages_per_second
+    ));
+    
+    // Wait for rate update task to finish
+    let _ = rate_handle.await;
 
     info!("=== RESULTS ===");
     info!("Total messages sent: {}", total_sent);
