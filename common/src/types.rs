@@ -5,7 +5,10 @@ pub type Address = String;
 pub type InboxId = String;
 pub type WalletAddress = String;
 
-use std::fmt;
+use bytes::Bytes;
+use std::{fmt, str::FromStr};
+
+use hex::FromHexError;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct InstallationId([u8; 32]);
@@ -19,11 +22,25 @@ impl InstallationId {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GroupId(bytes::Bytes);
 
+impl Default for GroupId {
+    fn default() -> Self {
+        GroupId(Default::default())
+    }
+}
+
 impl std::fmt::Debug for GroupId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("GroupId")
             .field(&crate::fmt::debug_hex(&self.0))
             .finish()
+    }
+}
+
+impl FromStr for GroupId {
+    type Err = FromHexError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(GroupId(Bytes::from(hex::decode(s)?)))
     }
 }
 

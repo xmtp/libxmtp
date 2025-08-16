@@ -184,8 +184,8 @@ fn find_duplicates_with_count(strings: &[String]) -> HashMap<&String, usize> {
 #[rstest::rstest]
 #[xmtp_common::test]
 #[timeout(Duration::from_secs(60))]
-#[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_stream_all_messages_does_not_lose_messages() {
+    xmtp_common::logger();
     let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
     let eve = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);

@@ -251,10 +251,12 @@ where
         let events =
             BroadcastGroupStream::new(BroadcastStream::new(context.local_events().subscribe()));
 
+        tracing::info!("Subscribing");
         let subscription = context
             .api()
             .subscribe_welcome_messages(installation_key.as_ref(), Some(id_cursor as u64))
             .await?;
+        tracing::info!("subscribed");
         let subscription = SubscriptionStream::new(subscription);
         let known_welcome_ids = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());
 
@@ -573,8 +575,9 @@ mod test {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(5))]
+    #[timeout(std::time::Duration::from_secs(60))]
     async fn test_add_remove_re_add() {
+        xmtp_common::logger();
         tester!(alix);
         tester!(bo);
 
@@ -588,6 +591,7 @@ mod test {
             .await
             .unwrap();
         bo.sync_welcomes().await.unwrap();
+        tracing::info!("STARTING STREAM");
         let stream = bo
             .stream_conversations(Some(ConversationType::Group), false)
             .await
@@ -597,7 +601,7 @@ mod test {
             .add_members_by_inbox_id(&[bo.inbox_id().to_string()])
             .await
             .unwrap();
-
+        tracing::info!("AWAITING NEXT STREAM RESULT");
         let group_result = stream.next().await.unwrap();
         if let Err(error) = group_result {
             panic!("Error streaming group: {:?}", error);

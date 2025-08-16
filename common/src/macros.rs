@@ -22,3 +22,39 @@ macro_rules! optify {
         }
     };
 }
+
+/// Convenience macro to easily export items for wasm
+#[macro_export]
+macro_rules! if_wasm {
+    ($($item:item)*) => {$(
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        $item
+    )*}
+}
+
+/// Convenience macro to easily export items for native
+#[macro_export]
+macro_rules! if_native {
+    ($($item:item)*) => {$(
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        $item
+    )*}
+}
+
+/// Convenience macro to easily export items for d14n
+#[macro_export]
+macro_rules! if_d14n {
+    ($($item:item)*) => {$(
+        #[cfg(feature = "d14n")]
+        $item
+    )*}
+}
+
+/// Convenience macro to easily export items for d14n
+#[macro_export]
+macro_rules! if_v3 {
+    ($($item:item)*) => {$(
+        #[cfg(not(feature = "d14n"))]
+        $item
+    )*}
+}
