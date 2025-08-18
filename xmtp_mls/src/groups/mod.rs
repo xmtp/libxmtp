@@ -296,7 +296,7 @@ where
                     context,
                     group_id.to_vec(),
                     group.dm_id.clone(),
-                    ConversationType::Group,
+                    group.conversation_type,
                     group.created_at_ns,
                 ),
                 group,
