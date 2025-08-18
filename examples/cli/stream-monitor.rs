@@ -7,12 +7,22 @@ use std::io::Write;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::time::{timeout, Duration};
-use tracing::{error, info};
+use tracing::error;
+use tracing_flame::FlameLayer;
+use tracing_subscriber::{prelude::*, registry::Registry};
 use xmtp_api_grpc::Client as GrpcApiClient;
 use xmtp_db::{EncryptedMessageStore, NativeDb, StorageOption};
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::Client;
 use xmtp_mls::InboxOwner;
+
+fn setup_global_subscriber() -> impl Drop {
+    // let fmt_layer = fmt::Layer::default();
+    let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
+    let subscriber = Registry::default().with(flame_layer);
+    tracing::subscriber::set_global_default(subscriber).expect("Could not set global default");
+    _guard
+}
 
 #[derive(Parser)]
 #[command(name = "stream-monitor")]
@@ -50,21 +60,22 @@ fn client_random_suffix() -> String {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let _guard = setup_global_subscriber();
     // Initialize logging - only show logs from this CLI
-    tracing_subscriber::fmt()
-        .with_env_filter("stream_monitor=trace")
-        .init();
+    // tracing_subscriber::fmt()
+    //     .with_env_filter("stream_monitor=trace")
+    //     .init();
 
     let args = Args::parse();
 
-    info!("Starting XMTP Stream Monitor");
+    println!("Starting XMTP Stream Monitor");
 
     // Generate a random wallet for signing
     let wallet = PrivateKeySigner::random();
-    info!("Generated wallet address: {}", wallet.address());
+    println!("Generated wallet address: {}", wallet.address());
 
     // Create XMTP client
-    info!("Creating XMTP client...");
+    println!("Creating XMTP client...");
     let nonce = 0;
     let ident = wallet.get_identifier().expect("Wallet address is invalid");
     let inbox_id = ident.inbox_id(nonce).expect("Failed to get inbox ID");
@@ -79,12 +90,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create encrypted store based on CLI option
     let store = if args.use_database {
         let db_path = format!("stream-monitor-{}.db3", client_random_suffix());
-        info!("Using persistent database: {}", db_path);
+        println!("Using persistent database: {}", db_path);
         let native_db = NativeDb::new_unencrypted(&StorageOption::Persistent(db_path))
             .expect("Failed to create native DB");
         EncryptedMessageStore::new(native_db).expect("Failed to create store")
     } else {
-        info!("Using ephemeral storage");
+        println!("Using ephemeral storage");
         let native_db = NativeDb::new_unencrypted(&StorageOption::Ephemeral)
             .expect("Failed to create native DB");
         EncryptedMessageStore::new(native_db).expect("Failed to create store")
@@ -114,11 +125,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err(e.into());
     }
 
-    info!("Client created and registered successfully!");
-    info!("Inbox ID: {}", client.inbox_id());
+    println!("Client created and registered successfully!");
+    println!("Inbox ID: {}", client.inbox_id());
 
     // Start streaming all messages
-    info!("Starting to stream all messages...");
+    println!("Starting to stream all messages...");
     let mut message_stream = client.stream_all_messages(None, None).await?;
 
     let mut message_ids = Vec::with_capacity(args.max_messages); // Pre-allocate capacity
@@ -150,7 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         // Check for message limit first (fastest check)
         if message_count >= args.max_messages {
-            info!("Message limit reached: {} messages", args.max_messages);
+            println!("Message limit reached: {} messages", args.max_messages);
             break;
         }
 
@@ -159,7 +170,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // We've received at least one message, apply timeout logic
             let elapsed = last_msg_time.elapsed();
             if elapsed >= timeout_duration {
-                info!(
+                println!(
                     "Timeout reached: {} seconds since last message",
                     args.timeout
                 );
@@ -204,12 +215,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     continue;
                 }
                 Ok(None) => {
-                    info!("Stream ended");
+                    println!("Stream ended");
                     break;
                 }
                 Err(_) => {
                     // Timeout occurred after receiving messages
-                    info!(
+                    println!(
                         "Timeout reached: {} seconds since last message",
                         args.timeout
                     );
@@ -240,7 +251,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     continue;
                 }
                 None => {
-                    info!("Stream ended");
+                    println!("Stream ended");
                     break;
                 }
             }
@@ -250,7 +261,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Finish progress bar
     progress.finish_with_message(format!("Completed: {} messages received", message_count));
 
-    info!(
+    println!(
         "Stream monitoring completed. Total messages received: {}",
         message_count
     );
@@ -262,28 +273,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if message_count > 1 && duration_seconds > 0.0 {
             let messages_per_second = (message_count - 1) as f64 / duration_seconds;
-            info!(
+            println!(
                 "Performance: {:.2} messages/second over {:.2} seconds",
                 messages_per_second, duration_seconds
             );
 
             // Log min/max rates if we have them
             if let (Some(min), Some(max)) = (min_rate, max_rate) {
-                info!(
+                println!(
                     "Performance range: min {:.2} msg/s, max {:.2} msg/s",
                     min, max
                 );
             }
         } else if message_count == 1 {
-            info!("Performance: Only 1 message received, no rate calculation possible");
+            println!("Performance: Only 1 message received, no rate calculation possible");
         }
     } else if message_count > 0 {
-        info!("Performance: Unable to calculate rate - timing data incomplete");
+        println!("Performance: Unable to calculate rate - timing data incomplete");
     }
 
     // Write message IDs to file if enabled
     if args.output && !message_ids.is_empty() {
-        info!(
+        println!(
             "Writing {} message IDs to {}",
             message_ids.len(),
             args.output_file
@@ -292,11 +303,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         for id in &message_ids {
             writeln!(file, "{}", id)?;
         }
-        info!("Message IDs written to {}", args.output_file);
+        println!("Message IDs written to {}", args.output_file);
     } else if args.output {
-        info!("No messages received, not creating output file");
+        println!("No messages received, not creating output file");
     }
 
-    info!("Stream monitor finished");
+    println!("Stream monitor finished");
     Ok(())
 }
