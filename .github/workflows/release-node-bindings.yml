@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Check versions are in sync
         run: |
@@ -45,7 +45,7 @@ jobs:
             output_target: linux-arm64-musl
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Update rust toolchains, add target
         run: |
@@ -143,7 +143,7 @@ jobs:
             output_target: darwin-arm64
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Update rust toolchains, add target
         run: |
@@ -204,7 +204,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Update rust toolchains
         run: |
@@ -276,7 +276,7 @@ jobs:
     needs: [build-linux, build-macos, build-windows]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download build artifacts
         uses: actions/download-artifact@v5
