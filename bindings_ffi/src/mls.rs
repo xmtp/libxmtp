@@ -2227,6 +2227,11 @@ impl FfiConversation {
         Ok(())
     }
 
+    pub fn fork_on_next_commit_group_name_update(&self) -> Result<(), GenericError> {
+        self.inner.fork_on_next_commit_group_name_update()?;
+        Ok(())
+    }
+
     pub fn group_name(&self) -> Result<String, GenericError> {
         let group_name = self.inner.group_name()?;
         Ok(group_name)
@@ -9218,5 +9223,175 @@ mod tests {
 
         let result = connect_to_backend("http://127.0.0.1:59999".to_string(), false, None).await;
         assert!(result.is_err(), "Expected connection to fail");
+    }
+
+    #[tokio::test]
+    async fn test_fork_a_group_works() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Alix creates a group with Bo
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+        bo.conversations().sync().await.unwrap();
+        let bo_group = bo
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .unwrap()[0]
+            .clone()
+            .conversation
+            .clone();
+
+        // Alix updates the group name
+        alix_group
+            .update_group_name("New group name".to_string())
+            .await
+            .unwrap();
+
+        // Alix syncs the group
+        alix_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
+
+        // Alix sends a message in the group
+        alix_group
+            .send("First message".as_bytes().to_vec())
+            .await
+            .unwrap();
+        bo_group
+            .send("Second message".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Clients sync group
+        alix_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
+
+        // Alix and bo should both see the group name and both messages
+        assert_eq!(alix_group.group_name().unwrap(), "New group name");
+        assert_eq!(bo_group.group_name().unwrap(), "New group name");
+        assert_eq!(
+            alix_group
+                .find_messages(FfiListMessagesOptions::default())
+                .await
+                .unwrap()
+                .len(),
+            4
+        );
+        assert_eq!(
+            bo_group
+                .find_messages(FfiListMessagesOptions::default())
+                .await
+                .unwrap()
+                .len(),
+            4
+        );
+        assert_eq!(
+            alix_group
+                .find_messages(FfiListMessagesOptions::default())
+                .await
+                .unwrap()[2]
+                .content,
+            "First message".as_bytes()
+        );
+        assert_eq!(
+            alix_group
+                .find_messages(FfiListMessagesOptions::default())
+                .await
+                .unwrap()[3]
+                .content,
+            "Second message".as_bytes()
+        );
+        assert_eq!(
+            bo_group
+                .find_messages(FfiListMessagesOptions::default())
+                .await
+                .unwrap()[2]
+                .content,
+            "First message".as_bytes()
+        );
+        assert_eq!(
+            bo_group
+                .find_messages(FfiListMessagesOptions::default())
+                .await
+                .unwrap()[3]
+                .content,
+            "Second message".as_bytes()
+        );
+
+        // Alix set's fork on next name update
+        alix_group.fork_on_next_commit_group_name_update().unwrap();
+
+        // Alix updates the group name again
+        let _ = alix_group
+            .update_group_name("New group name 2".to_string())
+            .await;
+
+        // Alix syncs the group
+        alix_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
+
+        // Alix and bo each send one more message
+        alix_group
+            .send("Third message".as_bytes().to_vec())
+            .await
+            .unwrap();
+        bo_group
+            .send("Fourth message".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Alix syncs the group
+        alix_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
+
+        // Alix and bo now have diverged groups
+        assert_eq!(alix_group.group_name().unwrap(), "New group name");
+        assert_eq!(bo_group.group_name().unwrap(), "New group name 2");
+        assert_eq!(
+            alix_group
+                .find_messages(FfiListMessagesOptions::default())
+                .await
+                .unwrap()
+                .len(),
+            5
+        );
+        assert_eq!(
+            bo_group
+                .find_messages(FfiListMessagesOptions::default())
+                .await
+                .unwrap()
+                .len(),
+            7
+        );
+        assert_eq!(
+            alix_group
+                .find_messages(FfiListMessagesOptions::default())
+                .await
+                .unwrap()[4]
+                .content,
+            "Third message".as_bytes()
+        );
+        assert_eq!(
+            bo_group
+                .find_messages(FfiListMessagesOptions::default())
+                .await
+                .unwrap()[5]
+                .content,
+            "Third message".as_bytes()
+        );
+        assert_eq!(
+            bo_group
+                .find_messages(FfiListMessagesOptions::default())
+                .await
+                .unwrap()[6]
+                .content,
+            "Fourth message".as_bytes()
+        );
     }
 }

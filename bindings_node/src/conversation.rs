@@ -694,4 +694,15 @@ impl Conversation {
 
     Ok(conversations)
   }
+
+  #[napi]
+  pub fn fork_on_next_commit_group_name_update(&self) -> Result<()> {
+    let group = self.create_mls_group();
+
+    group
+      .fork_on_next_commit_group_name_update()
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
 }

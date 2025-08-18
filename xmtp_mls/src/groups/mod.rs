@@ -1131,6 +1131,13 @@ where
         }
     }
 
+    /// FORK ON NEXT COMMIT GROUP NAME UPDATE
+    pub fn fork_on_next_commit_group_name_update(&self) -> Result<(), GroupError> {
+        let conn = self.context.db();
+        conn.set_fork_next_commit(&self.group_id, true)?;
+        Ok(())
+    }
+
     pub async fn update_conversation_message_disappearing_settings(
         &self,
         settings: MessageDisappearingSettings,

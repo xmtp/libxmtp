@@ -110,6 +110,29 @@ mock! {
         ) -> Result<Vec<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
     }
 
+    impl QueryForkTester for DbQuery {
+        fn get_fork_tester(
+            &self,
+            group_id: &[u8],
+        ) -> Result<Option<crate::fork_tester::StoredForkTester>, crate::ConnectionError>;
+
+        fn insert_or_update_fork_tester(
+            &self,
+            record: crate::fork_tester::StoredForkTester,
+        ) -> Result<(), crate::ConnectionError>;
+
+        fn delete_fork_tester(
+            &self,
+            group_id: &[u8],
+        ) -> Result<bool, crate::ConnectionError>;
+
+        fn set_fork_next_commit(
+            &self,
+            group_id: &[u8],
+            fork_next_commit: bool,
+        ) -> Result<(), crate::ConnectionError>;
+    }
+
     impl QueryConversationList for DbQuery {
         #[mockall::concretize]
         fn fetch_conversation_list<A: AsRef<crate::group::GroupQueryArgs>>(

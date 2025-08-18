@@ -23,8 +23,8 @@ use serde::Serialize;
 use std::collections::HashSet;
 use thiserror::Error;
 use xmtp_common::{retry::RetryableError, retryable};
-use xmtp_db::StorageError;
 use xmtp_db::local_commit_log::CommitType;
+use xmtp_db::{StorageError, prelude::QueryForkTester};
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
 use xmtp_id::{InboxId, associations::MemberIdentifier};
@@ -96,6 +96,8 @@ pub enum CommitValidationError {
     TooManyCharacters { length: usize },
     #[error("Version part missing")]
     VersionMissing,
+    #[error("Fork on next commit group name update")]
+    ForkOnNextCommitGroupNameUpdate,
 }
 
 impl RetryableError for CommitValidationError {
@@ -464,6 +466,24 @@ impl ValidatedCommit {
                 ));
             }
         }
+        // Iterate through all metadata_field_changes and check if any are of type group name
+        for change in &verified_commit
+            .metadata_validation_info
+            .metadata_field_changes
+        {
+            if change.field_name == MetadataField::GroupName.to_string() {
+                // check if fork_tester is set for the group. If so update to false and return an error right here
+                let group_id = openmls_group.group_id().to_vec();
+                if let Ok(Some(fork_tester)) = conn.get_fork_tester(&group_id)
+                    && fork_tester.fork_next_commit
+                {
+                    // Update the flag to false before returning the error
+                    let _ = conn.set_fork_next_commit(&group_id, false);
+                    return Err(CommitValidationError::ForkOnNextCommitGroupNameUpdate);
+                }
+            }
+        }
+
         Ok(verified_commit)
     }
 

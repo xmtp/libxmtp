@@ -30,6 +30,13 @@ diesel::table! {
 }
 
 diesel::table! {
+    fork_tester (group_id) {
+        group_id -> Binary,
+        fork_next_commit -> Bool,
+    }
+}
+
+diesel::table! {
     group_intents (id) {
         id -> Integer,
         kind -> Integer,
@@ -210,6 +217,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     association_state,
     consent_records,
     events,
+    fork_tester,
     group_intents,
     group_messages,
     groups,

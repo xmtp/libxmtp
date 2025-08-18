@@ -64,6 +64,7 @@ pub trait DbQuery:
     + QueryConsentRecord
     + QueryConversationList
     + QueryDms
+    + QueryForkTester
     + QueryGroup
     + QueryGroupVersion
     + QueryGroupIntent
@@ -88,6 +89,7 @@ impl<T: ?Sized> DbQuery for T where
         + QueryConsentRecord
         + QueryConversationList
         + QueryDms
+        + QueryForkTester
         + QueryGroup
         + QueryGroupVersion
         + QueryGroupIntent

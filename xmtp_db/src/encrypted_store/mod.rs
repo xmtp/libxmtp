@@ -16,6 +16,7 @@ pub mod conversation_list;
 pub mod database;
 pub mod db_connection;
 pub mod events;
+pub mod fork_tester;
 pub mod group;
 pub mod group_intent;
 pub mod group_message;
