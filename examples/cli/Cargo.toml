@@ -38,6 +38,7 @@ thiserror.workspace = true
 timeago = "0.4.1"
 tokio.workspace = true
 tracing = { workspace = true, features = ["valuable"] }
+tracing-flame = "0.2.0"
 tracing-subscriber = { workspace = true, features = [
   "json",
   "valuable",
