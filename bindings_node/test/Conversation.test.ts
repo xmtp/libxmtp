@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createRegisteredClient,
   createUser,
+  decodeTextMessage,
   encodeTextMessage,
   sleep,
 } from '@test/helpers'
@@ -490,5 +491,93 @@ describe.concurrent('Conversation', () => {
       expect(value.epoch).toBeDefined()
       expect(typeof value.epoch).toBe('bigint')
     }
+  })
+
+  it('should fork a group when fork flag is set', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+
+    // Create a group with both users
+    const alixGroup = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
+
+    await client2.conversations().sync()
+    const conversations = client2.conversations().list()
+    expect(conversations.length).toBe(1)
+    const boGroup = conversations[0].conversation
+
+    // Update the group name initially
+    await alixGroup.updateGroupName('New group name')
+
+    // Sync both groups
+    await alixGroup.sync()
+    await boGroup.sync()
+
+    // Send messages in the group
+    await alixGroup.send(encodeTextMessage('First message'))
+    await boGroup.send(encodeTextMessage('Second message'))
+
+    // Sync groups
+    await alixGroup.sync()
+    await boGroup.sync()
+
+    // Both should see the group name and both messages
+    expect(alixGroup.groupName()).toBe('New group name')
+    expect(boGroup.groupName()).toBe('New group name')
+    
+    const alixMessages1 = await alixGroup.findMessages()
+    const boMessages1 = await boGroup.findMessages()
+    expect(alixMessages1.length).toBe(4) // 1 welcome + 1 name update + 2 messages
+    expect(boMessages1.length).toBe(4)
+
+    // Verify message content
+    expect(decodeTextMessage(alixMessages1[2].content.content)).toBe('First message')
+    expect(decodeTextMessage(alixMessages1[3].content.content)).toBe('Second message')
+    expect(decodeTextMessage(boMessages1[2].content.content)).toBe('First message')
+    expect(decodeTextMessage(boMessages1[3].content.content)).toBe('Second message')
+
+    // Set fork on next name update
+    alixGroup.forkOnNextCommitGroupNameUpdate()
+
+    // Update the group name again (this should cause a fork)
+    try {
+      await alixGroup.updateGroupName('New group name 2')
+    } catch (error) {
+      // The update may fail due to the fork, which is expected
+    }
+
+    // Sync groups
+    await alixGroup.sync()
+    await boGroup.sync()
+
+    // Send one more message from each
+    await alixGroup.send(encodeTextMessage('Third message'))
+    await boGroup.send(encodeTextMessage('Fourth message'))
+
+    // Sync groups
+    await alixGroup.sync()
+    await boGroup.sync()
+
+    // Now groups should have diverged
+    expect(alixGroup.groupName()).toBe('New group name') // Should remain old name
+    expect(boGroup.groupName()).toBe('New group name 2') // Should have new name
+
+    const alixMessages2 = await alixGroup.findMessages()
+    const boMessages2 = await boGroup.findMessages()
+    
+    // Alix should have fewer messages (fork prevented some syncing)
+    expect(alixMessages2.length).toBe(5)
+    expect(boMessages2.length).toBe(7)
+
+    // Verify final message content
+    expect(decodeTextMessage(alixMessages2[4].content.content)).toBe('Third message')
+    expect(decodeTextMessage(boMessages2[5].content.content)).toBe('Third message')
+    expect(decodeTextMessage(boMessages2[6].content.content)).toBe('Fourth message')
   })
 })

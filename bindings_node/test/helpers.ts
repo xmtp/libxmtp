@@ -140,6 +140,10 @@ export const encodeTextMessage = (text: string) => {
   }
 }
 
+export const decodeTextMessage = (content: Uint8Array): string => {
+  return new TextDecoder('utf-8').decode(content)
+}
+
 export function sleep(ms: number) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms)
