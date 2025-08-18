@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::time::{Duration, timeout};
+use tokio::time::{timeout, Duration};
 use tracing::{error, info};
 use xmtp_api_grpc::Client as GrpcApiClient;
 use xmtp_db::{EncryptedMessageStore, NativeDb, StorageOption};
@@ -129,6 +129,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut first_message_time: Option<std::time::Instant> = None;
     let mut last_message_time: Option<std::time::Instant> = None;
 
+    // Track min/max rates
+    let mut min_rate: Option<f64> = None;
+    let mut max_rate: Option<f64> = None;
+    let mut last_rate_update = Instant::now();
+
     // Create progress bar
     let progress = ProgressBar::new(args.max_messages as u64);
     progress.set_style(
@@ -137,7 +142,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Failed to set progress bar template")
             .progress_chars("#>-")
     );
-    progress.set_message(format!("Waiting for messages... (timeout: {}s after last message)", args.timeout));
+    progress.set_message(format!(
+        "Waiting for messages... (timeout: {}s after last message)",
+        args.timeout
+    ));
 
     loop {
         // Check for message limit first (fastest check)
@@ -157,7 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
                 break;
             }
-            
+
             // Calculate remaining timeout and poll with timeout
             let remaining_timeout = timeout_duration - elapsed;
             match timeout(remaining_timeout, message_stream.next()).await {
@@ -177,6 +185,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let elapsed = now.duration_since(first_time).as_secs_f64();
                         if elapsed > 0.0 {
                             let rate = message_count as f64 / elapsed;
+
+                            // Update min/max rates every second
+                            if now.duration_since(last_rate_update).as_secs() >= 1 {
+                                min_rate = Some(min_rate.map_or(rate, |min| min.min(rate)));
+                                max_rate = Some(max_rate.map_or(rate, |max| max.max(rate)));
+                                last_rate_update = now;
+                            }
+
                             progress.set_message(format!("{:.1} msg/s", rate));
                         }
                     } else {
@@ -210,6 +226,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Start timer on first message
                     first_message_time = Some(now);
                     last_message_time = Some(now);
+                    last_rate_update = now;
 
                     // Store message ID
                     message_ids.push(hex::encode(&message.id));
@@ -242,13 +259,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let (Some(first_msg_time), Some(last_msg_time)) = (first_message_time, last_message_time) {
         let message_duration = last_msg_time.duration_since(first_msg_time);
         let duration_seconds = message_duration.as_secs_f64();
-        
+
         if message_count > 1 && duration_seconds > 0.0 {
             let messages_per_second = (message_count - 1) as f64 / duration_seconds;
             info!(
-                "Performance: {:.2} messages/second over {:.2} seconds (excluding timeout)",
+                "Performance: {:.2} messages/second over {:.2} seconds",
                 messages_per_second, duration_seconds
             );
+
+            // Log min/max rates if we have them
+            if let (Some(min), Some(max)) = (min_rate, max_rate) {
+                info!(
+                    "Performance range: min {:.2} msg/s, max {:.2} msg/s",
+                    min, max
+                );
+            }
         } else if message_count == 1 {
             info!("Performance: Only 1 message received, no rate calculation possible");
         }
