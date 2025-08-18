@@ -7,8 +7,9 @@ use std::io::Write;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::time::{timeout, Duration};
-use tracing::error;
+use tracing::{error, span, Instrument};
 use tracing_flame::FlameLayer;
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{prelude::*, registry::Registry};
 use xmtp_api_grpc::Client as GrpcApiClient;
 use xmtp_db::{EncryptedMessageStore, NativeDb, StorageOption};
@@ -18,8 +19,11 @@ use xmtp_mls::InboxOwner;
 
 fn setup_global_subscriber() -> impl Drop {
     // let fmt_layer = fmt::Layer::default();
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_filter(EnvFilter::from_env("stream_monitor=trace,xmtp_mls=trace"));
     let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
-    let subscriber = Registry::default().with(flame_layer);
+    let flame_layer = flame_layer.with_threads_collapsed(true);
+    let subscriber = Registry::default().with(fmt_layer).with(flame_layer);
     tracing::subscriber::set_global_default(subscriber).expect("Could not set global default");
     _guard
 }
@@ -63,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _guard = setup_global_subscriber();
     // Initialize logging - only show logs from this CLI
     // tracing_subscriber::fmt()
-    //     .with_env_filter("stream_monitor=trace")
+    //     .with_env_filter("stream_monitor=trace,xmtp_mls=trace")
     //     .init();
 
     let args = Args::parse();
@@ -132,6 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting to stream all messages...");
     let mut message_stream = client.stream_all_messages(None, None).await?;
 
+    let span = span!("stream_monitor.next");
     let mut message_ids = Vec::with_capacity(args.max_messages); // Pre-allocate capacity
     let mut message_count = 0;
 
@@ -229,7 +234,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         } else {
             // No messages received yet, wait indefinitely for first message
-            match message_stream.next().await {
+            match message_stream.next().instrument(span).await {
                 Some(Ok(message)) => {
                     message_count += 1;
                     let now = Instant::now();
