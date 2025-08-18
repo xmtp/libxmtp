@@ -537,8 +537,9 @@ async fn test_download_commit_log_from_remote() {
 
     let mut commit_log_worker_alix = CommitLogWorker::new(alix.context.clone());
     // Alix publishes commits and saves remote commit log entries
+    // We run the worker twice since publish happens after save
     let alix_test_results = commit_log_worker_alix
-        .run_test(CommitLogTestFunction::All, None)
+        .run_test(CommitLogTestFunction::All, Some(2))
         .await
         .unwrap();
 
@@ -569,9 +570,9 @@ async fn test_download_commit_log_from_remote() {
             .num_entries_published,
         2
     );
-    // We saved results for one conversation
+    // We saved results for one conversation on the second worker run
     assert_eq!(
-        alix_test_results[0]
+        alix_test_results[1]
             .save_remote_commit_log_results
             .as_ref()
             .unwrap()
@@ -581,7 +582,7 @@ async fn test_download_commit_log_from_remote() {
 
     // We should have saved 2 new entries...
     assert_eq!(
-        *alix_test_results[0]
+        *alix_test_results[1]
             .save_remote_commit_log_results
             .as_ref()
             .unwrap()
@@ -603,7 +604,7 @@ async fn test_download_commit_log_from_remote() {
 
     let mut commit_log_worker_alix = CommitLogWorker::new(alix.context.clone());
     let alix_test_results = commit_log_worker_alix
-        .run_test(CommitLogTestFunction::All, None)
+        .run_test(CommitLogTestFunction::All, Some(2))
         .await
         .unwrap();
 
@@ -615,7 +616,7 @@ async fn test_download_commit_log_from_remote() {
 
     // Alix should have saved 2 new entries, while bo should have saved 4
     assert_eq!(
-        alix_test_results[0]
+        alix_test_results[1]
             .save_remote_commit_log_results
             .as_ref()
             .unwrap()
@@ -624,7 +625,7 @@ async fn test_download_commit_log_from_remote() {
     );
 
     assert_eq!(
-        *alix_test_results[0]
+        *alix_test_results[1]
             .save_remote_commit_log_results
             .as_ref()
             .unwrap()
