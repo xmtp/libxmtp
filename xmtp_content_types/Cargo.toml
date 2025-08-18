@@ -5,7 +5,7 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
-prost = { workspace = true, features = ["prost-derive"] }
+prost = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -17,9 +17,6 @@ xmtp_proto = { workspace = true, features = ["convert"] }
 
 [dev-dependencies]
 xmtp_common = { workspace = true, features = ['test-utils'] }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tonic = { version = "0.12", features = ["transport"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true

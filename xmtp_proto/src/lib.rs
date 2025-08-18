@@ -1,8 +1,15 @@
 #[allow(clippy::all)]
 #[allow(warnings)]
 mod generated {
+    //! Module structure of Protos for XMTP
+    //!
+    //! Edit the 'build.rs' file and uncomment '.include_file' to generate this file
+    //! from the beginning. Generating this file anew will remove all ".serde.rs" includes,
+    //! since pbjson does not integrate with prost/tonic build
     include!("gen/mod.rs");
+    pub const FILE_DESCRIPTOR_SET: &'static [u8] = include_bytes!("gen/proto_descriptor.bin");
 }
+
 pub use generated::*;
 
 mod error;
@@ -37,6 +44,7 @@ pub mod prelude {
         ApiBuilder, ArcedXmtpApi, BoxedXmtpApi, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
     };
     pub use super::traits::{ApiClientError, Client, Endpoint, Query};
+    pub use super::FILE_DESCRIPTOR_SET;
 }
 
 pub mod identity_v1 {

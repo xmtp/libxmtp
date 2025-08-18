@@ -3,7 +3,6 @@ use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
-use xmtp_proto::xmtp::xmtpv4::message_api::FILE_DESCRIPTOR_SET;
 use xmtp_proto::xmtp::xmtpv4::message_api::{GetNewestEnvelopeRequest, GetNewestEnvelopeResponse};
 
 /// Query a single thing
@@ -33,7 +32,7 @@ impl Endpoint for GetNewestEnvelopes {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<GetNewestEnvelopeRequest>(FILE_DESCRIPTOR_SET)
+        crate::path_and_query::<GetNewestEnvelopeRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -50,10 +49,8 @@ mod test {
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
-        use xmtp_proto::xmtp::xmtpv4::message_api::{
-            FILE_DESCRIPTOR_SET, GetNewestEnvelopeRequest,
-        };
-        let pnq = crate::path_and_query::<GetNewestEnvelopeRequest>(FILE_DESCRIPTOR_SET);
+        use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeRequest;
+        let pnq = crate::path_and_query::<GetNewestEnvelopeRequest>();
         println!("{}", pnq);
     }
 
