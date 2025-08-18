@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use tracing::{error, info};
 use xmtp_api_grpc::Client as GrpcApiClient;
 use xmtp_api_grpc::GrpcError;
@@ -163,7 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting XMTP Message Sender");
     info!("Target inbox ID: {}", args.inbox_id);
-    info!("Threads: {}", args.threads);
+    info!("Threads: {} (max 20 concurrent)", args.threads);
     info!("Messages per thread: {}", args.messages);
     info!("Total messages to send: {}", args.threads * args.messages);
 
@@ -175,17 +175,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let progress = Arc::new(ProgressBar::new(total_messages as u64));
     progress.set_style(
         ProgressStyle::default_bar()
-            .template(
-                "[{elapsed_precise}] [{bar:50.cyan/blue}] {pos}/{len} ({percent}%) | {msg}",
-            )
+            .template("[{elapsed_precise}] [{bar:50.cyan/blue}] {pos}/{len} ({percent}%) | {msg}")
             .expect("Failed to set progress bar template")
             .progress_chars("#>-"),
     );
     progress.set_message("Starting threads...");
 
+    // Create semaphore to limit concurrent threads to 20
+    const MAX_CONCURRENT_THREADS: usize = 20;
+    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_THREADS));
+
     // Spawn a task to update progress bar message with current rate
     let rate_progress = Arc::clone(&progress);
     let rate_start_time = start_time;
+    let active_threads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let active_threads_clone = Arc::clone(&active_threads);
+
     let rate_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
         loop {
@@ -194,31 +199,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if elapsed > 0.0 {
                 let current_pos = rate_progress.position();
                 let rate = current_pos as f64 / elapsed;
-                rate_progress.set_message(format!("{:.1} msg/s", rate));
+                let active = active_threads_clone.load(std::sync::atomic::Ordering::Relaxed);
+                rate_progress.set_message(format!("{:.1} msg/s ({} active threads)", rate, active));
             }
-            
+
             if rate_progress.is_finished() {
                 break;
             }
         }
     });
 
-    // Spawn threads
+    // Spawn threads with semaphore limiting
     let mut handles = Vec::new();
     for thread_id in 0..args.threads {
         let target_inbox_id = args.inbox_id.clone();
         let message_ids_clone = Arc::clone(&message_ids);
         let progress_clone = Arc::clone(&progress);
+        let semaphore_clone = Arc::clone(&semaphore);
+        let active_threads_clone = Arc::clone(&active_threads);
 
         let handle = tokio::spawn(async move {
-            send_messages_in_thread(
+            // Acquire permit before starting thread work
+            let _permit = semaphore_clone.acquire().await.unwrap();
+
+            // Increment active thread count
+            active_threads_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+            let result = send_messages_in_thread(
                 thread_id,
                 target_inbox_id,
                 args.messages,
                 message_ids_clone,
                 progress_clone,
             )
-            .await
+            .await;
+
+            // Decrement active thread count
+            active_threads_clone.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+
+            result
         });
 
         handles.push(handle);
@@ -253,7 +272,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Completed: {} messages sent at {:.1} msg/s",
         total_sent, messages_per_second
     ));
-    
+
     // Wait for rate update task to finish
     let _ = rate_handle.await;
 
