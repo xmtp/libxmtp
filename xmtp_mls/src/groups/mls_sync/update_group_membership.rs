@@ -12,7 +12,7 @@ use openmls_traits::signatures::Signer;
 
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
 // returning the commit and post_commit_action
-#[tracing::instrument(level = "trace", skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub(super) async fn apply_update_group_membership_intent(
     context: &impl XmtpSharedContext,
     openmls_group: &mut OpenMlsGroup,

@@ -7,7 +7,7 @@ use std::io::Write;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::time::{timeout, Duration};
-use tracing::{error, span, Instrument};
+use tracing::{error, info_span, Instrument};
 use tracing_flame::FlameLayer;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{prelude::*, registry::Registry};
@@ -19,8 +19,9 @@ use xmtp_mls::InboxOwner;
 
 fn setup_global_subscriber() -> impl Drop {
     // let fmt_layer = fmt::Layer::default();
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .with_filter(EnvFilter::from_env("stream_monitor=trace,xmtp_mls=trace"));
+    let fmt_layer = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_env(
+        "stream_monitor=trace,xmtp_mls=trace,xmtp_api=trace",
+    ));
     let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
     let flame_layer = flame_layer.with_threads_collapsed(true);
     let subscriber = Registry::default().with(fmt_layer).with(flame_layer);
@@ -136,7 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting to stream all messages...");
     let mut message_stream = client.stream_all_messages(None, None).await?;
 
-    let span = span!("stream_monitor.next");
+    let span = info_span!("stream_monitor.next");
     let mut message_ids = Vec::with_capacity(args.max_messages); // Pre-allocate capacity
     let mut message_count = 0;
 
@@ -164,6 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     loop {
+        let span = span.clone();
         // Check for message limit first (fastest check)
         if message_count >= args.max_messages {
             println!("Message limit reached: {} messages", args.max_messages);
@@ -184,7 +186,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Calculate remaining timeout and poll with timeout
             let remaining_timeout = timeout_duration - elapsed;
-            match timeout(remaining_timeout, message_stream.next()).await {
+            match timeout(
+                remaining_timeout,
+                message_stream.next().instrument(span.clone()),
+            )
+            .await
+            {
                 Ok(Some(Ok(message))) => {
                     message_count += 1;
                     let now = Instant::now();
@@ -234,7 +241,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         } else {
             // No messages received yet, wait indefinitely for first message
-            match message_stream.next().instrument(span).await {
+            match message_stream.next().instrument(span.clone()).await {
                 Some(Ok(message)) => {
                     message_count += 1;
                     let now = Instant::now();

@@ -337,7 +337,7 @@ where
     /// Sync from the network with the 'conn' (local database).
     /// must return a summary of all messages synced, whether they were
     /// successful or not.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn sync_with_conn(&self) -> Result<SyncSummary, SyncSummary> {
         let _mutex = self.mutex.lock().await;
         let mut summary = SyncSummary::default();
@@ -530,6 +530,7 @@ where
 
     // This function is intended to isolate the async validation code to
     // validate the message and prepare it for database insertion synchronously.
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn stage_and_validate_intent(
         &self,
         mls_group: &openmls::group::MlsGroup,
@@ -1286,7 +1287,7 @@ where
     /// * `trust_message_order` - Controls whether to allow epoch increments from commits and msg cursor increments.
     ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
     ///   processing from potentially out-of-order sources like streams.
-    #[tracing::instrument(skip(self, envelope), level = "trace")]
+    #[tracing::instrument(skip(self, envelope), level = "debug")]
     pub(crate) async fn process_message(
         &self,
         envelope: &GroupMessageV1,
@@ -1353,7 +1354,7 @@ where
         .await
     }
 
-    #[tracing::instrument(skip(self, mls_group, envelope), level = "trace")]
+    #[tracing::instrument(skip(self, mls_group, envelope), level = "debug")]
     async fn process_message_inner(
         &self,
         mls_group: &mut OpenMlsGroup,
@@ -1524,6 +1525,7 @@ where
     }
 
     /// In case of metadataUpdate will extract the updated fields and store them to the db
+    #[tracing::instrument(level = "debug", skip_all)]
     fn handle_metadata_update_from_intent(
         &self,
         intent: &StoredGroupIntent,
@@ -1587,7 +1589,7 @@ where
     /// Consume a message, decrypting its contents and processing it
     /// Applies the message if it is a commit.
     /// Returns a 'MessageIdentifier' for this message
-    #[tracing::instrument(level = "trace", skip(envelope))]
+    #[tracing::instrument(level = "debug", skip(envelope))]
     async fn consume_message(
         &self,
         envelope: &GroupMessage,
@@ -1603,6 +1605,7 @@ where
         self.process_message(msgv1, true).await
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn post_process_message(
         &self,
         mls_group: &OpenMlsGroup,
@@ -1692,7 +1695,7 @@ where
         Ok(message)
     }
 
-    #[tracing::instrument(level = "trace", skip(self, messages))]
+    #[tracing::instrument(level = "debug", skip(self, messages))]
     pub async fn process_messages(&self, messages: Vec<GroupMessage>) -> ProcessSummary {
         let mut summary = ProcessSummary::default();
         for message in messages {
@@ -1742,7 +1745,7 @@ where
     /// Return all the cursors of the messages we tried to process regardless
     /// if they were succesfull or not. It is important to return _all_
     /// cursor ids, so that streams do not unintentially retry O(n^2) messages.
-    #[tracing::instrument(skip_all, level = "trace")]
+    #[tracing::instrument(skip_all, level = "debug")]
     pub(super) async fn receive(&self) -> Result<ProcessSummary, GroupError> {
         let db = self.context.db();
 
@@ -1765,7 +1768,7 @@ where
         Ok(summary)
     }
 
-    #[tracing::instrument(skip_all, level = "trace")]
+    #[tracing::instrument(skip_all, level = "debug")]
     fn update_cursor_if_needed(
         &self,
         db: &impl DbQuery,
@@ -1786,6 +1789,7 @@ where
         Ok(updated)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     fn save_transcript_message(
         &self,
         validated_commit: ValidatedCommit,
@@ -1911,7 +1915,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(level = "trace")]
     pub(super) async fn publish_intents(&self) -> Result<(), GroupError> {
         let db = self.context.db();
         self.load_mls_group_with_lock_async(|mut mls_group| async move {
@@ -2023,7 +2027,7 @@ where
     // Takes a StoredGroupIntent and returns the payload and post commit data as a tuple
     // A return value of [`Option::None`] means this intent would not change the group.
     #[allow(clippy::type_complexity)]
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn get_publish_intent_data(
         &self,
         openmls_group: &mut OpenMlsGroup,
