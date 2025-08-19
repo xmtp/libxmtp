@@ -59,7 +59,12 @@ fn clone_proto_repos(out_dir: &PathBuf, git_ref: &str) -> Result<()> {
     }
     cmd!(
         sh,
-        "git clone https://github.com/xmtp/proto.git --revision {git_ref} {out_dir}/proto"
+        "git clone https://github.com/xmtp/proto.git {out_dir}/proto"
+    )
+    .run()?;
+    cmd!(
+        sh,
+        "git --git-dir {out_dir}/proto/.git --work-tree={out_dir}/proto checkout {git_ref}"
     )
     .run()?;
     Ok(())
