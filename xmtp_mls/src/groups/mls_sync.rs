@@ -60,9 +60,7 @@ use xmtp_db::{
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 
-use crate::groups::intents::{
-    UpdatePendingRemoveListActionType, UpdatePendingRemoveListIntentData,
-};
+use crate::groups::intents::UpdatePendingRemoveListIntentData;
 use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
@@ -96,7 +94,7 @@ use xmtp_common::time::now_ns;
 use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::group::GroupMembershipState;
-use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
+use xmtp_db::NotFound;
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::mls_v1::WelcomeMetadata;
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
@@ -1568,7 +1566,7 @@ where
             }
             IntentKind::UpdatePendingRemoveList => {
                 let data = UpdatePendingRemoveListIntentData::try_from(intent.data.clone())?;
-                if data.inbox_id == self.context.inbox_id().to_string() {
+                if data.inbox_id == self.context.inbox_id() {
                     storage
                         .db()
                         .update_group_membership(
@@ -1607,10 +1605,6 @@ where
                     storage
                         .db()
                         .update_message_disappearing_in_ns(self.group_id.clone(), parsed_value)?
-                }
-                field_name if field_name == MetadataField::PendingRemoval.as_str() => {
-                    let parsed_value = change.new_value.as_deref().unwrap();
-                    //check my installation and my inbox
                 }
                 _ => {} // Handle other metadata updates if needed
             }
