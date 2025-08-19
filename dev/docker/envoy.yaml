@@ -26,6 +26,12 @@ static_resources:
                             timeout: 0s
                             max_stream_duration:
                               grpc_timeout_header_max: 0s
+                        - match: {prefix: "/"}
+                          route:
+                            cluster: repnode
+                            timeout: 0s
+                            max_stream_duration:
+                              grpc_timeout_header_max: 0s
                       cors:
                         allow_origin_string_match:
                           - prefix: "*"
@@ -62,3 +68,21 @@ static_resources:
                     socket_address:
                       address: node
                       port_value: 5556
+    - name: repnode
+      connect_timeout: 0.25s
+      type: LOGICAL_DNS
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: repnode
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: node
+                      port_value: 5050
