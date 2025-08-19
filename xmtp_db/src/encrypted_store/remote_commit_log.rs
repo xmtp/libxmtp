@@ -16,6 +16,7 @@ use diesel::{
 };
 
 use serde::{Deserialize, Serialize};
+use xmtp_common::snippet::Snippet;
 use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 
 #[derive(Insertable, Debug, Clone)]
@@ -31,7 +32,7 @@ pub struct NewRemoteCommitLog {
 
 impl_store!(NewRemoteCommitLog, remote_commit_log);
 
-#[derive(Insertable, Queryable, Debug, Clone)]
+#[derive(Insertable, Queryable, Clone)]
 #[diesel(table_name = remote_commit_log)]
 #[diesel(primary_key(rowid))]
 pub struct RemoteCommitLog {
@@ -74,6 +75,22 @@ impl std::fmt::Debug for CommitResult {
             CommitResult::Invalid => "Invalid",
         };
         write!(f, "{}", s)
+    }
+}
+
+impl std::fmt::Debug for RemoteCommitLog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "RemoteCommitLog {{ rowid: {:?}, log_sequence_id: {:?}, group_id {:?}, commit_sequence_id: {:?}, commit_result: {:?}, applied_epoch_number: {:?}, applied_epoch_authenticator: {:?} }}",
+            self.rowid,
+            self.log_sequence_id,
+            &self.group_id.snippet(),
+            self.commit_sequence_id,
+            self.commit_result,
+            self.applied_epoch_number,
+            &self.applied_epoch_authenticator.snippet()
+        )
     }
 }
 
