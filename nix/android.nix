@@ -12,6 +12,7 @@
 , lib
 , gnused
 , mkToolchain
+, perl
 }:
 let
   frameworks = if stdenv.isDarwin then darwin.apple_sdk.frameworks else null;
@@ -74,6 +75,7 @@ mkShell {
     cargo-ndk
     androidEmulator
     gnused # for ./dev/release-kotlin
+    perl
 
     # System Libraries
     sqlite

@@ -573,6 +573,11 @@ where
         let remote_logs =
             conn.get_remote_commit_log_after_cursor(conversation_id, fork_check_remote_cursor)?;
 
+        // If there are no new commits to check, preserve the existing fork status
+        if local_logs.is_empty() {
+            return Ok(conn.get_group_commit_log_forked_status(conversation_id)?);
+        }
+
         let mut is_remote_log_up_to_date = true;
         // Check each local log against remote logs for matching commit_sequence_id
         for local_log in &local_logs {
@@ -682,13 +687,14 @@ where
                 test_result.is_forked = Some(is_forked);
             }
             CommitLogTestFunction::All => {
-                let publish_commit_log_results = self.publish_commit_logs_to_remote().await?;
-                test_result.publish_commit_log_results = Some(publish_commit_log_results);
+                // Order is save; update fork status; publish
                 let save_remote_commit_log_results = self.save_remote_commit_log().await?;
                 test_result.save_remote_commit_log_results = Some(save_remote_commit_log_results);
                 self.update_forked_state().await?;
                 let is_forked = self.get_all_fork_statuses()?;
                 test_result.is_forked = Some(is_forked);
+                let publish_commit_log_results = self.publish_commit_logs_to_remote().await?;
+                test_result.publish_commit_log_results = Some(publish_commit_log_results);
             }
         }
         Ok(test_result)

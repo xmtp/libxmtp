@@ -11,7 +11,7 @@ h2 = "0.4"
 http = "1.2"
 hyper = "1.6"
 pin-project-lite = "0.2.15"
-prost = { workspace = true, features = ["prost-derive"] }
+prost = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tower = "0.5.2"
@@ -19,7 +19,7 @@ tracing.workspace = true
 url.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
-xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
+xmtp_proto = { path = "../xmtp_proto", features = ["convert"] }
 
 toxiproxy_rust = { workspace = true, optional = true }
 
@@ -29,14 +29,18 @@ toxiproxy_rust = { workspace = true, optional = true }
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tonic = { workspace = true, features = [
   "default",
-  "tls",
   "tls-native-roots",
   "tls-webpki-roots",
+  "tls-ring",
 ] }
 
 # Force Android + iOS to use webki
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
-tonic = { workspace = true, features = ["default", "tls", "tls-webpki-roots"] }
+tonic = { workspace = true, features = [
+  "default",
+  "tls-webpki-roots",
+  "tls-ring",
+] }
 
 [dev-dependencies]
 toxiproxy_rust = { workspace = true }

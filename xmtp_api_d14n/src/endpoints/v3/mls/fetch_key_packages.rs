@@ -3,7 +3,6 @@ use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
-use xmtp_proto::xmtp::mls::api::v1::FILE_DESCRIPTOR_SET;
 use xmtp_proto::xmtp::mls::api::v1::{FetchKeyPackagesRequest, FetchKeyPackagesResponse};
 
 #[derive(Debug, Builder, Default)]
@@ -26,7 +25,7 @@ impl Endpoint for FetchKeyPackages {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<FetchKeyPackagesRequest>(FILE_DESCRIPTOR_SET)
+        crate::path_and_query::<FetchKeyPackagesRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -45,8 +44,8 @@ mod test {
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
-        use xmtp_proto::xmtp::mls::api::v1::{FILE_DESCRIPTOR_SET, FetchKeyPackagesRequest};
-        let pnq = crate::path_and_query::<FetchKeyPackagesRequest>(FILE_DESCRIPTOR_SET);
+        use xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest;
+        let pnq = crate::path_and_query::<FetchKeyPackagesRequest>();
         println!("{}", pnq);
     }
 

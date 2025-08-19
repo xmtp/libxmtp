@@ -369,10 +369,20 @@ where
 
     pub async fn publish_commit_log(&self, requests: Vec<PublishCommitLogRequest>) -> Result<()> {
         tracing::debug!(inbox_id = self.inbox_id, "publishing commit log");
-        self.api_client
-            .publish_commit_log(BatchPublishCommitLogRequest { requests })
-            .await
-            .map_err(crate::dyn_err)
+
+        const BATCH_SIZE: usize = 10;
+
+        // Process requests in batches of 10
+        for batch in requests.chunks(BATCH_SIZE) {
+            self.api_client
+                .publish_commit_log(BatchPublishCommitLogRequest {
+                    requests: batch.to_vec(),
+                })
+                .await
+                .map_err(crate::dyn_err)?;
+        }
+
+        Ok(())
     }
 
     pub async fn query_commit_log(
@@ -380,16 +390,25 @@ where
         query_log_requests: Vec<QueryCommitLogRequest>,
     ) -> Result<Vec<QueryCommitLogResponse>> {
         tracing::debug!(inbox_id = self.inbox_id, "querying commit log");
-        let responses: Vec<QueryCommitLogResponse> = self
-            .api_client
-            .query_commit_log(BatchQueryCommitLogRequest {
-                requests: query_log_requests,
-            })
-            .await
-            .map_err(crate::dyn_err)?
-            .responses;
 
-        Ok(responses)
+        const BATCH_SIZE: usize = 20;
+        let mut all_responses = Vec::new();
+
+        // Process requests in batches of 20
+        for batch in query_log_requests.chunks(BATCH_SIZE) {
+            let batch_responses: Vec<QueryCommitLogResponse> = self
+                .api_client
+                .query_commit_log(BatchQueryCommitLogRequest {
+                    requests: batch.to_vec(),
+                })
+                .await
+                .map_err(crate::dyn_err)?
+                .responses;
+
+            all_responses.extend(batch_responses);
+        }
+
+        Ok(all_responses)
     }
 }
 
@@ -408,6 +427,7 @@ pub mod tests {
         welcome_message_input::{Version as WelcomeVersion, V1 as WelcomeV1},
         WelcomeMessageInput,
     };
+    use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
     use xmtp_proto::xmtp::mls::api::v1::{
         fetch_key_packages_response::KeyPackage, FetchKeyPackagesResponse, PagingInfo,
         QueryGroupMessagesResponse,
@@ -672,5 +692,95 @@ pub mod tests {
             .await
             .unwrap();
         assert_eq!(messages.len(), 1);
+    }
+
+    #[xmtp_common::test]
+    #[cfg_attr(any(feature = "http-api", target_arch = "wasm32"), ignore)]
+    async fn test_publish_commit_log_batching_with_local_server() {
+        // This test verifies that publish batching works correctly with a local server
+        // It should handle 11 publish requests without hitting API limits
+        let mut client = crate::tests::TestClient::builder();
+        client.set_host("http://localhost:5556".into());
+        client.set_tls(false);
+        client.set_app_version("0.0.0".into()).unwrap();
+
+        let c = client.build().await.unwrap();
+        let wrapper = ApiClientWrapper::new(c, Retry::default());
+
+        let group_id = rand_vec::<32>();
+
+        // Create 11 publish requests - this will test batching logic
+        let mut publish_requests = Vec::new();
+        for i in 0..11 {
+            publish_requests.push(PublishCommitLogRequest {
+                group_id: group_id.clone(),
+                serialized_commit_log_entry: vec![i as u8; 100], // Some dummy data
+                signature: None,
+            });
+        }
+
+        // Test publish batching - ensure we don't hit the batch size limit
+        let publish_result = wrapper.publish_commit_log(publish_requests).await;
+        match publish_result {
+            Ok(_) => {
+                // Success - no batch size errors
+            }
+            Err(e) => {
+                let error_msg = format!("{}", e);
+                if error_msg.contains("cannot exceed 10 inserts in single batch") {
+                    panic!("❌ Received batch size limit error: '{}'. This indicates batching is not working correctly.", error_msg);
+                } else {
+                    // Non-batching error - acceptable
+                }
+            }
+        }
+    }
+
+    #[xmtp_common::test]
+    #[cfg_attr(any(feature = "http-api", target_arch = "wasm32"), ignore)]
+    async fn test_query_commit_log_batching_with_local_server() {
+        // This test verifies that query batching works correctly with a local server
+        // It should handle 21 query requests without hitting API limits
+        let mut client = crate::tests::TestClient::builder();
+        client.set_host("http://localhost:5556".into());
+        client.set_tls(false);
+        client.set_app_version("0.0.0".into()).unwrap();
+
+        let c = client.build().await.unwrap();
+        let wrapper = ApiClientWrapper::new(c, Retry::default());
+
+        let group_id = rand_vec::<32>();
+
+        // Create 21 query requests - this will test batching logic
+        let mut query_requests = Vec::new();
+        for i in 0..21 {
+            query_requests.push(QueryCommitLogRequest {
+                group_id: group_id.clone(),
+                paging_info: Some(xmtp_proto::mls_v1::PagingInfo {
+                    direction: xmtp_proto::xmtp::message_api::v1::SortDirection::Ascending as i32,
+                    id_cursor: i as u64,
+                    limit: 10,
+                }),
+            });
+        }
+
+        // Test query batching - requests must succeed
+        let query_result = wrapper.query_commit_log(query_requests).await;
+        match query_result {
+            Ok(responses) => {
+                // With batching, we should receive responses for all our requests
+                // (though they might be empty if the server has no data)
+                assert!(
+                    responses.len() <= 21,
+                    "Should not receive more responses than requests"
+                );
+            }
+            Err(e) => {
+                panic!(
+                    "Query commit log requests must succeed for this test to pass. Error: {}",
+                    e
+                );
+            }
+        }
     }
 }

@@ -3,7 +3,6 @@ use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
-use xmtp_proto::xmtp::mls::api::v1::FILE_DESCRIPTOR_SET;
 use xmtp_proto::xmtp::mls::api::v1::{
     BatchQueryCommitLogRequest, BatchQueryCommitLogResponse, QueryCommitLogRequest,
 };
@@ -28,7 +27,7 @@ impl Endpoint for QueryCommitLog {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<BatchQueryCommitLogRequest>(FILE_DESCRIPTOR_SET)
+        crate::path_and_query::<BatchQueryCommitLogRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
