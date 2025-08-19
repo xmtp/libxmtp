@@ -64,6 +64,7 @@ impl TryFrom<GroupMetadata> for Vec<u8> {
             creator_inbox_id: value.creator_inbox_id.clone(),
             creator_account_address: "".to_string(), // TODO: remove from proto
             dm_members: value.dm_members.clone().map(|dm| dm.into()),
+            oneshot_message: None,
         };
         let mut buf: Vec<u8> = Vec::new();
         proto_val.encode(&mut buf)?;
