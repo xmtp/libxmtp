@@ -1187,34 +1187,32 @@ async fn test_self_removal() {
     amal_group.leave_group().await.unwrap();
     amal_group.sync().await.unwrap();
     let binding = amal_group.mutable_metadata().expect("msg");
-    let group_pending_removal: &String = binding
-        .attributes
-        .get(&MetadataField::PendingRemoval.to_string())
-        .unwrap();
-    assert_eq!(group_pending_removal.clone(), amal.inbox_id().to_string());
+    tracing::info!("{:?}", binding.pending_remove_list);
+    assert!(
+        binding
+            .pending_remove_list
+            .contains(&amal.inbox_id().to_string())
+    );
 
     let amal_group_from_db = amal.db().find_group(&amal_group.group_id).unwrap();
     assert_eq!(
         amal_group_from_db.unwrap().membership_state,
-        GroupMembershipState::PendingRemoval
+        GroupMembershipState::PendingRemove
     );
 
     bola_group.sync().await.unwrap();
-    let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
-    assert_eq!(
-        group_mutable_metadata
-            .attributes
-            .get(&MetadataField::PendingRemoval.to_string())
-            .unwrap()
-            .clone(),
-        amal.inbox_id().to_string()
+    let bola_group_mutable_metadata = bola_group.mutable_metadata().unwrap();
+    assert!(
+        bola_group_mutable_metadata
+            .pending_remove_list
+            .contains(&amal.inbox_id().to_string())
     );
+
     let bola_group_from_db = bola.db().find_group(&amal_group.group_id).unwrap();
     assert_ne!(
         bola_group_from_db.unwrap().membership_state,
-        GroupMembershipState::PendingRemoval
+        GroupMembershipState::PendingRemove
     );
-   
 
     //verify amal removed by bola
     //verify pending removals is clean

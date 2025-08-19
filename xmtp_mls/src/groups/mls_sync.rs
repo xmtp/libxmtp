@@ -1,6 +1,7 @@
 use super::{
     GroupError, HmacKey, MlsGroup, build_extensions_for_admin_lists_update,
-    build_extensions_for_metadata_update, build_extensions_for_permissions_update,
+    build_extensions_for_metadata_update, build_extensions_for_pending_remove_lists_update,
+    build_extensions_for_permissions_update,
     intents::{
         Installation, IntentError, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
@@ -58,6 +59,9 @@ use xmtp_db::{
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 
+use crate::groups::intents::{
+    UpdatePendingRemoveListActionType, UpdatePendingRemoveListIntentData,
+};
 use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
@@ -108,6 +112,7 @@ use xmtp_proto::xmtp::mls::{
         plaintext_envelope::{Content, V1, V2, v2::MessageType},
     },
 };
+
 pub mod update_group_membership;
 
 #[derive(Debug, Error)]
@@ -551,6 +556,7 @@ where
             IntentKind::KeyUpdate
             | IntentKind::UpdateGroupMembership
             | IntentKind::UpdateAdminList
+            | IntentKind::UpdatePendingRemoveList
             | IntentKind::MetadataUpdate
             | IntentKind::UpdatePermission => {
                 if let Some(published_in_epoch) = intent.published_in_epoch {
@@ -1512,36 +1518,40 @@ where
         intent: &StoredGroupIntent,
         storage: &impl XmtpMlsStorageProvider,
     ) -> Result<(), IntentError> {
-        if intent.kind == MetadataUpdate {
-            let data = UpdateMetadataIntentData::try_from(intent.data.clone())?;
+        match intent.kind {
+            IntentKind::MetadataUpdate => {
+                let data = UpdateMetadataIntentData::try_from(intent.data.clone())?;
 
-            match data.field_name.as_str() {
-                field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
-                    storage.db().update_message_disappearing_from_ns(
-                        self.group_id.clone(),
-                        data.field_value.parse::<i64>().ok(),
-                    )?
+                match data.field_name.as_str() {
+                    field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
+                        storage.db().update_message_disappearing_from_ns(
+                            self.group_id.clone(),
+                            data.field_value.parse::<i64>().ok(),
+                        )?
+                    }
+                    field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
+                        storage.db().update_message_disappearing_in_ns(
+                            self.group_id.clone(),
+                            data.field_value.parse::<i64>().ok(),
+                        )?
+                    }
+                    _ => {} // handle other metadata updates
                 }
-                field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
-                    storage.db().update_message_disappearing_in_ns(
-                        self.group_id.clone(),
-                        data.field_value.parse::<i64>().ok(),
-                    )?
-                }
-                field_name if field_name == MetadataField::PendingRemoval.as_str() => {
-                    //todo: handle self-removal, make the group as leave
+            }
+            IntentKind::UpdatePendingRemoveList => {
+                let data = UpdatePendingRemoveListIntentData::try_from(intent.data.clone())?;
+                if data.inbox_id == self.context.inbox_id().to_string() {
                     storage
                         .db()
                         .update_group_membership(
                             &intent.group_id,
-                            GroupMembershipState::PendingRemoval,
+                            GroupMembershipState::PendingRemove,
                         )
                         .map_err(|_| IntentError::UnknownSelfRemovalAction)?
                 }
-                _ => {} // handle other metadata updates
             }
+            _ => (),
         }
-
         Ok(())
     }
 
@@ -2126,6 +2136,43 @@ where
                 let mutable_metadata_extensions = build_extensions_for_admin_lists_update(
                     openmls_group,
                     admin_list_update_intent,
+                )?;
+
+                let result = storage.transaction(|conn| {
+                    let storage = conn.key_store();
+                    let provider = XmtpOpenMlsProviderRef::new(&storage);
+                    let (commit, _, _) = openmls_group.update_group_context_extensions(
+                        &provider,
+                        mutable_metadata_extensions,
+                        &self.context.identity().installation_keys,
+                    )?;
+                    let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
+
+                    Ok::<_, GroupError>((commit, staged_commit))
+                });
+                let (commit, staged_commit) = match result {
+                    Ok(res) => res,
+                    Err(e) => {
+                        openmls_group.reload(storage)?;
+                        return Err(e);
+                    }
+                };
+
+                let commit_bytes = commit.tls_serialize_detached()?;
+
+                Ok(Some(PublishIntentData {
+                    payload_to_publish: commit_bytes,
+                    staged_commit,
+                    post_commit_action: None,
+                    should_send_push_notification: intent.should_push,
+                }))
+            }
+            IntentKind::UpdatePendingRemoveList => {
+                let pending_remove_list_update_intent =
+                    UpdatePendingRemoveListIntentData::try_from(intent.data.clone())?;
+                let mutable_metadata_extensions = build_extensions_for_pending_remove_lists_update(
+                    openmls_group,
+                    pending_remove_list_update_intent,
                 )?;
 
                 let result = storage.transaction(|conn| {
