@@ -50,6 +50,8 @@ impl<Context>
 where
     Context: Clone + XmtpSharedContext + Send + Sync + 'static,
     Context::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
+    <Context::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin + 'static,
+    <Context::ApiClient as XmtpMlsStreams>::WelcomeMessageStream: Unpin + 'static,
 {
     pub async fn new_owned(
         context: Context,
@@ -70,6 +72,8 @@ impl<'a, Context>
 where
     Context: Clone + XmtpSharedContext + Send + Sync + 'a,
     Context::ApiClient: XmtpMlsStreams + Send + Sync + 'a,
+    <Context::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin + 'static,
+    <Context::ApiClient as XmtpMlsStreams>::WelcomeMessageStream: Unpin + 'static,
 {
     pub async fn new(
         context: &'a Context,
@@ -158,6 +162,7 @@ where
     Context: XmtpSharedContext + 'a,
     Context::ApiClient: XmtpMlsStreams + 'a,
     Conversations: Stream<Item = Result<MlsGroup<Context>>>,
+    <Context::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin + 'static,
 {
     type Item = Result<StoredGroupMessage>;
 

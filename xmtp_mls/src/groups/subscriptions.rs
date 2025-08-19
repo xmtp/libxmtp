@@ -44,6 +44,7 @@ where
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + use<'a, Context>>
     where
         Context::ApiClient: XmtpMlsStreams + 'a,
+        <Context::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin + 'static,
     {
         StreamGroupMessages::new(&self.context, vec![self.group_id.clone().into()]).await
     }
@@ -56,6 +57,7 @@ where
         Context: 'static,
         Context::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
         Context::Db: Send + Sync + 'static,
+        <Context::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin + 'static,
     {
         StreamGroupMessages::new_owned(self.context.clone(), vec![self.group_id.clone().into()])
             .await
@@ -75,6 +77,7 @@ where
         Context: Send + Sync + 'static,
         Context::ApiClient: XmtpMlsStreams + 'static,
         Context::MlsStorage: Send + Sync,
+        <Context::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin + 'static,
     {
         stream_messages_with_callback(
             context.clone(),
@@ -105,6 +108,7 @@ where
     Context: Sync + Send + XmtpSharedContext + 'static,
     Context::ApiClient: XmtpMlsStreams + 'static,
     Context::MlsStorage: Send + Sync,
+    <Context::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin + 'static,
 {
     let (tx, rx) = oneshot::channel();
 

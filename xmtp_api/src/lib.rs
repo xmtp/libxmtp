@@ -1,5 +1,7 @@
 #![warn(clippy::unwrap_used)]
 
+pub mod buffered_stream;
+pub use buffered_stream::BufferedStream;
 pub mod identity;
 pub mod mls;
 #[cfg(any(test, feature = "test-utils"))]

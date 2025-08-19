@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use super::ApiClientWrapper;
+use crate::buffered_stream::BufferedStream;
 use crate::{Result, XmtpApi};
 use xmtp_common::retry_async;
 use xmtp_proto::api_client::XmtpMlsStreams;
@@ -329,32 +330,36 @@ where
     pub async fn subscribe_group_messages(
         &self,
         filters: Vec<GroupFilter>,
-    ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream>
+    ) -> Result<BufferedStream<GroupMessage, <ApiClient as XmtpMlsStreams>::Error>>
     where
         ApiClient: XmtpMlsStreams,
+        <ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin + 'static,
     {
         tracing::debug!(inbox_id = self.inbox_id, "subscribing to group messages");
-        self.api_client
+        let stream = self.api_client
             .subscribe_group_messages(SubscribeGroupMessagesRequest {
                 filters: filters.into_iter().map(|f| f.into()).collect(),
             })
             .await
-            .map_err(crate::dyn_err)
+            .map_err(crate::dyn_err)?;
+        
+        Ok(BufferedStream::new(stream))
     }
 
     pub async fn subscribe_welcome_messages(
         &self,
         installation_key: &[u8],
         id_cursor: Option<u64>,
-    ) -> Result<<ApiClient as XmtpMlsStreams>::WelcomeMessageStream>
+    ) -> Result<BufferedStream<WelcomeMessage, <ApiClient as XmtpMlsStreams>::Error>>
     where
         ApiClient: XmtpMlsStreams,
+        <ApiClient as XmtpMlsStreams>::WelcomeMessageStream: Unpin + 'static,
     {
         tracing::debug!(inbox_id = self.inbox_id, "subscribing to welcome messages");
         // _NOTE_:
         // Default ID Cursor should be one
         // else we miss welcome messages
-        self.api_client
+        let stream = self.api_client
             .subscribe_welcome_messages(SubscribeWelcomeMessagesRequest {
                 filters: vec![WelcomeFilterProto {
                     installation_key: installation_key.to_vec(),
@@ -362,7 +367,9 @@ where
                 }],
             })
             .await
-            .map_err(crate::dyn_err)
+            .map_err(crate::dyn_err)?;
+        
+        Ok(BufferedStream::new(stream))
     }
 
     pub async fn publish_commit_log(&self, requests: Vec<PublishCommitLogRequest>) -> Result<()> {
@@ -732,6 +739,152 @@ pub mod tests {
                 }
             }
         }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_buffered_stream_for_group_messages() {
+        use futures::StreamExt;
+        use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, group_message};
+        
+        let mut mock_api = MockApiClient::new();
+        let group_id = vec![1, 2, 3, 4];
+        
+        mock_api.expect_subscribe_group_messages()
+            .returning(move |_| {
+                use crate::test_utils::MockGroupStream;
+                let mut mock_stream = MockGroupStream::new();
+                
+                let group_id_clone = group_id.clone();
+                let group_id_clone2 = group_id.clone();
+                
+                mock_stream.expect_poll_next()
+                    .times(1)
+                    .returning(move |_| {
+                        std::task::Poll::Ready(Some(Ok(GroupMessage {
+                            version: Some(group_message::Version::V1(group_message::V1 {
+                                id: 1,
+                                created_ns: 100,
+                                group_id: group_id_clone.clone(),
+                                data: vec![1, 2, 3],
+                                sender_hmac: vec![],
+                                should_push: false,
+                            })),
+                        })))
+                    });
+                
+                mock_stream.expect_poll_next()
+                    .times(1)
+                    .returning(move |_| {
+                        std::task::Poll::Ready(Some(Ok(GroupMessage {
+                            version: Some(group_message::Version::V1(group_message::V1 {
+                                id: 2,
+                                created_ns: 200,
+                                group_id: group_id_clone2.clone(),
+                                data: vec![4, 5, 6],
+                                sender_hmac: vec![],
+                                should_push: false,
+                            })),
+                        })))
+                    });
+                
+                mock_stream.expect_poll_next()
+                    .returning(|_| std::task::Poll::Ready(None));
+                
+                Ok(mock_stream)
+            });
+        
+        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
+        let mut stream = wrapper
+            .subscribe_group_messages(vec![GroupFilter::new(vec![1, 2, 3, 4], None)])
+            .await
+            .unwrap();
+        
+        let msg1 = stream.next().await.unwrap().unwrap();
+        if let Some(group_message::Version::V1(v1)) = msg1.version {
+            assert_eq!(v1.id, 1);
+        }
+        
+        let msg2 = stream.next().await.unwrap().unwrap();
+        if let Some(group_message::Version::V1(v1)) = msg2.version {
+            assert_eq!(v1.id, 2);
+        }
+        
+        assert!(stream.next().await.is_none());
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_buffered_stream_for_welcome_messages() {
+        use futures::StreamExt;
+        use xmtp_proto::xmtp::mls::api::v1::{WelcomeMessage, welcome_message};
+        
+        let mut mock_api = MockApiClient::new();
+        let installation_key = vec![1, 2, 3];
+        
+        mock_api.expect_subscribe_welcome_messages()
+            .returning(move |_| {
+                use crate::test_utils::MockWelcomeStream;
+                let mut mock_stream = MockWelcomeStream::new();
+                
+                let installation_key_clone = installation_key.clone();
+                let installation_key_clone2 = installation_key.clone();
+                
+                mock_stream.expect_poll_next()
+                    .times(1)
+                    .returning(move |_| {
+                        std::task::Poll::Ready(Some(Ok(WelcomeMessage {
+                            version: Some(welcome_message::Version::V1(welcome_message::V1 {
+                                id: 1,
+                                created_ns: 100,
+                                installation_key: installation_key_clone.clone(),
+                                data: vec![4, 5, 6],
+                                hpke_public_key: vec![7, 8, 9],
+                                wrapper_algorithm: 0,
+                                welcome_metadata: vec![],
+                            })),
+                        })))
+                    });
+                
+                mock_stream.expect_poll_next()
+                    .times(1)
+                    .returning(move |_| {
+                        std::task::Poll::Ready(Some(Ok(WelcomeMessage {
+                            version: Some(welcome_message::Version::V1(welcome_message::V1 {
+                                id: 2,
+                                created_ns: 200,
+                                installation_key: installation_key_clone2.clone(),
+                                data: vec![10, 11, 12],
+                                hpke_public_key: vec![13, 14, 15],
+                                wrapper_algorithm: 0,
+                                welcome_metadata: vec![],
+                            })),
+                        })))
+                    });
+                
+                mock_stream.expect_poll_next()
+                    .returning(|_| std::task::Poll::Ready(None));
+                
+                Ok(mock_stream)
+            });
+        
+        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
+        let mut stream = wrapper
+            .subscribe_welcome_messages(&[1, 2, 3], None)
+            .await
+            .unwrap();
+        
+        let msg1 = stream.next().await.unwrap().unwrap();
+        if let Some(welcome_message::Version::V1(v1)) = msg1.version {
+            assert_eq!(v1.id, 1);
+        }
+        
+        let msg2 = stream.next().await.unwrap().unwrap();
+        if let Some(welcome_message::Version::V1(v1)) = msg2.version {
+            assert_eq!(v1.id, 2);
+        }
+        
+        assert!(stream.next().await.is_none());
     }
 
     #[xmtp_common::test]

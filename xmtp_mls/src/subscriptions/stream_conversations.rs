@@ -180,9 +180,11 @@ pin_project! {
     }
 }
 
+use xmtp_api::buffered_stream::BufferedStream;
+
 pub(super) type WelcomesApiSubscription<'a, ApiClient> = MultiplexedStream<
     SubscriptionStream<
-        <ApiClient as XmtpMlsStreams>::WelcomeMessageStream,
+        BufferedStream<WelcomeMessage, <ApiClient as XmtpMlsStreams>::Error>,
         <ApiClient as XmtpMlsStreams>::Error,
     >,
     BroadcastGroupStream,
@@ -193,6 +195,7 @@ where
     C: XmtpSharedContext + 'a,
     C::ApiClient: XmtpMlsStreams + 'a,
     C::Db: 'a,
+    <C::ApiClient as XmtpMlsStreams>::WelcomeMessageStream: Unpin + 'static,
 {
     /// Creates a new welcome message and conversation stream.
     ///
@@ -276,6 +279,7 @@ where
     C: XmtpSharedContext + 'static,
     C::ApiClient: XmtpMlsStreams + 'static,
     C::Db: 'static,
+    <C::ApiClient as XmtpMlsStreams>::WelcomeMessageStream: Unpin + 'static,
 {
     pub async fn new_owned(
         context: C,
