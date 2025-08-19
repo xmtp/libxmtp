@@ -18,8 +18,9 @@ if [ ! -d $XMTP_ANDROID ]; then
 fi
 echo -e "${GREEN}Android Directory:${NC} $XMTP_ANDROID"
 
-CARGO="nix develop -i .#android --command cargo"
-SED="nix develop -i .#android --command sed"
+ADD_EXPERIMENTAL_FEATURES="--extra-experimental-features nix-command --extra-experimental-features flakes"
+CARGO="nix $ADD_EXPERIMENTAL_FEATURES develop -i .#android --command cargo"
+SED="nix $ADD_EXPERIMENTAL_FEATURES develop -i .#android --command sed"
 
 WORKSPACE_MANIFEST="$($CARGO locate-project --workspace --message-format=plain)"
 WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
