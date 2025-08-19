@@ -12,6 +12,3 @@ pub mod extractors;
 pub use extractors::*;
 
 mod impls;
-
-use openmls::prelude::ProtocolVersion;
-pub const MLS_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::Mls10;

@@ -30,7 +30,7 @@ where
 
     async fn subscribe_group_messages(
         &self,
-        request: mls_v1::SubscribeGroupMessagesRequest,
+        _request: mls_v1::SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         todo!()
     }
