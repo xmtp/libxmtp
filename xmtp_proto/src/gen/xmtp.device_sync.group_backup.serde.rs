@@ -88,6 +88,7 @@ impl serde::Serialize for GroupMembershipStateSave {
             Self::Rejected => "GROUP_MEMBERSHIP_STATE_SAVE_REJECTED",
             Self::Pending => "GROUP_MEMBERSHIP_STATE_SAVE_PENDING",
             Self::Restored => "GROUP_MEMBERSHIP_STATE_SAVE_RESTORED",
+            Self::PendingRemoval => "GROUP_MEMBERSHIP_STATE_SAVE_PENDING_REMOVAL",
         };
         serializer.serialize_str(variant)
     }

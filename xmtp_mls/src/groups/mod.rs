@@ -932,6 +932,56 @@ where
         Ok(())
     }
 
+    pub async fn leave_group(&self) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+        //check member size
+        if self.members().await?.len() == 1 {
+            return Err(GroupError::LeaveCantProcessed);
+        }
+
+        if self.metadata().await?.conversation_type == ConversationType::Dm {
+            return Err(GroupError::LeaveDmForbidden);
+        }
+
+        let mutable_metadata = self.mutable_metadata()?;
+        let pending_removals = mutable_metadata
+            .attributes
+            .get(&MetadataField::PendingRemoval.to_string());
+        if pending_removals.is_some() {
+            // self.remove_members_by_inbox_id(&[InboxIdRef::from(pending_removals)]).await?;
+            //return error and retry from scratch
+        }
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_pending_removal(self.context.inbox_id().to_string())
+                .into();
+        let intent = QueueIntent::metadata_update()
+            .data(intent_data)
+            .queue(self)?;
+
+        let _ = self.sync_until_intent_resolved(intent.id).await?;
+        Ok(())
+    }
+
+    pub async fn clear_pending_removal(&self) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+        let mutable_metadata = self.mutable_metadata()?;
+
+        let pending_removals = mutable_metadata
+            .attributes
+            .get(&MetadataField::PendingRemoval.to_string());
+        if pending_removals.is_some() {
+            //check if the member is still in the members list then reject it other wise clear continue to clear it
+            //todo: check if the pending_removal is empty! if yes then remove the other member first!
+        }
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_pending_removal("".to_string()).into();
+        let intent = QueueIntent::metadata_update()
+            .data(intent_data)
+            .queue(self)?;
+        let _ = self.sync_until_intent_resolved(intent.id).await?;
+        Ok(())
+    }
+
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
     /// to perform these updates.
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
@@ -1232,6 +1282,19 @@ where
             Err(GroupError::MetadataPermissionsError(
                 GroupMetadataError::MissingExtension.into(),
             ))
+        }
+    }
+
+    pub fn get_pending_removals(&self) -> Result<String, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        match mutable_metadata
+            .attributes
+            .get(&MetadataField::PendingRemoval.to_string())
+        {
+            Some(pending_removal) => Ok(pending_removal.clone()),
+            None => Err(GroupError::MetadataPermissionsError(
+                GroupMetadataError::MissingExtension.into(),
+            )),
         }
     }
 

@@ -79,6 +79,7 @@ pub enum GroupMembershipStateSave {
     /// that can be reactivated when the user is re-added to
     /// the group.
     Restored = 4,
+    PendingRemoval = 5,
 }
 impl GroupMembershipStateSave {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -92,6 +93,7 @@ impl GroupMembershipStateSave {
             GroupMembershipStateSave::Rejected => "GROUP_MEMBERSHIP_STATE_SAVE_REJECTED",
             GroupMembershipStateSave::Pending => "GROUP_MEMBERSHIP_STATE_SAVE_PENDING",
             GroupMembershipStateSave::Restored => "GROUP_MEMBERSHIP_STATE_SAVE_RESTORED",
+            GroupMembershipStateSave::PendingRemoval => "GROUP_MEMBERSHIP_STATE_SAVE_PENDING_REMOVAL",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -102,6 +104,7 @@ impl GroupMembershipStateSave {
             "GROUP_MEMBERSHIP_STATE_SAVE_REJECTED" => Some(Self::Rejected),
             "GROUP_MEMBERSHIP_STATE_SAVE_PENDING" => Some(Self::Pending),
             "GROUP_MEMBERSHIP_STATE_SAVE_RESTORED" => Some(Self::Restored),
+            "GROUP_MEMBERSHIP_STATE_SAVE_PENDING_REMOVAL" => Some(Self::PendingRemoval),
             _ => None,
         }
     }

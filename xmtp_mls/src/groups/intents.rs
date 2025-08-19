@@ -62,6 +62,8 @@ pub enum IntentError {
     UnknownPermissionPolicyOption,
     #[error("unknown value for AdminListActionType")]
     UnknownAdminListAction,
+    #[error("unknown value for self-removal")]
+    UnknownSelfRemovalAction,
 }
 
 #[derive(Debug, Clone)]
@@ -177,6 +179,13 @@ impl UpdateMetadataIntentData {
         Self {
             field_name: MetadataField::GroupName.to_string(),
             field_value: group_name,
+        }
+    }
+
+    pub fn new_pending_removal(inbox_id: String) -> Self {
+        Self {
+            field_name: MetadataField::PendingRemoval.to_string(),
+            field_value: inbox_id,
         }
     }
 

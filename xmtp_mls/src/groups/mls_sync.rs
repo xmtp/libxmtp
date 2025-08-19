@@ -90,6 +90,7 @@ use tracing::debug;
 use xmtp_common::time::now_ns;
 use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
+use xmtp_db::group::GroupMembershipState;
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
@@ -1527,6 +1528,16 @@ where
                         data.field_value.parse::<i64>().ok(),
                     )?
                 }
+                field_name if field_name == MetadataField::PendingRemoval.as_str() => {
+                    //todo: handle self-removal, make the group as leave
+                    storage
+                        .db()
+                        .update_group_membership(
+                            &intent.group_id,
+                            GroupMembershipState::PendingRemoval,
+                        )
+                        .map_err(|_| IntentError::UnknownSelfRemovalAction)?
+                }
                 _ => {} // handle other metadata updates
             }
         }
@@ -1558,6 +1569,10 @@ where
                     storage
                         .db()
                         .update_message_disappearing_in_ns(self.group_id.clone(), parsed_value)?
+                }
+                field_name if field_name == MetadataField::PendingRemoval.as_str() => {
+                    let parsed_value = change.new_value.as_deref().unwrap();
+                    //check my installation and my inbox
                 }
                 _ => {} // Handle other metadata updates if needed
             }

@@ -83,6 +83,12 @@ pub enum GroupError {
     WrappedApi(#[from] xmtp_api::ApiError),
     #[error("invalid group membership")]
     InvalidGroupMembership,
+    #[error("cannot leave a DM")]
+    LeaveDmForbidden,
+    #[error("cannot leave a group that has only one member")]
+    LeaveCantProcessed,
+    #[error("cannot leave a group without and admin or super admin")]
+    LeaveWithoutAdmin,
     #[error("storage error: {0}")]
     Storage(#[from] xmtp_db::StorageError),
     #[error("intent error: {0}")]
@@ -285,6 +291,9 @@ impl RetryableError for GroupError {
             | Self::GroupInactive
             | Self::FailedToVerifyInstallations
             | Self::NoWelcomesToSend
+            | Self::LeaveDmForbidden
+            | Self::LeaveCantProcessed
+            | Self::LeaveWithoutAdmin
             | Self::UninitializedField(_)
             | Self::UninitializedResult => false,
         }
