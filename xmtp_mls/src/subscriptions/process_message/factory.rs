@@ -87,6 +87,7 @@ impl<Context> Sync for Syncer<Context>
 where
     Context: XmtpSharedContext,
 {
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn process(&self, msg: &group_message::V1) -> Result<MessageIdentifier, SubscribeError> {
         let (group, _) = MlsGroup::new_cached(self.0.clone(), &msg.group_id)?;
         let epoch = group.epoch().await?;
@@ -103,6 +104,7 @@ where
             .map_err(|e| SubscribeError::ReceiveGroup(Box::new(e)))
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn recover(&self, msg: &group_message::V1) -> SyncSummary {
         let group = MlsGroup::new(
             self.0.clone(),
@@ -223,6 +225,7 @@ where
         }
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn process_or_recover(&self, msg: &group_message::V1) -> SyncSummary {
         use SubscribeError::*;
         // try to process the message with retries
