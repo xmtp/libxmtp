@@ -20,7 +20,7 @@ use xmtp_mls::InboxOwner;
 fn setup_global_subscriber() -> impl Drop {
     // let fmt_layer = fmt::Layer::default();
     let fmt_layer = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_env(
-        "stream_monitor=trace,xmtp_mls=trace,xmtp_api=trace",
+        "stream_monitor=trace,xmtp_mls=trace,xmtp_api=trace,xtmp_proto=trace",
     ));
     let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
     let flame_layer = flame_layer.with_threads_collapsed(true);
