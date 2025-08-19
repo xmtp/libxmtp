@@ -4,9 +4,7 @@ use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request::Request;
-use xmtp_proto::xmtp::identity::api::v1::{
-    FILE_DESCRIPTOR_SET, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
-};
+use xmtp_proto::xmtp::identity::api::v1::{GetIdentityUpdatesRequest, GetIdentityUpdatesResponse};
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
@@ -28,7 +26,7 @@ impl Endpoint for GetIdentityUpdatesV2 {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<GetIdentityUpdatesRequest>(FILE_DESCRIPTOR_SET)
+        crate::path_and_query::<GetIdentityUpdatesRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -47,7 +45,7 @@ mod test {
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
-        let pnq = crate::path_and_query::<GetIdentityUpdatesRequest>(FILE_DESCRIPTOR_SET);
+        let pnq = crate::path_and_query::<GetIdentityUpdatesRequest>();
         println!("{}", pnq);
     }
 

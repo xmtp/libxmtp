@@ -4,7 +4,7 @@ use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::identity::api::v1::{
-    FILE_DESCRIPTOR_SET, GetInboxIdsRequest, GetInboxIdsResponse, get_inbox_ids_request,
+    GetInboxIdsRequest, GetInboxIdsResponse, get_inbox_ids_request,
 };
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
@@ -30,7 +30,7 @@ impl Endpoint for GetInboxIds {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<GetInboxIdsRequest>(FILE_DESCRIPTOR_SET)
+        crate::path_and_query::<GetInboxIdsRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -66,9 +66,9 @@ mod test {
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
-        use xmtp_proto::xmtp::identity::api::v1::{FILE_DESCRIPTOR_SET, GetInboxIdsRequest};
+        use xmtp_proto::xmtp::identity::api::v1::GetInboxIdsRequest;
 
-        let pnq = crate::path_and_query::<GetInboxIdsRequest>(FILE_DESCRIPTOR_SET);
+        let pnq = crate::path_and_query::<GetInboxIdsRequest>();
         println!("{}", pnq);
     }
 

@@ -3151,8 +3151,8 @@ mod tests {
         revoke_installations,
         worker::FfiSyncWorkerMode,
         FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
-        FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
-        FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
+        FfiConversationCallback, FfiConversationMessageKind, FfiConversationType,
+        FfiCreateDMOptions, FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
         FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
@@ -6861,6 +6861,30 @@ mod tests {
             .list(FfiListConversationsOptions::default())
             .unwrap();
         assert_eq!(bola_conversations.len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_dm_stream_correct_type() {
+        let amal = Tester::new().await;
+        let bola = Tester::new().await;
+
+        let stream_callback = Arc::new(RustStreamCallback::default());
+        amal.conversations()
+            .stream_dms(stream_callback.clone())
+            .await;
+        amal.conversations()
+            .find_or_create_dm(
+                bola.account_identifier.clone(),
+                FfiCreateDMOptions::default(),
+            )
+            .await
+            .unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
+        assert_eq!(stream_callback.message_count(), 1);
+
+        let convo_list = stream_callback.conversations.lock();
+        assert_eq!(convo_list.len(), 1);
+        assert_eq!(convo_list[0].conversation_type(), FfiConversationType::Dm);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]

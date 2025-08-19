@@ -6,7 +6,6 @@ use xmtp_proto::mls_v1::PagingInfo;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
 use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
-use xmtp_proto::xmtp::xmtpv4::message_api::FILE_DESCRIPTOR_SET;
 use xmtp_proto::xmtp::xmtpv4::message_api::{QueryEnvelopesRequest, QueryEnvelopesResponse};
 
 /// Query a single thing
@@ -33,7 +32,7 @@ impl Endpoint for QueryEnvelope {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<QueryEnvelopesRequest>(FILE_DESCRIPTOR_SET)
+        crate::path_and_query::<QueryEnvelopesRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -81,7 +80,7 @@ impl Endpoint for QueryEnvelopes {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<QueryEnvelopesRequest>(FILE_DESCRIPTOR_SET)
+        crate::path_and_query::<QueryEnvelopesRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -101,8 +100,8 @@ mod test {
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
-        use xmtp_proto::xmtp::xmtpv4::message_api::{FILE_DESCRIPTOR_SET, QueryEnvelopesRequest};
-        let pnq = crate::path_and_query::<QueryEnvelopesRequest>(FILE_DESCRIPTOR_SET);
+        use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesRequest;
+        let pnq = crate::path_and_query::<QueryEnvelopesRequest>();
         println!("{}", pnq);
     }
 
