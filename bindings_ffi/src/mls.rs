@@ -1817,6 +1817,7 @@ pub struct FfiConversationDebugInfo {
     pub fork_details: String,
     pub is_commit_log_forked: Option<bool>,
     pub local_commit_log: String,
+    pub remote_commit_log: String,
     pub cursor: i64,
 }
 
@@ -1827,6 +1828,7 @@ impl FfiConversationDebugInfo {
         fork_details: String,
         is_commit_log_forked: Option<bool>,
         local_commit_log: String,
+        remote_commit_log: String,
         cursor: i64,
     ) -> Self {
         Self {
@@ -1835,6 +1837,7 @@ impl FfiConversationDebugInfo {
             fork_details,
             is_commit_log_forked,
             local_commit_log,
+            remote_commit_log,
             cursor,
         }
     }
@@ -1848,6 +1851,7 @@ impl From<ConversationDebugInfo> for FfiConversationDebugInfo {
             value.fork_details,
             value.is_commit_log_forked,
             value.local_commit_log,
+            value.remote_commit_log,
             value.cursor,
         )
     }
