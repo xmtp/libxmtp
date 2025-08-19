@@ -12,6 +12,8 @@ use tracing_flame::FlameLayer;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{prelude::*, registry::Registry};
 use xmtp_api_grpc::Client as GrpcApiClient;
+use xmtp_db::group::GroupQueryArgs;
+use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_db::{EncryptedMessageStore, NativeDb, StorageOption};
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::Client;
@@ -20,7 +22,7 @@ use xmtp_mls::InboxOwner;
 fn setup_global_subscriber() -> impl Drop {
     // let fmt_layer = fmt::Layer::default();
     let fmt_layer = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_env(
-        "stream_monitor=trace,xmtp_mls=trace,xmtp_api=trace,xtmp_proto=trace",
+        "stream_monitor=trace,xmtp_mls=trace,xmtp_api=trace,xmtp_proto=trace",
     ));
     let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
     let flame_layer = flame_layer.with_threads_collapsed(true);
@@ -38,7 +40,7 @@ struct Args {
     timeout: u64,
 
     /// Output file for message IDs
-    #[arg(long, default_value = "received-message-ids.txt")]
+    #[arg(long, default_value = "streamed-message-ids.txt")]
     output_file: String,
 
     /// Maximum number of messages to receive before ending
@@ -52,6 +54,10 @@ struct Args {
     /// Save message IDs to output file
     #[arg(long, default_value = "false")]
     output: bool,
+
+    /// Output file for all message IDs from all groups (after sync)
+    #[arg(long, default_value = "received-message-ids.txt")]
+    all_groups_output_file: String,
 }
 
 fn client_random_suffix() -> String {
@@ -318,6 +324,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Message IDs written to {}", args.output_file);
     } else if args.output {
         println!("No messages received, not creating output file");
+    }
+
+    // Sync all groups and collect all message IDs if output is enabled
+    if args.output {
+        println!("Syncing all groups and collecting message IDs...");
+
+        // Sync all welcomes and groups
+        client.sync_all_welcomes_and_groups(None).await?;
+
+        // Get all groups
+        let groups = client.find_groups(GroupQueryArgs::default()).unwrap();
+
+        println!("Found {} groups to collect messages from", groups.len());
+
+        // Collect all message IDs from all groups
+        let mut all_message_ids = Vec::new();
+        for group in groups {
+            // Get all messages from this group
+            let messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
+
+            for message in messages {
+                all_message_ids.push(hex::encode(&message.id));
+            }
+        }
+
+        if !all_message_ids.is_empty() {
+            println!(
+                "Writing {} total message IDs from all groups to {}",
+                all_message_ids.len(),
+                args.all_groups_output_file
+            );
+            let mut file = File::create(&args.all_groups_output_file)?;
+            for id in &all_message_ids {
+                writeln!(file, "{}", id)?;
+            }
+            println!("All message IDs written to {}", args.all_groups_output_file);
+        } else {
+            println!("No messages found in any groups");
+        }
     }
 
     println!("Stream monitor finished");
