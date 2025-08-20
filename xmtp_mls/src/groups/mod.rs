@@ -58,7 +58,8 @@ use tokio::sync::Mutex;
 use xmtp_common::time::now_ns;
 use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
-    MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
+    MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators,
+    SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::should_push;
@@ -95,9 +96,9 @@ use xmtp_mls_common::{
         GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings, MetadataField,
     },
 };
-use xmtp_proto::xmtp::mls::{
-    api::v1::welcome_message,
-    message_contents::{
+use xmtp_proto::{
+    types::Cursor,
+    xmtp::mls::message_contents::{
         EncodedContent, PlaintextEnvelope,
         content_types::ReactionV2,
         plaintext_envelope::{Content, V1},
@@ -184,7 +185,7 @@ pub struct ConversationDebugInfo {
     pub is_commit_log_forked: Option<bool>,
     pub local_commit_log: String,
     pub remote_commit_log: String,
-    pub cursor: i64,
+    pub cursor: Vec<Cursor>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -566,7 +567,7 @@ where
     #[tracing::instrument(skip_all, level = "trace")]
     pub(super) async fn create_from_welcome(
         context: Context,
-        welcome: &welcome_message::V1,
+        welcome: &xmtp_proto::types::WelcomeMessage,
         cursor_increment: bool,
         validator: impl ValidateGroupMembership,
     ) -> Result<Self, GroupError> {
@@ -759,8 +760,8 @@ where
             version_minor: queryable_content_fields.version_minor,
             authority_id: queryable_content_fields.authority_id,
             reference_id: queryable_content_fields.reference_id,
-            sequence_id: None,
-            originator_id: None,
+            sequence_id: 0,
+            originator_id: 0,
             expire_at_ns: None,
         };
         group_message.store(&self.context.db())?;
@@ -1437,9 +1438,16 @@ where
         .await
     }
 
-    pub async fn cursor(&self) -> Result<i64, GroupError> {
+    pub async fn cursor(&self) -> Result<Vec<Cursor>, GroupError> {
         let db = self.context.db();
-        Ok(db.get_last_cursor_for_id(&self.group_id, EntityKind::Group)?)
+        Ok(db.get_last_cursor_for_originators(
+            &self.group_id,
+            EntityKind::Group,
+            &[
+                Originators::APPLICATION_MESSAGES.into(),
+                Originators::MLS_COMMITS.into(),
+            ],
+        )?)
     }
 
     pub async fn local_commit_log(&self) -> Result<Vec<LocalCommitLog>, GroupError> {

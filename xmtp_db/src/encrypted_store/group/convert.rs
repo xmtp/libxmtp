@@ -18,7 +18,8 @@ impl TryFrom<GroupSave> for StoredGroup {
             membership_state,
             installations_last_checked: value.installations_last_checked,
             added_by_inbox_id: value.added_by_inbox_id,
-            welcome_id: value.welcome_id,
+            sequence_id: value.welcome_id,
+            originator_id: None,
             rotated_at_ns: value.rotated_at_ns,
             conversation_type,
             dm_id: value.dm_id,
@@ -28,8 +29,6 @@ impl TryFrom<GroupSave> for StoredGroup {
             paused_for_version: None, // TODO: Add this to the backup
             maybe_forked: false,
             fork_details: String::new(),
-            sequence_id: None,
-            originator_id: None,
             should_publish_commit_log: false, // TODO(cvoell): verify we update when we receive a welcome
             commit_log_public_key: None,
             is_commit_log_forked: None,

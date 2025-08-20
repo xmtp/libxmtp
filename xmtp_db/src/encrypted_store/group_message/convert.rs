@@ -25,8 +25,8 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             version_minor: value.version_minor,
             authority_id: value.authority_id,
             reference_id: value.reference_id,
-            sequence_id: value.sequence_id,
-            originator_id: value.originator_id,
+            sequence_id: value.sequence_id.unwrap_or(0),
+            originator_id: value.originator_id.unwrap_or(10), // TODO:d14n this must be fixed before release, else archives are broken
             expire_at_ns: None,
         })
     }
@@ -103,8 +103,8 @@ impl From<StoredGroupMessage> for GroupMessageSave {
             version_minor: value.version_minor,
             authority_id: value.authority_id,
             reference_id: value.reference_id,
-            sequence_id: value.sequence_id,
-            originator_id: value.originator_id,
+            sequence_id: Some(value.sequence_id),
+            originator_id: Some(value.originator_id),
         }
     }
 }

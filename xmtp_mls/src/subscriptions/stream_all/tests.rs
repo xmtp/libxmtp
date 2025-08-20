@@ -11,6 +11,8 @@ use crate::{
 };
 use futures::StreamExt;
 use rstest::*;
+use xmtp_configuration::Originators;
+use xmtp_proto::types::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -447,7 +449,10 @@ async fn stream_messages_keeps_track_of_cursor(
     {
         let msg_stream = &s.messages;
         let cursor = msg_stream.position(group.group_id.as_slice()).unwrap();
-        assert!(cursor.last_streamed() > 1);
+        assert!(cursor.last_streamed() > Cursor {
+            sequence_id: 1,
+            originator_id: Originators::APPLICATION_MESSAGES.into()
+        });
     }
 
     eve_group

@@ -109,7 +109,7 @@ async fn it_can_stream_messages(#[case] mut cases: Vec<StreamSession>) {
             let item = stream.next().await.unwrap().unwrap();
             assert_eq!(
                 item.sequence_id,
-                Some(session.expected.pop().unwrap() as i64)
+                session.expected.pop().unwrap() as i64
             )
         }
     }
@@ -224,7 +224,7 @@ async fn test_adding_to_stream_works(#[case] cases: Vec<StreamSession>) {
         while !session.expected.is_empty() {
             let item = stream.next().await.unwrap().unwrap();
             let exp = session.expected.pop().unwrap();
-            assert_eq!(item.sequence_id, Some(exp as i64));
+            assert_eq!(item.sequence_id, exp as i64);
         }
     }
 }
@@ -321,7 +321,7 @@ async fn it_can_add_to_stream_while_busy(#[case] mut cases: Vec<StreamSession>) 
                 Poll::Ready(Some(Ok(i))) => {
                     if let Some(e) = session.expected.pop() {
                         tracing::info!("got {}", e);
-                        assert_eq!(i.sequence_id, Some(e as i64));
+                        assert_eq!(i.sequence_id, e as i64);
                     } else {
                         break;
                     }

@@ -2,11 +2,9 @@ use std::collections::HashMap;
 
 use futures::{StreamExt, TryStreamExt, stream};
 use xmtp_api::{ApiClientWrapper, GroupFilter, XmtpApi};
-use xmtp_common::types::GroupId;
+use xmtp_proto::types::{Cursor, GroupId};
 
 use crate::subscriptions::SubscribeError;
-
-use super::extract_message_cursor;
 
 #[derive(thiserror::Error, Debug)]
 pub enum MessageStreamError {
@@ -20,12 +18,12 @@ pub enum MessageStreamError {
 /// based only upon messages from the stream
 #[derive(Copy, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MessagePosition {
-    started_at: u64,
+    started_at: Cursor,
     /// last mesasage we got from the network
     /// If we get a message before this cursor, we should
     /// check if we synced after that cursor, and should
     /// prefer retrieving from the database
-    last_streamed: Option<u64>,
+    last_streamed: Option<Cursor>,
 }
 
 impl std::fmt::Debug for MessagePosition {
@@ -38,7 +36,7 @@ impl std::fmt::Debug for MessagePosition {
 }
 
 impl MessagePosition {
-    pub fn new(cursor: u64, started_at: u64) -> Self {
+    pub fn new(cursor: Cursor, started_at: Cursor) -> Self {
         Self {
             last_streamed: Some(cursor),
             started_at,
@@ -51,7 +49,7 @@ impl MessagePosition {
     ///
     /// # Arguments
     /// * `cursor` - The new cursor position to set
-    pub(super) fn set(&mut self, cursor: u64) {
+    pub(super) fn set(&mut self, cursor: Cursor) {
         self.last_streamed = Some(cursor);
     }
 
@@ -61,12 +59,12 @@ impl MessagePosition {
     ///
     /// # Returns
     /// * `u64` - The current cursor position or 0 if unset
-    pub(crate) fn last_streamed(&self) -> u64 {
-        self.last_streamed.unwrap_or(0)
+    pub(crate) fn last_streamed(&self) -> Cursor {
+        self.last_streamed.unwrap_or(Default::default())
     }
 
     /// when did the stream start streaming for this group
-    pub(crate) fn started(&self) -> u64 {
+    pub(crate) fn started(&self) -> Cursor {
         self.started_at
     }
 }
@@ -94,10 +92,9 @@ where
         group: &GroupId,
     ) -> Result<MessagePosition, SubscribeError> {
         if let Some(msg) = self.query_latest_group_message(group).await? {
-            let cursor = extract_message_cursor(&msg).ok_or(MessageStreamError::InvalidPayload)?;
-            Ok(MessagePosition::new(cursor, cursor))
+            Ok(MessagePosition::new(msg.cursor, msg.cursor))
         } else {
-            Ok(MessagePosition::new(0, 0))
+            Ok(MessagePosition::new(Default::default(), Default::default()))
         } // there is no cursor for this group yet
     }
 }
@@ -127,7 +124,10 @@ impl GroupList {
         self.list
             .iter()
             .map(|(group_id, cursor)| {
-                GroupFilter::new(group_id.to_vec(), Some(cursor.last_streamed()))
+                // TODO:d14n this is going to need to change
+                // will not work with cursor from dif originators
+                // i.e mixed commits & app msgs will screw up ordering
+                GroupFilter::new(group_id.to_vec(), Some(cursor.last_streamed().sequence_id))
             })
             .collect()
     }
@@ -147,7 +147,7 @@ impl GroupList {
         self.list.insert(group.as_ref().to_vec().into(), position);
     }
 
-    pub(super) fn set(&mut self, group: impl AsRef<[u8]>, cursor: u64) {
+    pub(super) fn set(&mut self, group: impl AsRef<[u8]>, cursor: Cursor) {
         self.list
             .entry(group.as_ref().into())
             .and_modify(|c| c.set(cursor))

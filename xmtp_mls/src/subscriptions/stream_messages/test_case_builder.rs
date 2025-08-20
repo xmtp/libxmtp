@@ -6,14 +6,13 @@ use std::task::{Context, Poll};
 
 use crate::subscriptions::process_message::ProcessedMessage;
 use crate::test::mock::{MockContext, MockProcessFutureFactory, NewMockContext};
-use crate::test::mock::{context, generate_message, generate_message_and_v1, generate_stored_msg};
+use crate::test::mock::{context, generate_message, generate_stored_msg};
 use mockall::Sequence;
 use parking_lot::Mutex;
 use pin_project_lite::pin_project;
-use xmtp_api::test_utils::MockGroupStream;
+use xmtp_api_d14n::MockGroupStream;
 use xmtp_common::FutureWrapper;
-use xmtp_common::types::GroupId;
-use xmtp_proto::mls_v1::QueryGroupMessagesResponse;
+use xmtp_proto::types::{Cursor, GroupId};
 
 pin_project! {
     pub struct ReadyAfter<Fut> {
@@ -127,7 +126,7 @@ fn setup_stream(cases: Vec<MessageCase>, stream: &mut MockGroupStream) {
             .returning({
                 let case = *case;
                 move |_| {
-                    let (msg, _) = generate_message_and_v1(case.cursor, &group_id(case.group_id));
+                    let msg = generate_message(case.cursor, &group_id(case.group_id));
                     Poll::Ready(Some(Ok(msg)))
                 }
             });
@@ -269,12 +268,18 @@ impl StreamSequenceBuilder {
                         move |msg| {
                             FutureWrapper::new(ready_after(
                                 Ok(ProcessedMessage {
-                                    message: case
-                                        .found
-                                        .then(|| generate_stored_msg(msg.id, msg.group_id.clone())),
-                                    group_id: msg.group_id,
-                                    next_message: case.next_cursor,
-                                    tried_to_process: msg.id,
+                                    message: case.found.then(|| {
+                                        generate_stored_msg(
+                                            msg.cursor,
+                                            msg.group_id.clone().to_vec(),
+                                        )
+                                    }),
+                                    group_id: msg.group_id.to_vec(),
+                                    next_message: Cursor::new(
+                                        case.next_cursor,
+                                        xmtp_configuration::Originators::APPLICATION_MESSAGES,
+                                    ),
+                                    tried_to_process: msg.cursor,
                                 }),
                                 case.polls_to_process.into(),
                             ))
@@ -288,9 +293,9 @@ impl StreamSequenceBuilder {
                     .returning({
                         let case = *case;
                         move |msg| {
-                            Ok(case
-                                .found
-                                .then(|| generate_stored_msg(msg.id, msg.group_id.clone())))
+                            Ok(case.found.then(|| {
+                                generate_stored_msg(msg.cursor, msg.group_id.clone().to_vec())
+                            }))
                         }
                     });
             }
@@ -304,12 +309,9 @@ impl StreamSequenceBuilder {
             .api_client
             .expect_query_group_messages()
             .times(times)
-            .returning(|req| {
-                let message = generate_message(1, &req.group_id);
-                Ok(QueryGroupMessagesResponse {
-                    messages: vec![message],
-                    paging_info: None,
-                })
+            .returning(|gid, _cursor| {
+                let message = generate_message(1, &gid);
+                Ok(vec![message])
             });
         let state = self.case_state.clone();
         self.context

@@ -11,7 +11,7 @@ use crate::error::GrpcError;
 use futures::{Stream, TryStream};
 use pin_project_lite::pin_project;
 use xmtp_proto::{
-    traits::{ApiClientError, Client},
+    api::{ApiClientError, Client},
     ApiEndpoint,
 };
 
@@ -21,12 +21,6 @@ pin_project! {
         #[pin] inner: S,
         endpoint: ApiEndpoint,
         _marker: PhantomData<T>,
-    }
-
-    impl<S, T> PinnedDrop for XmtpTonicStream<S, T> {
-        fn drop(_this: Pin<&mut Self>) {
-            tracing::info!("dropped tonic stream");
-        }
     }
 }
 
