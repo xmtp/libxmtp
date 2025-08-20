@@ -1,4 +1,10 @@
-use crate::identity_updates::batch_get_association_state_with_verifier;
+use crate::{
+    identity_updates::batch_get_association_state_with_verifier,
+    messages::{
+        decoded_message::DecodedMessage,
+        enrichment::{EnrichMessageError, enrich_messages},
+    },
+};
 use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
 
 use crate::{
@@ -98,6 +104,8 @@ pub enum ClientError {
     Generic(String),
     #[error(transparent)]
     MlsStore(#[from] MlsStoreError),
+    #[error(transparent)]
+    EnrichMessage(#[from] EnrichMessageError),
 }
 
 impl ClientError {
@@ -647,6 +655,26 @@ where
         let conn = &mut self.context.db();
         let message = conn.get_group_message(&message_id)?;
         Ok(message.ok_or(NotFound::MessageById(message_id))?)
+    }
+
+    /// Look up and enrich a message by its ID, returning a [`DecodedMessage`]
+    /// Returns an error if the message is not found or if it cannot be decoded/enriched
+    pub fn message_v2(&self, message_id: Vec<u8>) -> Result<DecodedMessage, ClientError> {
+        let conn = self.context.db();
+        let message = conn
+            .get_group_message(&message_id)?
+            .ok_or_else(|| NotFound::MessageById(message_id.clone()))?;
+
+        let group_id = message.group_id.clone();
+
+        let enriched = enrich_messages(conn, &group_id, vec![message])?;
+
+        // Since enrich_messages returns a Vec<DecodedMessage>, we can use .into_iter().next().ok_or(...) to take ownership without cloning.
+        enriched
+            .into_iter()
+            .next()
+            // In practice `enrich_messages` should always return an array of the same length as the input
+            .ok_or_else(|| ClientError::Generic("Failed to decode message".to_string()))
     }
 
     /// Query for groups with optional filters
