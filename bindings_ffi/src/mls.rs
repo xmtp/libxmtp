@@ -6368,6 +6368,153 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_disappearing_messages_with_0_from_ns_settings() {
+        let alix = new_test_client().await;
+        let alix_provider = alix.inner_client.context.mls_provider();
+        let bola = new_test_client().await;
+        let bola_provider = bola.inner_client.context.mls_provider();
+
+        // Step 1: Create a group
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bola.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Step 2: Send a message and sync
+        alix_group
+            .send("Msg 1 from group".as_bytes().to_vec())
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Step 3: Verify initial messages
+        let mut alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(alix_messages.len(), 2);
+
+        // Step 4: Set disappearing settings to 5ns after the latest message and from ns 0
+        let disappearing_settings = FfiMessageDisappearingSettings::new(0, 5);
+        alix_group
+            .update_conversation_message_disappearing_settings(disappearing_settings.clone())
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Verify the settings were applied and the settings is not enabled
+        let group_from_db = alix
+            .inner_client
+            .context
+            .db()
+            .find_group(&alix_group.id())
+            .unwrap();
+        assert_eq!(
+            group_from_db
+                .clone()
+                .unwrap()
+                .message_disappear_from_ns
+                .unwrap(),
+            disappearing_settings.from_ns
+        );
+        assert_eq!(
+            group_from_db.unwrap().message_disappear_in_ns.unwrap(),
+            disappearing_settings.in_ns
+        );
+        assert!(!alix_group
+            .is_conversation_message_disappearing_enabled()
+            .unwrap());
+
+        bola.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        let bola_group_from_db = bola_provider
+            .key_store()
+            .db()
+            .find_group(&alix_group.id())
+            .unwrap();
+        assert_eq!(
+            bola_group_from_db
+                .clone()
+                .unwrap()
+                .message_disappear_from_ns
+                .unwrap(),
+            disappearing_settings.from_ns
+        );
+        assert_eq!(
+            bola_group_from_db.unwrap().message_disappear_in_ns.unwrap(),
+            disappearing_settings.in_ns
+        );
+        assert!(!alix_group
+            .is_conversation_message_disappearing_enabled()
+            .unwrap());
+
+        // Step 5: Send additional messages
+        for msg in &["Msg 2 from group", "Msg 3 from group", "Msg 4 from group"] {
+            alix_group.send(msg.as_bytes().to_vec()).await.unwrap();
+        }
+        alix_group.sync().await.unwrap();
+
+        // Step 6: Verify total message count before cleanup
+        alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        let msg_counts_before_cleanup = alix_messages.len();
+
+        // Wait for cleanup to complete
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // Step 8: Disable disappearing messages
+        alix_group
+            .remove_conversation_message_disappearing_settings()
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Verify disappearing settings are disabled
+        let group_from_db = alix_provider
+            .key_store()
+            .db()
+            .find_group(&alix_group.id())
+            .unwrap();
+        assert_eq!(
+            group_from_db
+                .clone()
+                .unwrap()
+                .message_disappear_from_ns
+                .unwrap(),
+            0
+        );
+        assert!(!alix_group
+            .is_conversation_message_disappearing_enabled()
+            .unwrap());
+
+        assert_eq!(group_from_db.unwrap().message_disappear_in_ns.unwrap(), 0);
+
+        // Step 9: Send another message
+        alix_group
+            .send("Msg 5 from group".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Step 10: Verify messages after cleanup
+        alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        // messages before cleanup + 1 message added for metadataUpdate + 1 message added for 1 normal message
+        assert_eq!(msg_counts_before_cleanup + 2, alix_messages.len());
+        // 3 messages got deleted, then two messages got added for metadataUpdate and one normal messaged added later
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_set_disappearing_messages_when_creating_group() {
         let alix = new_test_client().await;
         let alix_provider = alix.inner_client.context.mls_provider();
