@@ -131,7 +131,9 @@ where
 {
     async fn build(&self) -> Tester<Owner, FullXmtpClient> {
         let mut replace = TestLogReplace::default();
-        if let Some(name) = &self.name {
+        if let Some(name) = &self.name
+            && !self.installation
+        {
             let ident = self.owner.get_identifier().unwrap();
             replace.add(&ident.to_string(), &format!("{name}_ident"));
         }
@@ -144,7 +146,7 @@ where
             sync_api_client.with_existing_toxi(local_client.host().unwrap());
         }
         tracing::info!(
-            "building with host = {:?}:{:?}",
+            "building with hosts = {:?}:{:?}",
             local_client.host(),
             sync_api_client.host()
         );
@@ -227,6 +229,14 @@ where
     pub fn builder_from(owner: Owner) -> TesterBuilder<Owner> {
         TesterBuilder::new().owner(owner)
     }
+
+    /// Create a new installations for this client
+    pub async fn installation(&self) -> Tester<Owner, FullXmtpClient> {
+        TesterBuilder::new()
+            .owner(self.builder.owner.clone())
+            .build()
+            .await
+    }
     pub fn worker(&self) -> &Arc<WorkerMetrics<SyncMetric>> {
         self.worker.as_ref().unwrap()
     }
@@ -273,6 +283,8 @@ where
     pub version: Option<VersionInfo>,
     pub proxy: bool,
     pub commit_log_worker: bool,
+    /// whether this builder represents a second installation
+    installation: bool,
 }
 
 impl TesterBuilder<PrivateKeySigner> {
@@ -294,6 +306,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             version: None,
             proxy: false,
             commit_log_worker: true, // Default to enabled to match production
+            installation: false,
         }
     }
 }
@@ -317,6 +330,7 @@ where
             version: self.version,
             proxy: self.proxy,
             commit_log_worker: self.commit_log_worker,
+            installation: self.installation,
         }
     }
 
@@ -379,6 +393,13 @@ where
     pub fn events(self) -> Self {
         Self {
             events: true,
+            ..self
+        }
+    }
+
+    pub fn installation(self) -> Self {
+        Self {
+            installation: true,
             ..self
         }
     }

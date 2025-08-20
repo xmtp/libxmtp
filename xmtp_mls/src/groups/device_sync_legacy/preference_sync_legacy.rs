@@ -105,6 +105,11 @@ pub(crate) fn process_incoming_preference_update(
 impl LegacyUserPreferenceUpdate {
     /// Send a preference update through the sync group for other devices to consume
     /// Returns updates synced
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = device_sync.context.inbox_id()), skip_all))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip_all)
+    )]
     pub(crate) async fn v1_sync_across_devices<C: XmtpSharedContext>(
         updates: Vec<Self>,
         device_sync: &DeviceSyncClient<C>,

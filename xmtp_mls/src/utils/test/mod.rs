@@ -14,6 +14,7 @@ use crate::{
     context::{XmtpMlsLocalContext, XmtpSharedContext},
     identity::IdentityStrategy,
 };
+use alloy::signers::local::PrivateKeySigner;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
@@ -30,6 +31,8 @@ pub type TestMlsStorage = SqlKeyStore<xmtp_db::DefaultDbConnection>;
 pub type TestXmtpMlsContext =
     Arc<XmtpMlsLocalContext<TestClient, xmtp_db::DefaultStore, TestMlsStorage>>;
 pub type FullXmtpClient = Client<TestXmtpMlsContext>;
+/// Default Client Tester type
+pub type ClientTester = Tester<PrivateKeySigner, FullXmtpClient>;
 pub type TestMlsGroup = crate::groups::MlsGroup<TestXmtpMlsContext>;
 
 #[cfg(not(any(feature = "http-api", target_arch = "wasm32", feature = "d14n")))]

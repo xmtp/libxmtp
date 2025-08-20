@@ -341,7 +341,8 @@ where
     /// Sync from the network with the 'conn' (local database).
     /// must return a summary of all messages synced, whether they were
     /// successful or not.
-    #[tracing::instrument(skip_all)]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(fields(who = %self.context.inbox_id())))]
+    #[cfg_attr(not(any(test, feature = "test-utils")), tracing::instrument(skip_all))]
     pub async fn sync_with_conn(&self) -> Result<SyncSummary, SyncSummary> {
         let _mutex = self.mutex.lock().await;
         let mut summary = SyncSummary::default();
@@ -397,7 +398,11 @@ where
         }
     }
 
-    #[tracing::instrument(skip_all, level = "trace")]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip_all))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip_all)
+    )]
     pub(super) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
         let intents = self.context.db().find_group_intents(
             self.group_id.clone(),
@@ -427,7 +432,11 @@ where
      *
      * This method will retry up to `xmtp_configuration::MAX_GROUP_SYNC_RETRIES` times.
      */
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub(super) async fn sync_until_intent_resolved(
         &self,
         intent_id: ID,
@@ -1273,7 +1282,14 @@ where
     /// * `trust_message_order` - Controls whether to allow epoch increments from commits and msg cursor increments.
     ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
     ///   processing from potentially out-of-order sources like streams.
-    #[tracing::instrument(skip(self, envelope), level = "trace")]
+    #[cfg_attr(
+        any(test, feature = "test-utils"),
+        tracing::instrument(level = "info", skip(self, envelope))
+    )]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip_all)
+    )]
     pub(crate) async fn process_message(
         &self,
         envelope: &GroupMessageV1,
@@ -2305,6 +2321,11 @@ where
      * This is designed to handle cases where existing members have added a new installation to their inbox or revoked an installation
      * and the group has not been updated to include it.
      */
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip_all))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip_all)
+    )]
     pub(super) async fn add_missing_installations(&self) -> Result<(), GroupError> {
         let intent_data = self.get_membership_update_intent(&[], &[]).await?;
 

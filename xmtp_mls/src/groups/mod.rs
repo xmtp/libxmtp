@@ -632,7 +632,11 @@ where
     }
 
     /// Send a message on this users XMTP [`Client`].
-    #[tracing::instrument(skip_all, level = "trace")]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip(self), fields(who = self.context.inbox_id(), message = %String::from_utf8_lossy(message))))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
         if !self.is_active()? {
             tracing::warn!("Unable to send a message on an inactive group.");
@@ -655,6 +659,11 @@ where
 
     /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
     /// which publishes all pending intents and reads them back from the network.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
@@ -838,7 +847,11 @@ where
             .await
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip_all, fields(who = %self.context.inbox_id(), inbox_ids = ?inbox_ids.as_ref().iter().map(|i| i.as_ref()).collect::<Vec<_>>())))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip_all)
+    )]
     pub async fn add_members_by_inbox_id<S: AsIdRef>(
         &self,
         inbox_ids: impl AsRef<[S]>,
@@ -917,6 +930,11 @@ where
     ///
     /// # Returns
     /// A `Result` indicating success or failure of the operation.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip_all, fields(who = %self.context.inbox_id(), inbox_ids = ?inbox_ids)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip_all)
+    )]
     pub async fn remove_members_by_inbox_id(
         &self,
         inbox_ids: &[InboxIdRef<'_>],
@@ -994,6 +1012,11 @@ where
 
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
     /// to perform these updates.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
 
@@ -1016,6 +1039,11 @@ where
     }
 
     /// Updates min version of the group to match this client's version.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn update_group_min_version_to_match_self(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         let version = self.context.version_info().pkg_version();
@@ -1063,6 +1091,11 @@ where
     }
 
     /// Updates the permission policy of the group. This requires super admin permissions.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn update_permission_policy(
         &self,
         permission_update_type: PermissionUpdateType,
@@ -1111,6 +1144,11 @@ where
     }
 
     /// Updates the description of the group.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn update_group_description(
         &self,
         group_description: String,
@@ -1150,6 +1188,11 @@ where
     }
 
     /// Updates the image URL (square) of the group.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn update_group_image_url_square(
         &self,
         group_image_url_square: String,
@@ -1214,6 +1257,11 @@ where
         .await
     }
 
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     async fn update_conversation_message_disappear_from_ns(
         &self,
         expire_from_ms: i64,
@@ -1232,6 +1280,11 @@ where
         Ok(())
     }
 
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     async fn update_conversation_message_disappear_in_ns(
         &self,
         expire_in_ms: i64,
@@ -1337,6 +1390,11 @@ where
     }
 
     /// Updates the admin list of the group and syncs the changes to the network.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn update_admin_list(
         &self,
         action_type: UpdateAdminListType,
@@ -1467,6 +1525,11 @@ where
     }
 
     /// Update this installation's leaf key in the group by creating a key update commit
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn key_update(&self) -> Result<(), GroupError> {
         let intent = QueueIntent::key_update().queue(self)?;
         let _ = self.sync_until_intent_resolved(intent.id).await?;
