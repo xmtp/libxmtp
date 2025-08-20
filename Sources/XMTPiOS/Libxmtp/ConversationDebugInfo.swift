@@ -28,6 +28,10 @@ public struct ConversationDebugInfo {
     public var localCommitLog: String {
         ffiConversationDebugInfo.localCommitLog
     }
+    
+    public var remoteCommitLog: String {
+        ffiConversationDebugInfo.remoteCommitLog
+    }
 	
 	public var commitLogForkStatus: CommitLogForkStatus {
 		switch ffiConversationDebugInfo.isCommitLogForked {
