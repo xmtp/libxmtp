@@ -138,6 +138,7 @@ impl From<ContentType> for ContentTypeSave {
             ContentType::Text => Self::Text,
             ContentType::TransactionReference => Self::TransactionReference,
             ContentType::Unknown => Self::Unknown,
+            _ => Self::Unknown,
         }
     }
 }
