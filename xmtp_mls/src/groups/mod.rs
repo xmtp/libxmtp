@@ -63,7 +63,6 @@ use xmtp_configuration::{
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
-use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::local_commit_log::LocalCommitLog;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
@@ -74,6 +73,10 @@ use xmtp_db::{
     refresh_state::EntityKind,
 };
 use xmtp_db::{Store, StoreOrIgnore};
+use xmtp_db::{
+    XmtpMlsStorageProvider,
+    remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder},
+};
 use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
     group::{ConversationType, GroupMembershipState, StoredGroup},
@@ -176,6 +179,7 @@ pub struct ConversationDebugInfo {
     pub fork_details: String,
     pub is_commit_log_forked: Option<bool>,
     pub local_commit_log: String,
+    pub remote_commit_log: String,
     pub cursor: i64,
 }
 
@@ -296,7 +300,7 @@ where
                     context,
                     group_id.to_vec(),
                     group.dm_id.clone(),
-                    ConversationType::Group,
+                    group.conversation_type,
                     group.created_at_ns,
                 ),
                 group,
@@ -1370,10 +1374,19 @@ where
         Ok(self.context.db().get_group_logs(&self.group_id)?)
     }
 
+    pub async fn remote_commit_log(&self) -> Result<Vec<RemoteCommitLog>, GroupError> {
+        Ok(self.context.db().get_remote_commit_log_after_cursor(
+            &self.group_id,
+            0,
+            RemoteCommitLogOrder::AscendingByRowid,
+        )?)
+    }
+
     pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
         let epoch = self.epoch().await?;
         let cursor = self.cursor().await?;
         let commit_log = self.local_commit_log().await?;
+        let remote_commit_log = self.remote_commit_log().await?;
         let db = self.context.db();
 
         let stored_group = match db.find_group(&self.group_id)? {
@@ -1391,6 +1404,7 @@ where
             fork_details: stored_group.fork_details,
             is_commit_log_forked: stored_group.is_commit_log_forked,
             local_commit_log: format!("{:?}", commit_log),
+            remote_commit_log: format!("{:?}", remote_commit_log),
             cursor,
         })
     }
