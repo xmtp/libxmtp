@@ -43,6 +43,10 @@ struct Args {
     /// Save message IDs to output file
     #[arg(long, default_value = "false")]
     output: bool,
+
+    /// Timeout in seconds for each message send operation
+    #[arg(long, default_value = "10")]
+    timeout: u64,
 }
 
 type MlsContext = Arc<
@@ -109,6 +113,7 @@ async fn send_messages_in_thread(
     messages_to_send: usize,
     message_ids: Arc<Mutex<Vec<String>>>,
     progress: Arc<ProgressBar>,
+    timeout_seconds: u64,
 ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
     let client = create_client_with_wallet().await?;
 
@@ -128,9 +133,12 @@ async fn send_messages_in_thread(
         let mut content_bytes = Vec::new();
         encoded_content.encode(&mut content_bytes).unwrap();
 
-        // Send message
-        match group.send_message(&content_bytes).await {
-            Ok(message_id) => {
+        // Send message with timeout
+        match tokio::time::timeout(
+            tokio::time::Duration::from_secs(timeout_seconds),
+            group.send_message(&content_bytes)
+        ).await {
+            Ok(Ok(message_id)) => {
                 sent_count += 1;
                 let hex_id = hex::encode(&message_id);
 
@@ -143,8 +151,11 @@ async fn send_messages_in_thread(
                 // Update progress bar
                 progress.inc(1);
             }
-            Err(_e) => {
-                // Continue on error without updating progress
+            Ok(Err(_e)) => {
+                // Message send failed - continue without updating progress
+            }
+            Err(_) => {
+                // Timeout occurred - continue without updating progress
             }
         }
     }
@@ -166,6 +177,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Threads: {} (max 20 concurrent)", args.threads);
     info!("Messages per thread: {}", args.messages);
     info!("Total messages to send: {}", args.threads * args.messages);
+    info!("Message timeout: {} seconds", args.timeout);
 
     let message_ids = Arc::new(Mutex::new(Vec::new()));
     let start_time = Instant::now();
@@ -187,20 +199,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Spawn a task to update progress bar message with current rate
     let rate_progress = Arc::clone(&progress);
-    let rate_start_time = start_time;
     let active_threads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let active_threads_clone = Arc::clone(&active_threads);
+    
+    // Track min/max rates
+    let min_rate = Arc::new(std::sync::Mutex::new(None::<f64>));
+    let max_rate = Arc::new(std::sync::Mutex::new(None::<f64>));
+    let min_rate_clone = Arc::clone(&min_rate);
+    let max_rate_clone = Arc::clone(&max_rate);
 
     let rate_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1000)); // 1 second intervals
+        let mut last_position = 0u64;
+        let mut last_update = Instant::now();
+        
         loop {
             interval.tick().await;
-            let elapsed = rate_start_time.elapsed().as_secs_f64();
-            if elapsed > 0.0 {
-                let current_pos = rate_progress.position();
-                let rate = current_pos as f64 / elapsed;
+            let now = Instant::now();
+            let current_pos = rate_progress.position();
+            let time_window = now.duration_since(last_update).as_secs_f64();
+            
+            if time_window > 0.0 {
+                let messages_in_window = current_pos - last_position;
+                let current_rate = messages_in_window as f64 / time_window;
+                
+                // Update min/max rates
+                if current_rate > 0.0 {
+                    if let Ok(mut min) = min_rate_clone.lock() {
+                        *min = Some(min.map_or(current_rate, |m| m.min(current_rate)));
+                    }
+                    if let Ok(mut max) = max_rate_clone.lock() {
+                        *max = Some(max.map_or(current_rate, |m| m.max(current_rate)));
+                    }
+                }
+                
                 let active = active_threads_clone.load(std::sync::atomic::Ordering::Relaxed);
-                rate_progress.set_message(format!("{:.1} msg/s ({} active threads)", rate, active));
+                rate_progress.set_message(format!("{:.1} msg/s ({} active threads)", current_rate, active));
+                
+                // Reset for next window
+                last_position = current_pos;
+                last_update = now;
             }
 
             if rate_progress.is_finished() {
@@ -231,6 +269,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 args.messages,
                 message_ids_clone,
                 progress_clone,
+                args.timeout,
             )
             .await;
 
@@ -280,6 +319,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Total messages sent: {}", total_sent);
     info!("Total duration: {:.2} seconds", duration_seconds);
     info!("Average messages per second: {:.2}", messages_per_second);
+    
+    // Log min/max rates if we have them
+    if let (Ok(min), Ok(max)) = (min_rate.lock(), max_rate.lock()) {
+        if let (Some(min_val), Some(max_val)) = (*min, *max) {
+            info!(
+                "Performance range: min {:.2} msg/s, max {:.2} msg/s",
+                min_val, max_val
+            );
+        }
+    }
 
     // Write message IDs to file if enabled
     let message_ids_vec = message_ids.lock().await;
