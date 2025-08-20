@@ -1,4 +1,5 @@
 use crate::groups::GroupError;
+use crate::messages::enrichment::EnrichMessageError;
 use prost::Message;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
@@ -152,7 +153,7 @@ impl TryFrom<EncodedContent> for MessageBody {
 }
 
 impl TryFrom<StoredGroupMessage> for DecodedMessage {
-    type Error = GroupError;
+    type Error = EnrichMessageError;
 
     fn try_from(value: StoredGroupMessage) -> Result<Self, Self::Error> {
         // Decode the message content from the stored bytes
