@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::{
     attachment, group_updated, membership_change, reaction, read_receipt, remote_attachment, reply,
-    text, transaction_reference,
+    text, transaction_reference, wallet_send_calls,
 };
 
 mod convert;
@@ -131,6 +131,7 @@ pub enum ContentType {
     Attachment = 7,
     RemoteAttachment = 8,
     TransactionReference = 9,
+    WalletSendCalls = 10,
 }
 
 impl ContentType {
@@ -146,6 +147,7 @@ impl ContentType {
             ContentType::Attachment,
             ContentType::RemoteAttachment,
             ContentType::TransactionReference,
+            ContentType::WalletSendCalls,
         ]
     }
 }
@@ -163,6 +165,7 @@ impl std::fmt::Display for ContentType {
             Self::RemoteAttachment => remote_attachment::RemoteAttachmentCodec::TYPE_ID,
             Self::Reply => reply::ReplyCodec::TYPE_ID,
             Self::TransactionReference => transaction_reference::TransactionReferenceCodec::TYPE_ID,
+            Self::WalletSendCalls => wallet_send_calls::WalletSendCallsCodec::TYPE_ID,
         };
 
         write!(f, "{}", as_string)
@@ -181,6 +184,7 @@ impl From<String> for ContentType {
             attachment::AttachmentCodec::TYPE_ID => Self::Attachment,
             remote_attachment::RemoteAttachmentCodec::TYPE_ID => Self::RemoteAttachment,
             transaction_reference::TransactionReferenceCodec::TYPE_ID => Self::TransactionReference,
+            wallet_send_calls::WalletSendCallsCodec::TYPE_ID => Self::WalletSendCalls,
             _ => Self::Unknown,
         }
     }
@@ -212,6 +216,7 @@ where
             7 => Ok(ContentType::Attachment),
             8 => Ok(ContentType::RemoteAttachment),
             9 => Ok(ContentType::TransactionReference),
+            10 => Ok(ContentType::WalletSendCalls),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

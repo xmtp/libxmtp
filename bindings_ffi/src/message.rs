@@ -7,6 +7,7 @@ use xmtp_content_types::{
     remote_attachment::RemoteAttachment,
     reply::Reply,
     transaction_reference::{TransactionMetadata, TransactionReference},
+    wallet_send_calls::{WalletCall, WalletCallMetadata, WalletSendCalls},
 };
 use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
 use xmtp_mls::groups::decoded_message::{
@@ -38,6 +39,7 @@ pub enum FfiDecodedMessageBody {
     TransactionReference(FfiTransactionReference),
     GroupUpdated(FfiGroupUpdated),
     ReadReceipt(FfiReadReceipt),
+    WalletSendCalls(FfiWalletSendCalls),
     Custom(FfiEncodedContent),
 }
 
@@ -243,6 +245,31 @@ pub struct FfiMetadataFieldChange {
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiReadReceipt {}
 
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiWalletSendCalls {
+    pub version: String,
+    pub chain_id: String,
+    pub from: String,
+    pub calls: Vec<FfiWalletCall>,
+    pub capabilities: Option<HashMap<String, String>>,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiWalletCall {
+    pub to: Option<String>,
+    pub data: Option<String>,
+    pub value: Option<String>,
+    pub gas: Option<String>,
+    pub metadata: Option<FfiWalletCallMetadata>,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiWalletCallMetadata {
+    pub description: String,
+    pub transaction_type: String,
+    pub extra: HashMap<String, String>,
+}
+
 #[derive(uniffi::Record, Clone, Default, Debug, PartialEq)]
 pub struct FfiEncodedContent {
     pub type_id: Option<FfiContentTypeId>,
@@ -295,6 +322,7 @@ pub enum FfiDecodedMessageContent {
     TransactionReference(FfiTransactionReference),
     GroupUpdated(FfiGroupUpdated),
     ReadReceipt(FfiReadReceipt),
+    WalletSendCalls(FfiWalletSendCalls),
     Custom(FfiEncodedContent),
 }
 
@@ -515,6 +543,74 @@ impl From<FfiReadReceipt> for ReadReceipt {
     }
 }
 
+impl From<WalletSendCalls> for FfiWalletSendCalls {
+    fn from(value: WalletSendCalls) -> Self {
+        FfiWalletSendCalls {
+            version: value.version,
+            chain_id: value.chain_id,
+            from: value.from,
+            calls: value.calls.into_iter().map(Into::into).collect(),
+            capabilities: value.capabilities,
+        }
+    }
+}
+
+impl From<FfiWalletSendCalls> for WalletSendCalls {
+    fn from(value: FfiWalletSendCalls) -> Self {
+        WalletSendCalls {
+            version: value.version,
+            chain_id: value.chain_id,
+            from: value.from,
+            calls: value.calls.into_iter().map(Into::into).collect(),
+            capabilities: value.capabilities,
+        }
+    }
+}
+
+impl From<WalletCall> for FfiWalletCall {
+    fn from(value: WalletCall) -> Self {
+        FfiWalletCall {
+            to: value.to,
+            data: value.data,
+            value: value.value,
+            gas: value.gas,
+            metadata: value.metadata.map(Into::into),
+        }
+    }
+}
+
+impl From<FfiWalletCall> for WalletCall {
+    fn from(value: FfiWalletCall) -> Self {
+        WalletCall {
+            to: value.to,
+            data: value.data,
+            value: value.value,
+            gas: value.gas,
+            metadata: value.metadata.map(Into::into),
+        }
+    }
+}
+
+impl From<WalletCallMetadata> for FfiWalletCallMetadata {
+    fn from(value: WalletCallMetadata) -> Self {
+        FfiWalletCallMetadata {
+            description: value.description,
+            transaction_type: value.transaction_type,
+            extra: value.extra,
+        }
+    }
+}
+
+impl From<FfiWalletCallMetadata> for WalletCallMetadata {
+    fn from(value: FfiWalletCallMetadata) -> Self {
+        WalletCallMetadata {
+            description: value.description,
+            transaction_type: value.transaction_type,
+            extra: value.extra,
+        }
+    }
+}
+
 impl From<EncodedContent> for FfiEncodedContent {
     fn from(encoded: EncodedContent) -> Self {
         FfiEncodedContent {
@@ -634,6 +730,9 @@ impl From<MessageBody> for FfiDecodedMessageContent {
             MessageBody::ReadReceipt(receipt) => {
                 FfiDecodedMessageContent::ReadReceipt(receipt.into())
             }
+            MessageBody::WalletSendCalls(wallet_send_calls) => {
+                FfiDecodedMessageContent::WalletSendCalls(wallet_send_calls.into())
+            }
             MessageBody::Custom(encoded) => FfiDecodedMessageContent::Custom(encoded.into()),
         }
     }
@@ -663,6 +762,9 @@ pub fn content_to_optional_body(content: MessageBody) -> Option<FfiDecodedMessag
         MessageBody::ReadReceipt(receipt) => {
             Some(FfiDecodedMessageBody::ReadReceipt(receipt.into()))
         }
+        MessageBody::WalletSendCalls(wallet_send_calls) => Some(
+            FfiDecodedMessageBody::WalletSendCalls(wallet_send_calls.into()),
+        ),
         MessageBody::Custom(encoded) => Some(FfiDecodedMessageBody::Custom(encoded.into())),
     }
 }

@@ -7,6 +7,7 @@ use xmtp_content_types::read_receipt::ReadReceiptCodec;
 use xmtp_content_types::remote_attachment::RemoteAttachmentCodec;
 use xmtp_content_types::reply::ReplyCodec;
 use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
+use xmtp_content_types::wallet_send_calls::{WalletSendCalls, WalletSendCallsCodec};
 use xmtp_content_types::{CodecError, ContentCodec};
 use xmtp_content_types::{
     attachment::{Attachment, AttachmentCodec},
@@ -48,6 +49,7 @@ pub enum MessageBody {
     TransactionReference(TransactionReference),
     GroupUpdated(GroupUpdated),
     ReadReceipt(ReadReceipt),
+    WalletSendCalls(WalletSendCalls),
     Custom(EncodedContent),
 }
 
@@ -138,6 +140,10 @@ impl TryFrom<EncodedContent> for MessageBody {
             (ReadReceiptCodec::TYPE_ID, ReadReceiptCodec::MAJOR_VERSION) => {
                 let read_receipt = ReadReceiptCodec::decode(value)?;
                 Ok(MessageBody::ReadReceipt(read_receipt))
+            }
+            (WalletSendCallsCodec::TYPE_ID, WalletSendCallsCodec::MAJOR_VERSION) => {
+                let wallet_send_calls = WalletSendCallsCodec::decode(value)?;
+                Ok(MessageBody::WalletSendCalls(wallet_send_calls))
             }
 
             _ => Err(CodecError::CodecNotFound(content_type.clone()).into()),
