@@ -457,14 +457,14 @@ mod tests {
 
             // Insert the record
             let result = conn
-                .insert_or_replace_consent_records(&[consent_record.clone()])
+                .insert_or_replace_consent_records(std::slice::from_ref(&consent_record))
                 .expect("should store without error");
             // One record was inserted
             assert_eq!(result.len(), 1);
 
             // Insert it again
             let result = conn
-                .insert_or_replace_consent_records(&[consent_record.clone()])
+                .insert_or_replace_consent_records(std::slice::from_ref(&consent_record))
                 .expect("should store without error");
             // Nothing should change
             assert_eq!(result.len(), 0);

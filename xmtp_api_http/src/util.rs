@@ -1,6 +1,6 @@
-use crate::http_stream::SubscriptionItem;
 use crate::ErrorResponse;
 use crate::HttpClientError;
+use crate::http_stream::SubscriptionItem;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 

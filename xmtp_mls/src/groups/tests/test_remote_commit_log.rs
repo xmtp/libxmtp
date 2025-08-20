@@ -101,7 +101,7 @@ async fn test_commit_log_publish_and_query_apis() {
     let result = alix
         .context
         .api()
-        .publish_commit_log(&[commit_log_entry.clone()])
+        .publish_commit_log(std::slice::from_ref(&commit_log_entry))
         .await;
     assert!(result.is_ok());
 
