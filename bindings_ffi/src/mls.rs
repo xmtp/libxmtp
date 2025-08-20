@@ -88,6 +88,7 @@ use xmtp_mls::{
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
+use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::content_types::{MultiRemoteAttachment, ReactionV2};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
@@ -1849,6 +1850,12 @@ impl From<MessageDisappearingSettings> for FfiMessageDisappearingSettings {
     }
 }
 
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiCursor {
+    originator_id: u32,
+    sequence_id: u64,
+}
+
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiConversationDebugInfo {
     pub epoch: u64,
@@ -1857,7 +1864,16 @@ pub struct FfiConversationDebugInfo {
     pub is_commit_log_forked: Option<bool>,
     pub local_commit_log: String,
     pub remote_commit_log: String,
-    pub cursor: i64,
+    pub cursor: FfiCursor,
+}
+
+impl From<Cursor> for FfiCursor {
+    fn from(value: Cursor) -> Self {
+        FfiCursor {
+            sequence_id: value.sequence_id,
+            originator_id: value.originator_id,
+        }
+    }
 }
 
 impl FfiConversationDebugInfo {
@@ -1868,7 +1884,7 @@ impl FfiConversationDebugInfo {
         is_commit_log_forked: Option<bool>,
         local_commit_log: String,
         remote_commit_log: String,
-        cursor: i64,
+        cursor: Cursor,
     ) -> Self {
         Self {
             epoch,
@@ -1877,7 +1893,7 @@ impl FfiConversationDebugInfo {
             is_commit_log_forked,
             local_commit_log,
             remote_commit_log,
-            cursor,
+            cursor: cursor.into(),
         }
     }
 }

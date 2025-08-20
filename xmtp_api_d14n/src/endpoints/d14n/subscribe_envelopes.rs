@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     SubscribeEnvelopesRequest, SubscribeEnvelopesResponse,
@@ -44,7 +44,7 @@ impl Endpoint for SubscribeEnvelopes {
 #[cfg(test)]
 mod test {
     use super::*;
-    use xmtp_proto::prelude::*;
+    use xmtp_proto::{api::QueryStream as _, prelude::*};
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
@@ -57,10 +57,10 @@ mod test {
     async fn test_subscribe_envelopes() {
         use crate::d14n::SubscribeEnvelopes;
 
-        let client = crate::TestClient::create_local_d14n();
+        let client = crate::TestGrpcClient::create_local_d14n();
         let client = client.build().await.unwrap();
 
-        let endpoint = SubscribeEnvelopes::builder()
+        let mut endpoint = SubscribeEnvelopes::builder()
             .envelopes(EnvelopesQuery {
                 topics: vec![vec![]],
                 originator_node_ids: vec![],

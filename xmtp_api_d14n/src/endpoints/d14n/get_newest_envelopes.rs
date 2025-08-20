@@ -1,8 +1,8 @@
 use derive_builder::Builder;
-use prost::Message;
 use prost::bytes::Bytes;
+use prost::Message;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::message_api::{GetNewestEnvelopeRequest, GetNewestEnvelopeResponse};
 
 /// Query a single thing
@@ -58,7 +58,7 @@ mod test {
     async fn get_newest_envelopes() {
         use crate::d14n::GetNewestEnvelopes;
 
-        let client = crate::TestClient::create_d14n();
+        let client = crate::TestGrpcClient::create_d14n();
         let client = client.build().await.unwrap();
 
         let endpoint = GetNewestEnvelopes::builder().topic(vec![]).build().unwrap();

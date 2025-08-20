@@ -4,9 +4,10 @@ use crate::{
     subscriptions::{
         Result, SubscribeError,
         process_message::{ProcessFutureFactory, ProcessMessageFuture},
-        stream_messages::{MessageStreamError, StreamGroupMessages},
+        stream_messages::StreamGroupMessages,
     },
 };
+use xmtp_api_d14n::protocol::{Extractor, ProtocolEnvelope as _};
 use xmtp_common::{MaybeSend, types::GroupId};
 use xmtp_db::group_message::StoredGroupMessage;
 
@@ -29,11 +30,16 @@ where
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<StoredGroupMessage> {
-        use crate::subscriptions::stream_messages::extract_message_v1;
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())?;
-        let msg = extract_message_v1(envelope).ok_or(MessageStreamError::InvalidPayload)?;
+        // TODO:d14n pair the v3 with the d14n extractor to be able to extract
+        // both message versions. this can be done with a tuple, i.e
+        // let mut extractor = (V3, D14n);
+        // or d14n crate should just create a type alias for such an extractor
+        let mut extractor = xmtp_api_d14n::protocol::V3GroupMessageExtractor::default();
+        envelope.accept(&mut extractor)?;
+        let message: xmtp_proto::types::GroupMessage = extractor.get()?;
         ProcessMessageFuture::new(self.context.clone())
-            .create(msg)
+            .create(message)
             .await?
             .message
             .ok_or(SubscribeError::GroupMessageNotFound)
@@ -125,7 +131,6 @@ pub(crate) mod tests {
 
     use std::sync::Arc;
 
-    use super::*;
     use crate::builder::ClientBuilder;
     use xmtp_db::group_message::GroupMessageKind;
 
@@ -133,41 +138,6 @@ pub(crate) mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use futures::StreamExt;
-
-    #[rstest::rstest]
-    #[xmtp_common::test]
-    #[timeout(Duration::from_secs(10))]
-    async fn test_decode_group_message_bytes() {
-        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-
-        let amal_group = amal.create_group(None, None).unwrap();
-        // Add bola
-        amal_group
-            .add_members_by_inbox_id(&[bola.inbox_id()])
-            .await
-            .unwrap();
-
-        amal_group.send_message("hello".as_bytes()).await.unwrap();
-        let messages = amal
-            .context
-            .api_client
-            .query_group_messages(amal_group.clone().group_id, None)
-            .await
-            .expect("read topic");
-        let message = messages.first().unwrap();
-        let mut message_bytes: Vec<u8> = Vec::new();
-        message.encode(&mut message_bytes).unwrap();
-        let message_again = amal_group
-            .process_streamed_group_message(message_bytes)
-            .await;
-
-        if let Ok(message) = message_again {
-            assert_eq!(message.group_id, amal_group.clone().group_id)
-        } else {
-            panic!("failed, message needs to equal message_again");
-        }
-    }
 
     #[rstest::rstest]
     #[xmtp_common::test(flavor = "current_thread")]

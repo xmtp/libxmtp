@@ -1,8 +1,8 @@
 use derive_builder::Builder;
-use prost::Message;
 use prost::bytes::Bytes;
+use prost::Message;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::payer_api::{
     PublishClientEnvelopesRequest, PublishClientEnvelopesResponse,
@@ -49,7 +49,7 @@ mod test {
     use xmtp_common::rand_vec;
     use xmtp_proto::{
         prelude::*,
-        xmtp::xmtpv4::envelopes::{AuthenticatedData, client_envelope::Payload},
+        xmtp::xmtpv4::envelopes::{client_envelope::Payload, AuthenticatedData},
     };
 
     #[xmtp_common::test]
@@ -64,7 +64,7 @@ mod test {
     async fn test_publish_client_envelopes() {
         use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 
-        let client = crate::TestClient::create_payer();
+        let client = crate::TestGrpcClient::create_payer();
         let client = client.build().await.unwrap();
 
         let aad = AuthenticatedData {
