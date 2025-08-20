@@ -16,6 +16,8 @@ use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 #[cfg(test)]
 mod compatibility_test;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
 
 #[derive(Debug, Error)]
 pub enum CodecError {
@@ -23,6 +25,10 @@ pub enum CodecError {
     Encode(String),
     #[error("decode error {0}")]
     Decode(String),
+    #[error("codec not found for {0:?}")]
+    CodecNotFound(ContentTypeId),
+    #[error("invalid content type")]
+    InvalidContentType,
 }
 
 pub enum ContentType {

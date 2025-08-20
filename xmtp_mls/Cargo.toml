@@ -27,6 +27,7 @@ test-utils = [
   "xmtp_api_grpc/test-utils",
   "xmtp_configuration/test-utils",
   "xmtp_common/test-utils",
+  "xmtp_content_types/test-utils",
   "dep:alloy",
   "dep:passkey",
   "dep:coset",
@@ -170,6 +171,9 @@ xmtp_api = { workspace = true, features = ["test-utils"] }
 xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
+xmtp_content_types = { path = "../xmtp_content_types", features = [
+  "test-utils",
+] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_db_test.workspace = true
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }

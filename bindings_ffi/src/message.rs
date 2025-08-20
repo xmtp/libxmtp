@@ -10,27 +10,25 @@ use xmtp_content_types::{
 };
 use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
 use xmtp_mls::groups::decoded_message::{
-    DecodedMessage, DecodedMessageMetadata, MessageBody, Reaction, ReactionAction, ReactionSchema,
-    Reply as ProcessedReply, Text,
+    DecodedMessage, DecodedMessageMetadata, MessageBody, Reply as ProcessedReply, Text,
 };
 use xmtp_proto::xmtp::mls::message_contents::content_types::{
-    MultiRemoteAttachment, ReactionV2, RemoteAttachmentInfo,
+    MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2, RemoteAttachmentInfo,
 };
-use xmtp_proto::xmtp::mls::message_contents::{
-    ContentTypeId, EncodedContent, GroupMembershipChanges, GroupUpdated, MembershipChange,
-};
+use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent, GroupUpdated};
 
-#[derive(uniffi::Record, Clone)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiEnrichedReply {
     // The original message that this reply is in reply to.
     // This goes at most one level deep from the original message, and won't happen recursively if there are replies to replies to replies
     pub in_reply_to: Option<Arc<FfiDecodedMessage>>,
     pub content: Option<FfiDecodedMessageBody>,
+    pub reference_id: String,
 }
 
 // Create a separate enum for the body of the message, which excludes replies and reactions
 // This prevents circular references
-#[derive(uniffi::Enum, Clone)]
+#[derive(uniffi::Enum, Clone, Debug)]
 pub enum FfiDecodedMessageBody {
     Text(FfiTextContent),
     Reaction(FfiReactionPayload),
@@ -39,36 +37,24 @@ pub enum FfiDecodedMessageBody {
     MultiRemoteAttachment(FfiMultiRemoteAttachment),
     TransactionReference(FfiTransactionReference),
     GroupUpdated(FfiGroupUpdated),
-    GroupMembershipChanges(FfiGroupMembershipChanges),
     ReadReceipt(FfiReadReceipt),
     Custom(FfiEncodedContent),
 }
 
 // Wrap text content in a struct to be consident with other content types
-#[derive(uniffi::Record, Clone)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiTextContent {
     pub content: String,
 }
 
-// Using a separate struct for the reaction payload to both avoid circular references and to have a less ambiguous type than if I embedded a complete message
-#[derive(uniffi::Record, Clone)]
-pub struct FfiEnrichedReaction {
-    pub message_metadata: FfiDecodedMessageMetadata,
-    pub action: FfiReactionAction,
-    pub content: String,
-    pub schema: FfiReactionSchema,
-}
-
-// FfiReaction is defined in mls.rs with proper enum types for action and schema
-
-#[derive(uniffi::Record, Clone)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiAttachment {
     pub filename: Option<String>,
     pub mime_type: String,
     pub content: Vec<u8>,
 }
 
-#[derive(uniffi::Record, Clone)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiRemoteAttachment {
     pub url: String,
     pub content_digest: String,
@@ -80,7 +66,7 @@ pub struct FfiRemoteAttachment {
     pub filename: Option<String>,
 }
 
-#[derive(uniffi::Record, Clone, Default)]
+#[derive(uniffi::Record, Clone, Default, Debug)]
 pub struct FfiReactionPayload {
     pub reference: String,
     pub reference_inbox_id: String,
@@ -140,6 +126,26 @@ impl From<FfiReactionAction> for i32 {
     }
 }
 
+impl From<ReactionAction> for FfiReactionAction {
+    fn from(action: ReactionAction) -> Self {
+        match action {
+            ReactionAction::Unspecified => FfiReactionAction::Unknown,
+            ReactionAction::Added => FfiReactionAction::Added,
+            ReactionAction::Removed => FfiReactionAction::Removed,
+        }
+    }
+}
+
+impl From<FfiReactionAction> for ReactionAction {
+    fn from(action: FfiReactionAction) -> Self {
+        match action {
+            FfiReactionAction::Unknown => ReactionAction::Unspecified,
+            FfiReactionAction::Added => ReactionAction::Added,
+            FfiReactionAction::Removed => ReactionAction::Removed,
+        }
+    }
+}
+
 #[derive(uniffi::Enum, Clone, Default, PartialEq, Debug)]
 pub enum FfiReactionSchema {
     Unknown,
@@ -160,12 +166,23 @@ impl From<FfiReactionSchema> for i32 {
     }
 }
 
-#[derive(uniffi::Record, Clone)]
+impl From<ReactionSchema> for FfiReactionSchema {
+    fn from(schema: ReactionSchema) -> Self {
+        match schema {
+            ReactionSchema::Unspecified => FfiReactionSchema::Unknown,
+            ReactionSchema::Unicode => FfiReactionSchema::Unicode,
+            ReactionSchema::Shortcode => FfiReactionSchema::Shortcode,
+            ReactionSchema::Custom => FfiReactionSchema::Custom,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiMultiRemoteAttachment {
     pub attachments: Vec<FfiRemoteAttachmentInfo>,
 }
 
-#[derive(uniffi::Record, Clone, Default)]
+#[derive(uniffi::Record, Clone, Default, Debug)]
 pub struct FfiRemoteAttachmentInfo {
     pub url: String,
     pub content_digest: String,
@@ -178,14 +195,14 @@ pub struct FfiRemoteAttachmentInfo {
 }
 
 // Reply FFI structures
-#[derive(uniffi::Record, Clone, Default)]
+#[derive(uniffi::Record, Clone, Default, Debug)]
 pub struct FfiReply {
     pub reference: String,
     pub reference_inbox_id: Option<String>,
     pub content: FfiEncodedContent,
 }
 
-#[derive(uniffi::Record, Clone, Default)]
+#[derive(uniffi::Record, Clone, Default, Debug)]
 pub struct FfiTransactionMetadata {
     pub transaction_type: String,
     pub currency: String,
@@ -195,7 +212,7 @@ pub struct FfiTransactionMetadata {
     pub to_address: String,
 }
 
-#[derive(uniffi::Record, Clone)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiTransactionReference {
     pub namespace: Option<String>,
     pub network_id: String,
@@ -203,7 +220,7 @@ pub struct FfiTransactionReference {
     pub metadata: Option<FfiTransactionMetadata>,
 }
 
-#[derive(uniffi::Record, Clone)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiGroupUpdated {
     pub initiated_by_inbox_id: String,
     pub added_inboxes: Vec<FfiInbox>,
@@ -211,34 +228,19 @@ pub struct FfiGroupUpdated {
     pub metadata_field_changes: Vec<FfiMetadataFieldChange>,
 }
 
-#[derive(uniffi::Record, Clone)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiInbox {
     pub inbox_id: String,
 }
 
-#[derive(uniffi::Record, Clone)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiMetadataFieldChange {
     pub field_name: String,
     pub old_value: Option<String>,
     pub new_value: Option<String>,
 }
 
-#[derive(uniffi::Record, Clone)]
-pub struct FfiGroupMembershipChanges {
-    pub members_added: Vec<FfiMembershipChange>,
-    pub members_removed: Vec<FfiMembershipChange>,
-    pub installations_added: Vec<FfiMembershipChange>,
-    pub installations_removed: Vec<FfiMembershipChange>,
-}
-
-#[derive(uniffi::Record, Clone)]
-pub struct FfiMembershipChange {
-    pub installation_ids: Vec<Vec<u8>>,
-    pub account_address: String,
-    pub initiated_by_account_address: String,
-}
-
-#[derive(uniffi::Record, Clone)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiReadReceipt {}
 
 #[derive(uniffi::Record, Clone, Default, Debug, PartialEq)]
@@ -258,31 +260,31 @@ pub struct FfiContentTypeId {
     pub version_minor: u32,
 }
 
-#[derive(uniffi::Enum, Clone)]
+#[derive(uniffi::Enum, Clone, PartialEq, Debug)]
 pub enum FfiGroupMessageKind {
     Application,
     MembershipChange,
 }
 
-#[derive(uniffi::Enum, Clone)]
+#[derive(uniffi::Enum, Clone, Debug)]
 pub enum FfiDeliveryStatus {
     Unpublished,
     Published,
     Failed,
 }
 
-#[derive(uniffi::Record, Clone)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiDecodedMessageMetadata {
     pub id: Vec<u8>,
     pub sent_at_ns: i64,
     pub kind: FfiGroupMessageKind,
     pub sender_installation_id: Vec<u8>,
     pub sender_inbox_id: String,
-    pub delivery_status: FfiDeliveryStatus,
     pub content_type: FfiContentTypeId,
+    pub conversation_id: Vec<u8>,
 }
 
-#[derive(uniffi::Enum, Clone)]
+#[derive(uniffi::Enum, Clone, Debug)]
 pub enum FfiDecodedMessageContent {
     Text(FfiTextContent),
     Reply(FfiEnrichedReply),
@@ -292,7 +294,6 @@ pub enum FfiDecodedMessageContent {
     MultiRemoteAttachment(FfiMultiRemoteAttachment),
     TransactionReference(FfiTransactionReference),
     GroupUpdated(FfiGroupUpdated),
-    GroupMembershipChanges(FfiGroupMembershipChanges),
     ReadReceipt(FfiReadReceipt),
     Custom(FfiEncodedContent),
 }
@@ -303,24 +304,6 @@ impl From<Text> for FfiTextContent {
     fn from(text: Text) -> Self {
         FfiTextContent {
             content: text.content,
-        }
-    }
-}
-
-impl From<Reaction> for FfiEnrichedReaction {
-    fn from(reaction: Reaction) -> Self {
-        FfiEnrichedReaction {
-            message_metadata: reaction.metadata.into(),
-            action: match reaction.action {
-                ReactionAction::Added => FfiReactionAction::Added,
-                ReactionAction::Removed => FfiReactionAction::Removed,
-            },
-            content: reaction.content,
-            schema: match reaction.schema {
-                ReactionSchema::Unicode => FfiReactionSchema::Unicode,
-                ReactionSchema::Shortcode => FfiReactionSchema::Shortcode,
-                ReactionSchema::Custom => FfiReactionSchema::Custom,
-            },
         }
     }
 }
@@ -520,43 +503,6 @@ impl From<GroupUpdated> for FfiGroupUpdated {
     }
 }
 
-impl From<GroupMembershipChanges> for FfiGroupMembershipChanges {
-    fn from(changes: GroupMembershipChanges) -> Self {
-        FfiGroupMembershipChanges {
-            members_added: changes
-                .members_added
-                .into_iter()
-                .map(|m| m.into())
-                .collect(),
-            members_removed: changes
-                .members_removed
-                .into_iter()
-                .map(|m| m.into())
-                .collect(),
-            installations_added: changes
-                .installations_added
-                .into_iter()
-                .map(|m| m.into())
-                .collect(),
-            installations_removed: changes
-                .installations_removed
-                .into_iter()
-                .map(|m| m.into())
-                .collect(),
-        }
-    }
-}
-
-impl From<MembershipChange> for FfiMembershipChange {
-    fn from(change: MembershipChange) -> Self {
-        FfiMembershipChange {
-            installation_ids: change.installation_ids,
-            account_address: change.account_address,
-            initiated_by_account_address: change.initiated_by_account_address,
-        }
-    }
-}
-
 impl From<ReadReceipt> for FfiReadReceipt {
     fn from(_ffi: ReadReceipt) -> Self {
         FfiReadReceipt {}
@@ -620,6 +566,7 @@ impl From<ProcessedReply> for FfiEnrichedReply {
         FfiEnrichedReply {
             in_reply_to: reply.in_reply_to.map(|m| Arc::new((*m).into())),
             content: content_to_optional_body(*reply.content),
+            reference_id: reply.reference_id,
         }
     }
 }
@@ -654,8 +601,8 @@ impl From<DecodedMessageMetadata> for FfiDecodedMessageMetadata {
                 GroupMessageKind::MembershipChange => FfiGroupMessageKind::MembershipChange,
             },
             sender_installation_id: metadata.sender_installation_id,
+            conversation_id: metadata.group_id,
             sender_inbox_id: metadata.sender_inbox_id,
-            delivery_status: metadata.delivery_status.into(),
             content_type: metadata.content_type.into(),
         }
     }
@@ -683,9 +630,6 @@ impl From<MessageBody> for FfiDecodedMessageContent {
             }
             MessageBody::GroupUpdated(updated) => {
                 FfiDecodedMessageContent::GroupUpdated(updated.into())
-            }
-            MessageBody::GroupMembershipChanges(changes) => {
-                FfiDecodedMessageContent::GroupMembershipChanges(changes.into())
             }
             MessageBody::ReadReceipt(receipt) => {
                 FfiDecodedMessageContent::ReadReceipt(receipt.into())
@@ -716,9 +660,6 @@ pub fn content_to_optional_body(content: MessageBody) -> Option<FfiDecodedMessag
         MessageBody::GroupUpdated(updated) => {
             Some(FfiDecodedMessageBody::GroupUpdated(updated.into()))
         }
-        MessageBody::GroupMembershipChanges(changes) => Some(
-            FfiDecodedMessageBody::GroupMembershipChanges(changes.into()),
-        ),
         MessageBody::ReadReceipt(receipt) => {
             Some(FfiDecodedMessageBody::ReadReceipt(receipt.into()))
         }
@@ -726,45 +667,110 @@ pub fn content_to_optional_body(content: MessageBody) -> Option<FfiDecodedMessag
     }
 }
 
-#[derive(uniffi::Object, Clone)]
+#[derive(uniffi::Object, Debug)]
 pub struct FfiDecodedMessage {
-    metadata: FfiDecodedMessageMetadata,
+    // Store raw data that we own completely
+    id: Vec<u8>,
+    sent_at_ns: i64,
+    kind: FfiGroupMessageKind,
+    sender_installation_id: Vec<u8>,
+    sender_inbox_id: String,
+    content_type: FfiContentTypeId,
+    conversation_id: Vec<u8>,
+
+    // Store the content directly - the Reply variant already uses Arc internally for circular refs
     content: FfiDecodedMessageContent,
-    fallback_text: String,
-    reactions: Vec<FfiEnrichedReaction>,
+    fallback_text: Option<String>,
+    reactions: Vec<Arc<FfiDecodedMessage>>,
+    delivery_status: FfiDeliveryStatus,
     num_replies: u64,
 }
 
 #[uniffi::export]
 impl FfiDecodedMessage {
-    pub fn metadata(&self) -> FfiDecodedMessageMetadata {
-        self.metadata.clone()
+    // Return primitives directly - no cloning needed
+    pub fn sent_at_ns(&self) -> i64 {
+        self.sent_at_ns
+    }
+
+    pub fn num_replies(&self) -> u64 {
+        self.num_replies
+    }
+
+    pub fn id(&self) -> Vec<u8> {
+        self.id.clone()
+    }
+
+    pub fn sender_inbox_id(&self) -> String {
+        self.sender_inbox_id.clone()
+    }
+
+    pub fn sender_installation_id(&self) -> Vec<u8> {
+        self.sender_installation_id.clone()
+    }
+
+    pub fn conversation_id(&self) -> Vec<u8> {
+        self.conversation_id.clone()
+    }
+
+    // Enums are cheap to clone
+    pub fn delivery_status(&self) -> FfiDeliveryStatus {
+        self.delivery_status.clone()
+    }
+
+    pub fn kind(&self) -> FfiGroupMessageKind {
+        self.kind.clone()
+    }
+
+    pub fn content_type_id(&self) -> FfiContentTypeId {
+        self.content_type.clone()
+    }
+
+    pub fn fallback_text(&self) -> Option<String> {
+        self.fallback_text.clone()
     }
 
     pub fn content(&self) -> FfiDecodedMessageContent {
         self.content.clone()
     }
 
-    pub fn fallback_text(&self) -> String {
-        self.fallback_text.clone()
-    }
-
-    pub fn reactions(&self) -> Vec<FfiEnrichedReaction> {
+    pub fn reactions(&self) -> Vec<Arc<FfiDecodedMessage>> {
         self.reactions.clone()
     }
 
-    pub fn num_replies(&self) -> u64 {
-        self.num_replies
+    pub fn has_reactions(&self) -> bool {
+        !self.reactions.is_empty()
+    }
+
+    pub fn reaction_count(&self) -> u64 {
+        self.reactions.len() as u64
     }
 }
 
 impl From<DecodedMessage> for FfiDecodedMessage {
     fn from(item: DecodedMessage) -> Self {
+        let delivery_status = item.metadata.delivery_status.into();
+        // Extract metadata fields directly, consuming the metadata
+        let metadata: FfiDecodedMessageMetadata = item.metadata.into();
+
         FfiDecodedMessage {
-            metadata: item.metadata.into(),
+            // Take ownership of all the data - no clones!
+            id: metadata.id,
+            sent_at_ns: metadata.sent_at_ns,
+            kind: metadata.kind,
+            conversation_id: metadata.conversation_id,
+            sender_installation_id: metadata.sender_installation_id,
+            sender_inbox_id: metadata.sender_inbox_id,
+            delivery_status,
+            content_type: metadata.content_type,
             content: item.content.into(),
             fallback_text: item.fallback_text,
-            reactions: item.reactions.into_iter().map(|r| r.into()).collect(),
+            reactions: item
+                .reactions
+                .into_iter()
+                .map(Into::into)
+                .map(Arc::new)
+                .collect(),
             num_replies: item.num_replies as u64,
         }
     }
