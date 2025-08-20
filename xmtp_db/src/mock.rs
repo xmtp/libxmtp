@@ -62,6 +62,7 @@ impl ConnectionExt for MockConnection {
 
 use crate::StorageError;
 use crate::prelude::*;
+
 mock! {
     pub DbQuery {
 
@@ -328,6 +329,26 @@ mock! {
             group_id: &[u8],
             args: &crate::group_message::MsgQueryArgs,
         ) -> Result<Vec<crate::group_message::StoredGroupMessageWithReactions>, crate::ConnectionError>;
+
+        fn get_inbound_relations<'a>(
+            &self,
+            group_id: &'a [u8],
+            message_ids: &'a [&'a [u8]],
+            relation_query: crate::group_message::RelationQuery,
+        ) -> Result<crate::group_message::InboundRelations, crate::ConnectionError>;
+
+        fn get_outbound_relations<'a>(
+            &self,
+            group_id: &'a [u8],
+            message_ids: &'a [&'a [u8]],
+        ) -> Result<crate::group_message::OutboundRelations, crate::ConnectionError>;
+
+        fn get_inbound_relation_counts<'a>(
+            &self,
+            group_id: &'a [u8],
+            message_ids: &'a [&'a [u8]],
+            relation_query: crate::group_message::RelationQuery,
+        ) -> Result<crate::group_message::RelationCounts, crate::ConnectionError>;
 
         #[mockall::concretize]
         fn get_group_message<MessageId: AsRef<[u8]>>(
