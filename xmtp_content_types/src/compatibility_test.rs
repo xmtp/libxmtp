@@ -87,6 +87,11 @@ fn decode_and_reencode(
             let content = AttachmentCodec::decode(encoded_content.clone())?;
             Ok(AttachmentCodec::encode(content)?)
         }
+        "walletSendCalls" => {
+            use crate::wallet_send_calls::WalletSendCallsCodec;
+            let content = WalletSendCallsCodec::decode(encoded_content.clone())?;
+            Ok(WalletSendCallsCodec::encode(content)?)
+        }
         _ => Err(format!("Unsupported content type: {content_type}").into()),
     }
 }
@@ -112,7 +117,7 @@ fn integration_test() {
             .expect("Missing encodedContent field");
 
         // Skip content types that don't have codec implementations yet
-        if matches!(content_type, "walletSendCalls" | "markdown") {
+        if matches!(content_type, "markdown") {
             continue;
         }
 
@@ -160,7 +165,10 @@ fn integration_test() {
         }
 
         // Verify JSON equality for content types that store JSON
-        if matches!(content_type, "transactionReference" | "reaction") {
+        if matches!(
+            content_type,
+            "transactionReference" | "reaction" | "walletSendCalls"
+        ) {
             verify_json_content_equality(
                 content_type,
                 &encoded_content.content,
