@@ -17,6 +17,8 @@ class ConversationDebugInfo(private val ffiConversationDebugInfo: FfiConversatio
         get() = ffiConversationDebugInfo.forkDetails
     val localCommitLog: String
         get() = ffiConversationDebugInfo.localCommitLog
+    val remoteCommitLog: String
+        get() = ffiConversationDebugInfo.remoteCommitLog
     val commitLogForkStatus: CommitLogForkStatus
         get() = when (ffiConversationDebugInfo.isCommitLogForked) {
             true -> CommitLogForkStatus.FORKED

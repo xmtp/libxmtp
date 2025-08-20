@@ -9550,6 +9550,7 @@ data class FfiConversationDebugInfo (
     var `forkDetails`: kotlin.String, 
     var `isCommitLogForked`: kotlin.Boolean?, 
     var `localCommitLog`: kotlin.String, 
+    var `remoteCommitLog`: kotlin.String, 
     var `cursor`: kotlin.Long
 ) {
     
@@ -9567,6 +9568,7 @@ public object FfiConverterTypeFfiConversationDebugInfo: FfiConverterRustBuffer<F
             FfiConverterString.read(buf),
             FfiConverterOptionalBoolean.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
             FfiConverterLong.read(buf),
         )
     }
@@ -9577,6 +9579,7 @@ public object FfiConverterTypeFfiConversationDebugInfo: FfiConverterRustBuffer<F
             FfiConverterString.allocationSize(value.`forkDetails`) +
             FfiConverterOptionalBoolean.allocationSize(value.`isCommitLogForked`) +
             FfiConverterString.allocationSize(value.`localCommitLog`) +
+            FfiConverterString.allocationSize(value.`remoteCommitLog`) +
             FfiConverterLong.allocationSize(value.`cursor`)
     )
 
@@ -9586,6 +9589,7 @@ public object FfiConverterTypeFfiConversationDebugInfo: FfiConverterRustBuffer<F
             FfiConverterString.write(value.`forkDetails`, buf)
             FfiConverterOptionalBoolean.write(value.`isCommitLogForked`, buf)
             FfiConverterString.write(value.`localCommitLog`, buf)
+            FfiConverterString.write(value.`remoteCommitLog`, buf)
             FfiConverterLong.write(value.`cursor`, buf)
     }
 }
