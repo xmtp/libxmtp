@@ -8945,7 +8945,6 @@ dependencies = [
  "prost",
  "serde",
  "thiserror 2.0.14",
- "tokio",
  "tonic",
  "tracing",
  "wasm-bindgen-test",
