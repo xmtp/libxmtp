@@ -9,7 +9,6 @@ use std::time::Instant;
 use tokio::time::{timeout, Duration};
 use tracing::{error, info_span, Instrument};
 use tracing_flame::FlameLayer;
-use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{prelude::*, registry::Registry};
 use xmtp_api_grpc::Client as GrpcApiClient;
 use xmtp_db::group::GroupQueryArgs;
@@ -19,16 +18,21 @@ use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::Client;
 use xmtp_mls::InboxOwner;
 
-fn setup_global_subscriber() -> impl Drop {
-    // let fmt_layer = fmt::Layer::default();
-    let fmt_layer = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_env(
-        "stream_monitor=trace,xmtp_mls=trace,xmtp_api=trace,xmtp_proto=trace",
-    ));
-    let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
-    let flame_layer = flame_layer.with_threads_collapsed(true);
-    let subscriber = Registry::default().with(fmt_layer).with(flame_layer);
-    tracing::subscriber::set_global_default(subscriber).expect("Could not set global default");
-    _guard
+fn setup_global_subscriber(enable_fmt: bool) -> impl Drop {
+    if enable_fmt {
+        let fmt_layer = tracing_subscriber::fmt::layer();
+        let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
+        let flame_layer = flame_layer.with_threads_collapsed(true);
+        let subscriber = Registry::default().with(fmt_layer).with(flame_layer);
+        tracing::subscriber::set_global_default(subscriber).expect("Could not set global default");
+        _guard
+    } else {
+        let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
+        let flame_layer = flame_layer.with_threads_collapsed(true);
+        let subscriber = Registry::default().with(flame_layer);
+        tracing::subscriber::set_global_default(subscriber).expect("Could not set global default");
+        _guard
+    }
 }
 
 #[derive(Parser)]
@@ -58,6 +62,10 @@ struct Args {
     /// Output file for all message IDs from all groups (after sync)
     #[arg(long, default_value = "received-message-ids.txt")]
     all_groups_output_file: String,
+
+    /// Enable console logging output
+    #[arg(long, default_value = "false")]
+    enable_logging: bool,
 }
 
 fn client_random_suffix() -> String {
@@ -71,15 +79,14 @@ fn client_random_suffix() -> String {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = setup_global_subscriber();
-    // Initialize logging - only show logs from this CLI
-    // tracing_subscriber::fmt()
-    //     .with_env_filter("stream_monitor=trace,xmtp_mls=trace")
-    //     .init();
-
     let args = Args::parse();
 
+    let _guard = setup_global_subscriber(args.enable_logging);
+
     println!("Starting XMTP Stream Monitor");
+    if args.enable_logging {
+        println!("Logging enabled - console output will include trace logs");
+    }
 
     // Generate a random wallet for signing
     let wallet = PrivateKeySigner::random();
@@ -152,10 +159,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut first_message_time: Option<std::time::Instant> = None;
     let mut last_message_time: Option<std::time::Instant> = None;
 
-    // Track min/max rates
+    // Track min/max rates and recent message counts for accurate rate calculation
     let mut min_rate: Option<f64> = None;
     let mut max_rate: Option<f64> = None;
     let mut last_rate_update = Instant::now();
+    let mut recent_message_count = 0;
+    let mut last_message_count = 0;
 
     // Create progress bar
     let progress = ProgressBar::new(args.max_messages as u64);
@@ -210,21 +219,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     // Update progress bar with rate calculation
                     progress.inc(1);
-                    if let Some(first_time) = first_message_time {
-                        let elapsed = now.duration_since(first_time).as_secs_f64();
-                        if elapsed > 0.0 {
-                            let rate = message_count as f64 / elapsed;
+                    recent_message_count += 1;
 
-                            // Update min/max rates every second
-                            if now.duration_since(last_rate_update).as_secs() >= 1 {
-                                min_rate = Some(min_rate.map_or(rate, |min| min.min(rate)));
-                                max_rate = Some(max_rate.map_or(rate, |max| max.max(rate)));
-                                last_rate_update = now;
-                            }
+                    // Calculate instantaneous rate every second
+                    if now.duration_since(last_rate_update).as_secs_f64() >= 1.0 {
+                        let time_window = now.duration_since(last_rate_update).as_secs_f64();
+                        let messages_in_window = recent_message_count - last_message_count;
+                        let current_rate = messages_in_window as f64 / time_window;
 
-                            progress.set_message(format!("{:.1} msg/s", rate));
+                        // Update min/max rates
+                        if current_rate > 0.0 {
+                            min_rate =
+                                Some(min_rate.map_or(current_rate, |min| min.min(current_rate)));
+                            max_rate =
+                                Some(max_rate.map_or(current_rate, |max| max.max(current_rate)));
                         }
-                    } else {
+
+                        progress.set_message(format!("{:.1} msg/s", current_rate));
+
+                        // Reset for next window
+                        last_rate_update = now;
+                        last_message_count = recent_message_count;
+                    } else if first_message_time.is_none() {
                         progress.set_message("First message received!");
                     }
                 }
@@ -262,6 +278,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     // Update progress bar for first message
                     progress.inc(1);
+                    recent_message_count += 1;
                     progress.set_message("First message received! Timer started.");
                 }
                 Some(Err(e)) => {
