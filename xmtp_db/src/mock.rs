@@ -2,7 +2,7 @@ use crate::association_state::QueryAssociationStateCache;
 use crate::group::ConversationType;
 use crate::group::StoredGroupCommitLogPublicKey;
 use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
-use crate::remote_commit_log::RemoteCommitLog;
+use crate::remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder};
 use std::collections::HashMap;
 use std::sync::Arc;
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
@@ -562,6 +562,7 @@ mock! {
             &self,
             group_id: &[u8],
             after_cursor: i64,
+            order_by: RemoteCommitLogOrder,
         ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError>;
 
     }
