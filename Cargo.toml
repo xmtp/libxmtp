@@ -4,7 +4,6 @@ members = [
   "mls_validation_service",
   "xmtp_cryptography",
   "xmtp_api_grpc",
-  "xmtp_api_http",
   "xmtp_proto",
   "xmtp_mls",
   "xmtp_api",
@@ -31,7 +30,6 @@ default-members = [
   "mls_validation_service",
   "xmtp_cryptography",
   "xmtp_api_grpc",
-  "xmtp_api_http",
   "xmtp_proto",
   "xmtp_mls",
   "xmtp_api",
@@ -58,7 +56,6 @@ version = "1.5.0-dev"
 [workspace.dependencies]
 alloy = { version = "1.0", default-features = false }
 aes-gcm = { version = "0.10.3", features = ["std"] }
-anyhow = "1.0"
 async-compression = { default-features = false, version = "0.4", features = [
   "futures-io",
   "zstd",
@@ -123,6 +120,7 @@ pin-project-lite = "0.2"
 reqwest = { version = "0.12.12", features = ["json", "stream"] }
 itertools = "0.14"
 tonic = { version = "0.14", default-features = false }
+tower = { version = "0.5.2", default-features = false }
 tracing = { version = "0.1", features = ["log"] }
 tracing-logfmt = "0.3"
 tracing-subscriber = { version = "0.3", default-features = false }
@@ -142,7 +140,6 @@ color-eyre = "0.6"
 xmtp_api = { path = "xmtp_api" }
 xmtp_api_d14n = { path = "xmtp_api_d14n" }
 xmtp_api_grpc = { path = "xmtp_api_grpc" }
-xmtp_api_http = { path = "xmtp_api_http" }
 xmtp_archive = { path = "xmtp_archive" }
 xmtp_common = { path = "common" }
 xmtp_mls_common = { path = "xmtp_mls_common" }
@@ -197,6 +194,7 @@ diesel = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_derives = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_migrations = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 tracing-forest = { git = "https://github.com/QnnOkabayashi/tracing-forest", branch = "main" }
+tonic-web-wasm-client = { git = "https://github.com/insipx/tonic-web-wasm-client.git", branch = "insipx/add-abort-signal" }
 
 [workspace.lints.clippy]
 uninlined_format_args = "allow"

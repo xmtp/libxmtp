@@ -32,8 +32,8 @@ use tracing_subscriber::{
 use valuable::Valuable;
 use xmtp_api::ApiIdentifier;
 use xmtp_api_d14n::queries::D14nClient;
-use xmtp_api_grpc::grpc_client::GrpcClient;
-use xmtp_api_grpc::{grpc_api_helper::Client as ClientV3, GrpcError};
+use xmtp_api_grpc::GrpcClient;
+use xmtp_api_grpc::{error::GrpcError, v3::Client as ClientV3};
 use xmtp_common::time::now_ns;
 use xmtp_configuration::DeviceSyncUrls;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
