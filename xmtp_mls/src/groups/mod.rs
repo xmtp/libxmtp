@@ -1366,7 +1366,7 @@ where
         }
     }
 
-    pub fn get_pending_remove_list(&self) -> Result<Vec<String>, GroupError> {
+    pub fn pending_remove_list(&self) -> Result<Vec<String>, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
         Ok(mutable_metadata.pending_remove_list)
     }
