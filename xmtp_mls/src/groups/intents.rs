@@ -57,7 +57,7 @@ pub enum IntentError {
     #[error("missing update admin version")]
     MissingUpdateAdminVersion,
     #[error("missing update pending remove list version")]
-    MissingUpdatePendingRemoveVersion,
+    MissingUpdatePendingRemoveListVersion,
     #[error("missing post commit action")]
     MissingPostCommit,
     #[error("unsupported permission version")]
@@ -68,8 +68,8 @@ pub enum IntentError {
     UnknownPermissionPolicyOption,
     #[error("unknown value for AdminListActionType")]
     UnknownAdminListAction,
-    #[error("unknown value for self-removal")]
-    UnknownSelfRemovalAction,
+    #[error("unknown value for PendingRemoveListActionType")]
+    UnknownPendingRemoveListAction,
 }
 
 #[derive(Debug, Clone)]
@@ -482,8 +482,8 @@ impl TryFrom<Vec<u8>> for UpdateAdminListIntentData {
 #[repr(i32)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpdatePendingRemoveListActionType {
-    Add = 1,    // Matches ADD_ADMIN in Protobuf
-    Remove = 2, // Matches REMOVE_ADMIN in Protobuf
+    Add = 1,    // Matches ADD in Protobuf
+    Remove = 2, // Matches REMOVE in Protobuf
 }
 
 impl TryFrom<i32> for UpdatePendingRemoveListActionType {
@@ -493,7 +493,7 @@ impl TryFrom<i32> for UpdatePendingRemoveListActionType {
         match value {
             1 => Ok(UpdatePendingRemoveListActionType::Add),
             2 => Ok(UpdatePendingRemoveListActionType::Remove),
-            _ => Err(IntentError::UnknownSelfRemovalAction),
+            _ => Err(IntentError::UnknownPendingRemoveListAction),
         }
     }
 }
@@ -543,11 +543,11 @@ impl TryFrom<Vec<u8>> for UpdatePendingRemoveListIntentData {
             Some(UpdatePendingRemoveListsVersion::V1(ref v1)) => {
                 UpdatePendingRemoveListActionType::try_from(v1.pending_remove_list_update_type)?
             }
-            None => return Err(IntentError::MissingUpdatePendingRemoveVersion),
+            None => return Err(IntentError::MissingUpdatePendingRemoveListVersion),
         };
         let inbox_id = match msg.version {
             Some(UpdatePendingRemoveListsVersion::V1(ref v1)) => v1.inbox_id.clone(),
-            None => return Err(IntentError::MissingUpdatePendingRemoveVersion),
+            None => return Err(IntentError::MissingUpdatePendingRemoveListVersion),
         };
 
         Ok(Self::new(action_type, inbox_id))
