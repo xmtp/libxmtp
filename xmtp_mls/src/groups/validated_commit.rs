@@ -181,6 +181,8 @@ pub struct MutableMetadataValidationInfo {
     pub admins_removed: Vec<Inbox>,
     pub super_admins_added: Vec<Inbox>,
     pub super_admins_removed: Vec<Inbox>,
+    pub pending_remove_added: Vec<Inbox>,
+    pub pending_remove_removed: Vec<Inbox>,
     pub num_super_admins: u32,
     pub minimum_supported_protocol_version: Option<String>,
 }
@@ -191,6 +193,8 @@ impl MutableMetadataValidationInfo {
             && self.admins_added.is_empty()
             && self.admins_removed.is_empty()
             && self.super_admins_added.is_empty()
+            && self.pending_remove_added.is_empty()
+            && self.pending_remove_removed.is_empty()
             && self.super_admins_removed.is_empty()
             && self.minimum_supported_protocol_version.is_none()
     }
@@ -868,6 +872,18 @@ fn extract_metadata_changes(
         super_admins_removed: get_removed_members(
             &old_mutable_metadata.super_admin_list,
             &new_mutable_metadata.super_admin_list,
+            immutable_metadata,
+            old_mutable_metadata,
+        ),
+        pending_remove_added: get_added_members(
+            &old_mutable_metadata.pending_remove_list,
+            &new_mutable_metadata.pending_remove_list,
+            immutable_metadata,
+            old_mutable_metadata,
+        ),
+        pending_remove_removed: get_removed_members(
+            &old_mutable_metadata.pending_remove_list,
+            &new_mutable_metadata.pending_remove_list,
             immutable_metadata,
             old_mutable_metadata,
         ),

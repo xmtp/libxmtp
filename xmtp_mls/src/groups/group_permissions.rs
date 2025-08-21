@@ -487,6 +487,11 @@ impl PermissionsPolicies {
         PermissionsPolicies::Standard(PermissionsBasePolicies::AllowIfActorSuperAdmin)
     }
 
+    /// Creates an "Allow if an actor is acting on their self" permissions policy.
+    pub fn allow_if_actor_self() -> Self {
+        PermissionsPolicies::Standard(PermissionsBasePolicies::AllowIfActorSuperAdmin)
+    }
+
     /// Creates an "And" condition permissions policy.
     pub fn and(policies: Vec<PermissionsPolicies>) -> Self {
         PermissionsPolicies::AndCondition(PermissionsAndCondition::new(policies))
@@ -982,6 +987,26 @@ impl PolicySet {
         let removed_admins_valid = commit.metadata_validation_info.admins_removed.is_empty()
             || self.remove_admin_policy.evaluate(&commit.actor);
 
+        // Verify that add inboxIds to pending remove policy was not violated
+        let added_pending_remove = commit
+            .metadata_validation_info
+            .pending_remove_added
+            .is_empty()
+            || commit.metadata_validation_info.pending_remove_added.len() == 1
+                && commit.metadata_validation_info.pending_remove_added[0].inbox_id
+                    == commit.actor.inbox_id;
+
+        // Verify that remove inboxIds to pending remove policy was not violated
+        let removed_pending_remove = commit
+            .metadata_validation_info
+            .pending_remove_removed
+            .is_empty()
+            || (commit.metadata_validation_info.pending_remove_removed.len() == 1
+                && commit.metadata_validation_info.pending_remove_removed[0].inbox_id
+                    == commit.actor.inbox_id)
+            || (commit.metadata_validation_info.pending_remove_removed.len() > 1
+                && (commit.actor.is_admin || commit.actor.is_super_admin));
+
         // Verify that super admin add policy was not violated
         let super_admin_add_valid = commit
             .metadata_validation_info
@@ -1009,6 +1034,8 @@ impl PolicySet {
             && super_admin_add_valid
             && super_admin_remove_valid
             && permissions_changes_valid
+            && added_pending_remove
+            && removed_pending_remove
     }
 
     /// Evaluates a policy for a given set of changes.
