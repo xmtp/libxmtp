@@ -165,6 +165,7 @@ pub struct ConversationDebugInfo {
   pub fork_details: String,
   pub is_commit_log_forked: Option<bool>,
   pub local_commit_log: String,
+  pub remote_commit_log: String,
   pub cursor: i64,
 }
 
@@ -176,6 +177,7 @@ impl From<XmtpConversationDebugInfo> for ConversationDebugInfo {
       fork_details: value.fork_details,
       is_commit_log_forked: value.is_commit_log_forked,
       local_commit_log: value.local_commit_log,
+      remote_commit_log: value.remote_commit_log,
       cursor: value.cursor,
     }
   }
