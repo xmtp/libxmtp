@@ -32,7 +32,7 @@ impl Endpoint for QueryEnvelope {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<QueryEnvelopesRequest>()
+        xmtp_proto::path_and_query::<QueryEnvelopesRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -80,7 +80,7 @@ impl Endpoint for QueryEnvelopes {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<QueryEnvelopesRequest>()
+        xmtp_proto::path_and_query::<QueryEnvelopesRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -101,7 +101,7 @@ mod test {
     #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesRequest;
-        let pnq = crate::path_and_query::<QueryEnvelopesRequest>();
+        let pnq = xmtp_proto::path_and_query::<QueryEnvelopesRequest>();
         println!("{}", pnq);
     }
 
@@ -109,7 +109,7 @@ mod test {
     async fn test_query_envelopes() {
         use crate::d14n::QueryEnvelopes;
 
-        let client = crate::TestClient::create_local_d14n();
+        let client = crate::TestClient::create_d14n();
         let client = client.build().await.unwrap();
 
         let endpoint = QueryEnvelopes::builder()

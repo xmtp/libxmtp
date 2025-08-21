@@ -5,7 +5,7 @@ use std::sync::Arc;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError, JsValue};
 use xmtp_api::strategies;
 use xmtp_api::ApiClientWrapper;
-use xmtp_api_http::XmtpHttpApiClient;
+use xmtp_api_grpc::v3::Client as TonicApiClient;
 use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
 use xmtp_id::associations::{ident, AssociationState, MemberIdentifier};
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
@@ -126,7 +126,7 @@ pub async fn inbox_state_from_inbox_ids(
   host: String,
   inbox_ids: Vec<String>,
 ) -> Result<Vec<InboxState>, JsError> {
-  let api_client = XmtpHttpApiClient::new(host, "0.0.0".into())
+  let api_client = TonicApiClient::create(host, true, "0.0.0".into())
     .await
     .map_err(|e| JsError::new(&e.to_string()))?;
 

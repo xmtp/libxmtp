@@ -12,7 +12,6 @@ on:
       - "xmtp_db/**"
       - "xmtp_api_d14n/**"
       - "xmtp_content_types/**"
-      - "xmtp_api_http/src/**"
       - "xmtp_proto/**"
       - "bindings_wasm/**"
       - "Cargo.toml"
@@ -58,13 +57,13 @@ jobs:
           RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend="wasm_js"
         run: |
           source ./emsdk/emsdk_env.sh
-          cargo build --locked --tests --release --target wasm32-unknown-unknown -p xmtp_id -p xmtp_mls -p xmtp_api_http -p xmtp_cryptography -p xmtp_common -p bindings_wasm -p xmtp_api_d14n -p xmtp_db
+          cargo build --locked --tests --release --target wasm32-unknown-unknown -p xmtp_id -p xmtp_mls -p xmtp_cryptography -p xmtp_common -p bindings_wasm -p xmtp_api_d14n -p xmtp_db
       - name: test libraries
         env:
           RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend="wasm_js"
           CHROMEDRIVER: "chromedriver"
         run: |
-          cargo test --locked --release --target wasm32-unknown-unknown -p xmtp_id -p xmtp_api_http -p xmtp_cryptography -p xmtp_api -p bindings_wasm -p xmtp_api_d14n -p xmtp_db -- \
+          cargo test --locked --release --target wasm32-unknown-unknown -p xmtp_id -p xmtp_cryptography -p xmtp_api -p bindings_wasm -p xmtp_api_d14n -p xmtp_db -- \
             --skip encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
         working-directory: ./
       - name: test xmtp_mls client

@@ -7,7 +7,6 @@ let
     ./../Cargo.toml
     ./../Cargo.lock
     (commonCargoSources ./../xmtp_api_grpc)
-    (commonCargoSources ./../xmtp_api_http)
     (commonCargoSources ./../xmtp_cryptography)
     (commonCargoSources ./../xmtp_id)
     (commonCargoSources ./../xmtp_mls)

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use color_eyre::eyre;
-use xmtp_api_grpc::grpc_client::GrpcClient;
+use xmtp_api_grpc::GrpcClient;
 use xxhash_rust::xxh3;
 mod types;
 pub use types::*;

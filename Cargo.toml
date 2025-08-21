@@ -4,7 +4,6 @@ members = [
   "mls_validation_service",
   "xmtp_cryptography",
   "xmtp_api_grpc",
-  "xmtp_api_http",
   "xmtp_proto",
   "xmtp_mls",
   "xmtp_api",
@@ -31,7 +30,6 @@ default-members = [
   "mls_validation_service",
   "xmtp_cryptography",
   "xmtp_api_grpc",
-  "xmtp_api_http",
   "xmtp_proto",
   "xmtp_mls",
   "xmtp_api",
@@ -131,6 +129,7 @@ tokio-util = { version = "0.7", default-features = false, features = [
   "compat",
 ] }
 tonic = { version = "0.14", default-features = false }
+tower = { version = "0.5", default-features = false }
 trait-variant = "0.1.2"
 tracing = { version = "0.1", features = ["log"] }
 tracing-logfmt = "0.3"
@@ -152,7 +151,6 @@ bindings-wasm = { path = "bindings_wasm" }
 xmtp_api = { path = "xmtp_api" }
 xmtp_api_d14n = { path = "xmtp_api_d14n" }
 xmtp_api_grpc = { path = "xmtp_api_grpc" }
-xmtp_api_http = { path = "xmtp_api_http" }
 xmtp_archive = { path = "xmtp_archive" }
 xmtp_common = { path = "common" }
 xmtp_configuration = { path = "xmtp_configuration" }
@@ -201,6 +199,7 @@ diesel = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_derives = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_migrations = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 tracing-forest = { git = "https://github.com/QnnOkabayashi/tracing-forest", branch = "main" }
+tonic-web-wasm-client = { git = "https://github.com/insipx/tonic-web-wasm-client.git", branch = "insipx/add-abort-signal" }
 
 [workspace.lints.clippy]
 uninlined_format_args = "allow"
