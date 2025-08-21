@@ -1272,7 +1272,11 @@ where
             Self::conversation_message_disappearing_settings_from_extensions(&mutable_metadata)
                 .ok()?;
 
-        Some(now_ns() + group_disappearing_settings.in_ns)
+        if group_disappearing_settings.is_enabled() {
+            Some(now_ns() + group_disappearing_settings.in_ns)
+        } else {
+            None
+        }
     }
 
     /// This function is idempotent. No need to wrap in a transaction.

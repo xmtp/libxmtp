@@ -88,6 +88,10 @@ impl MessageDisappearingSettings {
     pub fn new(from_ns: i64, in_ns: i64) -> Self {
         Self { from_ns, in_ns }
     }
+
+    pub fn is_enabled(&self) -> bool {
+        self.from_ns > 0 && self.in_ns > 0
+    }
 }
 
 /// Represents the mutable metadata for a group.
