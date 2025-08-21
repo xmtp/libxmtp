@@ -2,7 +2,7 @@ services:
   redis:
     image: redis:7-alpine
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -65,3 +65,4 @@ services:
     ports:
       - 5052:5050
       - 5057:5055
+
