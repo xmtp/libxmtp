@@ -93,8 +93,8 @@ use tracing::debug;
 use xmtp_common::time::now_ns;
 use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
-use xmtp_db::group::GroupMembershipState;
 use xmtp_db::NotFound;
+use xmtp_db::group::GroupMembershipState;
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::mls_v1::WelcomeMetadata;
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
@@ -1573,7 +1573,7 @@ where
                             &intent.group_id,
                             GroupMembershipState::PendingRemove,
                         )
-                        .map_err(|_| IntentError::UnknownSelfRemovalAction)?
+                        .map_err(|e| IntentError::Storage(e.into()))?
                 }
             }
             _ => (),
