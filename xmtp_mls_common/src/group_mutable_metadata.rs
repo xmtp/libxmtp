@@ -48,7 +48,6 @@ pub enum MetadataField {
     MessageDisappearInNS,
     MinimumSupportedProtocolVersion,
     CommitLogSigner,
-    PendingRemoval,
 }
 
 impl MetadataField {
@@ -63,7 +62,6 @@ impl MetadataField {
             MetadataField::MinimumSupportedProtocolVersion => "minimum_supported_protocol_version",
             // Uses SUPER_ADMIN_METADATA_PREFIX ("_") to make this field super-admin only
             MetadataField::CommitLogSigner => "_commit_log_signer",
-            MetadataField::PendingRemoval => "pending_removal",
         }
     }
 }

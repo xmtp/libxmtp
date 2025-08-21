@@ -1138,12 +1138,7 @@ async fn test_self_remove_group_fail_with_one_member() {
     amal_group.sync().await.unwrap();
 
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
-    assert_eq!(
-        group_mutable_metadata
-            .attributes
-            .get(&MetadataField::PendingRemoval.to_string()),
-        None
-    );
+    assert!(group_mutable_metadata.pending_remove_list.is_empty());
 
     // Update group name
 
@@ -1166,12 +1161,7 @@ async fn test_self_removal() {
     bola.sync_welcomes().await.unwrap();
     assert_eq!(amal_group.members().await.unwrap().len(), 2);
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
-    assert_eq!(
-        group_mutable_metadata
-            .attributes
-            .get(&MetadataField::PendingRemoval.to_string()),
-        None
-    );
+    assert!(group_mutable_metadata.pending_remove_list.is_empty());
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
     assert_eq!(bola_groups.len(), 1);
     let bola_group = bola_groups.first().unwrap();
@@ -1179,17 +1169,11 @@ async fn test_self_removal() {
 
     bola_group.sync().await.unwrap();
     let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
-    assert_eq!(
-        group_mutable_metadata
-            .attributes
-            .get(&MetadataField::PendingRemoval.to_string()),
-        None
-    );
+    assert!(group_mutable_metadata.pending_remove_list.is_empty());
     // Verify amal's inboxId is set in the PendingRemoval
     amal_group.leave_group().await.unwrap();
     amal_group.sync().await.unwrap();
     let binding = amal_group.mutable_metadata().expect("msg");
-    tracing::info!("{:?}", binding.pending_remove_list);
     assert!(
         binding
             .pending_remove_list
