@@ -151,8 +151,8 @@ mod not_wasm {
             type Builder = MockApiBuilder;
             fn create_local() -> MockApiBuilder { MockApiBuilder }
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
-            fn create_local_d14n() -> MockApiBuilder { MockApiBuilder }
-            fn create_local_payer() -> MockApiBuilder { MockApiBuilder }
+            fn create_d14n() -> MockApiBuilder { MockApiBuilder }
+            fn create_payer() -> MockApiBuilder { MockApiBuilder }
         }
     }
 }
@@ -213,8 +213,8 @@ mod wasm {
             type Builder = MockApiBuilder;
             fn create_local() -> MockApiBuilder { MockApiBuilder }
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
-            fn create_local_d14n() -> MockApiBuilder { MockApiBuilder }
-            fn create_local_payer() -> MockApiBuilder { MockApiBuilder }
+            fn create_d14n() -> MockApiBuilder { MockApiBuilder }
+            fn create_payer() -> MockApiBuilder { MockApiBuilder }
         }
     }
 }

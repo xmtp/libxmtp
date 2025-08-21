@@ -90,13 +90,5 @@ impl<ApiClient> ApiClientWrapper<ApiClient> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-
-    #[cfg(all(
-        not(any(target_arch = "wasm32", feature = "http-api")),
-        feature = "grpc-api"
-    ))]
-    pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
-
-    #[cfg(any(feature = "http-api", target_arch = "wasm32",))]
-    pub type TestClient = xmtp_api_http::XmtpHttpApiClient;
+    pub type TestClient = xmtp_api_grpc::v3::Client;
 }

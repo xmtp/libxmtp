@@ -653,7 +653,7 @@ pub mod tests {
     }
 
     #[xmtp_common::test]
-    #[cfg_attr(any(feature = "http-api", target_arch = "wasm32"), ignore)]
+    #[cfg_attr(any(target_arch = "wasm32"), ignore)]
     async fn it_should_allow_large_payloads() {
         let mut client = crate::tests::TestClient::builder();
         client.set_host("http://localhost:5556".into());
@@ -692,7 +692,7 @@ pub mod tests {
     }
 
     #[xmtp_common::test]
-    #[cfg_attr(any(feature = "http-api", target_arch = "wasm32"), ignore)]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_publish_commit_log_batching_with_local_server() {
         // This test verifies that publish batching works correctly with a local server
         // It should handle 11 publish requests without hitting API limits
@@ -734,7 +734,7 @@ pub mod tests {
     }
 
     #[xmtp_common::test]
-    #[cfg_attr(any(feature = "http-api", target_arch = "wasm32"), ignore)]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_query_commit_log_batching_with_local_server() {
         // This test verifies that query batching works correctly with a local server
         // It should handle 21 query requests without hitting API limits

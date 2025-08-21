@@ -31,7 +31,7 @@ impl Endpoint for GetInboxIds {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<GetInboxIdsRequest>()
+        xmtp_proto::path_and_query::<GetInboxIdsRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -68,13 +68,13 @@ mod test {
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
-        let pnq = crate::path_and_query::<GetInboxIdsRequest>();
+        let pnq = xmtp_proto::path_and_query::<GetInboxIdsRequest>();
         println!("{}", pnq);
     }
 
     #[xmtp_common::test]
     async fn test_get_inbox_ids() {
-        let client = crate::TestClient::create_local_d14n();
+        let client = crate::TestClient::create_d14n();
         let client = client.build().await.unwrap();
 
         let endpoint = GetInboxIds::builder()

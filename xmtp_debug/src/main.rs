@@ -7,7 +7,7 @@ use clap::Parser;
 use color_eyre::eyre::Result;
 
 use std::sync::Arc;
-use xmtp_api_grpc::{GrpcError, grpc_api_helper::Client as GrpcClient};
+use xmtp_api_grpc::{error::GrpcError, v3::Client as GrpcClient};
 use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_proto::traits::ApiClientError;
 
