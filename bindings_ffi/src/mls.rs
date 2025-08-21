@@ -9,7 +9,7 @@ use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api::{ApiClientWrapper, ApiDebugWrapper, ApiIdentifier, strategies};
-use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_api_grpc::v3::Client as TonicApiClient;
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::attachment::Attachment;

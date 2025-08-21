@@ -8,7 +8,7 @@ use tracing_subscriber::{filter, fmt::format::Pretty};
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::{JsError, wasm_bindgen};
 use xmtp_api::ApiDebugWrapper;
-use xmtp_api_http::XmtpHttpApiClient;
+use xmtp_api_grpc::v3::Client as TonicApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::Client as MlsClient;
@@ -25,7 +25,7 @@ use crate::inbox_state::InboxState;
 
 pub type MlsContext = Arc<
   XmtpMlsLocalContext<
-    ApiDebugWrapper<XmtpHttpApiClient>,
+    ApiDebugWrapper<TonicApiClient>,
     xmtp_db::DefaultStore,
     xmtp_db::DefaultMlsStore,
   >,
@@ -159,23 +159,9 @@ pub async fn create_client(
   app_version: Option<String>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
-  let api_client = XmtpHttpApiClient::new(
-    host.clone(),
-    app_version
-      .as_ref()
-      .unwrap_or(&"0.0.0".to_string())
-      .to_string(),
-  )
-  .await?;
+  let api_client = TonicApiClient::create(host.clone(), true, app_version.clone()).await?;
 
-  let sync_api_client = XmtpHttpApiClient::new(
-    host.clone(),
-    app_version
-      .as_ref()
-      .unwrap_or(&"0.0.0".to_string())
-      .to_string(),
-  )
-  .await?;
+  let sync_api_client = TonicApiClient::create(host.clone(), true, app_version.clone()).await?;
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
