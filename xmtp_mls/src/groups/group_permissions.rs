@@ -1006,6 +1006,7 @@ impl PolicySet {
                     == commit.actor.inbox_id)
             || (commit.metadata_validation_info.pending_remove_removed.len() > 1
                 && (commit.actor.is_admin || commit.actor.is_super_admin));
+        //todo: if actor is admin: verify that the removed inboxIds are not longer members of the group
 
         // Verify that super admin add policy was not violated
         let super_admin_add_valid = commit
