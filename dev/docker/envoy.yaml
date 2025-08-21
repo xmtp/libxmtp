@@ -62,12 +62,22 @@ static_resources:
                         - match: {prefix: "/payer"}
                           route:
                             cluster: gateway
+                            regex_rewrite:
+                              pattern:
+                                google_re2: {}
+                                regex: "^/payer(.*)$"
+                              substitution: "\\1"  # This removes /xmtpd but keeps everything after it
                             timeout: 0s
                             max_stream_duration:
                               grpc_timeout_header_max: 0s
-                        - match: {prefix: "/xmtpd"}
+                        - match: { prefix: "/xmtpd" }
                           route:
                             cluster: repnode
+                            regex_rewrite:
+                              pattern:
+                                google_re2: {}
+                                regex: "^/xmtpd(.*)$"
+                              substitution: "\\1"  # This removes /xmtpd but keeps everything after it
                             timeout: 0s
                             max_stream_duration:
                               grpc_timeout_header_max: 0s
@@ -123,7 +133,7 @@ static_resources:
               - endpoint:
                   address:
                     socket_address:
-                      address: node
+                      address: repnode
                       port_value: 5050
     - name: gateway
       connect_timeout: 0.25s
@@ -142,4 +152,4 @@ static_resources:
                   address:
                     socket_address:
                       address: gateway
-                      port_value: 5050
+                      port_value: 5052

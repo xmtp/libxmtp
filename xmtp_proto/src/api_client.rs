@@ -26,8 +26,8 @@ use xmtp_common::RetryableError;
 pub trait XmtpTestClient {
     type Builder: ApiBuilder;
     fn create_local() -> Self::Builder;
-    fn create_local_d14n() -> Self::Builder;
-    fn create_local_payer() -> Self::Builder;
+    fn create_d14n() -> Self::Builder;
+    fn create_payer() -> Self::Builder;
     fn create_dev() -> Self::Builder;
 }
 
@@ -368,29 +368,22 @@ where
         (**self).stats()
     }
 }
-#[cfg(not(target_arch = "wasm32"))]
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-pub trait XmtpMlsStreams {
-    type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>> + Send;
-
-    type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>> + Send;
-    type Error: RetryableError + Send + Sync + 'static;
-
-    async fn subscribe_group_messages(
-        &self,
-        request: SubscribeGroupMessagesRequest,
-    ) -> Result<Self::GroupMessageStream, Self::Error>;
-    async fn subscribe_welcome_messages(
-        &self,
-        request: SubscribeWelcomeMessagesRequest,
-    ) -> Result<Self::WelcomeMessageStream, Self::Error>;
-}
-
-#[cfg(target_arch = "wasm32")]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait XmtpMlsStreams {
+    #[cfg(not(target_arch = "wasm32"))]
+    type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>> + Send;
+
+    #[cfg(target_arch = "wasm32")]
     type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>>;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>> + Send;
+
+    #[cfg(target_arch = "wasm32")]
     type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>>;
+
     type Error: RetryableError + Send + Sync + 'static;
 
     async fn subscribe_group_messages(
