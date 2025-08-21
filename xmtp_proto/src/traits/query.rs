@@ -9,12 +9,12 @@ use futures::{Stream, StreamExt, TryStreamExt};
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<E, T, C> Query<T, C> for E
 where
-    E: Endpoint<Output = T> + Sync,
+    E: Endpoint<Output = T> + Send + Sync,
     C: Client + Sync + Send,
     C::Error: std::error::Error,
     T: Default + prost::Message + 'static,
 {
-    async fn query(&self, client: &C) -> Result<T, ApiClientError<C::Error>> {
+    async fn query(&mut self, client: &C) -> Result<T, ApiClientError<C::Error>> {
         let request = http::Request::builder();
         let endpoint = self.grpc_endpoint();
         let path = http::uri::PathAndQuery::try_from(endpoint.as_ref())?;
@@ -27,7 +27,7 @@ where
     }
 
     async fn stream(
-        &self,
+        &mut self,
         client: &C,
     ) -> Result<impl Stream<Item = Result<T, ApiClientError<C::Error>>>, ApiClientError<C::Error>>
     {

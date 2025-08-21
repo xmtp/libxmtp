@@ -16,8 +16,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
     SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
     UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
-// the max page size for queries
-const MAX_PAGE_SIZE: u32 = 100;
+use xmtp_configuration::MAX_PAGE_SIZE;
 
 /// A filter for querying group messages
 #[derive(Clone)]

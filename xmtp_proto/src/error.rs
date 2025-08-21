@@ -103,6 +103,8 @@ pub enum ConversionError {
     OpenMls(#[from] openmls::prelude::Error),
     #[error(transparent)]
     Protocol(#[from] openmls::framing::errors::ProtocolMessageError),
+    #[error(transparent)]
+    Builder(#[from] derive_builder::UninitializedFieldError)
 }
 
 // Conversion errors themselves not really retryable because the bytes are static,

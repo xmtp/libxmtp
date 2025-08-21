@@ -1,25 +1,29 @@
 use crate::error::{GrpcBuilderError, GrpcError};
-use crate::streams::{self, XmtpTonicStream};
+use crate::streams::{self, try_from_stream, TryFromItem, XmtpTonicStream};
+use crate::v3::paged::retryable_paged_request;
 use tonic::{metadata::MetadataValue, Request};
 use tower::ServiceExt;
-use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
+use xmtp_common::{ExponentialBackoff, Retry};
+use xmtp_configuration::{GRPC_PAYLOAD_LIMIT, MAX_PAGE_SIZE};
+use xmtp_proto::api::ApiClientError;
+use xmtp_proto::api::HasStats;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams};
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
+    PagingInfo,
 };
-use xmtp_proto::traits::ApiClientError;
-use xmtp_proto::traits::HasStats;
-use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
+use xmtp_proto::types::{GroupId, GroupMessage};
+use xmtp_proto::xmtp::message_api::v1::SortDirection;
+use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 use xmtp_proto::{
     api_client::XmtpMlsClient,
     xmtp::identity::api::v1::identity_api_client::IdentityApiClient as ProtoIdentityApiClient,
     xmtp::mls::api::v1::{
         mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
-        FetchKeyPackagesResponse, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
-        QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, SendGroupMessagesRequest,
-        SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-        UploadKeyPackageRequest,
+        FetchKeyPackagesResponse, QueryGroupMessagesRequest, QueryWelcomeMessagesRequest,
+        QueryWelcomeMessagesResponse, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
+        SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
     },
     ApiEndpoint,
 };
@@ -33,6 +37,7 @@ pub struct Client {
     pub(crate) stats: ApiStats,
     pub(crate) identity_stats: IdentityStats,
     pub(crate) channel: crate::GrpcService,
+    pub(crate) retry: Retry<ExponentialBackoff>,
 }
 
 impl Client {
@@ -107,6 +112,10 @@ impl ApiBuilder for ClientBuilder {
         self.inner.set_tls(tls)
     }
 
+    fn set_retry(&mut self, retry: Retry) {
+        self.inner.set_retry(retry)
+    }
+
     fn rate_per_minute(&mut self, limit: u32) {
         self.inner.rate_per_minute(limit)
     }
@@ -146,6 +155,7 @@ impl ApiBuilder for ClientBuilder {
             stats: ApiStats::default(),
             identity_stats: IdentityStats::default(),
             channel,
+            retry: self.inner.retry.unwrap_or_default(),
         })
     }
 }
@@ -217,15 +227,32 @@ impl XmtpMlsClient for Client {
     #[tracing::instrument(level = "trace", skip_all)]
     async fn query_group_messages(
         &self,
-        req: QueryGroupMessagesRequest,
-    ) -> Result<QueryGroupMessagesResponse, Self::Error> {
+        group_id: GroupId,
+        cursor: xmtp_proto::types::Cursor,
+    ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
         self.stats.query_group_messages.count_request();
-        let client = &mut self.mls_client.clone();
-        client
-            .query_group_messages(self.build_request(req))
-            .await
-            .map(|r| r.into_inner())
-            .map_err(|e| ApiClientError::new(ApiEndpoint::QueryGroupMessages, e.into()))
+        retryable_paged_request(&self.retry, Some(cursor.sequence_id), |c| {
+            let group_id = group_id.clone();
+            async move {
+                let client = &mut self.mls_client.clone();
+                client
+                    .query_group_messages(self.build_request(QueryGroupMessagesRequest {
+                        group_id: group_id.to_vec(),
+                        paging_info: Some(PagingInfo {
+                            id_cursor: c.unwrap_or(0),
+                            limit: MAX_PAGE_SIZE,
+                            direction: SortDirection::Ascending as i32,
+                        }),
+                    }))
+                    .await
+                    .map(|r| r.into_inner())
+                    .map_err(GrpcError::from)
+            }
+        })
+        .await
+        .map_err(|e| ApiClientError::new(ApiEndpoint::QueryGroupMessages, e.into()))?;
+
+        todo!();
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -277,7 +304,7 @@ impl XmtpMlsClient for Client {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl XmtpMlsStreams for Client {
     type Error = ApiClientError<crate::error::GrpcError>;
-    type GroupMessageStream = streams::XmtpStream<GroupMessage>;
+    type GroupMessageStream = TryFromItem<streams::XmtpStream<V3ProtoGroupMessage>, GroupMessage>;
     type WelcomeMessageStream = streams::XmtpStream<WelcomeMessage>;
 
     async fn subscribe_group_messages(
@@ -285,7 +312,10 @@ impl XmtpMlsStreams for Client {
         req: SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         self.stats.subscribe_messages.count_request();
-        XmtpTonicStream::from_body(req, self.client(), ApiEndpoint::SubscribeGroupMessages).await
+        Ok(try_from_stream(
+            XmtpTonicStream::from_body(req, self.client(), ApiEndpoint::SubscribeGroupMessages)
+                .await?,
+        ))
     }
 
     async fn subscribe_welcome_messages(

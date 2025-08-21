@@ -3,7 +3,8 @@ use futures::stream;
 use xmtp_common::RetryableError;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1;
-use xmtp_proto::traits::{ApiClientError, Client};
+use xmtp_proto::api::{ApiClientError, Client};
+use xmtp_proto::types::GroupMessage;
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -16,7 +17,7 @@ where
     type Error = ApiClientError<E>;
 
     #[cfg(not(target_arch = "wasm32"))]
-    type GroupMessageStream = stream::BoxStream<'static, Result<mls_v1::GroupMessage, Self::Error>>;
+    type GroupMessageStream = stream::BoxStream<'static, Result<GroupMessage, Self::Error>>;
     #[cfg(not(target_arch = "wasm32"))]
     type WelcomeMessageStream =
         stream::BoxStream<'static, Result<mls_v1::WelcomeMessage, Self::Error>>;

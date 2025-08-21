@@ -8518,6 +8518,7 @@ dependencies = [
  "wasm-bindgen-test",
  "xmtp_api_grpc",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_id",
  "xmtp_proto",
 ]
@@ -8527,10 +8528,12 @@ name = "xmtp_api_d14n"
 version = "1.5.0-dev"
 dependencies = [
  "async-trait",
+ "chrono",
  "const-hex",
  "ctor 0.5.0",
  "derive_builder",
  "futures",
+ "hyper 1.7.0",
  "impl-trait-for-tuples",
  "itertools 0.14.0",
  "once_cell",
@@ -8924,6 +8927,8 @@ name = "xmtp_proto"
 version = "1.5.0-dev"
 dependencies = [
  "async-trait",
+ "bytes",
+ "chrono",
  "color-eyre",
  "const-hex",
  "derive_builder",

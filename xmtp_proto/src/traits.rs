@@ -10,7 +10,7 @@ use xmtp_common::{retry_async, BoxedRetry, RetryableError};
 pub mod mock;
 
 mod query;
-
+pub mod combinators;
 mod error;
 pub use error::*;
 
@@ -26,6 +26,11 @@ pub trait Endpoint {
     fn grpc_endpoint(&self) -> Cow<'static, str>;
 
     fn body(&self) -> Result<Bytes, BodyError>;
+}
+
+pub trait Pageable {
+    /// set the cursor for this pageable endpoint
+    fn set_cursor(&mut self, cursor: u64);
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -59,18 +64,17 @@ pub trait Client {
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>>;
 }
 
-// query can return a Wrapper XmtpResponse<T> that implements both Future and Stream. If stream is used on singular response, just a stream of one item. This lets us re-use query for everything.
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait Query<T, C>
+pub trait Query<T, C, Spec = ()>
 where
     C: Client + Send + Sync,
     T: Send,
 {
-    async fn query(&self, client: &C) -> Result<T, ApiClientError<C::Error>>;
+    async fn query(&mut self, client: &C) -> Result<T, ApiClientError<C::Error>>;
 
     async fn query_retryable(
-        &self,
+        &mut self,
         client: &C,
         retry: BoxedRetry,
     ) -> Result<T, ApiClientError<C::Error>>
@@ -81,7 +85,7 @@ where
     }
 
     async fn stream(
-        &self,
+        &mut self,
         client: &C,
     ) -> Result<impl Stream<Item = Result<T, ApiClientError<C::Error>>>, ApiClientError<C::Error>>;
 }

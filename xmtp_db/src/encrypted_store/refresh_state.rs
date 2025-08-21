@@ -74,7 +74,7 @@ pub struct RefreshState {
     pub entity_id: Vec<u8>,
     pub entity_kind: EntityKind,
     pub cursor: i64,
-    pub originator_id: i32
+    pub originator_id: i32,
 }
 
 impl_store!(RefreshState, refresh_state);
@@ -91,7 +91,7 @@ pub trait QueryRefreshState {
         &self,
         id: Id,
         entity_kind: EntityKind,
-        originator_id: i32
+        originator_id: i32,
     ) -> Result<i64, StorageError>;
 
     fn update_cursor<Id: AsRef<[u8]>>(
@@ -104,7 +104,6 @@ pub trait QueryRefreshState {
     fn get_remote_log_cursors(
         &self,
         conversation_ids: &[&Vec<u8>],
-        originator_id: i32
     ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError>;
 }
 
@@ -121,7 +120,7 @@ impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
         &self,
         id: Id,
         entity_kind: EntityKind,
-        originator_id: i32
+        originator_id: i32,
     ) -> Result<i64, StorageError> {
         (**self).get_last_cursor_for_id(id, entity_kind, originator_id)
     }
@@ -138,9 +137,8 @@ impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
     fn get_remote_log_cursors(
         &self,
         conversation_ids: &[&Vec<u8>],
-        originator_id: i32
     ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError> {
-        (**self).get_remote_log_cursors(conversation_ids, originator_id)
+        (**self).get_remote_log_cursors(conversation_ids)
     }
 }
 
@@ -165,7 +163,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         &self,
         id: Id,
         entity_kind: EntityKind,
-        originator_id: i32
+        originator_id: i32,
     ) -> Result<i64, StorageError> {
         let state: Option<RefreshState> = self.get_refresh_state(&id, entity_kind)?;
         match state {
@@ -175,7 +173,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
                     entity_id: id.as_ref().to_vec(),
                     entity_kind,
                     cursor: 0,
-                    originator_id
+                    originator_id,
                 };
                 new_state.store_or_ignore(self)?;
                 Ok(0)
@@ -206,12 +204,15 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     fn get_remote_log_cursors(
         &self,
         conversation_ids: &[&Vec<u8>],
-        originator_id: i32
     ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError> {
         let mut cursor_map: HashMap<Vec<u8>, i64> = HashMap::new();
         for conversation_id in conversation_ids {
             let cursor = self
-                .get_last_cursor_for_id(conversation_id, EntityKind::CommitLogDownload, originator_id)
+                .get_last_cursor_for_id(
+                    conversation_id,
+                    EntityKind::CommitLogDownload,
+                    xmtp_configuration::Originators::REMOTE_COMMIT_LOG.into(),
+                )
                 .unwrap_or(0);
             cursor_map.insert(conversation_id.to_vec(), cursor);
         }

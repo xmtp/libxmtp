@@ -12,10 +12,13 @@ use crate::protocol::traits::Envelope;
 use crate::protocol::traits::EnvelopeCollection;
 use crate::protocol::traits::Extractor;
 use xmtp_common::RetryableError;
+use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api_client::{ApiStats, XmtpMlsClient};
 use xmtp_proto::mls_v1;
-use xmtp_proto::traits::Client;
-use xmtp_proto::traits::{ApiClientError, Query};
+use xmtp_proto::mls_v1::SortDirection;
+use xmtp_proto::api::Client;
+use xmtp_proto::api::{ApiClientError, Query};
+use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeResponse;
 use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
@@ -27,7 +30,7 @@ where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client,
     C: Send + Sync + Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<P as xmtp_proto::traits::Client>::Error>>,
+    ApiClientError<E>: From<ApiClientError<<P as xmtp_proto::api::Client>::Error>>,
 {
     type Error = ApiClientError<E>;
 
@@ -102,11 +105,16 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     async fn query_group_messages(
         &self,
-        request: mls_v1::QueryGroupMessagesRequest,
-    ) -> Result<mls_v1::QueryGroupMessagesResponse, Self::Error> {
+        group_id: GroupId,
+        cursor: xmtp_proto::types::Cursor,
+    ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
         let response: QueryEnvelopesResponse = QueryEnvelope::builder()
-            .topic(TopicKind::GroupMessagesV1.build(request.group_id.as_slice()))
-            .paging_info(request.paging_info)
+            .topic(TopicKind::GroupMessagesV1.build(group_id))
+            .paging_info(Some(mls_v1::PagingInfo {
+                direction: SortDirection::Ascending as i32,
+                limit: MAX_PAGE_SIZE,
+                id_cursor: cursor.sequence_id
+            }))
             .build()?
             .query(&self.message_client)
             .await?;
@@ -115,11 +123,7 @@ where
             .envelopes(response.envelopes)
             .build::<GroupMessageExtractor>()
             .get()?;
-
-        Ok(mls_v1::QueryGroupMessagesResponse {
-            messages,
-            paging_info: None,
-        })
+        Ok(messages.into_iter().collect::<Result<_, _>>()?)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]

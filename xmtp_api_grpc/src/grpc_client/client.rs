@@ -20,11 +20,12 @@ use tonic::{
     metadata::{self, MetadataMap, MetadataValue},
     Status,
 };
+use xmtp_common::Retry;
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
 use xmtp_proto::{
+    api::{ApiClientError, Client},
     api_client::ApiBuilder,
     codec::TransparentCodec,
-    traits::{ApiClientError, Client},
 };
 
 impl From<GrpcError> for ApiClientError<GrpcError> {
@@ -201,6 +202,8 @@ pub struct ClientBuilder {
     pub tls_channel: bool,
     /// Rate per minute
     pub limit: Option<u64>,
+    /// retry strategy for this client
+    pub retry: Option<Retry>,
 }
 
 impl ApiBuilder for ClientBuilder {
@@ -256,6 +259,10 @@ impl ApiBuilder for ClientBuilder {
                 env!("CARGO_PKG_VERSION").to_string(),
             )?),
         })
+    }
+
+    fn set_retry(&mut self, retry: xmtp_common::Retry) {
+        self.retry = Some(retry);
     }
 }
 
