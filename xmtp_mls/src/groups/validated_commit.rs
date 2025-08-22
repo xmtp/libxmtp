@@ -438,13 +438,7 @@ impl ValidatedCommit {
         }
         let group_members: Vec<String> = openmls_group
             .members()
-            .filter_map(|member| {
-                if let Ok(inbox_id) = inbox_id_from_credential(&member.credential) {
-                    Some(inbox_id)
-                } else {
-                    None
-                }
-            })
+            .filter_map(|member| inbox_id_from_credential(&member.credential).ok())
             .collect();
 
         let verified_commit = Self {
