@@ -94,7 +94,7 @@ use xmtp_mls_common::{
 use xmtp_proto::xmtp::mls::{
     api::v1::welcome_message,
     message_contents::{
-        EncodedContent, PlaintextEnvelope,
+        EncodedContent, OneshotMessage, PlaintextEnvelope,
         content_types::ReactionV2,
         plaintext_envelope::{Content, V1},
     },
@@ -444,9 +444,6 @@ where
             // TODO: For groups restored from backup, in order to support queries on metadata such as
             // the group title and description, a stubbed OpenMLS group is created, and later overwritten
             // when a welcome is received.
-            // To avoid potentially operating on this encryption state elsewhere, it may instead be better
-            // to store this metadata on the StoredGroup instead, and modify group metadata queries to also
-            // check the StoredGroup.
             OpenMlsGroup::from_backup_stub_logged(
                 &provider,
                 context.identity(),
@@ -608,12 +605,8 @@ where
             OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?;
 
         let group_id = mls_group.group_id().to_vec();
-        let stored_group = StoredGroup::create_sync_group(
-            &context.db(),
-            group_id,
-            now_ns(),
-            GroupMembershipState::Allowed,
-        )?;
+        let stored_group =
+            StoredGroup::create_virtual_group(&context.db(), group_id, ConversationType::Sync)?;
 
         let group = Self::new_from_arc(
             context,
@@ -1641,7 +1634,7 @@ pub(crate) fn build_protected_metadata_extension(
     creator_inbox_id: &str,
     conversation_type: ConversationType,
 ) -> Result<Extension, MetadataPermissionsError> {
-    let metadata = GroupMetadata::new(conversation_type, creator_inbox_id.to_string(), None);
+    let metadata = GroupMetadata::new(conversation_type, creator_inbox_id.to_string(), None, None);
     let protected_metadata = Metadata::new(metadata.try_into()?);
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
@@ -1660,12 +1653,28 @@ fn build_dm_protected_metadata_extension(
         ConversationType::Dm,
         creator_inbox_id.to_string(),
         dm_members,
+        None,
     );
     let protected_metadata = Metadata::new(
         metadata
             .try_into()
             .map_err(MetadataPermissionsError::from)?,
     );
+
+    Ok(Extension::ImmutableMetadata(protected_metadata))
+}
+
+fn build_oneshot_protected_metadata_extension(
+    creator_inbox_id: &str,
+    oneshot_message: OneshotMessage,
+) -> Result<Extension, MetadataPermissionsError> {
+    let metadata = GroupMetadata::new(
+        ConversationType::Oneshot,
+        creator_inbox_id.to_string(),
+        None,
+        Some(oneshot_message),
+    );
+    let protected_metadata = Metadata::new(metadata.try_into()?);
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
 }
