@@ -1001,7 +1001,7 @@ impl PolicySet {
             .metadata_validation_info
             .pending_remove_removed
             .is_empty()
-            || self.validate_pending_remove_removal(&commit);
+            || self.validate_pending_remove_removal(commit);
 
         // Verify that super admin add policy was not violated
         let super_admin_add_valid = commit
@@ -1042,7 +1042,7 @@ impl PolicySet {
         }
 
         // Multiple removals: only by admin/super admin
-        if removed.len() >= 1 && (commit.actor.is_admin || commit.actor.is_super_admin) {
+        if !removed.is_empty() && (commit.actor.is_admin || commit.actor.is_super_admin) {
             // If actor is admin, verify removed inboxes are not current group members
             return !&commit.actor.is_admin
                 || removed
