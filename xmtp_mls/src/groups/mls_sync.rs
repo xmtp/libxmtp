@@ -1399,8 +1399,9 @@ where
                     intent.kind
                 );
 
-                let message = message.into();
-                let maybe_validated_commit = self
+                let message: ProtocolMessage = message.into();
+                let message_type = message.content_type();
+                let validation_result = self
                     .stage_and_validate_intent(mls_group, &intent, &message, envelope)
                     .await;
 
@@ -1435,10 +1436,10 @@ where
                         identifier.previously_processed(true);
                         return Ok(());
                     }
-                    let result: Result<Option<Vec<u8>>, IntentResolutionError> = match maybe_validated_commit {
+                    let result: Result<Option<Vec<u8>>, IntentResolutionError> = match validation_result {
                         Err(err) => Err(err),
-                        Ok(commit) => {
-                            self.process_own_message(mls_group, commit, &intent, &message, envelope, &storage)
+                        Ok(validated_intent) => {
+                            self.process_own_message(mls_group, validated_intent, &intent, &message, envelope, &storage)
                         }
                     };
                     let (next_intent_state, internal_message_id) = match result {
@@ -1448,7 +1449,8 @@ where
                                 return Err(err.processing_error);
                             }
                             // TODO(rich): Add log_err! macro/trait for swallowing errors
-                            if let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor, message.epoch(), &err.processing_error) {
+                            if message_type == MlsContentType::Commit
+                                && let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor, message.epoch(), &err.processing_error) {
                                 tracing::error!("Error inserting commit entry for failed self commit: {}", accounting_error);
                             }
                             (err.next_intent_state, None)
