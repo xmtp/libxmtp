@@ -4,6 +4,7 @@ use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::identity_v1;
 use xmtp_proto::mls_v1;
 use xmtp_proto::prelude::XmtpIdentityClient;
+use xmtp_proto::types::{GroupMessage, GroupId, Cursor};
 
 
 #[derive(Clone)]
@@ -50,11 +51,16 @@ where
     }
     async fn query_group_messages(
         &self,
-        group_id: xmtp_proto::types::GroupId,
-        cursor: xmtp_proto::types::Cursor,
-    ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
+        group_id: GroupId,
+        cursor: Cursor,
+    ) -> Result<Vec<GroupMessage>, Self::Error> {
         self.xmtpd_client.query_group_messages(group_id, cursor).await
     }
+
+    async fn query_latest_group_message(&self, group_id: GroupId) -> Result<Option<GroupMessage>, Self::Error> {
+        self.xmtpd_client.query_latest_group_message(group_id).await
+    }
+
     async fn query_welcome_messages(
         &self,
         request: mls_v1::QueryWelcomeMessagesRequest,

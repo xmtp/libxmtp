@@ -13,7 +13,7 @@ impl Paged for QueryGroupMessagesResponse {
     }
 
     fn set_cursor(&mut self, cursor: u64) {
-       self.paging_info.map(|mut p| p.id_cursor = cursor);
+        self.paging_info.map(|mut p| p.id_cursor = cursor);
     }
 }
 
@@ -138,6 +138,13 @@ where
         (**self).query_group_messages(group_id, cursor).await
     }
 
+    async fn query_latest_group_message(
+        &self,
+        group_id: crate::types::GroupId,
+    ) -> Result<Option<GroupMessage>, Self::Error> {
+        (**self).query_latest_group_message(group_id).await
+    }
+
     async fn query_welcome_messages(
         &self,
         request: QueryWelcomeMessagesRequest,
@@ -206,6 +213,13 @@ where
         cursor: Cursor,
     ) -> Result<Vec<GroupMessage>, Self::Error> {
         (**self).query_group_messages(group_id, cursor).await
+    }
+
+    async fn query_latest_group_message(
+        &self,
+        group_id: crate::types::GroupId,
+    ) -> Result<Option<GroupMessage>, Self::Error> {
+        (**self).query_latest_group_message(group_id).await
     }
 
     async fn query_welcome_messages(

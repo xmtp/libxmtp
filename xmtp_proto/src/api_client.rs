@@ -15,10 +15,9 @@ use crate::xmtp::identity::api::v1::{
 };
 use crate::xmtp::mls::api::v1::{
     FetchKeyPackagesRequest, FetchKeyPackagesResponse, GroupMessage as ProtoGroupMessage,
-     QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
-    SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
-    SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
-    WelcomeMessage as ProtoWelcomeMessage,
+    QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, SendGroupMessagesRequest,
+    SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
+    UploadKeyPackageRequest, WelcomeMessage as ProtoWelcomeMessage,
 };
 use futures::Stream;
 use std::sync::Arc;
@@ -96,6 +95,10 @@ pub trait XmtpMlsClient {
         group_id: crate::types::GroupId,
         cursor: Cursor,
     ) -> Result<Vec<GroupMessage>, Self::Error>;
+    async fn query_latest_group_message(
+        &self,
+        group_id: crate::types::GroupId,
+    ) -> Result<Option<GroupMessage>, Self::Error>;
     async fn query_welcome_messages(
         &self,
         request: QueryWelcomeMessagesRequest,

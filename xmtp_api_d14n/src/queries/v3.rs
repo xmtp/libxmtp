@@ -1,19 +1,20 @@
+use crate::protocol::ProtocolEnvelope;
 use crate::protocol::{SequencedExtractor, V3GroupMessageExtractor, traits::Extractor};
 use crate::v3::*;
 use futures::stream;
 use xmtp_api_grpc::error::GrpcError;
+use xmtp_api_grpc::streams::{try_from_stream, TryFromItem, XmtpStream, XmtpTonicStream};
 use xmtp_common::RetryableError;
 use xmtp_configuration::MAX_PAGE_SIZE;
+use xmtp_proto::api::{self, ApiClientError, Client, Query};
 use xmtp_proto::api_client::{
     ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
 };
-use xmtp_api_grpc::streams::{try_from_stream, TryFromItem, XmtpStream, XmtpTonicStream};
-use xmtp_proto::{identity_v1, ApiEndpoint};
-use xmtp_proto::mls_v1::{self, PagingInfo, SortDirection};
+use xmtp_proto::mls_v1::{self, GroupMessage as ProtoGroupMessage, PagingInfo, SortDirection};
 use xmtp_proto::prelude::ApiBuilder;
-use xmtp_proto::api::{ApiClientError, Client, Query, self};
 use xmtp_proto::types::{GroupId, GroupMessage};
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
+use xmtp_proto::{ApiEndpoint, identity_v1};
 
 mod types;
 
@@ -21,7 +22,7 @@ mod types;
 pub struct V3Client<C> {
     client: C,
     stats: ApiStats,
-    identity_stats: IdentityStats
+    identity_stats: IdentityStats,
 }
 
 impl<C> V3Client<C> {
@@ -29,7 +30,7 @@ impl<C> V3Client<C> {
         Self {
             client,
             stats: Default::default(),
-            identity_stats: Default::default()
+            identity_stats: Default::default(),
         }
     }
 }
@@ -150,7 +151,7 @@ where
     async fn query_group_messages(
         &self,
         group_id: GroupId,
-        cursor: xmtp_proto::types::Cursor
+        cursor: xmtp_proto::types::Cursor,
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
         self.stats.query_group_messages.count_request();
         let endpoint = QueryGroupMessages::builder()
@@ -158,15 +159,41 @@ where
             .paging_info(PagingInfo {
                 limit: MAX_PAGE_SIZE,
                 direction: SortDirection::Ascending as i32,
-                id_cursor: cursor.sequence_id
+                id_cursor: cursor.sequence_id,
             })
             .build()?;
-        let messages = api::v3_paged(api::retry(endpoint), Some(cursor.sequence_id)).query(&self.client).await?;
+        let messages = api::v3_paged(api::retry(endpoint), Some(cursor.sequence_id))
+            .query(&self.client)
+            .await?;
         let messages = SequencedExtractor::builder()
             .envelopes(messages)
             .build::<V3GroupMessageExtractor>()
             .get()?;
         Ok(messages.into_iter().collect::<Result<_, _>>()?)
+    }
+
+    async fn query_latest_group_message(
+        &self,
+        group_id: GroupId,
+    ) -> Result<Option<xmtp_proto::types::GroupMessage>, Self::Error> {
+        self.stats.query_group_messages.count_request();
+        let endpoint = QueryGroupMessages::builder()
+            .group_id(group_id.to_vec())
+            .paging_info(PagingInfo {
+                limit: 1,
+                direction: SortDirection::Descending as i32,
+                id_cursor: 0,
+            })
+            .build()?;
+        let message: Option<ProtoGroupMessage> = api::retry(endpoint)
+            .query(&self.client)
+            .await?
+            .messages
+            .into_iter()
+            .next();
+        let mut extractor = V3GroupMessageExtractor::default();
+        message.as_ref().accept(&mut extractor)?;
+        Ok(Some(extractor.get()?))
     }
 
     async fn query_welcome_messages(
@@ -276,7 +303,9 @@ where
         &self,
         request: identity_v1::VerifySmartContractWalletSignaturesRequest,
     ) -> Result<identity_v1::VerifySmartContractWalletSignaturesResponse, Self::Error> {
-        self.identity_stats.verify_smart_contract_wallet_signature.count_request();
+        self.identity_stats
+            .verify_smart_contract_wallet_signature
+            .count_request();
         VerifySmartContractWalletSignatures::builder()
             .signatures(request.signatures)
             .build()?
@@ -314,7 +343,6 @@ where
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         self.stats.subscribe_messages.count_request();
         // Ok(try_from_stream(XmtpTonicStream::from_body(req, self.client, ApiEndpoint::SubscribeGroupMessages).await?))
-        todo!()
     }
 
     async fn subscribe_welcome_messages(

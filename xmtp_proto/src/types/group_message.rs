@@ -1,10 +1,11 @@
+use super::{Cursor, GroupId};
+use crate::ConversionError;
 use chrono::Local;
 use derive_builder::Builder;
-use crate::ConversionError;
-use super::{Cursor, GroupId};
+use openmls::prelude::ContentType;
 
 /// A GroupMessage from the network
-#[derive(Default, Clone, Builder)]
+#[derive(Clone, Builder)]
 #[builder(setter(into), build_fn(error = "ConversionError"))]
 pub struct GroupMessage {
     /// Cursor of this message
@@ -13,18 +14,20 @@ pub struct GroupMessage {
     pub created_ns: chrono::DateTime<Local>,
     /// GroupId of the message
     pub group_id: GroupId,
-    // group message payload bytes
-    pub data: Vec<u8>,
+    // MLS Group Message
+    pub message: openmls::framing::ProtocolMessage,
     /// Sender HMAC key
     pub sender_hmac: Vec<u8>,
     /// Whether this message should result in a push notification
     pub should_push: bool,
-    /// Whether this message represents an MLS Commit
-    pub is_commit: bool
 }
 
 impl GroupMessage {
     pub fn builder() -> GroupMessageBuilder {
         GroupMessageBuilder::default()
+    }
+
+    pub fn is_commit(&self) -> bool {
+        self.message.content_type() == ContentType::Commit
     }
 }

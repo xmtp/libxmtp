@@ -5,6 +5,7 @@ use crate::d14n::QueryEnvelope;
 use crate::protocol::CollectionExtractor;
 use crate::protocol::GroupMessageExtractor;
 use crate::protocol::KeyPackagesExtractor;
+use crate::protocol::ProtocolEnvelope;
 use crate::protocol::SequencedExtractor;
 use crate::protocol::TopicKind;
 use crate::protocol::WelcomeMessageExtractor;
@@ -124,6 +125,22 @@ where
             .build::<GroupMessageExtractor>()
             .get()?;
         Ok(messages.into_iter().collect::<Result<_, _>>()?)
+    }
+
+    #[tracing::instrument(level = "trace", skip_all)]
+    async fn query_latest_group_message(
+        &self,
+        group_id: GroupId,
+    ) -> Result<Option<xmtp_proto::types::GroupMessage>, Self::Error> {
+        let response: GetNewestEnvelopeResponse = GetNewestEnvelopes::builder()
+            .topic(TopicKind::GroupMessagesV1.build(group_id))
+            .build()?
+            .query(&self.message_client)
+            .await?;
+        // expect at most a single message
+        let mut extractor = GroupMessageExtractor::default();
+        response.results.into_iter().next().as_ref().accept(&mut extractor)?;
+        Ok(Some(extractor.get()?))
     }
 
     #[tracing::instrument(level = "trace", skip_all)]

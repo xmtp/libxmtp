@@ -1,3 +1,4 @@
+            
 //! Implementions of traits
 use super::traits::{EnvelopeError, EnvelopeVisitor, ProtocolEnvelope};
 use prost::Message;

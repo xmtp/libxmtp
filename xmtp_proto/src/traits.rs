@@ -1,6 +1,6 @@
 //! Api Client Traits
 
-use crate::api_client::AggregateStats;
+use crate::{api_client::AggregateStats, mls_v1::SortDirection};
 use http::{request, uri::PathAndQuery};
 use prost::bytes::Bytes;
 use std::borrow::Cow;
@@ -9,9 +9,9 @@ use xmtp_common::{retry_async, BoxedRetry, RetryableError};
 #[cfg(any(test, feature = "test-utils"))]
 pub mod mock;
 
-mod query;
 pub mod combinators;
 mod error;
+mod query;
 pub use error::*;
 
 pub trait HasStats {
@@ -66,7 +66,7 @@ pub trait Client {
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait Query<T, C, Spec = ()>
+pub trait Query<T, C, Specialized = ()>
 where
     C: Client + Send + Sync,
     T: Send,
