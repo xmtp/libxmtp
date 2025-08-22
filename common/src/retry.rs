@@ -65,6 +65,12 @@ impl<E: RetryableError> RetryableError for Box<E> {
     }
 }
 
+impl RetryableError for core::convert::Infallible {
+    fn is_retryable(&self) -> bool {
+        unreachable!()
+    }
+}
+
 /// Options to specify how to retry a function
 #[derive(Debug, Clone)]
 pub struct Retry<S = ExponentialBackoff> {
