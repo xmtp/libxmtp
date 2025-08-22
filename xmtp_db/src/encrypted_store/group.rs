@@ -24,6 +24,7 @@ mod version;
 
 pub use dms::QueryDms;
 pub use version::QueryGroupVersion;
+use xmtp_common::time::now_ns;
 
 pub type ID = Vec<u8>;
 
@@ -122,17 +123,18 @@ impl StoredGroup {
         StoredGroupBuilder::default()
     }
 
-    pub fn create_sync_group(
+    // A group for exchanging system-level signaling messages that is not shown in UI
+    pub fn create_virtual_group(
         conn: &impl crate::DbQuery,
         id: ID,
-        created_at_ns: i64,
-        membership_state: GroupMembershipState,
+        conversation_type: ConversationType,
     ) -> Result<Self, StorageError> {
+        assert!(conversation_type.is_virtual());
         let stored_group = StoredGroup::builder()
             .id(id)
-            .conversation_type(ConversationType::Sync)
-            .created_at_ns(created_at_ns)
-            .membership_state(membership_state)
+            .conversation_type(conversation_type)
+            .created_at_ns(now_ns())
+            .membership_state(GroupMembershipState::Allowed)
             .added_by_inbox_id("")
             .build()
             .expect("No fields should be uninitialized");
@@ -1026,6 +1028,18 @@ pub enum ConversationType {
     Group = 1,
     Dm = 2,
     Sync = 3,
+    Oneshot = 4,
+}
+
+impl ConversationType {
+    pub fn is_virtual(&self) -> bool {
+        match self {
+            ConversationType::Group => false,
+            ConversationType::Dm => false,
+            ConversationType::Sync => true,
+            ConversationType::Oneshot => true,
+        }
+    }
 }
 
 impl ToSql<Integer, Sqlite> for ConversationType
@@ -1047,6 +1061,7 @@ where
             1 => Ok(ConversationType::Group),
             2 => Ok(ConversationType::Dm),
             3 => Ok(ConversationType::Sync),
+            4 => Ok(ConversationType::Oneshot),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -1059,6 +1074,7 @@ impl std::fmt::Display for ConversationType {
             Group => write!(f, "group"),
             Dm => write!(f, "dm"),
             Sync => write!(f, "sync"),
+            Oneshot => write!(f, "oneshot"),
         }
     }
 }
@@ -1353,11 +1369,8 @@ pub(crate) mod tests {
     async fn test_new_sync_group() {
         with_connection(|conn| {
             let id = rand_vec::<24>();
-            let created_at_ns = now_ns();
-            let membership_state = GroupMembershipState::Allowed;
-
             let sync_group =
-                StoredGroup::create_sync_group(conn, id, created_at_ns, membership_state).unwrap();
+                StoredGroup::create_virtual_group(conn, id, ConversationType::Sync).unwrap();
 
             let conversation_type = sync_group.conversation_type;
             assert_eq!(conversation_type, ConversationType::Sync);

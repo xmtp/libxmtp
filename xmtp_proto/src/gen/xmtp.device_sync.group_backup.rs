@@ -48,10 +48,8 @@ impl ::prost::Name for GroupSave {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MutableMetadataSave {
     #[prost(map = "string, string", tag = "1")]
-    pub attributes: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
+    pub attributes:
+        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(string, repeated, tag = "2")]
     pub admin_list: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, repeated, tag = "3")]

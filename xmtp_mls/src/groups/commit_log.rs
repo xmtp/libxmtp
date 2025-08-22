@@ -1,5 +1,6 @@
 use crate::groups::commit_log_key::CommitLogKeyCrypto;
 use crate::groups::commit_log_key::derive_consensus_public_key;
+use crate::groups::{GroupMetadataOptions, MlsGroup};
 use futures::StreamExt;
 use openmls::prelude::OpenMlsCrypto;
 use openmls::prelude::SignatureScheme;
@@ -19,6 +20,7 @@ use xmtp_db::{
 };
 use xmtp_proto::mls_v1::PublishCommitLogRequest;
 use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
+use xmtp_proto::xmtp::mls::message_contents::ConversationType;
 use xmtp_proto::xmtp::mls::message_contents::{CommitLogEntry, CommitResult as ProtoCommitResult};
 use xmtp_proto::{
     mls_v1::{PagingInfo, QueryCommitLogRequest, QueryCommitLogResponse},
@@ -455,7 +457,7 @@ where
     }
 
     // Should skip if:
-    // 1. The entry signature is invalid - TODO(cam)
+    // 1. The entry signature is invalid
     // 2. The group_id of the entry does not match the requested group_id.
     // 3. The commit_sequence_id of the entry is <= 0.
     // 4. The commit_sequence_id of the entry is not greater than the most recently stored entry, if one exists.
@@ -518,6 +520,12 @@ where
 
         for conversation_id in conversation_ids_for_forked_state_check {
             let is_forked = self.check_conversation_fork_state(conn, &conversation_id)?;
+
+            // If a fork is detected, create a fork resolution group
+            if let Some(true) = is_forked {
+                self.request_readd(&conversation_id).await?;
+            }
+
             // Persist the fork status to the database
             conn.set_group_commit_log_forked_status(&conversation_id, is_forked)?;
         }
@@ -639,6 +647,58 @@ where
         remote_logs
             .iter()
             .find(|remote_log| remote_log.commit_sequence_id == commit_sequence_id)
+    }
+
+    // Creates a fork resolution group containing all super admins from the forked group
+    async fn request_readd(&self, forked_group_id: &[u8]) -> Result<(), CommitLogError> {
+        // Get the super admin list from the forked group
+        let (forked_group, _) = MlsGroup::new_cached(self.context.clone(), forked_group_id)?;
+        let super_admins = match forked_group.super_admin_list() {
+            Ok(admins) => admins,
+            Err(e) => {
+                tracing::error!("Failed to get super admins for forked group: {:?}", e);
+                return Ok(());
+            }
+        };
+
+        tracing::info!(
+            "Requesting readd for forked group {} with super admins: {:?}",
+            hex::encode(forked_group_id),
+            super_admins
+        );
+
+        // let oneshot_group = MlsGroup::create_oneshot_group(self.context, message);
+
+        // // Add all super admins to the fork resolution group
+        // for super_admin in super_admins {
+        //     if super_admin == self.context.inbox_id() {
+        //         continue; // Skip self as we're already in the group
+        //     }
+
+        //     match fork_resolution_group
+        //         .add_members_by_inbox_id(&[&super_admin])
+        //         .await
+        //     {
+        //         Ok(_) => {
+        //             tracing::info!("Added super admin {} to fork resolution group", super_admin);
+        //         }
+        //         Err(e) => {
+        //             tracing::warn!(
+        //                 "Failed to add super admin {} to fork resolution group: {:?}",
+        //                 super_admin,
+        //                 e
+        //             );
+        //         }
+        //     }
+        // }
+
+        // tracing::info!(
+        //     "Successfully created fork resolution group {} for forked group {}",
+        //     hex::encode(&fork_resolution_group.group_id),
+        //     hex::encode(forked_group_id)
+        // );
+
+        Ok(())
     }
 
     /// Test-only version that runs without infinite loop

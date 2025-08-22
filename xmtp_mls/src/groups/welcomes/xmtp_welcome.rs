@@ -388,6 +388,9 @@ where
                     .membership_state(GroupMembershipState::Allowed)
                     .build()?
             }
+            ConversationType::Oneshot => {
+                todo!()
+            }
         };
 
         tracing::warn!("storing group with welcome id {}", welcome.id);
