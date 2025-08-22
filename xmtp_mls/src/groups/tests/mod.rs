@@ -1245,7 +1245,7 @@ async fn test_self_removal() {
     assert!(amal_second_installation_pending_remove_list.contains(&amal.inbox_id().to_string()));
     // The pending-remove list should only contain one item
     assert_eq!(amal_second_installation_pending_remove_list.len(), 1);
-    let amal_second_installation_group_state_in_db = amal_second_client
+    let _amal_second_installation_group_state_in_db = amal_second_client
         .db()
         .find_group(&amal_second_client_group.group_id)
         .unwrap();
@@ -1975,8 +1975,8 @@ async fn test_group_pending_remove_list_update() {
         .await
         .expect_err("expected err");
 
-    // Verify that Amal can't add others inboxIds to the pending remove list, even they're admin
-    let x = amal_group
+    // Verify that Amal can't add others inboxIds to the pending remove list; even they're admin
+    amal_group
         .update_pending_remove_list(
             UpdatePendingRemoveListType::Add,
             bola.inbox_id().to_string(),
