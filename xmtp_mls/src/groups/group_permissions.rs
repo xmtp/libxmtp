@@ -992,21 +992,16 @@ impl PolicySet {
             .metadata_validation_info
             .pending_remove_added
             .is_empty()
-            || commit.metadata_validation_info.pending_remove_added.len() == 1
+            || (commit.metadata_validation_info.pending_remove_added.len() == 1
                 && commit.metadata_validation_info.pending_remove_added[0].inbox_id
-                    == commit.actor.inbox_id;
+                    == commit.actor.inbox_id);
 
         // Verify that remove inboxIds to pending remove policy was not violated
         let removed_pending_remove = commit
             .metadata_validation_info
             .pending_remove_removed
             .is_empty()
-            || (commit.metadata_validation_info.pending_remove_removed.len() == 1
-                && commit.metadata_validation_info.pending_remove_removed[0].inbox_id
-                    == commit.actor.inbox_id)
-            || (commit.metadata_validation_info.pending_remove_removed.len() > 1
-                && (commit.actor.is_admin || commit.actor.is_super_admin));
-        //todo: if actor is admin: verify that the removed inboxIds are not longer members of the group
+            || self.validate_pending_remove_removal(&commit);
 
         // Verify that super admin add policy was not violated
         let super_admin_add_valid = commit
@@ -1037,6 +1032,25 @@ impl PolicySet {
             && permissions_changes_valid
             && added_pending_remove
             && removed_pending_remove
+    }
+
+    fn validate_pending_remove_removal(&self, commit: &ValidatedCommit) -> bool {
+        let removed = &commit.metadata_validation_info.pending_remove_removed;
+        // Single removal: only by the actor themselves
+        if removed.len() == 1 {
+            return removed[0].inbox_id == commit.actor.inbox_id;
+        }
+
+        // Multiple removals: only by admin/super admin
+        if removed.len() >= 1 && (commit.actor.is_admin || commit.actor.is_super_admin) {
+            // If actor is admin, verify removed inboxes are not current group members
+            return !&commit.actor.is_admin
+                || removed
+                    .iter()
+                    .all(|inbox| !&commit.group_members.contains(&inbox.inbox_id));
+        }
+
+        false
     }
 
     /// Evaluates a policy for a given set of changes.
@@ -1425,6 +1439,7 @@ pub(crate) mod tests {
         actor_is_admin: bool,
         actor_is_super_admin: bool,
         dm_target_inbox_id: Option<String>,
+        group_members: Option<Vec<String>>,
     ) -> ValidatedCommit {
         let actor = build_actor(None, None, actor_is_admin, actor_is_super_admin);
         let dm_target_inbox_id_clone = dm_target_inbox_id.clone();
@@ -1476,6 +1491,7 @@ pub(crate) mod tests {
             installations_changed: false,
             permissions_changed,
             dm_members,
+            group_members: group_members.unwrap_or_default(),
         }
     }
 
@@ -1499,6 +1515,7 @@ pub(crate) mod tests {
             false,
             false,
             false,
+            None,
             None,
         );
         assert!(permissions.evaluate_commit(&commit));
@@ -1524,6 +1541,7 @@ pub(crate) mod tests {
             false,
             false,
             None,
+            None,
         );
         assert!(!permissions.evaluate_commit(&member_added_commit));
 
@@ -1534,6 +1552,7 @@ pub(crate) mod tests {
             false,
             false,
             false,
+            None,
             None,
         );
         assert!(!permissions.evaluate_commit(&member_removed_commit));
@@ -1560,6 +1579,7 @@ pub(crate) mod tests {
             false,
             true,
             None,
+            None,
         );
         assert!(!permissions.evaluate_commit(&commit_with_creator));
 
@@ -1571,6 +1591,7 @@ pub(crate) mod tests {
             false,
             true,
             None,
+            None,
         );
         assert!(permissions.evaluate_commit(&commit_with_creator));
 
@@ -1581,6 +1602,7 @@ pub(crate) mod tests {
             false,
             false,
             false,
+            None,
             None,
         );
         assert!(!permissions.evaluate_commit(&commit_without_creator));
@@ -1609,6 +1631,7 @@ pub(crate) mod tests {
             false,
             false,
             None,
+            None,
         );
         assert!(!permissions.evaluate_commit(&member_added_commit));
     }
@@ -1635,6 +1658,7 @@ pub(crate) mod tests {
             false,
             false,
             false,
+            None,
             None,
         );
         assert!(permissions.evaluate_commit(&member_added_commit));
@@ -1688,6 +1712,7 @@ pub(crate) mod tests {
             false,
             false,
             false,
+            None,
             None,
         );
 
@@ -1773,11 +1798,11 @@ pub(crate) mod tests {
         );
 
         // Commit should fail because actor is not superadmin
-        let commit = build_validated_commit(None, None, None, true, false, false, None);
+        let commit = build_validated_commit(None, None, None, true, false, false, None, None);
         assert!(!permissions.evaluate_commit(&commit));
 
         // Commit should pass because actor is superadmin
-        let commit = build_validated_commit(None, None, None, true, false, true, None);
+        let commit = build_validated_commit(None, None, None, true, false, true, None, None);
         assert!(permissions.evaluate_commit(&commit));
     }
 
@@ -1803,6 +1828,7 @@ pub(crate) mod tests {
             false,
             false,
             None,
+            None,
         );
         assert!(permissions.evaluate_commit(&name_updated_commit));
 
@@ -1815,6 +1841,7 @@ pub(crate) mod tests {
             false,
             false,
             None,
+            None,
         );
         assert!(!permissions.evaluate_commit(&non_existing_field_updated_commit));
 
@@ -1826,6 +1853,7 @@ pub(crate) mod tests {
             false,
             true,
             false,
+            None,
             None,
         );
         assert!(permissions.evaluate_commit(&non_existing_field_updated_commit));
@@ -1841,6 +1869,7 @@ pub(crate) mod tests {
             true,
             false,
             None,
+            None,
         );
         assert!(!permissions.evaluate_commit(&non_existing_field_updated_commit));
 
@@ -1854,6 +1883,7 @@ pub(crate) mod tests {
             false,
             false,
             true,
+            None,
             None,
         );
         assert!(permissions.evaluate_commit(&non_existing_field_updated_commit));
@@ -1876,6 +1906,7 @@ pub(crate) mod tests {
             false,
             false,
             Some(TARGET_INBOX_ID.to_string()),
+            None,
         );
         assert!(!permissions.evaluate_commit(&commit));
 
@@ -1888,6 +1919,7 @@ pub(crate) mod tests {
             false,
             false,
             Some(TARGET_INBOX_ID.to_string()),
+            None,
         );
         assert!(!permissions.evaluate_commit(&commit));
 
@@ -1900,6 +1932,7 @@ pub(crate) mod tests {
             false,
             false,
             Some(TARGET_INBOX_ID.to_string()),
+            None,
         );
         assert!(permissions.evaluate_commit(&commit));
 
@@ -1912,6 +1945,7 @@ pub(crate) mod tests {
             false,
             false,
             Some(TARGET_INBOX_ID.to_string()),
+            None,
         );
         assert!(!permissions.evaluate_commit(&commit));
         let commit = build_validated_commit(
@@ -1922,6 +1956,7 @@ pub(crate) mod tests {
             false,
             false,
             Some(TARGET_INBOX_ID.to_string()),
+            None,
         );
         assert!(!permissions.evaluate_commit(&commit));
         let commit = build_validated_commit(
@@ -1932,6 +1967,7 @@ pub(crate) mod tests {
             false,
             false,
             Some(TARGET_INBOX_ID.to_string()),
+            None,
         );
         assert!(!permissions.evaluate_commit(&commit));
 
@@ -1944,6 +1980,7 @@ pub(crate) mod tests {
             false,
             false,
             Some(TARGET_INBOX_ID.to_string()),
+            None,
         );
         assert!(permissions.evaluate_commit(&commit));
     }

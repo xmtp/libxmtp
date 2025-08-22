@@ -302,6 +302,7 @@ pub struct ValidatedCommit {
     pub installations_changed: bool,
     pub permissions_changed: bool,
     pub dm_members: Option<DmMembers<String>>,
+    pub group_members: Vec<String>,
 }
 
 impl ValidatedCommit {
@@ -435,6 +436,16 @@ impl ValidatedCommit {
                 ));
             }
         }
+        let group_members: Vec<String> = openmls_group
+            .members()
+            .filter_map(|member| {
+                if let Ok(inbox_id) = inbox_id_from_credential(&member.credential) {
+                    Some(inbox_id)
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let verified_commit = Self {
             actor,
@@ -444,6 +455,7 @@ impl ValidatedCommit {
             installations_changed,
             permissions_changed,
             dm_members: immutable_metadata.dm_members,
+            group_members,
         };
 
         let policy_set = extract_group_permissions(openmls_group)?;
