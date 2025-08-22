@@ -39,28 +39,6 @@ impl<S, T> XmtpStream<S, T> {
     }
 }
 
-/// create a stream from the body of a request
-/// makes the request and starts the stream
-/// used for v3 to create a stream with the generic grpc client
-///TODO:v3: can be removed when v3 is removed
-pub async fn stream_from_body<B: prost::Name, C: Client, T>(
-    body: B,
-    client: C,
-    endpoint: ApiEndpoint,
-) -> Result<XmtpStream<<C as Client>::Stream, T>, <C as Client>::Error>
-where
-    C::Error: From<http::uri::InvalidUri>,
-    C::Error: From<ApiClientError<<C as Client>::Error>>,
-{
-    let pnq = crate::path_and_query::<B>();
-    let request = http::Request::builder();
-    let path = http::uri::PathAndQuery::try_from(pnq.as_ref())?;
-    let s = client
-        .stream(request, path, body.encode_to_vec().into())
-        .await?;
-    Ok(XmtpStream::new(s.into_body(), endpoint))
-}
-
 impl<S, T> Stream for XmtpStream<S, T>
 where
     S: TryStream<Ok = Bytes>,

@@ -67,7 +67,6 @@ pub trait Paged {
     type Message;
     fn info(&self) -> &Option<PagingInfo>;
     fn messages(self) -> Vec<Self::Message>;
-    fn set_cursor(&mut self, cursor: u64);
 }
 
 // Wasm futures don't have `Send` or `Sync` bounds.

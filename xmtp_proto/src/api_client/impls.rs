@@ -11,10 +11,6 @@ impl Paged for QueryGroupMessagesResponse {
     fn messages(self) -> Vec<Self::Message> {
         self.messages
     }
-
-    fn set_cursor(&mut self, cursor: u64) {
-        self.paging_info.map(|mut p| p.id_cursor = cursor);
-    }
 }
 
 impl Paged for QueryWelcomeMessagesResponse {
@@ -25,10 +21,6 @@ impl Paged for QueryWelcomeMessagesResponse {
 
     fn messages(self) -> Vec<Self::Message> {
         self.messages
-    }
-
-    fn set_cursor(&mut self, cursor: u64) {
-        self.paging_info.map(|mut p| p.id_cursor = cursor);
     }
 }
 
