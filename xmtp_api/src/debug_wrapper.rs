@@ -1,12 +1,15 @@
 use std::future::Future;
 use xmtp_common::RetryableError;
+use xmtp_proto::api::HasStats;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
 };
-use xmtp_proto::traits::HasStats;
+use xmtp_proto::types::Cursor;
+use xmtp_proto::types::GroupId;
+use xmtp_proto::types::GroupMessage;
 use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request;
 use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response;
 use xmtp_proto::xmtp::identity::api::v1::GetInboxIdsRequest;
@@ -27,8 +30,8 @@ use xmtp_proto::xmtp::mls::api::v1::SubscribeGroupMessagesRequest;
 use xmtp_proto::xmtp::mls::api::v1::SubscribeWelcomeMessagesRequest;
 use xmtp_proto::xmtp::mls::api::v1::UploadKeyPackageRequest;
 use xmtp_proto::{
+    api::ApiClientError,
     prelude::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
-    traits::ApiClientError,
 };
 
 #[derive(Clone)]
@@ -137,10 +140,11 @@ where
 
     async fn query_group_messages(
         &self,
-        request: QueryGroupMessagesRequest,
-    ) -> Result<QueryGroupMessagesResponse, Self::Error> {
+        group_id: GroupId,
+        cursor: Cursor,
+    ) -> Result<Vec<GroupMessage>, Self::Error> {
         wrap_err(
-            || self.inner.query_group_messages(request),
+            || self.inner.query_group_messages(group_id, cursor),
             || self.inner.aggregate_stats(),
         )
         .await

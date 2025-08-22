@@ -125,6 +125,7 @@ diesel::table! {
         sequence_id -> BigInt,
         server_timestamp_ns -> BigInt,
         payload -> Binary,
+        originator_id -> Integer,
     }
 }
 
@@ -180,6 +181,7 @@ diesel::table! {
         entity_id -> Binary,
         entity_kind -> Integer,
         cursor -> BigInt,
+        originator_id -> Integer,
     }
 }
 

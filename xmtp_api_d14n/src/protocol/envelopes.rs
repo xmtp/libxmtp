@@ -1,7 +1,8 @@
+            
 //! Implementions of traits
 use super::traits::{EnvelopeError, EnvelopeVisitor, ProtocolEnvelope};
 use prost::Message;
-use xmtp_proto::mls_v1::{SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest};
+use xmtp_proto::mls_v1::{welcome_message, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest};
 use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
 use xmtp_proto::{
     ConversionError,
@@ -9,6 +10,8 @@ use xmtp_proto::{
     xmtp::mls::api::v1::UploadKeyPackageRequest,
     xmtp::mls::api::v1::{
         GroupMessageInput, WelcomeMessageInput,
+        GroupMessage as V3ProtoGroupMessage, WelcomeMessage as V3ProtoWelcomeMessage,
+        group_message,
         group_message_input::Version as GroupMessageVersion,
         welcome_message_input::Version as WelcomeMessageVersion,
     },
@@ -320,6 +323,68 @@ impl<'env> ProtocolEnvelope<'env> for SubscribeWelcomeMessagesRequest {
 
     fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
         Ok(())
+    }
+}
+
+impl<'env> ProtocolEnvelope<'env> for V3ProtoGroupMessage {
+    type Nested<'a> = Option<&'a group_message::Version>;
+
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    where
+        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error> {
+        self.get_nested()?.accept(visitor)
+    }
+
+    fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
+        Ok(self.version.as_ref())
+    }
+}
+
+impl<'env> ProtocolEnvelope<'env> for group_message::Version {
+    type Nested<'a> = ();
+
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    where
+        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error> {
+        match self {
+            group_message::Version::V1(v1) => visitor.visit_v3_group_message(&v1)?,
+        }
+        Ok(())
+    }
+
+    fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
+        Ok(())
+    }
+}
+
+impl<'env> ProtocolEnvelope<'env> for V3ProtoWelcomeMessage {
+    type Nested<'a> = Option<&'a welcome_message::Version>;
+
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    where
+        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error> {
+        self.get_nested()?.accept(visitor)
+    }
+
+    fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
+        Ok(self.version.as_ref())
+    }
+}
+
+impl<'env> ProtocolEnvelope<'env> for welcome_message::Version {
+    type Nested<'a> = ();
+
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    where
+        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error> {
+        match self {
+            welcome_message::Version::V1(v1) => visitor.visit_v3_welcome_message(&v1)?
+        }
+        Ok(())
+    }
+
+    fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
+        todo!()
     }
 }
 

@@ -131,9 +131,7 @@ impl From<ProtoCommitResult> for CommitResult {
         }
     }
 }
-
-// the max page size for queries
-pub const MAX_PAGE_SIZE: u32 = 100;
+use xmtp_configuration::MAX_PAGE_SIZE;
 
 pub enum RemoteCommitLogOrder {
     AscendingByRowid,

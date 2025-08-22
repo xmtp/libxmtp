@@ -3,21 +3,21 @@ use std::collections::HashMap;
 use super::ApiClientWrapper;
 use crate::{Result, XmtpApi};
 use xmtp_common::retry_async;
+use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, PublishCommitLogRequest,
     QueryCommitLogRequest, QueryCommitLogResponse,
 };
+use xmtp_proto::types::{Cursor, GroupId, GroupMessage};
 use xmtp_proto::xmtp::mls::api::v1::{
     subscribe_group_messages_request::Filter as GroupFilterProto,
     subscribe_welcome_messages_request::Filter as WelcomeFilterProto, FetchKeyPackagesRequest,
-    GroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo, QueryGroupMessagesRequest,
-    QueryWelcomeMessagesRequest, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
-    SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-    UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
+    GroupMessage as ProtoGroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo,
+    QueryGroupMessagesRequest, QueryWelcomeMessagesRequest, SendGroupMessagesRequest,
+    SendWelcomeMessagesRequest, SortDirection, SubscribeGroupMessagesRequest,
+    SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
-// the max page size for queries
-const MAX_PAGE_SIZE: u32 = 100;
 
 /// A filter for querying group messages
 #[derive(Clone)]
@@ -82,49 +82,10 @@ where
     #[tracing::instrument(level = "trace", skip_all, fields(group_id = hex::encode(&group_id)))]
     pub async fn query_group_messages(
         &self,
-        group_id: Vec<u8>,
-        id_cursor: Option<u64>,
+        group_id: GroupId,
+        cursor: Cursor,
     ) -> Result<Vec<GroupMessage>> {
-        tracing::debug!(
-            group_id = hex::encode(&group_id),
-            id_cursor,
-            inbox_id = self.inbox_id,
-            "query group messages"
-        );
-        let mut out: Vec<GroupMessage> = vec![];
-        let mut id_cursor = id_cursor;
-        loop {
-            let mut result = retry_async!(
-                self.retry_strategy,
-                (async {
-                    self.api_client
-                        .query_group_messages(QueryGroupMessagesRequest {
-                            group_id: group_id.clone(),
-                            paging_info: Some(PagingInfo {
-                                id_cursor: id_cursor.unwrap_or(0),
-                                limit: MAX_PAGE_SIZE,
-                                direction: SortDirection::Ascending as i32,
-                            }),
-                        })
-                        .await
-                })
-            )
-            .map_err(crate::dyn_err)?;
-            let num_messages = result.messages.len();
-            out.append(&mut result.messages);
-
-            if num_messages < MAX_PAGE_SIZE as usize || result.paging_info.is_none() {
-                break;
-            }
-
-            let paging_info = result.paging_info.expect("Empty paging info");
-            if paging_info.id_cursor == 0 {
-                break;
-            }
-
-            id_cursor = Some(paging_info.id_cursor);
-        }
-        Ok(out)
+        self.api_client.query_group_messages(group_id, cursor).await
     }
 
     /// Query for the latest message on a group

@@ -12,7 +12,7 @@ pub use tests::*;
 pub mod tests {
     use xmtp_proto::{
         prelude::{ApiBuilder, XmtpTestClient},
-        traits::Client,
+        api::Client,
     };
 
     use crate::{D14nClient, D14nClientBuilder, V3Client, V3ClientBuilder};

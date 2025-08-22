@@ -1,5 +1,13 @@
-pub mod client;
-pub use client::*;
+mod client;
+pub use client::{ClientBuilder, GrpcStream};
+
+#[cfg(any(test, feature = "test-utils"))]
+mod test;
+#[cfg(any(test, feature = "test-utils"))]
+pub use test::*;
+
+pub type GrpcClient = client::GrpcClient<GrpcService>;
+
 
 xmtp_common::if_wasm! {
     mod wasm;
