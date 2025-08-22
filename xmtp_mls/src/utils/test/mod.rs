@@ -36,7 +36,7 @@ pub type ClientTester = Tester<PrivateKeySigner, FullXmtpClient>;
 pub type TestMlsGroup = crate::groups::MlsGroup<TestXmtpMlsContext>;
 
 xmtp_common::if_v3! {
-    pub type TestClient = xmtp_api_grpc::v3::Client;
+    pub type TestClient = xmtp_api_d14n::TestV3Client;
 }
 
 xmtp_common::if_d14n! {

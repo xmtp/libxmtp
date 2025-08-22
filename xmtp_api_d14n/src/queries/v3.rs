@@ -3,20 +3,18 @@ use crate::protocol::{SequencedExtractor, V3GroupMessageExtractor, traits::Extra
 use crate::v3::*;
 use futures::stream;
 use xmtp_api_grpc::error::GrpcError;
-use xmtp_api_grpc::streams::{try_from_stream, TryFromItem, XmtpStream, XmtpTonicStream};
+use xmtp_api_grpc::streams::{TryFromItem, try_from_stream};
 use xmtp_common::RetryableError;
 use xmtp_configuration::MAX_PAGE_SIZE;
-use xmtp_proto::api::{self, ApiClientError, Client, Query};
+use xmtp_proto::api::{self, ApiClientError, Client, Query, QueryStream, XmtpStream};
 use xmtp_proto::api_client::{
     ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
 };
+use xmtp_proto::identity_v1;
 use xmtp_proto::mls_v1::{self, GroupMessage as ProtoGroupMessage, PagingInfo, SortDirection};
 use xmtp_proto::prelude::ApiBuilder;
 use xmtp_proto::types::{GroupId, GroupMessage};
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
-use xmtp_proto::{ApiEndpoint, identity_v1};
-
-mod types;
 
 #[derive(Clone)]
 pub struct V3Client<C> {
@@ -318,17 +316,17 @@ where
     }
 }
 
-// #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-// #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C> XmtpMlsStreams for V3Client<C>
 where
-    C: Send + Sync + Client,
+    C: Send + Sync + Client<Error = GrpcError>,
+    C::Stream: Send,
 {
     type Error = ApiClientError<GrpcError>;
 
-    type GroupMessageStream = TryFromItem<XmtpStream<types::V3ProtoGroupMessage>, GroupMessage>;
+    type GroupMessageStream =
+        TryFromItem<XmtpStream<<C as Client>::Stream, V3ProtoGroupMessage>, GroupMessage>;
     #[cfg(not(target_arch = "wasm32"))]
     type WelcomeMessageStream =
         stream::BoxStream<'static, Result<mls_v1::WelcomeMessage, Self::Error>>;
@@ -342,7 +340,13 @@ where
         req: mls_v1::SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         self.stats.subscribe_messages.count_request();
-        // Ok(try_from_stream(XmtpTonicStream::from_body(req, self.client, ApiEndpoint::SubscribeGroupMessages).await?))
+        Ok(try_from_stream(
+            SubscribeGroupMessages::builder()
+                .filters(req.filters)
+                .build()?
+                .stream(&self.client)
+                .await?,
+        ))
     }
 
     async fn subscribe_welcome_messages(

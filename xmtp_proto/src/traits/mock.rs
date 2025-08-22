@@ -29,6 +29,10 @@ impl ApiBuilder for MockApiBuilder {
     fn host(&self) -> Option<&str> {
         None
     }
+
+    fn set_retry(&mut self, _retry: xmtp_common::Retry) {
+        ()
+    }
 }
 
 impl crate::TestApiBuilder for MockApiBuilder {
@@ -40,7 +44,7 @@ impl crate::TestApiBuilder for MockApiBuilder {
 #[derive(thiserror::Error, Debug)]
 pub enum MockError {}
 
-impl RetryableError for MockError {
+impl xmtp_common::RetryableError for MockError {
     fn is_retryable(&self) -> bool {
         false
     }

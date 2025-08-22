@@ -87,56 +87,253 @@ pub async fn create_tls_channel(address: String, limit: u64) -> Result<Channel, 
 
     Ok(channel)
 }
+
 #[cfg(test)]
-pub mod tests {
-    use crate::v3::Client;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    use xmtp_configuration::GrpcUrls;
-    use xmtp_proto::api_client::ApiBuilder;
-    use xmtp_proto::xmtp::message_api::v1::{Envelope, PublishRequest};
+mod tests {
+    use std::pin::Pin;
 
-    // Return the json serialization of an Envelope with bytes
-    pub fn test_envelope(topic: String) -> Envelope {
-        let time_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    use super::*;
+    use futures::Stream;
+    use http::Uri;
+    use tokio_stream::StreamExt as _;
+    use tonic::transport::Server;
+    use tower::service_fn;
+    use xmtp_proto::{
+        api::Client,
+        mls_v1::{
+            mls_api_server::{MlsApi, MlsApiServer},
+            welcome_message, BatchPublishCommitLogRequest, BatchQueryCommitLogRequest,
+            BatchQueryCommitLogResponse, FetchKeyPackagesRequest, FetchKeyPackagesResponse,
+            GetIdentityUpdatesRequest, GetIdentityUpdatesResponse, GroupMessage,
+            QueryGroupMessagesRequest, QueryGroupMessagesResponse, QueryWelcomeMessagesRequest,
+            QueryWelcomeMessagesResponse, RegisterInstallationRequest,
+            RegisterInstallationResponse, RevokeInstallationRequest, SendGroupMessagesRequest,
+            SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+            SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage,
+        },
+    };
 
-        Envelope {
-            timestamp_ns: time_since_epoch.as_nanos() as u64,
-            content_topic: topic,
-            message: vec![65],
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct OldWelcomeMessage {
+        #[prost(oneof = "OldVersion", tags = "1")]
+        pub version: Option<OldVersion>,
+    }
+
+    #[derive(Clone, PartialEq, Eq, Hash, prost::Oneof)]
+    pub enum OldVersion {
+        #[prost(message, tag = "1")]
+        V1(OldV1),
+    }
+
+    #[derive(Clone, PartialEq, Eq, Hash, prost::Message)]
+    pub struct OldV1 {
+        #[prost(uint64, tag = "1")]
+        pub id: u64,
+        #[prost(uint64, tag = "2")]
+        pub created_ns: u64,
+        #[prost(bytes = "vec", tag = "3")]
+        pub installation_key: ::prost::alloc::vec::Vec<u8>,
+        #[prost(bytes = "vec", tag = "4")]
+        pub data: ::prost::alloc::vec::Vec<u8>,
+        #[prost(bytes = "vec", tag = "5")]
+        pub hpke_public_key: ::prost::alloc::vec::Vec<u8>,
+    }
+
+    type ResponseStream<T> = Pin<Box<dyn Stream<Item = Result<T, tonic::Status>> + Send>>;
+    struct MockMlsApi;
+    #[async_trait::async_trait]
+    impl MlsApi for MockMlsApi {
+        async fn send_group_messages(
+            &self,
+            _request: tonic::Request<SendGroupMessagesRequest>,
+        ) -> std::result::Result<tonic::Response<pbjson_types::Empty>, tonic::Status> {
+            unimplemented!();
+        }
+
+        async fn send_welcome_messages(
+            &self,
+            _request: tonic::Request<SendWelcomeMessagesRequest>,
+        ) -> std::result::Result<tonic::Response<pbjson_types::Empty>, tonic::Status> {
+            unimplemented!()
+        }
+
+        async fn register_installation(
+            &self,
+            _request: tonic::Request<RegisterInstallationRequest>,
+        ) -> std::result::Result<tonic::Response<RegisterInstallationResponse>, tonic::Status>
+        {
+            unimplemented!()
+        }
+
+        async fn upload_key_package(
+            &self,
+            _request: tonic::Request<UploadKeyPackageRequest>,
+        ) -> std::result::Result<tonic::Response<pbjson_types::Empty>, tonic::Status> {
+            unimplemented!()
+        }
+
+        async fn fetch_key_packages(
+            &self,
+            _request: tonic::Request<FetchKeyPackagesRequest>,
+        ) -> std::result::Result<tonic::Response<FetchKeyPackagesResponse>, tonic::Status> {
+            unimplemented!()
+        }
+
+        async fn revoke_installation(
+            &self,
+            _request: tonic::Request<RevokeInstallationRequest>,
+        ) -> std::result::Result<tonic::Response<pbjson_types::Empty>, tonic::Status> {
+            unimplemented!()
+        }
+
+        async fn get_identity_updates(
+            &self,
+            _request: tonic::Request<GetIdentityUpdatesRequest>,
+        ) -> std::result::Result<tonic::Response<GetIdentityUpdatesResponse>, tonic::Status>
+        {
+            unimplemented!()
+        }
+
+        async fn query_group_messages(
+            &self,
+            _request: tonic::Request<QueryGroupMessagesRequest>,
+        ) -> std::result::Result<tonic::Response<QueryGroupMessagesResponse>, tonic::Status>
+        {
+            unimplemented!()
+        }
+
+        async fn query_welcome_messages(
+            &self,
+            _request: tonic::Request<QueryWelcomeMessagesRequest>,
+        ) -> std::result::Result<tonic::Response<QueryWelcomeMessagesResponse>, tonic::Status>
+        {
+            unimplemented!()
+        }
+
+        type SubscribeGroupMessagesStream = ResponseStream<GroupMessage>;
+        async fn subscribe_group_messages(
+            &self,
+            _request: tonic::Request<SubscribeGroupMessagesRequest>,
+        ) -> std::result::Result<tonic::Response<Self::SubscribeGroupMessagesStream>, tonic::Status>
+        {
+            unimplemented!()
+        }
+
+        type SubscribeWelcomeMessagesStream = ResponseStream<WelcomeMessage>;
+
+        async fn subscribe_welcome_messages(
+            &self,
+            _request: tonic::Request<SubscribeWelcomeMessagesRequest>,
+        ) -> std::result::Result<tonic::Response<Self::SubscribeWelcomeMessagesStream>, tonic::Status>
+        {
+            let repeat = std::iter::repeat(())
+                .enumerate()
+                .map(|(i, _)| generate_welcome(i as u64));
+            // creating infinite stream with requested message
+            let mut stream =
+                Box::pin(tokio_stream::iter(repeat).throttle(Duration::from_millis(200)));
+            // spawn and channel are required if you want handle "disconnect" functionality
+            // the `out_stream` will not be polled after client disconnect
+            let (tx, rx) = tokio::sync::mpsc::channel(128);
+            tokio::spawn(async move {
+                while let Some(item) = stream.next().await {
+                    match tx.send(Result::<_, tonic::Status>::Ok(item)).await {
+                        Ok(_) => {
+                            // item (server response) was queued to be send to client
+                        }
+                        Err(_item) => {
+                            // output_stream was build from rx and both are dropped
+                            break;
+                        }
+                    }
+                }
+                println!("\tclient disconnected");
+            });
+
+            let output_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+            Ok(tonic::Response::new(
+                Box::pin(output_stream) as Self::SubscribeWelcomeMessagesStream
+            ))
+        }
+
+        async fn batch_publish_commit_log(
+            &self,
+            _request: tonic::Request<BatchPublishCommitLogRequest>,
+        ) -> std::result::Result<tonic::Response<pbjson_types::Empty>, tonic::Status> {
+            unimplemented!()
+        }
+
+        async fn batch_query_commit_log(
+            &self,
+            _request: tonic::Request<BatchQueryCommitLogRequest>,
+        ) -> std::result::Result<tonic::Response<BatchQueryCommitLogResponse>, tonic::Status>
+        {
+            unimplemented!()
         }
     }
 
+    fn generate_welcome(id: u64) -> WelcomeMessage {
+        WelcomeMessage {
+            version: Some(welcome_message::Version::V1(welcome_message::V1 {
+                id,
+                created_ns: xmtp_common::rand_u64(),
+                installation_key: xmtp_common::rand_vec::<32>(),
+                data: xmtp_common::rand_vec::<256>(),
+                hpke_public_key: xmtp_common::rand_vec::<256>(),
+                wrapper_algorithm: 1,
+                welcome_metadata: xmtp_common::rand_vec::<32>(),
+            })),
+        }
+    }
+    // wasm can't spawn a mock server
+    // therefore this test is only in native
+    //
+    // todo: in the future, if there is a greater need for a mock mls api,
+    // we could move this setup to a fn
+    // reference: https://github.com/hyperium/tonic/blob/master/examples/src/mock/mock.rs
     #[tokio::test]
-    async fn metadata_test() {
-        let mut client = Client::builder();
-        client.set_host(GrpcUrls::NODE_DEV.to_string());
-        client.set_tls(true);
-        let app_version = "test/1.0.0".to_string();
-        let libxmtp_version = "0.0.1".to_string();
-        client.set_app_version(app_version.clone()).unwrap();
-        client.set_libxmtp_version(libxmtp_version.clone()).unwrap();
-        let client = client.build().await.unwrap();
-        let request = client.build_request(PublishRequest { envelopes: vec![] });
+    async fn grpc_client_is_forwards_compatible() {
+        let (client, server) = tokio::io::duplex(1024);
+        tokio::spawn(async move {
+            Server::builder()
+                .add_service(MlsApiServer::new(MockMlsApi))
+                .serve_with_incoming(tokio_stream::once(Ok::<_, std::io::Error>(server)))
+                .await
+        });
 
-        assert_eq!(
-            request
-                .metadata()
-                .get("x-app-version")
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_string(),
-            app_version
+        // Move client to an option so we can _move_ the inner value
+        // on the first attempt to connect. All other attempts will fail.
+        let mut client = Some(client);
+        let channel = Endpoint::try_from("http://[::]:50051")
+            .unwrap()
+            .connect_with_connector(service_fn(move |_: Uri| {
+                let client = client.take();
+
+                async move {
+                    if let Some(client) = client {
+                        Ok(hyper_util::rt::TokioIo::new(client))
+                    } else {
+                        Err(std::io::Error::other("Client already taken"))
+                    }
+                }
+            }))
+            .await
+            .unwrap();
+        let client = super::super::client::GrpcClient::new(
+            channel,
+            "".try_into().unwrap(),
+            "".try_into().unwrap(),
         );
-        assert_eq!(
-            request
-                .metadata()
-                .get("x-libxmtp-version")
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_string(),
-            libxmtp_version
-        );
+        let path = xmtp_proto::path_and_query::<SubscribeWelcomeMessagesRequest>();
+        let path: http::uri::PathAndQuery = path.parse().unwrap();
+        let stream = client
+            .stream(http::request::Builder::new(), path, vec![].into())
+            .await
+            .unwrap()
+            .into_body();
+        futures::pin_mut!(stream);
+        let bytes = stream.next().await.unwrap().unwrap();
+        let message: OldWelcomeMessage = prost::Message::decode(&mut bytes.to_vec().as_slice()).unwrap();
+        println!("{:?}", message);
     }
 }

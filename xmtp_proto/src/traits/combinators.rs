@@ -1,4 +1,4 @@
-use futures::{stream, Stream};
+//! Query Combinators
 use xmtp_common::{
     retry_async, ExponentialBackoff, Retry, RetryableError, Strategy as RetryStrategy,
 };
@@ -52,20 +52,6 @@ where
         }
         Ok(out)
     }
-
-    async fn stream(
-        &mut self,
-        client: &C,
-    ) -> Result<
-        impl Stream<Item = Result<Vec<<T as Paged>::Message>, ApiClientError<C::Error>>>,
-        ApiClientError<C::Error>,
-    > {
-        // TODO: it would be nice to have this actually return a stream over <T as Paged>::Message
-        // (i.e `stream::iter(self.query(client).await))`)
-        // instead of a Vec<T>. Requires some more plumbing for the Query trait to make it
-        // possible, though.
-        Ok(stream::once(self.query(client)))
-    }
 }
 
 /// Set an endpoint to be paged with v3 paging info
@@ -106,15 +92,6 @@ where
 {
     async fn query(&mut self, client: &C) -> Result<T, ApiClientError<C::Error>> {
         retry_async!(self.retry, (async { self.endpoint.query(client).await }))
-    }
-
-    async fn stream(
-        &mut self,
-        client: &C,
-    ) -> Result<impl Stream<Item = Result<T, ApiClientError<C::Error>>>, ApiClientError<C::Error>>
-    {
-        // todo: async_retry needs to be modified somehow to allow for non-send items
-        self.endpoint.stream(client).await
     }
 }
 

@@ -1,21 +1,27 @@
 //! V3-Specific Types
 
-use prost::{Message, encoding::{WireType, DecodeContext}};
-use xmtp_proto::{mls_v1::group_message, xmtp::mls::api::v1::{GroupMessage as ProtoGroupMessage, WelcomeMessage as ProtoWelcomeMessage}, ConversionError};
+use prost::{
+    Message,
+    encoding::{DecodeContext, WireType},
+};
+use xmtp_proto::{
+    xmtp::mls::api::v1::{
+        GroupMessage as ProtoGroupMessage, WelcomeMessage as ProtoWelcomeMessage,
+    },
+};
 
 use crate::protocol::{Extractor, ProtocolEnvelope, V3GroupMessageExtractor};
-
 
 /// intermediary type to indicate this group message is V3-only
 /// Conversions make assumptions about OriginatorID/sequenceID since this message is
 /// indicated to only come from V3
 #[derive(Default)]
 pub struct V3ProtoGroupMessage {
-    inner: ProtoGroupMessage
+    inner: ProtoGroupMessage,
 }
 
 impl TryFrom<V3ProtoGroupMessage> for xmtp_proto::types::GroupMessage {
-    type Error = xmtp_proto::ConversionError;
+    type Error = crate::protocol::traits::EnvelopeError;
 
     fn try_from(value: V3ProtoGroupMessage) -> Result<Self, Self::Error> {
         let mut extractor = V3GroupMessageExtractor::default();
@@ -27,7 +33,8 @@ impl TryFrom<V3ProtoGroupMessage> for xmtp_proto::types::GroupMessage {
 impl Message for V3ProtoGroupMessage {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
     where
-        Self: Sized {
+        Self: Sized,
+    {
         self.inner.encode_raw(buf)
     }
 
@@ -39,7 +46,8 @@ impl Message for V3ProtoGroupMessage {
         ctx: DecodeContext,
     ) -> Result<(), prost::DecodeError>
     where
-        Self: Sized {
+        Self: Sized,
+    {
         self.inner.merge_field(tag, wire_type, buf, ctx)
     }
 
@@ -55,13 +63,14 @@ impl Message for V3ProtoGroupMessage {
 /// intermediary type to indicate this welcome message is V3-only
 #[derive(Default)]
 pub struct V3ProtoWelcomeMessage {
-    inner: ProtoWelcomeMessage
+    inner: ProtoWelcomeMessage,
 }
 
 impl Message for V3ProtoWelcomeMessage {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
     where
-        Self: Sized {
+        Self: Sized,
+    {
         self.inner.encode_raw(buf)
     }
 
@@ -73,7 +82,8 @@ impl Message for V3ProtoWelcomeMessage {
         ctx: DecodeContext,
     ) -> Result<(), prost::DecodeError>
     where
-        Self: Sized {
+        Self: Sized,
+    {
         self.inner.merge_field(tag, wire_type, buf, ctx)
     }
 

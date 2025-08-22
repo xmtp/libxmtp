@@ -31,6 +31,7 @@ mod traits;
 
 pub mod api {
     pub use super::traits::combinators::*;
+    pub use super::traits::stream::*;
     pub use super::traits::*;
 }
 

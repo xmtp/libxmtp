@@ -87,7 +87,7 @@ impl EnvelopeVisitor<'_> for V3GroupMessageExtractor {
         };
         self.group_message
             .cursor(Cursor {
-                originator_id: originator_node_id,
+                originator_id: originator_node_id.into(),
                 sequence_id: message.id,
             })
             .created_ns(DateTime::from_timestamp_nanos(message.created_ns as i64))

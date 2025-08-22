@@ -1,4 +1,4 @@
-//! The genneric gRPC Client
+//! The generic gRPC Client
 //! Generic over a inner "Channel".
 //! The  inner channel must implement a tower service to implicitly
 //! implement the gRPC Service
@@ -6,7 +6,6 @@
 use crate::{
     error::{GrpcBuilderError, GrpcError},
     streams::EscapableTonicStream,
-    GrpcService,
 };
 use futures::Stream;
 use pin_project_lite::pin_project;
@@ -16,8 +15,10 @@ use std::{
     task::{ready, Context, Poll},
 };
 use tonic::{
-    client::Grpc,
+    body::Body as TonicBody,
+    client::{Grpc, GrpcService as TonicGrpcService},
     metadata::{self, MetadataMap, MetadataValue},
+    transport::Body as HttpBody,
     Status,
 };
 use xmtp_common::Retry;
@@ -59,15 +60,15 @@ impl<T> ToHttp for tonic::Response<T> {
 }
 
 #[derive(Clone)]
-pub struct GrpcClient {
-    inner: tonic::client::Grpc<crate::GrpcService>,
+pub struct GrpcClient<T> {
+    inner: tonic::client::Grpc<T>,
     app_version: MetadataValue<metadata::Ascii>,
     libxmtp_version: MetadataValue<metadata::Ascii>,
 }
 
-impl GrpcClient {
+impl<T> GrpcClient<T> {
     pub fn new(
-        service: crate::GrpcService,
+        service: T,
         app_version: MetadataValue<metadata::Ascii>,
         libxmtp_version: MetadataValue<metadata::Ascii>,
     ) -> Self {
@@ -100,7 +101,11 @@ impl GrpcClient {
         Ok(tonic_request)
     }
 
-    async fn wait_for_ready(&self, client: &mut Grpc<GrpcService>) -> Result<(), Status> {
+    async fn wait_for_ready(&self, client: &mut Grpc<T>) -> Result<(), Status>
+    where
+        T: tonic::client::GrpcService<tonic::body::Body>,
+        T::Error: std::fmt::Display,
+    {
         client.ready().await.map_err(|e| {
             tonic::Status::new(tonic::Code::Unknown, format!("Service was not ready: {e}"))
         })?;
@@ -136,7 +141,15 @@ impl Stream for GrpcStream {
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl Client for GrpcClient {
+impl<T> Client for GrpcClient<T>
+where
+    T: Clone + Sync + Send + 'static,
+    T: TonicGrpcService<TonicBody>,
+    T::ResponseBody: HttpBody + Send + 'static,
+    <T::ResponseBody as HttpBody>::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+    T::Future: Send,
+    T::Error: std::error::Error,
+{
     type Error = GrpcError;
     type Stream = GrpcStream;
 
@@ -185,7 +198,7 @@ impl Client for GrpcClient {
     }
 }
 
-impl GrpcClient {
+impl<T> GrpcClient<T> {
     pub fn builder() -> ClientBuilder {
         ClientBuilder::default()
     }
@@ -207,7 +220,7 @@ pub struct ClientBuilder {
 }
 
 impl ApiBuilder for ClientBuilder {
-    type Output = GrpcClient;
+    type Output = GrpcClient<crate::GrpcService>;
     type Error = GrpcBuilderError;
 
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
@@ -266,65 +279,60 @@ impl ApiBuilder for ClientBuilder {
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
-mod test {
-    use super::*;
-    use xmtp_configuration::GrpcUrls;
-    use xmtp_configuration::LOCALHOST;
-    use xmtp_proto::{api_client::XmtpTestClient, TestApiBuilder, ToxicProxies};
+#[cfg(test)]
+pub mod tests {
+    use crate::GrpcClient;
+    use prost::Message;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use xmtp_proto::api_client::ApiBuilder;
+    use xmtp_proto::prelude::XmtpTestClient;
+    use xmtp_proto::xmtp::message_api::v1::{Envelope, PublishRequest};
 
-    impl XmtpTestClient for GrpcClient {
-        type Builder = ClientBuilder;
+    // Return the json serialization of an Envelope with bytes
+    pub fn test_envelope(topic: String) -> Envelope {
+        let time_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
 
-        fn create_local() -> Self::Builder {
-            let mut client = GrpcClient::builder();
-            if cfg!(target_arch = "wasm32") {
-                client.set_host(GrpcUrls::NODE_WEB.into());
-            }
-            if cfg!(not(target_arch = "wasm32")) {
-                client.set_host(GrpcUrls::NODE.into());
-            }
-            client.set_tls(false);
-            client
-        }
-
-        fn create_local_d14n() -> Self::Builder {
-            let mut client = GrpcClient::builder();
-            if cfg!(target_arch = "wasm32") {
-                client.set_host(GrpcUrls::XMTPD_WEB.into());
-            }
-            if cfg!(not(target_arch = "wasm32")) {
-                client.set_host(GrpcUrls::XMTPD.into());
-            }
-            client.set_tls(false);
-            client
-        }
-
-        fn create_local_payer() -> Self::Builder {
-            let mut payer = GrpcClient::builder();
-            if cfg!(target_arch = "wasm32") {
-                payer.set_host(GrpcUrls::PAYER_WEB.into());
-            }
-            if cfg!(not(target_arch = "wasm32")) {
-                payer.set_host(GrpcUrls::PAYER.into());
-            }
-            payer.set_tls(false);
-            payer
-        }
-
-        fn create_dev() -> Self::Builder {
-            let mut client = GrpcClient::builder();
-            client.set_host(GrpcUrls::NODE_DEV.into());
-            client.set_tls(true);
-            client
+        Envelope {
+            timestamp_ns: time_since_epoch.as_nanos() as u64,
+            content_topic: topic,
+            message: vec![65],
         }
     }
 
-    impl TestApiBuilder for ClientBuilder {
-        async fn with_toxiproxy(&mut self) -> ToxicProxies {
-            let proxy = xmtp_proto::init_toxi(&[self.host().unwrap()]).await;
-            self.set_host(format!("{LOCALHOST}:{}", proxy.port(0)));
-            proxy
-        }
+    #[xmtp_common::test]
+    async fn metadata_test() {
+        let mut client = GrpcClient::create_dev();
+        let app_version = "test/1.0.0".to_string();
+        let libxmtp_version = "0.0.1".to_string();
+        client.set_app_version(app_version.clone()).unwrap();
+        client.set_libxmtp_version(libxmtp_version.clone()).unwrap();
+        let client = client.build().await.unwrap();
+        let request = client
+            .build_tonic_request(
+                Default::default(),
+                PublishRequest { envelopes: vec![] }.encode_to_vec().into(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            request
+                .metadata()
+                .get("x-app-version")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string(),
+            app_version
+        );
+        assert_eq!(
+            request
+                .metadata()
+                .get("x-libxmtp-version")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string(),
+            libxmtp_version
+        );
     }
 }

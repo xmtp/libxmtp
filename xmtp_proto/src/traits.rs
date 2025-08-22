@@ -1,10 +1,9 @@
 //! Api Client Traits
 
-use crate::{api_client::AggregateStats, mls_v1::SortDirection};
+use crate::{api::XmtpStream, api_client::AggregateStats};
 use http::{request, uri::PathAndQuery};
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_common::{retry_async, BoxedRetry, RetryableError};
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod mock;
@@ -12,6 +11,7 @@ pub mod mock;
 pub mod combinators;
 mod error;
 mod query;
+pub mod stream;
 pub use error::*;
 
 pub trait HasStats {
@@ -35,7 +35,7 @@ pub trait Pageable {
 
 #[derive(thiserror::Error, Debug)]
 pub enum MockE {}
-use futures::{Future, Stream};
+use futures::Future;
 pub type BoxedClient = Box<
     dyn Client<
         Error = ApiClientError<MockE>,
@@ -72,20 +72,17 @@ where
     T: Send,
 {
     async fn query(&mut self, client: &C) -> Result<T, ApiClientError<C::Error>>;
+}
 
-    async fn query_retryable(
-        &mut self,
-        client: &C,
-        retry: BoxedRetry,
-    ) -> Result<T, ApiClientError<C::Error>>
-    where
-        C::Error: RetryableError,
-    {
-        retry_async!(retry, (async { self.query(client).await }))
-    }
-
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+pub trait QueryStream<T, C, Specialized = ()>: Query<T, C, Specialized>
+where
+    C: Client + Send + Sync,
+    T: Send,
+{
     async fn stream(
         &mut self,
         client: &C,
-    ) -> Result<impl Stream<Item = Result<T, ApiClientError<C::Error>>>, ApiClientError<C::Error>>;
+    ) -> Result<XmtpStream<<C as Client>::Stream, T>, ApiClientError<C::Error>>;
 }

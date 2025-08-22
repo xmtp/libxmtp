@@ -24,14 +24,14 @@ where
 
     #[cfg(target_arch = "wasm32")]
     type GroupMessageStream =
-        stream::LocalBoxStream<'static, Result<mls_v1::GroupMessage, Self::Error>>;
+        stream::LocalBoxStream<'static, Result<GroupMessage, Self::Error>>;
     #[cfg(target_arch = "wasm32")]
     type WelcomeMessageStream =
         stream::LocalBoxStream<'static, Result<mls_v1::WelcomeMessage, Self::Error>>;
 
     async fn subscribe_group_messages(
         &self,
-        request: mls_v1::SubscribeGroupMessagesRequest,
+        _request: mls_v1::SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         todo!()
     }

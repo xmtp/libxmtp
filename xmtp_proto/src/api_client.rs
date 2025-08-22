@@ -117,6 +117,7 @@ pub trait XmtpMlsClient {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait XmtpMlsStreams {
+    #[cfg(not(target_arch = "wasm32"))]
     type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>> + Send;
 
     #[cfg(target_arch = "wasm32")]
