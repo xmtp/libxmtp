@@ -19,6 +19,19 @@ services:
       - 5556:5556
     depends_on:
       - db
+  node-web:
+    image: ghcr.io/xmtp/grpc-web
+    pull_policy: never
+    platform: linux/amd64
+    depends_on:
+      - node
+    ports:
+      - 5557:5557
+      - 5051:5051
+      - 9901:9901
+    build:
+      context: ../..
+      dockerfile: ./dev/docker/envoy/Dockerfile
   validation:
     image: ghcr.io/xmtp/mls-validation-service:main
     platform: linux/amd64
