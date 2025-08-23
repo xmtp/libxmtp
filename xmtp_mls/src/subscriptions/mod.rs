@@ -261,6 +261,7 @@ where
     ) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + use<'_, Context>>
     where
         Context::ApiClient: XmtpMlsStreams,
+        <Context::ApiClient as XmtpMlsStreams>::WelcomeMessageStream: Unpin + 'static,
     {
         StreamConversations::new(&self.context, conversation_type, include_duplicate_dms).await
     }
@@ -274,6 +275,7 @@ where
     ) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + 'static>
     where
         Context::ApiClient: XmtpMlsStreams,
+        <Context::ApiClient as XmtpMlsStreams>::WelcomeMessageStream: Unpin + 'static,
     {
         StreamConversations::new_owned(
             self.context.clone(),
@@ -301,7 +303,10 @@ where
         #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
         #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
         include_duplicate_dms: bool,
-    ) -> impl StreamHandle<StreamOutput = Result<()>> {
+    ) -> impl StreamHandle<StreamOutput = Result<()>>
+    where
+        <Context::ApiClient as XmtpMlsStreams>::WelcomeMessageStream: Unpin + 'static,
+    {
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
@@ -324,7 +329,11 @@ where
         &self,
         conversation_type: Option<ConversationType>,
         consent_state: Option<Vec<ConsentState>>,
-    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + '_> {
+    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + '_>
+    where
+        <Context::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin + 'static,
+        <Context::ApiClient as XmtpMlsStreams>::WelcomeMessageStream: Unpin + 'static,
+    {
         tracing::debug!(
             inbox_id = self.inbox_id(),
             installation_id = %self.context.installation_id(),
@@ -340,7 +349,11 @@ where
         &self,
         conversation_type: Option<ConversationType>,
         consent_state: Option<Vec<ConsentState>>,
-    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static> {
+    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static>
+    where
+        <Context::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin + 'static,
+        <Context::ApiClient as XmtpMlsStreams>::WelcomeMessageStream: Unpin + 'static,
+    {
         tracing::debug!(
             inbox_id = self.inbox_id(),
             installation_id = %self.context.installation_id(),
@@ -361,7 +374,11 @@ where
         #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
         #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
         #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
-    ) -> impl StreamHandle<StreamOutput = Result<()>> {
+    ) -> impl StreamHandle<StreamOutput = Result<()>>
+    where
+        <Context::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin + 'static,
+        <Context::ApiClient as XmtpMlsStreams>::WelcomeMessageStream: Unpin + 'static,
+    {
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {

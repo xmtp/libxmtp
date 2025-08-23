@@ -13,6 +13,7 @@ futures = { workspace = true }
 hex.workspace = true
 prost = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "rt"] }
 tracing.workspace = true
 xmtp_api_http = { workspace = true, optional = true }
 xmtp_common.workspace = true
