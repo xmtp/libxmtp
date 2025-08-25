@@ -8,6 +8,7 @@ mod test_key_updates;
 mod test_network;
 mod test_welcomes;
 
+use crate::groups::GroupLeaveValidationError;
 use prost::Message;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextEnvelope;
@@ -1116,8 +1117,14 @@ async fn test_self_remove_dm_must_fail() {
     assert!(!is_bola_super_admin);
 
     // Neither Amal nor Bola can leave the DM
-    assert_err!(amal_dm.leave_group().await, GroupError::LeaveDmForbidden);
-    assert_err!(bola_dm.leave_group().await, GroupError::LeaveDmForbidden);
+    assert_err!(
+        amal_dm.leave_group().await,
+        GroupError::LeaveCantProcessed(GroupLeaveValidationError::DmLeaveForbidden)
+    );
+    assert_err!(
+        bola_dm.leave_group().await,
+        GroupError::LeaveCantProcessed(GroupLeaveValidationError::DmLeaveForbidden)
+    );
 
     bola_dm.send_message(b"test one").await.unwrap();
 
@@ -1141,10 +1148,11 @@ async fn test_self_remove_group_fail_with_one_member() {
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
     assert!(group_mutable_metadata.pending_remove_list.is_empty());
 
-    // Update group name
-
     let result = amal_group.leave_group().await;
-    assert_err!(result, GroupError::LeaveCantProcessed);
+    assert_err!(
+        result,
+        GroupError::LeaveCantProcessed(GroupLeaveValidationError::SingleMemberLeaveRejected)
+    );
 }
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal() {

@@ -1000,21 +1000,31 @@ where
         self.ensure_not_paused().await?;
         //check member size
         if self.members().await?.len() == 1 {
-            return Err(GroupError::LeaveCantProcessed);
+            return Err(GroupLeaveValidationError::SingleMemberLeaveRejected.into());
         }
 
         if self.metadata().await?.conversation_type == ConversationType::Dm {
             return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
         }
-        self.update_pending_remove_list(
-            UpdatePendingRemoveListType::Add,
-            self.context.inbox_id().to_string(),
-        )
-        .await?;
-        Ok(())
+
+        //check if the user still is a member of the group? do we need to check that?
+
+        match self.is_in_pending_remove(self.context.inbox_id().to_string()) {
+            Ok(false) => Ok(()),
+            Ok(true) => {
+                self.update_pending_remove_list(
+                    UpdatePendingRemoveListType::Add,
+                    self.context.inbox_id().to_string(),
+                )
+                .await
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub async fn remove_from_pending_remove_list(&self) -> Result<(), GroupError> {
+        //check if the user still is a member of the group? do we need to check that?
+
         self.ensure_not_paused().await?;
         match self.is_in_pending_remove(self.context.inbox_id().to_string()) {
             Ok(true) => Ok(()),

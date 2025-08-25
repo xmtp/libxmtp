@@ -84,12 +84,8 @@ pub enum GroupError {
     WrappedApi(#[from] xmtp_api::ApiError),
     #[error("invalid group membership")]
     InvalidGroupMembership,
-    #[error("cannot leave a DM")]
-    LeaveDmForbidden,
-    #[error("cannot leave a group that has only one member")]
-    LeaveCantProcessed,
-    #[error("cannot leave a group without and admin or super admin")]
-    LeaveWithoutAdmin,
+    #[error(transparent)]
+    LeaveCantProcessed(#[from] GroupLeaveValidationError),
     #[error("storage error: {0}")]
     Storage(#[from] xmtp_db::StorageError),
     #[error("intent error: {0}")]
@@ -215,6 +211,30 @@ impl RetryableError for MetadataPermissionsError {
 }
 
 #[derive(Error, Debug)]
+pub enum GroupLeaveValidationError {
+    #[error("cannot leave a DM conversation")]
+    DmLeaveForbidden,
+    #[error("cannot leave a group that has only one member")]
+    SingleMemberLeaveRejected,
+    #[error("cannot leave a group without an admin or super admin")]
+    LeaveWithoutAdminForbidden,
+    #[error("inbox ID already exists in the pending leave list")]
+    InboxAlreadyInPendingList,
+    #[error("inbox ID does not exist in the pending leave list")]
+    InboxNotInPendingList,
+    #[error("inbox ID must be removed from group members before leaving")]
+    MustRemoveFromMembersFirst,
+    #[error("only the member themselves can retract a pending leave request")]
+    OnlyMemberCanRetractLeave,
+}
+
+impl RetryableError for GroupLeaveValidationError {
+    fn is_retryable(&self) -> bool {
+        false
+    }
+}
+
+#[derive(Error, Debug)]
 pub enum DmValidationError {
     #[error("DM group must have DmMembers set")]
     OurInboxMustBeMember,
@@ -273,6 +293,7 @@ impl RetryableError for GroupError {
             Self::UnwrapWelcome(e) => e.is_retryable(),
             Self::Diesel(e) => e.is_retryable(),
             Self::EnrichMessage(e) => e.is_retryable(),
+            Self::LeaveCantProcessed(e) => e.is_retryable(),
             Self::NotFound(_)
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership
@@ -295,9 +316,6 @@ impl RetryableError for GroupError {
             | Self::GroupInactive
             | Self::FailedToVerifyInstallations
             | Self::NoWelcomesToSend
-            | Self::LeaveDmForbidden
-            | Self::LeaveCantProcessed
-            | Self::LeaveWithoutAdmin
             | Self::UninitializedField(_)
             | Self::UninitializedResult => false,
         }
