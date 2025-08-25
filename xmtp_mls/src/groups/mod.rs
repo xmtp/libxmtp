@@ -990,39 +990,32 @@ where
         }
 
         if self.metadata().await?.conversation_type == ConversationType::Dm {
-            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
+            return Err(GroupLeaveValidationError::DmLeaveForbidden.into());
         }
 
-        //check if the user still is a member of the group? do we need to check that?
-
-        match self.is_in_pending_remove(self.context.inbox_id().to_string()) {
-            Ok(true) => Ok(()),
-            Ok(false) => {
+        //todo: check if the user still is a member of the group? do we need to check that?
+        if !self.is_in_pending_remove(self.context.inbox_id().to_string())? {
                 self.update_pending_remove_list(
                     UpdatePendingRemoveListType::Add,
                     self.context.inbox_id().to_string(),
                 )
-                .await
-            }
-            Err(e) => Err(e),
+                .await?;
         }
+        Ok(())
     }
 
     pub async fn remove_from_pending_remove_list(&self) -> Result<(), GroupError> {
-        //check if the user still is a member of the group? do we need to check that?
-
+        //todo: check if the user still is a member of the group? do we need to check that?
+        
         self.ensure_not_paused().await?;
-        match self.is_in_pending_remove(self.context.inbox_id().to_string()) {
-            Ok(false) => Ok(()),
-            Ok(true) => {
-                self.update_pending_remove_list(
-                    UpdatePendingRemoveListType::Remove,
-                    self.context.inbox_id().to_string(),
-                )
-                .await
-            }
-            Err(e) => Err(e),
+        if self.is_in_pending_remove(self.context.inbox_id().to_string())? {
+            self.update_pending_remove_list(
+                UpdatePendingRemoveListType::Add,
+                self.context.inbox_id().to_string(),
+            )
+                .await?;
         }
+        Ok(())
     }
 
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
