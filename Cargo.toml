@@ -120,7 +120,10 @@ vergen-git2 = "1.0.2"
 web-time = "1.1"
 bytes = "1.9"
 pin-project-lite = "0.2"
-reqwest = { version = "0.12.12", features = ["json", "stream"] }
+reqwest = { version = "0.12.12", default-features = false, features = [
+  "json",
+  "stream",
+] }
 itertools = "0.14"
 tonic = { version = "0.14", default-features = false }
 tracing = { version = "0.1", features = ["log"] }
