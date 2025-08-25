@@ -638,6 +638,8 @@ where
             return Err(GroupError::GroupInactive);
         }
 
+        // This is a temporary change
+
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(update_interval_ns).await?;
