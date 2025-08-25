@@ -104,6 +104,50 @@ async fn test_successful_commit_log_types() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn test_failed_application_message_not_added_to_commit_log() {
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+    tester!(devon);
+    tester!(eri);
+    let a_client: &FullXmtpClient = &alix;
+    let b_client: &FullXmtpClient = &bo;
+
+    let a = a_client
+        .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+        .await?;
+    assert_eq!(
+        get_type(&a.local_commit_log().await?),
+        &[
+            &Some(CommitType::GroupCreation.to_string()),
+            &Some(CommitType::UpdateGroupMembership.to_string()),
+        ]
+    );
+
+    // Fast-forward 3 epochs so that a's next message will initially fail with an epoch error
+    let b = b_client.sync_welcomes().await?.first()?.to_owned();
+    b.sync().await?;
+    b.add_members_by_inbox_id(&[caro.inbox_id()]).await?;
+    b.add_members_by_inbox_id(&[devon.inbox_id()]).await?;
+    b.add_members_by_inbox_id(&[eri.inbox_id()]).await?;
+
+    // Message intent should fail with an epoch error, then get retried after syncing
+    a.send_message(b"Hi").await?;
+
+    // Three new membership updates, no new commit log entry for the message
+    assert_eq!(
+        get_type(&a.local_commit_log().await?),
+        &[
+            &Some(CommitType::GroupCreation.to_string()),
+            &Some(CommitType::UpdateGroupMembership.to_string()),
+            &Some(CommitType::UpdateGroupMembership.to_string()),
+            &Some(CommitType::UpdateGroupMembership.to_string()),
+            &Some(CommitType::UpdateGroupMembership.to_string()),
+        ]
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_welcome_commit_log() {
     tester!(alix);
     tester!(bo);
