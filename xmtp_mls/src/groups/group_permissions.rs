@@ -1430,6 +1430,7 @@ pub(crate) mod tests {
     }
 
     /// Test helper function for building a ValidatedCommit.
+    #[allow(clippy::too_many_arguments)]
     fn build_validated_commit(
         // Add a member with the same account address as the actor if true, random account address if false
         member_added: Option<MemberType>,
