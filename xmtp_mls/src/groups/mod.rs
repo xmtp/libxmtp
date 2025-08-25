@@ -995,25 +995,25 @@ where
 
         //todo: check if the user still is a member of the group? do we need to check that?
         if !self.is_in_pending_remove(self.context.inbox_id().to_string())? {
-                self.update_pending_remove_list(
-                    UpdatePendingRemoveListType::Add,
-                    self.context.inbox_id().to_string(),
-                )
-                .await?;
+            self.update_pending_remove_list(
+                UpdatePendingRemoveListType::Add,
+                self.context.inbox_id().to_string(),
+            )
+            .await?;
         }
         Ok(())
     }
 
     pub async fn remove_from_pending_remove_list(&self) -> Result<(), GroupError> {
         //todo: check if the user still is a member of the group? do we need to check that?
-        
+
         self.ensure_not_paused().await?;
         if self.is_in_pending_remove(self.context.inbox_id().to_string())? {
             self.update_pending_remove_list(
                 UpdatePendingRemoveListType::Add,
                 self.context.inbox_id().to_string(),
             )
-                .await?;
+            .await?;
         }
         Ok(())
     }
