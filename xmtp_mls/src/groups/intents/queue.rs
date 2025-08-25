@@ -135,6 +135,13 @@ impl QueueIntent {
         this
     }
 
+    /// Create an intent to update the pending-remove list of a group
+    pub fn update_pending_remove_list() -> QueueIntentBuilder {
+        let mut this = QueueIntent::builder();
+        this.kind = Some(IntentKind::UpdatePendingRemoveList);
+        this
+    }
+
     /// create an intent to update the permissions of a group
     pub fn update_permission() -> QueueIntentBuilder {
         let mut this = QueueIntent::builder();
