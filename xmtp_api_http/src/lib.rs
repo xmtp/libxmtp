@@ -637,7 +637,6 @@ pub mod tests {
             .await;
 
         assert!(result.is_err());
-        println!("{:?}", result);
         assert!(
             result
                 .as_ref()
