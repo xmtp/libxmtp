@@ -1,16 +1,15 @@
 pub mod commit_log;
 pub mod commit_log_key;
+pub mod decoded_message;
 pub mod device_sync;
 pub mod device_sync_legacy;
+pub mod disappearing_messages;
 mod error;
 pub mod group_membership;
 pub mod group_permissions;
 pub mod intents;
-pub mod members;
-pub mod welcome_sync;
-
-pub mod disappearing_messages;
 pub mod key_package_cleaner_worker;
+pub mod members;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;
 pub(super) mod subscriptions;
@@ -18,6 +17,7 @@ pub mod summary;
 #[cfg(test)]
 mod tests;
 pub mod validated_commit;
+pub mod welcome_sync;
 mod welcomes;
 pub use welcomes::*;
 
@@ -60,8 +60,12 @@ use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
     MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
-use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
+use xmtp_content_types::ContentCodec;
 use xmtp_content_types::should_push;
+use xmtp_content_types::{
+    reaction::{LegacyReaction, ReactionCodec},
+    reply::ReplyCodec,
+};
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
 use xmtp_db::local_commit_log::LocalCommitLog;
 use xmtp_db::prelude::*;
@@ -218,11 +222,14 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
     type Error = prost::DecodeError;
 
     fn try_from(content: EncodedContent) -> Result<Self, Self::Error> {
-        let content_type_id = content.r#type.unwrap_or_default();
+        let content_type_id = content.r#type.clone().unwrap_or_default();
 
         let type_id_str = content_type_id.type_id.clone();
 
         let reference_id = match (type_id_str.as_str(), content_type_id.version_major) {
+            (ReplyCodec::TYPE_ID, 1) => ReplyCodec::decode(content)
+                .ok()
+                .and_then(|reply| hex::decode(reply.reference).ok()),
             (ReactionCodec::TYPE_ID, major) if major >= 2 => {
                 ReactionV2::decode(content.content.as_slice())
                     .ok()
