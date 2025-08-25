@@ -996,8 +996,8 @@ where
         //check if the user still is a member of the group? do we need to check that?
 
         match self.is_in_pending_remove(self.context.inbox_id().to_string()) {
-            Ok(false) => Ok(()),
-            Ok(true) => {
+            Ok(true) => Ok(()),
+            Ok(false) => {
                 self.update_pending_remove_list(
                     UpdatePendingRemoveListType::Add,
                     self.context.inbox_id().to_string(),
@@ -1013,8 +1013,8 @@ where
 
         self.ensure_not_paused().await?;
         match self.is_in_pending_remove(self.context.inbox_id().to_string()) {
-            Ok(true) => Ok(()),
-            Ok(false) => {
+            Ok(false) => Ok(()),
+            Ok(true) => {
                 self.update_pending_remove_list(
                     UpdatePendingRemoveListType::Remove,
                     self.context.inbox_id().to_string(),
