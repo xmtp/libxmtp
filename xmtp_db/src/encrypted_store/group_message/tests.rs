@@ -15,6 +15,7 @@ pub(crate) fn generate_message(
     sent_at_ns: Option<i64>,
     content_type: Option<ContentType>,
     expire_at_ns: Option<i64>,
+    sender_inbox_id: Option<String>,
 ) -> StoredGroupMessage {
     StoredGroupMessage {
         id: rand_vec::<24>(),
@@ -22,7 +23,7 @@ pub(crate) fn generate_message(
         decrypted_message_bytes: rand_vec::<24>(),
         sent_at_ns: sent_at_ns.unwrap_or(rand_time()),
         sender_installation_id: rand_vec::<24>(),
-        sender_inbox_id: "0x0".to_string(),
+        sender_inbox_id: sender_inbox_id.unwrap_or("0x0".to_string()),
         kind: kind.unwrap_or(GroupMessageKind::Application),
         delivery_status: DeliveryStatus::Published,
         content_type: content_type.unwrap_or(ContentType::Unknown),
@@ -49,7 +50,7 @@ async fn it_does_not_error_on_empty_messages() {
 async fn it_gets_messages() {
     with_connection(|conn| {
         let group = generate_group(None);
-        let message = generate_message(None, Some(&group.id), None, None, None);
+        let message = generate_message(None, Some(&group.id), None, None, None, None);
         group.store(conn).unwrap();
         let id = message.id.clone();
 
@@ -69,7 +70,7 @@ async fn it_cannot_insert_message_without_group() {
     use diesel::result::DatabaseErrorKind::ForeignKeyViolation;
     let store = EncryptedMessageStore::new_test().await;
     let conn = DbConnection::new(store.conn());
-    let message = generate_message(None, None, None, None, None);
+    let message = generate_message(None, None, None, None, None, None);
     let result = message.store(&conn);
     assert_err!(
         result,
@@ -88,7 +89,7 @@ async fn it_gets_many_messages() {
         group.store(conn).unwrap();
 
         for idx in 0..50 {
-            let msg = generate_message(None, Some(&group.id), Some(idx), None, None);
+            let msg = generate_message(None, Some(&group.id), Some(idx), None, None, None);
             assert_ok!(msg.store(conn));
         }
 
@@ -121,10 +122,10 @@ async fn it_gets_messages_by_time() {
         group.store(conn).unwrap();
 
         let messages = vec![
-            generate_message(None, Some(&group.id), Some(1_000), None, None),
-            generate_message(None, Some(&group.id), Some(100_000), None, None),
-            generate_message(None, Some(&group.id), Some(10_000), None, None),
-            generate_message(None, Some(&group.id), Some(1_000_000), None, None),
+            generate_message(None, Some(&group.id), Some(1_000), None, None, None),
+            generate_message(None, Some(&group.id), Some(100_000), None, None, None),
+            generate_message(None, Some(&group.id), Some(10_000), None, None, None),
+            generate_message(None, Some(&group.id), Some(1_000_000), None, None, None),
         ];
         assert_ok!(messages.store(conn));
         let message = conn
@@ -178,18 +179,20 @@ async fn it_deletes_middle_message_by_expiration_time() {
         group.store(conn).unwrap();
 
         let messages = vec![
-            generate_message(None, Some(&group.id), Some(1_000_000_000), None, None),
+            generate_message(None, Some(&group.id), Some(1_000_000_000), None, None, None),
             generate_message(
                 None,
                 Some(&group.id),
                 Some(1_001_000_000),
                 None,
                 Some(1_001_000_000),
+                None,
             ),
             generate_message(
                 None,
                 Some(&group.id),
                 Some(2_000_000_000_000_000_000),
+                None,
                 None,
                 None,
             ),
@@ -240,6 +243,7 @@ async fn it_gets_messages_by_kind() {
                         None,
                         Some(ContentType::Text),
                         None,
+                        None,
                     );
                     msg.store(conn).unwrap();
                 }
@@ -249,6 +253,7 @@ async fn it_gets_messages_by_kind() {
                         Some(&group.id),
                         None,
                         Some(ContentType::GroupMembershipChange),
+                        None,
                         None,
                     );
                     msg.store(conn).unwrap();
@@ -290,10 +295,10 @@ async fn it_orders_messages_by_sent() {
         assert_eq!(group.last_message_ns, None);
 
         let messages = vec![
-            generate_message(None, Some(&group.id), Some(10_000), None, None),
-            generate_message(None, Some(&group.id), Some(1_000), None, None),
-            generate_message(None, Some(&group.id), Some(100_000), None, None),
-            generate_message(None, Some(&group.id), Some(1_000_000), None, None),
+            generate_message(None, Some(&group.id), Some(10_000), None, None, None),
+            generate_message(None, Some(&group.id), Some(1_000), None, None, None),
+            generate_message(None, Some(&group.id), Some(100_000), None, None, None),
+            generate_message(None, Some(&group.id), Some(1_000_000), None, None, None),
         ];
 
         assert_ok!(messages.store(conn));
@@ -347,6 +352,7 @@ async fn it_gets_messages_by_content_type() {
                 Some(1_000),
                 Some(ContentType::Text),
                 None,
+                None,
             ),
             generate_message(
                 None,
@@ -354,12 +360,14 @@ async fn it_gets_messages_by_content_type() {
                 Some(2_000),
                 Some(ContentType::GroupMembershipChange),
                 None,
+                None,
             ),
             generate_message(
                 None,
                 Some(&group.id),
                 Some(3_000),
                 Some(ContentType::GroupUpdated),
+                None,
                 None,
             ),
         ];
@@ -431,6 +439,7 @@ async fn it_places_group_updated_message_correctly_based_on_sort_order() {
             Some(5_000),
             Some(ContentType::GroupUpdated),
             None,
+            None,
         );
 
         let earlier_msg = generate_message(
@@ -439,6 +448,7 @@ async fn it_places_group_updated_message_correctly_based_on_sort_order() {
             Some(1_000),
             Some(ContentType::Text),
             None,
+            None,
         );
 
         let later_msg = generate_message(
@@ -446,6 +456,7 @@ async fn it_places_group_updated_message_correctly_based_on_sort_order() {
             Some(&group.id),
             Some(10_000),
             Some(ContentType::Text),
+            None,
             None,
         );
 
@@ -1348,6 +1359,379 @@ async fn test_inbound_relation_counts() {
         assert!(!reply_counts.contains_key(&msg1.id)); // No replies
         assert_eq!(reply_counts.get(&msg2.id).unwrap(), &3); // 3 replies
         assert!(!reply_counts.contains_key(&msg3.id)); // No replies
+    })
+    .await
+}
+
+#[xmtp_common::test]
+async fn test_get_latest_message_times_by_sender_single_sender() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+
+        // Create messages from a single sender with different timestamps
+        let sender_id = "0x123".to_string();
+        let messages = vec![
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(1000),
+                Some(ContentType::Text),
+                None,
+                Some(sender_id.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(5000), // Latest message
+                Some(ContentType::Text),
+                None,
+                Some(sender_id.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(3000),
+                Some(ContentType::Text),
+                None,
+                Some(sender_id.clone()),
+            ),
+        ];
+
+        assert_ok!(messages.store(conn));
+
+        // Test getting latest message times
+        let latest_times = conn
+            .get_latest_message_times_by_sender(&group.id, &[ContentType::Text])
+            .unwrap();
+
+        assert_eq!(latest_times.len(), 1);
+        assert_eq!(latest_times.get(sender_id.as_bytes()).unwrap(), &5000);
+    })
+    .await
+}
+
+#[xmtp_common::test]
+async fn test_get_latest_message_times_by_sender_multiple_senders() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+
+        let sender1_id = "0x111".to_string();
+        let sender2_id = "0x222".to_string();
+        let sender3_id = "0x333".to_string();
+
+        // Create messages from multiple senders
+        let messages = vec![
+            // Sender 1 messages
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(1000),
+                Some(ContentType::Text),
+                None,
+                Some(sender1_id.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(5000), // Latest for sender1
+                Some(ContentType::Text),
+                None,
+                Some(sender1_id.clone()),
+            ),
+            // Sender 2 messages
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(2000),
+                Some(ContentType::Text),
+                None,
+                Some(sender2_id.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(8000), // Latest for sender2
+                Some(ContentType::Text),
+                None,
+                Some(sender2_id.clone()),
+            ),
+            // Sender 3 messages
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(3000), // Only message for sender3
+                Some(ContentType::Text),
+                None,
+                Some(sender3_id.clone()),
+            ),
+        ];
+
+        assert_ok!(messages.store(conn));
+
+        // Test getting latest message times
+        let latest_times = conn
+            .get_latest_message_times_by_sender(&group.id, &[ContentType::Text])
+            .unwrap();
+
+        assert_eq!(latest_times.len(), 3);
+        assert_eq!(latest_times.get(sender1_id.as_bytes()).unwrap(), &5000);
+        assert_eq!(latest_times.get(sender2_id.as_bytes()).unwrap(), &8000);
+        assert_eq!(latest_times.get(sender3_id.as_bytes()).unwrap(), &3000);
+    })
+    .await
+}
+
+#[xmtp_common::test]
+async fn test_get_latest_message_times_by_sender_empty_results() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+
+        // Test with no messages
+        let latest_times = conn
+            .get_latest_message_times_by_sender(&group.id, &[ContentType::Text])
+            .unwrap();
+
+        assert_eq!(latest_times.len(), 0);
+
+        // Add some messages but filter by content type that doesn't match
+        let sender_id = "0x123".to_string();
+        let message = generate_message(
+            None,
+            Some(&group.id),
+            Some(1000),
+            Some(ContentType::Text),
+            None,
+            Some(sender_id),
+        );
+
+        assert_ok!(message.store(conn));
+
+        // Filter by content type that doesn't match
+        let latest_times = conn
+            .get_latest_message_times_by_sender(&group.id, &[ContentType::Attachment])
+            .unwrap();
+
+        assert_eq!(latest_times.len(), 0);
+    })
+    .await
+}
+
+#[xmtp_common::test]
+async fn test_get_latest_message_times_by_sender_dm_group() {
+    with_connection(|conn| {
+        // Create multiple DM groups that share the same dm_id
+        let shared_dm_id = "dm_123".to_string();
+
+        let mut group1 = generate_group(None);
+        group1.conversation_type = ConversationType::Dm;
+        group1.dm_id = Some(shared_dm_id.clone());
+        group1.store(conn).unwrap();
+
+        let mut group2 = generate_group(None);
+        group2.conversation_type = ConversationType::Dm;
+        group2.dm_id = Some(shared_dm_id.clone());
+        group2.store(conn).unwrap();
+
+        let mut group3 = generate_group(None);
+        group3.conversation_type = ConversationType::Dm;
+        group3.dm_id = Some(shared_dm_id.clone());
+        group3.store(conn).unwrap();
+
+        let sender_id = "0x123".to_string();
+
+        // Create messages across different groups that share the same dm_id
+        let messages = vec![
+            // Messages in group1
+            generate_message(
+                None,
+                Some(&group1.id),
+                Some(1000),
+                Some(ContentType::Text),
+                None,
+                Some(sender_id.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group1.id),
+                Some(3000),
+                Some(ContentType::Text),
+                None,
+                Some(sender_id.clone()),
+            ),
+            // Messages in group2
+            generate_message(
+                None,
+                Some(&group2.id),
+                Some(2000),
+                Some(ContentType::Text),
+                None,
+                Some(sender_id.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group2.id),
+                Some(6000), // Latest message across all groups
+                Some(ContentType::Text),
+                None,
+                Some(sender_id.clone()),
+            ),
+            // Messages in group3
+            generate_message(
+                None,
+                Some(&group3.id),
+                Some(4000),
+                Some(ContentType::Text),
+                None,
+                Some(sender_id.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group3.id),
+                Some(5000),
+                Some(ContentType::Text),
+                None,
+                Some(sender_id.clone()),
+            ),
+        ];
+
+        assert_ok!(messages.store(conn));
+
+        // Test getting latest message times for any of the groups with the shared dm_id
+        // The query should find messages from all groups that share the same dm_id
+        let latest_times = conn
+            .get_latest_message_times_by_sender(&group1.id, &[ContentType::Text])
+            .unwrap();
+
+        assert_eq!(latest_times.len(), 1);
+        assert_eq!(
+            latest_times.get(sender_id.as_bytes()).unwrap(),
+            &6000 // Should be the latest message across all groups with the same dm_id
+        );
+
+        // Test that querying any of the groups returns the same result
+        let latest_times_group2 = conn
+            .get_latest_message_times_by_sender(&group2.id, &[ContentType::Text])
+            .unwrap();
+
+        assert_eq!(latest_times_group2.len(), 1);
+        assert_eq!(
+            latest_times_group2.get(sender_id.as_bytes()).unwrap(),
+            &6000
+        );
+
+        let latest_times_group3 = conn
+            .get_latest_message_times_by_sender(&group3.id, &[ContentType::Text])
+            .unwrap();
+
+        assert_eq!(latest_times_group3.len(), 1);
+        assert_eq!(
+            latest_times_group3.get(sender_id.as_bytes()).unwrap(),
+            &6000
+        );
+    })
+    .await
+}
+
+#[xmtp_common::test]
+async fn test_get_latest_message_times_by_sender_mixed_content_types() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+
+        let sender1_id = "0x111".to_string();
+        let sender2_id = "0x222".to_string();
+
+        // Create messages with mixed content types from different senders
+        let messages = vec![
+            // Sender 1: Text messages
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(1000),
+                Some(ContentType::Text),
+                None,
+                Some(sender1_id.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(5000), // Latest text from sender1
+                Some(ContentType::Text),
+                None,
+                Some(sender1_id.clone()),
+            ),
+            // Sender 1: Attachment messages
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(3000),
+                Some(ContentType::Attachment),
+                None,
+                Some(sender1_id.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(8000), // Latest attachment from sender1
+                Some(ContentType::Attachment),
+                None,
+                Some(sender1_id.clone()),
+            ),
+            // Sender 2: Only text messages
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(2000),
+                Some(ContentType::Text),
+                None,
+                Some(sender2_id.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(6000), // Latest text from sender2
+                Some(ContentType::Text),
+                None,
+                Some(sender2_id.clone()),
+            ),
+        ];
+
+        assert_ok!(messages.store(conn));
+
+        // Test filtering by text only - should get both senders
+        let latest_times_text = conn
+            .get_latest_message_times_by_sender(&group.id, &[ContentType::Text])
+            .unwrap();
+
+        assert_eq!(latest_times_text.len(), 2);
+        assert_eq!(latest_times_text.get(sender1_id.as_bytes()).unwrap(), &5000);
+        assert_eq!(latest_times_text.get(sender2_id.as_bytes()).unwrap(), &6000);
+
+        // Test filtering by attachment only - should get only sender1
+        let latest_times_attachment = conn
+            .get_latest_message_times_by_sender(&group.id, &[ContentType::Attachment])
+            .unwrap();
+
+        assert_eq!(latest_times_attachment.len(), 1);
+        assert_eq!(
+            latest_times_attachment.get(sender1_id.as_bytes()).unwrap(),
+            &8000
+        );
+
+        // Test filtering by both - should get both senders with their latest overall times
+        let latest_times_both = conn
+            .get_latest_message_times_by_sender(
+                &group.id,
+                &[ContentType::Text, ContentType::Attachment],
+            )
+            .unwrap();
+
+        assert_eq!(latest_times_both.len(), 2);
+        assert_eq!(latest_times_both.get(sender1_id.as_bytes()).unwrap(), &8000); // Latest overall
+        assert_eq!(latest_times_both.get(sender2_id.as_bytes()).unwrap(), &6000); // Latest text
     })
     .await
 }
