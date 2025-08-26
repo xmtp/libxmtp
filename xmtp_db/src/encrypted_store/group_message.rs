@@ -548,20 +548,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         // Get all messages that have a group with an id equal the provided id,
         // or a dm_id equal to the dm_id that belongs to the loaded group with the provided id.
         let mut query = dsl::group_messages
-            .filter(
-                dsl::group_id.eq_any(
-                    groups_dsl::groups
-                        .filter(
-                            groups_dsl::id.eq(group_id).or(groups_dsl::dm_id.eq_any(
-                                groups_dsl::groups
-                                    .select(groups_dsl::dm_id)
-                                    .filter(groups_dsl::id.eq(group_id))
-                                    .into_boxed(),
-                            )),
-                        )
-                        .select(groups_dsl::id),
-                ),
-            )
+            .filter(group_id_filter(group_id))
             .into_boxed();
 
         if let Some(sent_after) = args.sent_after_ns {
@@ -712,7 +699,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         let message_ids: Vec<&[u8]> = messages.iter().map(|m| m.id.as_slice()).collect();
 
         let mut reactions_query = dsl::group_messages
-            .filter(dsl::group_id.eq(group_id))
+            .filter(group_id_filter(group_id))
             .filter(dsl::reference_id.is_not_null())
             .filter(dsl::reference_id.eq_any(message_ids))
             .into_boxed();
@@ -764,7 +751,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         let mut inbound_relations: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
 
         let mut inbound_relations_query = dsl::group_messages
-            .filter(dsl::group_id.eq(group_id))
+            .filter(group_id_filter(group_id))
             .filter(dsl::reference_id.is_not_null())
             .filter(dsl::reference_id.eq_any(message_ids))
             .into_boxed();
@@ -805,7 +792,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         reference_ids: &[&[u8]],
     ) -> Result<OutboundRelations, crate::ConnectionError> {
         let outbound_references_query = dsl::group_messages
-            .filter(dsl::group_id.eq(group_id))
+            .filter(group_id_filter(group_id))
             .filter(dsl::id.eq_any(reference_ids))
             .into_boxed();
 
@@ -825,7 +812,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         relation_query: RelationQuery,
     ) -> Result<RelationCounts, crate::ConnectionError> {
         let mut count_query = dsl::group_messages
-            .filter(dsl::group_id.eq(group_id))
+            .filter(group_id_filter(group_id))
             .filter(dsl::reference_id.is_not_null())
             .filter(dsl::reference_id.eq_any(message_ids))
             .group_by(dsl::reference_id)
@@ -851,22 +838,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         allowed_content_types: &[ContentType],
     ) -> Result<LatestMessageTimeBySender, crate::ConnectionError> {
         let query = dsl::group_messages
-            .filter(
-                dsl::group_id.eq_any(
-                    groups_dsl::groups
-                        .filter(
-                            groups_dsl::id
-                                .eq(group_id.as_ref())
-                                .or(groups_dsl::dm_id.eq_any(
-                                    groups_dsl::groups
-                                        .select(groups_dsl::dm_id)
-                                        .filter(groups_dsl::id.eq(group_id.as_ref()))
-                                        .into_boxed(),
-                                )),
-                        )
-                        .select(groups_dsl::id),
-                ),
-            )
+            .filter(group_id_filter(group_id.as_ref()))
             .filter(dsl::content_type.eq_any(allowed_content_types))
             .group_by(dsl::sender_inbox_id)
             .select((dsl::sender_inbox_id, diesel::dsl::max(dsl::sent_at_ns)))
@@ -998,4 +970,25 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .execute(conn)
         })
     }
+}
+
+fn group_id_filter(
+    group_id: &[u8],
+) -> impl diesel::expression::BoxableExpression<
+    group_messages::table,
+    diesel::sqlite::Sqlite,
+    SqlType = diesel::sql_types::Bool,
+> + diesel::expression::NonAggregate {
+    dsl::group_id.eq_any(
+        groups_dsl::groups
+            .filter(
+                groups_dsl::id.eq(group_id).or(groups_dsl::dm_id.eq_any(
+                    groups_dsl::groups
+                        .select(groups_dsl::dm_id)
+                        .filter(groups_dsl::id.eq(group_id))
+                        .into_boxed(),
+                )),
+            )
+            .select(groups_dsl::id),
+    )
 }
