@@ -976,6 +976,8 @@ where
                 &storage,
                 &mut deferred_events
             )?;
+            self.process_pending_remove_list_changes(mls_group, &storage, validated_commit.clone(),);
+
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
                 tracing::info!(
@@ -1254,16 +1256,89 @@ where
                 );
 
                 let msg = self.save_transcript_message(
-                    validated_commit,
+                    validated_commit.clone(),
                     envelope_timestamp_ns,
                     *cursor,
                     storage,
                 )?;
+                // handle pending removal list
+                // self.process_pending_remove_list_changes(validated_commit, storage);
                 identifier.internal_id(msg.as_ref().map(|m| m.id.clone()));
                 Ok(())
             }
         }?;
         identifier.build()
+    }
+
+    fn process_pending_remove_list_changes(
+        &self,
+        mls_group: &OpenMlsGroup,
+        storage: &impl XmtpMlsStorageProvider,
+        validated_commit: Option<ValidatedCommit>,
+    ) {
+        let current_inbox_id = self.context.inbox_id().to_string();
+        let metadata = extract_group_mutable_metadata(&mls_group).unwrap();
+        let pending_remove = metadata.pending_remove_list;
+        // fix fetch data from validated commit
+        let pending_remove_added = validated_commit
+            .clone()
+            .unwrap()
+            .metadata_validation_info
+            .pending_remove_added;
+        let pending_remove_removed = validated_commit
+            .clone()
+            .unwrap()
+            .metadata_validation_info
+            .pending_remove_removed;
+        // If the current user was removed from the pending remove list, restore their membership
+        //todo: check the group state, if the current state is not pending-remove then no need to restore it
+        if pending_remove_removed
+            .iter()
+            .any(|id| id.inbox_id.to_string() == current_inbox_id)
+        {
+            let _ = storage
+                .db()
+                .update_group_membership(&self.group_id, GroupMembershipState::Allowed)
+                .map_err(|e| {
+                    tracing::error!("Failed to restore group membership: {}", e);
+                    IntentError::Storage(e.into())
+                });
+        }
+
+        // If the current user was added to the pending remove list, update their status
+        if pending_remove_added
+            .iter()
+            .any(|id| id.inbox_id.to_string() == current_inbox_id)
+        {
+            let _ = storage
+                .db()
+                .update_group_membership(&self.group_id, GroupMembershipState::PendingRemove)
+                .map_err(|e| {
+                    tracing::error!("Failed to update group membership to PendingRemove: {}", e);
+                    IntentError::Storage(e.into())
+                });
+        }
+
+        // If the current user is admin/super-admin and there are pending remove requests, mark the group accordingly
+        // todo: we need to check if other clients and the same time one of the admins wants to leave the group,
+        // in this case, both the admin and other clients are in the pending remove list.
+        // but still, the admin client needs to react to others and remove them from the pending remove list.
+        let has_pending_removes = !pending_remove.is_empty();
+        let current_user_not_pending = !pending_remove.contains(&current_inbox_id);
+        let is_admin = metadata.admin_list.contains(&current_inbox_id)
+            || metadata.super_admin_list.contains(&current_inbox_id);
+
+        if is_admin && current_user_not_pending && has_pending_removes {
+            // let _ = storage
+            //     .db()
+            //     .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
+            //     .map_err(|e| {
+            //         tracing::error!("Failed to set group pending leave request status: {}", e);
+            //         IntentError::Storage(e.into())
+            //     });
+
+            tracing::info!("Marked the group as having pending leave requests");
+        }
     }
 
     fn get_message_expire_at_ns(mls_group: &OpenMlsGroup) -> Option<i64> {
