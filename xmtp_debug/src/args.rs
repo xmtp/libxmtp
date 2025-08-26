@@ -146,10 +146,16 @@ pub struct Identity {
 }
 
 #[derive(Args, Debug, Clone)]
-pub struct FetchKeyPackages {}
+pub struct FetchKeyPackages {
+    pub installation_keys: Vec<String>,
+}
 
 #[derive(Args, Debug, Clone)]
-pub struct BatchQueryCommitLog {}
+pub struct BatchQueryCommitLog {
+    pub group_ids: Vec<String>,
+    #[arg(long)]
+    pub skip_unspecified: bool,
+}
 
 /// Print information about the local generated state
 #[derive(Args, Debug)]
