@@ -56,6 +56,7 @@ impl GroupMetadata {
       ConversationType::Group => "group".to_string(),
       ConversationType::Dm => "dm".to_string(),
       ConversationType::Sync => "sync".to_string(),
+      ConversationType::Oneshot => "oneshot".to_string(),
     }
   }
 }
@@ -179,6 +180,7 @@ impl Conversation {
       ConversationType::Group => None,
       ConversationType::Dm => None,
       ConversationType::Sync => None,
+      ConversationType::Oneshot => None,
     };
     let opts = MsgQueryArgs {
       kind,
@@ -209,6 +211,7 @@ impl Conversation {
       ConversationType::Group => None,
       ConversationType::Dm => None,
       ConversationType::Sync => None,
+      ConversationType::Oneshot => None,
     };
     let opts = MsgQueryArgs {
       kind,
