@@ -13,6 +13,7 @@ pub mod members;
 pub mod message_list;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;
+pub(crate) mod pending_self_remove_worker;
 pub(super) mod subscriptions;
 pub mod summary;
 #[cfg(test)]
@@ -20,6 +21,7 @@ mod tests;
 pub mod validated_commit;
 pub mod welcome_sync;
 mod welcomes;
+
 pub use welcomes::*;
 
 pub use self::group_permissions::PreconfiguredPolicies;
@@ -1002,6 +1004,15 @@ where
         let admin_size = self.admin_list()?.len();
         let super_admin_size = self.super_admin_list()?.len();
         
+        if is_admin && admin_size ==1 || is_super_admin && super_admin_size ==1 {
+            return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
+        }
+        
+        let is_admin = self.is_admin(self.context.inbox_id().to_string())?;
+        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
+        let admin_size = self.admin_list()?.len();
+        let super_admin_size = self.super_admin_list()?.len();
+        tracing::info!("### is_admin: {}, is_super_admin: {}, admin_size: {}, super_admin_size: {}", is_admin, is_super_admin, admin_size, super_admin_size);
         if is_admin && admin_size ==1 || is_super_admin && super_admin_size ==1 {
             return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
         }

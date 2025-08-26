@@ -242,6 +242,15 @@ mock! {
             &self,
             group_id: &[u8],
         ) -> Result<Option<bool>, StorageError>;
+
+        fn set_group_has_pending_leave_request_status(
+            &self,
+            group_id: &[u8],
+            has_pending_leave_request: Option<bool>,
+        ) -> Result<(), StorageError>;
+            fn get_groups_have_pending_leave_request(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
     }
 
     impl QueryGroupVersion for DbQuery {
