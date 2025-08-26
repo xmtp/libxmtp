@@ -51,6 +51,7 @@ impl From<ConversationType> for ConversationTypeSave {
             ConversationType::Dm => Self::Dm,
             ConversationType::Group => Self::Group,
             ConversationType::Sync => Self::Sync,
+            ConversationType::Oneshot => Self::Unspecified,
         }
     }
 }
@@ -68,6 +69,7 @@ impl From<ConversationType> for ConversationTypeProto {
             ConversationType::Group => Self::Group,
             ConversationType::Dm => Self::Dm,
             ConversationType::Sync => Self::Sync,
+            ConversationType::Oneshot => Self::Oneshot,
         }
     }
 }
@@ -80,6 +82,7 @@ impl TryFrom<i32> for ConversationType {
             1 => Self::Group,
             2 => Self::Dm,
             3 => Self::Sync,
+            4 => Self::Oneshot,
             n => {
                 return Err(ConversionError::InvalidValue {
                     item: "ConversationType",
