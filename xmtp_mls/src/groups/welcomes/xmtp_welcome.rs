@@ -22,7 +22,7 @@ use xmtp_common::time::now_ns;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_db::{
-    NotFound, StorageError, XmtpOpenMlsProvider, XmtpOpenMlsProviderRef,
+    StorageError, XmtpOpenMlsProvider, XmtpOpenMlsProviderRef,
     consent_record::{ConsentState, StoredConsentRecord},
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -37,6 +37,16 @@ use xmtp_proto::xmtp::mls::{
     message_contents::{ContentTypeId, GroupUpdated, group_updated::Inbox},
 };
 
+/// Create a group from a decrypted and decoded welcome message.
+/// If the group already exists in the store, overwrite the MLS state and do not update the group entry
+///
+/// # Parameters
+/// * `context` - The client context to use for group operations
+/// * `welcome` - The encrypted welcome message
+/// * `cursor_increment` - Controls whether to allow cursor increments during processing.
+///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
+///   processing from potentially out-of-order sources like streams.
+/// * `validator` - The validator to use to check the group membership
 #[derive(Builder)]
 #[builder(
     pattern = "owned",
@@ -62,16 +72,16 @@ impl<'a, C, V> XmtpWelcome<'a, C, V> {
 /// result of a commit
 /// we consider a commit succesful if it either:
 /// - Fails forever (can not be retried)
-/// - returns a valid MLS Group
+/// - Was successfully decrypted and processed
 enum CommitResult<C> {
     /// Failed on a non-retryable error
     FailedForever(GroupError),
-    /// Returns a valid MLS Group
-    Ok(MlsGroup<C>),
+    /// Successfully decrypted and processed
+    Ok(Option<MlsGroup<C>>),
 }
 
 impl<C> CommitResult<C> {
-    fn into_result(self) -> Result<MlsGroup<C>, GroupError> {
+    fn into_result(self) -> Result<Option<MlsGroup<C>>, GroupError> {
         match self {
             Self::FailedForever(err) => Err(err),
             Self::Ok(group) => Ok(group),
@@ -84,11 +94,12 @@ where
     C: XmtpSharedContext,
     V: ValidateGroupMembership,
 {
-    pub async fn process(self) -> Result<MlsGroup<C>, GroupError> {
+    #[tracing::instrument(skip_all, level = "trace")]
+    pub async fn process(self) -> Result<Option<MlsGroup<C>>, GroupError> {
         let mut this = self.build()?;
         let db = this.context.db();
         if let Some(group) = this.check_if_processed(&db)? {
-            return Ok(group);
+            return Ok(Some(group));
         }
 
         match this.validate_membership(&db).await {
@@ -144,12 +155,18 @@ where
 
         // Check if this welcome was already processed. Return the existing group if so.
         if self.last_cursor(db)? >= self.welcome.id as i64 {
-            let group = db
-                .find_group_by_welcome_id(self.welcome.id as i64)?
-                // The welcome previously errored out, e.g. HPKE error, so it's not in the DB
-                .ok_or(GroupError::NotFound(NotFound::GroupByWelcome(
-                    self.welcome.id as i64,
-                )))?;
+            tracing::debug!(
+                welcome_id = self.welcome.id,
+                "Welcome id is less than cursor, fetching from DB"
+            );
+            let maybe_group = db.find_group_by_welcome_id(self.welcome.id as i64)?;
+            let Some(group) = maybe_group else {
+                tracing::warn!(
+                    welcome_id = self.welcome.id,
+                    "Already processed welcome not found in DB, likely pre-existing group or oneshot message"
+                );
+                return Ok(None);
+            };
 
             let group = MlsGroup::<_>::new(
                 context.clone(),
@@ -268,7 +285,7 @@ where
         &self,
         tx: &mut impl TransactionalKeyStore,
         events: &mut DeferredEvents,
-    ) -> Result<MlsGroup<C>, GroupError> {
+    ) -> Result<Option<MlsGroup<C>>, GroupError> {
         let Self {
             welcome,
             cursor_increment,
@@ -311,7 +328,13 @@ where
                 welcome.id as i64,
             )?;
         }
-
+        let metadata =
+            extract_group_metadata(staged_welcome.public_group().group_context().extensions())
+                .map_err(MetadataPermissionsError::from)?;
+        if metadata.conversation_type == ConversationType::Oneshot {
+            MlsGroup::process_oneshot_welcome(context, welcome.id, staged_welcome, metadata)?;
+            return Ok(None);
+        }
         let mls_group = OpenMlsGroup::from_welcome_logged(
             &provider,
             staged_welcome,
@@ -319,8 +342,6 @@ where
             &added_by_installation_id,
         )?;
         let group_id = mls_group.group_id().to_vec();
-        let metadata =
-            extract_group_metadata(&mls_group).map_err(MetadataPermissionsError::from)?;
         let dm_members = metadata.dm_members;
         let conversation_type = metadata.conversation_type;
         let mutable_metadata = extract_group_mutable_metadata(&mls_group).ok();
@@ -390,6 +411,9 @@ where
                 group
                     .membership_state(GroupMembershipState::Allowed)
                     .build()?
+            }
+            ConversationType::Oneshot => {
+                unreachable!("StagedWelcome of type Oneshot should already be handled")
             }
         };
 
@@ -495,7 +519,7 @@ where
             "updated message cursor from welcome metadata"
         );
 
-        Ok(group)
+        Ok(Some(group))
     }
 }
 

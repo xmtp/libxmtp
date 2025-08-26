@@ -114,7 +114,9 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
 
         let mut query = conversation_list
             .select(conversation_list::all_columns())
-            .filter(conversation_list_dsl::conversation_type.ne(ConversationType::Sync))
+            .filter(
+                conversation_list_dsl::conversation_type.ne_all(ConversationType::virtual_types()),
+            )
             .order(order_expression)
             .into_boxed();
 

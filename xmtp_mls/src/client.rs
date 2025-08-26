@@ -450,10 +450,10 @@ where
 
         let group: MlsGroup<Context> = MlsGroup::create_and_insert(
             self.context.clone(),
-            GroupMembershipState::Allowed,
             ConversationType::Group,
             permissions_policy_set.unwrap_or_default(),
             opts.unwrap_or_default(),
+            None,
         )?;
 
         // notify streams of our new group

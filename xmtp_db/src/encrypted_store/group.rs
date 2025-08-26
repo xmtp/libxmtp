@@ -477,7 +477,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         };
 
         let mut query = dsl::groups
-            .filter(dsl::conversation_type.ne(ConversationType::Sync))
+            .filter(dsl::conversation_type.ne_all(ConversationType::virtual_types()))
             .order(order_expression)
             .into_boxed();
 
@@ -606,7 +606,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         } = args.as_ref();
 
         let mut query = groups::table
-            .filter(groups::conversation_type.ne(ConversationType::Sync))
+            .filter(groups::conversation_type.ne_all(ConversationType::virtual_types()))
             .order(groups::id)
             .into_boxed();
 
@@ -915,7 +915,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         use crate::schema::consent_records::dsl as consent_dsl;
 
         let query = dsl::groups
-            .filter(dsl::conversation_type.ne(ConversationType::Sync))
+            .filter(dsl::conversation_type.ne_all(ConversationType::virtual_types()))
             .inner_join(consent_dsl::consent_records.on(
                 sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
             ))
@@ -929,11 +929,13 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(
-                dsl::conversation_type.ne(ConversationType::Sync).and(
-                    dsl::is_commit_log_forked
-                        .is_null()
-                        .or(dsl::is_commit_log_forked.ne(Some(true))),
-                ),
+                dsl::conversation_type
+                    .ne_all(ConversationType::virtual_types())
+                    .and(
+                        dsl::is_commit_log_forked
+                            .is_null()
+                            .or(dsl::is_commit_log_forked.ne(Some(true))),
+                    ),
             )
             .select(dsl::id);
 
@@ -1051,6 +1053,23 @@ pub enum ConversationType {
     Group = 1,
     Dm = 2,
     Sync = 3,
+    Oneshot = 4,
+}
+
+impl ConversationType {
+    pub fn virtual_types() -> Vec<ConversationType> {
+        vec![ConversationType::Sync, ConversationType::Oneshot]
+    }
+
+    pub fn is_virtual(&self) -> bool {
+        // Use match to force exhaustive pattern matching
+        match self {
+            ConversationType::Group => false,
+            ConversationType::Dm => false,
+            ConversationType::Sync => true,
+            ConversationType::Oneshot => true,
+        }
+    }
 }
 
 impl ToSql<Integer, Sqlite> for ConversationType
@@ -1072,6 +1091,7 @@ where
             1 => Ok(ConversationType::Group),
             2 => Ok(ConversationType::Dm),
             3 => Ok(ConversationType::Sync),
+            4 => Ok(ConversationType::Oneshot),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -1084,6 +1104,7 @@ impl std::fmt::Display for ConversationType {
             Group => write!(f, "group"),
             Dm => write!(f, "dm"),
             Sync => write!(f, "sync"),
+            Oneshot => write!(f, "oneshot"),
         }
     }
 }
