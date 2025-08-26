@@ -9,6 +9,7 @@ pub mod reply;
 pub mod text;
 pub mod transaction_reference;
 mod utils;
+pub mod wallet_send_calls;
 
 use prost::Message;
 use thiserror::Error;
@@ -42,6 +43,7 @@ pub enum ContentType {
     RemoteAttachment,
     MultiRemoteAttachment,
     TransactionReference,
+    WalletSendCalls,
     DeviceSyncMessage,
 }
 
@@ -66,6 +68,7 @@ impl TryFrom<&str> for ContentType {
             transaction_reference::TransactionReferenceCodec::TYPE_ID => {
                 Ok(Self::TransactionReference)
             }
+            wallet_send_calls::WalletSendCallsCodec::TYPE_ID => Ok(Self::WalletSendCalls),
             _ => Err(format!("Unknown content type ID: {type_id}")),
         }
     }
@@ -86,6 +89,7 @@ pub fn should_push(content_type_id: String) -> bool {
             ContentType::RemoteAttachment => true,
             ContentType::MultiRemoteAttachment => true,
             ContentType::TransactionReference => true,
+            ContentType::WalletSendCalls => true,
             ContentType::DeviceSyncMessage => false,
         }
     } else {
