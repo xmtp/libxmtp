@@ -312,6 +312,8 @@ pub struct MessagesWithRelations {
     pub inbound_relations: HashMap<Vec<u8>, Vec<StoredGroupMessage>>,
 }
 
+pub type LatestMessageTimeBySender = HashMap<String, i64>;
+
 pub trait QueryGroupMessage {
     /// Query for group messages
     fn get_group_messages(
@@ -358,6 +360,12 @@ pub trait QueryGroupMessage {
         &self,
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
+
+    fn get_latest_message_times_by_sender<GroupId: AsRef<[u8]>>(
+        &self,
+        group_id: GroupId,
+        allowed_content_types: &[ContentType],
+    ) -> Result<LatestMessageTimeBySender, crate::ConnectionError>;
 
     /// Get a particular group message using the write connection
     fn write_conn_get_group_message<MessageId: AsRef<[u8]>>(
@@ -453,6 +461,14 @@ where
         relation_query: RelationQuery,
     ) -> Result<RelationCounts, crate::ConnectionError> {
         (**self).get_inbound_relation_counts(group_id, message_ids, relation_query)
+    }
+
+    fn get_latest_message_times_by_sender<GroupId: AsRef<[u8]>>(
+        &self,
+        group_id: GroupId,
+        allowed_content_types: &[ContentType],
+    ) -> Result<LatestMessageTimeBySender, crate::ConnectionError> {
+        (**self).get_latest_message_times_by_sender(group_id, allowed_content_types)
     }
 
     /// Get a particular group message
@@ -826,6 +842,44 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         Ok(raw_counts
             .into_iter()
             .filter_map(|(reference_id, count)| reference_id.map(|id| (id, count as usize)))
+            .collect())
+    }
+
+    fn get_latest_message_times_by_sender<GroupId: AsRef<[u8]>>(
+        &self,
+        group_id: GroupId,
+        allowed_content_types: &[ContentType],
+    ) -> Result<LatestMessageTimeBySender, crate::ConnectionError> {
+        let query = dsl::group_messages
+            .filter(
+                dsl::group_id.eq_any(
+                    groups_dsl::groups
+                        .filter(
+                            groups_dsl::id
+                                .eq(group_id.as_ref())
+                                .or(groups_dsl::dm_id.eq_any(
+                                    groups_dsl::groups
+                                        .select(groups_dsl::dm_id)
+                                        .filter(groups_dsl::id.eq(group_id.as_ref()))
+                                        .into_boxed(),
+                                )),
+                        )
+                        .select(groups_dsl::id),
+                ),
+            )
+            .filter(dsl::content_type.eq_any(allowed_content_types))
+            .group_by(dsl::sender_inbox_id)
+            .select((dsl::sender_inbox_id, diesel::dsl::max(dsl::sent_at_ns)))
+            .into_boxed();
+
+        let raw_results: Vec<(String, Option<i64>)> =
+            self.raw_query_read(|conn| query.load(conn))?;
+
+        Ok(raw_results
+            .into_iter()
+            .filter_map(|(sender_inbox_id, max_sent_at_ns)| {
+                max_sent_at_ns.map(|sent_at_ns| (sender_inbox_id, sent_at_ns))
+            })
             .collect())
     }
 
