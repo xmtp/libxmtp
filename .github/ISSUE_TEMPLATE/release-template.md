@@ -1,6 +1,6 @@
 ---
 name: Release Template
-about: Used for coordinating xmtp releases
+about: Used for coordinating XMTP releases
 title: Release XX.XX.XX - MM/DD - MM/DD
 labels: ''
 assignees: ''
