@@ -1319,7 +1319,17 @@ where
             Ok(metadata) => {
                 let is_admin = metadata.admin_list.contains(&current_inbox_id)
                     || metadata.super_admin_list.contains(&current_inbox_id);
-
+                // if is_admin && current_user_not_pending && has_pending_removes {
+                //     let _ = storage
+                //         .db()
+                //         .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
+                //         .map_err(|e| {
+                //             tracing::error!("Failed to set group pending leave request status: {}", e);
+                //             IntentError::Storage(e.into())
+                //         });
+                //
+                //     tracing::info!("Marked the group as having pending leave requests");
+                // }
                 // Only process if we're an admin/super-admin
                 if !is_admin {
                     return;
