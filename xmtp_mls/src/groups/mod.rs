@@ -404,10 +404,12 @@ where
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
     ) -> Result<Self, GroupError> {
+        assert!(conversation_type != ConversationType::Dm);
         let stored_group = Self::insert(
             &context,
             None,
             membership_state,
+            conversation_type,
             permissions_policy_set,
             opts,
         )?;
@@ -420,7 +422,9 @@ where
         );
 
         // Consent state defaults to allowed when the user creates the group
-        new_group.update_consent_state(ConsentState::Allowed)?;
+        if conversation_type != ConversationType::Sync {
+            new_group.update_consent_state(ConsentState::Allowed)?;
+        }
 
         Ok(new_group)
     }
@@ -429,12 +433,14 @@ where
         context: &Context,
         existing_group_id: Option<&[u8]>,
         membership_state: GroupMembershipState,
+        conversation_type: ConversationType,
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
     ) -> Result<StoredGroup, GroupError> {
+        assert!(conversation_type != ConversationType::Dm);
         let creator_inbox_id = context.inbox_id();
         let protected_metadata =
-            build_protected_metadata_extension(creator_inbox_id, ConversationType::Group)?;
+            build_protected_metadata_extension(creator_inbox_id, conversation_type)?;
         let mutable_metadata =
             build_mutable_metadata_extension_default(creator_inbox_id, opts.clone())?;
         let group_membership = build_starting_group_membership_extension(creator_inbox_id, 0);
@@ -468,10 +474,12 @@ where
         // If not an existing group, the creator is a super admin and should publish the commit log
         // Otherwise, for existing groups, we'll never publish the commit log until we receive a welcome message
         let should_publish_commit_log = existing_group_id.is_none();
+
         let stored_group = StoredGroup::builder()
             .id(group_id.clone())
             .created_at_ns(now_ns())
             .membership_state(membership_state)
+            .conversation_type(conversation_type)
             .added_by_inbox_id(context.inbox_id().to_string())
             .message_disappear_from_ns(
                 opts.message_disappearing_settings
@@ -588,49 +596,6 @@ where
             .as_ref()
             .map(|metadata| metadata.is_super_admin(&inbox_id))
             .unwrap_or(false) // Default to false if no mutable metadata
-    }
-
-    /// Create a sync group and insert it into the database.
-    pub(crate) fn create_and_insert_sync_group(
-        context: Context,
-    ) -> Result<MlsGroup<Context>, GroupError> {
-        let provider = context.mls_provider();
-
-        let protected_metadata =
-            build_protected_metadata_extension(context.inbox_id(), ConversationType::Sync)?;
-        let mutable_metadata = build_mutable_metadata_extension_default(
-            context.inbox_id(),
-            GroupMetadataOptions::default(),
-        )?;
-        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
-        let mutable_permissions =
-            build_mutable_permissions_extension(PreconfiguredPolicies::default().to_policy_set())?;
-        let group_config = build_group_config(
-            protected_metadata,
-            mutable_metadata,
-            group_membership,
-            mutable_permissions,
-        )?;
-        let mls_group =
-            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?;
-
-        let group_id = mls_group.group_id().to_vec();
-        let stored_group = StoredGroup::create_sync_group(
-            &context.db(),
-            group_id,
-            now_ns(),
-            GroupMembershipState::Allowed,
-        )?;
-
-        let group = Self::new_from_arc(
-            context,
-            stored_group.id,
-            None,
-            ConversationType::Sync,
-            stored_group.created_at_ns,
-        );
-
-        Ok(group)
     }
 
     /// Send a message on this users XMTP [`Client`].
