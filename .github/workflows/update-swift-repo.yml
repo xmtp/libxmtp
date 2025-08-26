@@ -14,13 +14,13 @@ jobs:
     runs-on: warp-macos-13-arm64-6x
     steps:
       - name: Checkout libxmtp
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: libxmtp
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
 
       - name: Checkout libxmtp-swift
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: xmtp/libxmtp-swift
           path: libxmtp-swift

@@ -4,7 +4,12 @@ name = "xmtp_content_types"
 version.workspace = true
 license.workspace = true
 
+[features]
+test-utils = []
+
 [dependencies]
+base64 = { workspace = true }
+hex = { workspace = true }
 prost = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
