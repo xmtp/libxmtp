@@ -8,6 +8,7 @@ assignees: ''
 ---
 
 ## Target Release Date: - MM/DD - MM/DD
+<!-- one week range -->
 
 ## Included in this release
 - Feature 1
