@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{CodecError, ContentCodec};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
@@ -11,6 +11,8 @@ pub struct TransactionReferenceCodec {}
 impl TransactionReferenceCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
     pub const TYPE_ID: &'static str = "transactionReference";
+    pub const MAJOR_VERSION: u32 = 1;
+    pub const MINOR_VERSION: u32 = 0;
 }
 
 impl ContentCodec<TransactionReference> for TransactionReferenceCodec {
@@ -18,8 +20,8 @@ impl ContentCodec<TransactionReference> for TransactionReferenceCodec {
         ContentTypeId {
             authority_id: Self::AUTHORITY_ID.to_string(),
             type_id: Self::TYPE_ID.to_string(),
-            version_major: 1,
-            version_minor: 0,
+            version_major: Self::MAJOR_VERSION,
+            version_minor: Self::MINOR_VERSION,
         }
     }
 
@@ -55,6 +57,23 @@ impl TransactionReferenceCodec {
     }
 }
 
+/// Custom deserializer for network_id that can handle both string and number
+fn deserialize_network_id<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    // Use serde_json::Value to handle flexible deserialization
+    let value = serde_json::Value::deserialize(deserializer)?;
+
+    match value {
+        serde_json::Value::String(s) => Ok(s),
+        serde_json::Value::Number(n) => Ok(n.to_string()),
+        _ => Err(Error::custom("networkId must be a string or number")),
+    }
+}
+
 /// The main content type for transaction references
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TransactionReference {
@@ -62,7 +81,8 @@ pub struct TransactionReference {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
 
-    /// Network ID (as string to allow hex or decimal)
+    /// Network ID (can be string or number in JSON)
+    #[serde(rename = "networkId", deserialize_with = "deserialize_network_id")]
     pub network_id: String,
 
     /// Transaction hash
@@ -76,11 +96,14 @@ pub struct TransactionReference {
 /// Metadata attached to the transaction reference
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TransactionMetadata {
+    #[serde(rename = "transactionType")]
     pub transaction_type: String,
     pub currency: String,
     pub amount: f64,
     pub decimals: u32,
+    #[serde(rename = "fromAddress")]
     pub from_address: String,
+    #[serde(rename = "toAddress")]
     pub to_address: String,
 }
 
