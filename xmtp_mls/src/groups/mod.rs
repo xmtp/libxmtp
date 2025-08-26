@@ -12,6 +12,7 @@ pub mod members;
 pub mod message_list;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;
+pub mod oneshot;
 pub(super) mod subscriptions;
 pub mod summary;
 #[cfg(test)]
@@ -95,13 +96,10 @@ use xmtp_mls_common::{
         GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings, MetadataField,
     },
 };
-use xmtp_proto::xmtp::mls::{
-    api::v1::welcome_message,
-    message_contents::{
-        EncodedContent, PlaintextEnvelope,
-        content_types::ReactionV2,
-        plaintext_envelope::{Content, V1},
-    },
+use xmtp_proto::xmtp::mls::message_contents::{
+    EncodedContent, OneshotMessage, PlaintextEnvelope,
+    content_types::ReactionV2,
+    plaintext_envelope::{Content, V1},
 };
 
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
@@ -399,19 +397,20 @@ where
     // Create a new group and save it to the DB
     pub(crate) fn create_and_insert(
         context: Context,
-        membership_state: GroupMembershipState,
         conversation_type: ConversationType,
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
+        oneshot_message: Option<OneshotMessage>,
     ) -> Result<Self, GroupError> {
         assert!(conversation_type != ConversationType::Dm);
         let stored_group = Self::insert(
             &context,
             None,
-            membership_state,
+            GroupMembershipState::Allowed,
             conversation_type,
             permissions_policy_set,
             opts,
+            oneshot_message,
         )?;
         let new_group = Self::new_from_arc(
             context.clone(),
@@ -422,7 +421,7 @@ where
         );
 
         // Consent state defaults to allowed when the user creates the group
-        if conversation_type != ConversationType::Sync {
+        if !conversation_type.is_virtual() {
             new_group.update_consent_state(ConsentState::Allowed)?;
         }
 
@@ -436,11 +435,15 @@ where
         conversation_type: ConversationType,
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
+        oneshot_message: Option<OneshotMessage>,
     ) -> Result<StoredGroup, GroupError> {
         assert!(conversation_type != ConversationType::Dm);
         let creator_inbox_id = context.inbox_id();
-        let protected_metadata =
-            build_protected_metadata_extension(creator_inbox_id, conversation_type)?;
+        let protected_metadata = build_protected_metadata_extension(
+            creator_inbox_id,
+            conversation_type,
+            oneshot_message,
+        )?;
         let mutable_metadata =
             build_mutable_metadata_extension_default(creator_inbox_id, opts.clone())?;
         let group_membership = build_starting_group_membership_extension(creator_inbox_id, 0);
@@ -457,9 +460,6 @@ where
             // TODO: For groups restored from backup, in order to support queries on metadata such as
             // the group title and description, a stubbed OpenMLS group is created, and later overwritten
             // when a welcome is received.
-            // To avoid potentially operating on this encryption state elsewhere, it may instead be better
-            // to store this metadata on the StoredGroup instead, and modify group metadata queries to also
-            // check the StoredGroup.
             OpenMlsGroup::from_backup_stub_logged(
                 &provider,
                 context.identity(),
@@ -559,32 +559,6 @@ where
         track!("Group Create", { "conversation_type": ConversationType::Dm }, group: &new_group.group_id);
 
         Ok(new_group)
-    }
-
-    /// Create a group from a decrypted and decoded welcome message.
-    /// If the group already exists in the store, overwrite the MLS state and do not update the group entry
-    ///
-    /// # Parameters
-    /// * `client` - The client context to use for group operations
-    /// * `provider` - The OpenMLS provider for database access
-    /// * `welcome` - The encrypted welcome message
-    /// * `allow_cursor_increment` - Controls whether to allow cursor increments during processing.
-    ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
-    ///   processing from potentially out-of-order sources like streams.
-    #[tracing::instrument(skip_all, level = "trace")]
-    pub(super) async fn create_from_welcome(
-        context: Context,
-        welcome: &welcome_message::V1,
-        cursor_increment: bool,
-        validator: impl ValidateGroupMembership,
-    ) -> Result<Self, GroupError> {
-        XmtpWelcome::builder()
-            .context(context)
-            .welcome(welcome)
-            .cursor_increment(cursor_increment)
-            .validator(validator)
-            .process()
-            .await
     }
 
     // Super admin status is only criteria for whether to publish the commit log for now
@@ -1485,7 +1459,7 @@ where
     pub async fn metadata(&self) -> Result<GroupMetadata, GroupError> {
         self.load_mls_group_with_lock_async(|mls_group| {
             futures::future::ready(
-                extract_group_metadata(&mls_group)
+                extract_group_metadata(mls_group.extensions())
                     .map_err(MetadataPermissionsError::from)
                     .map_err(Into::into),
             )
@@ -1617,8 +1591,15 @@ where
 pub(crate) fn build_protected_metadata_extension(
     creator_inbox_id: &str,
     conversation_type: ConversationType,
+    oneshot_message: Option<OneshotMessage>,
 ) -> Result<Extension, MetadataPermissionsError> {
-    let metadata = GroupMetadata::new(conversation_type, creator_inbox_id.to_string(), None);
+    assert!(conversation_type != ConversationType::Dm);
+    let metadata = GroupMetadata::new(
+        conversation_type,
+        creator_inbox_id.to_string(),
+        None,
+        oneshot_message,
+    );
     let protected_metadata = Metadata::new(metadata.try_into()?);
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
@@ -1637,6 +1618,7 @@ fn build_dm_protected_metadata_extension(
         ConversationType::Dm,
         creator_inbox_id.to_string(),
         dm_members,
+        None,
     );
     let protected_metadata = Metadata::new(
         metadata
@@ -1919,7 +1901,7 @@ fn validate_dm_group(
     added_by_inbox: &str,
 ) -> Result<(), MetadataPermissionsError> {
     // Validate dm specific immutable metadata
-    let metadata = extract_group_metadata(mls_group)?;
+    let metadata = extract_group_metadata(mls_group.extensions())?;
 
     // 1) Check if the conversation type is DM
     if metadata.conversation_type != ConversationType::Dm {

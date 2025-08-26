@@ -116,6 +116,7 @@ async fn test_device_sync_mutable_metadata_is_overwritten() {
         GroupMetadataOptions {
             ..Default::default()
         },
+        None,
     )?;
     let b = bo.group(&a.group_id)?;
     let a_metadata = a.mutable_metadata()?;
