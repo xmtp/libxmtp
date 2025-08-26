@@ -11,8 +11,8 @@ use prost::Message;
 use rand::Rng;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::consent_record::ConsentState;
-use xmtp_db::group::GroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
+use xmtp_db::group::{ConversationType, GroupMembershipState};
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_db::local_commit_log::{CommitType, LocalCommitLog};
 use xmtp_db::prelude::*;
@@ -111,6 +111,7 @@ async fn test_device_sync_mutable_metadata_is_overwritten() {
         &bo.context,
         Some(&a.group_id),
         GroupMembershipState::Restored,
+        ConversationType::Group,
         PolicySet::default(),
         GroupMetadataOptions {
             ..Default::default()
