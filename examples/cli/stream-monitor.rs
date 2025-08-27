@@ -48,7 +48,7 @@ fn setup_global_subscriber(enable_fmt: bool) -> impl Drop {
 #[command(about = "XMTP Stream Monitor - Listens for all messages using stream_all_messages")]
 struct Args {
     /// Optional timeout in seconds for stream monitoring
-    #[arg(long, default_value = "10")]
+    #[arg(long, default_value_t = 10)]
     timeout: u64,
 
     /// Output file for message IDs
@@ -56,15 +56,19 @@ struct Args {
     output_file: String,
 
     /// Maximum number of messages to receive before ending
-    #[arg(long, default_value = "10000")]
+    #[arg(long, default_value_t = 10000)]
     max_messages: usize,
 
+    /// Maximum number of messages to send before ending
+    #[arg(long, default_value_t = 1000)]
+    max_messages_per_group: usize,
+
     /// Use persistent database storage instead of ephemeral storage
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value_t = false)]
     use_database: bool,
 
     /// Save message IDs to output file
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value_t = false)]
     output: bool,
 
     /// Output file for all message IDs from all groups (after sync)
@@ -72,17 +76,8 @@ struct Args {
     all_groups_output_file: String,
 
     /// Enable console logging output
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value_t = false)]
     enable_logging: bool,
-}
-
-fn client_random_suffix() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    format!("{}", timestamp)
 }
 
 #[tokio::main]
@@ -95,10 +90,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if args.enable_logging {
         println!("Logging enabled - console output will include trace logs");
     }
-
-    // Generate a random wallet for signing
-    let wallet = PrivateKeySigner::random();
-    println!("Generated wallet address: {}", wallet.address());
 
     // Create XMTP client
     println!("Creating XMTP client...");
@@ -143,7 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let sent_messages = tokio::spawn(send_messages(
         client.inbox_id().to_string(),
         args.max_messages,
-        1000,
+        args.max_messages_per_group,
         args.timeout,
     ));
 
@@ -300,6 +291,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("Performance: Unable to calculate rate - timing data incomplete");
     }
 
+    if sent_messages.len() == message_ids.len() {
+        println!("All messages received successfully");
+        return Ok(());
+    }
+
     // Write message IDs to file if enabled
     if args.output && !message_ids.is_empty() {
         println!(
@@ -328,6 +324,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         println!("Found {} groups to collect messages from", groups.len());
 
+        let sent_message_ids = sent_messages
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+
         // Collect all message IDs from all groups
         let mut all_message_ids = Vec::new();
         for group in groups {
@@ -336,6 +337,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
             for message in messages {
                 if message.kind == xmtp_db::group_message::GroupMessageKind::Application {
+                    assert!(sent_message_ids.contains(hex::encode(&message.id).as_str()));
                     all_message_ids.push(message);
                 } else {
                     println!(
@@ -373,29 +375,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         hex::encode(&message.id)
                     );
                     println!("  group_id: {}", hex::encode(&message.group_id));
-                    println!(
-                        "  decrypted_message_bytes: {:?}",
-                        message.decrypted_message_bytes
-                    );
+                    // println!(
+                    //     "  decrypted_message_bytes: {:?}",
+                    //     message.decrypted_message_bytes
+                    // );
                     println!(
                         "  decrypted message str: {}",
-                        String::from_utf8_lossy(&message.decrypted_message_bytes)
+                        &String::from_utf8_lossy(&message.decrypted_message_bytes)[41..]
                     );
                     println!(
                         "  sent at: {}",
                         chrono::DateTime::from_timestamp_nanos(message.sent_at_ns)
                     );
-                    println!("  kind: {:?}", message.kind);
-                    println!(
-                        "  sender_installation_id: {}",
-                        hex::encode(&message.sender_installation_id)
-                    );
-                    println!("  sender_inbox_id: {}", message.sender_inbox_id);
-                    println!("  delivery_status: {:?}", message.delivery_status);
-                    println!("  content_type: {:?}", message.content_type);
-                    println!("  version_major: {}", message.version_major);
-                    println!("  version_minor: {}", message.version_minor);
-                    println!("  authority_id: {}", message.authority_id);
+                    // println!("  kind: {:?}", message.kind);
+                    // println!(
+                    //     "  sender_installation_id: {}",
+                    //     hex::encode(&message.sender_installation_id)
+                    // );
+                    // println!("  sender_inbox_id: {}", message.sender_inbox_id);
+                    // println!("  delivery_status: {:?}", message.delivery_status);
+                    // println!("  content_type: {:?}", message.content_type);
+                    // println!("  version_major: {}", message.version_major);
+                    // println!("  version_minor: {}", message.version_minor);
+                    // println!("  authority_id: {}", message.authority_id);
                     println!("  sequence_id: {}", message.sequence_id.unwrap_or(0));
                 }
             }
@@ -405,7 +407,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     println!("Stream monitor finished");
-    Ok(())
+    Err("Missing messages".into())
 }
 
 async fn send_messages(
@@ -419,7 +421,7 @@ async fn send_messages(
     let group_size = group_size.min(1000);
     while messages_to_send > 0 {
         let join = tokio::spawn(send_messages_in_thread(
-            1,
+            tasks.len() + 1,
             inbox_id.clone(),
             messages_to_send.min(group_size),
             timeout_seconds,
