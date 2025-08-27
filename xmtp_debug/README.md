@@ -78,6 +78,14 @@ cargo xdbg info
 cargo xdbg export --entity identity | jq > identities.json
 ```
 
+#### Query
+
+##### Get information about identity updates for an inbox id
+
+```
+cargo xdbg query identity 01a43cdd27b196472687262ed5783006eabc7c26db9e09630bc5004b8fc689dc
+```
+
 ## Future Work
 
 See [The Tracking Issue](https://github.com/xmtp/libxmtp/issues/1310) for
