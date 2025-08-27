@@ -307,7 +307,8 @@ where
         xmtp_common::spawn(Some(rx), async move {
             let stream = match client
                 .stream_conversations(conversation_type, include_duplicate_dms)
-                .await {
+                .await
+            {
                 Ok(stream) => stream,
                 Err(e) => {
                     tracing::warn!("Failed to create conversation stream, closing: {}", e);
@@ -373,14 +374,15 @@ where
 
         xmtp_common::spawn(Some(rx), async move {
             tracing::debug!("stream all messages with callback");
-            let stream = match StreamAllMessages::new(&context, conversation_type, consent_state).await {
-                Ok(stream) => stream,
-                Err(e) => {
-                    tracing::warn!("Failed to create message stream, closing: {}", e);
-                    on_close();
-                    return Ok::<_, SubscribeError>(());
-                }
-            };
+            let stream =
+                match StreamAllMessages::new(&context, conversation_type, consent_state).await {
+                    Ok(stream) => stream,
+                    Err(e) => {
+                        tracing::warn!("Failed to create message stream, closing: {}", e);
+                        on_close();
+                        return Ok::<_, SubscribeError>(());
+                    }
+                };
 
             futures::pin_mut!(stream);
             let _ = tx.send(());
