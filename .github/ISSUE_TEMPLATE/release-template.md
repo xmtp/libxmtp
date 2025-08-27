@@ -12,7 +12,9 @@ assignees: ''
 
 ## Included in this release
 - Feature 1
+  - Needs docs: Yes/No
 - Feature 2
+  - Needs docs: Yes/No
 - Bugfix 1
 - Bugfix 2
 
