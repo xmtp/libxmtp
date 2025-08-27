@@ -102,7 +102,7 @@ impl App {
                 Generate(g) => generate::Generate::new(g, backend, db).run().await,
                 Send(s) => send::Send::new(s, backend, db).run().await,
                 Inspect(i) => inspect::Inspect::new(i, backend, db).run().await,
-                Query(_q) => todo!(),
+                Query(q) => query::Query::new(q, backend, db).run().await,
                 Info(i) => info::Info::new(i, backend, db).run().await,
                 Export(e) => export::Export::new(e, db, backend).run(),
                 Modify(m) => modify::Modify::new(m, backend, db).run().await,
