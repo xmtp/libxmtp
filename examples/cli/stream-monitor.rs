@@ -86,7 +86,7 @@ fn client_random_suffix() -> String {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
 
     let _guard = setup_global_subscriber(args.enable_logging);
@@ -102,54 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create XMTP client
     println!("Creating XMTP client...");
-    let nonce = 0;
-    let ident = wallet.get_identifier().expect("Wallet address is invalid");
-    let inbox_id = ident.inbox_id(nonce).expect("Failed to get inbox ID");
-
-    // Create GRPC client for local node
-    let api_client = Arc::new(
-        GrpcApiClient::create("http://localhost:5556", false, None::<String>)
-            .await
-            .expect("Failed to create GRPC client"),
-    );
-
-    // Create encrypted store based on CLI option
-    let store = if args.use_database {
-        let db_path = format!("stream-monitor-{}.db3", client_random_suffix());
-        println!("Using persistent database: {}", db_path);
-        let native_db = NativeDb::new_unencrypted(&StorageOption::Persistent(db_path))
-            .expect("Failed to create native DB");
-        EncryptedMessageStore::new(native_db).expect("Failed to create store")
-    } else {
-        println!("Using ephemeral storage");
-        let native_db = NativeDb::new_unencrypted(&StorageOption::Ephemeral)
-            .expect("Failed to create native DB");
-        EncryptedMessageStore::new(native_db).expect("Failed to create store")
-    };
-
-    let client = Client::builder(IdentityStrategy::new(inbox_id, ident, nonce, None))
-        .store(store)
-        .api_clients(api_client.clone(), api_client)
-        .with_remote_verifier()
-        .expect("Failed to configure remote verifier")
-        .default_mls_store()
-        .expect("Failed to configure MLS store")
-        .build()
-        .await
-        .expect("Failed to build client");
-
-    // Register the identity
-    let mut signature_request = client.identity().signature_request().unwrap();
-    let signature = wallet.sign(&signature_request.signature_text()).unwrap();
-    signature_request
-        .add_signature(signature, client.scw_verifier())
-        .await
-        .unwrap();
-
-    if let Err(e) = client.register_identity(signature_request).await {
-        error!("Identity registration failed: {}", e);
-        return Err(e.into());
-    }
+    let client = create_client_with_wallet().await?;
 
     println!("Client created and registered successfully!");
     println!("Inbox ID: {}", client.inbox_id());
@@ -443,4 +396,122 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Stream monitor finished");
     Ok(())
+}
+
+async fn send_messages_in_thread(
+    task_id: usize,
+    target_inbox_id: String,
+    messages_to_send: usize,
+    timeout_seconds: u64,
+) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+    use prost::Message;
+    let client = create_client_with_wallet().await?;
+
+    // Create or find DM with target inbox ID
+    let group = client
+        .find_or_create_dm_by_inbox_id(target_inbox_id.clone(), None)
+        .await
+        .expect("Failed to create DM");
+
+    let mut message_ids = Vec::with_capacity(messages_to_send);
+
+    for i in 1..=messages_to_send {
+        let message_text = format!("Message {i} from task {task_id}");
+
+        // Encode message content
+        let encoded_content =
+            <xmtp_content_types::text::TextCodec as xmtp_content_types::ContentCodec<String>>::encode(message_text.clone()).unwrap();
+        let mut content_bytes = Vec::new();
+        encoded_content.encode(&mut content_bytes).unwrap();
+
+        // Send message with timeout
+        match tokio::time::timeout(
+            tokio::time::Duration::from_secs(timeout_seconds),
+            group.send_message(&content_bytes),
+        )
+        .await
+        {
+            Ok(Ok(message_id)) => {
+                let hex_id = hex::encode(&message_id);
+
+                // Store message ID
+                message_ids.push(hex_id.clone());
+            }
+            Ok(Err(_e)) => {
+                // Message send failed - continue without updating progress
+            }
+            Err(_) => {
+                // Timeout occurred - continue without updating progress
+            }
+        }
+    }
+
+    Ok(message_ids)
+}
+
+type ClientType = Client<
+    Arc<
+        xmtp_mls::context::XmtpMlsLocalContext<
+            Arc<GrpcApiClient>,
+            EncryptedMessageStore<NativeDb>,
+            xmtp_db::sql_key_store::SqlKeyStore<
+                xmtp_db::DbConnection<
+                    Arc<
+                        xmtp_db::PersistentOrMem<
+                            xmtp_db::NativeDbConnection,
+                            xmtp_db::EphemeralDbConnection,
+                        >,
+                    >,
+                >,
+            >,
+        >,
+    >,
+>;
+
+async fn create_client_with_wallet() -> Result<ClientType, Box<dyn std::error::Error + Send + Sync>>
+{
+    // Generate a random wallet for signing
+    let wallet = PrivateKeySigner::random();
+
+    // Create XMTP client
+    let nonce = 0;
+    let ident = wallet.get_identifier().expect("Wallet address is invalid");
+    let inbox_id = ident.inbox_id(nonce).expect("Failed to get inbox ID");
+
+    // Create GRPC client for local node
+    let api_client = Arc::new(
+        GrpcApiClient::create("http://localhost:5556", false, None::<String>)
+            .await
+            .expect("Failed to create GRPC client"),
+    );
+
+    // Create encrypted store with ephemeral storage
+    let native_db =
+        NativeDb::new_unencrypted(&StorageOption::Ephemeral).expect("Failed to create native DB");
+    let store = EncryptedMessageStore::new(native_db).expect("Failed to create store");
+
+    let client = Client::builder(IdentityStrategy::new(inbox_id, ident, nonce, None))
+        .store(store)
+        .api_clients(api_client.clone(), api_client)
+        .with_remote_verifier()
+        .expect("Failed to configure remote verifier")
+        .default_mls_store()
+        .expect("Failed to configure MLS store")
+        .build()
+        .await
+        .expect("Failed to build client");
+
+    // Register the identity
+    let mut signature_request = client.identity().signature_request().unwrap();
+    let signature = wallet.sign(&signature_request.signature_text()).unwrap();
+    signature_request
+        .add_signature(signature, client.scw_verifier())
+        .await
+        .unwrap();
+
+    if let Err(e) = client.register_identity(signature_request).await {
+        return Err(e.into());
+    }
+
+    Ok(client)
 }
