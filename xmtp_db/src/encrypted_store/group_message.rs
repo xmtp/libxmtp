@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::{
     attachment, group_updated, membership_change, reaction, read_receipt, remote_attachment, reply,
-    text, transaction_reference,
+    text, transaction_reference, wallet_send_calls,
 };
 
 mod convert;
@@ -78,8 +78,9 @@ pub struct StoredGroupMessageWithReactions {
     pub reactions: Vec<StoredGroupMessage>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub enum SortDirection {
+    #[default]
     Ascending,
     Descending,
 }
@@ -130,6 +131,25 @@ pub enum ContentType {
     Attachment = 7,
     RemoteAttachment = 8,
     TransactionReference = 9,
+    WalletSendCalls = 10,
+}
+
+impl ContentType {
+    pub fn all() -> Vec<ContentType> {
+        vec![
+            ContentType::Unknown,
+            ContentType::Text,
+            ContentType::GroupMembershipChange,
+            ContentType::GroupUpdated,
+            ContentType::Reaction,
+            ContentType::ReadReceipt,
+            ContentType::Reply,
+            ContentType::Attachment,
+            ContentType::RemoteAttachment,
+            ContentType::TransactionReference,
+            ContentType::WalletSendCalls,
+        ]
+    }
 }
 
 impl std::fmt::Display for ContentType {
@@ -145,6 +165,7 @@ impl std::fmt::Display for ContentType {
             Self::RemoteAttachment => remote_attachment::RemoteAttachmentCodec::TYPE_ID,
             Self::Reply => reply::ReplyCodec::TYPE_ID,
             Self::TransactionReference => transaction_reference::TransactionReferenceCodec::TYPE_ID,
+            Self::WalletSendCalls => wallet_send_calls::WalletSendCallsCodec::TYPE_ID,
         };
 
         write!(f, "{}", as_string)
@@ -163,6 +184,7 @@ impl From<String> for ContentType {
             attachment::AttachmentCodec::TYPE_ID => Self::Attachment,
             remote_attachment::RemoteAttachmentCodec::TYPE_ID => Self::RemoteAttachment,
             transaction_reference::TransactionReferenceCodec::TYPE_ID => Self::TransactionReference,
+            wallet_send_calls::WalletSendCallsCodec::TYPE_ID => Self::WalletSendCalls,
             _ => Self::Unknown,
         }
     }
@@ -194,6 +216,7 @@ where
             7 => Ok(ContentType::Attachment),
             8 => Ok(ContentType::RemoteAttachment),
             9 => Ok(ContentType::TransactionReference),
+            10 => Ok(ContentType::WalletSendCalls),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -261,6 +284,34 @@ impl MsgQueryArgs {
     }
 }
 
+#[derive(Default, Clone, Builder)]
+pub struct RelationQuery {
+    #[builder(default = None)]
+    pub content_types: Option<Vec<ContentType>>,
+    #[builder(default = None)]
+    pub limit: Option<i64>,
+    #[builder(default = SortDirection::Ascending)]
+    pub direction: SortDirection,
+}
+
+impl RelationQuery {
+    pub fn builder() -> RelationQueryBuilder {
+        RelationQueryBuilder::default()
+    }
+}
+
+pub type InboundRelations = HashMap<Vec<u8>, Vec<StoredGroupMessage>>;
+pub type OutboundRelations = HashMap<Vec<u8>, StoredGroupMessage>;
+pub type RelationCounts = HashMap<Vec<u8>, usize>;
+
+pub struct MessagesWithRelations {
+    pub messages: Vec<StoredGroupMessage>,
+    /// Messages referenced by any item in the `messages` vector, keyed by their ID
+    pub outbound_relations: HashMap<Vec<u8>, StoredGroupMessage>,
+    /// Messages that reference any item in the `messages` vector, grouped by the reference_id
+    pub inbound_relations: HashMap<Vec<u8>, Vec<StoredGroupMessage>>,
+}
+
 pub trait QueryGroupMessage {
     /// Query for group messages
     fn get_group_messages(
@@ -281,6 +332,26 @@ pub trait QueryGroupMessage {
         group_id: &[u8],
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessageWithReactions>, crate::ConnectionError>;
+
+    fn get_inbound_relations(
+        &self,
+        group_id: &[u8],
+        message_ids: &[&[u8]],
+        relation_query: RelationQuery,
+    ) -> Result<InboundRelations, crate::ConnectionError>;
+
+    fn get_outbound_relations(
+        &self,
+        group_id: &[u8],
+        message_ids: &[&[u8]],
+    ) -> Result<OutboundRelations, crate::ConnectionError>;
+
+    fn get_inbound_relation_counts(
+        &self,
+        group_id: &[u8],
+        message_ids: &[&[u8]],
+        relation_query: RelationQuery,
+    ) -> Result<RelationCounts, crate::ConnectionError>;
 
     /// Get a particular group message
     fn get_group_message<MessageId: AsRef<[u8]>>(
@@ -356,6 +427,32 @@ where
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessageWithReactions>, crate::ConnectionError> {
         (**self).get_group_messages_with_reactions(group_id, args)
+    }
+
+    fn get_inbound_relations(
+        &self,
+        group_id: &[u8],
+        message_ids: &[&[u8]],
+        relation_query: RelationQuery,
+    ) -> Result<InboundRelations, crate::ConnectionError> {
+        (**self).get_inbound_relations(group_id, message_ids, relation_query)
+    }
+
+    fn get_outbound_relations(
+        &self,
+        group_id: &[u8],
+        message_ids: &[&[u8]],
+    ) -> Result<OutboundRelations, crate::ConnectionError> {
+        (**self).get_outbound_relations(group_id, message_ids)
+    }
+
+    fn get_inbound_relation_counts(
+        &self,
+        group_id: &[u8],
+        message_ids: &[&[u8]],
+        relation_query: RelationQuery,
+    ) -> Result<RelationCounts, crate::ConnectionError> {
+        (**self).get_inbound_relation_counts(group_id, message_ids, relation_query)
     }
 
     /// Get a particular group message
@@ -640,6 +737,96 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .collect();
 
         Ok(messages_with_reactions)
+    }
+
+    fn get_inbound_relations(
+        &self,
+        group_id: &[u8],
+        message_ids: &[&[u8]],
+        relation_query: RelationQuery,
+    ) -> Result<InboundRelations, crate::ConnectionError> {
+        let mut inbound_relations: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
+
+        let mut inbound_relations_query = dsl::group_messages
+            .filter(dsl::group_id.eq(group_id))
+            .filter(dsl::reference_id.is_not_null())
+            .filter(dsl::reference_id.eq_any(message_ids))
+            .into_boxed();
+
+        if relation_query.direction == SortDirection::Descending {
+            inbound_relations_query = inbound_relations_query.order(dsl::sent_at_ns.desc());
+        } else {
+            inbound_relations_query = inbound_relations_query.order(dsl::sent_at_ns.asc());
+        }
+
+        if let Some(content_types) = relation_query.content_types {
+            inbound_relations_query =
+                inbound_relations_query.filter(dsl::content_type.eq_any(content_types));
+        }
+
+        if let Some(limit) = relation_query.limit {
+            inbound_relations_query = inbound_relations_query.limit(limit);
+        }
+
+        let raw_inbound_relations: Vec<StoredGroupMessage> =
+            self.raw_query_read(|conn| inbound_relations_query.load(conn))?;
+
+        for inbound_reference in raw_inbound_relations {
+            if let Some(reference_id) = &inbound_reference.reference_id {
+                inbound_relations
+                    .entry(reference_id.clone())
+                    .or_default()
+                    .push(inbound_reference);
+            }
+        }
+
+        Ok(inbound_relations)
+    }
+
+    fn get_outbound_relations(
+        &self,
+        group_id: &[u8],
+        reference_ids: &[&[u8]],
+    ) -> Result<OutboundRelations, crate::ConnectionError> {
+        let outbound_references_query = dsl::group_messages
+            .filter(dsl::group_id.eq(group_id))
+            .filter(dsl::id.eq_any(reference_ids))
+            .into_boxed();
+
+        let raw_outbound_references: Vec<StoredGroupMessage> =
+            self.raw_query_read(|conn| outbound_references_query.load(conn))?;
+
+        Ok(raw_outbound_references
+            .into_iter()
+            .map(|outbound| (outbound.id.clone(), outbound))
+            .collect())
+    }
+
+    fn get_inbound_relation_counts(
+        &self,
+        group_id: &[u8],
+        message_ids: &[&[u8]],
+        relation_query: RelationQuery,
+    ) -> Result<RelationCounts, crate::ConnectionError> {
+        let mut count_query = dsl::group_messages
+            .filter(dsl::group_id.eq(group_id))
+            .filter(dsl::reference_id.is_not_null())
+            .filter(dsl::reference_id.eq_any(message_ids))
+            .group_by(dsl::reference_id)
+            .select((dsl::reference_id, diesel::dsl::count_star()))
+            .into_boxed();
+
+        if let Some(content_types) = relation_query.content_types {
+            count_query = count_query.filter(dsl::content_type.eq_any(content_types));
+        }
+
+        let raw_counts: Vec<(Option<Vec<u8>>, i64)> =
+            self.raw_query_read(|conn| count_query.load(conn))?;
+
+        Ok(raw_counts
+            .into_iter()
+            .filter_map(|(reference_id, count)| reference_id.map(|id| (id, count as usize)))
+            .collect())
     }
 
     /// Get a particular group message
