@@ -140,6 +140,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         args.timeout
     ));
 
+    let sent_messages = tokio::spawn(send_messages(
+        client.inbox_id().to_string(),
+        args.max_messages,
+        1000,
+        args.timeout,
+    ));
+
     loop {
         let span = span.clone();
         // Check for message limit first (fastest check)
@@ -258,6 +265,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Finish progress bar
     progress.finish_with_message(format!("Completed: {} messages received", message_count));
+
+    let sent_messages = sent_messages.await??;
+    println!("Sent {} messages", sent_messages.len());
 
     println!(
         "Stream monitoring completed. Total messages received: {}",
@@ -398,12 +408,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
+async fn send_messages(
+    inbox_id: String,
+    mut messages_to_send: usize,
+    group_size: usize,
+    timeout_seconds: u64,
+) -> Result<Vec<SentMessage>, Box<dyn std::error::Error + Send + Sync>> {
+    let mut tasks = Vec::new();
+    let mut message_ids = Vec::with_capacity(messages_to_send);
+    let group_size = group_size.min(1000);
+    while messages_to_send > 0 {
+        let join = tokio::spawn(send_messages_in_thread(
+            1,
+            inbox_id.clone(),
+            messages_to_send.min(group_size),
+            timeout_seconds,
+        ));
+        tasks.push(join);
+        messages_to_send = messages_to_send.saturating_sub(group_size);
+    }
+    for task in tasks {
+        let mut sent_messages = task.await??;
+        message_ids.append(&mut sent_messages);
+    }
+    Ok(message_ids)
+}
+
+struct SentMessage {
+    id: String,
+    text: String,
+}
+
 async fn send_messages_in_thread(
     task_id: usize,
     target_inbox_id: String,
     messages_to_send: usize,
     timeout_seconds: u64,
-) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Vec<SentMessage>, Box<dyn std::error::Error + Send + Sync>> {
     use prost::Message;
     let client = create_client_with_wallet().await?;
 
@@ -415,13 +456,14 @@ async fn send_messages_in_thread(
 
     let mut message_ids = Vec::with_capacity(messages_to_send);
 
+    let mut content_bytes = Vec::new();
     for i in 1..=messages_to_send {
-        let message_text = format!("Message {i} from task {task_id}");
+        let text = format!("Message {i} from task {task_id}");
 
         // Encode message content
         let encoded_content =
-            <xmtp_content_types::text::TextCodec as xmtp_content_types::ContentCodec<String>>::encode(message_text.clone()).unwrap();
-        let mut content_bytes = Vec::new();
+            <xmtp_content_types::text::TextCodec as xmtp_content_types::ContentCodec<String>>::encode(text.clone()).unwrap();
+        content_bytes.clear();
         encoded_content.encode(&mut content_bytes).unwrap();
 
         // Send message with timeout
@@ -432,10 +474,10 @@ async fn send_messages_in_thread(
         .await
         {
             Ok(Ok(message_id)) => {
-                let hex_id = hex::encode(&message_id);
+                let id = hex::encode(&message_id);
 
                 // Store message ID
-                message_ids.push(hex_id.clone());
+                message_ids.push(SentMessage { id, text });
             }
             Ok(Err(_e)) => {
                 // Message send failed - continue without updating progress
