@@ -1013,18 +1013,15 @@ where
         if members.len() == 1 {
             return Err(GroupLeaveValidationError::SingleMemberLeaveRejected.into());
         }
-
-        // check if the conversation is not a DM
+// check if the conversation is not a DM
         if self.metadata().await?.conversation_type == ConversationType::Dm {
             return Err(GroupLeaveValidationError::DmLeaveForbidden.into());
         }
-
         let is_admin = self.is_admin(self.context.inbox_id().to_string())?;
         let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
         let admin_size = self.admin_list()?.len();
         let super_admin_size = self.super_admin_list()?.len();
-
-        // check if the user is the only Admin or SuperAdmin of the group
+// check if the user is the only Admin or SuperAdmin of the group
         if (is_admin && admin_size == 1) || (is_super_admin && super_admin_size == 1) {
             return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
         }
@@ -1033,8 +1030,8 @@ where
         let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
         let admin_size = self.admin_list()?.len();
         let super_admin_size = self.super_admin_list()?.len();
-        tracing::info!("### is_admin: {}, is_super_admin: {}, admin_size: {}, super_admin_size: {}", is_admin, is_super_admin, admin_size, super_admin_size);
-        if is_admin && admin_size ==1 || is_super_admin && super_admin_size ==1 {
+
+        if is_admin && admin_size == 1 || is_super_admin && super_admin_size == 1 {
             return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
         }
 
