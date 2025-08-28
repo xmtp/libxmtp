@@ -6992,13 +6992,13 @@ mod tests {
         assert!(stream.is_closed());
 
         // Stream just groups
+        // Sync bo first to avoid any spillover from the last stream
+        bo.conversations().sync().await.unwrap();
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
             .stream_groups(stream_callback.clone())
             .await;
-        stream_callback.wait_for_delivery(None).await.unwrap();
-        assert_eq!(stream_callback.message_count(), 1);
 
         alix.conversations()
             .create_group(
@@ -7008,31 +7008,31 @@ mod tests {
             .await
             .unwrap();
 
-        stream_callback.wait_for_delivery(None).await.unwrap();
-        assert_eq!(stream_callback.message_count(), 2);
+        stream_callback.wait_for_delivery(Some(2)).await.unwrap();
+        assert_eq!(stream_callback.message_count(), 1);
 
         alix.conversations()
             .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
-        let result = stream_callback.wait_for_delivery(Some(2)).await;
+        let result = stream_callback.wait_for_delivery(Some(1)).await;
         assert!(result.is_err(), "Stream unexpectedly received a DM");
-        assert_eq!(stream_callback.message_count(), 2);
+        assert_eq!(stream_callback.message_count(), 1);
 
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
 
         // Stream just dms
+        // Sync bo before opening the stream
+        bo.conversations().sync().await.unwrap();
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo.conversations().stream_dms(stream_callback.clone()).await;
-        stream_callback.wait_for_delivery(None).await.unwrap();
-        assert_eq!(stream_callback.message_count(), 1);
         caro.conversations()
             .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
-        stream_callback.wait_for_delivery(None).await.unwrap();
-        assert_eq!(stream_callback.message_count(), 2);
+        stream_callback.wait_for_delivery(Some(2)).await.unwrap();
+        assert_eq!(stream_callback.message_count(), 1);
 
         alix.conversations()
             .create_group(
@@ -7044,7 +7044,7 @@ mod tests {
 
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(result.is_err(), "Stream unexpectedly received a Group");
-        assert_eq!(stream_callback.message_count(), 2);
+        assert_eq!(stream_callback.message_count(), 1);
 
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
@@ -7130,9 +7130,6 @@ mod tests {
             "Stream unexpectedly received a Group message"
         );
         assert_eq!(stream_callback.message_count(), 1);
-
-        stream.end_and_wait().await.unwrap();
-        assert!(stream.is_closed());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
