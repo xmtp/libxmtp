@@ -2,6 +2,7 @@ use super::{GroupError, MlsGroup, PreconfiguredPolicies};
 use crate::context::XmtpSharedContext;
 use openmls::group::StagedWelcome;
 use xmtp_db::group::ConversationType;
+use xmtp_id::AsIdRef;
 use xmtp_mls_common::{group::GroupMetadataOptions, group_metadata::GroupMetadata};
 use xmtp_proto::xmtp::mls::message_contents::OneshotMessage;
 
@@ -19,9 +20,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     ///
     /// # Returns
     /// The created oneshot group
-    pub async fn send_oneshot_message(
+    pub async fn send_oneshot_message<S: AsIdRef>(
         context: Context,
-        inbox_ids: Vec<&str>,
+        inbox_ids: impl AsRef<[S]>,
         oneshot_message: OneshotMessage,
     ) -> Result<(), GroupError> {
         // Create a oneshot group with the oneshot message
@@ -34,8 +35,10 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         )?;
 
         // Add the specified inbox IDs to the group
-        if !inbox_ids.is_empty() {
+        if !inbox_ids.as_ref().is_empty() {
             group.add_members_by_inbox_id(&inbox_ids).await?;
+        } else {
+            group.add_missing_installations().await?;
         }
 
         Ok(())
