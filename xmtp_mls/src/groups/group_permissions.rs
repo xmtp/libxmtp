@@ -486,7 +486,7 @@ impl PermissionsPolicies {
     pub fn allow_if_actor_super_admin() -> Self {
         PermissionsPolicies::Standard(PermissionsBasePolicies::AllowIfActorSuperAdmin)
     }
-    
+
     /// Creates an "And" condition permissions policy.
     pub fn and(policies: Vec<PermissionsPolicies>) -> Self {
         PermissionsPolicies::AndCondition(PermissionsAndCondition::new(policies))
