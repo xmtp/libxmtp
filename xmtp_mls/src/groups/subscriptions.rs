@@ -109,7 +109,15 @@ where
     let (tx, rx) = oneshot::channel();
 
     xmtp_common::spawn(Some(rx), async move {
-        let stream = StreamGroupMessages::new(&context, active_conversations.collect()).await?;
+        let stream = match StreamGroupMessages::new(&context, active_conversations.collect()).await
+        {
+            Ok(stream) => stream,
+            Err(e) => {
+                tracing::warn!("Failed to create group message stream, closing: {}", e);
+                on_close();
+                return Ok::<_, SubscribeError>(());
+            }
+        };
         futures::pin_mut!(stream);
         let _ = tx.send(());
         while let Some(message) = stream.next().await {

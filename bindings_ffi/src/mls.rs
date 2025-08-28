@@ -489,6 +489,11 @@ impl FfiXmtpClient {
         Ok(message.into())
     }
 
+    pub fn message_v2(&self, message_id: Vec<u8>) -> Result<FfiDecodedMessage, GenericError> {
+        let message = self.inner_client.message_v2(message_id)?;
+        Ok(message.into())
+    }
+
     pub async fn can_message(
         &self,
         account_identifiers: Vec<FfiIdentifier>,
