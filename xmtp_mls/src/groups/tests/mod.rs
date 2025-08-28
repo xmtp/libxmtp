@@ -1196,21 +1196,26 @@ async fn test_self_removal() {
     );
 
     // Verify Amal's as the super admin/ admin can't leave the group and their inboxId is not added to the pendingRemoveList
-    amal_group.leave_group().await.expect_err("Amal should not be able to leave the group");
+    amal_group
+        .leave_group()
+        .await
+        .expect_err("Amal should not be able to leave the group");
     let amal_group_pending_remove_list = amal_group.mutable_metadata().unwrap().pending_remove_list;
 
     // Amal's inboxId shouldn't be in the pending-remove list
     assert!(!amal_group_pending_remove_list.contains(&amal.inbox_id().to_string()));
-    
+
     // The pending-remove list should only contain one item
     assert_eq!(amal_group_pending_remove_list.len(), 0);
-    
-    
+
     // Bola_i1 should be able to leave the group
     bola_i1_group.sync().await.unwrap();
     bola_i1_group.leave_group().await.unwrap();
-    let bola_group_pending_remove_list = bola_i1_group.mutable_metadata().unwrap().pending_remove_list;
-    
+    let bola_group_pending_remove_list = bola_i1_group
+        .mutable_metadata()
+        .unwrap()
+        .pending_remove_list;
+
     // Bola's inboxId should be in the pending-remove list on Bola's group
     assert!(bola_group_pending_remove_list.contains(&bola_i1.inbox_id().to_string()));
 
@@ -1220,8 +1225,7 @@ async fn test_self_removal() {
         bola_i1_group_from_db.unwrap().membership_state,
         GroupMembershipState::PendingRemove
     );
-    
-    
+
     // Amal's state for the group should not change
     amal_group.sync().await.unwrap();
     let amal_group_member_state = amal
@@ -1230,14 +1234,12 @@ async fn test_self_removal() {
         .unwrap()
         .unwrap()
         .membership_state;
-    tracing::info!("Amal's group membership state: {:?}", amal_group_member_state);
-    assert_eq!(amal_group_member_state, GroupMembershipState::Allowed);
     
+    assert_eq!(amal_group_member_state, GroupMembershipState::Allowed);
+
     //check Bola's other installations
     bola_i2.sync_welcomes().await.unwrap();
-    let bola_i2_groups = bola_i2
-        .find_groups(GroupQueryArgs::default())
-        .unwrap();
+    let bola_i2_groups = bola_i2.find_groups(GroupQueryArgs::default()).unwrap();
     assert_eq!(bola_i2_groups.len(), 1);
     let bola_i2_group = bola_i2_groups.first().unwrap();
     assert_eq!(bola_i2_group.members().await.unwrap().len(), 2);
@@ -1250,16 +1252,11 @@ async fn test_self_removal() {
     assert!(bola_i2_group_pending_remove_list.contains(&bola_i1.inbox_id().to_string()));
     // The pending-remove list should only contain one item
     assert_eq!(bola_i2_group_pending_remove_list.len(), 1);
-    let bola_i2_group_state_in_db = bola_i2
-        .db()
-        .find_group(&bola_i2_group.group_id)
-        .unwrap();
-    
+    let bola_i2_group_state_in_db = bola_i2.db().find_group(&bola_i2_group.group_id).unwrap();
+
     // todo for later: check that the state is PendingRemove for other installations
     assert_eq!(
-        bola_i2_group_state_in_db
-            .unwrap()
-            .membership_state,
+        bola_i2_group_state_in_db.unwrap().membership_state,
         GroupMembershipState::PendingRemove
     );
     xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
