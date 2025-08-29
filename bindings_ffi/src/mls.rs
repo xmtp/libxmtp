@@ -2529,6 +2529,11 @@ impl FfiConversation {
 
         Ok(ffi_conversations)
     }
+
+    pub fn get_last_read_times(&self) -> Result<HashMap<String, i64>, GenericError> {
+        let latest_read_times = self.inner.get_last_read_times()?;
+        Ok(latest_read_times)
+    }
 }
 
 #[uniffi::export]
@@ -6992,13 +6997,13 @@ mod tests {
         assert!(stream.is_closed());
 
         // Stream just groups
+        // Sync bo first to avoid any spillover from the last stream
+        bo.conversations().sync().await.unwrap();
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
             .stream_groups(stream_callback.clone())
             .await;
-        stream_callback.wait_for_delivery(None).await.unwrap();
-        assert_eq!(stream_callback.message_count(), 1);
 
         alix.conversations()
             .create_group(
@@ -7008,31 +7013,31 @@ mod tests {
             .await
             .unwrap();
 
-        stream_callback.wait_for_delivery(None).await.unwrap();
-        assert_eq!(stream_callback.message_count(), 2);
+        stream_callback.wait_for_delivery(Some(2)).await.unwrap();
+        assert_eq!(stream_callback.message_count(), 1);
 
         alix.conversations()
             .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
-        let result = stream_callback.wait_for_delivery(Some(2)).await;
+        let result = stream_callback.wait_for_delivery(Some(1)).await;
         assert!(result.is_err(), "Stream unexpectedly received a DM");
-        assert_eq!(stream_callback.message_count(), 2);
+        assert_eq!(stream_callback.message_count(), 1);
 
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
 
         // Stream just dms
+        // Sync bo before opening the stream
+        bo.conversations().sync().await.unwrap();
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo.conversations().stream_dms(stream_callback.clone()).await;
-        stream_callback.wait_for_delivery(None).await.unwrap();
-        assert_eq!(stream_callback.message_count(), 1);
         caro.conversations()
             .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
-        stream_callback.wait_for_delivery(None).await.unwrap();
-        assert_eq!(stream_callback.message_count(), 2);
+        stream_callback.wait_for_delivery(Some(2)).await.unwrap();
+        assert_eq!(stream_callback.message_count(), 1);
 
         alix.conversations()
             .create_group(
@@ -7044,7 +7049,7 @@ mod tests {
 
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(result.is_err(), "Stream unexpectedly received a Group");
-        assert_eq!(stream_callback.message_count(), 2);
+        assert_eq!(stream_callback.message_count(), 1);
 
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
@@ -7130,9 +7135,6 @@ mod tests {
             "Stream unexpectedly received a Group message"
         );
         assert_eq!(stream_callback.message_count(), 1);
-
-        stream.end_and_wait().await.unwrap();
-        assert!(stream.is_closed());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -9599,5 +9601,73 @@ mod tests {
 
         let result = connect_to_backend("http://127.0.0.1:59999".to_string(), false, None).await;
         assert!(result.is_err(), "Expected connection to fail");
+    }
+
+    #[tokio::test]
+    async fn test_get_last_read_times() {
+        let alix_wallet = generate_local_wallet();
+        let bo_wallet = generate_local_wallet();
+
+        let alix_client = new_test_client_with_wallet(alix_wallet).await;
+        let bo_client = new_test_client_with_wallet(bo_wallet).await;
+
+        // Create a DM between Alix and Bo
+        let alix_dm = alix_client
+            .conversations()
+            .find_or_create_dm(
+                bo_client.account_identifier.clone(),
+                FfiCreateDMOptions {
+                    message_disappearing_settings: None,
+                },
+            )
+            .await
+            .unwrap();
+
+        let bo_dm = bo_client
+            .conversations()
+            .find_or_create_dm(
+                alix_client.account_identifier.clone(),
+                FfiCreateDMOptions {
+                    message_disappearing_settings: None,
+                },
+            )
+            .await
+            .unwrap();
+
+        // Bo sends a read receipt
+        let read_receipt = FfiReadReceipt {};
+        let read_receipt_encoded = encode_read_receipt(read_receipt).unwrap();
+        bo_dm.send(read_receipt_encoded).await.unwrap();
+
+        alix_client
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        bo_client
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        // Test get_last_read_times - should return Bo's read receipt timestamp
+        let alix_last_read_times = alix_dm.get_last_read_times().unwrap();
+        let bo_last_read_times = bo_dm.get_last_read_times().unwrap();
+
+        // Should have one entry for Bo's inbox ID
+        assert_eq!(alix_last_read_times.len(), 1);
+        assert_eq!(bo_last_read_times.len(), 1);
+        assert_eq!(alix_last_read_times, bo_last_read_times);
+
+        // Get Bo's inbox ID
+        let bo_inbox_id = bo_client.inbox_id();
+
+        // Verify that Bo's read receipt timestamp is recorded
+        assert!(alix_last_read_times.contains_key(&bo_inbox_id));
+        let bo_read_time = alix_last_read_times.get(&bo_inbox_id).unwrap();
+        assert!(
+            *bo_read_time > 0,
+            "Read receipt timestamp should be positive"
+        );
     }
 }

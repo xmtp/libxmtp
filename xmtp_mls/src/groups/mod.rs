@@ -70,7 +70,6 @@ use xmtp_content_types::{
     reply::ReplyCodec,
 };
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
-use xmtp_db::local_commit_log::LocalCommitLog;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::{Fetch, consent_record::ConsentType};
@@ -89,6 +88,7 @@ use xmtp_db::{
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
 };
+use xmtp_db::{group_message::LatestMessageTimeBySender, local_commit_log::LocalCommitLog};
 use xmtp_id::associations::Identifier;
 use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
 use xmtp_mls_common::{
@@ -806,6 +806,13 @@ where
         let conn = self.context.db();
         let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
         Ok(messages)
+    }
+
+    pub fn get_last_read_times(&self) -> Result<LatestMessageTimeBySender, GroupError> {
+        let conn = self.context.db();
+        let latest_read_receipt =
+            conn.get_latest_message_times_by_sender(&self.group_id, &[ContentType::ReadReceipt])?;
+        Ok(latest_read_receipt)
     }
 
     ///
