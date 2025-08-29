@@ -78,6 +78,26 @@ cargo xdbg info
 cargo xdbg export --entity identity | jq > identities.json
 ```
 
+#### Query
+
+##### Get information about identity updates for an inbox id
+
+```
+cargo xdbg query identity 01a43cdd27b196472687262ed5783006eabc7c26db9e09630bc5004b8fc689dc
+```
+
+##### Get information about key packages for multiple inboxes
+
+```
+cargo xdbg query fetch-key-packages d43e83f66ad7dbbe87add243806999d608bb0b6f7b88ba5efcaabdb532728309 01a43cdd27b196472687262ed5783006eabc7c26db9e09630bc5004b8fc689dc
+```
+
+##### Get information about the query log for multiple groups (optionally skipping unspecified commits)
+
+```
+cargo xdbg --backend dev query batch-query-commit-log e261da64fd225fc90034631945259cdf 0bc5493237d3399dddd3735a049ea237 --skip-unspecified
+```
+
 ## Future Work
 
 See [The Tracking Issue](https://github.com/xmtp/libxmtp/issues/1310) for

@@ -312,6 +312,8 @@ pub struct MessagesWithRelations {
     pub inbound_relations: HashMap<Vec<u8>, Vec<StoredGroupMessage>>,
 }
 
+pub type LatestMessageTimeBySender = HashMap<String, i64>;
+
 pub trait QueryGroupMessage {
     /// Query for group messages
     fn get_group_messages(
@@ -358,6 +360,12 @@ pub trait QueryGroupMessage {
         &self,
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
+
+    fn get_latest_message_times_by_sender<GroupId: AsRef<[u8]>>(
+        &self,
+        group_id: GroupId,
+        allowed_content_types: &[ContentType],
+    ) -> Result<LatestMessageTimeBySender, crate::ConnectionError>;
 
     /// Get a particular group message using the write connection
     fn write_conn_get_group_message<MessageId: AsRef<[u8]>>(
@@ -455,6 +463,14 @@ where
         (**self).get_inbound_relation_counts(group_id, message_ids, relation_query)
     }
 
+    fn get_latest_message_times_by_sender<GroupId: AsRef<[u8]>>(
+        &self,
+        group_id: GroupId,
+        allowed_content_types: &[ContentType],
+    ) -> Result<LatestMessageTimeBySender, crate::ConnectionError> {
+        (**self).get_latest_message_times_by_sender(group_id, allowed_content_types)
+    }
+
     /// Get a particular group message
     fn get_group_message<MessageId: AsRef<[u8]>>(
         &self,
@@ -532,20 +548,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         // Get all messages that have a group with an id equal the provided id,
         // or a dm_id equal to the dm_id that belongs to the loaded group with the provided id.
         let mut query = dsl::group_messages
-            .filter(
-                dsl::group_id.eq_any(
-                    groups_dsl::groups
-                        .filter(
-                            groups_dsl::id.eq(group_id).or(groups_dsl::dm_id.eq_any(
-                                groups_dsl::groups
-                                    .select(groups_dsl::dm_id)
-                                    .filter(groups_dsl::id.eq(group_id))
-                                    .into_boxed(),
-                            )),
-                        )
-                        .select(groups_dsl::id),
-                ),
-            )
+            .filter(group_id_filter(group_id))
             .into_boxed();
 
         if let Some(sent_after) = args.sent_after_ns {
@@ -696,7 +699,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         let message_ids: Vec<&[u8]> = messages.iter().map(|m| m.id.as_slice()).collect();
 
         let mut reactions_query = dsl::group_messages
-            .filter(dsl::group_id.eq(group_id))
+            .filter(group_id_filter(group_id))
             .filter(dsl::reference_id.is_not_null())
             .filter(dsl::reference_id.eq_any(message_ids))
             .into_boxed();
@@ -748,7 +751,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         let mut inbound_relations: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
 
         let mut inbound_relations_query = dsl::group_messages
-            .filter(dsl::group_id.eq(group_id))
+            .filter(group_id_filter(group_id))
             .filter(dsl::reference_id.is_not_null())
             .filter(dsl::reference_id.eq_any(message_ids))
             .into_boxed();
@@ -789,7 +792,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         reference_ids: &[&[u8]],
     ) -> Result<OutboundRelations, crate::ConnectionError> {
         let outbound_references_query = dsl::group_messages
-            .filter(dsl::group_id.eq(group_id))
+            .filter(group_id_filter(group_id))
             .filter(dsl::id.eq_any(reference_ids))
             .into_boxed();
 
@@ -809,7 +812,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         relation_query: RelationQuery,
     ) -> Result<RelationCounts, crate::ConnectionError> {
         let mut count_query = dsl::group_messages
-            .filter(dsl::group_id.eq(group_id))
+            .filter(group_id_filter(group_id))
             .filter(dsl::reference_id.is_not_null())
             .filter(dsl::reference_id.eq_any(message_ids))
             .group_by(dsl::reference_id)
@@ -826,6 +829,29 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         Ok(raw_counts
             .into_iter()
             .filter_map(|(reference_id, count)| reference_id.map(|id| (id, count as usize)))
+            .collect())
+    }
+
+    fn get_latest_message_times_by_sender<GroupId: AsRef<[u8]>>(
+        &self,
+        group_id: GroupId,
+        allowed_content_types: &[ContentType],
+    ) -> Result<LatestMessageTimeBySender, crate::ConnectionError> {
+        let query = dsl::group_messages
+            .filter(group_id_filter(group_id.as_ref()))
+            .filter(dsl::content_type.eq_any(allowed_content_types))
+            .group_by(dsl::sender_inbox_id)
+            .select((dsl::sender_inbox_id, diesel::dsl::max(dsl::sent_at_ns)))
+            .into_boxed();
+
+        let raw_results: Vec<(String, Option<i64>)> =
+            self.raw_query_read(|conn| query.load(conn))?;
+
+        Ok(raw_results
+            .into_iter()
+            .filter_map(|(sender_inbox_id, max_sent_at_ns)| {
+                max_sent_at_ns.map(|sent_at_ns| (sender_inbox_id, sent_at_ns))
+            })
             .collect())
     }
 
@@ -944,4 +970,25 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .execute(conn)
         })
     }
+}
+
+fn group_id_filter(
+    group_id: &[u8],
+) -> impl diesel::expression::BoxableExpression<
+    group_messages::table,
+    diesel::sqlite::Sqlite,
+    SqlType = diesel::sql_types::Bool,
+> + diesel::expression::NonAggregate {
+    dsl::group_id.eq_any(
+        groups_dsl::groups
+            .filter(
+                groups_dsl::id.eq(group_id).or(groups_dsl::dm_id.eq_any(
+                    groups_dsl::groups
+                        .select(groups_dsl::dm_id)
+                        .filter(groups_dsl::id.eq(group_id))
+                        .into_boxed(),
+                )),
+            )
+            .select(groups_dsl::id),
+    )
 }
