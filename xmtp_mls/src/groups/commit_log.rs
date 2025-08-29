@@ -10,6 +10,7 @@ use thiserror::Error;
 use xmtp_api::ApiError;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_db::remote_commit_log::RemoteCommitLog;
+use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
 use xmtp_db::{
     DbQuery, StorageError, Store,
     group::StoredGroupCommitLogPublicKey,
@@ -570,8 +571,11 @@ where
             fork_check_local_cursor,
             LocalCommitLogOrder::DescendingByRowid,
         )?;
-        let remote_logs =
-            conn.get_remote_commit_log_after_cursor(conversation_id, fork_check_remote_cursor)?;
+        let remote_logs = conn.get_remote_commit_log_after_cursor(
+            conversation_id,
+            fork_check_remote_cursor,
+            RemoteCommitLogOrder::DescendingByRowid,
+        )?;
 
         // If there are no new commits to check, preserve the existing fork status
         if local_logs.is_empty() {

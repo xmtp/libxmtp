@@ -8,6 +8,7 @@ use crate::{
     worker::{NeedsDbReconnect, metrics::WorkerMetrics},
 };
 use futures::{StreamExt, TryStreamExt, stream};
+use owo_colors::OwoColorize;
 use prost::Message;
 use std::{
     collections::{HashMap, HashSet},
@@ -175,6 +176,11 @@ where
     /// Sends a device sync message.
     /// If the `group_id` is `None`, the message will be sent
     /// to the primary sync group ID.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     async fn send_device_sync_message(
         &self,
         content: ContentProto,
@@ -185,11 +191,12 @@ where
 
         let sync_group = self.get_sync_group().await?;
 
-        tracing::info!(
-            "\x1b[33m[{}] Sending sync message to group {:?}: \x1b[0m{content:?}",
+        let msg = format!(
+            "[{}] Sending sync message to group {:?}: {content:?}",
             self.context.installation_id(),
             xmtp_common::fmt::debug_hex(&sync_group.group_id)
         );
+        tracing::info!("{}", msg.yellow());
 
         let mut content_bytes = vec![];
         content
@@ -254,6 +261,10 @@ where
 
     /// This should be triggered when a new sync group appears,
     /// indicating the presence of a new installation.
+    #[cfg_attr(
+        any(test, feature = "test-utils"),
+        tracing::instrument(level = "info", skip_all)
+    )]
     pub async fn add_new_installation_to_groups(&self) -> Result<(), DeviceSyncError> {
         let groups = self.mls_store.find_groups(GroupQueryArgs {
             activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),

@@ -23,7 +23,8 @@ use crate::groups::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };
 use crate::tester;
-use crate::utils::{TestMlsGroup, Tester, VersionInfo};
+use crate::utils::fixtures::{alix, bola, caro};
+use crate::utils::{ClientTester, TestMlsGroup, Tester, VersionInfo};
 use crate::{
     builder::ClientBuilder,
     groups::{
@@ -40,6 +41,7 @@ use crate::{
 use diesel::connection::SimpleConnection;
 use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use futures::future::join_all;
+use rstest::*;
 use std::sync::Arc;
 use wasm_bindgen_test::wasm_bindgen_test;
 use xmtp_common::RetryableError;
@@ -2782,11 +2784,14 @@ async fn respect_allow_epoch_increment() {
     );
 }
 
+#[rstest]
 #[xmtp_common::test]
-async fn test_get_and_set_consent() {
-    let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+#[awt]
+async fn test_get_and_set_consent(
+    #[future] alix: ClientTester,
+    #[future] bola: ClientTester,
+    #[future] caro: ClientTester,
+) {
     let alix_group = alix.create_group(None, None).unwrap();
 
     // group consent state should be allowed if user created it
@@ -2840,8 +2845,8 @@ async fn test_get_and_set_consent() {
 async fn test_max_past_epochs() {
     // Create group with two members
     let bo_wallet = generate_local_wallet();
-    let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bo = ClientBuilder::new_test_client(&bo_wallet).await;
+    let alix = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
+    let bo = ClientBuilder::new_test_client_vanilla(&bo_wallet).await;
     let alix_group = alix
         .create_group_with_members(&[bo_wallet.identifier()], None, None)
         .await

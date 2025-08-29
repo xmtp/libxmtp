@@ -339,7 +339,8 @@ where
     /// Sync from the network with the 'conn' (local database).
     /// must return a summary of all messages synced, whether they were
     /// successful or not.
-    #[tracing::instrument(skip_all)]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(fields(who = %self.context.inbox_id())))]
+    #[cfg_attr(not(any(test, feature = "test-utils")), tracing::instrument(skip_all))]
     pub async fn sync_with_conn(&self) -> Result<SyncSummary, SyncSummary> {
         let _mutex = self.mutex.lock().await;
         let mut summary = SyncSummary::default();
@@ -394,7 +395,11 @@ where
         }
     }
 
-    #[tracing::instrument(skip_all, level = "trace")]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip_all))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip_all)
+    )]
     pub(super) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
         let intents = self.context.db().find_group_intents(
             self.group_id.clone(),
@@ -424,7 +429,11 @@ where
      *
      * This method will retry up to `xmtp_configuration::MAX_GROUP_SYNC_RETRIES` times.
      */
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub(super) async fn sync_until_intent_resolved(
         &self,
         intent_id: ID,
@@ -1259,7 +1268,11 @@ where
             Self::conversation_message_disappearing_settings_from_extensions(&mutable_metadata)
                 .ok()?;
 
-        Some(now_ns() + group_disappearing_settings.in_ns)
+        if group_disappearing_settings.is_enabled() {
+            Some(now_ns() + group_disappearing_settings.in_ns)
+        } else {
+            None
+        }
     }
 
     /// This function is idempotent. No need to wrap in a transaction.
@@ -1269,7 +1282,14 @@ where
     /// * `trust_message_order` - Controls whether to allow epoch increments from commits and msg cursor increments.
     ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
     ///   processing from potentially out-of-order sources like streams.
-    #[tracing::instrument(skip(self, envelope), level = "trace")]
+    #[cfg_attr(
+        any(test, feature = "test-utils"),
+        tracing::instrument(level = "info", skip(self, envelope))
+    )]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip_all)
+    )]
     pub(crate) async fn process_message(
         &self,
         envelope: &GroupMessageV1,
@@ -1396,8 +1416,9 @@ where
                     intent.kind
                 );
 
-                let message = message.into();
-                let maybe_validated_commit = self
+                let message: ProtocolMessage = message.into();
+                let message_type = message.content_type();
+                let validation_result = self
                     .stage_and_validate_intent(mls_group, &intent, &message, envelope)
                     .await;
 
@@ -1432,10 +1453,10 @@ where
                         identifier.previously_processed(true);
                         return Ok(());
                     }
-                    let result: Result<Option<Vec<u8>>, IntentResolutionError> = match maybe_validated_commit {
+                    let result: Result<Option<Vec<u8>>, IntentResolutionError> = match validation_result {
                         Err(err) => Err(err),
-                        Ok(commit) => {
-                            self.process_own_message(mls_group, commit, &intent, &message, envelope, &storage)
+                        Ok(validated_intent) => {
+                            self.process_own_message(mls_group, validated_intent, &intent, &message, envelope, &storage)
                         }
                     };
                     let (next_intent_state, internal_message_id) = match result {
@@ -1445,7 +1466,8 @@ where
                                 return Err(err.processing_error);
                             }
                             // TODO(rich): Add log_err! macro/trait for swallowing errors
-                            if let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor, message.epoch(), &err.processing_error) {
+                            if message_type == MlsContentType::Commit
+                                && let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor, message.epoch(), &err.processing_error) {
                                 tracing::error!("Error inserting commit entry for failed self commit: {}", accounting_error);
                             }
                             (err.next_intent_state, None)
@@ -2250,6 +2272,11 @@ where
      * This is designed to handle cases where existing members have added a new installation to their inbox or revoked an installation
      * and the group has not been updated to include it.
      */
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip_all))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip_all)
+    )]
     pub(super) async fn add_missing_installations(&self) -> Result<(), GroupError> {
         let intent_data = self.get_membership_update_intent(&[], &[]).await?;
 

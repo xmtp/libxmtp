@@ -2,15 +2,14 @@ pub mod commit_log;
 pub mod commit_log_key;
 pub mod device_sync;
 pub mod device_sync_legacy;
+pub mod disappearing_messages;
 mod error;
 pub mod group_membership;
 pub mod group_permissions;
 pub mod intents;
-pub mod members;
-pub mod welcome_sync;
-
-pub mod disappearing_messages;
 pub mod key_package_cleaner_worker;
+pub mod members;
+pub mod message_list;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;
 pub(super) mod subscriptions;
@@ -18,6 +17,7 @@ pub mod summary;
 #[cfg(test)]
 mod tests;
 pub mod validated_commit;
+pub mod welcome_sync;
 mod welcomes;
 pub use welcomes::*;
 
@@ -60,11 +60,13 @@ use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
     MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
-use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
+use xmtp_content_types::ContentCodec;
 use xmtp_content_types::should_push;
+use xmtp_content_types::{
+    reaction::{LegacyReaction, ReactionCodec},
+    reply::ReplyCodec,
+};
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
-use xmtp_db::XmtpMlsStorageProvider;
-use xmtp_db::local_commit_log::LocalCommitLog;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::{Fetch, consent_record::ConsentType};
@@ -75,10 +77,15 @@ use xmtp_db::{
 };
 use xmtp_db::{Store, StoreOrIgnore};
 use xmtp_db::{
+    XmtpMlsStorageProvider,
+    remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder},
+};
+use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
 };
+use xmtp_db::{group_message::LatestMessageTimeBySender, local_commit_log::LocalCommitLog};
 use xmtp_id::associations::Identifier;
 use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
 use xmtp_mls_common::{
@@ -176,6 +183,7 @@ pub struct ConversationDebugInfo {
     pub fork_details: String,
     pub is_commit_log_forked: Option<bool>,
     pub local_commit_log: String,
+    pub remote_commit_log: String,
     pub cursor: i64,
 }
 
@@ -214,11 +222,14 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
     type Error = prost::DecodeError;
 
     fn try_from(content: EncodedContent) -> Result<Self, Self::Error> {
-        let content_type_id = content.r#type.unwrap_or_default();
+        let content_type_id = content.r#type.clone().unwrap_or_default();
 
         let type_id_str = content_type_id.type_id.clone();
 
         let reference_id = match (type_id_str.as_str(), content_type_id.version_major) {
+            (ReplyCodec::TYPE_ID, 1) => ReplyCodec::decode(content)
+                .ok()
+                .and_then(|reply| hex::decode(reply.reference).ok()),
             (ReactionCodec::TYPE_ID, major) if major >= 2 => {
                 ReactionV2::decode(content.content.as_slice())
                     .ok()
@@ -623,7 +634,11 @@ where
     }
 
     /// Send a message on this users XMTP [`Client`].
-    #[tracing::instrument(skip_all, level = "trace")]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip(self), fields(who = self.context.inbox_id(), message = %String::from_utf8_lossy(message))))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
         if !self.is_active()? {
             tracing::warn!("Unable to send a message on an inactive group.");
@@ -646,6 +661,11 @@ where
 
     /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
     /// which publishes all pending intents and reads them back from the network.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
@@ -779,6 +799,13 @@ where
         Ok(messages)
     }
 
+    pub fn get_last_read_times(&self) -> Result<LatestMessageTimeBySender, GroupError> {
+        let conn = self.context.db();
+        let latest_read_receipt =
+            conn.get_latest_message_times_by_sender(&self.group_id, &[ContentType::ReadReceipt])?;
+        Ok(latest_read_receipt)
+    }
+
     ///
     /// Add members to the group by account address
     ///
@@ -829,7 +856,11 @@ where
             .await
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip_all, fields(who = %self.context.inbox_id(), inbox_ids = ?inbox_ids.as_ref().iter().map(|i| i.as_ref()).collect::<Vec<_>>())))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip_all)
+    )]
     pub async fn add_members_by_inbox_id<S: AsIdRef>(
         &self,
         inbox_ids: impl AsRef<[S]>,
@@ -908,6 +939,11 @@ where
     ///
     /// # Returns
     /// A `Result` indicating success or failure of the operation.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip_all, fields(who = %self.context.inbox_id(), inbox_ids = ?inbox_ids)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip_all)
+    )]
     pub async fn remove_members_by_inbox_id(
         &self,
         inbox_ids: &[InboxIdRef<'_>],
@@ -934,6 +970,11 @@ where
 
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
     /// to perform these updates.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
 
@@ -956,6 +997,11 @@ where
     }
 
     /// Updates min version of the group to match this client's version.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn update_group_min_version_to_match_self(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         let version = self.context.version_info().pkg_version();
@@ -1003,6 +1049,11 @@ where
     }
 
     /// Updates the permission policy of the group. This requires super admin permissions.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn update_permission_policy(
         &self,
         permission_update_type: PermissionUpdateType,
@@ -1051,6 +1102,11 @@ where
     }
 
     /// Updates the description of the group.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn update_group_description(
         &self,
         group_description: String,
@@ -1090,6 +1146,11 @@ where
     }
 
     /// Updates the image URL (square) of the group.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn update_group_image_url_square(
         &self,
         group_image_url_square: String,
@@ -1154,6 +1215,11 @@ where
         .await
     }
 
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     async fn update_conversation_message_disappear_from_ns(
         &self,
         expire_from_ms: i64,
@@ -1172,6 +1238,11 @@ where
         Ok(())
     }
 
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     async fn update_conversation_message_disappear_in_ns(
         &self,
         expire_in_ms: i64,
@@ -1266,6 +1337,11 @@ where
     }
 
     /// Updates the admin list of the group and syncs the changes to the network.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn update_admin_list(
         &self,
         action_type: UpdateAdminListType,
@@ -1370,10 +1446,19 @@ where
         Ok(self.context.db().get_group_logs(&self.group_id)?)
     }
 
+    pub async fn remote_commit_log(&self) -> Result<Vec<RemoteCommitLog>, GroupError> {
+        Ok(self.context.db().get_remote_commit_log_after_cursor(
+            &self.group_id,
+            0,
+            RemoteCommitLogOrder::AscendingByRowid,
+        )?)
+    }
+
     pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
         let epoch = self.epoch().await?;
         let cursor = self.cursor().await?;
         let commit_log = self.local_commit_log().await?;
+        let remote_commit_log = self.remote_commit_log().await?;
         let db = self.context.db();
 
         let stored_group = match db.find_group(&self.group_id)? {
@@ -1391,11 +1476,17 @@ where
             fork_details: stored_group.fork_details,
             is_commit_log_forked: stored_group.is_commit_log_forked,
             local_commit_log: format!("{:?}", commit_log),
+            remote_commit_log: format!("{:?}", remote_commit_log),
             cursor,
         })
     }
 
     /// Update this installation's leaf key in the group by creating a key update commit
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
     pub async fn key_update(&self) -> Result<(), GroupError> {
         let intent = QueueIntent::key_update().queue(self)?;
         let _ = self.sync_until_intent_resolved(intent.id).await?;

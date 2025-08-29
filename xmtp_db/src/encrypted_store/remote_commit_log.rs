@@ -16,6 +16,7 @@ use diesel::{
 };
 
 use serde::{Deserialize, Serialize};
+use xmtp_common::snippet::Snippet;
 use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 
 #[derive(Insertable, Debug, Clone)]
@@ -31,7 +32,7 @@ pub struct NewRemoteCommitLog {
 
 impl_store!(NewRemoteCommitLog, remote_commit_log);
 
-#[derive(Insertable, Queryable, Debug, Clone)]
+#[derive(Insertable, Queryable, Clone)]
 #[diesel(table_name = remote_commit_log)]
 #[diesel(primary_key(rowid))]
 pub struct RemoteCommitLog {
@@ -77,6 +78,22 @@ impl std::fmt::Debug for CommitResult {
     }
 }
 
+impl std::fmt::Debug for RemoteCommitLog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "RemoteCommitLog {{ rowid: {:?}, log_sequence_id: {:?}, group_id {:?}, commit_sequence_id: {:?}, commit_result: {:?}, applied_epoch_number: {:?}, applied_epoch_authenticator: {:?} }}",
+            self.rowid,
+            self.log_sequence_id,
+            &self.group_id.snippet(),
+            self.commit_sequence_id,
+            self.commit_result,
+            self.applied_epoch_number,
+            &self.applied_epoch_authenticator.snippet()
+        )
+    }
+}
+
 impl ToSql<Integer, Sqlite> for CommitResult
 where
     i32: ToSql<Integer, Sqlite>,
@@ -115,6 +132,14 @@ impl From<ProtoCommitResult> for CommitResult {
     }
 }
 
+// the max page size for queries
+pub const MAX_PAGE_SIZE: u32 = 100;
+
+pub enum RemoteCommitLogOrder {
+    AscendingByRowid,
+    DescendingByRowid,
+}
+
 pub trait QueryRemoteCommitLog {
     fn get_latest_remote_log_for_group(
         &self,
@@ -125,6 +150,7 @@ pub trait QueryRemoteCommitLog {
         &self,
         group_id: &[u8],
         after_cursor: i64,
+        order_by: RemoteCommitLogOrder,
     ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError>;
 }
 
@@ -143,8 +169,9 @@ where
         &self,
         group_id: &[u8],
         after_cursor: i64,
+        order_by: RemoteCommitLogOrder,
     ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError> {
-        (**self).get_remote_commit_log_after_cursor(group_id, after_cursor)
+        (**self).get_remote_commit_log_after_cursor(group_id, after_cursor, order_by)
     }
 }
 
@@ -167,6 +194,7 @@ impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
         &self,
         group_id: &[u8],
         after_cursor: i64,
+        order: RemoteCommitLogOrder,
     ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError> {
         // If a group hits more than 2^31 entries on the remote commit log rowid, we will hit this error
         // If we want to address this we can make a new sqlite cursor table/row that stores u64 values
@@ -177,13 +205,14 @@ impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
         }
         let after_cursor: i32 = after_cursor as i32;
 
-        self.raw_query_read(|db| {
-            dsl::remote_commit_log
-                .filter(dsl::group_id.eq(group_id))
-                .filter(dsl::rowid.gt(after_cursor))
-                .filter(dsl::commit_sequence_id.ne(0))
-                .order_by(dsl::rowid.desc())
-                .load(db)
+        let query = dsl::remote_commit_log
+            .filter(dsl::group_id.eq(group_id))
+            .filter(dsl::rowid.gt(after_cursor))
+            .filter(dsl::commit_sequence_id.ne(0));
+
+        self.raw_query_read(|db| match order {
+            RemoteCommitLogOrder::AscendingByRowid => query.order_by(dsl::rowid.asc()).load(db),
+            RemoteCommitLogOrder::DescendingByRowid => query.order_by(dsl::rowid.desc()).load(db),
         })
     }
 }
