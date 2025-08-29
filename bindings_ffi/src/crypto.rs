@@ -1,7 +1,5 @@
-use alloy::primitives::{eip191_hash_message, keccak256, Address, B256};
-use alloy::signers::local::PrivateKeySigner;
-use alloy::signers::SignerSync;
 use thiserror::Error;
+use xmtp_cryptography::ethereum;
 
 #[derive(Debug, Error, uniffi::Error)]
 pub enum FfiCryptoError {
@@ -15,6 +13,17 @@ pub enum FfiCryptoError {
     DecompressFailure,
 }
 
+impl From<ethereum::EthereumCryptoError> for FfiCryptoError {
+    fn from(err: ethereum::EthereumCryptoError) -> Self {
+        match err {
+            ethereum::EthereumCryptoError::InvalidLength => FfiCryptoError::InvalidLength,
+            ethereum::EthereumCryptoError::InvalidKey => FfiCryptoError::InvalidKey,
+            ethereum::EthereumCryptoError::SignFailure => FfiCryptoError::SignFailure,
+            ethereum::EthereumCryptoError::DecompressFailure => FfiCryptoError::DecompressFailure,
+        }
+    }
+}
+
 /// 1) Public key from 32-byte private key.
 ///    Returns **65-byte uncompressed** (0x04 || X || Y)
 #[uniffi::export]
@@ -22,13 +31,11 @@ fn secp_generate_public_key(private_key32: Vec<u8>) -> Result<Vec<u8>, FfiCrypto
     if private_key32.len() != 32 {
         return Err(FfiCryptoError::InvalidLength);
     }
-    let signer =
-        PrivateKeySigner::from_slice(&private_key32).map_err(|_| FfiCryptoError::InvalidKey)?;
-    let xy: [u8; 64] = signer.public_key().into(); // B512 -> [u8; 64] (X||Y)
-    let mut out = Vec::with_capacity(65);
-    out.push(0x04);
-    out.extend_from_slice(&xy);
-    Ok(out)
+    let private_key_array: [u8; 32] = private_key32
+        .try_into()
+        .map_err(|_| FfiCryptoError::InvalidLength)?;
+    let public_key = ethereum::public_key_uncompressed(&private_key_array)?;
+    Ok(public_key.to_vec())
 }
 
 /// 2) Recoverable ECDSA (Ethereum-style).
@@ -44,50 +51,23 @@ fn secp_sign_recoverable(
     if private_key32.len() != 32 {
         return Err(FfiCryptoError::InvalidLength);
     }
-    let signer =
-        PrivateKeySigner::from_slice(&private_key32).map_err(|_| FfiCryptoError::InvalidKey)?;
-
-    let digest: B256 = if hashing {
-        keccak256(&msg) // Keccak-256 (Ethereum)
-    } else {
-        if msg.len() != 32 {
-            return Err(FfiCryptoError::InvalidLength);
-        }
-        B256::from_slice(&msg)
-    };
-
-    let sig = signer
-        .sign_hash_sync(&digest)
-        .map_err(|_| FfiCryptoError::SignFailure)?;
-
-    // Compose 65 bytes manually to ensure v={0,1}
-    let r = sig.r().to_be_bytes::<32>();
-    let s = sig.s().to_be_bytes::<32>();
-    let v_byte = if sig.v() { 1u8 } else { 0u8 }; // parity bit as 0/1
-
-    let mut out = Vec::with_capacity(65);
-    out.extend_from_slice(&r);
-    out.extend_from_slice(&s);
-    out.push(v_byte);
-    Ok(out)
+    let private_key_array: [u8; 32] = private_key32
+        .try_into()
+        .map_err(|_| FfiCryptoError::InvalidLength)?;
+    let signature = ethereum::sign_recoverable(&msg, &private_key_array, hashing)?;
+    Ok(signature.to_vec())
 }
 
 /// 3) Ethereum address from public key (accepts 65-byte 0x04||XY or 64-byte XY).
 #[uniffi::export]
 fn ethereum_address_from_pubkey(pubkey: Vec<u8>) -> String {
-    let xy = match pubkey.len() {
-        65 if pubkey[0] == 0x04 => &pubkey[1..],
-        64 => &pubkey[..],
-        _ => return "0x".to_string(),
-    };
-    let addr = Address::from_raw_public_key(xy); // derives keccak(XY)[12..]
-    format!("{addr:?}") // lowercased 0x… (Debug prints raw lower-hex without checksum)
+    ethereum::address_from_pubkey(&pubkey).unwrap_or_else(|_| "0x".to_string())
 }
 
 /// 4) EIP-191 personal message hash: keccak256("\x19Ethereum Signed Message:\n{len}" || message)
 #[uniffi::export]
 fn ethereum_hash_personal(message: String) -> Result<Vec<u8>, FfiCryptoError> {
-    Ok(eip191_hash_message(message).to_vec()) // 32 bytes
+    Ok(ethereum::hash_personal(&message).to_vec()) // 32 bytes
 }
 
 #[cfg(test)]
