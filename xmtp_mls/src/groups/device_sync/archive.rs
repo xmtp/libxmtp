@@ -6,8 +6,11 @@ use crate::{
 use futures::StreamExt;
 pub use xmtp_archive::*;
 use xmtp_db::{
-    StoreOrIgnore, consent_record::StoredConsentRecord, group::GroupMembershipState,
-    group_message::StoredGroupMessage, prelude::*,
+    StoreOrIgnore,
+    consent_record::StoredConsentRecord,
+    group::{ConversationType, GroupMembershipState},
+    group_message::StoredGroupMessage,
+    prelude::*,
 };
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
@@ -51,6 +54,7 @@ fn insert(element: BackupElement, context: &impl XmtpSharedContext) -> Result<()
                 context,
                 Some(&save.id),
                 GroupMembershipState::Restored,
+                ConversationType::Group,
                 PolicySet::default(),
                 GroupMetadataOptions {
                     name: attributes.get("group_name").cloned(),
