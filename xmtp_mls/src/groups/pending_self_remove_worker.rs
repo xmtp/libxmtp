@@ -1,14 +1,11 @@
 use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
-use crate::groups::intents::IntentError;
 use crate::worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory};
 use crate::worker::{WorkerKind, WorkerResult};
 use futures::{StreamExt, TryFutureExt};
-use openmls_traits::storage::StorageProvider;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::OnceCell;
-use xmtp_db::group::StoredGroup;
 use xmtp_db::{StorageError, prelude::*};
 
 /// Interval at which the DisappearingMessagesCleanerWorker runs to delete expired messages.
@@ -206,7 +203,7 @@ where
         let db = self.context.db();
         match db.get_groups_have_pending_leave_request() {
             Ok(groups) => {
-                if groups.len() >0 {
+                if groups.len() > 0 {
                     tracing::info!("has pending remove for {:?} groups", groups);
 
                     self.react_to_group_has_pending_leave_request(&groups[0])
