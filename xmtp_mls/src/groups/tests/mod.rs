@@ -1234,7 +1234,6 @@ async fn test_self_removal() {
         .unwrap()
         .unwrap()
         .membership_state;
-
     assert_eq!(amal_group_member_state, GroupMembershipState::Allowed);
 
     //check Bola's other installations
@@ -1260,8 +1259,42 @@ async fn test_self_removal() {
         GroupMembershipState::PendingRemove
     );
     xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
+    bola_i1_group.sync().await;
+    bola_i2_group.sync().await;
+    assert!(!bola_i1_group.is_active().unwrap());
+    assert!(!bola_i2_group.is_active().unwrap());
+    amal_group.sync().await;
+    assert_eq!(amal_group.members().await.unwrap().len(), 1);
 }
 
+#[xmtp_common::test(flavor = "current_thread")]
+async fn test_self_removal_simple() {
+    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group
+        .add_members_by_inbox_id(&[bola.inbox_id()])
+        .await
+        .unwrap();
+
+    bola.sync_welcomes().await.unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+    let bola_group = bola_groups.first().unwrap();
+    assert_eq!(bola_group.members().await.unwrap().len(), 2);
+
+    bola_group.leave_group().await.unwrap();
+    bola_group.sync().await.unwrap();
+    amal_group.sync().await;
+    xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
+    bola.sync_all_welcomes_and_groups(None).await.unwrap();
+    amal_group.sync().await;
+    bola_group.sync().await;
+    xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    assert!(!bola_group.is_active().unwrap());
+
+    assert_eq!(amal_group.members().await.unwrap().len(), 1);
+}
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_handled_on_other_installations() {
     let amal_wallet = generate_local_wallet();
