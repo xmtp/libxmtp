@@ -28,9 +28,6 @@ impl From<ethereum::EthereumCryptoError> for FfiCryptoError {
 ///    Returns **65-byte uncompressed** (0x04 || X || Y)
 #[uniffi::export]
 fn secp_generate_public_key(private_key32: Vec<u8>) -> Result<Vec<u8>, FfiCryptoError> {
-    if private_key32.len() != 32 {
-        return Err(FfiCryptoError::InvalidLength);
-    }
     let private_key_array: [u8; 32] = private_key32
         .try_into()
         .map_err(|_| FfiCryptoError::InvalidLength)?;
@@ -48,9 +45,6 @@ fn secp_sign_recoverable(
     private_key32: Vec<u8>,
     hashing: bool,
 ) -> Result<Vec<u8>, FfiCryptoError> {
-    if private_key32.len() != 32 {
-        return Err(FfiCryptoError::InvalidLength);
-    }
     let private_key_array: [u8; 32] = private_key32
         .try_into()
         .map_err(|_| FfiCryptoError::InvalidLength)?;
