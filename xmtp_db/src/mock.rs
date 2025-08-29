@@ -407,6 +407,13 @@ mock! {
         ) -> Result<usize, crate::ConnectionError>;
 
         fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError>;
+
+        #[mockall::concretize]
+        fn get_latest_message_times_by_sender<GroupId: AsRef<[u8]>>(
+            &self,
+            group_id: GroupId,
+            allowed_content_types: &[crate::group_message::ContentType],
+        ) -> Result<crate::group_message::LatestMessageTimeBySender, crate::ConnectionError>;
     }
 
     impl QueryIdentity for DbQuery {

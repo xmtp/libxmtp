@@ -1,6 +1,5 @@
 pub mod commit_log;
 pub mod commit_log_key;
-pub mod decoded_message;
 pub mod device_sync;
 pub mod device_sync_legacy;
 pub mod disappearing_messages;
@@ -73,7 +72,6 @@ use xmtp_content_types::{
     reply::ReplyCodec,
 };
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
-use xmtp_db::local_commit_log::LocalCommitLog;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::{Fetch, consent_record::ConsentType};
@@ -92,6 +90,7 @@ use xmtp_db::{
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
 };
+use xmtp_db::{group_message::LatestMessageTimeBySender, local_commit_log::LocalCommitLog};
 use xmtp_id::associations::Identifier;
 use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
 use xmtp_mls_common::{
@@ -811,6 +810,13 @@ where
         Ok(messages)
     }
 
+    pub fn get_last_read_times(&self) -> Result<LatestMessageTimeBySender, GroupError> {
+        let conn = self.context.db();
+        let latest_read_receipt =
+            conn.get_latest_message_times_by_sender(&self.group_id, &[ContentType::ReadReceipt])?;
+        Ok(latest_read_receipt)
+    }
+
     ///
     /// Add members to the group by account address
     ///
@@ -1007,12 +1013,11 @@ where
         if is_admin && admin_size == 1 || is_super_admin && super_admin_size == 1 {
             return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
         }
-
         let is_admin = self.is_admin(self.context.inbox_id().to_string())?;
         let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
         let admin_size = self.admin_list()?.len();
         let super_admin_size = self.super_admin_list()?.len();
-        
+
         if is_admin && admin_size == 1 || is_super_admin && super_admin_size == 1 {
             return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
         }

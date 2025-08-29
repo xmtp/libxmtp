@@ -36,6 +36,7 @@ pub enum Commands {
     Modify(Modify),
     Inspect(Inspect),
     Send(Send),
+    #[command(subcommand)]
     Query(Query),
     Info(InfoOpts),
     Export(ExportOpts),
@@ -132,8 +133,29 @@ pub enum InspectionKind {
 }
 
 /// Query for Information about a Group or Message or User
-#[derive(Args, Debug)]
-pub struct Query {}
+#[derive(Subcommand, Debug, Clone)]
+pub enum Query {
+    Identity(Identity),
+    FetchKeyPackages(FetchKeyPackages),
+    BatchQueryCommitLog(BatchQueryCommitLog),
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct Identity {
+    pub inbox_id: InboxId,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct FetchKeyPackages {
+    pub installation_keys: Vec<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct BatchQueryCommitLog {
+    pub group_ids: Vec<String>,
+    #[arg(long)]
+    pub skip_unspecified: bool,
+}
 
 /// Print information about the local generated state
 #[derive(Args, Debug)]

@@ -1234,10 +1234,6 @@ async fn test_self_removal() {
         .unwrap()
         .unwrap()
         .membership_state;
-    tracing::info!(
-        "Amal's group membership state: {:?}",
-        amal_group_member_state
-    );
     assert_eq!(amal_group_member_state, GroupMembershipState::Allowed);
 
     //check Bola's other installations
