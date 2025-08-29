@@ -1151,6 +1151,35 @@ async fn test_query_group_messages_respects_limit_over_page_size() {
     );
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_query_group_messages_pagination() {
+    tester!(alix);
+    tester!(bo);
+    let group = alix.create_group(None, None)?;
+    group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.find_groups(GroupQueryArgs::default())?;
+    let bo_group = bo_group.first().unwrap();
+    bo_group.sync().await?;
+
+    // Send more than MAX_PAGE_SIZE (20 in test config) messages to test pagination
+    // We'll send 30 messages to ensure we cross the page boundary
+    let total_messages = 30;
+    for i in 0..total_messages {
+        let message = format!("message {}", i);
+        group.send_message(message.as_bytes()).await?;
+    }
+
+    bo_group.sync().await?;
+    let local_messages = bo_group.find_messages(&MsgQueryArgs::default())?;
+
+    assert_eq!(
+        local_messages.len(),
+        total_messages + 1, // + 1 for the group updated message
+        "Local message count should match the number of messages sent plus the group updated, and should not match the page size!"
+    );
+}
+
 #[xmtp_common::test]
 async fn test_key_update() {
     tester!(client);
