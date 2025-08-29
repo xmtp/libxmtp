@@ -1,12 +1,12 @@
 #![recursion_limit = "256"]
 #![warn(clippy::unwrap_used)]
+pub mod crypto;
 pub mod identity;
 pub mod inbox_owner;
 pub mod logger;
 pub mod message;
 pub mod mls;
 pub mod worker;
-pub mod crypto;
 
 pub use crate::inbox_owner::SigningError;
 pub use logger::{enter_debug_writer, exit_debug_writer};
