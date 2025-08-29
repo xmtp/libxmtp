@@ -2274,6 +2274,11 @@ impl FfiConversation {
         Ok(())
     }
 
+    pub async fn leave_group(&self) -> Result<(), GenericError> {
+        self.inner.leave_group().await?;
+        Ok(())
+    }
+
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GenericError> {
         self.inner.update_group_name(group_name).await?;
         Ok(())
