@@ -44,7 +44,7 @@ where
         Ok(try_from_stream(
             SubscribeWelcomeMessages::builder()
                 .filters(req.filters)
-                .build()?
+                .build().expect("wut")
                 .stream(&self.client)
                 .await?,
         ))

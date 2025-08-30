@@ -2,12 +2,14 @@ use super::MlsGroup;
 use crate::{
     context::XmtpSharedContext,
     subscriptions::{
-        process_message::{ProcessFutureFactory, ProcessMessageFuture}, stream_messages::StreamGroupMessages, Result, SubscribeError
+        Result, SubscribeError,
+        process_message::{ProcessFutureFactory, ProcessMessageFuture},
+        stream_messages::StreamGroupMessages,
     },
 };
 use xmtp_api_d14n::protocol::{Extractor, ProtocolEnvelope as _};
-use xmtp_proto::types::GroupId;
 use xmtp_db::group_message::StoredGroupMessage;
+use xmtp_proto::types::GroupId;
 
 use futures::{Stream, StreamExt};
 use prost::Message;
@@ -35,7 +37,7 @@ where
         // or d14n crate should just create a type alias for such an extractor
         let mut extractor = xmtp_api_d14n::protocol::V3GroupMessageExtractor::default();
         envelope.accept(&mut extractor)?;
-        let message: xmtp_proto::types::GroupMessage = extractor.get()?;
+        let message: xmtp_proto::types::GroupMessage = extractor.get()?.unwrap();
         ProcessMessageFuture::new(self.context.clone())
             .create(message)
             .await?
@@ -148,7 +150,6 @@ pub(crate) mod tests {
 
     use futures::StreamExt;
 
-
     #[rstest::rstest]
     #[xmtp_common::test(flavor = "current_thread")]
     #[timeout(Duration::from_secs(10))]
@@ -185,7 +186,7 @@ pub(crate) mod tests {
     #[timeout(Duration::from_secs(10))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_subscribe_multiple() {
-        let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let amal = Arc::new(ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await);
         let group = amal.create_group(None, None).unwrap();
 
         let stream = group.stream().await.unwrap();

@@ -40,6 +40,8 @@ pub enum EnvelopeError {
     Extraction(#[from] ExtractionError),
     #[error("Each topic must have a payload")]
     TopicMismatch,
+    #[error("Envelope not found")]
+    NotFound(&'static str),
     // for extractors defined outside of this crate or
     // generic implementations like Tuples
     #[error("{0}")]
@@ -53,6 +55,7 @@ impl RetryableError for EnvelopeError {
             Self::Extraction(e) => retryable!(e),
             Self::TopicMismatch => false,
             Self::DynError(d) => retryable!(d),
+            Self::NotFound(_) => false,
         }
     }
 }

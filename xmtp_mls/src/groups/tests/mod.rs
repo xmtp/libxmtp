@@ -12,8 +12,8 @@ use openmls::prelude::MlsMessageIn;
 use prost::Message;
 use tls_codec::Deserialize;
 use xmtp_configuration::Originators;
-use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::XmtpOpenMlsProviderRef;
+use xmtp_db::refresh_state::EntityKind;
 use xmtp_proto::types::Cursor;
 
 #[cfg(target_arch = "wasm32")]
@@ -48,9 +48,9 @@ use futures::future::join_all;
 use rstest::*;
 use std::sync::Arc;
 use wasm_bindgen_test::wasm_bindgen_test;
+use xmtp_common::RetryableError;
+use xmtp_common::StreamHandle as _;
 use xmtp_common::time::now_ns;
-use xmtp_common::{FakeMlsCommitMessage, StreamHandle as _};
-use xmtp_common::{Generate, RetryableError};
 use xmtp_common::{assert_err, assert_ok};
 use xmtp_content_types::{ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_cryptography::utils::generate_local_wallet;
@@ -3751,7 +3751,10 @@ async fn non_retryable_error_increments_cursor() {
         cursor: new_cursor,
         created_ns: DateTime::from_timestamp_nanos(xmtp_common::time::now_ns()).into(),
         group_id: group.group_id.clone().into(),
-        message: MlsMessageIn::tls_deserialize(&mut message.to_bytes().unwrap().as_slice()).unwrap().try_into_protocol_message().unwrap(),
+        message: MlsMessageIn::tls_deserialize(&mut message.to_bytes().unwrap().as_slice())
+            .unwrap()
+            .try_into_protocol_message()
+            .unwrap(),
         sender_hmac: vec![],
         should_push: false,
         payload_hash: vec![],
@@ -3763,7 +3766,7 @@ async fn non_retryable_error_increments_cursor() {
     let last_cursor = alice
         .context
         .db()
-        .get_last_cursor_for_id(&group.group_id, EntityKind::Group)
+        .get_last_cursor_for_originator(&group.group_id, EntityKind::Group, Originators::MLS_COMMITS.into())
         .unwrap();
 
     assert_eq!(new_cursor, last_cursor);
