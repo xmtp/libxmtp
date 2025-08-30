@@ -7,7 +7,7 @@ use crate::intents::ProcessIntentError;
 use crate::{groups::MlsGroup, subscriptions::WelcomeOrGroup};
 use std::collections::HashSet;
 use xmtp_common::{Retry, retry_async};
-use xmtp_db::{NotFound, group::ConversationType, prelude::*};
+use xmtp_db::{group::ConversationType, prelude::*};
 use xmtp_proto::mls_v1::{WelcomeMessage, welcome_message};
 
 /// Future for processing `WelcomeorGroup`
@@ -133,14 +133,18 @@ where
                     tracing::debug!(
                         "Found existing welcome. Returning from db & skipping processing"
                     );
-                    if let Ok((group, id)) = self.load_from_store(id) {
+                    if let Ok(Some(group)) = self.load_from_store(id) {
                         return self.filter(ProcessWelcomeResult::New { group, id }).await;
                     }
                 }
                 tracing::info!("could not find group for welcome {}, processing", id);
                 // sync welcome from the network
-                let (group, id) = self.on_welcome(welcome).await?;
-                ProcessWelcomeResult::New { group, id }
+                if let Some(group) = self.on_welcome(welcome).await? {
+                    ProcessWelcomeResult::New { group, id }
+                } else {
+                    tracing::info!("Oneshot welcome message processed, skipping stream event.");
+                    ProcessWelcomeResult::IgnoreId { id }
+                }
             }
             Group(ref id) => {
                 tracing::info!("stream got existing group, pulling from db.");
@@ -185,7 +189,8 @@ where
                 let metadata = group.metadata().await?;
 
                 // Do not stream sync groups.
-                if metadata.conversation_type == ConversationType::Sync {
+                // TODO(rich): Double-check that the cursor does not get updated when skipping
+                if metadata.conversation_type.is_virtual() {
                     tracing::debug!("Sync group welcome processed. Skipping stream.");
                     return Ok(ProcessWelcomeResult::IgnoreId { id });
                 }
@@ -261,7 +266,7 @@ where
     ///
     /// # Note
     /// This function uses retry logic to handle transient network failures
-    async fn on_welcome(&self, welcome: &welcome_message::V1) -> Result<(MlsGroup<Context>, i64)> {
+    async fn on_welcome(&self, welcome: &welcome_message::V1) -> Result<Option<MlsGroup<Context>>> {
         let welcome_message::V1 {
             id,
             created_ns: _,
@@ -281,7 +286,7 @@ where
     async fn process_welcome(
         &self,
         welcome: &welcome_message::V1,
-    ) -> Result<(MlsGroup<Context>, i64)> {
+    ) -> Result<Option<MlsGroup<Context>>> {
         let welcomes = WelcomeService::new(self.context.clone());
         let res = retry_async!(
             Retry::default(),
@@ -293,22 +298,30 @@ where
             })
         );
 
-        if let Ok(_)
-        | Err(GroupError::ProcessIntent(ProcessIntentError::WelcomeAlreadyProcessed(_))) = res
+        let id = welcome.id as i64;
+        if let Ok(maybe_group) = res {
+            Ok(maybe_group)
+        } else if let Err(GroupError::ProcessIntent(ProcessIntentError::WelcomeAlreadyProcessed(
+            _,
+        ))) = res
         {
-            self.load_from_store(welcome.id as i64)
+            Ok(self.load_from_store(id)?)
         } else {
             Err(res.expect_err("Checked for Ok value").into())
         }
     }
 
     /// Load a group from disk by its welcome_id
-    fn load_from_store(&self, id: i64) -> Result<(MlsGroup<Context>, i64)> {
-        let group = self
-            .context
-            .db()
-            .find_group_by_welcome_id(id)?
-            .ok_or(NotFound::GroupByWelcome(id))?;
+    fn load_from_store(&self, id: i64) -> Result<Option<MlsGroup<Context>>> {
+        let maybe_group = self.context.db().find_group_by_welcome_id(id)?;
+        let Some(group) = maybe_group else {
+            tracing::warn!(
+                welcome_id = id,
+                "Already processed welcome not loaded from store (likely oneshot message)"
+            );
+            return Ok(None);
+        };
+
         tracing::info!(
             inbox_id = self.context.inbox_id(),
             group_id = hex::encode(&group.id),
@@ -317,15 +330,12 @@ where
             "loading existing group for welcome_id: {:?}",
             group.welcome_id
         );
-        Ok((
-            MlsGroup::new(
-                self.context.clone(),
-                group.id,
-                group.dm_id,
-                group.conversation_type,
-                group.created_at_ns,
-            ),
-            id,
-        ))
+        Ok(Some(MlsGroup::new(
+            self.context.clone(),
+            group.id,
+            group.dm_id,
+            group.conversation_type,
+            group.created_at_ns,
+        )))
     }
 }
