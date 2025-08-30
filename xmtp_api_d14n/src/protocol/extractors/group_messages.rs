@@ -61,14 +61,18 @@ impl EnvelopeVisitor<'_> for GroupMessageExtractor {
 
 #[derive(Default)]
 pub struct V3GroupMessageExtractor {
-    group_message: GroupMessageBuilder,
+    group_message: Option<GroupMessageBuilder>,
 }
 
 impl Extractor for V3GroupMessageExtractor {
-    type Output = Result<GroupMessage, ConversionError>;
+    type Output = Result<Option<GroupMessage>, ConversionError>;
 
     fn get(self) -> Self::Output {
-        self.group_message.build()
+        if let Some(gm) = self.group_message {
+            Ok(Some(gm.build()?))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -76,14 +80,15 @@ impl EnvelopeVisitor<'_> for V3GroupMessageExtractor {
     type Error = ConversionError;
 
     fn visit_v3_group_message(&mut self, message: &group_message::V1) -> Result<(), Self::Error> {
+        let mut group_message = GroupMessage::builder();
         let payload_hash = sha256_bytes(message.data.as_slice());
-        let is_commit = extract_common_mls(&mut self.group_message, &message.data)?;
+        let is_commit = extract_common_mls(&mut group_message, &message.data)?;
         let originator_node_id = if is_commit {
             xmtp_configuration::Originators::MLS_COMMITS
         } else {
             xmtp_configuration::Originators::APPLICATION_MESSAGES
         };
-        self.group_message
+        group_message
             .cursor(Cursor {
                 originator_id: originator_node_id.into(),
                 sequence_id: message.id,
@@ -92,6 +97,8 @@ impl EnvelopeVisitor<'_> for V3GroupMessageExtractor {
             .sender_hmac(message.sender_hmac.clone())
             .should_push(message.should_push)
             .payload_hash(payload_hash);
+
+        self.group_message = Some(group_message);
         Ok(())
     }
 }

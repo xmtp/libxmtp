@@ -88,7 +88,7 @@ where
             .envelopes(messages)
             .build::<V3GroupMessageExtractor>()
             .get()?;
-        Ok(messages.into_iter().collect::<Result<_, _>>()?)
+        Ok(messages.into_iter().collect::<Result<Vec<Option<_>>, _>>()?.into_iter().filter_map(|i| i).collect())
     }
 
     async fn query_latest_group_message(
@@ -112,7 +112,7 @@ where
             .next();
         let mut extractor = V3GroupMessageExtractor::default();
         message.as_ref().accept(&mut extractor)?;
-        Ok(Some(extractor.get()?))
+        Ok(extractor.get()?)
     }
 
     async fn query_welcome_messages(

@@ -413,33 +413,33 @@ mod tests {
             .validator(NoopValidator)
             .context(context)
             .database_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
-                    .returning(|_id, _entity| {
-                        Ok(Cursor {
+                db.expect_get_last_cursor_for_originators()
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
                             sequence_id: 0,
                             originator_id: Originators::WELCOME_MESSAGES.into(),
-                        })
+                        }])
                     });
                 db.expect_find_group().returning(|_id| Ok(None));
             })
             // outer tx
             .transaction_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
-                    .returning(|_id, _entity| {
-                        Ok(Cursor {
+                db.expect_get_last_cursor_for_originators()
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
                             sequence_id: 0,
                             originator_id: Originators::WELCOME_MESSAGES.into(),
-                        })
+                        }])
                     });
             })
             // inner tx
             .nested_transaction_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
-                    .returning(|_id, _entity| {
-                        Ok(Cursor {
+                db.expect_get_last_cursor_for_originators()
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
                             sequence_id: 0,
                             originator_id: Originators::WELCOME_MESSAGES.into(),
-                        })
+                        }])
                     });
                 db.expect_update_cursor().returning(|_, _, _| Ok(true));
                 db.expect_insert_or_replace_group().returning(Ok);
@@ -471,9 +471,9 @@ mod tests {
             .validator(NoopValidator)
             .context(context)
             .nested_transaction_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
+                db.expect_get_last_cursor_for_originators()
                     .once()
-                    .returning(|_id, _entity| {
+                    .returning(|_id, _entity, _| {
                         // non-retryable error in transaction
                         Err(StorageError::DbSerialize)
                     });
@@ -494,13 +494,13 @@ mod tests {
                     });
             })
             .database_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
+                db.expect_get_last_cursor_for_originators()
                     .once()
-                    .returning(|_id, _entity| {
-                        Ok(Cursor {
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
                             sequence_id: 0,
                             originator_id: Originators::WELCOME_MESSAGES.into(),
-                        })
+                        }])
                     });
                 db.expect_find_group().once().returning(|_id| Ok(None));
             })
@@ -554,13 +554,13 @@ mod tests {
             .nested_transaction_calls(|_db: &mut MockDbQuery| {})
             .transaction_calls(|_db: &mut MockDbQuery| ())
             .database_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
+                db.expect_get_last_cursor_for_originators()
                     .once()
-                    .returning(|_id, _entity| {
-                        Ok(Cursor {
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
                             sequence_id: 0,
                             originator_id: Originators::WELCOME_MESSAGES.into(),
-                        })
+                        }])
                     });
                 db.expect_update_cursor()
                     .once()
@@ -655,13 +655,13 @@ mod tests {
             .nested_transaction_calls(|_db: &mut MockDbQuery| {})
             .transaction_calls(|_db: &mut MockDbQuery| {})
             .database_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
+                db.expect_get_last_cursor_for_originators()
                     .once()
-                    .returning(|_id, _entity| {
-                        Ok(Cursor {
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
                             sequence_id: 0,
                             originator_id: Originators::WELCOME_MESSAGES.into(),
-                        })
+                        }])
                     });
             })
             .mem(mem)

@@ -1236,7 +1236,7 @@ pub(crate) mod tests {
             .membership_state(membership_state)
             .added_by_inbox_id("placeholder_address")
             .sequence_id(welcome_id.unwrap_or(xmtp_common::rand_i64()))
-            .originator_id(Originators::WELCOME_MESSAGES as i64)
+            .originator_id(Originators::WELCOME_MESSAGES)
             .conversation_type(ConversationType::Group)
             .build()
             .unwrap()

@@ -10,7 +10,7 @@ use xmtp_proto::{
     },
 };
 
-use crate::protocol::{Extractor, ProtocolEnvelope, V3GroupMessageExtractor, V3WelcomeMessageExtractor};
+use crate::protocol::{EnvelopeError, Extractor, ProtocolEnvelope, V3GroupMessageExtractor, V3WelcomeMessageExtractor};
 
 /// intermediary type to indicate this group message is V3-only
 /// Conversions make assumptions about OriginatorID/sequenceID since this message is
@@ -26,7 +26,7 @@ impl TryFrom<V3ProtoGroupMessage> for xmtp_proto::types::GroupMessage {
     fn try_from(value: V3ProtoGroupMessage) -> Result<Self, Self::Error> {
         let mut extractor = V3GroupMessageExtractor::default();
         value.inner.accept(&mut extractor)?;
-        Ok(extractor.get()?)
+        Ok(extractor.get()?.ok_or(EnvelopeError::NotFound("v3 message"))?)
     }
 }
 

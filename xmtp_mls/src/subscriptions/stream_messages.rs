@@ -1,10 +1,3 @@
-#[cfg(test)]
-mod test_case_builder;
-#[cfg(test)]
-mod test_utils;
-#[cfg(test)]
-mod unit_tests;
-
 mod types;
 
 use types::GroupList;
@@ -152,7 +145,6 @@ where
         let api = context.api();
         let groups = GroupList::new(groups, api).await?;
         let subscription = api.subscribe_group_messages(groups.filters()).await?;
-        tracing::info!("stream_messages ready");
 
         Ok(Self {
             inner: subscription,
