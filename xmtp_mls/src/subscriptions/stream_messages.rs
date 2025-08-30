@@ -92,13 +92,16 @@ pin_project! {
     }
 }
 
+use xmtp_api::buffered_stream::BufferedStream;
+
 pub(super) type MessagesApiSubscription<'a, ApiClient> =
-    <ApiClient as XmtpMlsStreams>::GroupMessageStream;
+    BufferedStream<GroupMessage, <ApiClient as XmtpMlsStreams>::Error>;
 
 impl<'a, Context> StreamGroupMessages<'a, Context, MessagesApiSubscription<'a, Context::ApiClient>>
 where
     Context: XmtpSharedContext + 'a,
     Context::ApiClient: XmtpMlsStreams + 'a,
+    <Context::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin + 'static,
 {
     /// Creates a new stream for receiving group messages.
     ///
@@ -140,6 +143,7 @@ where
     C: XmtpSharedContext + 'static,
     C::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
     C::Db: Send + 'static,
+    <C::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin + 'static,
 {
     pub async fn new_owned(context: C, groups: Vec<GroupId>) -> Result<Self> {
         let f = ProcessMessageFuture::new(context.clone());
@@ -159,6 +163,7 @@ where
     C: XmtpSharedContext + 'a,
     C::ApiClient: XmtpMlsStreams + 'a,
     Factory: ProcessFutureFactory<'a> + 'a,
+    <C::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin + 'static,
 {
     pub async fn new_with_factory(
         context: Cow<'a, C>,
@@ -265,6 +270,7 @@ where
     C: XmtpSharedContext + 'a,
     C::ApiClient: XmtpMlsStreams + 'a,
     Factory: ProcessFutureFactory<'a> + 'a,
+    <C::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin + 'static,
 {
     type Item = Result<StoredGroupMessage>;
 
@@ -342,6 +348,7 @@ where
     C: XmtpSharedContext + 'a,
     Factory: ProcessFutureFactory<'a> + 'a,
     C::ApiClient: XmtpMlsStreams + 'a,
+    <C::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin + 'static,
 {
     /// Get the current state of the stream as a [`String`]
     fn current_state(self: Pin<&mut Self>) -> String {
