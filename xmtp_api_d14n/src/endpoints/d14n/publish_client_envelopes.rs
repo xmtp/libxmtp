@@ -28,7 +28,7 @@ impl Endpoint for PublishClientEnvelopes {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<PublishClientEnvelopesRequest>()
+        xmtp_proto::path_and_query::<PublishClientEnvelopesRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -49,7 +49,7 @@ mod test {
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::xmtpv4::payer_api::PublishClientEnvelopesRequest;
 
-        let pnq = crate::path_and_query::<PublishClientEnvelopesRequest>();
+        let pnq = xmtp_proto::path_and_query::<PublishClientEnvelopesRequest>();
         println!("{}", pnq);
     }
 
