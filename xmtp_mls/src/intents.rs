@@ -10,6 +10,7 @@
 
 use thiserror::Error;
 use xmtp_common::RetryableError;
+use xmtp_proto::types::Cursor;
 
 use crate::groups::summary::MessageIdentifier;
 
@@ -18,7 +19,7 @@ pub enum ProcessIntentError {
     #[error("message with cursor [{}] for group [{}] already processed", _0.cursor, xmtp_common::fmt::debug_hex(&_0.group_id))]
     MessageAlreadyProcessed(MessageIdentifier),
     #[error("welcome with cursor [{0}] already processed")]
-    WelcomeAlreadyProcessed(u64),
+    WelcomeAlreadyProcessed(Cursor),
     #[error("storage error: {0}")]
     Storage(#[from] xmtp_db::StorageError),
 }

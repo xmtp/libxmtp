@@ -1,9 +1,10 @@
+use chrono::Local;
 use derive_builder::Builder;
 use openmls::group::GroupContext;
 use std::collections::{HashMap, HashSet};
 use xmtp_common::RetryableError;
 use xmtp_db::group_intent::IntentKind;
-use xmtp_proto::mls_v1::group_message;
+use xmtp_proto::types::Cursor;
 
 use super::{GroupError, mls_sync::GroupMessageProcessingError};
 
@@ -40,7 +41,7 @@ impl SyncSummary {
     }
 
     /// Try to get a newly processed message by its cursor ID
-    pub fn new_message_by_id(&self, id: u64) -> Option<&MessageIdentifier> {
+    pub fn new_message_by_id(&self, id: Cursor) -> Option<&MessageIdentifier> {
         self.process.new_messages.iter().find(|m| m.cursor == id)
     }
 
@@ -148,9 +149,9 @@ impl std::fmt::Display for SyncSummary {
 #[builder(setter(into), build_fn(error = "GroupMessageProcessingError"))]
 pub struct MessageIdentifier {
     /// the cursor of the message as it exists on the network
-    pub cursor: u64,
-    pub group_id: Vec<u8>,
-    pub created_ns: u64,
+    pub cursor: Cursor,
+    pub group_id: xmtp_proto::types::GroupId,
+    pub created_ns: chrono::DateTime<Local>,
     /// tru if the message has been processed previously
     #[builder(default = false)]
     pub previously_processed: bool,
@@ -185,10 +186,10 @@ impl std::fmt::Debug for MessageIdentifier {
     }
 }
 
-impl From<&group_message::V1> for MessageIdentifierBuilder {
-    fn from(value: &group_message::V1) -> Self {
+impl From<&xmtp_proto::types::GroupMessage> for MessageIdentifierBuilder {
+    fn from(value: &xmtp_proto::types::GroupMessage) -> Self {
         MessageIdentifierBuilder {
-            cursor: Some(value.id),
+            cursor: Some(value.cursor),
             group_id: Some(value.group_id.clone()),
             created_ns: Some(value.created_ns),
             internal_id: None,
@@ -199,10 +200,10 @@ impl From<&group_message::V1> for MessageIdentifierBuilder {
     }
 }
 
-impl From<&group_message::V1> for MessageIdentifier {
-    fn from(value: &group_message::V1) -> Self {
+impl From<&xmtp_proto::types::GroupMessage> for MessageIdentifier {
+    fn from(value: &xmtp_proto::types::GroupMessage) -> Self {
         MessageIdentifier {
-            cursor: value.id,
+            cursor: value.cursor,
             group_id: value.group_id.clone(),
             created_ns: value.created_ns,
             internal_id: None,
@@ -223,9 +224,9 @@ impl PartialOrd for MessageIdentifier {
 /// And which messages could not be synced.
 #[derive(Default)]
 pub struct ProcessSummary {
-    pub total_messages: HashSet<u64>,
+    pub total_messages: HashSet<Cursor>,
     pub new_messages: Vec<MessageIdentifier>,
-    pub errored: Vec<(u64, GroupMessageProcessingError)>,
+    pub errored: Vec<(Cursor, GroupMessageProcessingError)>,
 }
 
 impl std::fmt::Debug for ProcessSummary {
@@ -236,9 +237,9 @@ impl std::fmt::Debug for ProcessSummary {
 
 pub struct ErrorSet {
     // Hashmap of message ids and the error they failed with
-    unique: HashMap<String, Vec<u64>>,
+    unique: HashMap<String, Vec<Cursor>>,
     /// sorted vector of all failed ids
-    sorted_ids: Vec<(u64, String)>,
+    sorted_ids: Vec<(Cursor, String)>,
 }
 
 impl std::fmt::Display for ErrorSet {
@@ -253,18 +254,18 @@ impl std::fmt::Display for ErrorSet {
 }
 
 impl ErrorSet {
-    pub fn unique(&self) -> &HashMap<String, Vec<u64>> {
+    pub fn unique(&self) -> &HashMap<String, Vec<Cursor>> {
         &self.unique
     }
 
-    pub fn sorted(&self) -> &[(u64, String)] {
+    pub fn sorted(&self) -> &[(Cursor, String)] {
         &self.sorted_ids
     }
 }
 
 impl ProcessSummary {
-    pub fn add_id(&mut self, id: u64) {
-        self.total_messages.insert(id);
+    pub fn add_id(&mut self, cursor: Cursor) {
+        self.total_messages.insert(cursor);
     }
 
     pub fn add(&mut self, message: MessageIdentifier) {
@@ -273,12 +274,12 @@ impl ProcessSummary {
     }
 
     /// the last message procesed
-    pub fn last(&self) -> Option<u64> {
+    pub fn last(&self) -> Option<Cursor> {
         self.total_messages.iter().max().copied()
     }
 
     /// the first messages processed
-    pub fn first(&self) -> Option<u64> {
+    pub fn first(&self) -> Option<Cursor> {
         self.total_messages.iter().min().copied()
     }
 
@@ -293,17 +294,17 @@ impl ProcessSummary {
     }
 
     /// the cursor of the first decryptable message
-    pub fn first_new(&self) -> Option<u64> {
+    pub fn first_new(&self) -> Option<Cursor> {
         self.new_messages.iter().map(|m| m.cursor).min()
     }
 
     /// the latest message that failed
-    pub fn last_errored(&self) -> Option<u64> {
+    pub fn last_errored(&self) -> Option<Cursor> {
         self.errored.iter().map(|(i, _)| *i).max()
     }
 
-    pub fn errored(&mut self, message_id: u64, error: GroupMessageProcessingError) {
-        self.errored.push((message_id, error));
+    pub fn errored(&mut self, cursor: Cursor, error: GroupMessageProcessingError) {
+        self.errored.push((cursor, error));
     }
 
     pub fn unique_errors(&self) -> ErrorSet {
@@ -313,7 +314,7 @@ impl ProcessSummary {
             .map(|(m, e)| (*m, e.to_string()))
             .collect::<Vec<(_, String)>>();
         sorted.sort_by_key(|(m, _)| *m);
-        let mut error_set: HashMap<String, Vec<u64>> = HashMap::new();
+        let mut error_set: HashMap<String, Vec<Cursor>> = HashMap::new();
         for (id, err) in sorted.iter().cloned() {
             error_set.entry(err).or_default().push(id);
         }

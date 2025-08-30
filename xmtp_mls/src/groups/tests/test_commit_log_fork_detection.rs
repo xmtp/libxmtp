@@ -1,10 +1,12 @@
 use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
 use crate::tester;
+use xmtp_configuration::Originators;
 use xmtp_db::Store;
 use xmtp_db::encrypted_store::local_commit_log::NewLocalCommitLog;
 use xmtp_db::encrypted_store::remote_commit_log::{CommitResult, NewRemoteCommitLog};
 use xmtp_db::local_commit_log::CommitType;
 use xmtp_db::prelude::*;
+use xmtp_proto::types::Cursor;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::error::Error>> {
@@ -198,8 +200,9 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
     )?;
 
-    assert_eq!(initial_local_cursor, 0);
-    assert_eq!(initial_remote_cursor, 0);
+    assert_eq!(initial_local_cursor, Cursor::new(0,Originators::REMOTE_COMMIT_LOG));
+    // TODO:d14n temp originator, may not work needs doublecheck
+    assert_eq!(initial_remote_cursor, Cursor::new(0, Originators::REMOTE_COMMIT_LOG));
 
     // Test fork detection
     let mut worker = CommitLogWorker::new(alix.context.clone());
@@ -230,8 +233,8 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     )?;
 
     // Cursors should be updated to the rowids of the matching entries
-    assert!(updated_local_cursor > 0, "Local cursor should be updated");
-    assert!(updated_remote_cursor > 0, "Remote cursor should be updated");
+    assert!(updated_local_cursor > Cursor::new(0, Originators::REMOTE_COMMIT_LOG), "Local cursor should be updated");
+    assert!(updated_remote_cursor > Cursor::new(0, Originators::REMOTE_COMMIT_LOG), "Remote cursor should be updated");
 
     // Insert local commit log entry
     let local_entry = NewLocalCommitLog {
@@ -296,11 +299,11 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
 
     assert_eq!(
         updated_two_local_cursor,
-        latest_two_local_log.unwrap().rowid as i64
+        Cursor::new(latest_two_local_log.unwrap().rowid as u64, Originators::REMOTE_COMMIT_LOG)
     );
     assert_eq!(
         updated_two_remote_cursor,
-        latest_two_remote_log.unwrap().rowid as i64
+        Cursor::new(latest_two_remote_log.unwrap().rowid as u64, Originators::REMOTE_COMMIT_LOG)
     );
 
     // Verify that the cursor positions are different

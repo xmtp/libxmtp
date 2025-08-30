@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::payer_api::{
     PublishClientEnvelopesRequest, PublishClientEnvelopesResponse,
@@ -57,10 +57,10 @@ mod test {
     async fn test_publish_client_envelopes() {
         use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 
-        let client = crate::TestClient::create_local_d14n();
+        let client = crate::TestGrpcClient::create_local_d14n();
         let client = client.build().await.unwrap();
 
-        let endpoint = PublishClientEnvelopes::builder()
+        let mut endpoint = PublishClientEnvelopes::builder()
             .envelopes(vec![ClientEnvelope::default()])
             .build()
             .unwrap();

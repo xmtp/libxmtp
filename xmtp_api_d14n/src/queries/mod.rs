@@ -7,11 +7,14 @@ pub use d14n::*;
 mod v3;
 pub use v3::*;
 
+mod stream;
+pub use stream::*;
+
 use std::error::Error as StdError;
 use xmtp_common::{RetryableError, retryable};
 use xmtp_proto::{
     ConversionError,
-    traits::{ApiClientError, BodyError},
+    api::{ApiClientError, BodyError},
 };
 
 #[derive(thiserror::Error, Debug)]

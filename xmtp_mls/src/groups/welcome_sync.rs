@@ -11,7 +11,6 @@ use std::sync::{
 };
 use xmtp_common::{Retry, retry_async};
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
-use xmtp_proto::xmtp::mls::api::v1::{WelcomeMessage, welcome_message};
 
 #[derive(Clone)]
 pub struct WelcomeService<Context> {
@@ -33,7 +32,7 @@ where
     /// applies the update after the welcome processed successfully.
     pub(crate) async fn process_new_welcome(
         &self,
-        welcome: &welcome_message::V1,
+        welcome: &xmtp_proto::types::WelcomeMessage,
         cursor_increment: bool,
         validator: impl ValidateGroupMembership,
     ) -> Result<MlsGroup<Context>, GroupError> {
@@ -58,8 +57,9 @@ where
                     );
                 } else {
                     tracing::error!(
-                        "failed to create group from welcome created at {}: {}",
-                        welcome.created_ns,
+                        "failed to create group from welcome={} created at {}: {}",
+                        welcome.cursor,
+                        welcome.created_ns.timestamp(),
                         err
                     );
                 }
@@ -80,21 +80,12 @@ where
 
         // TODO: Update cursor correctly if some of the welcomes fail and some of the welcomes succeed
         let groups: Vec<MlsGroup<Context>> = stream::iter(envelopes.into_iter())
-            .filter_map(|envelope: WelcomeMessage| async {
-                let welcome_v1 = match envelope.version {
-                    Some(welcome_message::Version::V1(v1)) => v1,
-                    _ => {
-                        tracing::error!(
-                            "failed to extract welcome message, invalid payload only v1 supported."
-                        );
-                        return None;
-                    }
-                };
+            .filter_map(|welcome| async move {
                 retry_async!(
                     Retry::default(),
                     (async {
                         let validator = InitialMembershipValidator::new(&self.context);
-                        self.process_new_welcome(&welcome_v1, true, validator).await
+                        self.process_new_welcome(&welcome, true, validator).await
                     })
                 )
                 .ok()
@@ -279,33 +270,31 @@ mod tests {
     use openmls::prelude::MlsMessageOut;
     use rstest::*;
     use tls_codec::Serialize;
+    use xmtp_common::Generate;
+    use xmtp_configuration::Originators;
     use xmtp_db::StorageError;
     use xmtp_db::refresh_state::EntityKind;
     use xmtp_db::sql_key_store::SqlKeyStore;
     use xmtp_db::{MemoryStorage, mock::MockDbQuery, sql_key_store::mock::MockSqlKeyStore};
+    use xmtp_proto::types::{Cursor, WelcomeMessage};
 
     use crate::test::mock::*;
 
-    fn generate_welcome(
-        id: u64,
-        public_key: Vec<u8>,
-        welcome: MlsMessageOut,
-    ) -> welcome_message::V1 {
+    fn generate_welcome(id: u64, public_key: Vec<u8>, welcome: MlsMessageOut) -> WelcomeMessage {
         let w = wrap_welcome(
             &welcome.tls_serialize_detached().unwrap(),
             &public_key,
             &WrapperAlgorithm::Curve25519,
         )
         .unwrap();
-        welcome_message::V1 {
-            id,
-            created_ns: 0,
-            installation_key: vec![0],
-            data: w,
-            hpke_public_key: public_key,
-            wrapper_algorithm: WrapperAlgorithm::Curve25519.into(),
-            welcome_metadata: vec![0],
-        }
+        let mut message = WelcomeMessage::generate();
+        message.hpke_public_key = public_key;
+        message.wrapper_algorithm = WrapperAlgorithm::Curve25519.into();
+        message.data = w;
+        message.cursor.sequence_id = id;
+        // TODO:d14n hardcoding v3 originator for welcomes
+        message.cursor.originator_id = Originators::WELCOME_MESSAGES.into();
+        message
     }
 
     #[derive(Builder)]
@@ -397,19 +386,34 @@ mod tests {
             .validator(NoopValidator)
             .context(context)
             .database_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
-                    .returning(|_id, _entity| Ok(0));
+                db.expect_get_last_cursor_for_originators()
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
+                            sequence_id: 0,
+                            originator_id: Originators::WELCOME_MESSAGES.into(),
+                        }])
+                    });
                 db.expect_find_group().returning(|_id| Ok(None));
             })
             // outer tx
             .transaction_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
-                    .returning(|_id, _entity| Ok(0));
+                db.expect_get_last_cursor_for_originators()
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
+                            sequence_id: 0,
+                            originator_id: Originators::WELCOME_MESSAGES.into(),
+                        }])
+                    });
             })
             // inner tx
             .nested_transaction_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
-                    .returning(|_id, _entity| Ok(0));
+                db.expect_get_last_cursor_for_originators()
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
+                            sequence_id: 0,
+                            originator_id: Originators::WELCOME_MESSAGES.into(),
+                        }])
+                    });
                 db.expect_update_cursor().returning(|_, _, _| Ok(true));
                 db.expect_insert_or_replace_group().returning(Ok);
             })
@@ -436,9 +440,9 @@ mod tests {
             .validator(NoopValidator)
             .context(context)
             .nested_transaction_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
+                db.expect_get_last_cursor_for_originators()
                     .once()
-                    .returning(|_id, _entity| {
+                    .returning(|_id, _entity, _| {
                         // non-retryable error in transaction
                         Err(StorageError::DbSerialize)
                     });
@@ -447,15 +451,26 @@ mod tests {
                 db.expect_update_cursor()
                     .once()
                     .returning(|_id, entity, cursor| {
-                        assert_eq!(cursor, 50);
+                        assert_eq!(
+                            cursor,
+                            Cursor {
+                                sequence_id: 50,
+                                originator_id: Originators::WELCOME_MESSAGES.into()
+                            }
+                        );
                         assert_eq!(entity, EntityKind::Welcome);
                         Ok(true)
                     });
             })
             .database_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
+                db.expect_get_last_cursor_for_originators()
                     .once()
-                    .returning(|_id, _entity| Ok(0));
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
+                            sequence_id: 0,
+                            originator_id: Originators::WELCOME_MESSAGES.into(),
+                        }])
+                    });
                 db.expect_find_group().once().returning(|_id| Ok(None));
             })
             .mem(mem)
@@ -504,9 +519,14 @@ mod tests {
             .nested_transaction_calls(|_db: &mut MockDbQuery| {})
             .transaction_calls(|_db: &mut MockDbQuery| ())
             .database_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
+                db.expect_get_last_cursor_for_originators()
                     .once()
-                    .returning(|_id, _entity| Ok(0));
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
+                            sequence_id: 0,
+                            originator_id: Originators::WELCOME_MESSAGES.into(),
+                        }])
+                    });
                 db.expect_update_cursor()
                     .once()
                     .returning(|_, _, _| Ok(true));
@@ -542,9 +562,14 @@ mod tests {
             .nested_transaction_calls(|_db: &mut MockDbQuery| {})
             .transaction_calls(|_db: &mut MockDbQuery| {})
             .database_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
+                db.expect_get_last_cursor_for_originators()
                     .once()
-                    .returning(|_id, _entity| Ok(0));
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
+                            sequence_id: 0,
+                            originator_id: Originators::WELCOME_MESSAGES.into(),
+                        }])
+                    });
             })
             .mem(mem)
             .build();
