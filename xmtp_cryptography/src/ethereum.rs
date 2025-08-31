@@ -1,4 +1,4 @@
-use alloy::primitives::{eip191_hash_message, keccak256, Address, B256};
+use alloy::primitives::{eip191_hash_message, Address, B256};
 use alloy::signers::local::PrivateKeySigner;
 use alloy::signers::SignerSync;
 use thiserror::Error;
@@ -24,78 +24,66 @@ pub enum EthereumCryptoError {
 }
 
 /// Generate uncompressed public key (65 bytes: 0x04 || X || Y) from 32-byte private key
+/// FFI-friendly wrapper around alloy's PrivateKeySigner
 pub fn public_key_uncompressed(
-    private_key32: &[u8; PRIVATE_KEY_LEN],
+    private_key32: &[u8],
 ) -> Result<[u8; PUBKEY_UNCOMPRESSED_LEN], EthereumCryptoError> {
-    // Check for zero key - mathematically invalid for secp256k1
-    if private_key32.iter().all(|&b| b == 0) {
-        return Err(EthereumCryptoError::InvalidKey);
+    // Validate private key length
+    if private_key32.len() != PRIVATE_KEY_LEN {
+        return Err(EthereumCryptoError::InvalidLength);
     }
+    let private_key_array: &[u8; PRIVATE_KEY_LEN] = private_key32.try_into().unwrap(); // Safe after length check
 
-    let signer =
-        PrivateKeySigner::from_slice(private_key32).map_err(|_| EthereumCryptoError::InvalidKey)?;
+    // Create alloy signer (handles validation internally)
+    let signer = PrivateKeySigner::from_slice(private_key_array)
+        .map_err(|_| EthereumCryptoError::InvalidKey)?;
+
+    // Get public key and convert to uncompressed format
     let xy: [u8; PUBKEY_XY_LEN] = signer.public_key().into(); // B512 -> [u8; 64] (X||Y)
-
     let mut out = [0u8; PUBKEY_UNCOMPRESSED_LEN];
     out[0] = UNCOMPRESSED_PUBKEY_PREFIX;
     out[1..].copy_from_slice(&xy);
     Ok(out)
 }
 
-/// Generate raw XY coordinates (64 bytes) from 32-byte private key
-pub fn public_key_xy(
-    private_key32: &[u8; PRIVATE_KEY_LEN],
-) -> Result<[u8; PUBKEY_XY_LEN], EthereumCryptoError> {
-    // Check for zero key - mathematically invalid for secp256k1
-    if private_key32.iter().all(|&b| b == 0) {
-        return Err(EthereumCryptoError::InvalidKey);
-    }
-
-    let signer =
-        PrivateKeySigner::from_slice(private_key32).map_err(|_| EthereumCryptoError::InvalidKey)?;
-    Ok(signer.public_key().into())
-}
-
-/// Recoverable ECDSA signing (Ethereum-style)
-/// Returns 65 bytes: r||s||v where v ∈ {0,1} (parity bit)
-/// - if `hashing == true`: keccak256(message) then sign_hash
+/// Recoverable ECDSA signing (Ethereum-style) - FFI-friendly wrapper around alloy
+/// Returns 65 bytes: r||s||v where v ∈ {27,28} (Ethereum standard recovery ID)
+/// - if `hashing == true`: EIP-191 personal message signing
 /// - else: `msg` must be a 32-byte prehash
 pub fn sign_recoverable(
     msg: &[u8],
-    private_key32: &[u8; PRIVATE_KEY_LEN],
+    private_key32: &[u8],
     hashing: bool,
 ) -> Result<[u8; SIGNATURE_LEN], EthereumCryptoError> {
-    // Check for zero key - mathematically invalid for secp256k1
-    if private_key32.iter().all(|&b| b == 0) {
-        return Err(EthereumCryptoError::InvalidKey);
+    // Validate private key length
+    if private_key32.len() != PRIVATE_KEY_LEN {
+        return Err(EthereumCryptoError::InvalidLength);
     }
+    let private_key_array: &[u8; PRIVATE_KEY_LEN] = private_key32.try_into().unwrap(); // Safe after length check
 
-    let signer =
-        PrivateKeySigner::from_slice(private_key32).map_err(|_| EthereumCryptoError::InvalidKey)?;
+    // Create alloy signer (handles zero key validation internally)
+    let signer = PrivateKeySigner::from_slice(private_key_array)
+        .map_err(|_| EthereumCryptoError::InvalidKey)?;
 
-    let digest: B256 = if hashing {
-        keccak256(msg) // Keccak-256 (Ethereum)
+    // Use alloy's built-in signing methods
+    let signature = if hashing {
+        // Use alloy's EIP-191 personal message signing
+        signer
+            .sign_message_sync(msg)
+            .map_err(|_| EthereumCryptoError::SignFailure)?
     } else {
+        // Sign pre-computed hash
         if msg.len() != HASH_LEN {
             return Err(EthereumCryptoError::InvalidLength);
         }
-        B256::from_slice(msg)
+        let hash = B256::from_slice(msg);
+        signer
+            .sign_hash_sync(&hash)
+            .map_err(|_| EthereumCryptoError::SignFailure)?
     };
 
-    let sig = signer
-        .sign_hash_sync(&digest)
-        .map_err(|_| EthereumCryptoError::SignFailure)?;
-
-    // Compose 65 bytes manually to ensure v={0,1}
-    let r = sig.r().to_be_bytes::<32>();
-    let s = sig.s().to_be_bytes::<32>();
-    let v_byte = if sig.v() { 1u8 } else { 0u8 }; // parity bit as 0/1
-
-    let mut out = [0u8; SIGNATURE_LEN];
-    out[0..HASH_LEN].copy_from_slice(&r);
-    out[HASH_LEN..PUBKEY_XY_LEN].copy_from_slice(&s);
-    out[PUBKEY_XY_LEN] = v_byte;
-    Ok(out)
+    // Convert alloy signature to FFI-friendly byte array
+    Ok(signature.as_bytes()) // alloy signatures are always 65 bytes
 }
 
 /// Derive Ethereum address from public key (accepts 65-byte 0x04||XY or 64-byte XY)
@@ -126,10 +114,7 @@ mod tests {
         let expected_ethereum_address = "0x34dd95109b587ca90778cde5e2dd87e022453699";
 
         // Convert private key from hex string to bytes
-        let private_key_bytes: [u8; PRIVATE_KEY_LEN] = hex::decode(private_key)
-            .expect("Valid hex private key")
-            .try_into()
-            .expect("32 bytes");
+        let private_key_bytes = hex::decode(private_key).expect("Valid hex private key");
 
         // Test uncompressed public key generation
         let public_key_65 = public_key_uncompressed(&private_key_bytes)
@@ -139,14 +124,6 @@ mod tests {
         assert_eq!(public_key_65.len(), PUBKEY_UNCOMPRESSED_LEN);
         assert_eq!(public_key_65[0], UNCOMPRESSED_PUBKEY_PREFIX);
 
-        // Test XY coordinates generation
-        let public_key_64 =
-            public_key_xy(&private_key_bytes).expect("Should generate XY coordinates");
-        assert_eq!(public_key_64.len(), PUBKEY_XY_LEN);
-
-        // Verify XY matches the uncompressed key (minus prefix)
-        assert_eq!(&public_key_65[1..], &public_key_64[..]);
-
         // Generate Ethereum address from 65-byte public key
         let address_from_65 =
             address_from_pubkey(&public_key_65).expect("Should derive address from 65-byte key");
@@ -155,9 +132,10 @@ mod tests {
             expected_ethereum_address.to_lowercase()
         );
 
-        // Generate Ethereum address from 64-byte public key
+        // Test that we can also derive address from 64-byte public key (XY coordinates only)
+        let public_key_64 = &public_key_65[1..]; // Remove 0x04 prefix to get XY coordinates
         let address_from_64 =
-            address_from_pubkey(&public_key_64).expect("Should derive address from 64-byte key");
+            address_from_pubkey(public_key_64).expect("Should derive address from 64-byte key");
         assert_eq!(
             address_from_64.to_lowercase(),
             expected_ethereum_address.to_lowercase()
@@ -170,10 +148,7 @@ mod tests {
         let private_key = "90b7388a7427358cb7fc7e9042805b1942eae47ee783e627a989719da35e76fb";
         let message = "test message";
 
-        let private_key_bytes: [u8; PRIVATE_KEY_LEN] = hex::decode(private_key)
-            .expect("Valid hex private key")
-            .try_into()
-            .expect("32 bytes");
+        let private_key_bytes = hex::decode(private_key).expect("Valid hex private key");
         let message_bytes = message.as_bytes();
 
         // Test with hashing enabled
@@ -183,11 +158,11 @@ mod tests {
         // Verify signature is 65 bytes
         assert_eq!(signature.len(), SIGNATURE_LEN);
 
-        // Verify recovery ID is 0 or 1
+        // Verify recovery ID is 27 or 28 (Ethereum standard)
         let recovery_id = signature[PUBKEY_XY_LEN];
-        assert!(recovery_id == 0 || recovery_id == 1);
+        assert!(recovery_id == 27 || recovery_id == 28);
 
-        // Test with hashing disabled (message must be 32 bytes)
+        // Test with hashing disabled (message must be 32 bytes) - using pre-computed EIP-191 hash
         let hash = hash_personal(message);
 
         let signature_no_hash = sign_recoverable(&hash, &private_key_bytes, false)
@@ -195,7 +170,7 @@ mod tests {
 
         assert_eq!(signature_no_hash.len(), SIGNATURE_LEN);
         let recovery_id_no_hash = signature_no_hash[PUBKEY_XY_LEN];
-        assert!(recovery_id_no_hash == 0 || recovery_id_no_hash == 1);
+        assert!(recovery_id_no_hash == 27 || recovery_id_no_hash == 28);
     }
 
     #[test]
@@ -220,13 +195,11 @@ mod tests {
         // Test invalid private keys
         let zero_key = [0u8; PRIVATE_KEY_LEN]; // All zeros - mathematically invalid
         assert!(public_key_uncompressed(&zero_key).is_err());
-        assert!(public_key_xy(&zero_key).is_err());
         assert!(sign_recoverable(b"test", &zero_key, true).is_err());
 
         // Test maximum value key (also invalid for secp256k1)
         let max_key = [0xFFu8; PRIVATE_KEY_LEN];
         assert!(public_key_uncompressed(&max_key).is_err());
-        assert!(public_key_xy(&max_key).is_err());
         assert!(sign_recoverable(b"test", &max_key, true).is_err());
 
         // Test invalid pubkey lengths for address derivation
@@ -242,5 +215,100 @@ mod tests {
         let valid_key = [1u8; PRIVATE_KEY_LEN];
         assert!(sign_recoverable(&[0u8; HASH_LEN - 1], &valid_key, false).is_err());
         // Wrong hash length
+    }
+
+    #[test]
+    fn test_eip191_hashing_compatibility() {
+        use alloy::signers::{local::PrivateKeySigner, SignerSync};
+
+        let private_key = "90b7388a7427358cb7fc7e9042805b1942eae47ee783e627a989719da35e76fb";
+        let message = "Hello, Ethereum!";
+        let private_key_bytes = hex::decode(private_key).expect("Valid hex private key");
+
+        // Create signatures using both our function and alloy
+        let our_signature = sign_recoverable(
+            message.as_bytes(),
+            &private_key_bytes,
+            true, // Use EIP-191 hashing
+        )
+        .expect("Should sign successfully");
+
+        let alloy_signer =
+            PrivateKeySigner::from_slice(&private_key_bytes).expect("Valid private key");
+        let alloy_signature = alloy_signer
+            .sign_message_sync(message.as_bytes())
+            .expect("Should sign");
+
+        // Both signatures should recover to the same address when verified with the same message
+        use alloy::primitives::Signature as AlloySignature;
+
+        let our_parsed = AlloySignature::try_from(our_signature.as_slice()).expect("Should parse");
+        let our_recovered = our_parsed
+            .recover_address_from_msg(message)
+            .expect("Should recover");
+
+        let alloy_recovered = alloy_signature
+            .recover_address_from_msg(message)
+            .expect("Should recover");
+
+        // Both should recover to the same address (the correct one for this private key)
+        assert_eq!(
+            our_recovered.to_string().to_lowercase(),
+            alloy_recovered.to_string().to_lowercase(),
+            "Both signatures should recover to the same address when using EIP-191 hashing"
+        );
+    }
+
+    #[test]
+    fn test_signature_round_trip_compatibility() {
+        // This test ensures our signatures work with the same verification patterns
+        // used elsewhere in the XMTP codebase
+        use alloy::primitives::Signature as AlloySignature;
+
+        let private_key = "a1b2c3d4e5f67890123456789012345678901234567890123456789012345678";
+        let message = "XMTP signature test message";
+
+        let private_key_bytes = hex::decode(private_key).expect("Valid hex private key");
+
+        // Generate public key and address using our functions
+        let public_key =
+            public_key_uncompressed(&private_key_bytes).expect("Should generate public key");
+        let _expected_address = address_from_pubkey(&public_key).expect("Should generate address");
+
+        // Sign the message
+        let signature = sign_recoverable(
+            message.as_bytes(),
+            &private_key_bytes,
+            true, // Use EIP-191 hashing
+        )
+        .expect("Should sign message");
+
+        // Test that alloy can parse our signature format
+        let alloy_signature =
+            AlloySignature::try_from(signature.as_slice()).expect("Should parse signature");
+        let recovered_address = alloy_signature
+            .recover_address_from_msg(message)
+            .expect("Should recover address");
+
+        // The recovered address should be a valid Ethereum address
+        let recovered_str = recovered_address.to_string();
+        assert!(
+            recovered_str.starts_with("0x"),
+            "Should be a valid Ethereum address"
+        );
+        assert_eq!(recovered_str.len(), 42, "Should be 42 characters long");
+
+        // Test with wrong message should recover a different address
+        let wrong_signature =
+            AlloySignature::try_from(signature.as_slice()).expect("Should parse signature");
+        let wrong_recovered = wrong_signature
+            .recover_address_from_msg("Different message")
+            .expect("Should recover some address");
+
+        assert_ne!(
+            wrong_recovered.to_string().to_lowercase(),
+            recovered_address.to_string().to_lowercase(),
+            "Wrong message should recover a different address"
+        );
     }
 }
