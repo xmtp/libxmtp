@@ -1,5 +1,7 @@
+use crate::groups::MlsGroup;
 use crate::groups::commit_log_key::CommitLogKeyCrypto;
 use crate::groups::commit_log_key::derive_consensus_public_key;
+use crate::groups::oneshot::Oneshot;
 use futures::StreamExt;
 use openmls::prelude::OpenMlsCrypto;
 use openmls::prelude::SignatureScheme;
@@ -9,13 +11,16 @@ use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
 use xmtp_api::ApiError;
 use xmtp_configuration::MAX_PAGE_SIZE;
+use xmtp_db::group::ConversationType;
+use xmtp_db::group::DmIdExt;
 use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
 use xmtp_db::{
     DbQuery, StorageError, Store,
-    group::StoredGroupCommitLogPublicKey,
+    group::{StoredGroupCommitLogPublicKey, StoredGroupForReaddRequest},
     local_commit_log::LocalCommitLogOrder,
     prelude::*,
+    readd_status::QueryReaddStatus,
     remote_commit_log::{CommitResult, NewRemoteCommitLog},
 };
 use xmtp_proto::mls_v1::PublishCommitLogRequest;
@@ -31,6 +36,9 @@ use crate::{
     context::XmtpSharedContext,
     groups::GroupError,
     worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult},
+};
+use xmtp_proto::xmtp::mls::message_contents::{
+    OneshotMessage, ReaddRequest, oneshot_message::MessageType,
 };
 
 /// Interval at which the CommitLogWorker runs to publish commit log entries.
@@ -64,6 +72,8 @@ where
 pub enum CommitLogError {
     #[error("generic storage error: {0}")]
     Storage(#[from] StorageError),
+    #[error("diesel error: {0}")]
+    Diesel(#[from] xmtp_db::diesel::result::Error),
     #[error("generic api error: {0}")]
     Api(#[from] ApiError),
     #[error("connection error: {0}")]
@@ -78,12 +88,15 @@ pub enum CommitLogError {
     CryptoError(#[from] openmls_traits::types::CryptoError),
     #[error("try from slice error: {0}")]
     TryFromSliceError(#[from] std::array::TryFromSliceError),
+    #[error("error: {0}")]
+    GenericError(String),
 }
 
 impl NeedsDbReconnect for CommitLogError {
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Storage(s) => s.db_needs_connection(),
+            Self::Diesel(_diesel_error) => false,
             Self::Api(_api_error) => false,
             Self::Connection(_connection_error) => true, // TODO(cam): verify this is correct
             Self::Prost(_prost_error) => false,
@@ -91,6 +104,7 @@ impl NeedsDbReconnect for CommitLogError {
             Self::GroupError(_group_error) => false,       // TODO(rich): What does this method do?
             Self::CryptoError(_crypto_error) => false,
             Self::TryFromSliceError(_try_from_slice_error) => false,
+            Self::GenericError(_generic_error) => false,
         }
     }
 }
@@ -169,9 +183,17 @@ where
     async fn run(&mut self) -> Result<(), CommitLogError> {
         let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
         while (intervals.next().await).is_some() {
-            self.save_remote_commit_log().await?;
-            self.update_forked_state().await?;
-            self.publish_commit_logs_to_remote().await?;
+            self.tick().await?;
+        }
+        Ok(())
+    }
+
+    async fn tick(&mut self) -> Result<(), CommitLogError> {
+        self.save_remote_commit_log().await?;
+        self.update_forked_state().await?;
+        self.publish_commit_logs_to_remote().await?;
+        if xmtp_configuration::ENABLE_RECOVERY_REQUESTS {
+            self.send_readd_requests().await?;
         }
         Ok(())
     }
@@ -459,7 +481,7 @@ where
     }
 
     // Should skip if:
-    // 1. The entry signature is invalid - TODO(cam)
+    // 1. The entry signature is invalid
     // 2. The group_id of the entry does not match the requested group_id.
     // 3. The commit_sequence_id of the entry is <= 0.
     // 4. The commit_sequence_id of the entry is not greater than the most recently stored entry, if one exists.
@@ -517,40 +539,125 @@ where
 
     // Updates fork status for conversations in the database
     pub async fn update_forked_state(&mut self) -> Result<(), CommitLogError> {
-        let conn = &self.context.db();
-        let conversation_ids_for_forked_state_check = conn.get_conversation_ids_for_fork_check()?;
+        let conversation_ids_for_forked_state_check =
+            self.context.db().get_conversation_ids_for_fork_check()?;
 
         for conversation_id in conversation_ids_for_forked_state_check {
-            let is_forked = self.check_conversation_fork_state(conn, &conversation_id)?;
-            // Persist the fork status to the database
-            conn.set_group_commit_log_forked_status(&conversation_id, is_forked)?;
+            self.context.mls_provider().storage().transaction(|conn| {
+                let key_store = conn.key_store();
+                let db = key_store.db();
+                let is_forked = self.check_conversation_fork_state(&db, &conversation_id)?;
+                // Persist the fork status to the database
+                db.set_group_commit_log_forked_status(&conversation_id, is_forked)?;
+                Ok::<(), CommitLogError>(())
+            })?;
         }
 
         Ok(())
     }
 
-    // Test helper to get fork status for a specific group
-    #[cfg(test)]
-    pub fn get_group_fork_status(&self, group_id: &[u8]) -> Result<Option<bool>, CommitLogError> {
-        let conn = &self.context.db();
-        Ok(conn.get_group_commit_log_forked_status(group_id)?)
+    /// Returns the list of permitted readders for a group
+    /// Note: Does not return self - self is always a permitted readder
+    async fn permitted_readders(&self, group_id: &[u8]) -> Result<Vec<String>, CommitLogError> {
+        let (group, stored_group) = MlsGroup::new_cached(self.context.clone(), group_id)?;
+        if stored_group.conversation_type == ConversationType::Dm {
+            let Some(dm_id) = stored_group.dm_id.clone() else {
+                tracing::error!("DM group {} has no dm_id", hex::encode(group_id));
+                return Ok(vec![]);
+            };
+            let other_id = dm_id.other_inbox_id(self.context.inbox_id());
+            return Ok(vec![other_id]);
+        }
+        let super_admins = group.super_admin_list()?;
+        Ok(super_admins)
     }
 
-    // Test helper to get fork status for all groups that would be checked (for backward compatibility with tests)
-    #[cfg(test)]
-    pub fn get_all_fork_statuses(&self) -> Result<HashMap<Vec<u8>, Option<bool>>, CommitLogError> {
-        use xmtp_db::group::GroupQueryArgs;
-        let conn = &self.context.db();
-        // Get all groups (not just those with commit log keys)
-        let all_groups = conn.find_groups(GroupQueryArgs::default())?;
+    async fn request_readd(
+        &mut self,
+        group_info: StoredGroupForReaddRequest,
+    ) -> Result<(), CommitLogError> {
+        let conn = self.context.db();
+        let group_id = group_info.group_id;
 
-        let mut results = HashMap::new();
-        for group in all_groups {
-            let fork_status = conn.get_group_commit_log_forked_status(&group.id)?;
-            results.insert(group.id, fork_status);
+        // Check if a readd request has already been sent for this group
+        if conn.is_awaiting_readd(
+            &group_id,
+            self.context.inbox_id(),
+            self.context.installation_id().as_slice(),
+        )? {
+            tracing::debug!(
+                group_id = hex::encode(&group_id),
+                "Skipping readd request for group because it has already been requested"
+            );
+            return Ok(());
         }
 
-        Ok(results)
+        tracing::info!(group_id = hex::encode(&group_id), "Sending readd request");
+
+        // Send oneshot message with readd request to super admins
+        let latest_commit_sequence_id =
+            group_info
+                .latest_commit_sequence_id
+                .ok_or(CommitLogError::GenericError(format!(
+                    "No latest commit sequence id found for forked group {}",
+                    hex::encode(&group_id)
+                )))?;
+        let oneshot_message = OneshotMessage {
+            message_type: Some(MessageType::ReaddRequest(ReaddRequest {
+                group_id: group_id.clone(),
+                latest_commit_sequence_id: latest_commit_sequence_id as u64,
+            })),
+        };
+        let readders = self.permitted_readders(&group_id).await?;
+        tracing::info!(
+            group_id = hex::encode(&group_id),
+            "Sending readd request to {:?}",
+            readders
+        );
+        Oneshot::send_message(self.context.clone(), readders, oneshot_message).await?;
+
+        tracing::info!(group_id = hex::encode(&group_id), "Sent readd request",);
+
+        // Mark readd as requested
+        conn.update_requested_at_sequence_id(
+            &group_id,
+            self.context.inbox_id(),
+            self.context.installation_id().as_slice(),
+            latest_commit_sequence_id as i64,
+        )?;
+
+        tracing::info!(
+            group_id = hex::encode(&group_id),
+            sequence_id = latest_commit_sequence_id,
+            "Updated requested readd sequence id",
+        );
+
+        Ok(())
+    }
+
+    /// Send readd requests for all forked conversations  
+    async fn send_readd_requests(&mut self) -> Result<(), CommitLogError> {
+        let conn = self.context.db();
+
+        // Fetch all forked groups with their latest epoch
+        let forked_groups = conn.get_conversation_ids_for_requesting_readds()?;
+
+        for group_info in forked_groups {
+            let group_id = group_info.group_id.clone();
+
+            // Process the readd request and log any errors
+            if let Err(e) = self.request_readd(group_info).await {
+                tracing::error!(
+                    group_id = hex::encode(&group_id),
+                    error = ?e,
+                    "Failed to process readd request for group"
+                );
+                // Continue processing other groups even if one fails
+                continue;
+            }
+        }
+
+        Ok(())
     }
 
     fn check_conversation_fork_state(
@@ -644,9 +751,52 @@ where
             .iter()
             .find(|remote_log| remote_log.commit_sequence_id == commit_sequence_id)
     }
+}
+
+// Helper that exposes private methods for testing
+#[cfg(test)]
+impl<Context> CommitLogWorker<Context>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    pub async fn _tick(&mut self) -> Result<(), CommitLogError> {
+        self.tick().await
+    }
+
+    pub(crate) fn _should_skip_remote_commit_log_entry(
+        &self,
+        group_id: &[u8],
+        latest_saved_remote_log: Option<RemoteCommitLog>,
+        serialized_entry: &xmtp_proto::xmtp::mls::message_contents::CommitLogEntry,
+        entry: &PlaintextCommitLogEntry,
+        consensus_public_key: &[u8],
+    ) -> bool {
+        self.should_skip_remote_commit_log_entry(
+            group_id,
+            latest_saved_remote_log,
+            serialized_entry,
+            entry,
+            consensus_public_key,
+        )
+    }
+
+    // Test helper to get fork status for all groups that would be checked (for backward compatibility with tests)
+    pub fn get_all_fork_statuses(&self) -> Result<HashMap<Vec<u8>, Option<bool>>, CommitLogError> {
+        use xmtp_db::group::GroupQueryArgs;
+        let conn = &self.context.db();
+        // Get all groups (not just those with commit log keys)
+        let all_groups = conn.find_groups(GroupQueryArgs::default())?;
+
+        let mut results = HashMap::new();
+        for group in all_groups {
+            let fork_status = conn.get_group_commit_log_forked_status(&group.id)?;
+            results.insert(group.id, fork_status);
+        }
+
+        Ok(results)
+    }
 
     /// Test-only version that runs without infinite loop
-    #[cfg(test)]
     pub async fn run_test(
         &mut self,
         commit_log_test_function: CommitLogTestFunction,
@@ -669,7 +819,6 @@ where
         Ok(test_results)
     }
 
-    #[cfg(test)]
     async fn test_helper(
         &mut self,
         commit_log_test_function: &CommitLogTestFunction,
@@ -705,23 +854,5 @@ where
             }
         }
         Ok(test_result)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn should_skip_remote_commit_log_entry_test(
-        &self,
-        group_id: &[u8],
-        latest_saved_remote_log: Option<RemoteCommitLog>,
-        serialized_entry: &xmtp_proto::xmtp::mls::message_contents::CommitLogEntry,
-        entry: &PlaintextCommitLogEntry,
-        consensus_public_key: &[u8],
-    ) -> bool {
-        self.should_skip_remote_commit_log_entry(
-            group_id,
-            latest_saved_remote_log,
-            serialized_entry,
-            entry,
-            consensus_public_key,
-        )
     }
 }
