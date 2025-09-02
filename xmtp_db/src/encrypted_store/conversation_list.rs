@@ -1,11 +1,10 @@
 use super::ConnectionExt;
 use super::schema::conversation_list::dsl::conversation_list;
 use crate::consent_record::ConsentState;
-use crate::group::{ConversationType, GroupMembershipState, GroupQueryArgs};
+use crate::group::{ConversationType, GroupMembershipState, GroupQueryArgs, GroupQueryOrderBy};
 use crate::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
 use crate::{DbConnection, StorageError};
 use diesel::dsl::sql;
-use diesel::sql_types::BigInt;
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, JoinOnDsl, QueryDsl, Queryable, RunQueryDsl, Table,
 };
@@ -87,6 +86,8 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
         use crate::schema::consent_records::dsl as consent_dsl;
         use crate::schema::conversation_list::dsl as conversation_list_dsl;
 
+        args.as_ref().validate()?;
+
         let GroupQueryArgs {
             allowed_states,
             created_after_ns,
@@ -96,11 +97,25 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
             consent_states,
             include_sync_groups,
             include_duplicate_dms,
+            last_activity_after_ns,
+            last_activity_before_ns,
+            order_by,
             ..
         } = args.as_ref();
+
+        let order_expression = match order_by.clone().unwrap_or_default() {
+            GroupQueryOrderBy::CreatedAt => {
+                diesel::dsl::sql::<diesel::sql_types::BigInt>("created_at_ns DESC")
+            }
+            GroupQueryOrderBy::LastActivity => diesel::dsl::sql::<diesel::sql_types::BigInt>(
+                "COALESCE(sent_at_ns, created_at_ns) DESC",
+            ),
+        };
+
         let mut query = conversation_list
             .select(conversation_list::all_columns())
             .filter(conversation_list_dsl::conversation_type.ne(ConversationType::Sync))
+            .order(order_expression)
             .into_boxed();
 
         if !include_duplicate_dms {
@@ -125,8 +140,29 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
             query = query.filter(conversation_list_dsl::membership_state.eq_any(allowed_states));
         }
 
+        // last_activity_after_ns takes precedence over created_after_ns
+        if let Some(last_activity_after_ns) = last_activity_after_ns {
+            // "Activity after" means groups that were either created,
+            // or have sent a message after the specified time.
+            query = query.filter(
+                diesel::dsl::sql::<diesel::sql_types::BigInt>(
+                    "COALESCE(sent_at_ns, created_at_ns)",
+                )
+                .gt(last_activity_after_ns),
+            );
+        }
+
         if let Some(created_after_ns) = created_after_ns {
             query = query.filter(conversation_list_dsl::created_at_ns.gt(created_after_ns));
+        }
+
+        if let Some(last_activity_before_ns) = last_activity_before_ns {
+            query = query.filter(
+                diesel::dsl::sql::<diesel::sql_types::BigInt>(
+                    "COALESCE(sent_at_ns, created_at_ns)",
+                )
+                .lt(last_activity_before_ns),
+            );
         }
 
         if let Some(created_before_ns) = created_before_ns {
@@ -169,8 +205,7 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
                         .or(consent_dsl::state.eq(ConsentState::Unknown))
                         .or(consent_dsl::state.eq_any(filtered_states.clone())),
                 )
-                .select(conversation_list::all_columns())
-                .order(sql::<BigInt>("COALESCE(sent_at_ns, created_at_ns) DESC"));
+                .select(conversation_list::all_columns());
 
             self.raw_query_read(|conn| left_joined_query.load::<ConversationListItem>(conn))?
         } else {
@@ -183,8 +218,7 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
                     .eq(consent_dsl::entity)),
                 )
                 .filter(consent_dsl::state.eq_any(filtered_states.clone()))
-                .select(conversation_list::all_columns())
-                .order(sql::<BigInt>("COALESCE(sent_at_ns, created_at_ns) DESC"));
+                .select(conversation_list::all_columns());
 
             self.raw_query_read(|conn| inner_joined_query.load::<ConversationListItem>(conn))?
         };
@@ -209,7 +243,7 @@ pub(crate) mod tests {
     use crate::group::tests::{
         generate_consent_record, generate_dm, generate_group, generate_group_with_created_at,
     };
-    use crate::group::{GroupMembershipState, GroupQueryArgs};
+    use crate::group::{GroupMembershipState, GroupQueryArgs, GroupQueryOrderBy};
     use crate::group_message::ContentType;
     use crate::prelude::*;
     use crate::test_utils::with_connection;
@@ -482,6 +516,225 @@ pub(crate) mod tests {
             assert!(returned_ids.contains(&&allowed_group.id));
             assert!(returned_ids.contains(&&unknown_group.id));
             assert!(!returned_ids.contains(&&denied_group.id));
+        })
+        .await
+    }
+
+    #[xmtp_common::test]
+    async fn test_last_activity_after_ns_filter() {
+        with_connection(|conn| {
+            // Create groups with specific creation times
+            let group1 = generate_group_with_created_at(None, 1000);
+            let group2 = generate_group_with_created_at(None, 2000);
+            let group3 = generate_group_with_created_at(None, 3000);
+
+            group1.store(conn).unwrap();
+            group2.store(conn).unwrap();
+            group3.store(conn).unwrap();
+
+            // Add a message to group1 at timestamp 5000
+            let message1 = crate::encrypted_store::group_message::tests::generate_message(
+                None,
+                Some(&group1.id),
+                Some(5000),
+                Some(ContentType::Text),
+                None,
+                None,
+            );
+            message1.store(conn).unwrap();
+
+            // Add a message to group2 at timestamp 4000
+            let message2 = crate::encrypted_store::group_message::tests::generate_message(
+                None,
+                Some(&group2.id),
+                Some(4000),
+                Some(ContentType::Text),
+                None,
+                None,
+            );
+            message2.store(conn).unwrap();
+
+            // group3 has no messages, so its activity time is its created_at_ns (3000)
+
+            // Test: last_activity_after_ns = 3500 should return group1 (activity at 5000) and group2 (activity at 4000)
+            let results = conn
+                .fetch_conversation_list(GroupQueryArgs {
+                    last_activity_after_ns: Some(3500),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(
+                results.len(),
+                2,
+                "Should return groups with activity after 3500"
+            );
+
+            let returned_ids: Vec<_> = results.iter().map(|g| &g.id).collect();
+            assert!(
+                returned_ids.contains(&&group1.id),
+                "Should include group1 (message at 5000)"
+            );
+            assert!(
+                returned_ids.contains(&&group2.id),
+                "Should include group2 (message at 4000)"
+            );
+            assert!(
+                !returned_ids.contains(&&group3.id),
+                "Should not include group3 (created at 3000)"
+            );
+
+            // Test: last_activity_after_ns = 4500 should only return group1
+            let results = conn
+                .fetch_conversation_list(GroupQueryArgs {
+                    last_activity_after_ns: Some(4500),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(results.len(), 1, "Should return only group1");
+            assert_eq!(results[0].id, group1.id, "Should be group1");
+
+            // Test: last_activity_after_ns = 2500 should return all groups
+            let results = conn
+                .fetch_conversation_list(GroupQueryArgs {
+                    last_activity_after_ns: Some(2500),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(results.len(), 3, "Should return all groups");
+        })
+        .await
+    }
+
+    #[xmtp_common::test]
+    async fn test_last_activity_before_ns_filter() {
+        with_connection(|conn| {
+            // Create groups with specific creation times
+            let group1 = generate_group_with_created_at(None, 1000);
+            let group2 = generate_group_with_created_at(None, 2000);
+            let group3 = generate_group_with_created_at(None, 3000);
+
+            group1.store(conn).unwrap();
+            group2.store(conn).unwrap();
+            group3.store(conn).unwrap();
+
+            // Add a message to group1 at timestamp 5000
+            let message1 = crate::encrypted_store::group_message::tests::generate_message(
+                None,
+                Some(&group1.id),
+                Some(5000),
+                Some(ContentType::Text),
+                None,
+                None,
+            );
+            message1.store(conn).unwrap();
+
+            // Add a message to group2 at timestamp 4000
+            let message2 = crate::encrypted_store::group_message::tests::generate_message(
+                None,
+                Some(&group2.id),
+                Some(4000),
+                Some(ContentType::Text),
+                None,
+                None,
+            );
+            message2.store(conn).unwrap();
+
+            // group3 has no messages, so its activity time is its created_at_ns (3000)
+
+            // Test: last_activity_before_ns = 4500 should return group2 (activity at 4000) and group3 (created at 3000)
+            let results = conn
+                .fetch_conversation_list(GroupQueryArgs {
+                    last_activity_before_ns: Some(4500),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(
+                results.len(),
+                2,
+                "Should return groups with activity before 4500"
+            );
+
+            let returned_ids: Vec<_> = results.iter().map(|g| &g.id).collect();
+            assert!(
+                !returned_ids.contains(&&group1.id),
+                "Should not include group1 (message at 5000)"
+            );
+            assert!(
+                returned_ids.contains(&&group2.id),
+                "Should include group2 (message at 4000)"
+            );
+            assert!(
+                returned_ids.contains(&&group3.id),
+                "Should include group3 (created at 3000)"
+            );
+
+            // Test: last_activity_before_ns = 3500 should only return group3
+            let results = conn
+                .fetch_conversation_list(GroupQueryArgs {
+                    last_activity_before_ns: Some(3500),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(results.len(), 1, "Should return only group3");
+            assert_eq!(results[0].id, group3.id, "Should be group3");
+
+            // Test: last_activity_before_ns = 5500 should return all groups
+            let results = conn
+                .fetch_conversation_list(GroupQueryArgs {
+                    last_activity_before_ns: Some(5500),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(results.len(), 3, "Should return all groups");
+        })
+        .await
+    }
+
+    #[xmtp_common::test]
+    async fn test_activity_filters_combined_with_limit() {
+        with_connection(|conn| {
+            // Create multiple groups with different activity times
+            let mut groups = Vec::new();
+            for i in 0..5 {
+                let group = generate_group_with_created_at(None, (i + 1) * 1000);
+                group.store(conn).unwrap();
+
+                // Add a message to each group at different times
+                let message = crate::encrypted_store::group_message::tests::generate_message(
+                    None,
+                    Some(&group.id),
+                    Some((100 - i) * 1000), // Messages at 100_000, 99_000, 98_000, etc.
+                    Some(ContentType::Text),
+                    None,
+                    None,
+                );
+                message.store(conn).unwrap();
+                groups.push(group);
+            }
+
+            // Test: last_activity_after_ns = 7500 with limit = 2
+            // Should return groups with messages at 97_000, 98_000, 99_000, 100_000, but only 2 due to limit
+            let results = conn
+                .fetch_conversation_list(GroupQueryArgs {
+                    last_activity_after_ns: Some(96_000),
+                    limit: Some(2),
+                    order_by: Some(GroupQueryOrderBy::LastActivity),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(results.len(), 2, "Should return 2 groups due to limit");
+
+            // Results should be ordered by activity (latest first)
+            assert_eq!(
+                results[0].sent_at_ns.unwrap(),
+                100_000,
+                "First should be most recent"
+            );
+            assert_eq!(
+                results[1].sent_at_ns.unwrap(),
+                99_000,
+                "Second should be second most recent"
+            );
         })
         .await
     }

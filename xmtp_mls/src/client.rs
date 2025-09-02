@@ -33,7 +33,6 @@ use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::retryable;
 use xmtp_common::types::InstallationId;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::prelude::*;
 use xmtp_db::{
     ConnectionExt, NotFound, StorageError, XmtpDb,
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
@@ -43,6 +42,7 @@ use xmtp_db::{
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
 };
+use xmtp_db::{group::GroupQueryOrderBy, prelude::*};
 use xmtp_id::{
     AsIdRef, InboxId, InboxIdRef,
     associations::{
@@ -694,6 +694,11 @@ where
         &self,
         args: GroupQueryArgs,
     ) -> Result<Vec<ConversationListItem<Context>>, ClientError> {
+        let mut args = args.clone();
+        // Default to last activity order by for this endpoint
+        if args.order_by.is_none() {
+            args.order_by = Some(GroupQueryOrderBy::LastActivity);
+        }
         Ok(self
             .context
             .db()
@@ -925,6 +930,8 @@ pub(crate) mod tests {
     use std::time::Duration;
     use xmtp_common::NS_IN_SEC;
     use xmtp_common::time::now_ns;
+    use xmtp_content_types::ContentCodec;
+    use xmtp_content_types::text::TextCodec;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
     use xmtp_db::identity::StoredIdentity;
@@ -1744,5 +1751,86 @@ pub(crate) mod tests {
         let new_res = new_stream.try_next().await;
         assert!(new_res.is_ok());
         assert!(new_res.unwrap().is_some());
+    }
+
+    #[rstest::rstest]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_list_conversations_pagination() {
+        use prost::Message;
+        use xmtp_mls_common::group::GroupMetadataOptions;
+
+        let alix = Tester::builder().build().await;
+        let bo = Tester::builder().build().await;
+
+        // Create 15 groups with small delays to ensure different created_at_ns values
+        let mut all_group_ids = Vec::new();
+        for i in 0..15 {
+            let group = alix
+                .create_group_with_inbox_ids(
+                    &[bo.inbox_id().to_string()],
+                    None,
+                    Some(GroupMetadataOptions {
+                        name: Some(format!("Group {}", i + 1)),
+                        ..Default::default()
+                    }),
+                )
+                .await
+                .unwrap();
+            all_group_ids.push(group.group_id.clone());
+            group
+                .send_message(
+                    TextCodec::encode("hello".to_string())
+                        .unwrap()
+                        .encode_to_vec()
+                        .as_slice(),
+                )
+                .await
+                .unwrap();
+            // Small delay to ensure different timestamps
+            xmtp_common::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        let mut before_ns = None;
+        let mut all_conversation_ids = Vec::new();
+        loop {
+            let results = alix
+                .list_conversations(GroupQueryArgs {
+                    limit: Some(5),
+                    last_activity_before_ns: before_ns,
+                    ..Default::default()
+                })
+                .unwrap();
+
+            if results.is_empty() {
+                break;
+            }
+            assert_eq!(results.len(), 5);
+
+            all_conversation_ids.extend(results.iter().map(|item| item.group.group_id.clone()));
+
+            before_ns = Some(
+                results
+                    .last()
+                    .unwrap()
+                    .last_message
+                    .as_ref()
+                    .unwrap()
+                    .sent_at_ns,
+            );
+        }
+
+        assert_eq!(
+            all_conversation_ids.len(),
+            15,
+            "Should have 15 total conversations"
+        );
+        all_conversation_ids.dedup();
+
+        // Check that we got all 15 unique groups
+        assert_eq!(
+            all_conversation_ids.len(),
+            15,
+            "Should have 15 total conversations after deduping"
+        );
     }
 }
