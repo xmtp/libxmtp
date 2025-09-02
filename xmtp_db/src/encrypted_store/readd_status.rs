@@ -25,6 +25,12 @@ pub trait QueryReaddStatus {
         installation_id: &[u8],
     ) -> Result<Option<ReaddStatus>, crate::ConnectionError>;
 
+    fn is_awaiting_readd(
+        &self,
+        group_id: &[u8],
+        installation_id: &[u8],
+    ) -> Result<bool, crate::ConnectionError>;
+
     /// Update the requested_at_sequence_id for a given group_id and installation_id,
     /// provided it is higher than the current value.
     /// Inserts the row if it doesn't exist.
@@ -62,6 +68,21 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
                 .first::<ReaddStatus>(conn)
                 .optional()
         })
+    }
+
+    fn is_awaiting_readd(
+        &self,
+        group_id: &[u8],
+        installation_id: &[u8],
+    ) -> Result<bool, crate::ConnectionError> {
+        let readd_status = self.get_readd_status(group_id, installation_id)?;
+        if let Some(readd_status) = readd_status
+            && let Some(requested_at) = readd_status.requested_at_sequence_id
+            && requested_at >= readd_status.responded_at_sequence_id.unwrap_or(0)
+        {
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     fn update_requested_at_sequence_id(
@@ -141,6 +162,14 @@ where
         installation_id: &[u8],
     ) -> Result<Option<ReaddStatus>, crate::ConnectionError> {
         (**self).get_readd_status(group_id, installation_id)
+    }
+
+    fn is_awaiting_readd(
+        &self,
+        group_id: &[u8],
+        installation_id: &[u8],
+    ) -> Result<bool, crate::ConnectionError> {
+        (**self).is_awaiting_readd(group_id, installation_id)
     }
 
     fn update_requested_at_sequence_id(
@@ -370,6 +399,136 @@ mod tests {
             let status = status.unwrap();
             assert_eq!(status.responded_at_sequence_id, Some(125)); // Should be updated
             assert_eq!(status.requested_at_sequence_id, Some(50)); // Should remain unchanged
+        })
+        .await;
+    }
+
+    #[xmtp_common::test]
+    async fn test_is_awaiting_readd_no_status() {
+        with_connection(|conn| {
+            let group_id = vec![1, 2, 3];
+            let installation_id = vec![4, 5, 6];
+
+            // Should return false when no readd status exists
+            let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
+            assert!(!result);
+        })
+        .await;
+    }
+
+    #[xmtp_common::test]
+    async fn test_is_awaiting_readd_no_request() {
+        with_connection(|conn| {
+            let group_id = vec![1, 2, 3];
+            let installation_id = vec![4, 5, 6];
+
+            // Create a readd status without a requested_at_sequence_id
+            ReaddStatus {
+                group_id: group_id.clone(),
+                installation_id: installation_id.clone(),
+                requested_at_sequence_id: None,
+                responded_at_sequence_id: Some(5),
+            }
+            .store(conn)
+            .unwrap();
+
+            // Should return false when no request has been made
+            let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
+            assert!(!result);
+        })
+        .await;
+    }
+
+    #[xmtp_common::test]
+    async fn test_is_awaiting_readd_request_pending() {
+        with_connection(|conn| {
+            let group_id = vec![1, 2, 3];
+            let installation_id = vec![4, 5, 6];
+
+            // Create a readd status with requested_at > responded_at
+            ReaddStatus {
+                group_id: group_id.clone(),
+                installation_id: installation_id.clone(),
+                requested_at_sequence_id: Some(10),
+                responded_at_sequence_id: Some(5),
+            }
+            .store(conn)
+            .unwrap();
+
+            // Should return true when request is pending
+            let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
+            assert!(result);
+        })
+        .await;
+    }
+
+    #[xmtp_common::test]
+    async fn test_is_awaiting_readd_request_fulfilled() {
+        with_connection(|conn| {
+            let group_id = vec![1, 2, 3];
+            let installation_id = vec![4, 5, 6];
+
+            // Create a readd status with requested_at <= responded_at
+            ReaddStatus {
+                group_id: group_id.clone(),
+                installation_id: installation_id.clone(),
+                requested_at_sequence_id: Some(5),
+                responded_at_sequence_id: Some(10),
+            }
+            .store(conn)
+            .unwrap();
+
+            // Should return false when request has been fulfilled
+            let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
+            assert!(!result);
+        })
+        .await;
+    }
+
+    #[xmtp_common::test]
+    async fn test_is_awaiting_readd_equal_sequence_ids() {
+        with_connection(|conn| {
+            let group_id = vec![1, 2, 3];
+            let installation_id = vec![4, 5, 6];
+
+            // Create a readd status with requested_at == responded_at
+            ReaddStatus {
+                group_id: group_id.clone(),
+                installation_id: installation_id.clone(),
+                requested_at_sequence_id: Some(10),
+                responded_at_sequence_id: Some(10),
+            }
+            .store(conn)
+            .unwrap();
+
+            // Should return true when sequence IDs are equal.
+            // The response to a readd request will always add a commit, which increases the sequence ID.
+            // It is possible that a readd request is subsequently issued at the same sequence ID.
+            let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
+            assert!(result);
+        })
+        .await;
+    }
+
+    #[xmtp_common::test]
+    async fn test_is_awaiting_readd_no_responded_at() {
+        with_connection(|conn| {
+            let group_id = vec![1, 2, 3];
+            let installation_id = vec![4, 5, 6];
+
+            // Create a readd status with requested_at but no responded_at (defaults to 0)
+            ReaddStatus {
+                group_id: group_id.clone(),
+                installation_id: installation_id.clone(),
+                requested_at_sequence_id: Some(5),
+                responded_at_sequence_id: None,
+            }
+            .store(conn)
+            .unwrap();
+
+            // Should return true when requested_at > 0 (default responded_at)
+            let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
+            assert!(result);
         })
         .await;
     }
