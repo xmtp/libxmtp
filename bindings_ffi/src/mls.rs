@@ -26,8 +26,8 @@ use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::transaction_reference::TransactionReference;
 use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
 use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
-use xmtp_db::group::ConversationType;
 use xmtp_db::group::DmIdExt;
+use xmtp_db::group::{ConversationType, GroupQueryOrderBy};
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::group_message::{SortDirection, StoredGroupMessageWithReactions};
 use xmtp_db::user_preferences::HmacKey;
@@ -1066,10 +1066,28 @@ impl From<AssociationState> for FfiInboxState {
     }
 }
 
+#[derive(uniffi::Enum, Clone, Debug)]
+pub enum FfiGroupQueryOrderBy {
+    CreatedAt,
+    LastActivity,
+}
+
+impl From<FfiGroupQueryOrderBy> for GroupQueryOrderBy {
+    fn from(order_by: FfiGroupQueryOrderBy) -> Self {
+        match order_by {
+            FfiGroupQueryOrderBy::CreatedAt => GroupQueryOrderBy::CreatedAt,
+            FfiGroupQueryOrderBy::LastActivity => GroupQueryOrderBy::LastActivity,
+        }
+    }
+}
+
 #[derive(uniffi::Record, Default)]
 pub struct FfiListConversationsOptions {
     pub created_after_ns: Option<i64>,
     pub created_before_ns: Option<i64>,
+    pub last_activity_before_ns: Option<i64>,
+    pub last_activity_after_ns: Option<i64>,
+    pub order_by: Option<FfiGroupQueryOrderBy>,
     pub limit: Option<i64>,
     pub consent_states: Option<Vec<FfiConsentState>>,
     pub include_duplicate_dms: bool,
@@ -1085,6 +1103,9 @@ impl From<FfiListConversationsOptions> for GroupQueryArgs {
                 .consent_states
                 .map(|vec| vec.into_iter().map(Into::into).collect()),
             include_duplicate_dms: opts.include_duplicate_dms,
+            last_activity_before_ns: opts.last_activity_before_ns,
+            last_activity_after_ns: opts.last_activity_after_ns,
+            order_by: opts.order_by.map(Into::into),
             ..Default::default()
         }
     }
