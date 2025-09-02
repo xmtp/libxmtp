@@ -978,7 +978,7 @@ where
                 &storage,
                 &mut deferred_events
             )?;
-            
+
             self.process_pending_remove_list_changes(mls_group, &storage, validated_commit.clone(),);
 
             let new_epoch = mls_group.epoch().as_u64();
@@ -1339,18 +1339,18 @@ where
                 // Update group status if admin needs to handle pending removes
                 if is_admin && current_user_not_pending && has_pending_removes {
                     // Update the group's pending leave request status
-                    // if let Err(e) = storage
-                    //     .db()
-                    //     .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
-                    // {
-                    //     //     //     .map_err(|e| {
-                    //     tracing::error!("Failed to set group pending leave request status: {}", e);
-                    // } else {
-                    //     //     //         IntentError::Storage(e.into())
-                    //     //     //     })?;
-                    //     //
-                    //     tracing::info!("Marked the group as having pending leave requests");
-                    // }
+                    if let Err(e) = storage
+                        .db()
+                        .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
+                    {
+                        //     //     .map_err(|e| {
+                        tracing::error!("Failed to set group pending leave request status: {}", e);
+                    } else {
+                        //     //         IntentError::Storage(e.into())
+                        //     //     })?;
+                        //
+                        tracing::info!("Marked the group as having pending leave requests");
+                    }
                 }
             }
             Err(GroupMutableMetadataError::MissingExtension) => {
