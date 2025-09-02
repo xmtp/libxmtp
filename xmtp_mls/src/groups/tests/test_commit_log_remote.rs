@@ -709,7 +709,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(!commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(!commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log.clone()),
         &signed_entry,
@@ -736,7 +736,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -763,7 +763,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -791,7 +791,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -819,7 +819,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -847,7 +847,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -875,7 +875,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -902,7 +902,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log.clone()),
         &signed_entry,
@@ -918,7 +918,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
