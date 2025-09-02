@@ -2441,21 +2441,28 @@ where
 
         let welcome = welcomes.first().ok_or(GroupError::NoWelcomesToSend)?;
 
-        let chunk_size = GRPC_PAYLOAD_LIMIT
-            / welcome
-                .version
-                .as_ref()
-                .map(|w| match w {
-                    WelcomeMessageInputVersion::V1(w) => {
-                        let w = w.installation_key.len()
-                            + w.data.len()
-                            + w.hpke_public_key.len()
-                            + w.welcome_metadata.len();
-                        tracing::debug!("total welcome message proto bytes={w}");
-                        w
-                    }
-                })
-                .unwrap_or(GRPC_PAYLOAD_LIMIT / MAX_GROUP_SIZE);
+        // Compute the estimated bytes for one welcome message.
+        let welcome_calculated_payload_size = welcome
+            .version
+            .as_ref()
+            .map(|w| match w {
+                WelcomeMessageInputVersion::V1(w) => {
+                    let size = w.installation_key.len()
+                        + w.data.len()
+                        + w.hpke_public_key.len()
+                        + w.welcome_metadata.len();
+                    tracing::debug!("total welcome message proto bytes={size}");
+                    size
+                }
+            })
+            // Fallback if the version is missing
+            .unwrap_or(GRPC_PAYLOAD_LIMIT / MAX_GROUP_SIZE);
+
+        // Ensure the denominator is at least 1 to avoid div-by-zero.
+        let per_welcome = welcome_calculated_payload_size.max(1);
+
+        // Compute chunk_size and ensure it's at least 1 so chunks(n) won't panic.
+        let chunk_size = (GRPC_PAYLOAD_LIMIT / per_welcome).max(1);
 
         tracing::debug!("welcome chunk_size={chunk_size}");
         let api = self.context.api();
