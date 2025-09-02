@@ -25,10 +25,13 @@ cargo build --release --bin xdbg
 echo "writing groups to $EXPORT"
 ./target/release/xdbg --clear
 $CMD --clear
-$CMD generate --entity identity --amount 25
-$CMD generate --entity group --amount 1 --invite 25
+$CMD generate --entity identity --amount 1
+$CMD generate --entity group --amount 100
+
 $CMD export --entity group --out $EXPORT
-GROUP_ID=$(jq -r '.[0].id' $EXPORT)
-echo "group has id $GROUP_ID"
-$CMD modify --inbox-id $INBOX_ID add-external $GROUP_ID
-$CMD generate --entity message --amount 2 --loop
+for i in $(seq 0 99); do
+  GROUP_ID=$(jq -r ".[$i].id" $EXPORT)
+  echo "group $i has id $GROUP_ID"
+  $CMD modify --inbox-id $INBOX_ID add-external $GROUP_ID
+  $CMD generate --entity message --amount 2
+done
