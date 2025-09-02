@@ -57,7 +57,9 @@ use xmtp_db::{
     user_preferences::StoredUserPreferences,
 };
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
-use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
+use xmtp_mls_common::group_mutable_metadata::{
+    GroupMutableMetadataError, MetadataField, extract_group_mutable_metadata,
+};
 
 use crate::groups::intents::UpdatePendingRemoveListIntentData;
 use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
@@ -976,6 +978,7 @@ where
                 &storage,
                 &mut deferred_events
             )?;
+            
             self.process_pending_remove_list_changes(mls_group, &storage, validated_commit.clone(),);
 
             let new_epoch = mls_group.epoch().as_u64();
@@ -1277,67 +1280,90 @@ where
         validated_commit: Option<ValidatedCommit>,
     ) {
         let current_inbox_id = self.context.inbox_id().to_string();
-        let metadata = extract_group_mutable_metadata(&mls_group).unwrap();
-        let pending_remove = metadata.pending_remove_list;
-        // fix fetch data from validated commit
-        let pending_remove_added = validated_commit
-            .clone()
-            .unwrap()
-            .metadata_validation_info
-            .pending_remove_added;
-        let pending_remove_removed = validated_commit
-            .clone()
-            .unwrap()
-            .metadata_validation_info
-            .pending_remove_removed;
-        // If the current user was removed from the pending remove list, restore their membership
-        //todo: check the group state, if the current state is not pending-remove then no need to restore it
-        if pending_remove_removed
-            .iter()
-            .any(|id| id.inbox_id.to_string() == current_inbox_id)
-        {
-            let _ = storage
-                .db()
-                .update_group_membership(&self.group_id, GroupMembershipState::Allowed)
-                .map_err(|e| {
-                    tracing::error!("Failed to restore group membership: {}", e);
-                    IntentError::Storage(e.into())
-                });
+
+        // Process validated commit changes
+        if let Some(commit) = validated_commit {
+            // Only process changes if they were made by the current user
+            if commit.actor.inbox_id == current_inbox_id {
+                let metadata_info = &commit.metadata_validation_info;
+
+                // Handle removal from pending remove list
+                // todo: check the group state, if the current state is not pending-remove then no need to restore it
+                if metadata_info
+                    .pending_remove_removed
+                    .iter()
+                    .any(|id| id.inbox_id == current_inbox_id)
+                {
+                    // todo(mch): should we restore the membership to allowed if the user is not in the pending remove list?
+                    if let Err(e) = storage
+                        .db()
+                        .update_group_membership(&self.group_id, GroupMembershipState::Allowed)
+                    {
+                        tracing::error!("Failed to restore group membership: {}", e);
+                    }
+                }
+
+                // Handle addition to the pending remove list
+                if metadata_info
+                    .pending_remove_added
+                    .iter()
+                    .any(|id| id.inbox_id == current_inbox_id)
+                {
+                    if let Err(e) = storage.db().update_group_membership(
+                        &self.group_id,
+                        GroupMembershipState::PendingRemove,
+                    ) {
+                        // todo(mch):should we return a retryable error here?
+                        tracing::error!(
+                            "Failed to update group membership to PendingRemove: {}",
+                            e
+                        );
+                    }
+                }
+            }
         }
 
-        // If the current user was added to the pending remove list, update their status
-        if pending_remove_added
-            .iter()
-            .any(|id| id.inbox_id.to_string() == current_inbox_id)
-        {
-            let _ = storage
-                .db()
-                .update_group_membership(&self.group_id, GroupMembershipState::PendingRemove)
-                .map_err(|e| {
-                    tracing::error!("Failed to update group membership to PendingRemove: {}", e);
-                    IntentError::Storage(e.into())
-                });
-        }
-
+        // Process admin actions based on current group state
         // If the current user is admin/super-admin and there are pending remove requests, mark the group accordingly
         // todo: we need to check if other clients and the same time one of the admins wants to leave the group,
         // in this case, both the admin and other clients are in the pending remove list.
         // but still, the admin client needs to react to others and remove them from the pending remove list.
-        let has_pending_removes = !pending_remove.is_empty();
-        let current_user_not_pending = !pending_remove.contains(&current_inbox_id);
-        let is_admin = metadata.admin_list.contains(&current_inbox_id)
-            || metadata.super_admin_list.contains(&current_inbox_id);
+        match extract_group_mutable_metadata(mls_group) {
+            Ok(metadata) => {
+                let pending_remove = &metadata.pending_remove_list;
+                let is_admin = metadata.admin_list.contains(&current_inbox_id)
+                    || metadata.super_admin_list.contains(&current_inbox_id);
+                let has_pending_removes = !pending_remove.is_empty();
+                let current_user_not_pending = !pending_remove.contains(&current_inbox_id);
 
-        if is_admin && current_user_not_pending && has_pending_removes {
-            // let _ = storage
-            //     .db()
-            //     .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
-            //     .map_err(|e| {
-            //         tracing::error!("Failed to set group pending leave request status: {}", e);
-            //         IntentError::Storage(e.into())
-            //     });
-
-            tracing::info!("Marked the group as having pending leave requests");
+                // Update group status if admin needs to handle pending removes
+                if is_admin && current_user_not_pending && has_pending_removes {
+                    // Update the group's pending leave request status
+                    // if let Err(e) = storage
+                    //     .db()
+                    //     .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
+                    // {
+                    //     //     //     .map_err(|e| {
+                    //     tracing::error!("Failed to set group pending leave request status: {}", e);
+                    // } else {
+                    //     //     //         IntentError::Storage(e.into())
+                    //     //     //     })?;
+                    //     //
+                    //     tracing::info!("Marked the group as having pending leave requests");
+                    // }
+                }
+            }
+            Err(GroupMutableMetadataError::MissingExtension) => {
+                //todo(mch): retryable_error?
+                tracing::warn!(
+                    "Group has no mutable metadata extension; skipping pending-remove check"
+                );
+            }
+            Err(e) => {
+                // Unknown/real error — up to you whether to bail or just log.
+                //todo(mch): retryable_error?
+                tracing::error!("Failed to extract mutable metadata: {}", e);
+            }
         }
     }
 
