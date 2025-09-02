@@ -26,8 +26,8 @@ use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::transaction_reference::TransactionReference;
 use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
 use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
-use xmtp_db::group::ConversationType;
 use xmtp_db::group::DmIdExt;
+use xmtp_db::group::{ConversationType, GroupQueryOrderBy};
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::group_message::{SortDirection, StoredGroupMessageWithReactions};
 use xmtp_db::user_preferences::HmacKey;
@@ -1066,10 +1066,28 @@ impl From<AssociationState> for FfiInboxState {
     }
 }
 
+#[derive(uniffi::Enum, Clone, Debug)]
+pub enum FfiGroupQueryOrderBy {
+    CreatedAt,
+    LastActivity,
+}
+
+impl From<FfiGroupQueryOrderBy> for GroupQueryOrderBy {
+    fn from(order_by: FfiGroupQueryOrderBy) -> Self {
+        match order_by {
+            FfiGroupQueryOrderBy::CreatedAt => GroupQueryOrderBy::CreatedAt,
+            FfiGroupQueryOrderBy::LastActivity => GroupQueryOrderBy::LastActivity,
+        }
+    }
+}
+
 #[derive(uniffi::Record, Default)]
 pub struct FfiListConversationsOptions {
     pub created_after_ns: Option<i64>,
     pub created_before_ns: Option<i64>,
+    pub last_activity_before_ns: Option<i64>,
+    pub last_activity_after_ns: Option<i64>,
+    pub order_by: Option<FfiGroupQueryOrderBy>,
     pub limit: Option<i64>,
     pub consent_states: Option<Vec<FfiConsentState>>,
     pub include_duplicate_dms: bool,
@@ -1085,6 +1103,9 @@ impl From<FfiListConversationsOptions> for GroupQueryArgs {
                 .consent_states
                 .map(|vec| vec.into_iter().map(Into::into).collect()),
             include_duplicate_dms: opts.include_duplicate_dms,
+            last_activity_before_ns: opts.last_activity_before_ns,
+            last_activity_after_ns: opts.last_activity_after_ns,
+            order_by: opts.order_by.map(Into::into),
             ..Default::default()
         }
     }
@@ -3077,12 +3098,12 @@ mod tests {
         FfiAttachment, FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType,
         FfiConversation, FfiConversationCallback, FfiConversationMessageKind, FfiConversationType,
         FfiCreateDMOptions, FfiCreateGroupOptions, FfiDecodedMessageBody, FfiDecodedMessageContent,
-        FfiDirection, FfiGroupMessageKind, FfiGroupPermissionsOptions, FfiListConversationsOptions,
-        FfiListMessagesOptions, FfiMessageDisappearingSettings, FfiMessageWithReactions,
-        FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature, FfiPermissionPolicy,
-        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction, FfiReactionPayload,
-        FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply, FfiSubscribeError,
-        FfiTransactionReference, GenericError,
+        FfiDirection, FfiGroupMessageKind, FfiGroupPermissionsOptions, FfiGroupQueryOrderBy,
+        FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
+        FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
+        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction,
+        FfiReactionPayload, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply,
+        FfiSubscribeError, FfiTransactionReference, GenericError,
     };
     use alloy::signers::local::PrivateKeySigner;
     use futures::future::join_all;
@@ -9664,5 +9685,107 @@ mod tests {
             *bo_read_time > 0,
             "Read receipt timestamp should be positive"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_pagination_of_conversations_list() {
+        let bo_client = new_test_client().await;
+        let caro_client = new_test_client().await;
+
+        // Create 15 groups
+        let mut groups = Vec::new();
+        for i in 0..15 {
+            let group = bo_client
+                .conversations()
+                .create_group(
+                    vec![caro_client.account_identifier.clone()],
+                    FfiCreateGroupOptions {
+                        group_name: Some(format!("Test Group {}", i)),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+            groups.push(group);
+        }
+
+        // Send a message to every 7th group to ensure they're ordered by last message
+        // and not by created_at
+        for (index, group) in groups.iter().enumerate() {
+            if index % 2 == 0 {
+                group.send_text("Jumbling the sort").await.unwrap();
+            }
+        }
+
+        // Track all conversations retrieved through pagination
+        let mut all_conversations = std::collections::HashSet::new();
+        let mut page_count = 0;
+
+        // Get the first page
+        let mut page = bo_client
+            .conversations()
+            .list_groups(FfiListConversationsOptions {
+                limit: Some(5),
+                order_by: Some(FfiGroupQueryOrderBy::LastActivity),
+                ..Default::default()
+            })
+            .unwrap();
+
+        while !page.is_empty() {
+            page_count += 1;
+
+            // Add new conversation IDs to our set
+            for conversation in &page {
+                let conversation_arc = conversation.conversation();
+                assert!(!all_conversations.contains(&conversation_arc.id()));
+                all_conversations.insert(conversation_arc.id());
+            }
+
+            // If we got fewer than the limit, we've reached the end
+            if page.len() < 5 {
+                break;
+            }
+
+            // Get the oldest (last) conversation's timestamp for the next page
+            let last_conversation = page.last().unwrap().conversation();
+
+            let before = if let Some(last_message) = page.last().unwrap().last_message() {
+                last_message.sent_at_ns
+            } else {
+                last_conversation.created_at_ns()
+            };
+
+            // Get the next page
+            page = bo_client
+                .conversations()
+                .list_groups(FfiListConversationsOptions {
+                    last_activity_before_ns: Some(before),
+                    order_by: Some(FfiGroupQueryOrderBy::LastActivity),
+                    limit: Some(5),
+                    ..Default::default()
+                })
+                .unwrap();
+
+            // Safety check to prevent infinite loop
+            if page_count > 10 {
+                panic!("Too many pages, possible infinite loop");
+            }
+        }
+
+        // Validate results
+        assert_eq!(
+            all_conversations.len(),
+            15,
+            "Should have retrieved all 15 groups"
+        );
+
+        // Verify all created groups are in the results
+        for group in &groups {
+            assert!(
+                all_conversations.contains(&group.id()),
+                "Group {} should be in paginated results",
+                hex::encode(group.id())
+            );
+        }
     }
 }
