@@ -102,6 +102,15 @@ pub struct StoredGroupCommitLogPublicKey {
     pub commit_log_public_key: Option<Vec<u8>>,
 }
 
+/// A struct for fetching groups that need readd requests with their latest epoch
+#[derive(Debug, Clone, Queryable, QueryableByName)]
+pub struct StoredGroupForReaddRequest {
+    #[diesel(sql_type = diesel::sql_types::Binary)]
+    pub group_id: Vec<u8>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::BigInt>)]
+    pub latest_commit_sequence_id: Option<i64>,
+}
+
 // TODO: Create two more structs that delegate to StoredGroup
 impl_fetch!(StoredGroup, groups, Vec<u8>);
 impl_store!(StoredGroup, groups);
@@ -254,6 +263,11 @@ pub trait QueryGroup {
 
     /// Get conversation IDs for fork checking (excludes already forked conversations and sync groups)
     fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+
+    /// Get conversation IDs for conversations that are forked and need readd requests
+    fn get_conversation_ids_for_requesting_readds(
+        &self,
+    ) -> Result<Vec<StoredGroupForReaddRequest>, crate::ConnectionError>;
 
     fn get_conversation_type(
         &self,
@@ -409,6 +423,12 @@ where
 
     fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
         (**self).get_conversation_ids_for_fork_check()
+    }
+
+    fn get_conversation_ids_for_requesting_readds(
+        &self,
+    ) -> Result<Vec<StoredGroupForReaddRequest>, crate::ConnectionError> {
+        (**self).get_conversation_ids_for_requesting_readds()
     }
 
     fn get_conversation_type(
@@ -941,6 +961,26 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .select(dsl::id);
 
         self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
+    }
+
+    fn get_conversation_ids_for_requesting_readds(
+        &self,
+    ) -> Result<Vec<StoredGroupForReaddRequest>, crate::ConnectionError> {
+        use super::schema::{groups::dsl as groups_dsl, remote_commit_log::dsl as rcl_dsl};
+        use diesel::dsl::max;
+
+        self.raw_query_read(|conn| {
+            groups_dsl::groups
+                .left_join(rcl_dsl::remote_commit_log.on(groups_dsl::id.eq(rcl_dsl::group_id)))
+                .filter(
+                    groups_dsl::conversation_type
+                        .ne_all(ConversationType::virtual_types())
+                        .and(groups_dsl::is_commit_log_forked.eq(true)),
+                )
+                .group_by(groups_dsl::id)
+                .select((groups_dsl::id, max(rcl_dsl::commit_sequence_id).nullable()))
+                .load::<StoredGroupForReaddRequest>(conn)
+        })
     }
 
     fn get_conversation_type(

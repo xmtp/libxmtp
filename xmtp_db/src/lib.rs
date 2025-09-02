@@ -48,6 +48,7 @@ pub mod prelude {
     pub use super::local_commit_log::QueryLocalCommitLog;
     pub use super::pragmas::Pragmas;
     pub use super::processed_device_sync_messages::QueryDeviceSyncMessages;
+    pub use super::readd_status::QueryReaddStatus;
     pub use super::refresh_state::QueryRefreshState;
     pub use super::remote_commit_log::QueryRemoteCommitLog;
     pub use super::traits::*;
