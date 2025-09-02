@@ -180,41 +180,25 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         cursor: i64,
     ) -> Result<bool, StorageError> {
         use super::schema::refresh_state::dsl;
+        use crate::diesel::upsert::excluded;
+        use diesel::query_dsl::methods::FilterDsl;
 
-        let entity_id_bytes = entity_id.as_ref().to_vec();
-
-        let result = self.raw_query_write(|conn| {
-            // First, try to update existing record
-            let updated = diesel::update(dsl::refresh_state)
-                .filter(dsl::entity_id.eq(&entity_id_bytes))
-                .filter(dsl::entity_kind.eq(entity_kind))
-                .filter(dsl::cursor.lt(cursor))
-                .set(dsl::cursor.eq(cursor))
-                .execute(conn)?;
-
-            if updated > 0 {
-                return Ok(true);
-            }
-
-            // If no update, try to insert
-            match diesel::insert_into(dsl::refresh_state)
-                .values((
-                    dsl::entity_id.eq(&entity_id_bytes),
-                    dsl::entity_kind.eq(entity_kind),
-                    dsl::cursor.eq(cursor),
-                ))
+        let num_updated = self.raw_query_write(|conn| {
+            diesel::insert_into(dsl::refresh_state)
+                .values(RefreshState {
+                    entity_id: entity_id.as_ref().to_vec(),
+                    entity_kind,
+                    cursor,
+                })
+                .on_conflict((dsl::entity_id, dsl::entity_kind))
+                .do_update()
+                // Only update if the existing cursor is lower than the incoming one:
+                .set(dsl::cursor.eq(excluded(dsl::cursor)))
+                .filter(dsl::cursor.lt(excluded(dsl::cursor)))
                 .execute(conn)
-            {
-                Ok(_) => Ok(true),
-                Err(diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::UniqueViolation,
-                    _,
-                )) => Ok(false),
-                Err(e) => Err(e),
-            }
-        });
+        })?;
 
-        Ok(result?)
+        Ok(num_updated >= 1)
     }
 
     fn get_remote_log_cursors(
