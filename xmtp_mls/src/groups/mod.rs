@@ -1043,7 +1043,7 @@ where
         self.ensure_not_paused().await?;
         if self.is_in_pending_remove(self.context.inbox_id().to_string())? {
             self.update_pending_remove_list(
-                UpdatePendingRemoveListType::Add,
+                UpdatePendingRemoveListType::Remove,
                 self.context.inbox_id().to_string(),
             )
             .await?;
