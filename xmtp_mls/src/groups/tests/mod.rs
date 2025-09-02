@@ -146,7 +146,7 @@ async fn test_send_message() {
     let messages = alix
         .context
         .api()
-        .query_group_messages(group.group_id.clone(), None, None)
+        .query_group_messages(group.group_id.clone(), None)
         .await?;
 
     group.sync().await?;
@@ -166,7 +166,7 @@ async fn test_receive_self_message() {
 
     group.send_message(msg).await.expect("send message");
 
-    group.receive(None).await?;
+    group.receive().await?;
     // Check for messages
     let messages = group.find_messages(&MsgQueryArgs::default())?;
     assert_eq!(messages.len(), 1);
@@ -175,41 +175,22 @@ async fn test_receive_self_message() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_receive_message_from_other() {
-    tester!(alix);
-    tester!(bo);
-
-    let alix_group = alix.create_group(None, None)?;
-
-    // Send 10 messages to nobody
-    let alix_message = "hello from alix";
-    for i in 0..10 {
-        alix_group
-            .send_message(format!("{alix_message} {i}").as_bytes())
-            .await?;
-    }
-
-    // Add bo
-    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
-
-    // Send 10 messages to bo
-    let alix_message = "hello from alix";
-    for i in 10..20 {
-        alix_group
-            .send_message(format!("{alix_message} {i}").as_bytes())
-            .await?;
-    }
+    let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let alix_group = alix.create_group(None, None).expect("create group");
+    alix_group
+        .add_members_by_inbox_id(&[bo.inbox_id()])
+        .await
+        .unwrap();
+    let alix_message = b"hello from alix";
+    alix_group
+        .send_message(alix_message)
+        .await
+        .expect("send message");
 
     let bo_group = receive_group_invite(&bo).await;
-    // test with a limit
-    bo_group.receive(Some(3)).await?;
-    let messages = bo_group.find_messages(&MsgQueryArgs::default())?;
-    assert_eq!(messages.len(), 4);
-    assert_eq!(messages[1].decrypted_message_bytes, b"hello from alix 10");
-
-    // fetch the rest of the messages
-    bo_group.receive(None).await?;
-    let messages = bo_group.find_messages(&MsgQueryArgs::default())?;
-    assert_eq!(messages.len(), 11);
+    let message = get_latest_message(&bo_group).await;
+    assert_eq!(message.decrypted_message_bytes, alix_message);
 
     let bo_message = b"hello from bo";
     bo_group
@@ -301,7 +282,7 @@ async fn test_add_member_conflict() {
         .await
         .expect("bola's add should succeed in a no-op");
 
-    let summary = amal_group.receive(None).await.unwrap();
+    let summary = amal_group.receive().await.unwrap();
     assert!(summary.is_errored());
 
     // Check Amal's MLS group state.
@@ -498,7 +479,7 @@ async fn test_add_inbox() {
     let messages = client
         .context
         .api()
-        .query_group_messages(group_id, None, None)
+        .query_group_messages(group_id, None)
         .await
         .unwrap();
 
@@ -575,7 +556,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
     let messages_bola_1 = bola_1
         .context
         .api()
-        .query_group_messages(group.clone().group_id.clone(), None, None)
+        .query_group_messages(group.clone().group_id.clone(), None)
         .await
         .unwrap();
 
@@ -586,7 +567,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
     let messages_alix = alix
         .context
         .api()
-        .query_group_messages(group.clone().group_id, None, None)
+        .query_group_messages(group.clone().group_id, None)
         .await
         .unwrap();
 
@@ -1080,104 +1061,11 @@ async fn test_remove_inbox() {
     let messages = client_1
         .context
         .api()
-        .query_group_messages(group_id, None, None)
+        .query_group_messages(group_id, None)
         .await
         .expect("read topic");
 
     assert_eq!(messages.len(), 2);
-}
-
-#[xmtp_common::test]
-async fn test_query_group_messages_respects_limit_over_page_size() {
-    use xmtp_configuration::MAX_PAGE_SIZE;
-
-    let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let group = client.create_group(None, None).expect("create group");
-
-    // Produce 2 * MAX_PAGE_SIZE messages on the group topic by sending messages.
-    for _ in 0..2 * MAX_PAGE_SIZE {
-        group.send_message(b"message").await.expect("send message");
-    }
-
-    // Query with a limit that is greater than the page size (e.g., page_max_size=5, limit=6).
-    let limit = MAX_PAGE_SIZE + 1;
-
-    let messages = client
-        .context
-        .api()
-        .query_group_messages(group.group_id.clone(), None, Some(limit))
-        .await
-        .expect("query group messages");
-
-    // Expect exactly `max_page_size` messages, not a full extra page.
-    assert_eq!(
-        messages.len(),
-        MAX_PAGE_SIZE as usize,
-        "query_group_messages should honor the caller-provided limit even when it spans pages"
-    );
-
-    // Query with a limit that is less than the page size (e.g., page_max_size=5, limit=4).
-    let limit = MAX_PAGE_SIZE - 1;
-
-    let messages = client
-        .context
-        .api()
-        .query_group_messages(group.group_id.clone(), None, Some(limit))
-        .await
-        .expect("query group messages");
-
-    // Expect exactly `limit` messages
-    assert_eq!(
-        messages.len(),
-        limit as usize,
-        "query_group_messages should honor the caller-provided limit even when it spans pages"
-    );
-
-    // Query with a limit that is equal than the page size (e.g., page_max_size=5, limit=5).
-    let limit = MAX_PAGE_SIZE;
-
-    let messages = client
-        .context
-        .api()
-        .query_group_messages(group.group_id.clone(), None, Some(limit))
-        .await
-        .expect("query group messages");
-
-    // Expect exactly `limit` = `MAX_PAGE_SIZE` messages, not a full extra page.
-    assert_eq!(
-        messages.len(),
-        limit as usize,
-        "query_group_messages should honor the caller-provided limit even when it spans pages"
-    );
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_query_group_messages_pagination() {
-    tester!(alix);
-    tester!(bo);
-    let group = alix.create_group(None, None)?;
-    group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
-    bo.sync_welcomes().await?;
-    let bo_group = bo.find_groups(GroupQueryArgs::default())?;
-    let bo_group = bo_group.first().unwrap();
-    bo_group.sync().await?;
-
-    // Send more than MAX_PAGE_SIZE (20 in test config) messages to test pagination
-    // We'll send 30 messages to ensure we cross the page boundary
-    let total_messages = 30;
-    for i in 0..total_messages {
-        let message = format!("message {}", i);
-        group.send_message(message.as_bytes()).await?;
-    }
-
-    bo_group.sync().await?;
-    let local_messages = bo_group.find_messages(&MsgQueryArgs::default())?;
-
-    assert_eq!(
-        local_messages.len(),
-        total_messages + 1, // + 1 for the group updated message
-        "Local message count should match the number of messages sent plus the group updated, and should not match the page size!"
-    );
 }
 
 #[xmtp_common::test]
@@ -1196,7 +1084,7 @@ async fn test_key_update() {
     let messages = client
         .context
         .api()
-        .query_group_messages(group.group_id.clone(), None, None)
+        .query_group_messages(group.group_id.clone(), None)
         .await
         .unwrap();
     assert_eq!(messages.len(), 2);
@@ -2504,7 +2392,7 @@ async fn process_messages_abort_on_retryable_error() {
     // in the middle of a sync instead of the beginning
     let bo_messages = bo
         .mls_store()
-        .query_group_messages(&bo_group.group_id, &bo.context.db(), None)
+        .query_group_messages(&bo_group.group_id, &bo.context.db())
         .await
         .unwrap();
 
@@ -2544,7 +2432,7 @@ async fn skip_already_processed_messages() {
 
     let mut bo_messages_from_api = bo
         .mls_store()
-        .query_group_messages(&bo_group.group_id, &bo.context.db(), None)
+        .query_group_messages(&bo_group.group_id, &bo.context.db())
         .await
         .unwrap();
 
@@ -2637,7 +2525,7 @@ async fn test_parallel_syncs() {
     let group_messages = alix1
         .context
         .api()
-        .query_group_messages(alix1_group.group_id.clone(), None, None)
+        .query_group_messages(alix1_group.group_id.clone(), None)
         .await
         .unwrap();
     assert_eq!(group_messages.len(), 1);
@@ -2740,7 +2628,7 @@ async fn add_missing_installs_reentrancy() {
     let group_messages = alix1
         .context
         .api()
-        .query_group_messages(alix1_group.group_id.clone(), None, None)
+        .query_group_messages(alix1_group.group_id.clone(), None)
         .await
         .unwrap();
     assert_eq!(group_messages.len(), 2);
@@ -2794,7 +2682,7 @@ async fn respect_allow_epoch_increment() {
     let messages = client
         .context
         .api()
-        .query_group_messages(group.group_id.clone(), None, None)
+        .query_group_messages(group.group_id.clone(), None)
         .await
         .unwrap();
 
@@ -3796,7 +3684,7 @@ async fn can_stream_out_of_order_without_forking() {
     let messages = client_b
         .context
         .api()
-        .query_group_messages(group_b.group_id.clone(), None, None)
+        .query_group_messages(group_b.group_id.clone(), None)
         .await
         .unwrap();
     assert_eq!(messages.len(), 8);

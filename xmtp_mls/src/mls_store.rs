@@ -82,14 +82,13 @@ where
         &self,
         group_id: &[u8],
         conn: &impl DbQuery,
-        limit: Option<u32>,
     ) -> Result<Vec<GroupMessage>, MlsStoreError> {
         let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
 
         let messages = self
             .context
             .sync_api()
-            .query_group_messages(group_id.to_vec(), Some(id_cursor as u64), limit)
+            .query_group_messages(group_id.to_vec(), Some(id_cursor as u64))
             .await?;
 
         Ok(messages)

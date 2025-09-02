@@ -38,7 +38,7 @@ fn format_timestamp(timestamp_ns: u64) -> String {
 pub async fn debug_group_messages(client: &crate::Client, group_id: Vec<u8>) -> Result<(), String> {
     let api_client = client.context.api();
     let envelopes = api_client
-        .query_group_messages(group_id, None, None)
+        .query_group_messages(group_id, None)
         .await
         .unwrap();
     for envelope in envelopes {
