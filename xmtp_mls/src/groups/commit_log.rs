@@ -1,5 +1,7 @@
+use crate::groups::MlsGroup;
 use crate::groups::commit_log_key::CommitLogKeyCrypto;
 use crate::groups::commit_log_key::derive_consensus_public_key;
+use crate::groups::oneshot::Oneshot;
 use futures::StreamExt;
 use openmls::prelude::OpenMlsCrypto;
 use openmls::prelude::SignatureScheme;
@@ -13,7 +15,7 @@ use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
 use xmtp_db::{
     DbQuery, StorageError, Store,
-    group::StoredGroupCommitLogPublicKey,
+    group::{StoredGroupCommitLogPublicKey, StoredGroupForReaddRequest},
     local_commit_log::LocalCommitLogOrder,
     prelude::*,
     remote_commit_log::{CommitResult, NewRemoteCommitLog},
@@ -31,6 +33,9 @@ use crate::{
     context::XmtpSharedContext,
     groups::GroupError,
     worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult},
+};
+use xmtp_proto::xmtp::mls::message_contents::{
+    OneshotMessage, ReaddRequest, oneshot_message::MessageType,
 };
 
 /// Interval at which the CommitLogWorker runs to publish commit log entries.
@@ -78,6 +83,8 @@ pub enum CommitLogError {
     CryptoError(#[from] openmls_traits::types::CryptoError),
     #[error("try from slice error: {0}")]
     TryFromSliceError(#[from] std::array::TryFromSliceError),
+    #[error("error: {0}")]
+    GenericError(String),
 }
 
 impl NeedsDbReconnect for CommitLogError {
@@ -91,6 +98,7 @@ impl NeedsDbReconnect for CommitLogError {
             Self::GroupError(_group_error) => false,       // TODO(rich): What does this method do?
             Self::CryptoError(_crypto_error) => false,
             Self::TryFromSliceError(_try_from_slice_error) => false,
+            Self::GenericError(_generic_error) => false,
         }
     }
 }
@@ -172,6 +180,7 @@ where
             self.save_remote_commit_log().await?;
             self.update_forked_state().await?;
             self.publish_commit_logs_to_remote().await?;
+            self.send_readd_requests().await?;
         }
         Ok(())
     }
@@ -456,7 +465,7 @@ where
     }
 
     // Should skip if:
-    // 1. The entry signature is invalid - TODO(cam)
+    // 1. The entry signature is invalid
     // 2. The group_id of the entry does not match the requested group_id.
     // 3. The commit_sequence_id of the entry is <= 0.
     // 4. The commit_sequence_id of the entry is not greater than the most recently stored entry, if one exists.
@@ -526,6 +535,102 @@ where
         Ok(())
     }
 
+    fn is_awaiting_readd(&self, group_id: &[u8]) -> Result<bool, CommitLogError> {
+        let conn = self.context.db();
+        let readd_status = conn.get_readd_status(
+            group_id,
+            self.context.inbox_id(),
+            self.context.installation_id().as_slice(),
+        )?;
+        if let Some(readd_status) = readd_status
+            && let Some(requested_at) = readd_status.requested_at_sequence_id
+            && requested_at >= readd_status.responded_at_sequence_id.unwrap_or(0)
+        {
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    async fn request_readd(
+        &mut self,
+        group_info: StoredGroupForReaddRequest,
+    ) -> Result<(), CommitLogError> {
+        let conn = self.context.db();
+        let group_id = group_info.group_id;
+
+        // Check if a readd request has already been sent for this group
+        if self.is_awaiting_readd(&group_id)? {
+            tracing::debug!(
+                group_id = hex::encode(&group_id),
+                "Skipping readd request for group because it has already been requested"
+            );
+            return Ok(());
+        }
+
+        tracing::info!(group_id = hex::encode(&group_id), "Sending readd request");
+
+        // Send oneshot message with readd request to super admins
+        let latest_commit_sequence_id =
+            group_info
+                .latest_commit_sequence_id
+                .ok_or(CommitLogError::GenericError(format!(
+                    "No latest commit sequence id found for forked group {}",
+                    hex::encode(&group_id)
+                )))?;
+        let oneshot_message = OneshotMessage {
+            message_type: Some(MessageType::ReaddRequest(ReaddRequest {
+                group_id: group_id.clone(),
+                latest_commit_sequence_id: latest_commit_sequence_id as u64,
+            })),
+        };
+        let (forked_group, _) = MlsGroup::new_cached(self.context.clone(), &group_id)?;
+        let super_admins = forked_group.super_admin_list()?;
+        Oneshot::send_message(self.context.clone(), super_admins, oneshot_message).await?;
+
+        tracing::info!(group_id = hex::encode(&group_id), "Sent readd request",);
+
+        // Mark readd as requested
+        conn.update_requested_at_sequence_id(
+            &group_id,
+            self.context.inbox_id(),
+            self.context.installation_id().as_slice(),
+            latest_commit_sequence_id as i64,
+        )?;
+
+        tracing::info!(
+            group_id = hex::encode(&group_id),
+            sequence_id = latest_commit_sequence_id,
+            "Updated requested readd sequence id",
+        );
+
+        Ok(())
+    }
+
+    /// Send readd requests for all forked conversations  
+    async fn send_readd_requests(&mut self) -> Result<(), CommitLogError> {
+        let conn = self.context.db();
+
+        // Fetch all forked groups with their latest epoch
+        let forked_groups = conn.get_conversation_ids_for_requesting_readds()?;
+
+        for group_info in forked_groups {
+            let group_id = group_info.group_id.clone();
+
+            // Process the readd request and log any errors
+            if let Err(e) = self.request_readd(group_info).await {
+                tracing::error!(
+                    group_id = hex::encode(&group_id),
+                    error = ?e,
+                    "Failed to process readd request for group"
+                );
+                // Continue processing other groups even if one fails
+                continue;
+            }
+        }
+
+        Ok(())
+    }
+
     // Test helper to get fork status for a specific group
     #[cfg(test)]
     pub fn get_group_fork_status(&self, group_id: &[u8]) -> Result<Option<bool>, CommitLogError> {
@@ -548,6 +653,24 @@ where
         }
 
         Ok(results)
+    }
+
+    #[cfg(test)]
+    pub fn test_is_awaiting_readd(&self, group_id: &[u8]) -> Result<bool, CommitLogError> {
+        self.is_awaiting_readd(group_id)
+    }
+
+    #[cfg(test)]
+    pub async fn test_request_readd(
+        &mut self,
+        group_info: StoredGroupForReaddRequest,
+    ) -> Result<(), CommitLogError> {
+        self.request_readd(group_info).await
+    }
+
+    #[cfg(test)]
+    pub async fn test_send_readd_requests(&mut self) -> Result<(), CommitLogError> {
+        self.send_readd_requests().await
     }
 
     fn check_conversation_fork_state(
