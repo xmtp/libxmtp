@@ -92,6 +92,8 @@ pub enum ConnectionError {
     DisconnectInTransaction,
     #[error("reconnect not possible in transaction")]
     ReconnectInTransaction,
+    #[error("invalid query: {0}")]
+    InvalidQuery(String),
 }
 
 impl RetryableError for ConnectionError {
@@ -102,6 +104,7 @@ impl RetryableError for ConnectionError {
             Self::DecodeError(_) => false,
             Self::DisconnectInTransaction => true,
             Self::ReconnectInTransaction => true,
+            Self::InvalidQuery(_) => false,
         }
     }
 }
