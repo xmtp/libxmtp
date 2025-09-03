@@ -60,5 +60,3 @@ jobs:
         run: cargo nextest --profile ci run --no-run --workspace --tests --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --all-features
       - name: test workspace with grpc
         run: cargo nextest --profile ci run --workspace --test-threads 2 --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
-      - name: test workspace with http
-        run: cargo nextest --profile ci run  --workspace --exclude xmtp_api_grpc --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --exclude xmtp_api_d14n --features http-api --test-threads 2

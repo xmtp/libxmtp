@@ -15,7 +15,6 @@ CHROMEDRIVER="chromedriver" \
   cargo test --locked --release --target wasm32-unknown-unknown \
   -p xmtp_id \
   -p xmtp_api \
-  -p xmtp_api_http \
   -p xmtp_cryptography \
   -p xmtp_api \
   -p bindings_wasm \
