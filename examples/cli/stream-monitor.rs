@@ -21,11 +21,23 @@ use xmtp_mls::Client;
 use xmtp_mls::InboxOwner;
 
 fn setup_global_subscriber(enable_fmt: bool) -> impl Drop {
-    let filter = tracing_subscriber::EnvFilter::builder().parse(
-        "openmls=trace,xmtp_api=trace,xmtp_mls=trace,xmtp_api_grpc=trace,xmtp_id=trace,xmtp_common=trace,xmtp_db=trace,xmtp_content_types=trace,xmtp_cryptography=trace,xmtp_proto=trace,xmtp_configuration=trace,openmls_rust_crypt=trace,info"
-    ).unwrap();
+    let l = std::env::var("TRACE_LEVEL").unwrap_or_else(|_| "trace".to_string());
+    let env_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| format!("openmls={l},xmtp_api={l},xmtp_mls={l},xmtp_api_grpc={l},xmtp_id={l},xmtp_common={l},xmtp_db={l},xmtp_content_types={l},xmtp_cryptography={l},xmtp_proto={l},xmtp_configuration={l},openmls_rust_crypt={l},info"));
+    let filter = tracing_subscriber::EnvFilter::builder()
+        .parse(&env_filter)
+        .unwrap();
     if enable_fmt {
-        let fmt_layer = tracing_subscriber::fmt::layer();
+        let file = File::create(
+            std::env::var("RUST_LOG_FILE").unwrap_or_else(|_| "./tracing.log".to_string()),
+        )
+        .unwrap();
+        let fmt_layer = tracing_subscriber::fmt::layer()
+            .with_file(true)
+            .with_line_number(true)
+            .with_thread_names(true)
+            .with_ansi(false)
+            .with_target(true)
+            .with_writer(file);
         let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
         let flame_layer = flame_layer.with_threads_collapsed(true);
         let subscriber = Registry::default()
@@ -312,12 +324,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("No messages received, not creating output file");
     }
 
+    let span = tracing::trace_span!("syncing_stream_monitor");
+    let _span = span.enter();
+
     // Sync all groups and collect all message IDs if output is enabled
     if args.output {
         println!("Syncing all groups and collecting message IDs...");
 
         // Sync all welcomes and groups
-        client.sync_all_welcomes_and_groups(None).await?;
+        client
+            .sync_all_welcomes_and_groups(None)
+            .instrument(span.clone())
+            .await?;
 
         // Get all groups
         let groups = client.find_groups(GroupQueryArgs::default()).unwrap();
@@ -370,35 +388,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             );
             for message in all_message_ids {
                 if !received_message_ids_set.contains(&hex::encode(&message.id)) {
-                    println!(
-                        "Message ID {} not found in received messages",
-                        hex::encode(&message.id)
+                    tracing::warn!(
+                        message_id = %hex::encode(&message.id),
+                        group_id = %hex::encode(&message.group_id),
+                        decrypted_message_str = %String::from_utf8_lossy(&message.decrypted_message_bytes)[41..],
+                        sent_at = %chrono::DateTime::from_timestamp_nanos(message.sent_at_ns),
+                        sequence_id = message.sequence_id.unwrap_or(0),
+                        "Message not found in received messages"
                     );
-                    println!("  group_id: {}", hex::encode(&message.group_id));
-                    // println!(
-                    //     "  decrypted_message_bytes: {:?}",
-                    //     message.decrypted_message_bytes
-                    // );
-                    println!(
-                        "  decrypted message str: {}",
-                        &String::from_utf8_lossy(&message.decrypted_message_bytes)[41..]
-                    );
-                    println!(
-                        "  sent at: {}",
-                        chrono::DateTime::from_timestamp_nanos(message.sent_at_ns)
-                    );
-                    // println!("  kind: {:?}", message.kind);
-                    // println!(
-                    //     "  sender_installation_id: {}",
-                    //     hex::encode(&message.sender_installation_id)
-                    // );
-                    // println!("  sender_inbox_id: {}", message.sender_inbox_id);
-                    // println!("  delivery_status: {:?}", message.delivery_status);
-                    // println!("  content_type: {:?}", message.content_type);
-                    // println!("  version_major: {}", message.version_major);
-                    // println!("  version_minor: {}", message.version_minor);
-                    // println!("  authority_id: {}", message.authority_id);
-                    println!("  sequence_id: {}", message.sequence_id.unwrap_or(0));
                 }
             }
         } else {
