@@ -1019,7 +1019,7 @@ where
         let super_admin_size = self.super_admin_list()?.len();
 
         // check if the user is the only Admin or SuperAdmin of the group
-        if is_admin && admin_size == 1 || is_super_admin && super_admin_size == 1 {
+        if (is_admin && admin_size == 1) || (is_super_admin && super_admin_size == 1) {
             return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
         }
 
