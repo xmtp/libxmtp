@@ -1212,7 +1212,7 @@ async fn test_self_removal() {
     let amal = ClientBuilder::new_test_client(&amal_wallet).await;
     let bola_i1 = ClientBuilder::new_test_client(&bola_wallet).await;
     let bola_i2 = ClientBuilder::new_test_client(&bola_wallet).await;
-    
+
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
         .add_members_by_inbox_id(&[bola_i1.inbox_id()])
