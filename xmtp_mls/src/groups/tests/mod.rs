@@ -1152,6 +1152,59 @@ async fn test_self_remove_group_fail_with_one_member() {
         GroupError::LeaveCantProcessed(GroupLeaveValidationError::SingleMemberLeaveRejected)
     );
 }
+
+#[xmtp_common::test(flavor = "current_thread")]
+async fn test_non_member_cannot_leave_group() {
+    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+    // Create a group and verify it has the default group name
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group
+        .add_members_by_inbox_id(&[bola.inbox_id()])
+        .await
+        .unwrap();
+
+    amal_group.sync().await.unwrap();
+    bola.sync_welcomes().await.unwrap();
+
+    assert_eq!(amal_group.members().await.unwrap().len(), 2);
+    // Verify the pending-remove list is empty on Amal's group
+    assert!(
+        amal_group
+            .mutable_metadata()
+            .unwrap()
+            .pending_remove_list
+            .is_empty()
+    );
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+    assert_eq!(bola_groups.len(), 1);
+    let bola_group = bola_groups.first().unwrap();
+    assert_eq!(bola_group.members().await.unwrap().len(), 2);
+
+    bola_group.sync().await.unwrap();
+
+    // Verify the pending-remove list is empty on Bola_i1's group
+    assert!(
+        bola_group
+            .mutable_metadata()
+            .unwrap()
+            .pending_remove_list
+            .is_empty()
+    );
+
+    amal_group
+        .remove_members_by_inbox_id(&[bola.inbox_id()])
+        .await
+        .unwrap();
+    bola_group.sync().await.unwrap();
+    let bola_not_member_leave_result = bola_group.leave_group().await;
+    assert_err!(
+        bola_not_member_leave_result,
+        GroupError::LeaveCantProcessed(GroupLeaveValidationError::NotAGroupMember)
+    );
+}
+
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal() {
     let amal_wallet = generate_local_wallet();
@@ -1159,8 +1212,7 @@ async fn test_self_removal() {
     let amal = ClientBuilder::new_test_client(&amal_wallet).await;
     let bola_i1 = ClientBuilder::new_test_client(&bola_wallet).await;
     let bola_i2 = ClientBuilder::new_test_client(&bola_wallet).await;
-
-    // Create a group and verify it has the default group name
+    
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
         .add_members_by_inbox_id(&[bola_i1.inbox_id()])
@@ -1196,7 +1248,7 @@ async fn test_self_removal() {
             .is_empty()
     );
 
-    // Verify Amal's as the super admin/ admin can't leave the group and their inboxId is not added to the pendingRemoveList
+    // Verify Amal's as the super admin/admin can't leave the group and their inboxId is not added to the pendingRemoveList
     amal_group
         .leave_group()
         .await

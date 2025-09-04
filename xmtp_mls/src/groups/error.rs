@@ -226,6 +226,8 @@ pub enum GroupLeaveValidationError {
     MustRemoveFromMembersFirst,
     #[error("only the member themselves can retract a pending leave request")]
     OnlyMemberCanRetractLeave,
+    #[error("only a member of the group can send a leave request or retract a leave request")]
+    NotAGroupMember,
 }
 
 impl RetryableError for GroupLeaveValidationError {
