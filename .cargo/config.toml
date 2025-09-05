@@ -23,3 +23,15 @@ rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384"]
 
 [target.x86_64-linux-android]
 rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384"]
+
+[profile.dev]
+# build scripts don't need extra assertions
+build-override = { opt-level = 3, debug = false, debug-assertions = false, overflow-checks = false, incremental = false, codegen-units = 256 }
+# Build all non-local dependencies in release mode
+package."*" = { opt-level = 3, debug = false, debug-assertions = false, overflow-checks = false }
+
+[profile.test]
+# build scripts don't need extra assertions
+build-override = { opt-level = 3, debug = false, debug-assertions = false, overflow-checks = false, incremental = false, codegen-units = 256 }
+# Build all non-local dependencies in release mode
+package."*" = { opt-level = 3, debug = false, debug-assertions = false, overflow-checks = false }
