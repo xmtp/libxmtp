@@ -1377,7 +1377,12 @@ where
             .map_err(GroupMessageProcessingError::Storage)?;
 
         let group_cursor = db.get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
-        if group_cursor >= cursor as i64 {
+        let group_cursor_u64 = u64::try_from(group_cursor).map_err(|e| {
+            GroupMessageProcessingError::Storage(xmtp_db::StorageError::Connection(
+                xmtp_db::ConnectionError::InvalidNegativeCursor(e.to_string()),
+            ))
+        })?;
+        if group_cursor_u64 >= cursor {
             // early return if the message is already processed
             // _NOTE_: Not early returning and re-processing a message that
             // has already been processed, has the potential to result in forks.
