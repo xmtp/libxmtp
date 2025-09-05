@@ -179,11 +179,6 @@ debug = 0
 [profile.bench]
 debug = true
 
-# Setting opt-level to 3 for proc macros/build scripts
-# speeds up buildtime
-[profile.dev.build-override]
-opt-level = 3
-
 [profile.release]
 incremental = true
 opt-level = "s"
