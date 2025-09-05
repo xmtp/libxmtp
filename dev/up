@@ -21,6 +21,7 @@ if [[ "${OSTYPE}" == "darwin"* ]]; then
         foundryup
     fi
     if ! wasm-pack --version &>/dev/null; then cargo install wasm-pack; fi
+    if ! cargo llvm-cov --version &>/dev/null; then cargo install cargo-llvm-cov; fi
 fi
 
 if command -v rustup >/dev/null 2>&1; then

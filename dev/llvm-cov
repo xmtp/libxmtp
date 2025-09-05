@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+WORKSPACE_ROOT="$(cargo metadata --format-version 1 | jq -r .workspace_root)"
+cd "${WORKSPACE_ROOT}"
+
+cargo llvm-cov clean --profraw-only --workspace
+cargo llvm-cov nextest --profile ci --workspace --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --all-features --no-fail-fast
+cargo llvm-cov nextest --profile ci --workspace --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --exclude xmtp_api_grpc --exclude xmtp_api_d14n --features http-api --no-fail-fast
+
+mkdir -p coverage
+rm -rf coverage/*
+cargo llvm-cov report --output-path coverage/lcov --lcov
+cargo llvm-cov report --output-dir coverage/ --html
