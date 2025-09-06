@@ -100,7 +100,9 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
         } = args.as_ref();
         let mut query = conversation_list
             .select(conversation_list::all_columns())
-            .filter(conversation_list_dsl::conversation_type.ne(ConversationType::Sync))
+            .filter(
+                conversation_list_dsl::conversation_type.ne_all(ConversationType::virtual_types()),
+            )
             .into_boxed();
 
         if !include_duplicate_dms {

@@ -62,6 +62,7 @@ fn insert(element: BackupElement, context: &impl XmtpSharedContext) -> Result<()
                     description: attributes.get("description").cloned(),
                     ..Default::default()
                 },
+                None,
             )?;
         }
         Element::GroupMessage(message) => {
@@ -248,7 +249,7 @@ mod tests {
 
         let groups: Vec<StoredGroup> = alix2.context.db().raw_query_read(|conn| {
             groups::table
-                .filter(groups::conversation_type.ne(ConversationType::Sync))
+                .filter(groups::conversation_type.ne_all(ConversationType::virtual_types()))
                 .load(conn)
         })?;
         assert_eq!(groups.len(), 1);
