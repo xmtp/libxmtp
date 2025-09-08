@@ -1309,13 +1309,12 @@ where
                 .update_group_membership(&self.group_id, GroupMembershipState::Allowed)
             {
                 tracing::error!(
-                    error = %e,
                     operation = "update_group_membership",
                     target_state = "Allowed",
                     inbox_id = %current_inbox_id,
                     group_id = hex::encode(&self.group_id),
                     context = "self_removed_from_pending_list",
-                    "Failed to restore group membership after self-removal from pending_remove_list"
+                    "Failed to restore group membership after self-removal from pending_remove_list {}", e
                 );
             }
         }
@@ -1331,13 +1330,12 @@ where
                 .update_group_membership(&self.group_id, GroupMembershipState::PendingRemove)
             {
                 tracing::error!(
-                    error = %e,
                     operation = "update_group_membership",
                     target_state = "PendingRemove",
                     inbox_id = %current_inbox_id,
                     group_id = hex::encode(&self.group_id),
                     context = "self_added_to_pending_list",
-                    "Failed to update group membership after self-addition to pending_remove_list"
+                    "Failed to update group membership after self-addition to pending_remove_list {}", e
                 );
             }
         }
@@ -1396,11 +1394,10 @@ where
             }
             Err(e) => {
                 tracing::error!(
-                    error = %e,
                     group_id = hex::encode(&self.group_id),
                     inbox_id = %current_inbox_id,
                     operation = "extract_group_mutable_metadata",
-                    "Failed to extract mutable metadata for pending-remove admin processing"
+                    "Failed to extract mutable metadata for pending-remove admin processing {}",e
                 );
             }
         }
