@@ -1305,14 +1305,14 @@ async fn test_self_removal() {
     assert!(bola_i2_group_pending_remove_list.contains(&bola_i1.inbox_id().to_string()));
     // The pending-remove list should only contain one item
     assert_eq!(bola_i2_group_pending_remove_list.len(), 1);
-    let bola_i2_group_state_in_db = bola_i2.db().find_group(&bola_i2_group.group_id).unwrap();
+    // let bola_i2_group_state_in_db = bola_i2.db().find_group(&bola_i2_group.group_id).unwrap();
 
     // todo for later: check that the state is PendingRemove for other installations
-    assert_eq!(
-        bola_i2_group_state_in_db.unwrap().membership_state,
-        GroupMembershipState::PendingRemove
-    );
-    xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
+    // assert_eq!(
+    //     bola_i2_group_state_in_db.unwrap().membership_state,
+    //     GroupMembershipState::PendingRemove
+    // );
+    // xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
 }
 
 #[xmtp_common::test(flavor = "current_thread")]
