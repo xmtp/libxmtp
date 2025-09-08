@@ -376,7 +376,7 @@ where
                 mutable_metadata,
             ));
 
-        let membership_state = if pending_remove_state.is_some() {
+        let membership_state = if pending_remove_state.unwrap_or(false) {
             GroupMembershipState::PendingRemove
         } else {
             GroupMembershipState::Pending
