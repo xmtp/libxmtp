@@ -177,6 +177,7 @@ where
                 &XmtpOpenMlsProvider::new(mls_storage),
                 &welcome.hpke_public_key,
                 &welcome.data,
+                &welcome.welcome_metadata,
                 welcome.wrapper_algorithm.into(),
             );
             Err(StorageError::IntentionalRollback)
@@ -282,12 +283,14 @@ where
             &provider,
             &welcome.hpke_public_key,
             &welcome.data,
+            &welcome.welcome_metadata,
             welcome.wrapper_algorithm.into(),
         )?;
         let DecryptedWelcome {
             staged_welcome,
             added_by_inbox_id,
             added_by_installation_id,
+            welcome_metadata,
         } = decrypted_welcome;
 
         tracing::debug!("calling update cursor for welcome {}", welcome.id);
@@ -350,6 +353,13 @@ where
                 None
             }
         });
+        let pending_remove_state = mutable_metadata.as_ref().and_then(|metadata| {
+            MlsGroup::<C>::is_in_pending_remove_from_extensions(
+                context.inbox_id().to_string(),
+                metadata,
+            )
+            .ok()
+        });
 
         let mut group = StoredGroup::builder();
         group
@@ -366,15 +376,21 @@ where
                 mutable_metadata,
             ));
 
+        let membership_state = if pending_remove_state.unwrap_or(false) {
+            GroupMembershipState::PendingRemove
+        } else {
+            GroupMembershipState::Pending
+        };
+
         let to_store = match conversation_type {
             ConversationType::Group => group
-                .membership_state(GroupMembershipState::Pending)
+                .membership_state(membership_state)
                 .paused_for_version(paused_for_version)
                 .build()?,
             ConversationType::Dm => {
                 validate_dm_group(context, &mls_group, &added_by_inbox_id)?;
                 group
-                    .membership_state(GroupMembershipState::Pending)
+                    .membership_state(membership_state)
                     .last_message_ns(welcome.created_ns as i64)
                     .build()?
             }
@@ -384,6 +400,7 @@ where
                 let group_id = mls_group.group_id().to_vec();
                 events.add_worker_event(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
 
+                // Sync groups are always Allowed.
                 group
                     .membership_state(GroupMembershipState::Allowed)
                     .build()?
@@ -428,20 +445,15 @@ where
             &format!("{}_welcome_added", welcome.created_ns),
         );
 
-        let added_content_type = match encoded_added_payload.r#type {
-            Some(ct) => ct,
-            None => {
-                tracing::warn!(
-                    "Missing content type in encoded added payload, using default values"
-                );
-                ContentTypeId {
-                    authority_id: "unknown".to_string(),
-                    type_id: "unknown".to_string(),
-                    version_major: 0,
-                    version_minor: 0,
-                }
+        let added_content_type = encoded_added_payload.r#type.unwrap_or_else(|| {
+            tracing::warn!("Missing content type in encoded added payload, using default values");
+            ContentTypeId {
+                authority_id: "unknown".to_string(),
+                type_id: "unknown".to_string(),
+                version_major: 0,
+                version_minor: 0,
             }
-        };
+        });
 
         let added_msg = StoredGroupMessage {
             id: added_message_id,
@@ -481,6 +493,21 @@ where
         if context.inbox_id() == metadata.creator_inbox_id {
             group.quietly_update_consent_state(ConsentState::Allowed, &db)?;
         }
+
+        // Set the message cursor
+        let cursor = welcome_metadata
+            .map(|m| m.message_cursor as i64)
+            .unwrap_or_default();
+        db.update_cursor(&group.group_id, EntityKind::Group, cursor)?;
+
+        tracing::info!(
+            inbox_id = %current_inbox_id,
+            installation_id = %self.context.installation_id(),
+            group_id = %hex::encode(&group.group_id),
+            welcome_id = welcome.id,
+            cursor = cursor,
+            "updated message cursor from welcome metadata"
+        );
 
         Ok(group)
     }

@@ -1031,21 +1031,26 @@ impl PolicySet {
 
     fn validate_pending_remove_removal(&self, commit: &ValidatedCommit) -> bool {
         let removed = &commit.metadata_validation_info.pending_remove_removed;
-        // Single removal: only by the actor themselves
-        if removed.len() == 1 {
-            return removed[0].inbox_id == commit.actor.inbox_id;
+
+        // Empty removed list: nothing to validate
+        if removed.is_empty() {
+            return true;
         }
 
-        // Multiple removals: only by admin/super admin
-        if !removed.is_empty() && (commit.actor.is_admin || commit.actor.is_super_admin) {
-            // If actor is admin, verify removed inboxes are not current group members
-            return !&commit.actor.is_admin
-                || removed
-                    .iter()
-                    .all(|inbox| !&commit.group_members.contains(&inbox.inbox_id));
+        // Single inbox removal case
+        if removed.len() == 1 && removed[0].inbox_id == commit.actor.inbox_id {
+            return true; // Anyone can remove themselves
         }
 
-        false
+        // Multiple removals - only admins or super admins can do this
+        if !commit.actor.is_admin && !commit.actor.is_super_admin {
+            return false;
+        }
+
+        // Admin/super admin removing others - verify they're not in members list
+        removed
+            .iter()
+            .all(|inbox| !commit.group_members.contains(&inbox.inbox_id))
     }
 
     /// Evaluates a policy for a given set of changes.

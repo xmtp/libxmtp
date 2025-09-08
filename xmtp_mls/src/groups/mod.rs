@@ -656,6 +656,8 @@ where
             return Err(GroupError::GroupInactive);
         }
 
+        // todo: check if the group is not in the pending removal state
+
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(update_interval_ns).await?;
@@ -1000,33 +1002,39 @@ where
 
     pub async fn leave_group(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
+        self.is_member().await?;
+
         //check member size
-        if self.members().await?.len() == 1 {
+        let members = self.members().await?;
+
+        // check if the group has other members
+        if members.len() == 1 {
             return Err(GroupLeaveValidationError::SingleMemberLeaveRejected.into());
         }
 
-        let is_admin = self.is_admin(self.context.inbox_id().to_string())?;
-        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
-        let admin_size = self.admin_list()?.len();
-        let super_admin_size = self.super_admin_list()?.len();
-
-        if is_admin && admin_size == 1 || is_super_admin && super_admin_size == 1 {
-            return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
-        }
-        let is_admin = self.is_admin(self.context.inbox_id().to_string())?;
-        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
-        let admin_size = self.admin_list()?.len();
-        let super_admin_size = self.super_admin_list()?.len();
-
-        if is_admin && admin_size == 1 || is_super_admin && super_admin_size == 1 {
-            return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
-        }
-
+        // check if the conversation is not a DM
         if self.metadata().await?.conversation_type == ConversationType::Dm {
             return Err(GroupLeaveValidationError::DmLeaveForbidden.into());
         }
 
-        //todo: check if the user still is a member of the group? do we need to check that?
+        let is_admin = self.is_admin(self.context.inbox_id().to_string())?;
+        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
+        let admin_size = self.admin_list()?.len();
+        let super_admin_size = self.super_admin_list()?.len();
+
+        // check if the user is the only Admin or SuperAdmin of the group
+        if (is_admin && admin_size == 1) || (is_super_admin && super_admin_size == 1) {
+            return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
+        }
+        let is_admin = self.is_admin(self.context.inbox_id().to_string())?;
+        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
+        let admin_size = self.admin_list()?.len();
+        let super_admin_size = self.super_admin_list()?.len();
+
+        if is_admin && admin_size == 1 || is_super_admin && super_admin_size == 1 {
+            return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
+        }
+
         if !self.is_in_pending_remove(self.context.inbox_id().to_string())? {
             self.update_pending_remove_list(
                 UpdatePendingRemoveListType::Add,
@@ -1038,15 +1046,29 @@ where
     }
 
     pub async fn remove_from_pending_remove_list(&self) -> Result<(), GroupError> {
-        //todo: check if the user still is a member of the group? do we need to check that?
-
         self.ensure_not_paused().await?;
+        self.is_member().await?;
+
         if self.is_in_pending_remove(self.context.inbox_id().to_string())? {
             self.update_pending_remove_list(
                 UpdatePendingRemoveListType::Remove,
                 self.context.inbox_id().to_string(),
             )
             .await?;
+        }
+        Ok(())
+    }
+
+    /// Checks if the current user is a member of the group.
+    /// Returns Ok(()) if the user is a member, otherwise returns NotAGroupMember error.
+    #[tracing::instrument(level = "debug", skip(self))]
+    async fn is_member(&self) -> Result<(), GroupError> {
+        let members = self.members().await?;
+        if !members
+            .iter()
+            .any(|m| m.inbox_id == self.context.inbox_id())
+        {
+            return Err(GroupLeaveValidationError::NotAGroupMember.into());
         }
         Ok(())
     }
@@ -1421,6 +1443,14 @@ where
     /// Checks if the given inbox ID is the pending-remove list of the group at the most recently synced epoch.
     pub fn is_in_pending_remove(&self, inbox_id: String) -> Result<bool, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
+        Self::is_in_pending_remove_from_extensions(inbox_id, &mutable_metadata)
+    }
+
+    /// Checks if the given inbox ID is the pending-remove list of the group at the most recently synced epoch.
+    pub fn is_in_pending_remove_from_extensions(
+        inbox_id: String,
+        mutable_metadata: &GroupMutableMetadata,
+    ) -> Result<bool, GroupError> {
         Ok(mutable_metadata.pending_remove_list.contains(&inbox_id))
     }
 

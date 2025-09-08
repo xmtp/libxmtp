@@ -286,6 +286,7 @@ mock! {
         fn set_group_intent_committed(
             &self,
             intent_id: crate::group_intent::ID,
+            sequence_id: i64,
         ) -> Result<(), StorageError>;
 
         fn set_group_intent_processed(
