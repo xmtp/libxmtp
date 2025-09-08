@@ -978,9 +978,7 @@ where
                 &storage,
                 &mut deferred_events
             )?;
-            
             self.process_pending_remove_list_changes(mls_group, &storage, validated_commit.clone(),);
-
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
                 tracing::info!(
@@ -1264,8 +1262,6 @@ where
                     *cursor,
                     storage,
                 )?;
-                // handle pending removal list
-                // self.process_pending_remove_list_changes(validated_commit, storage);
                 identifier.internal_id(msg.as_ref().map(|m| m.id.clone()));
                 Ok(())
             }
@@ -1281,47 +1277,79 @@ where
     ) {
         let current_inbox_id = self.context.inbox_id().to_string();
 
-        // Process validated commit changes
+        // Process validated commit changes - only if the actor is the current user
         if let Some(commit) = validated_commit {
-            // Only process changes if they were made by the current user
+            // Only process changes if they were made by the same user
             if commit.actor.inbox_id == current_inbox_id {
-                let metadata_info = &commit.metadata_validation_info;
-
-                // Handle removal from pending remove list
-                // todo: check the group state, if the current state is not pending-remove then no need to restore it
-                if metadata_info
-                    .pending_remove_removed
-                    .iter()
-                    .any(|id| id.inbox_id == current_inbox_id)
-                {
-                    // todo(mch): should we restore the membership to allowed if the user is not in the pending remove list?
-                    if let Err(e) = storage
-                        .db()
-                        .update_group_membership(&self.group_id, GroupMembershipState::Allowed)
-                    {
-                        tracing::error!("Failed to restore group membership: {}", e);
-                    }
-                }
-
-                // Handle addition to the pending remove list
-                if metadata_info
-                    .pending_remove_added
-                    .iter()
-                    .any(|id| id.inbox_id == current_inbox_id)
-                {
-                    if let Err(e) = storage.db().update_group_membership(
-                        &self.group_id,
-                        GroupMembershipState::PendingRemove,
-                    ) {
-                        // todo(mch):should we return a retryable error here?
-                        tracing::error!(
-                            "Failed to update group membership to PendingRemove: {}",
-                            e
-                        );
-                    }
-                }
+                self.process_self_pending_remove_changes(&commit, storage);
+                return; // Early return - we're done if this is our own action
             }
         }
+
+        // If we reach here, the action was by another user or no validated commit
+        // Only process admin actions if we're admin/super-admin
+        self.process_admin_pending_remove_actions(mls_group, storage);
+    }
+
+    fn process_self_pending_remove_changes(
+        &self,
+        commit: &ValidatedCommit,
+        storage: &impl XmtpMlsStorageProvider,
+    ) {
+        let current_inbox_id = self.context.inbox_id().to_string();
+        let metadata_info = &commit.metadata_validation_info;
+
+        // Handle removal from pending remove list (restore to Allowed state)
+        if metadata_info
+            .pending_remove_removed
+            .iter()
+            .any(|id| id.inbox_id == current_inbox_id)
+        {
+            if let Err(e) = storage
+                .db()
+                .update_group_membership(&self.group_id, GroupMembershipState::Allowed)
+            {
+                tracing::error!(
+                    error = %e,
+                    operation = "update_group_membership",
+                    target_state = "Allowed",
+                    inbox_id = %current_inbox_id,
+                    group_id = hex::encode(&self.group_id),
+                    context = "self_removed_from_pending_list",
+                    "Failed to restore group membership after self-removal from pending_remove_list"
+                );
+            }
+        }
+
+        // Handle addition to the pending remove list
+        if metadata_info
+            .pending_remove_added
+            .iter()
+            .any(|id| id.inbox_id == current_inbox_id)
+        {
+            if let Err(e) = storage
+                .db()
+                .update_group_membership(&self.group_id, GroupMembershipState::PendingRemove)
+            {
+                tracing::error!(
+                    error = %e,
+                    operation = "update_group_membership",
+                    target_state = "PendingRemove",
+                    inbox_id = %current_inbox_id,
+                    group_id = hex::encode(&self.group_id),
+                    context = "self_added_to_pending_list",
+                    "Failed to update group membership after self-addition to pending_remove_list"
+                );
+            }
+        }
+    }
+
+    fn process_admin_pending_remove_actions(
+        &self,
+        mls_group: &OpenMlsGroup,
+        storage: &impl XmtpMlsStorageProvider,
+    ) {
+        let current_inbox_id = self.context.inbox_id().to_string();
 
         // Process admin actions based on current group state
         // If the current user is admin/super-admin and there are pending remove requests, mark the group accordingly
@@ -1330,14 +1358,21 @@ where
         // but still, the admin client needs to react to others and remove them from the pending remove list.
         match extract_group_mutable_metadata(mls_group) {
             Ok(metadata) => {
-                let pending_remove = &metadata.pending_remove_list;
                 let is_admin = metadata.admin_list.contains(&current_inbox_id)
                     || metadata.super_admin_list.contains(&current_inbox_id);
+
+                // Only process if we're an admin/super-admin
+                if !is_admin {
+                    return;
+                }
+
+                let pending_remove = &metadata.pending_remove_list;
                 let has_pending_removes = !pending_remove.is_empty();
                 let current_user_not_pending = !pending_remove.contains(&current_inbox_id);
 
-                // Update group status if admin needs to handle pending removes
-                if is_admin && current_user_not_pending && has_pending_removes {
+                // Update group status based on pending remove list state
+                if current_user_not_pending {
+                    self.update_group_pending_status(storage, has_pending_removes);
                     // Update the group's pending leave request status
                     // if let Err(e) = storage
                     //     .db()
@@ -1354,16 +1389,70 @@ where
                 }
             }
             Err(GroupMutableMetadataError::MissingExtension) => {
-                //todo(mch): retryable_error?
                 tracing::warn!(
-                    "Group has no mutable metadata extension; skipping pending-remove check"
+                    group_id = hex::encode(&self.group_id),
+                    inbox_id = %current_inbox_id,
+                    "Group has no mutable metadata extension; skipping pending-remove admin processing"
                 );
             }
             Err(e) => {
-                // Unknown/real error — up to you whether to bail or just log.
-                //todo(mch): retryable_error?
-                tracing::error!("Failed to extract mutable metadata: {}", e);
+                tracing::error!(
+                    error = %e,
+                    group_id = hex::encode(&self.group_id),
+                    inbox_id = %current_inbox_id,
+                    operation = "extract_group_mutable_metadata",
+                    "Failed to extract mutable metadata for pending-remove admin processing"
+                );
             }
+        }
+    }
+
+    fn update_group_pending_status(
+        &self,
+        storage: &impl XmtpMlsStorageProvider,
+        has_pending_removes: bool,
+    ) {
+        // TODO: Implement the actual database update when the method becomes available
+        // This is where we would mark the group as having/not having pending remove requests
+
+        if has_pending_removes {
+            tracing::info!(
+                group_id = hex::encode(&self.group_id),
+                inbox_id = %self.context.inbox_id(),
+                "Group has pending remove requests requiring admin action"
+            );
+
+            // Placeholder for future implementation:
+            // if let Err(e) = storage
+            //     .db()
+            //     .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
+            // {
+            //     tracing::error!(
+            //         error = %e,
+            //         operation = "set_group_pending_status",
+            //         group_id = hex::encode(&self.group_id),
+            //         "Failed to mark group as having pending leave requests"
+            //     );
+            // }
+        } else {
+            tracing::debug!(
+                group_id = hex::encode(&self.group_id),
+                inbox_id = %self.context.inbox_id(),
+                "Group has no pending remove requests"
+            );
+
+            // Placeholder for future implementation:
+            // if let Err(e) = storage
+            //     .db()
+            //     .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
+            // {
+            //     tracing::error!(
+            //         error = %e,
+            //         operation = "set_group_pending_status",
+            //         group_id = hex::encode(&self.group_id),
+            //         "Failed to mark group as not having pending leave requests"
+            //     );
+            // }
         }
     }
 

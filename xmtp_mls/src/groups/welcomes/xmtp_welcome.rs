@@ -350,6 +350,13 @@ where
                 None
             }
         });
+        let pending_remove_state = mutable_metadata.as_ref().and_then(|metadata| {
+            MlsGroup::<C>::is_in_pending_remove_from_extensions(
+                context.inbox_id().to_string(),
+                metadata,
+            )
+            .ok()
+        });
 
         let mut group = StoredGroup::builder();
         group
@@ -366,15 +373,21 @@ where
                 mutable_metadata,
             ));
 
+        let membership_state = if pending_remove_state.is_some() {
+            GroupMembershipState::PendingRemove
+        } else {
+            GroupMembershipState::Pending
+        };
+
         let to_store = match conversation_type {
             ConversationType::Group => group
-                .membership_state(GroupMembershipState::Pending)
+                .membership_state(membership_state)
                 .paused_for_version(paused_for_version)
                 .build()?,
             ConversationType::Dm => {
                 validate_dm_group(context, &mls_group, &added_by_inbox_id)?;
                 group
-                    .membership_state(GroupMembershipState::Pending)
+                    .membership_state(membership_state)
                     .last_message_ns(welcome.created_ns as i64)
                     .build()?
             }
@@ -384,6 +397,7 @@ where
                 let group_id = mls_group.group_id().to_vec();
                 events.add_worker_event(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
 
+                // Sync groups are always Allowed.
                 group
                     .membership_state(GroupMembershipState::Allowed)
                     .build()?
