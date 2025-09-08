@@ -8,6 +8,7 @@ use prost::Message;
 use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
 use xmtp_api::ApiError;
+use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
 use xmtp_db::{
@@ -15,7 +16,7 @@ use xmtp_db::{
     group::StoredGroupCommitLogPublicKey,
     local_commit_log::LocalCommitLogOrder,
     prelude::*,
-    remote_commit_log::{self, CommitResult, NewRemoteCommitLog},
+    remote_commit_log::{CommitResult, NewRemoteCommitLog},
 };
 use xmtp_proto::mls_v1::PublishCommitLogRequest;
 use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
@@ -339,7 +340,7 @@ where
                 paging_info: Some(PagingInfo {
                     direction: SortDirection::Ascending as i32,
                     id_cursor: *cursor as u64,
-                    limit: remote_commit_log::MAX_PAGE_SIZE,
+                    limit: MAX_PAGE_SIZE,
                 }),
             })
             .collect();
