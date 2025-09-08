@@ -655,6 +655,8 @@ where
             return Err(GroupError::GroupInactive);
         }
 
+        // todo: check if the group is not in the pending removal state
+
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(update_interval_ns).await?;
