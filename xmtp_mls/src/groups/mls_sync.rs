@@ -61,7 +61,6 @@ use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 
 use crate::groups::intents::UpdatePendingRemoveListIntentData;
-use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
