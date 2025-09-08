@@ -277,7 +277,7 @@ pub mod mock {
         }
     }
 
-    type Repeat = Box<dyn (FnMut() -> prost::bytes::Bytes)>;
+    type Repeat = Box<dyn FnMut() -> prost::bytes::Bytes>;
     type MockStreamT = futures::stream::RepeatWith<Repeat>;
     #[cfg(not(target_arch = "wasm32"))]
     mockall::mock! {

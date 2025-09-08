@@ -75,6 +75,7 @@ pub struct StoredGroupIntent {
     pub staged_commit: Option<Vec<u8>>,
     pub published_in_epoch: Option<i64>,
     pub should_push: bool,
+    pub sequence_id: Option<i64>,
 }
 
 impl std::fmt::Debug for StoredGroupIntent {
@@ -187,7 +188,11 @@ pub trait QueryGroupIntent {
     ) -> Result<(), StorageError>;
 
     // Set the intent with the given ID to `Committed`
-    fn set_group_intent_committed(&self, intent_id: ID) -> Result<(), StorageError>;
+    fn set_group_intent_committed(
+        &self,
+        intent_id: ID,
+        sequence_id: i64,
+    ) -> Result<(), StorageError>;
 
     // Set the intent with the given ID to `Committed`
     fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError>;
@@ -252,8 +257,12 @@ where
         )
     }
 
-    fn set_group_intent_committed(&self, intent_id: ID) -> Result<(), StorageError> {
-        (**self).set_group_intent_committed(intent_id)
+    fn set_group_intent_committed(
+        &self,
+        intent_id: ID,
+        sequence_id: i64,
+    ) -> Result<(), StorageError> {
+        (**self).set_group_intent_committed(intent_id, sequence_id)
     }
 
     fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError> {
@@ -369,14 +378,21 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     }
 
     // Set the intent with the given ID to `Committed`
-    fn set_group_intent_committed(&self, intent_id: ID) -> Result<(), StorageError> {
+    fn set_group_intent_committed(
+        &self,
+        intent_id: ID,
+        sequence_id: i64,
+    ) -> Result<(), StorageError> {
         let rows_changed: usize = self.raw_query_write(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 // State machine requires that the only valid state transition to Committed is from
                 // Published
                 .filter(dsl::state.eq(IntentState::Published))
-                .set(dsl::state.eq(IntentState::Committed))
+                .set((
+                    dsl::state.eq(IntentState::Committed),
+                    dsl::sequence_id.eq(sequence_id),
+                ))
                 .execute(conn)
         })?;
 
@@ -794,7 +810,7 @@ pub(crate) mod tests {
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
             assert_eq!(intent.post_commit_data, Some(post_commit_data.clone()));
 
-            conn.set_group_intent_committed(intent.id).unwrap();
+            conn.set_group_intent_committed(intent.id, 0).unwrap();
             // Refresh from the DB
             intent = conn.fetch(&intent.id).unwrap().unwrap();
             assert_eq!(intent.state, IntentState::Committed);
@@ -868,7 +884,7 @@ pub(crate) mod tests {
 
             let intent = find_first_intent(conn, group_id.clone());
 
-            let commit_result = conn.set_group_intent_committed(intent.id);
+            let commit_result = conn.set_group_intent_committed(intent.id, 0);
             assert!(commit_result.is_err());
             assert!(matches!(
                 commit_result.err().unwrap(),

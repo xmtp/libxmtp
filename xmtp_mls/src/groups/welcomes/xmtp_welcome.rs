@@ -177,6 +177,7 @@ where
                 &XmtpOpenMlsProvider::new(mls_storage),
                 &welcome.hpke_public_key,
                 &welcome.data,
+                &welcome.welcome_metadata,
                 welcome.wrapper_algorithm.into(),
             );
             Err(StorageError::IntentionalRollback)
@@ -282,12 +283,14 @@ where
             &provider,
             &welcome.hpke_public_key,
             &welcome.data,
+            &welcome.welcome_metadata,
             welcome.wrapper_algorithm.into(),
         )?;
         let DecryptedWelcome {
             staged_welcome,
             added_by_inbox_id,
             added_by_installation_id,
+            welcome_metadata,
         } = decrypted_welcome;
 
         tracing::debug!("calling update cursor for welcome {}", welcome.id);
@@ -442,20 +445,15 @@ where
             &format!("{}_welcome_added", welcome.created_ns),
         );
 
-        let added_content_type = match encoded_added_payload.r#type {
-            Some(ct) => ct,
-            None => {
-                tracing::warn!(
-                    "Missing content type in encoded added payload, using default values"
-                );
-                ContentTypeId {
-                    authority_id: "unknown".to_string(),
-                    type_id: "unknown".to_string(),
-                    version_major: 0,
-                    version_minor: 0,
-                }
+        let added_content_type = encoded_added_payload.r#type.unwrap_or_else(|| {
+            tracing::warn!("Missing content type in encoded added payload, using default values");
+            ContentTypeId {
+                authority_id: "unknown".to_string(),
+                type_id: "unknown".to_string(),
+                version_major: 0,
+                version_minor: 0,
             }
-        };
+        });
 
         let added_msg = StoredGroupMessage {
             id: added_message_id,
@@ -495,6 +493,21 @@ where
         if context.inbox_id() == metadata.creator_inbox_id {
             group.quietly_update_consent_state(ConsentState::Allowed, &db)?;
         }
+
+        // Set the message cursor
+        let cursor = welcome_metadata
+            .map(|m| m.message_cursor as i64)
+            .unwrap_or_default();
+        db.update_cursor(&group.group_id, EntityKind::Group, cursor)?;
+
+        tracing::info!(
+            inbox_id = %current_inbox_id,
+            installation_id = %self.context.installation_id(),
+            group_id = %hex::encode(&group.group_id),
+            welcome_id = welcome.id,
+            cursor = cursor,
+            "updated message cursor from welcome metadata"
+        );
 
         Ok(group)
     }
