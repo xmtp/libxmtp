@@ -303,6 +303,7 @@ pub struct ValidatedCommit {
     pub permissions_changed: bool,
     pub dm_members: Option<DmMembers<String>>,
     pub group_members: Vec<String>,
+    pub current_group_metadata: Option<GroupMutableMetadata>,
 }
 
 impl ValidatedCommit {
@@ -450,6 +451,7 @@ impl ValidatedCommit {
             permissions_changed,
             dm_members: immutable_metadata.dm_members,
             group_members,
+            current_group_metadata: Some(mutable_metadata),
         };
 
         let policy_set = extract_group_permissions(openmls_group)?;
@@ -1093,14 +1095,30 @@ impl From<&Inbox> for InboxProto {
 
 impl From<ValidatedCommit> for GroupUpdatedProto {
     fn from(commit: ValidatedCommit) -> Self {
+        // Separate removed inboxes based on whether they were in the pending remove list
+        // partition() splits into two mutually exclusive collections:
+        // - left_inboxes: inboxes that were removed AND were in pending_remove_added (voluntary departures)
+        // - removed_inboxes: inboxes that were removed but NOT in pending_remove_added (admin removals)
+        let (left_inboxes, removed_inboxes): (Vec<_>, Vec<_>) =
+            commit.removed_inboxes.iter().partition(|inbox| {
+                // Check if this removed inbox was in the pending remove list
+                commit
+                    .current_group_metadata
+                    .as_ref()
+                    .map(|metadata| {
+                        metadata
+                            .pending_remove_list
+                            .iter()
+                            .any(|pending_inbox| pending_inbox.as_str() == inbox.inbox_id)
+                    })
+                    .unwrap_or(false)
+            });
+
         GroupUpdatedProto {
             initiated_by_inbox_id: commit.actor.inbox_id.clone(),
             added_inboxes: commit.added_inboxes.iter().map(InboxProto::from).collect(),
-            removed_inboxes: commit
-                .removed_inboxes
-                .iter()
-                .map(InboxProto::from)
-                .collect(),
+            removed_inboxes: removed_inboxes.into_iter().map(InboxProto::from).collect(),
+            left_inboxes: left_inboxes.into_iter().map(InboxProto::from).collect(),
             metadata_field_changes: commit
                 .metadata_validation_info
                 .metadata_field_changes
