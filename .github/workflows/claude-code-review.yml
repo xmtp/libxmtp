@@ -49,11 +49,12 @@ jobs:
             - Test coverage
 
             Be constructive and helpful in your feedback.
-            Do not repeat what has already been commented on by the author, others, or yourself.
+            Do not repeat what has already been commented on by others, including the author.
+            Do not comment on, or repeat TODO comments.
             Keep feedback concise, and limited to the most important points, if any.
 
           # Optional: Use sticky comments to make Claude reuse the same comment on subsequent pushes to the same PR
-          # use_sticky_comment: true
+          use_sticky_comment: true
 
           # Optional: Customize review based on file types
           # direct_prompt: |
