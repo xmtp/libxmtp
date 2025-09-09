@@ -37,7 +37,7 @@ jobs:
         with:
           tool: wasm-bindgen@0.2.101
       - name: Setup node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version-file: ".node-version"
           cache-dependency-path: "bindings_wasm/yarn.lock"
