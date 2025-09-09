@@ -1372,18 +1372,18 @@ where
                 if current_user_not_pending {
                     self.update_group_pending_status(storage, has_pending_removes);
                     // Update the group's pending leave request status
-                    // if let Err(e) = storage
-                    //     .db()
-                    //     .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
-                    // {
-                    //     //     //     .map_err(|e| {
-                    //     tracing::error!("Failed to set group pending leave request status: {}", e);
-                    // } else {
-                    //     //     //         IntentError::Storage(e.into())
-                    //     //     //     })?;
-                    //     //
-                    //     tracing::info!("Marked the group as having pending leave requests");
-                    // }
+                    if let Err(e) = storage
+                        .db()
+                        .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
+                    {
+                        //     //     .map_err(|e| {
+                        tracing::error!("Failed to set group pending leave request status: {}", e);
+                    } else {
+                        //     //         IntentError::Storage(e.into())
+                        //     //     })?;
+                        //
+                        tracing::info!("Marked the group as having pending leave requests");
+                    }
                 }
             }
             Err(GroupMutableMetadataError::MissingExtension) => {
@@ -1419,18 +1419,17 @@ where
                 "Group has pending remove requests requiring admin action"
             );
 
-            // Placeholder for future implementation:
-            // if let Err(e) = storage
-            //     .db()
-            //     .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
-            // {
-            //     tracing::error!(
-            //         error = %e,
-            //         operation = "set_group_pending_status",
-            //         group_id = hex::encode(&self.group_id),
-            //         "Failed to mark group as having pending leave requests"
-            //     );
-            // }
+            if let Err(e) = storage
+                .db()
+                .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
+            {
+                tracing::error!(
+                    error = %e,
+                    operation = "set_group_pending_status",
+                    group_id = hex::encode(&self.group_id),
+                    "Failed to mark group as having pending leave requests"
+                );
+            }
         } else {
             tracing::debug!(
                 group_id = hex::encode(&self.group_id),
@@ -1438,18 +1437,17 @@ where
                 "Group has no pending remove requests"
             );
 
-            // Placeholder for future implementation:
-            // if let Err(e) = storage
-            //     .db()
-            //     .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
-            // {
-            //     tracing::error!(
-            //         error = %e,
-            //         operation = "set_group_pending_status",
-            //         group_id = hex::encode(&self.group_id),
-            //         "Failed to mark group as not having pending leave requests"
-            //     );
-            // }
+            if let Err(e) = storage
+                .db()
+                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
+            {
+                tracing::error!(
+                    operation = "set_group_pending_status",
+                    group_id = hex::encode(&self.group_id),
+                    "Failed to mark group as not having pending leave requests {}",
+                    e,
+                );
+            }
         }
     }
 
