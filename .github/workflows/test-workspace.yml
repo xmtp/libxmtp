@@ -56,9 +56,16 @@ jobs:
         uses: jwalton/gh-docker-logs@v2
       - name: Install nextest
         uses: taiki-e/install-action@nextest
-      - name: build tests
-        run: cargo nextest --profile ci run --no-run --workspace --tests --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --all-features
+      - name: Install cargo llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
       - name: test workspace with grpc
-        run: cargo nextest --profile ci run --workspace --test-threads 2 --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
+        run: cargo llvm-cov nextest --no-fail-fast --no-report --profile ci --workspace --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
       - name: test workspace with http
-        run: cargo nextest --profile ci run  --workspace --exclude xmtp_api_grpc --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --exclude xmtp_api_d14n --features http-api --test-threads 2
+        run: cargo llvm-cov nextest --no-fail-fast --no-report --profile ci --workspace --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --exclude xmtp_api_grpc --exclude xmtp_api_d14n --features http-api
+      - name: generate coverage
+        run: cargo llvm-cov report --output-path lcov.info --lcov
+      - name: upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}

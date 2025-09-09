@@ -34,7 +34,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - uses: taiki-e/install-action@wasm-bindgen
+      - name: Install wasm-bindgen
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@0.2.101
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
