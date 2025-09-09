@@ -1,5 +1,6 @@
 use crate::context::XmtpSharedContext;
-use crate::groups::MlsGroup;
+use crate::groups::{GroupError, MlsGroup};
+use crate::mls_store::MlsStore;
 use crate::worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory};
 use crate::worker::{WorkerKind, WorkerResult};
 use futures::{StreamExt, TryFutureExt};
@@ -8,22 +9,22 @@ use thiserror::Error;
 use tokio::sync::OnceCell;
 use xmtp_db::{StorageError, prelude::*};
 
-/// Interval at which the DisappearingMessagesCleanerWorker runs to delete expired messages.
+/// Interval at which the PendingSelfRemoveWorker runs to remove the members want requested SelfRemove.
 pub const INTERVAL_DURATION: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Error)]
 pub enum PendingSelfRemoveWorkerError {
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
-    #[error("storage error")]
-    Generic,
+    #[error("group error: {0}")]
+    GroupError(#[from] GroupError),
 }
 
 impl NeedsDbReconnect for PendingSelfRemoveWorkerError {
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Storage(s) => s.db_needs_connection(),
-            Self::Generic => false,
+            Self::GroupError(_) => false,
         }
     }
 }
@@ -32,6 +33,7 @@ pub struct PendingSelfRemoveWorker<Context> {
     context: Context,
     #[allow(dead_code)]
     init: OnceCell<()>,
+    pub(crate) mls_store: MlsStore<Context>,
 }
 
 struct Factory<Context> {
@@ -42,16 +44,16 @@ impl<Context> WorkerFactory for Factory<Context>
 where
     Context: XmtpSharedContext + Send + Sync + 'static,
 {
+    fn kind(&self) -> WorkerKind {
+        WorkerKind::PendingSelfRemove
+    }
+
     fn create(
         &self,
         metrics: Option<crate::worker::DynMetrics>,
     ) -> (BoxedWorker, Option<crate::worker::DynMetrics>) {
         let worker = Box::new(PendingSelfRemoveWorker::new(self.context.clone())) as Box<_>;
         (worker, metrics)
-    }
-
-    fn kind(&self) -> WorkerKind {
-        WorkerKind::PendingSelfRemove
     }
 }
 
@@ -74,7 +76,9 @@ where
         Self: Sized,
         C: XmtpSharedContext + Send + Sync + 'static,
     {
-        Factory { context }
+        Factory {
+            context: context.clone(),
+        }
     }
 }
 
@@ -84,8 +88,9 @@ where
 {
     pub fn new(context: Context) -> Self {
         Self {
-            context,
+            context: context.clone(),
             init: OnceCell::new(),
+            mls_store: MlsStore::new(context),
         }
     }
 }
@@ -95,7 +100,7 @@ where
     Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), PendingSelfRemoveWorkerError> {
-        tracing::info!("pending self remove worker started");
+        tracing::info!("PendingSelfRemove worker started");
         let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
         while (intervals.next().await).is_some() {
             self.remove_pending_remove_users().await?;
@@ -105,95 +110,14 @@ where
 
     async fn react_to_group_has_pending_leave_request(
         &mut self,
-        group_id: &[u8],
+        mls_group: &MlsGroup<Context>,
     ) -> Result<(), PendingSelfRemoveWorkerError> {
-        tracing::info!("Processing pending leave requests for group");
-        // Check if the group has pending leave request
-        let stored_group = self
-            .context
-            .db()
-            .find_group(group_id)
-            .map_err(|e| PendingSelfRemoveWorkerError::Storage(e.into()))?;
         tracing::info!(
-            "Processing pending leave requests for group {:?}",
-            stored_group
+            group_id = hex::encode(&mls_group.group_id),
+            "Processing pending leave requests for group"
         );
-
-        let stored_group = match stored_group {
-            Some(group) => group,
-            None => {
-                tracing::warn!("Group not found: {}", hex::encode(group_id));
-                return Ok(());
-            }
-        };
-
-        if stored_group.has_pending_leave_request != Some(true) {
-            return Ok(());
-        }
-        tracing::info!("stored group has pending leave request:");
-
-        // Load the group with validation
-        let (group, _stored_group) = MlsGroup::new_cached(self.context.clone(), group_id)
-            .map_err(|e| PendingSelfRemoveWorkerError::Storage(e))?;
-
-        // Check if the current inbox ID is in the admin list or super admin list
-        let current_inbox_id = self.context.inbox_id().to_string();
-        let admin_list = group
-            .admin_list()
-            .map_err(|e| PendingSelfRemoveWorkerError::Generic)?;
-        let super_admin_list = group
-            .super_admin_list()
-            .map_err(|e| PendingSelfRemoveWorkerError::Generic)?;
-
-        if !admin_list.contains(&current_inbox_id) && !super_admin_list.contains(&current_inbox_id)
-        {
-            tracing::debug!(
-                "Current inbox ID {} is not in admin or super admin list, skipping pending leave request processing",
-                current_inbox_id
-            );
-            return Ok(());
-        }
-        tracing::info!(
-            "stored group has pending leave request and current inbox ID is in admin or super admin list:"
-        );
-
-        // Find the pending leave list, and remove the user inbox that exists in the list
-        let metadata = group
-            .mutable_metadata()
-            .map_err(|e| PendingSelfRemoveWorkerError::Generic)?;
-
-        let pending_remove_list = metadata.pending_remove_list.clone();
-
-        if pending_remove_list.is_empty() {
-            // No pending removals to process, clear the pending leave request status
-            self.context
-                .db()
-                .set_group_has_pending_leave_request_status(group_id, Some(false))
-                .map_err(|e| PendingSelfRemoveWorkerError::Storage(e.into()))?;
-            return Ok(());
-        }
-
-        // Remove users from the group by their inbox IDs
-        for inbox_id in pending_remove_list {
-            match group
-                .remove_members_by_inbox_id(&[inbox_id.clone().as_str()])
-                .await
-            {
-                Ok(_) => {
-                    tracing::info!("Successfully removed inbox_id {} from group", inbox_id);
-                }
-                Err(e) => {
-                    tracing::error!("Failed to remove inbox_id {} from group: {}", inbox_id, e);
-                    // Continue processing other removals even if one fails
-                }
-            }
-        }
-
-        // After processing all pending removals, clear the pending leave request status
-        self.context
-            .db()
-            .set_group_has_pending_leave_request_status(group_id, Some(false))
-            .map_err(|e| PendingSelfRemoveWorkerError::Storage(e.into()))?;
+        mls_group.remove_members_pending_removal().await?;
+        mls_group.cleanup_pending_removal_list().await?;
         tracing::info!("Completed processing pending leave requests for group");
         Ok(())
     }
@@ -203,12 +127,28 @@ where
         let db = self.context.db();
         match db.get_groups_have_pending_leave_request() {
             Ok(groups) => {
-                if groups.len() > 0 {
-                    tracing::info!("has pending remove for {:?} groups", groups);
-
-                    self.react_to_group_has_pending_leave_request(&groups[0])
-                        .await?;
-                    tracing::info!("has pending remove for {:?} groups", groups);
+                for group_id in groups {
+                    match self.mls_store.group(&group_id) {
+                        Ok(mls_group) => {
+                            if let Err(e) = self
+                                .react_to_group_has_pending_leave_request(&mls_group)
+                                .await
+                            {
+                                tracing::error!(
+                                    group_id = hex::encode(&group_id),
+                                    error = %e,
+                                    "Failed to process pending leave request for group"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                group_id = hex::encode(&group_id),
+                                error = %e,
+                                "Failed to load MLS group from store"
+                            );
+                        }
+                    }
                 }
             }
             Err(e) => {

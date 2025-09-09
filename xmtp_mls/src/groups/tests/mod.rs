@@ -1364,11 +1364,11 @@ async fn test_self_removal() {
         amal_i2_group_state_in_db.unwrap().membership_state,
         GroupMembershipState::PendingRemove
     );
-    bola_i1_group.sync().await;
-    bola_i2_group.sync().await;
+    let _ = bola_i1_group.sync().await;
+    let _ = bola_i2_group.sync().await;
     assert!(!bola_i1_group.is_active().unwrap());
     assert!(!bola_i2_group.is_active().unwrap());
-    amal_group.sync().await;
+    let _ = amal_group.sync().await;
     assert_eq!(amal_group.members().await.unwrap().len(), 1);
 }
 
@@ -1388,16 +1388,11 @@ async fn test_self_removal_simple() {
     assert_eq!(bola_group.members().await.unwrap().len(), 2);
 
     bola_group.leave_group().await.unwrap();
-    bola_group.sync().await.unwrap();
-    amal_group.sync().await;
-    xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
-    bola.sync_all_welcomes_and_groups(None).await.unwrap();
-    amal_group.sync().await;
-    bola_group.sync().await;
+    amal_group.sync().await.unwrap();
     xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
-
+    bola_group.sync().await.unwrap();
+    xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
     assert!(!bola_group.is_active().unwrap());
-
     assert_eq!(amal_group.members().await.unwrap().len(), 1);
 }
 #[xmtp_common::test(flavor = "current_thread")]
