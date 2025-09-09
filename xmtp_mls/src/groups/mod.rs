@@ -982,6 +982,222 @@ where
         Ok(())
     }
 
+    /// Removes all members from the group who are currently in the pending removal list.
+    ///
+    /// Only admins and super admins can call this function. Validates permissions, filters
+    /// out invalid removal requests and performs batch removal of valid pending members.
+    ///
+    /// # Returns
+    /// * `Ok(())` - All valid pending members were successfully removed
+    /// * `Err(GroupError)` - Failed to retrieve metadata, validate permissions or execute removals
+    pub async fn remove_members_pending_removal(&self) -> Result<(), GroupError> {
+        let pending_removal_list = self.pending_remove_list()?;
+
+        if pending_removal_list.is_empty() {
+            tracing::debug!(
+                group_id = hex::encode(&self.group_id),
+                inbox_id = %self.context.inbox_id(),
+                "Group has no pending removal members"
+            );
+            return Ok(());
+        }
+
+        let is_admin = self.is_admin(self.context.inbox_id().to_string())?;
+        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
+        if !is_admin && !is_super_admin {
+            tracing::debug!(
+                group_id = hex::encode(&self.group_id),
+                inbox_id = %self.context.inbox_id(),
+                "Current inbox ID is not in admin or super admin list, skipping pending removal processing"
+            );
+            return Ok(());
+        }
+
+        // Get current group members to validate which ones actually exist
+        let members = self.members().await?;
+        let member_inbox_ids: std::collections::HashSet<String> =
+            members.iter().map(|m| m.inbox_id.clone()).collect();
+
+        // Filter pending removals to only include actual group members
+        let valid_removals: Vec<&str> = pending_removal_list
+            .iter()
+            .filter(|inbox_id| member_inbox_ids.contains(*inbox_id))
+            .map(|s| s.as_str())
+            .collect();
+
+        if valid_removals.is_empty() {
+            tracing::warn!(
+                group_id = hex::encode(&self.group_id),
+                pending_count = pending_removal_list.len(),
+                "No valid members found in pending removal list"
+            );
+            return Ok(());
+        }
+        // Log members that are in pending list but not in group
+        let invalid_removals: Vec<&String> = pending_removal_list
+            .iter()
+            .filter(|inbox_id| !member_inbox_ids.contains(*inbox_id))
+            .collect();
+
+        if !invalid_removals.is_empty() {
+            tracing::warn!(
+                group_id = hex::encode(&self.group_id),
+                invalid_members = ?invalid_removals,
+                "Some members in pending removal list are not in the group"
+            );
+        }
+
+        // Remove all valid members at once
+        tracing::info!(
+            group_id = hex::encode(&self.group_id),
+            removing_count = valid_removals.len(),
+            members_to_remove = ?valid_removals,
+            "Removing pending members from group"
+        );
+
+        match self.remove_members_by_inbox_id(&valid_removals).await {
+            Ok(_) => {
+                tracing::info!(
+                    group_id = hex::encode(&self.group_id),
+                    removed_count = valid_removals.len(),
+                    removed_members = ?valid_removals,
+                    "Successfully removed all pending members from group"
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    group_id = hex::encode(&self.group_id),
+                    members = ?valid_removals,
+                    error = %e,
+                    "Failed to remove pending members from group"
+                );
+                return Err(e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Removes members from the pending removal list who are no longer in the group.
+    ///
+    /// Iterates through all members in the pending removal list, checking each one to see
+    /// if they're still in the group. If a member is no longer in the group, they are
+    /// removed from the pending list. The pending list is refreshed after each removal
+    /// to ensure we're working with the most current data.
+    ///
+    /// # Returns
+    /// * `Ok(())` - Successfully processed all pending removal members
+    /// * `Err(GroupError)` - Failed to retrieve data or update the pending list
+    pub async fn cleanup_pending_removal_list(&self) -> Result<(), GroupError> {
+        let mut cleanup_count = 0;
+        let mut processed_members: Vec<String> = Vec::new();
+
+        tracing::debug!(
+            group_id = hex::encode(&self.group_id),
+            "Starting pending removal list cleanup"
+        );
+
+        // todo(mojtaba): question: since we only can update with one inboxId, should we remove members one by one too?
+        loop {
+            // Always get the most updated pending removal list to ensure it's up to date
+            let pending_removal_list = self.pending_remove_list()?;
+
+            if pending_removal_list.is_empty() {
+                tracing::debug!(
+                    group_id = hex::encode(&self.group_id),
+                    cleanup_count = cleanup_count,
+                    "No more pending removals to clean up"
+                );
+                // After processing all pending removals, clear the pending leave request status
+                self.context
+                    .db()
+                    .set_group_has_pending_leave_request_status(&self.group_id, Some(false))?;
+                break;
+            }
+
+            // Find the first member we haven't processed yet
+            let current_member = match pending_removal_list
+                .iter()
+                .find(|member| !processed_members.contains(member))
+            {
+                Some(member) => member.clone(),
+                None => {
+                    // All members have been processed
+                    tracing::debug!(
+                        group_id = hex::encode(&self.group_id),
+                        cleanup_count = cleanup_count,
+                        total_processed = processed_members.len(),
+                        "Finished processing all pending removal members"
+                    );
+                    break;
+                }
+            };
+
+            tracing::debug!(
+                group_id = hex::encode(&self.group_id),
+                checking_member = %current_member,
+                "Checking member in pending removal list"
+            );
+
+            // Get current group members to check if this pending member is still in the group
+            let current_members = self.members().await?;
+            let is_still_member = current_members
+                .iter()
+                .any(|member| member.inbox_id == current_member);
+
+            if !is_still_member {
+                // Member is no longer in the group, remove them from pending list
+                tracing::info!(
+                    group_id = hex::encode(&self.group_id),
+                    member = %current_member,
+                    "Removing member from pending removal list - they are no longer in the group"
+                );
+
+                match self
+                    .remove_from_pending_remove_list(current_member.clone())
+                    .await
+                {
+                    Ok(_) => {
+                        cleanup_count += 1;
+                        tracing::info!(
+                            group_id = hex::encode(&self.group_id),
+                            member = %current_member,
+                            cleanup_count = cleanup_count,
+                            "Successfully removed member from pending removal list"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            group_id = hex::encode(&self.group_id),
+                            member = %current_member,
+                            error = %e,
+                            "Failed to remove member from pending removal list"
+                        );
+                        // Add to processed list to avoid infinite retry, but continue with others
+                        processed_members.push(current_member);
+                    }
+                }
+            } else {
+                // Member is still in the group, continue without removing them
+                tracing::debug!(
+                    group_id = hex::encode(&self.group_id),
+                    member = %current_member,
+                    "Member is still in the group, continuing"
+                );
+                processed_members.push(current_member);
+            }
+        }
+
+        tracing::info!(
+            group_id = hex::encode(&self.group_id),
+            cleanup_count = cleanup_count,
+            total_processed = processed_members.len(),
+            "Finished cleaning up pending removal list"
+        );
+
+        Ok(())
+    }
+
     pub async fn update_pending_remove_list(
         &self,
         action_type: UpdatePendingRemoveListType,
@@ -1044,14 +1260,17 @@ where
         Ok(())
     }
 
-    pub async fn remove_from_pending_remove_list(&self) -> Result<(), GroupError> {
+    pub async fn remove_from_pending_remove_list(
+        &self,
+        inbox_id: InboxId,
+    ) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         self.is_member().await?;
 
-        if self.is_in_pending_remove(self.context.inbox_id().to_string())? {
+        if self.is_in_pending_remove(inbox_id.clone())? {
             self.update_pending_remove_list(
                 UpdatePendingRemoveListType::Remove,
-                self.context.inbox_id().to_string(),
+                inbox_id.to_string(),
             )
             .await?;
         }
