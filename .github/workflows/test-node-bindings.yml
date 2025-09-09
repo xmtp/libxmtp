@@ -38,7 +38,7 @@ jobs:
       - name: Start Docker containers
         run: dev/up
       - name: Setup node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version-file: ".node-version"
           cache-dependency-path: "bindings_node/yarn.lock"
