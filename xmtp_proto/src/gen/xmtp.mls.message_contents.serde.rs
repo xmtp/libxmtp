@@ -1515,6 +1515,9 @@ impl serde::Serialize for GroupUpdated {
         if !self.metadata_field_changes.is_empty() {
             len += 1;
         }
+        if !self.left_inboxes.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupUpdated", len)?;
         if !self.initiated_by_inbox_id.is_empty() {
             struct_ser.serialize_field("initiated_by_inbox_id", &self.initiated_by_inbox_id)?;
@@ -1527,6 +1530,9 @@ impl serde::Serialize for GroupUpdated {
         }
         if !self.metadata_field_changes.is_empty() {
             struct_ser.serialize_field("metadata_field_changes", &self.metadata_field_changes)?;
+        }
+        if !self.left_inboxes.is_empty() {
+            struct_ser.serialize_field("left_inboxes", &self.left_inboxes)?;
         }
         struct_ser.end()
     }
@@ -1546,6 +1552,8 @@ impl<'de> serde::Deserialize<'de> for GroupUpdated {
             "removedInboxes",
             "metadata_field_changes",
             "metadataFieldChanges",
+            "left_inboxes",
+            "leftInboxes",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1554,6 +1562,7 @@ impl<'de> serde::Deserialize<'de> for GroupUpdated {
             AddedInboxes,
             RemovedInboxes,
             MetadataFieldChanges,
+            LeftInboxes,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1580,6 +1589,7 @@ impl<'de> serde::Deserialize<'de> for GroupUpdated {
                             "addedInboxes" | "added_inboxes" => Ok(GeneratedField::AddedInboxes),
                             "removedInboxes" | "removed_inboxes" => Ok(GeneratedField::RemovedInboxes),
                             "metadataFieldChanges" | "metadata_field_changes" => Ok(GeneratedField::MetadataFieldChanges),
+                            "leftInboxes" | "left_inboxes" => Ok(GeneratedField::LeftInboxes),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1603,6 +1613,7 @@ impl<'de> serde::Deserialize<'de> for GroupUpdated {
                 let mut added_inboxes__ = None;
                 let mut removed_inboxes__ = None;
                 let mut metadata_field_changes__ = None;
+                let mut left_inboxes__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::InitiatedByInboxId => {
@@ -1629,6 +1640,12 @@ impl<'de> serde::Deserialize<'de> for GroupUpdated {
                             }
                             metadata_field_changes__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::LeftInboxes => {
+                            if left_inboxes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("leftInboxes"));
+                            }
+                            left_inboxes__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1639,6 +1656,7 @@ impl<'de> serde::Deserialize<'de> for GroupUpdated {
                     added_inboxes: added_inboxes__.unwrap_or_default(),
                     removed_inboxes: removed_inboxes__.unwrap_or_default(),
                     metadata_field_changes: metadata_field_changes__.unwrap_or_default(),
+                    left_inboxes: left_inboxes__.unwrap_or_default(),
                 })
             }
         }

@@ -1493,6 +1493,7 @@ pub(crate) mod tests {
             permissions_changed,
             dm_members,
             group_members: group_members.unwrap_or_default(),
+            current_group_metadata: None,
         }
     }
 

@@ -3,6 +3,7 @@ use openmls::{
     group::MlsGroup as OpenMlsGroup,
 };
 use prost::Message;
+use serde::Serialize;
 use std::{collections::HashMap, fmt};
 use thiserror::Error;
 use xmtp_cryptography::Secret;
@@ -97,7 +98,7 @@ impl MessageDisappearingSettings {
 /// Represents the mutable metadata for a group.
 ///
 /// This struct is stored as an MLS Unknown Group Context Extension.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct GroupMutableMetadata {
     /// Map to store various metadata attributes (e.g., group name, description).
     /// Allows libxmtp to receive attributes from updated versions not yet captured in MetadataField.
