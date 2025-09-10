@@ -431,6 +431,10 @@ pub mod post_commit_action {
             tag = "3"
         )]
         pub welcome_wrapper_algorithm: i32,
+        #[prost(message, optional, tag = "4")]
+        pub welcome_pointee_encryption_aead_types: ::core::option::Option<
+            super::super::message_contents::WelcomePointeeEncryptionAeadTypesExtension,
+        >,
     }
     impl ::prost::Name for Installation {
         const NAME: &'static str = "Installation";
