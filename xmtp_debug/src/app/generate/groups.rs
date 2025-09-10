@@ -154,10 +154,8 @@ impl GenerateGroups {
             }
         }
         self.group_store.set_all(groups.as_slice(), &self.network)?;
-
-        let dump_groups = std::env::var("XDBG_DUMP_GROUPS")
-            .map(|v| v.eq_ignore_ascii_case("TRUE"))
-            .unwrap_or(false);
+        
+        let _ = self.dump_groups_human();
 
         Ok(groups)
     }
