@@ -865,6 +865,9 @@ impl serde::Serialize for post_commit_action::Installation {
         if self.welcome_wrapper_algorithm != 0 {
             len += 1;
         }
+        if self.welcome_pointee_encryption_aead_types.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.PostCommitAction.Installation", len)?;
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -880,6 +883,9 @@ impl serde::Serialize for post_commit_action::Installation {
             let v = super::message_contents::WelcomeWrapperAlgorithm::try_from(self.welcome_wrapper_algorithm)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.welcome_wrapper_algorithm)))?;
             struct_ser.serialize_field("welcome_wrapper_algorithm", &v)?;
+        }
+        if let Some(v) = self.welcome_pointee_encryption_aead_types.as_ref() {
+            struct_ser.serialize_field("welcome_pointee_encryption_aead_types", v)?;
         }
         struct_ser.end()
     }
@@ -897,6 +903,8 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::Installation {
             "hpkePublicKey",
             "welcome_wrapper_algorithm",
             "welcomeWrapperAlgorithm",
+            "welcome_pointee_encryption_aead_types",
+            "welcomePointeeEncryptionAeadTypes",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -904,6 +912,7 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::Installation {
             InstallationKey,
             HpkePublicKey,
             WelcomeWrapperAlgorithm,
+            WelcomePointeeEncryptionAeadTypes,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -929,6 +938,7 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::Installation {
                             "installationKey" | "installation_key" => Ok(GeneratedField::InstallationKey),
                             "hpkePublicKey" | "hpke_public_key" => Ok(GeneratedField::HpkePublicKey),
                             "welcomeWrapperAlgorithm" | "welcome_wrapper_algorithm" => Ok(GeneratedField::WelcomeWrapperAlgorithm),
+                            "welcomePointeeEncryptionAeadTypes" | "welcome_pointee_encryption_aead_types" => Ok(GeneratedField::WelcomePointeeEncryptionAeadTypes),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -951,6 +961,7 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::Installation {
                 let mut installation_key__ = None;
                 let mut hpke_public_key__ = None;
                 let mut welcome_wrapper_algorithm__ = None;
+                let mut welcome_pointee_encryption_aead_types__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::InstallationKey => {
@@ -975,6 +986,12 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::Installation {
                             }
                             welcome_wrapper_algorithm__ = Some(map_.next_value::<super::message_contents::WelcomeWrapperAlgorithm>()? as i32);
                         }
+                        GeneratedField::WelcomePointeeEncryptionAeadTypes => {
+                            if welcome_pointee_encryption_aead_types__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("welcomePointeeEncryptionAeadTypes"));
+                            }
+                            welcome_pointee_encryption_aead_types__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -984,6 +1001,7 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::Installation {
                     installation_key: installation_key__.unwrap_or_default(),
                     hpke_public_key: hpke_public_key__.unwrap_or_default(),
                     welcome_wrapper_algorithm: welcome_wrapper_algorithm__.unwrap_or_default(),
+                    welcome_pointee_encryption_aead_types: welcome_pointee_encryption_aead_types__,
                 })
             }
         }
