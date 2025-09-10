@@ -34,6 +34,38 @@ impl GenerateGroups {
             .map(|i| i.map(|i| Ok(i.value()))))
     }
 
+    pub fn dump_groups_human(&self) -> eyre::Result<()> {
+        let mut found = false;
+        if let Some(iter) = self.load_groups()? {
+            for g in iter {
+                let g = g?;
+                if !found {
+                    println!(
+                        "=== Local GroupStore dump (network: {}) ===",
+                        url::Url::from(self.network.clone())
+                    );
+                    found = true;
+                }
+                println!(
+                    "group id={} members={} created_by={}",
+                    hex::encode(g.id),
+                    g.members.len(),
+                    hex::encode(g.created_by)
+                );
+                for m in &g.members {
+                    println!("  - member {}", hex::encode(m));
+                }
+            }
+        }
+        if !found {
+            println!(
+                "(no groups in local store for {})",
+                url::Url::from(self.network.clone())
+            );
+        }
+        Ok(())
+    }
+
     pub async fn create_groups(
         &self,
         n: usize,
