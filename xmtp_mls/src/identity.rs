@@ -922,7 +922,9 @@ mod tests {
             .unwrap();
 
         let first_welcome = welcomes.first().unwrap().clone();
-        let WelcomeMessageVersion::V1(inner) = first_welcome.version.unwrap();
+        let WelcomeMessageVersion::V1(inner) = first_welcome.version.unwrap() else {
+            unreachable!("First message is always a V1 WelcomeMessage");
+        };
 
         inner
     }
