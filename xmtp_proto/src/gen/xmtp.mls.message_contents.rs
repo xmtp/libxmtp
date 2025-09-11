@@ -462,9 +462,6 @@ pub struct GroupUpdated {
     pub metadata_field_changes: ::prost::alloc::vec::Vec<
         group_updated::MetadataFieldChange,
     >,
-    /// / The inboxes that were removed from the group in response to pending self-removal requests
-    #[prost(message, repeated, tag = "5")]
-    pub left_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
 }
 /// Nested message and enum types in `GroupUpdated`.
 pub mod group_updated {
