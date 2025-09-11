@@ -87,6 +87,7 @@ impl serde::Serialize for GroupMembershipStateSave {
             Self::Rejected => "GROUP_MEMBERSHIP_STATE_SAVE_REJECTED",
             Self::Pending => "GROUP_MEMBERSHIP_STATE_SAVE_PENDING",
             Self::Restored => "GROUP_MEMBERSHIP_STATE_SAVE_RESTORED",
+            Self::PendingRemove => "GROUP_MEMBERSHIP_STATE_SAVE_PENDING_REMOVE",
         };
         serializer.serialize_str(variant)
     }
@@ -103,6 +104,7 @@ impl<'de> serde::Deserialize<'de> for GroupMembershipStateSave {
             "GROUP_MEMBERSHIP_STATE_SAVE_REJECTED",
             "GROUP_MEMBERSHIP_STATE_SAVE_PENDING",
             "GROUP_MEMBERSHIP_STATE_SAVE_RESTORED",
+            "GROUP_MEMBERSHIP_STATE_SAVE_PENDING_REMOVE",
         ];
 
         struct GeneratedVisitor;
@@ -148,6 +150,7 @@ impl<'de> serde::Deserialize<'de> for GroupMembershipStateSave {
                     "GROUP_MEMBERSHIP_STATE_SAVE_REJECTED" => Ok(GroupMembershipStateSave::Rejected),
                     "GROUP_MEMBERSHIP_STATE_SAVE_PENDING" => Ok(GroupMembershipStateSave::Pending),
                     "GROUP_MEMBERSHIP_STATE_SAVE_RESTORED" => Ok(GroupMembershipStateSave::Restored),
+                    "GROUP_MEMBERSHIP_STATE_SAVE_PENDING_REMOVE" => Ok(GroupMembershipStateSave::PendingRemove),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -650,6 +653,9 @@ impl serde::Serialize for MutableMetadataSave {
         if !self.super_admin_list.is_empty() {
             len += 1;
         }
+        if !self.pending_remove_list.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.group_backup.MutableMetadataSave", len)?;
         if !self.attributes.is_empty() {
             struct_ser.serialize_field("attributes", &self.attributes)?;
@@ -659,6 +665,9 @@ impl serde::Serialize for MutableMetadataSave {
         }
         if !self.super_admin_list.is_empty() {
             struct_ser.serialize_field("super_admin_list", &self.super_admin_list)?;
+        }
+        if !self.pending_remove_list.is_empty() {
+            struct_ser.serialize_field("pending_remove_list", &self.pending_remove_list)?;
         }
         struct_ser.end()
     }
@@ -675,6 +684,8 @@ impl<'de> serde::Deserialize<'de> for MutableMetadataSave {
             "adminList",
             "super_admin_list",
             "superAdminList",
+            "pending_remove_list",
+            "pendingRemoveList",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -682,6 +693,7 @@ impl<'de> serde::Deserialize<'de> for MutableMetadataSave {
             Attributes,
             AdminList,
             SuperAdminList,
+            PendingRemoveList,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -707,6 +719,7 @@ impl<'de> serde::Deserialize<'de> for MutableMetadataSave {
                             "attributes" => Ok(GeneratedField::Attributes),
                             "adminList" | "admin_list" => Ok(GeneratedField::AdminList),
                             "superAdminList" | "super_admin_list" => Ok(GeneratedField::SuperAdminList),
+                            "pendingRemoveList" | "pending_remove_list" => Ok(GeneratedField::PendingRemoveList),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -729,6 +742,7 @@ impl<'de> serde::Deserialize<'de> for MutableMetadataSave {
                 let mut attributes__ = None;
                 let mut admin_list__ = None;
                 let mut super_admin_list__ = None;
+                let mut pending_remove_list__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Attributes => {
@@ -751,6 +765,12 @@ impl<'de> serde::Deserialize<'de> for MutableMetadataSave {
                             }
                             super_admin_list__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::PendingRemoveList => {
+                            if pending_remove_list__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pendingRemoveList"));
+                            }
+                            pending_remove_list__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -760,6 +780,7 @@ impl<'de> serde::Deserialize<'de> for MutableMetadataSave {
                     attributes: attributes__.unwrap_or_default(),
                     admin_list: admin_list__.unwrap_or_default(),
                     super_admin_list: super_admin_list__.unwrap_or_default(),
+                    pending_remove_list: pending_remove_list__.unwrap_or_default(),
                 })
             }
         }
