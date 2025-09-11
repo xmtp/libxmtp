@@ -8,6 +8,7 @@ use super::{
     summary::{MessageIdentifier, MessageIdentifierBuilder, ProcessSummary, SyncSummary},
     validated_commit::{CommitValidationError, LibXMTPVersion, extract_group_membership},
 };
+use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use crate::groups::{
     device_sync_legacy::preference_sync_legacy::process_incoming_preference_update,
     intents::QueueIntent,
@@ -58,7 +59,6 @@ use xmtp_db::{
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 
-use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -92,6 +92,7 @@ use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_proto::mls_v1::WelcomeMetadata;
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -107,6 +108,7 @@ use xmtp_proto::xmtp::mls::{
         plaintext_envelope::{Content, V1, V2, v2::MessageType},
     },
 };
+
 pub mod update_group_membership;
 
 #[derive(Debug, Error)]
@@ -367,7 +369,6 @@ where
         // Even if receiving fails, we continue to post_commit
         // Errors are collected in the summary.
         let result = self.receive().await;
-
         track_err!("Receive messages", &result, group: &self.group_id);
         match result {
             Ok(s) => summary.add_process(s),
@@ -381,7 +382,7 @@ where
 
         let result = self.post_commit().await;
 
-        track_err!("Post commit", &result, group: &self.group_id);
+        track_err!("Send Welcomes", &result, group: &self.group_id);
         if let Err(e) = result {
             tracing::error!("post commit error {e:?}",);
             summary.add_post_commit_err(e);
@@ -1376,7 +1377,12 @@ where
             .map_err(GroupMessageProcessingError::Storage)?;
 
         let group_cursor = db.get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
-        if group_cursor >= cursor as i64 {
+        let group_cursor_u64 = u64::try_from(group_cursor).map_err(|e| {
+            GroupMessageProcessingError::Storage(xmtp_db::StorageError::Connection(
+                xmtp_db::ConnectionError::InvalidNegativeCursor(e.to_string()),
+            ))
+        })?;
+        if group_cursor_u64 >= cursor {
             // early return if the message is already processed
             // _NOTE_: Not early returning and re-processing a message that
             // has already been processed, has the potential to result in forks.
@@ -1485,7 +1491,7 @@ where
                         }
                         IntentState::Committed => {
                             self.handle_metadata_update_from_intent(&intent, &storage)?;
-                            db.set_group_intent_committed(intent_id)?;
+                            db.set_group_intent_committed(intent_id, cursor as i64)?;
                         }
                         IntentState::Published => {
                             tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
@@ -1747,23 +1753,22 @@ where
     /// if they were succesfull or not. It is important to return _all_
     /// cursor ids, so that streams do not unintentially retry O(n^2) messages.
     #[tracing::instrument(skip_all, level = "trace")]
-    pub(super) async fn receive(&self) -> Result<ProcessSummary, GroupError> {
+    pub async fn receive(&self) -> Result<ProcessSummary, GroupError> {
         let db = self.context.db();
-
         let messages = MlsStore::new(self.context.clone())
             .query_group_messages(&self.group_id, &db)
             .await?;
 
         let summary = self.process_messages(messages).await;
         track!(
-            "Fetched messages",
+            "Receive messages",
             {
                 "total": summary.total_messages.len(),
                 "errors": summary.errored.iter().map(|(_, err)| format!("{err:?}")).collect::<Vec<_>>(),
-                "new": summary.new_messages.len()
+                "new": summary.new_messages.len(),
             },
             group: &self.group_id,
-            icon: "🐕🦴"
+            icon: "🫴"
         );
 
         Ok(summary)
@@ -2224,7 +2229,7 @@ where
                 let post_commit_action = PostCommitAction::from_bytes(post_commit_data.as_slice())?;
                 match post_commit_action {
                     PostCommitAction::SendWelcomes(action) => {
-                        self.send_welcomes(action).await?;
+                        self.send_welcomes(action, intent.sequence_id).await?;
                     }
                 }
             }
@@ -2398,7 +2403,11 @@ where
      * Internally, this breaks the request into chunks to avoid exceeding the GRPC max message size limits
      */
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(super) async fn send_welcomes(&self, action: SendWelcomesAction) -> Result<(), GroupError> {
+    pub(super) async fn send_welcomes(
+        &self,
+        action: SendWelcomesAction,
+        message_cursor: Option<i64>,
+    ) -> Result<(), GroupError> {
         let welcomes = action
             .installations
             .into_iter()
@@ -2406,6 +2415,16 @@ where
                 |installation| -> Result<WelcomeMessageInput, WrapWelcomeError> {
                     let installation_key = installation.installation_key;
                     let algorithm = installation.welcome_wrapper_algorithm;
+
+                    let welcome_metadata = WelcomeMetadata {
+                        message_cursor: message_cursor.unwrap_or(0) as u64,
+                    };
+                    let wrapped_welcome_metadata = wrap_welcome(
+                        &welcome_metadata.encode_to_vec(),
+                        &installation.hpke_public_key,
+                        &algorithm,
+                    )?;
+
                     let wrapped_welcome = wrap_welcome(
                         &action.welcome_message,
                         &installation.hpke_public_key,
@@ -2417,7 +2436,7 @@ where
                             data: wrapped_welcome,
                             hpke_public_key: installation.hpke_public_key,
                             wrapper_algorithm: algorithm.into(),
-                            welcome_metadata: Vec::new(),
+                            welcome_metadata: wrapped_welcome_metadata,
                         })),
                     })
                 },
@@ -2426,18 +2445,28 @@ where
 
         let welcome = welcomes.first().ok_or(GroupError::NoWelcomesToSend)?;
 
-        let chunk_size = GRPC_PAYLOAD_LIMIT
-            / welcome
-                .version
-                .as_ref()
-                .map(|w| match w {
-                    WelcomeMessageInputVersion::V1(w) => {
-                        let w = w.installation_key.len() + w.data.len() + w.hpke_public_key.len();
-                        tracing::debug!("total welcome message proto bytes={w}");
-                        w
-                    }
-                })
-                .unwrap_or(GRPC_PAYLOAD_LIMIT / MAX_GROUP_SIZE);
+        // Compute the estimated bytes for one welcome message.
+        let welcome_calculated_payload_size = welcome
+            .version
+            .as_ref()
+            .map(|w| match w {
+                WelcomeMessageInputVersion::V1(w) => {
+                    let size = w.installation_key.len()
+                        + w.data.len()
+                        + w.hpke_public_key.len()
+                        + w.welcome_metadata.len();
+                    tracing::debug!("total welcome message proto bytes={size}");
+                    size
+                }
+            })
+            // Fallback if the version is missing
+            .unwrap_or(GRPC_PAYLOAD_LIMIT / MAX_GROUP_SIZE);
+
+        // Ensure the denominator is at least 1 to avoid div-by-zero.
+        let per_welcome = welcome_calculated_payload_size.max(1);
+
+        // Compute chunk_size and ensure it's at least 1 so chunks(n) won't panic.
+        let chunk_size = (GRPC_PAYLOAD_LIMIT / per_welcome).max(1);
 
         tracing::debug!("welcome chunk_size={chunk_size}");
         let api = self.context.api();

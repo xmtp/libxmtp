@@ -275,21 +275,23 @@ mod tests {
     use crate::groups::mls_ext::WrapperAlgorithm;
     use crate::groups::mls_ext::wrap_welcome;
     use crate::groups::test::NoopValidator;
+    use crate::test::mock::*;
     use derive_builder::Builder;
     use openmls::prelude::MlsMessageOut;
+    use prost::Message;
     use rstest::*;
     use tls_codec::Serialize;
     use xmtp_db::StorageError;
     use xmtp_db::refresh_state::EntityKind;
     use xmtp_db::sql_key_store::SqlKeyStore;
     use xmtp_db::{MemoryStorage, mock::MockDbQuery, sql_key_store::mock::MockSqlKeyStore};
-
-    use crate::test::mock::*;
+    use xmtp_proto::mls_v1::WelcomeMetadata;
 
     fn generate_welcome(
         id: u64,
         public_key: Vec<u8>,
         welcome: MlsMessageOut,
+        message_cursor: Option<u64>,
     ) -> welcome_message::V1 {
         let w = wrap_welcome(
             &welcome.tls_serialize_detached().unwrap(),
@@ -297,6 +299,22 @@ mod tests {
             &WrapperAlgorithm::Curve25519,
         )
         .unwrap();
+
+        let wrapped_welcome_metadata: Vec<u8> = if let Some(cursor) = message_cursor {
+            let welcome_metadata = WelcomeMetadata {
+                message_cursor: cursor,
+            }
+            .encode_to_vec();
+            wrap_welcome(
+                &welcome_metadata,
+                &public_key,
+                &WrapperAlgorithm::Curve25519,
+            )
+            .unwrap()
+        } else {
+            Vec::new()
+        };
+
         welcome_message::V1 {
             id,
             created_ns: 0,
@@ -304,7 +322,7 @@ mod tests {
             data: w,
             hpke_public_key: public_key,
             wrapper_algorithm: WrapperAlgorithm::Curve25519.into(),
-            welcome_metadata: vec![0],
+            welcome_metadata: wrapped_welcome_metadata,
         }
     }
 
@@ -390,8 +408,12 @@ mod tests {
         let mem = Arc::new(SqlKeyStore::new(MemoryStorage::default()));
         let client = create_mls_client(mem.as_ref());
         let (kp, mls_welcome) = client.join_group();
-        let network_welcome =
-            generate_welcome(50, kp.hpke_init_key().as_slice().to_vec(), mls_welcome);
+        let network_welcome = generate_welcome(
+            50,
+            kp.hpke_init_key().as_slice().to_vec(),
+            mls_welcome,
+            None,
+        );
 
         let (context, validator) = TestWelcomeSetup::builder()
             .validator(NoopValidator)
@@ -429,8 +451,12 @@ mod tests {
         let mem = Arc::new(SqlKeyStore::new(MemoryStorage::default()));
         let client = create_mls_client(mem.as_ref());
         let (kp, mls_welcome) = client.join_group();
-        let network_welcome =
-            generate_welcome(50, kp.hpke_init_key().as_slice().to_vec(), mls_welcome);
+        let network_welcome = generate_welcome(
+            50,
+            kp.hpke_init_key().as_slice().to_vec(),
+            mls_welcome,
+            None,
+        );
 
         let (context, validator) = TestWelcomeSetup::builder()
             .validator(NoopValidator)
@@ -495,8 +521,12 @@ mod tests {
         let mem = Arc::new(SqlKeyStore::new(MemoryStorage::default()));
         let client = create_mls_client(mem.as_ref());
         let (kp, mls_welcome) = client.join_group();
-        let network_welcome =
-            generate_welcome(50, kp.hpke_init_key().as_slice().to_vec(), mls_welcome);
+        let network_welcome = generate_welcome(
+            50,
+            kp.hpke_init_key().as_slice().to_vec(),
+            mls_welcome,
+            None,
+        );
 
         let (context, validator) = TestWelcomeSetup::builder()
             .validator(NonRetryableValidator)
@@ -522,6 +552,60 @@ mod tests {
     }
 
     #[rstest]
+    #[xmtp_common::test]
+    async fn increments_message_cursor_from_welcome_metadata(context: NewMockContext) {
+        let mem = Arc::new(SqlKeyStore::new(MemoryStorage::default()));
+        let client = create_mls_client(mem.as_ref());
+        let (kp, mls_welcome) = client.join_group();
+        let network_welcome = generate_welcome(
+            50,
+            kp.hpke_init_key().as_slice().to_vec(),
+            mls_welcome,
+            Some(10),
+        );
+
+        let (context, validator) = TestWelcomeSetup::builder()
+            .validator(NoopValidator)
+            .context(context)
+            .nested_transaction_calls(|db: &mut MockDbQuery| {
+                db.expect_get_last_cursor_for_id()
+                    .returning(|_id, _entity| Ok(0));
+                db.expect_update_cursor().returning(|_, _, _| Ok(true));
+                db.expect_insert_or_replace_group().returning(Ok);
+            })
+            .transaction_calls(|db: &mut MockDbQuery| {
+                db.expect_update_cursor()
+                    .once()
+                    .returning(|_id, entity, cursor| {
+                        assert_eq!(cursor, 50);
+                        assert_eq!(entity, EntityKind::Welcome);
+                        Ok(true)
+                    });
+                db.expect_update_cursor()
+                    .once()
+                    .returning(|_id, entity, cursor| {
+                        assert_eq!(cursor, 10);
+                        assert_eq!(entity, EntityKind::Group);
+                        Ok(true)
+                    });
+            })
+            .database_calls(|db: &mut MockDbQuery| {
+                db.expect_get_last_cursor_for_id()
+                    .once()
+                    .returning(|_id, _entity| Ok(0));
+                db.expect_find_group().once().returning(|_id| Ok(None));
+            })
+            .mem(mem)
+            .build();
+
+        let service = WelcomeService::new(context);
+        let res = service
+            .process_new_welcome(&network_welcome, true, validator)
+            .await;
+        assert!(res.is_ok(), "{}", res.unwrap_err());
+    }
+
+    #[rstest]
     #[case::non_retryable_disallow_cursor(NonRetryableValidator, false)]
     #[case::retryable_cursor_increment_allowed(RetryableValidator, true)]
     #[xmtp_common::test]
@@ -533,8 +617,12 @@ mod tests {
         let mem = Arc::new(SqlKeyStore::new(MemoryStorage::default()));
         let client = create_mls_client(mem.as_ref());
         let (kp, mls_welcome) = client.join_group();
-        let network_welcome =
-            generate_welcome(50, kp.hpke_init_key().as_slice().to_vec(), mls_welcome);
+        let network_welcome = generate_welcome(
+            50,
+            kp.hpke_init_key().as_slice().to_vec(),
+            mls_welcome,
+            None,
+        );
 
         let (context, validator) = TestWelcomeSetup::builder()
             .validator(validator)
