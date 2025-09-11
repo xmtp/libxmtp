@@ -2,7 +2,7 @@ use crate::{
     groups::{UpdateAdminListType, commit_log::CommitLogWorker},
     tester,
 };
-use xmtp_db::{group::QueryGroup, prelude::QueryReaddStatus};
+use xmtp_db::{consent_record::ConsentState, group::QueryGroup, prelude::QueryReaddStatus};
 
 #[xmtp_common::test]
 async fn test_request_readd() {
@@ -23,6 +23,10 @@ async fn test_request_readd() {
         .unwrap();
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
     caro.sync_all_welcomes_and_groups(None).await.unwrap();
+    let b_group = bo.group(&group.group_id).unwrap();
+    b_group.update_consent_state(ConsentState::Allowed).unwrap();
+    let c_group = caro.group(&group.group_id).unwrap();
+    c_group.update_consent_state(ConsentState::Allowed).unwrap();
 
     let mut a_worker = CommitLogWorker::new(alix.context.clone());
     a_worker._tick().await.unwrap();
@@ -103,6 +107,8 @@ async fn test_request_readd_dm() {
         .await
         .unwrap();
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
+    let bo_dm = bo.group(&dm.group_id).unwrap();
+    bo_dm.update_consent_state(ConsentState::Allowed).unwrap();
 
     let mut a_worker = CommitLogWorker::new(alix.context.clone());
     a_worker._tick().await.unwrap();
@@ -205,7 +211,11 @@ async fn test_readd_bookkeeping() {
     tester!(caro);
     tester!(devon);
     let group = alix
-        .create_group_with_inbox_ids(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .create_group_with_inbox_ids(
+            &[bo.inbox_id(), caro.inbox_id(), devon.inbox_id()],
+            None,
+            None,
+        )
         .await
         .unwrap();
     group
@@ -219,6 +229,12 @@ async fn test_readd_bookkeeping() {
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
     caro.sync_all_welcomes_and_groups(None).await.unwrap();
     devon.sync_all_welcomes_and_groups(None).await.unwrap();
+    let b_group = bo.group(&group.group_id).unwrap();
+    b_group.update_consent_state(ConsentState::Allowed).unwrap();
+    let c_group = caro.group(&group.group_id).unwrap();
+    c_group.update_consent_state(ConsentState::Allowed).unwrap();
+    let d_group = devon.group(&group.group_id).unwrap();
+    d_group.update_consent_state(ConsentState::Allowed).unwrap();
 
     let mut a_worker = CommitLogWorker::new(alix.context.clone());
     // Publishes remote commit log (needed for readd request to be sent)
@@ -281,12 +297,8 @@ async fn test_readd_bookkeeping() {
     );
 
     // Let's say Bo's worker processes it first
-    // TODO: replace with tick() rather than calling readd directly once worker is updated
-    let b_group = bo.group(&group.group_id).unwrap();
-    b_group
-        .readd_installations(vec![alix.context.installation_id().to_vec()])
-        .await
-        .unwrap();
+    let mut b_worker = CommitLogWorker::new(bo.context.clone());
+    b_worker._tick().await.unwrap();
 
     caro.sync_all_welcomes_and_groups(None).await.unwrap();
     devon.sync_all_welcomes_and_groups(None).await.unwrap();
