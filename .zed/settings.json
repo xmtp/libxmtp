@@ -1,0 +1,66 @@
+{
+  "file_types": {
+    "Rust": ["**/*.rs"]
+  },
+  "languages": {
+    "Rust": {
+      "language_servers": ["rust-analyzer"],
+      "format_on_save": "on"
+    },
+    "TypeScript": {
+      "formatter": "prettier"
+    },
+    "JavaScript": {
+      "formatter": "prettier"
+    },
+    "JSON": {
+      "formatter": "prettier"
+    }
+  },
+  "lsp": {
+    "rust-analyzer": {
+      "initialization_options": {
+        "cargo": {
+          "sysroot": "discover",
+          "allTargets": true,
+          "buildScripts": {
+            "enable": true
+          },
+          "features": ["bench", "test-utils"]
+        },
+        "check": {
+          "command": "check",
+          "allTargets": true,
+          "features": ["bench", "test-utils"]
+        },
+        "linkedProjects": ["Cargo.toml"],
+        "procMacro": {
+          "enable": true,
+          "attributes": {
+            "enable": true
+          },
+          "ignored": {
+            "tracing": ["instrument"],
+            "napi-derive": ["napi"],
+            "async-recursion": ["async_recursion"],
+            "ctor": ["ctor"],
+            "tokio": ["test"],
+            "async-stream": ["stream", "try_stream"]
+          }
+        },
+        "diagnostics": {
+          "enable": true,
+          "disabled": [
+            "unlinked-file",
+            "unresolved-macro-call",
+            "unresolved-proc-macro",
+            "macro-error"
+          ]
+        },
+        "files": {
+          "excludeDirs": ["bindings_wasm"]
+        }
+      }
+    }
+  }
+}
