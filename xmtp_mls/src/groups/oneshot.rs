@@ -63,6 +63,7 @@ impl Oneshot {
                     latest_commit_sequence_id = readd_request.latest_commit_sequence_id,
                     "Received readd request for group"
                 );
+                // TODO(rich): Check that the group is consented to
                 provider.key_store().db().update_requested_at_sequence_id(
                     readd_request.group_id.as_slice(),
                     &sender_inbox_id,

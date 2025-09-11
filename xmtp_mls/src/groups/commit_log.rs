@@ -2,6 +2,7 @@ use crate::groups::MlsGroup;
 use crate::groups::commit_log_key::CommitLogKeyCrypto;
 use crate::groups::commit_log_key::derive_consensus_public_key;
 use crate::groups::oneshot::Oneshot;
+use crate::groups::summary::SyncSummary;
 use futures::StreamExt;
 use openmls::prelude::OpenMlsCrypto;
 use openmls::prelude::SignatureScheme;
@@ -10,13 +11,16 @@ use prost::Message;
 use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
 use xmtp_api::ApiError;
+use xmtp_common::RetryableError;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_db::group::ConversationType;
 use xmtp_db::group::DmIdExt;
+use xmtp_db::group::StoredGroupForRespondingReadds;
+use xmtp_db::readd_status::ReaddStatus;
 use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
 use xmtp_db::{
-    DbQuery, StorageError, Store,
+    ConnectionExt, DbQuery, StorageError, Store,
     group::{StoredGroupCommitLogPublicKey, StoredGroupForReaddRequest},
     local_commit_log::LocalCommitLogOrder,
     prelude::*,
@@ -88,8 +92,31 @@ pub enum CommitLogError {
     CryptoError(#[from] openmls_traits::types::CryptoError),
     #[error("try from slice error: {0}")]
     TryFromSliceError(#[from] std::array::TryFromSliceError),
+    #[error("Group did not pass readd validation: {0}")]
+    GroupReaddValidationError(String),
+    #[error("sync error: {0}")]
+    SyncError(#[from] SyncSummary),
     #[error("error: {0}")]
     GenericError(String),
+}
+
+impl RetryableError for CommitLogError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            // TODO(rich): add retryable for all errors
+            Self::Storage(storage_error) => storage_error.is_retryable(),
+            Self::Api(api_error) => api_error.is_retryable(),
+            Self::Connection(connection_error) => connection_error.is_retryable(),
+            Self::Prost(_prost_error) => false,
+            Self::KeystoreError(keystore_error) => keystore_error.is_retryable(),
+            Self::GroupError(group_error) => group_error.is_retryable(),
+            Self::CryptoError(_crypto_error) => false,
+            Self::TryFromSliceError(_try_from_slice_error) => false,
+            Self::GroupReaddValidationError(_group_readd_validation_error) => false,
+            Self::SyncError(sync_error) => sync_error.is_retryable(),
+            Self::GenericError(_generic_error) => false,
+        }
+    }
 }
 
 impl NeedsDbReconnect for CommitLogError {
@@ -104,6 +131,8 @@ impl NeedsDbReconnect for CommitLogError {
             Self::GroupError(_group_error) => false,       // TODO(rich): What does this method do?
             Self::CryptoError(_crypto_error) => false,
             Self::TryFromSliceError(_try_from_slice_error) => false,
+            Self::GroupReaddValidationError(_group_readd_validation_error) => false,
+            Self::SyncError(_sync_error) => false,
             Self::GenericError(_generic_error) => false,
         }
     }
@@ -193,8 +222,9 @@ where
         self.update_forked_state().await?;
         self.publish_commit_logs_to_remote().await?;
         if xmtp_configuration::ENABLE_RECOVERY_REQUESTS {
-            self.send_readd_requests().await?;
+            self.send_outgoing_readd_requests().await?;
         }
+        self.handle_incoming_readd_requests().await?;
         Ok(())
     }
 
@@ -636,7 +666,7 @@ where
     }
 
     /// Send readd requests for all forked conversations  
-    async fn send_readd_requests(&mut self) -> Result<(), CommitLogError> {
+    async fn send_outgoing_readd_requests(&mut self) -> Result<(), CommitLogError> {
         let conn = self.context.db();
 
         // Fetch all forked groups with their latest epoch
@@ -658,6 +688,109 @@ where
         }
 
         Ok(())
+    }
+
+    async fn handle_incoming_readd_requests(&self) -> Result<(), CommitLogError> {
+        let conn = self.context.db();
+        let groups_for_readd = conn.get_conversation_ids_for_responding_readds()?;
+
+        tracing::info!(
+            "Processing readd requests for {} groups",
+            groups_for_readd.len()
+        );
+
+        for group in groups_for_readd {
+            match self.validate_readd_requests(&conn, &group).await {
+                Ok(validated_statuses) => {
+                    // TODO: Process the validated readd statuses
+                    tracing::debug!(
+                        group_id = hex::encode(&group.group_id),
+                        num_validated = validated_statuses.len(),
+                        "Successfully validated readd requests"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        group_id = hex::encode(&group.group_id),
+                        "Failed to validate readd requests for group: {}",
+                        e
+                    );
+                    if !e.is_retryable() {
+                        tracing::warn!(
+                            group_id = hex::encode(&group.group_id),
+                            "Deleting readd statuses for group because it failed validation: {}",
+                            e
+                        );
+                        conn.delete_other_readd_statuses(
+                            &group.group_id,
+                            self.context.installation_id().as_slice(),
+                        )?;
+                    }
+                    continue;
+                } // Process readd statuses here
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn validate_readd_requests(
+        &self,
+        conn: &impl DbQuery,
+        group: &StoredGroupForRespondingReadds,
+    ) -> Result<Vec<ReaddStatus>, CommitLogError> {
+        let mls_group = MlsGroup::new(
+            self.context.clone(),
+            group.group_id.clone(),
+            group.dm_id.clone(),
+            group.conversation_type,
+            group.created_at_ns,
+        );
+        tracing::debug!(
+            group_id = hex::encode(&mls_group.group_id),
+            "Processing readd requests for group"
+        );
+
+        mls_group.sync_with_conn().await?;
+
+        // TODO: check if group is active and consented
+        let is_super_admin = mls_group.is_super_admin(self.context.inbox_id().to_string())?;
+        if !is_super_admin {
+            return Err(CommitLogError::GroupReaddValidationError(
+                "No longer super admin of group".to_string(),
+            ));
+        }
+
+        let fork_state = self.check_conversation_fork_state(conn, &mls_group.group_id)?;
+        if let Some(true) = fork_state {
+            return Err(CommitLogError::GroupReaddValidationError(
+                "Group is forked".to_string(),
+            ));
+        } else if fork_state.is_none() {
+            tracing::info!(
+                group_id = hex::encode(&mls_group.group_id),
+                "Local commit log ahead of remote, skipping group"
+            );
+            return Ok(vec![]);
+        }
+
+        // TODO(rich): Refetch readd statuses here
+        let readd_statuses = conn.get_readds_awaiting_response(
+            &mls_group.group_id,
+            self.context.installation_id().as_slice(),
+        )?;
+        for readd_status in readd_statuses {
+            let requester_inbox_id = &readd_status.inbox_id;
+            let requester_installation_id = &readd_status.installation_id;
+            tracing::debug!(
+                group_id = hex::encode(&mls_group.group_id),
+                inbox_id = requester_inbox_id,
+                installation_id = hex::encode(&requester_installation_id),
+                "Processing readd request"
+            );
+        }
+
+        Ok(vec![])
     }
 
     fn check_conversation_fork_state(
