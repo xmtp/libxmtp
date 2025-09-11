@@ -56,6 +56,7 @@ export const createClient = async (user: User, appVersion?: string) => {
     },
     undefined,
     undefined,
+    undefined,
     SyncWorkerMode.disabled,
     { level: LogLevel.error },
     undefined,
