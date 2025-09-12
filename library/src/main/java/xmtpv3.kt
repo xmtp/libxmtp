@@ -1213,6 +1213,56 @@ internal open class UniffiVTableCallbackInterfaceFfiPreferenceCallback(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1234,15 +1284,31 @@ fun uniffi_xmtpv3_checksum_func_connect_to_backend(
 ): Short
 fun uniffi_xmtpv3_checksum_func_create_client(
 ): Short
+fun uniffi_xmtpv3_checksum_func_decode_attachment(
+): Short
 fun uniffi_xmtpv3_checksum_func_decode_multi_remote_attachment(
 ): Short
 fun uniffi_xmtpv3_checksum_func_decode_reaction(
 ): Short
+fun uniffi_xmtpv3_checksum_func_decode_read_receipt(
+): Short
+fun uniffi_xmtpv3_checksum_func_decode_remote_attachment(
+): Short
+fun uniffi_xmtpv3_checksum_func_decode_reply(
+): Short
 fun uniffi_xmtpv3_checksum_func_decode_transaction_reference(
+): Short
+fun uniffi_xmtpv3_checksum_func_encode_attachment(
 ): Short
 fun uniffi_xmtpv3_checksum_func_encode_multi_remote_attachment(
 ): Short
 fun uniffi_xmtpv3_checksum_func_encode_reaction(
+): Short
+fun uniffi_xmtpv3_checksum_func_encode_read_receipt(
+): Short
+fun uniffi_xmtpv3_checksum_func_encode_remote_attachment(
+): Short
+fun uniffi_xmtpv3_checksum_func_encode_reply(
 ): Short
 fun uniffi_xmtpv3_checksum_func_encode_transaction_reference(
 ): Short
@@ -1297,6 +1363,8 @@ fun uniffi_xmtpv3_checksum_method_fficonversation_dm_peer_inbox_id(
 fun uniffi_xmtpv3_checksum_method_fficonversation_find_duplicate_dms(
 ): Short
 fun uniffi_xmtpv3_checksum_method_fficonversation_find_messages(
+): Short
+fun uniffi_xmtpv3_checksum_method_fficonversation_find_messages_v2(
 ): Short
 fun uniffi_xmtpv3_checksum_method_fficonversation_find_messages_with_reactions(
 ): Short
@@ -1422,6 +1490,34 @@ fun uniffi_xmtpv3_checksum_method_fficonversations_sync(
 ): Short
 fun uniffi_xmtpv3_checksum_method_fficonversations_sync_all_conversations(
 ): Short
+fun uniffi_xmtpv3_checksum_method_ffidecodedmessage_content(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffidecodedmessage_content_type_id(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffidecodedmessage_conversation_id(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffidecodedmessage_delivery_status(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffidecodedmessage_fallback_text(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffidecodedmessage_has_reactions(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffidecodedmessage_id(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffidecodedmessage_kind(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffidecodedmessage_num_replies(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffidecodedmessage_reaction_count(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffidecodedmessage_reactions(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffidecodedmessage_sender_inbox_id(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffidecodedmessage_sender_installation_id(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffidecodedmessage_sent_at_ns(
+): Short
 fun uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_set(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_type(
@@ -1511,6 +1607,8 @@ fun uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_state(
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_installation_id(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_message(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffixmtpclient_message_v2(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_register_identity(
 ): Short
@@ -1636,6 +1734,8 @@ fun uniffi_xmtpv3_fn_method_fficonversation_find_duplicate_dms(`ptr`: Pointer,
 ): Long
 fun uniffi_xmtpv3_fn_method_fficonversation_find_messages(`ptr`: Pointer,`opts`: RustBuffer.ByValue,
 ): Long
+fun uniffi_xmtpv3_fn_method_fficonversation_find_messages_v2(`ptr`: Pointer,`opts`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_method_fficonversation_find_messages_with_reactions(`ptr`: Pointer,`opts`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_method_fficonversation_get_hmac_keys(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1778,6 +1878,38 @@ fun uniffi_xmtpv3_fn_method_fficonversations_sync(`ptr`: Pointer,
 ): Long
 fun uniffi_xmtpv3_fn_method_fficonversations_sync_all_conversations(`ptr`: Pointer,`consentStates`: RustBuffer.ByValue,
 ): Long
+fun uniffi_xmtpv3_fn_clone_ffidecodedmessage(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_xmtpv3_fn_free_ffidecodedmessage(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_xmtpv3_fn_method_ffidecodedmessage_content(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_method_ffidecodedmessage_content_type_id(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_method_ffidecodedmessage_conversation_id(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_method_ffidecodedmessage_delivery_status(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_method_ffidecodedmessage_fallback_text(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_method_ffidecodedmessage_has_reactions(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+fun uniffi_xmtpv3_fn_method_ffidecodedmessage_id(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_method_ffidecodedmessage_kind(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_method_ffidecodedmessage_num_replies(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Long
+fun uniffi_xmtpv3_fn_method_ffidecodedmessage_reaction_count(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Long
+fun uniffi_xmtpv3_fn_method_ffidecodedmessage_reactions(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_method_ffidecodedmessage_sender_inbox_id(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_method_ffidecodedmessage_sender_installation_id(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_method_ffidecodedmessage_sent_at_ns(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Long
 fun uniffi_xmtpv3_fn_clone_ffigrouppermissions(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
 fun uniffi_xmtpv3_fn_free_ffigrouppermissions(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1906,6 +2038,8 @@ fun uniffi_xmtpv3_fn_method_ffixmtpclient_installation_id(`ptr`: Pointer,uniffi_
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_message(`ptr`: Pointer,`messageId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_method_ffixmtpclient_message_v2(`ptr`: Pointer,`messageId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_register_identity(`ptr`: Pointer,`signatureRequest`: Pointer,
 ): Long
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_release_db_connection(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1942,15 +2076,31 @@ fun uniffi_xmtpv3_fn_func_connect_to_backend(`host`: RustBuffer.ByValue,`isSecur
 ): Long
 fun uniffi_xmtpv3_fn_func_create_client(`api`: Pointer,`syncApi`: Pointer,`db`: RustBuffer.ByValue,`encryptionKey`: RustBuffer.ByValue,`inboxId`: RustBuffer.ByValue,`accountIdentifier`: RustBuffer.ByValue,`nonce`: Long,`legacySignedPrivateKeyProto`: RustBuffer.ByValue,`deviceSyncServerUrl`: RustBuffer.ByValue,`deviceSyncMode`: RustBuffer.ByValue,`allowOffline`: RustBuffer.ByValue,`disableEvents`: RustBuffer.ByValue,
 ): Long
+fun uniffi_xmtpv3_fn_func_decode_attachment(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_decode_multi_remote_attachment(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_decode_reaction(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_decode_read_receipt(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_decode_remote_attachment(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_decode_reply(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_decode_transaction_reference(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_encode_attachment(`attachment`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_encode_multi_remote_attachment(`ffiMultiRemoteAttachment`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_encode_reaction(`reaction`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_encode_read_receipt(`readReceipt`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_encode_remote_attachment(`remoteAttachment`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_encode_reply(`reply`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_encode_transaction_reference(`reference`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -2107,19 +2257,43 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_func_create_client() != 18591.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_func_decode_attachment() != 20456.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_func_decode_multi_remote_attachment() != 59746.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_func_decode_reaction() != 28885.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_func_decode_reaction() != 24150.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_decode_read_receipt() != 60393.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_decode_remote_attachment() != 53450.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_decode_reply() != 41903.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_decode_transaction_reference() != 25896.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_func_encode_attachment() != 47054.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_func_encode_multi_remote_attachment() != 28938.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_func_encode_reaction() != 6548.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_func_encode_reaction() != 48662.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_encode_read_receipt() != 46693.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_encode_remote_attachment() != 14050.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_encode_reply() != 3022.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_encode_transaction_reference() != 22144.toShort()) {
@@ -2201,6 +2375,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_find_messages() != 19931.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_find_messages_v2() != 4772.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_find_messages_with_reactions() != 46761.toShort()) {
@@ -2389,6 +2566,48 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_fficonversations_sync_all_conversations() != 30657.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_method_ffidecodedmessage_content() != 6416.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffidecodedmessage_content_type_id() != 63211.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffidecodedmessage_conversation_id() != 1070.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffidecodedmessage_delivery_status() != 10321.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffidecodedmessage_fallback_text() != 1914.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffidecodedmessage_has_reactions() != 60219.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffidecodedmessage_id() != 41676.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffidecodedmessage_kind() != 55657.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffidecodedmessage_num_replies() != 35773.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffidecodedmessage_reaction_count() != 7084.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffidecodedmessage_reactions() != 53291.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffidecodedmessage_sender_inbox_id() != 12782.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffidecodedmessage_sender_installation_id() != 58886.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffidecodedmessage_sent_at_ns() != 54409.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_set() != 24928.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2522,6 +2741,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_message() != 26932.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_message_v2() != 17937.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_register_identity() != 42003.toShort()) {
@@ -2820,6 +3042,29 @@ public object FfiConverterUInt: FfiConverter<UInt, Int> {
 
     override fun write(value: UInt, buf: ByteBuffer) {
         buf.putInt(value.toInt())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterInt: FfiConverter<Int, Int> {
+    override fun lift(value: Int): Int {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Int {
+        return buf.getInt()
+    }
+
+    override fun lower(value: Int): Int {
+        return value
+    }
+
+    override fun allocationSize(value: Int) = 4UL
+
+    override fun write(value: Int, buf: ByteBuffer) {
+        buf.putInt(value)
     }
 }
 
@@ -3441,6 +3686,8 @@ public interface FfiConversationInterface {
     
     suspend fun `findMessages`(`opts`: FfiListMessagesOptions): List<FfiMessage>
     
+    fun `findMessagesV2`(`opts`: FfiListMessagesOptions): List<FfiDecodedMessage>
+    
     fun `findMessagesWithReactions`(`opts`: FfiListMessagesOptions): List<FfiMessageWithReactions>
     
     fun `getHmacKeys`(): Map<kotlin.ByteArray, List<FfiHmacKey>>
@@ -3834,6 +4081,19 @@ open class FfiConversation: Disposable, AutoCloseable, FfiConversationInterface
         GenericException.ErrorHandler,
     )
     }
+
+    
+    @Throws(GenericException::class)override fun `findMessagesV2`(`opts`: FfiListMessagesOptions): List<FfiDecodedMessage> {
+            return FfiConverterSequenceTypeFfiDecodedMessage.lift(
+    callWithPointer {
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_find_messages_v2(
+        it, FfiConverterTypeFfiListMessagesOptions.lower(`opts`),_status)
+}
+    }
+    )
+    }
+    
 
     
     @Throws(GenericException::class)override fun `findMessagesWithReactions`(`opts`: FfiListMessagesOptions): List<FfiMessageWithReactions> {
@@ -5961,6 +6221,424 @@ public object FfiConverterTypeFfiConversations: FfiConverter<FfiConversations, P
     override fun allocationSize(value: FfiConversations) = 8UL
 
     override fun write(value: FfiConversations, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+public interface FfiDecodedMessageInterface {
+    
+    fun `content`(): FfiDecodedMessageContent
+    
+    fun `contentTypeId`(): FfiContentTypeId
+    
+    fun `conversationId`(): kotlin.ByteArray
+    
+    fun `deliveryStatus`(): FfiDeliveryStatus
+    
+    fun `fallbackText`(): kotlin.String?
+    
+    fun `hasReactions`(): kotlin.Boolean
+    
+    fun `id`(): kotlin.ByteArray
+    
+    fun `kind`(): FfiGroupMessageKind
+    
+    fun `numReplies`(): kotlin.ULong
+    
+    fun `reactionCount`(): kotlin.ULong
+    
+    fun `reactions`(): List<FfiDecodedMessage>
+    
+    fun `senderInboxId`(): kotlin.String
+    
+    fun `senderInstallationId`(): kotlin.ByteArray
+    
+    fun `sentAtNs`(): kotlin.Long
+    
+    companion object
+}
+
+open class FfiDecodedMessage: Disposable, AutoCloseable, FfiDecodedMessageInterface
+{
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_free_ffidecodedmessage(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_clone_ffidecodedmessage(pointer!!, status)
+        }
+    }
+
+    override fun `content`(): FfiDecodedMessageContent {
+            return FfiConverterTypeFfiDecodedMessageContent.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffidecodedmessage_content(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `contentTypeId`(): FfiContentTypeId {
+            return FfiConverterTypeFfiContentTypeId.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffidecodedmessage_content_type_id(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `conversationId`(): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffidecodedmessage_conversation_id(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `deliveryStatus`(): FfiDeliveryStatus {
+            return FfiConverterTypeFfiDeliveryStatus.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffidecodedmessage_delivery_status(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `fallbackText`(): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffidecodedmessage_fallback_text(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `hasReactions`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffidecodedmessage_has_reactions(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `id`(): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffidecodedmessage_id(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `kind`(): FfiGroupMessageKind {
+            return FfiConverterTypeFfiGroupMessageKind.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffidecodedmessage_kind(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `numReplies`(): kotlin.ULong {
+            return FfiConverterULong.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffidecodedmessage_num_replies(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `reactionCount`(): kotlin.ULong {
+            return FfiConverterULong.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffidecodedmessage_reaction_count(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `reactions`(): List<FfiDecodedMessage> {
+            return FfiConverterSequenceTypeFfiDecodedMessage.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffidecodedmessage_reactions(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `senderInboxId`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffidecodedmessage_sender_inbox_id(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `senderInstallationId`(): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffidecodedmessage_sender_installation_id(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `sentAtNs`(): kotlin.Long {
+            return FfiConverterLong.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffidecodedmessage_sent_at_ns(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiDecodedMessage: FfiConverter<FfiDecodedMessage, Pointer> {
+
+    override fun lower(value: FfiDecodedMessage): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): FfiDecodedMessage {
+        return FfiDecodedMessage(value)
+    }
+
+    override fun read(buf: ByteBuffer): FfiDecodedMessage {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: FfiDecodedMessage) = 8UL
+
+    override fun write(value: FfiDecodedMessage, buf: ByteBuffer) {
         // The Rust code always expects pointers written as 8 bytes,
         // and will fail to compile if they don't fit.
         buf.putLong(Pointer.nativeValue(lower(value)))
@@ -8271,6 +8949,8 @@ public interface FfiXmtpClientInterface {
     
     fun `message`(`messageId`: kotlin.ByteArray): FfiMessage
     
+    fun `messageV2`(`messageId`: kotlin.ByteArray): FfiDecodedMessage
+    
     suspend fun `registerIdentity`(`signatureRequest`: FfiSignatureRequest)
     
     fun `releaseDbConnection`()
@@ -8848,6 +9528,19 @@ open class FfiXmtpClient: Disposable, AutoCloseable, FfiXmtpClientInterface
     callWithPointer {
     uniffiRustCallWithError(GenericException) { _status ->
     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_message(
+        it, FfiConverterByteArray.lower(`messageId`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(GenericException::class)override fun `messageV2`(`messageId`: kotlin.ByteArray): FfiDecodedMessage {
+            return FfiConverterTypeFfiDecodedMessage.lift(
+    callWithPointer {
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_message_v2(
         it, FfiConverterByteArray.lower(`messageId`),_status)
 }
     }
@@ -9464,6 +10157,42 @@ public object FfiConverterTypeFfiArchiveOptions: FfiConverterRustBuffer<FfiArchi
 
 
 
+data class FfiAttachment (
+    var `filename`: kotlin.String?, 
+    var `mimeType`: kotlin.String, 
+    var `content`: kotlin.ByteArray
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiAttachment: FfiConverterRustBuffer<FfiAttachment> {
+    override fun read(buf: ByteBuffer): FfiAttachment {
+        return FfiAttachment(
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiAttachment) = (
+            FfiConverterOptionalString.allocationSize(value.`filename`) +
+            FfiConverterString.allocationSize(value.`mimeType`) +
+            FfiConverterByteArray.allocationSize(value.`content`)
+    )
+
+    override fun write(value: FfiAttachment, buf: ByteBuffer) {
+            FfiConverterOptionalString.write(value.`filename`, buf)
+            FfiConverterString.write(value.`mimeType`, buf)
+            FfiConverterByteArray.write(value.`content`, buf)
+    }
+}
+
+
+
 data class FfiBackupMetadata (
     var `backupVersion`: kotlin.UShort, 
     var `elements`: List<FfiBackupElementSelection>, 
@@ -9539,6 +10268,46 @@ public object FfiConverterTypeFfiConsent: FfiConverterRustBuffer<FfiConsent> {
             FfiConverterTypeFfiConsentEntityType.write(value.`entityType`, buf)
             FfiConverterTypeFfiConsentState.write(value.`state`, buf)
             FfiConverterString.write(value.`entity`, buf)
+    }
+}
+
+
+
+data class FfiContentTypeId (
+    var `authorityId`: kotlin.String, 
+    var `typeId`: kotlin.String, 
+    var `versionMajor`: kotlin.UInt, 
+    var `versionMinor`: kotlin.UInt
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiContentTypeId: FfiConverterRustBuffer<FfiContentTypeId> {
+    override fun read(buf: ByteBuffer): FfiContentTypeId {
+        return FfiContentTypeId(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiContentTypeId) = (
+            FfiConverterString.allocationSize(value.`authorityId`) +
+            FfiConverterString.allocationSize(value.`typeId`) +
+            FfiConverterUInt.allocationSize(value.`versionMajor`) +
+            FfiConverterUInt.allocationSize(value.`versionMinor`)
+    )
+
+    override fun write(value: FfiContentTypeId, buf: ByteBuffer) {
+            FfiConverterString.write(value.`authorityId`, buf)
+            FfiConverterString.write(value.`typeId`, buf)
+            FfiConverterUInt.write(value.`versionMajor`, buf)
+            FfiConverterUInt.write(value.`versionMinor`, buf)
     }
 }
 
@@ -9716,6 +10485,188 @@ public object FfiConverterTypeFfiCreateGroupOptions: FfiConverterRustBuffer<FfiC
 
 
 
+data class FfiDecodedMessageMetadata (
+    var `id`: kotlin.ByteArray, 
+    var `sentAtNs`: kotlin.Long, 
+    var `kind`: FfiGroupMessageKind, 
+    var `senderInstallationId`: kotlin.ByteArray, 
+    var `senderInboxId`: kotlin.String, 
+    var `contentType`: FfiContentTypeId, 
+    var `conversationId`: kotlin.ByteArray
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiDecodedMessageMetadata: FfiConverterRustBuffer<FfiDecodedMessageMetadata> {
+    override fun read(buf: ByteBuffer): FfiDecodedMessageMetadata {
+        return FfiDecodedMessageMetadata(
+            FfiConverterByteArray.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterTypeFfiGroupMessageKind.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeFfiContentTypeId.read(buf),
+            FfiConverterByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiDecodedMessageMetadata) = (
+            FfiConverterByteArray.allocationSize(value.`id`) +
+            FfiConverterLong.allocationSize(value.`sentAtNs`) +
+            FfiConverterTypeFfiGroupMessageKind.allocationSize(value.`kind`) +
+            FfiConverterByteArray.allocationSize(value.`senderInstallationId`) +
+            FfiConverterString.allocationSize(value.`senderInboxId`) +
+            FfiConverterTypeFfiContentTypeId.allocationSize(value.`contentType`) +
+            FfiConverterByteArray.allocationSize(value.`conversationId`)
+    )
+
+    override fun write(value: FfiDecodedMessageMetadata, buf: ByteBuffer) {
+            FfiConverterByteArray.write(value.`id`, buf)
+            FfiConverterLong.write(value.`sentAtNs`, buf)
+            FfiConverterTypeFfiGroupMessageKind.write(value.`kind`, buf)
+            FfiConverterByteArray.write(value.`senderInstallationId`, buf)
+            FfiConverterString.write(value.`senderInboxId`, buf)
+            FfiConverterTypeFfiContentTypeId.write(value.`contentType`, buf)
+            FfiConverterByteArray.write(value.`conversationId`, buf)
+    }
+}
+
+
+
+data class FfiEncodedContent (
+    var `typeId`: FfiContentTypeId?, 
+    var `parameters`: Map<kotlin.String, kotlin.String>, 
+    var `fallback`: kotlin.String?, 
+    var `compression`: kotlin.Int?, 
+    var `content`: kotlin.ByteArray
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiEncodedContent: FfiConverterRustBuffer<FfiEncodedContent> {
+    override fun read(buf: ByteBuffer): FfiEncodedContent {
+        return FfiEncodedContent(
+            FfiConverterOptionalTypeFfiContentTypeId.read(buf),
+            FfiConverterMapStringString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalInt.read(buf),
+            FfiConverterByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiEncodedContent) = (
+            FfiConverterOptionalTypeFfiContentTypeId.allocationSize(value.`typeId`) +
+            FfiConverterMapStringString.allocationSize(value.`parameters`) +
+            FfiConverterOptionalString.allocationSize(value.`fallback`) +
+            FfiConverterOptionalInt.allocationSize(value.`compression`) +
+            FfiConverterByteArray.allocationSize(value.`content`)
+    )
+
+    override fun write(value: FfiEncodedContent, buf: ByteBuffer) {
+            FfiConverterOptionalTypeFfiContentTypeId.write(value.`typeId`, buf)
+            FfiConverterMapStringString.write(value.`parameters`, buf)
+            FfiConverterOptionalString.write(value.`fallback`, buf)
+            FfiConverterOptionalInt.write(value.`compression`, buf)
+            FfiConverterByteArray.write(value.`content`, buf)
+    }
+}
+
+
+
+data class FfiEnrichedReply (
+    var `inReplyTo`: FfiDecodedMessage?, 
+    var `content`: FfiDecodedMessageBody?, 
+    var `referenceId`: kotlin.String
+) : Disposable {
+    
+    @Suppress("UNNECESSARY_SAFE_CALL") // codegen is much simpler if we unconditionally emit safe calls here
+    override fun destroy() {
+        
+    Disposable.destroy(
+        this.`inReplyTo`,
+        this.`content`,
+        this.`referenceId`
+    )
+    }
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiEnrichedReply: FfiConverterRustBuffer<FfiEnrichedReply> {
+    override fun read(buf: ByteBuffer): FfiEnrichedReply {
+        return FfiEnrichedReply(
+            FfiConverterOptionalTypeFfiDecodedMessage.read(buf),
+            FfiConverterOptionalTypeFfiDecodedMessageBody.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiEnrichedReply) = (
+            FfiConverterOptionalTypeFfiDecodedMessage.allocationSize(value.`inReplyTo`) +
+            FfiConverterOptionalTypeFfiDecodedMessageBody.allocationSize(value.`content`) +
+            FfiConverterString.allocationSize(value.`referenceId`)
+    )
+
+    override fun write(value: FfiEnrichedReply, buf: ByteBuffer) {
+            FfiConverterOptionalTypeFfiDecodedMessage.write(value.`inReplyTo`, buf)
+            FfiConverterOptionalTypeFfiDecodedMessageBody.write(value.`content`, buf)
+            FfiConverterString.write(value.`referenceId`, buf)
+    }
+}
+
+
+
+data class FfiGroupUpdated (
+    var `initiatedByInboxId`: kotlin.String, 
+    var `addedInboxes`: List<FfiInbox>, 
+    var `removedInboxes`: List<FfiInbox>, 
+    var `metadataFieldChanges`: List<FfiMetadataFieldChange>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiGroupUpdated: FfiConverterRustBuffer<FfiGroupUpdated> {
+    override fun read(buf: ByteBuffer): FfiGroupUpdated {
+        return FfiGroupUpdated(
+            FfiConverterString.read(buf),
+            FfiConverterSequenceTypeFfiInbox.read(buf),
+            FfiConverterSequenceTypeFfiInbox.read(buf),
+            FfiConverterSequenceTypeFfiMetadataFieldChange.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiGroupUpdated) = (
+            FfiConverterString.allocationSize(value.`initiatedByInboxId`) +
+            FfiConverterSequenceTypeFfiInbox.allocationSize(value.`addedInboxes`) +
+            FfiConverterSequenceTypeFfiInbox.allocationSize(value.`removedInboxes`) +
+            FfiConverterSequenceTypeFfiMetadataFieldChange.allocationSize(value.`metadataFieldChanges`)
+    )
+
+    override fun write(value: FfiGroupUpdated, buf: ByteBuffer) {
+            FfiConverterString.write(value.`initiatedByInboxId`, buf)
+            FfiConverterSequenceTypeFfiInbox.write(value.`addedInboxes`, buf)
+            FfiConverterSequenceTypeFfiInbox.write(value.`removedInboxes`, buf)
+            FfiConverterSequenceTypeFfiMetadataFieldChange.write(value.`metadataFieldChanges`, buf)
+    }
+}
+
+
+
 data class FfiHmacKey (
     var `key`: kotlin.ByteArray, 
     var `epoch`: kotlin.Long
@@ -9815,6 +10766,34 @@ public object FfiConverterTypeFfiIdentityStats: FfiConverterRustBuffer<FfiIdenti
             FfiConverterULong.write(value.`getIdentityUpdatesV2`, buf)
             FfiConverterULong.write(value.`getInboxIds`, buf)
             FfiConverterULong.write(value.`verifySmartContractWalletSignature`, buf)
+    }
+}
+
+
+
+data class FfiInbox (
+    var `inboxId`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiInbox: FfiConverterRustBuffer<FfiInbox> {
+    override fun read(buf: ByteBuffer): FfiInbox {
+        return FfiInbox(
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiInbox) = (
+            FfiConverterString.allocationSize(value.`inboxId`)
+    )
+
+    override fun write(value: FfiInbox, buf: ByteBuffer) {
+            FfiConverterString.write(value.`inboxId`, buf)
     }
 }
 
@@ -10176,6 +11155,42 @@ public object FfiConverterTypeFfiMessageWithReactions: FfiConverterRustBuffer<Ff
 
 
 
+data class FfiMetadataFieldChange (
+    var `fieldName`: kotlin.String, 
+    var `oldValue`: kotlin.String?, 
+    var `newValue`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiMetadataFieldChange: FfiConverterRustBuffer<FfiMetadataFieldChange> {
+    override fun read(buf: ByteBuffer): FfiMetadataFieldChange {
+        return FfiMetadataFieldChange(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiMetadataFieldChange) = (
+            FfiConverterString.allocationSize(value.`fieldName`) +
+            FfiConverterOptionalString.allocationSize(value.`oldValue`) +
+            FfiConverterOptionalString.allocationSize(value.`newValue`)
+    )
+
+    override fun write(value: FfiMetadataFieldChange, buf: ByteBuffer) {
+            FfiConverterString.write(value.`fieldName`, buf)
+            FfiConverterOptionalString.write(value.`oldValue`, buf)
+            FfiConverterOptionalString.write(value.`newValue`, buf)
+    }
+}
+
+
+
 data class FfiMultiRemoteAttachment (
     var `attachments`: List<FfiRemoteAttachmentInfo>
 ) {
@@ -10300,7 +11315,7 @@ public object FfiConverterTypeFfiPermissionPolicySet: FfiConverterRustBuffer<Ffi
 
 
 
-data class FfiReaction (
+data class FfiReactionPayload (
     var `reference`: kotlin.String, 
     var `referenceInboxId`: kotlin.String, 
     var `action`: FfiReactionAction, 
@@ -10314,9 +11329,9 @@ data class FfiReaction (
 /**
  * @suppress
  */
-public object FfiConverterTypeFfiReaction: FfiConverterRustBuffer<FfiReaction> {
-    override fun read(buf: ByteBuffer): FfiReaction {
-        return FfiReaction(
+public object FfiConverterTypeFfiReactionPayload: FfiConverterRustBuffer<FfiReactionPayload> {
+    override fun read(buf: ByteBuffer): FfiReactionPayload {
+        return FfiReactionPayload(
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterTypeFfiReactionAction.read(buf),
@@ -10325,7 +11340,7 @@ public object FfiConverterTypeFfiReaction: FfiConverterRustBuffer<FfiReaction> {
         )
     }
 
-    override fun allocationSize(value: FfiReaction) = (
+    override fun allocationSize(value: FfiReactionPayload) = (
             FfiConverterString.allocationSize(value.`reference`) +
             FfiConverterString.allocationSize(value.`referenceInboxId`) +
             FfiConverterTypeFfiReactionAction.allocationSize(value.`action`) +
@@ -10333,7 +11348,7 @@ public object FfiConverterTypeFfiReaction: FfiConverterRustBuffer<FfiReaction> {
             FfiConverterTypeFfiReactionSchema.allocationSize(value.`schema`)
     )
 
-    override fun write(value: FfiReaction, buf: ByteBuffer) {
+    override fun write(value: FfiReactionPayload, buf: ByteBuffer) {
             FfiConverterString.write(value.`reference`, buf)
             FfiConverterString.write(value.`referenceInboxId`, buf)
             FfiConverterTypeFfiReactionAction.write(value.`action`, buf)
@@ -10344,13 +11359,97 @@ public object FfiConverterTypeFfiReaction: FfiConverterRustBuffer<FfiReaction> {
 
 
 
-data class FfiRemoteAttachmentInfo (
-    var `secret`: kotlin.ByteArray, 
+class FfiReadReceipt {
+    override fun equals(other: Any?): Boolean {
+        return other is FfiReadReceipt
+    }
+
+    override fun hashCode(): Int {
+        return javaClass.hashCode()
+    }
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiReadReceipt: FfiConverterRustBuffer<FfiReadReceipt> {
+    override fun read(buf: ByteBuffer): FfiReadReceipt {
+        return FfiReadReceipt()
+    }
+
+    override fun allocationSize(value: FfiReadReceipt) = 0UL
+
+    override fun write(value: FfiReadReceipt, buf: ByteBuffer) {
+    }
+}
+
+
+
+data class FfiRemoteAttachment (
+    var `url`: kotlin.String, 
     var `contentDigest`: kotlin.String, 
+    var `secret`: kotlin.ByteArray, 
+    var `salt`: kotlin.ByteArray, 
     var `nonce`: kotlin.ByteArray, 
     var `scheme`: kotlin.String, 
+    var `contentLength`: kotlin.ULong, 
+    var `filename`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiRemoteAttachment: FfiConverterRustBuffer<FfiRemoteAttachment> {
+    override fun read(buf: ByteBuffer): FfiRemoteAttachment {
+        return FfiRemoteAttachment(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiRemoteAttachment) = (
+            FfiConverterString.allocationSize(value.`url`) +
+            FfiConverterString.allocationSize(value.`contentDigest`) +
+            FfiConverterByteArray.allocationSize(value.`secret`) +
+            FfiConverterByteArray.allocationSize(value.`salt`) +
+            FfiConverterByteArray.allocationSize(value.`nonce`) +
+            FfiConverterString.allocationSize(value.`scheme`) +
+            FfiConverterULong.allocationSize(value.`contentLength`) +
+            FfiConverterOptionalString.allocationSize(value.`filename`)
+    )
+
+    override fun write(value: FfiRemoteAttachment, buf: ByteBuffer) {
+            FfiConverterString.write(value.`url`, buf)
+            FfiConverterString.write(value.`contentDigest`, buf)
+            FfiConverterByteArray.write(value.`secret`, buf)
+            FfiConverterByteArray.write(value.`salt`, buf)
+            FfiConverterByteArray.write(value.`nonce`, buf)
+            FfiConverterString.write(value.`scheme`, buf)
+            FfiConverterULong.write(value.`contentLength`, buf)
+            FfiConverterOptionalString.write(value.`filename`, buf)
+    }
+}
+
+
+
+data class FfiRemoteAttachmentInfo (
     var `url`: kotlin.String, 
+    var `contentDigest`: kotlin.String, 
+    var `secret`: kotlin.ByteArray, 
     var `salt`: kotlin.ByteArray, 
+    var `nonce`: kotlin.ByteArray, 
+    var `scheme`: kotlin.String, 
     var `contentLength`: kotlin.UInt?, 
     var `filename`: kotlin.String?
 ) {
@@ -10364,37 +11463,101 @@ data class FfiRemoteAttachmentInfo (
 public object FfiConverterTypeFfiRemoteAttachmentInfo: FfiConverterRustBuffer<FfiRemoteAttachmentInfo> {
     override fun read(buf: ByteBuffer): FfiRemoteAttachmentInfo {
         return FfiRemoteAttachmentInfo(
-            FfiConverterByteArray.read(buf),
-            FfiConverterString.read(buf),
-            FfiConverterByteArray.read(buf),
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterByteArray.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterString.read(buf),
             FfiConverterOptionalUInt.read(buf),
             FfiConverterOptionalString.read(buf),
         )
     }
 
     override fun allocationSize(value: FfiRemoteAttachmentInfo) = (
-            FfiConverterByteArray.allocationSize(value.`secret`) +
+            FfiConverterString.allocationSize(value.`url`) +
             FfiConverterString.allocationSize(value.`contentDigest`) +
+            FfiConverterByteArray.allocationSize(value.`secret`) +
+            FfiConverterByteArray.allocationSize(value.`salt`) +
             FfiConverterByteArray.allocationSize(value.`nonce`) +
             FfiConverterString.allocationSize(value.`scheme`) +
-            FfiConverterString.allocationSize(value.`url`) +
-            FfiConverterByteArray.allocationSize(value.`salt`) +
             FfiConverterOptionalUInt.allocationSize(value.`contentLength`) +
             FfiConverterOptionalString.allocationSize(value.`filename`)
     )
 
     override fun write(value: FfiRemoteAttachmentInfo, buf: ByteBuffer) {
-            FfiConverterByteArray.write(value.`secret`, buf)
+            FfiConverterString.write(value.`url`, buf)
             FfiConverterString.write(value.`contentDigest`, buf)
+            FfiConverterByteArray.write(value.`secret`, buf)
+            FfiConverterByteArray.write(value.`salt`, buf)
             FfiConverterByteArray.write(value.`nonce`, buf)
             FfiConverterString.write(value.`scheme`, buf)
-            FfiConverterString.write(value.`url`, buf)
-            FfiConverterByteArray.write(value.`salt`, buf)
             FfiConverterOptionalUInt.write(value.`contentLength`, buf)
             FfiConverterOptionalString.write(value.`filename`, buf)
+    }
+}
+
+
+
+data class FfiReply (
+    var `reference`: kotlin.String, 
+    var `referenceInboxId`: kotlin.String?, 
+    var `content`: FfiEncodedContent
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiReply: FfiConverterRustBuffer<FfiReply> {
+    override fun read(buf: ByteBuffer): FfiReply {
+        return FfiReply(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterTypeFfiEncodedContent.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiReply) = (
+            FfiConverterString.allocationSize(value.`reference`) +
+            FfiConverterOptionalString.allocationSize(value.`referenceInboxId`) +
+            FfiConverterTypeFfiEncodedContent.allocationSize(value.`content`)
+    )
+
+    override fun write(value: FfiReply, buf: ByteBuffer) {
+            FfiConverterString.write(value.`reference`, buf)
+            FfiConverterOptionalString.write(value.`referenceInboxId`, buf)
+            FfiConverterTypeFfiEncodedContent.write(value.`content`, buf)
+    }
+}
+
+
+
+data class FfiTextContent (
+    var `content`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiTextContent: FfiConverterRustBuffer<FfiTextContent> {
+    override fun read(buf: ByteBuffer): FfiTextContent {
+        return FfiTextContent(
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiTextContent) = (
+            FfiConverterString.allocationSize(value.`content`)
+    )
+
+    override fun write(value: FfiTextContent, buf: ByteBuffer) {
+            FfiConverterString.write(value.`content`, buf)
     }
 }
 
@@ -10519,6 +11682,130 @@ public object FfiConverterTypeFfiUpdateGroupMembershipResult: FfiConverterRustBu
             FfiConverterMapStringULong.write(value.`addedMembers`, buf)
             FfiConverterSequenceString.write(value.`removedMembers`, buf)
             FfiConverterSequenceByteArray.write(value.`failedInstallations`, buf)
+    }
+}
+
+
+
+data class FfiWalletCall (
+    var `to`: kotlin.String?, 
+    var `data`: kotlin.String?, 
+    var `value`: kotlin.String?, 
+    var `gas`: kotlin.String?, 
+    var `metadata`: FfiWalletCallMetadata?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiWalletCall: FfiConverterRustBuffer<FfiWalletCall> {
+    override fun read(buf: ByteBuffer): FfiWalletCall {
+        return FfiWalletCall(
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalTypeFfiWalletCallMetadata.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiWalletCall) = (
+            FfiConverterOptionalString.allocationSize(value.`to`) +
+            FfiConverterOptionalString.allocationSize(value.`data`) +
+            FfiConverterOptionalString.allocationSize(value.`value`) +
+            FfiConverterOptionalString.allocationSize(value.`gas`) +
+            FfiConverterOptionalTypeFfiWalletCallMetadata.allocationSize(value.`metadata`)
+    )
+
+    override fun write(value: FfiWalletCall, buf: ByteBuffer) {
+            FfiConverterOptionalString.write(value.`to`, buf)
+            FfiConverterOptionalString.write(value.`data`, buf)
+            FfiConverterOptionalString.write(value.`value`, buf)
+            FfiConverterOptionalString.write(value.`gas`, buf)
+            FfiConverterOptionalTypeFfiWalletCallMetadata.write(value.`metadata`, buf)
+    }
+}
+
+
+
+data class FfiWalletCallMetadata (
+    var `description`: kotlin.String, 
+    var `transactionType`: kotlin.String, 
+    var `extra`: Map<kotlin.String, kotlin.String>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiWalletCallMetadata: FfiConverterRustBuffer<FfiWalletCallMetadata> {
+    override fun read(buf: ByteBuffer): FfiWalletCallMetadata {
+        return FfiWalletCallMetadata(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterMapStringString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiWalletCallMetadata) = (
+            FfiConverterString.allocationSize(value.`description`) +
+            FfiConverterString.allocationSize(value.`transactionType`) +
+            FfiConverterMapStringString.allocationSize(value.`extra`)
+    )
+
+    override fun write(value: FfiWalletCallMetadata, buf: ByteBuffer) {
+            FfiConverterString.write(value.`description`, buf)
+            FfiConverterString.write(value.`transactionType`, buf)
+            FfiConverterMapStringString.write(value.`extra`, buf)
+    }
+}
+
+
+
+data class FfiWalletSendCalls (
+    var `version`: kotlin.String, 
+    var `chainId`: kotlin.String, 
+    var `from`: kotlin.String, 
+    var `calls`: List<FfiWalletCall>, 
+    var `capabilities`: Map<kotlin.String, kotlin.String>?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiWalletSendCalls: FfiConverterRustBuffer<FfiWalletSendCalls> {
+    override fun read(buf: ByteBuffer): FfiWalletSendCalls {
+        return FfiWalletSendCalls(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterSequenceTypeFfiWalletCall.read(buf),
+            FfiConverterOptionalMapStringString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiWalletSendCalls) = (
+            FfiConverterString.allocationSize(value.`version`) +
+            FfiConverterString.allocationSize(value.`chainId`) +
+            FfiConverterString.allocationSize(value.`from`) +
+            FfiConverterSequenceTypeFfiWalletCall.allocationSize(value.`calls`) +
+            FfiConverterOptionalMapStringString.allocationSize(value.`capabilities`)
+    )
+
+    override fun write(value: FfiWalletSendCalls, buf: ByteBuffer) {
+            FfiConverterString.write(value.`version`, buf)
+            FfiConverterString.write(value.`chainId`, buf)
+            FfiConverterString.write(value.`from`, buf)
+            FfiConverterSequenceTypeFfiWalletCall.write(value.`calls`, buf)
+            FfiConverterOptionalMapStringString.write(value.`capabilities`, buf)
     }
 }
 
@@ -10714,6 +12001,569 @@ public object FfiConverterTypeFfiConversationType: FfiConverterRustBuffer<FfiCon
 
 
 
+sealed class FfiDecodedMessageBody {
+    
+    data class Text(
+        val v1: FfiTextContent) : FfiDecodedMessageBody() {
+        companion object
+    }
+    
+    data class Reaction(
+        val v1: FfiReactionPayload) : FfiDecodedMessageBody() {
+        companion object
+    }
+    
+    data class Attachment(
+        val v1: FfiAttachment) : FfiDecodedMessageBody() {
+        companion object
+    }
+    
+    data class RemoteAttachment(
+        val v1: FfiRemoteAttachment) : FfiDecodedMessageBody() {
+        companion object
+    }
+    
+    data class MultiRemoteAttachment(
+        val v1: FfiMultiRemoteAttachment) : FfiDecodedMessageBody() {
+        companion object
+    }
+    
+    data class TransactionReference(
+        val v1: FfiTransactionReference) : FfiDecodedMessageBody() {
+        companion object
+    }
+    
+    data class GroupUpdated(
+        val v1: FfiGroupUpdated) : FfiDecodedMessageBody() {
+        companion object
+    }
+    
+    data class ReadReceipt(
+        val v1: FfiReadReceipt) : FfiDecodedMessageBody() {
+        companion object
+    }
+    
+    data class WalletSendCalls(
+        val v1: FfiWalletSendCalls) : FfiDecodedMessageBody() {
+        companion object
+    }
+    
+    data class Custom(
+        val v1: FfiEncodedContent) : FfiDecodedMessageBody() {
+        companion object
+    }
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiDecodedMessageBody : FfiConverterRustBuffer<FfiDecodedMessageBody>{
+    override fun read(buf: ByteBuffer): FfiDecodedMessageBody {
+        return when(buf.getInt()) {
+            1 -> FfiDecodedMessageBody.Text(
+                FfiConverterTypeFfiTextContent.read(buf),
+                )
+            2 -> FfiDecodedMessageBody.Reaction(
+                FfiConverterTypeFfiReactionPayload.read(buf),
+                )
+            3 -> FfiDecodedMessageBody.Attachment(
+                FfiConverterTypeFfiAttachment.read(buf),
+                )
+            4 -> FfiDecodedMessageBody.RemoteAttachment(
+                FfiConverterTypeFfiRemoteAttachment.read(buf),
+                )
+            5 -> FfiDecodedMessageBody.MultiRemoteAttachment(
+                FfiConverterTypeFfiMultiRemoteAttachment.read(buf),
+                )
+            6 -> FfiDecodedMessageBody.TransactionReference(
+                FfiConverterTypeFfiTransactionReference.read(buf),
+                )
+            7 -> FfiDecodedMessageBody.GroupUpdated(
+                FfiConverterTypeFfiGroupUpdated.read(buf),
+                )
+            8 -> FfiDecodedMessageBody.ReadReceipt(
+                FfiConverterTypeFfiReadReceipt.read(buf),
+                )
+            9 -> FfiDecodedMessageBody.WalletSendCalls(
+                FfiConverterTypeFfiWalletSendCalls.read(buf),
+                )
+            10 -> FfiDecodedMessageBody.Custom(
+                FfiConverterTypeFfiEncodedContent.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: FfiDecodedMessageBody) = when(value) {
+        is FfiDecodedMessageBody.Text -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiTextContent.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageBody.Reaction -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiReactionPayload.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageBody.Attachment -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiAttachment.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageBody.RemoteAttachment -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiRemoteAttachment.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageBody.MultiRemoteAttachment -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiMultiRemoteAttachment.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageBody.TransactionReference -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiTransactionReference.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageBody.GroupUpdated -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiGroupUpdated.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageBody.ReadReceipt -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiReadReceipt.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageBody.WalletSendCalls -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiWalletSendCalls.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageBody.Custom -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiEncodedContent.allocationSize(value.v1)
+            )
+        }
+    }
+
+    override fun write(value: FfiDecodedMessageBody, buf: ByteBuffer) {
+        when(value) {
+            is FfiDecodedMessageBody.Text -> {
+                buf.putInt(1)
+                FfiConverterTypeFfiTextContent.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageBody.Reaction -> {
+                buf.putInt(2)
+                FfiConverterTypeFfiReactionPayload.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageBody.Attachment -> {
+                buf.putInt(3)
+                FfiConverterTypeFfiAttachment.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageBody.RemoteAttachment -> {
+                buf.putInt(4)
+                FfiConverterTypeFfiRemoteAttachment.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageBody.MultiRemoteAttachment -> {
+                buf.putInt(5)
+                FfiConverterTypeFfiMultiRemoteAttachment.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageBody.TransactionReference -> {
+                buf.putInt(6)
+                FfiConverterTypeFfiTransactionReference.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageBody.GroupUpdated -> {
+                buf.putInt(7)
+                FfiConverterTypeFfiGroupUpdated.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageBody.ReadReceipt -> {
+                buf.putInt(8)
+                FfiConverterTypeFfiReadReceipt.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageBody.WalletSendCalls -> {
+                buf.putInt(9)
+                FfiConverterTypeFfiWalletSendCalls.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageBody.Custom -> {
+                buf.putInt(10)
+                FfiConverterTypeFfiEncodedContent.write(value.v1, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+sealed class FfiDecodedMessageContent: Disposable  {
+    
+    data class Text(
+        val v1: FfiTextContent) : FfiDecodedMessageContent() {
+        companion object
+    }
+    
+    data class Reply(
+        val v1: FfiEnrichedReply) : FfiDecodedMessageContent() {
+        companion object
+    }
+    
+    data class Reaction(
+        val v1: FfiReactionPayload) : FfiDecodedMessageContent() {
+        companion object
+    }
+    
+    data class Attachment(
+        val v1: FfiAttachment) : FfiDecodedMessageContent() {
+        companion object
+    }
+    
+    data class RemoteAttachment(
+        val v1: FfiRemoteAttachment) : FfiDecodedMessageContent() {
+        companion object
+    }
+    
+    data class MultiRemoteAttachment(
+        val v1: FfiMultiRemoteAttachment) : FfiDecodedMessageContent() {
+        companion object
+    }
+    
+    data class TransactionReference(
+        val v1: FfiTransactionReference) : FfiDecodedMessageContent() {
+        companion object
+    }
+    
+    data class GroupUpdated(
+        val v1: FfiGroupUpdated) : FfiDecodedMessageContent() {
+        companion object
+    }
+    
+    data class ReadReceipt(
+        val v1: FfiReadReceipt) : FfiDecodedMessageContent() {
+        companion object
+    }
+    
+    data class WalletSendCalls(
+        val v1: FfiWalletSendCalls) : FfiDecodedMessageContent() {
+        companion object
+    }
+    
+    data class Custom(
+        val v1: FfiEncodedContent) : FfiDecodedMessageContent() {
+        companion object
+    }
+    
+
+    
+    @Suppress("UNNECESSARY_SAFE_CALL") // codegen is much simpler if we unconditionally emit safe calls here
+    override fun destroy() {
+        when(this) {
+            is FfiDecodedMessageContent.Text -> {
+                
+    Disposable.destroy(
+        this.v1
+    )
+                
+            }
+            is FfiDecodedMessageContent.Reply -> {
+                
+    Disposable.destroy(
+        this.v1
+    )
+                
+            }
+            is FfiDecodedMessageContent.Reaction -> {
+                
+    Disposable.destroy(
+        this.v1
+    )
+                
+            }
+            is FfiDecodedMessageContent.Attachment -> {
+                
+    Disposable.destroy(
+        this.v1
+    )
+                
+            }
+            is FfiDecodedMessageContent.RemoteAttachment -> {
+                
+    Disposable.destroy(
+        this.v1
+    )
+                
+            }
+            is FfiDecodedMessageContent.MultiRemoteAttachment -> {
+                
+    Disposable.destroy(
+        this.v1
+    )
+                
+            }
+            is FfiDecodedMessageContent.TransactionReference -> {
+                
+    Disposable.destroy(
+        this.v1
+    )
+                
+            }
+            is FfiDecodedMessageContent.GroupUpdated -> {
+                
+    Disposable.destroy(
+        this.v1
+    )
+                
+            }
+            is FfiDecodedMessageContent.ReadReceipt -> {
+                
+    Disposable.destroy(
+        this.v1
+    )
+                
+            }
+            is FfiDecodedMessageContent.WalletSendCalls -> {
+                
+    Disposable.destroy(
+        this.v1
+    )
+                
+            }
+            is FfiDecodedMessageContent.Custom -> {
+                
+    Disposable.destroy(
+        this.v1
+    )
+                
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiDecodedMessageContent : FfiConverterRustBuffer<FfiDecodedMessageContent>{
+    override fun read(buf: ByteBuffer): FfiDecodedMessageContent {
+        return when(buf.getInt()) {
+            1 -> FfiDecodedMessageContent.Text(
+                FfiConverterTypeFfiTextContent.read(buf),
+                )
+            2 -> FfiDecodedMessageContent.Reply(
+                FfiConverterTypeFfiEnrichedReply.read(buf),
+                )
+            3 -> FfiDecodedMessageContent.Reaction(
+                FfiConverterTypeFfiReactionPayload.read(buf),
+                )
+            4 -> FfiDecodedMessageContent.Attachment(
+                FfiConverterTypeFfiAttachment.read(buf),
+                )
+            5 -> FfiDecodedMessageContent.RemoteAttachment(
+                FfiConverterTypeFfiRemoteAttachment.read(buf),
+                )
+            6 -> FfiDecodedMessageContent.MultiRemoteAttachment(
+                FfiConverterTypeFfiMultiRemoteAttachment.read(buf),
+                )
+            7 -> FfiDecodedMessageContent.TransactionReference(
+                FfiConverterTypeFfiTransactionReference.read(buf),
+                )
+            8 -> FfiDecodedMessageContent.GroupUpdated(
+                FfiConverterTypeFfiGroupUpdated.read(buf),
+                )
+            9 -> FfiDecodedMessageContent.ReadReceipt(
+                FfiConverterTypeFfiReadReceipt.read(buf),
+                )
+            10 -> FfiDecodedMessageContent.WalletSendCalls(
+                FfiConverterTypeFfiWalletSendCalls.read(buf),
+                )
+            11 -> FfiDecodedMessageContent.Custom(
+                FfiConverterTypeFfiEncodedContent.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: FfiDecodedMessageContent) = when(value) {
+        is FfiDecodedMessageContent.Text -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiTextContent.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageContent.Reply -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiEnrichedReply.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageContent.Reaction -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiReactionPayload.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageContent.Attachment -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiAttachment.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageContent.RemoteAttachment -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiRemoteAttachment.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageContent.MultiRemoteAttachment -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiMultiRemoteAttachment.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageContent.TransactionReference -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiTransactionReference.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageContent.GroupUpdated -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiGroupUpdated.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageContent.ReadReceipt -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiReadReceipt.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageContent.WalletSendCalls -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiWalletSendCalls.allocationSize(value.v1)
+            )
+        }
+        is FfiDecodedMessageContent.Custom -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiEncodedContent.allocationSize(value.v1)
+            )
+        }
+    }
+
+    override fun write(value: FfiDecodedMessageContent, buf: ByteBuffer) {
+        when(value) {
+            is FfiDecodedMessageContent.Text -> {
+                buf.putInt(1)
+                FfiConverterTypeFfiTextContent.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageContent.Reply -> {
+                buf.putInt(2)
+                FfiConverterTypeFfiEnrichedReply.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageContent.Reaction -> {
+                buf.putInt(3)
+                FfiConverterTypeFfiReactionPayload.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageContent.Attachment -> {
+                buf.putInt(4)
+                FfiConverterTypeFfiAttachment.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageContent.RemoteAttachment -> {
+                buf.putInt(5)
+                FfiConverterTypeFfiRemoteAttachment.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageContent.MultiRemoteAttachment -> {
+                buf.putInt(6)
+                FfiConverterTypeFfiMultiRemoteAttachment.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageContent.TransactionReference -> {
+                buf.putInt(7)
+                FfiConverterTypeFfiTransactionReference.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageContent.GroupUpdated -> {
+                buf.putInt(8)
+                FfiConverterTypeFfiGroupUpdated.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageContent.ReadReceipt -> {
+                buf.putInt(9)
+                FfiConverterTypeFfiReadReceipt.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageContent.WalletSendCalls -> {
+                buf.putInt(10)
+                FfiConverterTypeFfiWalletSendCalls.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageContent.Custom -> {
+                buf.putInt(11)
+                FfiConverterTypeFfiEncodedContent.write(value.v1, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
 
 enum class FfiDeliveryStatus {
     
@@ -10767,6 +12617,36 @@ public object FfiConverterTypeFfiDirection: FfiConverterRustBuffer<FfiDirection>
     override fun allocationSize(value: FfiDirection) = 4UL
 
     override fun write(value: FfiDirection, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+enum class FfiGroupMessageKind {
+    
+    APPLICATION,
+    MEMBERSHIP_CHANGE;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiGroupMessageKind: FfiConverterRustBuffer<FfiGroupMessageKind> {
+    override fun read(buf: ByteBuffer) = try {
+        FfiGroupMessageKind.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: FfiGroupMessageKind) = 4UL
+
+    override fun write(value: FfiGroupMessageKind, buf: ByteBuffer) {
         buf.putInt(value.ordinal + 1)
     }
 }
@@ -11655,6 +13535,38 @@ public object FfiConverterOptionalUInt: FfiConverterRustBuffer<kotlin.UInt?> {
 /**
  * @suppress
  */
+public object FfiConverterOptionalInt: FfiConverterRustBuffer<kotlin.Int?> {
+    override fun read(buf: ByteBuffer): kotlin.Int? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterInt.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Int?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterInt.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Int?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterInt.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalULong: FfiConverterRustBuffer<kotlin.ULong?> {
     override fun read(buf: ByteBuffer): kotlin.ULong? {
         if (buf.get().toInt() == 0) {
@@ -11815,6 +13727,38 @@ public object FfiConverterOptionalByteArray: FfiConverterRustBuffer<kotlin.ByteA
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeFfiDecodedMessage: FfiConverterRustBuffer<FfiDecodedMessage?> {
+    override fun read(buf: ByteBuffer): FfiDecodedMessage? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeFfiDecodedMessage.read(buf)
+    }
+
+    override fun allocationSize(value: FfiDecodedMessage?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeFfiDecodedMessage.allocationSize(value)
+        }
+    }
+
+    override fun write(value: FfiDecodedMessage?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeFfiDecodedMessage.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeFfiSignatureRequest: FfiConverterRustBuffer<FfiSignatureRequest?> {
     override fun read(buf: ByteBuffer): FfiSignatureRequest? {
         if (buf.get().toInt() == 0) {
@@ -11837,6 +13781,38 @@ public object FfiConverterOptionalTypeFfiSignatureRequest: FfiConverterRustBuffe
         } else {
             buf.put(1)
             FfiConverterTypeFfiSignatureRequest.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeFfiContentTypeId: FfiConverterRustBuffer<FfiContentTypeId?> {
+    override fun read(buf: ByteBuffer): FfiContentTypeId? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeFfiContentTypeId.read(buf)
+    }
+
+    override fun allocationSize(value: FfiContentTypeId?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeFfiContentTypeId.allocationSize(value)
+        }
+    }
+
+    override fun write(value: FfiContentTypeId?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeFfiContentTypeId.write(value, buf)
         }
     }
 }
@@ -12007,6 +13983,38 @@ public object FfiConverterOptionalTypeFfiTransactionMetadata: FfiConverterRustBu
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeFfiWalletCallMetadata: FfiConverterRustBuffer<FfiWalletCallMetadata?> {
+    override fun read(buf: ByteBuffer): FfiWalletCallMetadata? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeFfiWalletCallMetadata.read(buf)
+    }
+
+    override fun allocationSize(value: FfiWalletCallMetadata?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeFfiWalletCallMetadata.allocationSize(value)
+        }
+    }
+
+    override fun write(value: FfiWalletCallMetadata?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeFfiWalletCallMetadata.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeFfiConversationType: FfiConverterRustBuffer<FfiConversationType?> {
     override fun read(buf: ByteBuffer): FfiConversationType? {
         if (buf.get().toInt() == 0) {
@@ -12029,6 +14037,38 @@ public object FfiConverterOptionalTypeFfiConversationType: FfiConverterRustBuffe
         } else {
             buf.put(1)
             FfiConverterTypeFfiConversationType.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeFfiDecodedMessageBody: FfiConverterRustBuffer<FfiDecodedMessageBody?> {
+    override fun read(buf: ByteBuffer): FfiDecodedMessageBody? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeFfiDecodedMessageBody.read(buf)
+    }
+
+    override fun allocationSize(value: FfiDecodedMessageBody?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeFfiDecodedMessageBody.allocationSize(value)
+        }
+    }
+
+    override fun write(value: FfiDecodedMessageBody?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeFfiDecodedMessageBody.write(value, buf)
         }
     }
 }
@@ -12263,6 +14303,38 @@ public object FfiConverterOptionalSequenceTypeFfiContentType: FfiConverterRustBu
 /**
  * @suppress
  */
+public object FfiConverterOptionalMapStringString: FfiConverterRustBuffer<Map<kotlin.String, kotlin.String>?> {
+    override fun read(buf: ByteBuffer): Map<kotlin.String, kotlin.String>? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterMapStringString.read(buf)
+    }
+
+    override fun allocationSize(value: Map<kotlin.String, kotlin.String>?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterMapStringString.allocationSize(value)
+        }
+    }
+
+    override fun write(value: Map<kotlin.String, kotlin.String>?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterMapStringString.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
     override fun read(buf: ByteBuffer): List<kotlin.String> {
         val len = buf.getInt()
@@ -12365,6 +14437,34 @@ public object FfiConverterSequenceTypeFfiConversationListItem: FfiConverterRustB
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeFfiConversationListItem.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeFfiDecodedMessage: FfiConverterRustBuffer<List<FfiDecodedMessage>> {
+    override fun read(buf: ByteBuffer): List<FfiDecodedMessage> {
+        val len = buf.getInt()
+        return List<FfiDecodedMessage>(len) {
+            FfiConverterTypeFfiDecodedMessage.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiDecodedMessage>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiDecodedMessage.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiDecodedMessage>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiDecodedMessage.write(it, buf)
         }
     }
 }
@@ -12487,6 +14587,34 @@ public object FfiConverterSequenceTypeFfiIdentifier: FfiConverterRustBuffer<List
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeFfiInbox: FfiConverterRustBuffer<List<FfiInbox>> {
+    override fun read(buf: ByteBuffer): List<FfiInbox> {
+        val len = buf.getInt()
+        return List<FfiInbox>(len) {
+            FfiConverterTypeFfiInbox.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiInbox>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiInbox.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiInbox>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiInbox.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeFfiInboxState: FfiConverterRustBuffer<List<FfiInboxState>> {
     override fun read(buf: ByteBuffer): List<FfiInboxState> {
         val len = buf.getInt()
@@ -12599,6 +14727,34 @@ public object FfiConverterSequenceTypeFfiMessageWithReactions: FfiConverterRustB
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeFfiMetadataFieldChange: FfiConverterRustBuffer<List<FfiMetadataFieldChange>> {
+    override fun read(buf: ByteBuffer): List<FfiMetadataFieldChange> {
+        val len = buf.getInt()
+        return List<FfiMetadataFieldChange>(len) {
+            FfiConverterTypeFfiMetadataFieldChange.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiMetadataFieldChange>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiMetadataFieldChange.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiMetadataFieldChange>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiMetadataFieldChange.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeFfiRemoteAttachmentInfo: FfiConverterRustBuffer<List<FfiRemoteAttachmentInfo>> {
     override fun read(buf: ByteBuffer): List<FfiRemoteAttachmentInfo> {
         val len = buf.getInt()
@@ -12617,6 +14773,34 @@ public object FfiConverterSequenceTypeFfiRemoteAttachmentInfo: FfiConverterRustB
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeFfiRemoteAttachmentInfo.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeFfiWalletCall: FfiConverterRustBuffer<List<FfiWalletCall>> {
+    override fun read(buf: ByteBuffer): List<FfiWalletCall> {
+        val len = buf.getInt()
+        return List<FfiWalletCall>(len) {
+            FfiConverterTypeFfiWalletCall.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiWalletCall>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiWalletCall.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiWalletCall>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiWalletCall.write(it, buf)
         }
     }
 }
@@ -12768,6 +14952,45 @@ public object FfiConverterMapStringULong: FfiConverterRustBuffer<Map<kotlin.Stri
         value.iterator().forEach { (k, v) ->
             FfiConverterString.write(k, buf)
             FfiConverterULong.write(v, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.String, kotlin.String>> {
+    override fun read(buf: ByteBuffer): Map<kotlin.String, kotlin.String> {
+        val len = buf.getInt()
+        return buildMap<kotlin.String, kotlin.String>(len) {
+            repeat(len) {
+                val k = FfiConverterString.read(buf)
+                val v = FfiConverterString.read(buf)
+                this[k] = v
+            }
+        }
+    }
+
+    override fun allocationSize(value: Map<kotlin.String, kotlin.String>): ULong {
+        val spaceForMapSize = 4UL
+        val spaceForChildren = value.map { (k, v) ->
+            FfiConverterString.allocationSize(k) +
+            FfiConverterString.allocationSize(v)
+        }.sum()
+        return spaceForMapSize + spaceForChildren
+    }
+
+    override fun write(value: Map<kotlin.String, kotlin.String>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        // The parens on `(k, v)` here ensure we're calling the right method,
+        // which is important for compatibility with older android devices.
+        // Ref https://blog.danlew.net/2017/03/16/kotlin-puzzler-whose-line-is-it-anyways/
+        value.iterator().forEach { (k, v) ->
+            FfiConverterString.write(k, buf)
+            FfiConverterString.write(v, buf)
         }
     }
 }
@@ -12966,6 +15189,16 @@ public object FfiConverterMapTypeFfiIdentifierBoolean: FfiConverterRustBuffer<Ma
     )
     }
 
+    @Throws(GenericException::class) fun `decodeAttachment`(`bytes`: kotlin.ByteArray): FfiAttachment {
+            return FfiConverterTypeFfiAttachment.lift(
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_decode_attachment(
+        FfiConverterByteArray.lower(`bytes`),_status)
+}
+    )
+    }
+    
+
     @Throws(GenericException::class) fun `decodeMultiRemoteAttachment`(`bytes`: kotlin.ByteArray): FfiMultiRemoteAttachment {
             return FfiConverterTypeFfiMultiRemoteAttachment.lift(
     uniffiRustCallWithError(GenericException) { _status ->
@@ -12976,10 +15209,40 @@ public object FfiConverterMapTypeFfiIdentifierBoolean: FfiConverterRustBuffer<Ma
     }
     
 
-    @Throws(GenericException::class) fun `decodeReaction`(`bytes`: kotlin.ByteArray): FfiReaction {
-            return FfiConverterTypeFfiReaction.lift(
+    @Throws(GenericException::class) fun `decodeReaction`(`bytes`: kotlin.ByteArray): FfiReactionPayload {
+            return FfiConverterTypeFfiReactionPayload.lift(
     uniffiRustCallWithError(GenericException) { _status ->
     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_decode_reaction(
+        FfiConverterByteArray.lower(`bytes`),_status)
+}
+    )
+    }
+    
+
+    @Throws(GenericException::class) fun `decodeReadReceipt`(`bytes`: kotlin.ByteArray): FfiReadReceipt {
+            return FfiConverterTypeFfiReadReceipt.lift(
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_decode_read_receipt(
+        FfiConverterByteArray.lower(`bytes`),_status)
+}
+    )
+    }
+    
+
+    @Throws(GenericException::class) fun `decodeRemoteAttachment`(`bytes`: kotlin.ByteArray): FfiRemoteAttachment {
+            return FfiConverterTypeFfiRemoteAttachment.lift(
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_decode_remote_attachment(
+        FfiConverterByteArray.lower(`bytes`),_status)
+}
+    )
+    }
+    
+
+    @Throws(GenericException::class) fun `decodeReply`(`bytes`: kotlin.ByteArray): FfiReply {
+            return FfiConverterTypeFfiReply.lift(
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_decode_reply(
         FfiConverterByteArray.lower(`bytes`),_status)
 }
     )
@@ -12996,6 +15259,16 @@ public object FfiConverterMapTypeFfiIdentifierBoolean: FfiConverterRustBuffer<Ma
     }
     
 
+    @Throws(GenericException::class) fun `encodeAttachment`(`attachment`: FfiAttachment): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_encode_attachment(
+        FfiConverterTypeFfiAttachment.lower(`attachment`),_status)
+}
+    )
+    }
+    
+
     @Throws(GenericException::class) fun `encodeMultiRemoteAttachment`(`ffiMultiRemoteAttachment`: FfiMultiRemoteAttachment): kotlin.ByteArray {
             return FfiConverterByteArray.lift(
     uniffiRustCallWithError(GenericException) { _status ->
@@ -13006,11 +15279,41 @@ public object FfiConverterMapTypeFfiIdentifierBoolean: FfiConverterRustBuffer<Ma
     }
     
 
-    @Throws(GenericException::class) fun `encodeReaction`(`reaction`: FfiReaction): kotlin.ByteArray {
+    @Throws(GenericException::class) fun `encodeReaction`(`reaction`: FfiReactionPayload): kotlin.ByteArray {
             return FfiConverterByteArray.lift(
     uniffiRustCallWithError(GenericException) { _status ->
     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_encode_reaction(
-        FfiConverterTypeFfiReaction.lower(`reaction`),_status)
+        FfiConverterTypeFfiReactionPayload.lower(`reaction`),_status)
+}
+    )
+    }
+    
+
+    @Throws(GenericException::class) fun `encodeReadReceipt`(`readReceipt`: FfiReadReceipt): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_encode_read_receipt(
+        FfiConverterTypeFfiReadReceipt.lower(`readReceipt`),_status)
+}
+    )
+    }
+    
+
+    @Throws(GenericException::class) fun `encodeRemoteAttachment`(`remoteAttachment`: FfiRemoteAttachment): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_encode_remote_attachment(
+        FfiConverterTypeFfiRemoteAttachment.lower(`remoteAttachment`),_status)
+}
+    )
+    }
+    
+
+    @Throws(GenericException::class) fun `encodeReply`(`reply`: FfiReply): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_encode_reply(
+        FfiConverterTypeFfiReply.lower(`reply`),_status)
 }
     )
     }

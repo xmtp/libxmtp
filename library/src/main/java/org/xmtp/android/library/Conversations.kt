@@ -7,12 +7,13 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
-import org.xmtp.android.library.libxmtp.GroupPermissionPreconfiguration
 import org.xmtp.android.library.libxmtp.DecodedMessage
+import org.xmtp.android.library.libxmtp.DecodedMessageV2
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
+import org.xmtp.android.library.libxmtp.GroupPermissionPreconfiguration
+import org.xmtp.android.library.libxmtp.PermissionPolicySet
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.proto.keystore.api.v1.Keystore
-import org.xmtp.android.library.libxmtp.PermissionPolicySet
 import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationCallback
 import uniffi.xmtpv3.FfiConversationListItem
@@ -101,6 +102,14 @@ data class Conversations(
             DecodedMessage.create(ffiClient.message(messageId.hexToByteArray()))
         } catch (e: Exception) {
             null
+        }
+    }
+
+    fun findMessageV2(messageId: String): DecodedMessageV2? {
+        return try {
+            DecodedMessageV2.create(ffiClient.messageV2(messageId.hexToByteArray()))
+        } catch (e: Exception) {
+            throw XMTPException("No message found")
         }
     }
 

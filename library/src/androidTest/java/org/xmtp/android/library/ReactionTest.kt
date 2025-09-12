@@ -15,8 +15,8 @@ import org.xmtp.android.library.codecs.ReactionCodec
 import org.xmtp.android.library.codecs.ReactionSchema
 import org.xmtp.android.library.codecs.ReactionV2Codec
 import org.xmtp.android.library.libxmtp.DecodedMessage
-import uniffi.xmtpv3.FfiReaction
 import uniffi.xmtpv3.FfiReactionAction
+import uniffi.xmtpv3.FfiReactionPayload
 import uniffi.xmtpv3.FfiReactionSchema
 
 @RunWith(AndroidJUnit4::class)
@@ -118,7 +118,7 @@ class ReactionTest {
 
         val messageToReact = runBlocking { aliceConversation.messages()[0] }
 
-        val reaction = FfiReaction(
+        val reaction = FfiReactionPayload(
             reference = messageToReact.id,
             referenceInboxId = aliceClient.inboxId,
             action = FfiReactionAction.ADDED,
@@ -135,7 +135,7 @@ class ReactionTest {
         val messages = runBlocking { aliceConversation.messages() }
         assertEquals(messages.size, 3)
         if (messages.size == 3) {
-            val content: FfiReaction? = messages.first().content()
+            val content: FfiReactionPayload? = messages.first().content()
             assertEquals("U+1F603", content?.content)
             assertEquals(messageToReact.id, content?.reference)
             assertEquals(FfiReactionAction.ADDED, content?.action)
@@ -147,7 +147,7 @@ class ReactionTest {
         }
         assertEquals(messagesWithReactions.size, 2)
         assertEquals(messagesWithReactions[0].id, messageToReact.id)
-        val reactionContent: FfiReaction? =
+        val reactionContent: FfiReactionPayload? =
             messagesWithReactions[0]?.childMessages!![0]?.let { it?.content()!! }
         assertEquals(reactionContent?.reference, messageToReact.id)
     }
@@ -168,7 +168,7 @@ class ReactionTest {
         val messageToReact = aliceConversation.messages()[0]
 
         // Send V2 reaction
-        val reactionV2 = FfiReaction(
+        val reactionV2 = FfiReactionPayload(
             reference = messageToReact.id,
             referenceInboxId = aliceClient.inboxId,
             action = FfiReactionAction.ADDED,
@@ -203,7 +203,7 @@ class ReactionTest {
         // Verify both reaction contents
         val childContents = messagesWithReactions[0].childMessages!!.mapNotNull {
             when (val content = it.content<Any>()) {
-                is FfiReaction -> content.content
+                is FfiReactionPayload -> content.content
                 is Reaction -> content.content
                 else -> null
             }

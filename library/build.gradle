@@ -124,6 +124,7 @@ afterEvaluate {
                     }
                     developers {
                         developer {
+
                             id = "xmtp"
                             name = "xmtp"
                             email = "naomi@xmtp.com"

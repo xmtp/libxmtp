@@ -1,5 +1,7 @@
 package org.xmtp.android.library.codecs
 
+import uniffi.xmtpv3.FfiContentTypeId
+
 typealias ContentTypeId = org.xmtp.proto.message.contents.Content.ContentTypeId
 
 class ContentTypeIdBuilder {
@@ -15,6 +17,15 @@ class ContentTypeIdBuilder {
                 it.typeId = typeId
                 it.versionMajor = versionMajor
                 it.versionMinor = versionMinor
+            }.build()
+        }
+
+        fun fromFfi(ffiContentTypeId: FfiContentTypeId): ContentTypeId {
+            return ContentTypeId.newBuilder().also {
+                it.authorityId = ffiContentTypeId.authorityId
+                it.typeId = ffiContentTypeId.typeId
+                it.versionMajor = ffiContentTypeId.versionMajor.toInt()
+                it.versionMinor = ffiContentTypeId.versionMinor.toInt()
             }.build()
         }
     }

@@ -5,6 +5,7 @@ import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.libxmtp.Member
 import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.DecodedMessage
+import org.xmtp.android.library.libxmtp.DecodedMessageV2
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.proto.keystore.api.v1.Keystore
 import java.util.Date
@@ -164,6 +165,19 @@ sealed class Conversation {
         return when (this) {
             is Group -> group.messages(limit, beforeNs, afterNs, direction, deliveryStatus)
             is Dm -> dm.messages(limit, beforeNs, afterNs, direction, deliveryStatus)
+        }
+    }
+
+    suspend fun messagesV2(
+        limit: Int? = null,
+        beforeNs: Long? = null,
+        afterNs: Long? = null,
+        direction: DecodedMessage.SortDirection = DecodedMessage.SortDirection.DESCENDING,
+        deliveryStatus: DecodedMessage.MessageDeliveryStatus = DecodedMessage.MessageDeliveryStatus.ALL,
+    ): List<DecodedMessageV2> {
+        return when (this) {
+            is Group -> group.messagesV2(limit, beforeNs, afterNs, direction, deliveryStatus)
+            is Dm -> dm.messagesV2(limit, beforeNs, afterNs, direction, deliveryStatus)
         }
     }
 

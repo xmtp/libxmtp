@@ -14,6 +14,7 @@ import org.xmtp.android.library.libxmtp.ConversationDebugInfo.CommitLogForkStatu
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.libxmtp.DecodedMessage.MessageDeliveryStatus
 import org.xmtp.android.library.libxmtp.DecodedMessage.SortDirection
+import org.xmtp.android.library.libxmtp.DecodedMessageV2
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.proto.keystore.api.v1.Keystore
 import uniffi.xmtpv3.FfiConversation
@@ -189,6 +190,35 @@ class Dm(
 
         return ffiMessageWithReactions.mapNotNull { ffiMessageWithReaction ->
             DecodedMessage.create(ffiMessageWithReaction)
+        }
+    }
+
+    suspend fun messagesV2(
+        limit: Int? = null,
+        beforeNs: Long? = null,
+        afterNs: Long? = null,
+        direction: SortDirection = SortDirection.DESCENDING,
+        deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
+    ): List<DecodedMessageV2> {
+        return libXMTPGroup.findMessagesV2(
+            opts = FfiListMessagesOptions(
+                sentBeforeNs = beforeNs,
+                sentAfterNs = afterNs,
+                limit = limit?.toLong(),
+                deliveryStatus = when (deliveryStatus) {
+                    MessageDeliveryStatus.PUBLISHED -> FfiDeliveryStatus.PUBLISHED
+                    MessageDeliveryStatus.UNPUBLISHED -> FfiDeliveryStatus.UNPUBLISHED
+                    MessageDeliveryStatus.FAILED -> FfiDeliveryStatus.FAILED
+                    else -> null
+                },
+                direction = when (direction) {
+                    SortDirection.ASCENDING -> FfiDirection.ASCENDING
+                    else -> FfiDirection.DESCENDING
+                },
+                contentTypes = null
+            )
+        ).mapNotNull {
+            DecodedMessageV2.create(it)
         }
     }
 
