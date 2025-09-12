@@ -3,6 +3,7 @@ use metrics::WorkerMetrics;
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::{any::Any, collections::HashMap, hash::Hash, sync::Arc};
+use tokio_util::sync::CancellationToken;
 use xmtp_configuration::WORKER_RESTART_DELAY;
 
 pub mod metrics;
@@ -16,10 +17,21 @@ pub enum WorkerKind {
     CommitLog,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct WorkerRunner {
     factories: Vec<DynFactory>,
     metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
+    cancellation_token: CancellationToken,
+}
+
+impl Default for WorkerRunner {
+    fn default() -> Self {
+        Self {
+            factories: Vec::new(),
+            metrics: Arc::new(Mutex::new(HashMap::new())),
+            cancellation_token: CancellationToken::new(),
+        }
+    }
 }
 
 impl WorkerRunner {
@@ -57,8 +69,19 @@ impl WorkerRunner {
                 let mut m = self.metrics.lock();
                 m.insert(worker.kind(), metrics);
             }
-            worker.spawn()
+            let token = self.cancellation_token.child_token();
+            worker.spawn(token)
         }
+    }
+
+    /// Cancel all workers
+    pub fn cancel_all(&self) {
+        self.cancellation_token.cancel();
+    }
+
+    /// Check if workers have been cancelled
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation_token.is_cancelled()
     }
 
     pub async fn wait_for_sync_worker_init(&self) {
@@ -101,21 +124,37 @@ pub trait Worker {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn spawn(mut self: Box<Self>)
+    fn spawn(mut self: Box<Self>, cancellation_token: CancellationToken)
     where
         Self: Send + Sync + 'static,
     {
         xmtp_common::spawn(None, async move {
-            loop {
-                if let Err(err) = self.run_tasks().await {
-                    if err.needs_db_reconnect() {
-                        // drop the worker
-                        tracing::warn!("Pool disconnected. task will restart on reconnect");
-                        break;
-                    } else {
-                        tracing::error!("{:?} worker error: {:?}", self.kind(), err);
-                        xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
-                        tracing::info!("Restarting {:?} worker...", self.kind());
+            'outer: loop {
+                tokio::select! {
+                    _ = cancellation_token.cancelled() => {
+                        tracing::info!("{:?} worker received cancellation signal", self.kind());
+                        break 'outer;
+                    }
+                    result = self.run_tasks() => {
+                        if let Err(err) = result {
+                            if err.needs_db_reconnect() {
+                                // drop the worker
+                                tracing::debug!("{:?} worker stopping: database disconnected", self.kind());
+                                break 'outer;
+                            } else {
+                                tracing::error!("{:?} worker error: {:?}", self.kind(), err);
+                                // Sleep with cancellation support
+                                tokio::select! {
+                                    _ = cancellation_token.cancelled() => {
+                                        tracing::info!("{:?} worker received cancellation signal during restart delay", self.kind());
+                                        break 'outer;
+                                    }
+                                    _ = xmtp_common::time::sleep(WORKER_RESTART_DELAY) => {
+                                        tracing::info!("Restarting {:?} worker...", self.kind());
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -123,21 +162,37 @@ pub trait Worker {
     }
 
     #[cfg(target_arch = "wasm32")]
-    fn spawn(mut self: Box<Self>)
+    fn spawn(mut self: Box<Self>, cancellation_token: CancellationToken)
     where
         Self: 'static,
     {
         xmtp_common::spawn(None, async move {
-            loop {
-                if let Err(err) = self.run_tasks().await {
-                    if err.needs_db_reconnect() {
-                        // drop the worker
-                        tracing::warn!("Pool disconnected. task will restart on reconnect");
-                        break;
-                    } else {
-                        tracing::error!("Worker error: {err:?}");
-                        xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
-                        tracing::info!("Restarting {:?} worker...", self.kind());
+            'outer: loop {
+                tokio::select! {
+                    _ = cancellation_token.cancelled() => {
+                        tracing::info!("{:?} worker received cancellation signal", self.kind());
+                        break 'outer;
+                    }
+                    result = self.run_tasks() => {
+                        if let Err(err) = result {
+                            if err.needs_db_reconnect() {
+                                // drop the worker
+                                tracing::debug!("{:?} worker stopping: database disconnected", self.kind());
+                                break 'outer;
+                            } else {
+                                tracing::error!("Worker error: {err:?}");
+                                // Sleep with cancellation support
+                                tokio::select! {
+                                    _ = cancellation_token.cancelled() => {
+                                        tracing::info!("{:?} worker received cancellation signal during restart delay", self.kind());
+                                        break 'outer;
+                                    }
+                                    _ = xmtp_common::time::sleep(WORKER_RESTART_DELAY) => {
+                                        tracing::info!("Restarting {:?} worker...", self.kind());
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
