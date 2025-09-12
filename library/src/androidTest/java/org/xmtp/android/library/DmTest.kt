@@ -516,6 +516,44 @@ class DmTest {
     }
 
     @Test
+    fun testCanGetLastReadTimes() {
+        runBlocking {
+            val dm = boClient.conversations.findOrCreateDm(alixClient.inboxId)
+
+            // Send a message and sync
+            dm.send("Hello from Bo")
+            dm.sync()
+
+            // Alix syncs and reads the message
+            alixClient.conversations.sync()
+            val alixDm = alixClient.conversations.findDmByInboxId(boClient.inboxId)
+            alixDm!!.sync()
+
+            // Send a read receipt from Alix
+            Client.register(codec = org.xmtp.android.library.codecs.ReadReceiptCodec())
+            alixDm.send(
+                content = org.xmtp.android.library.codecs.ReadReceipt,
+                options = SendOptions(contentType = org.xmtp.android.library.codecs.ContentTypeReadReceipt)
+            )
+
+            // Bo syncs to receive the read receipt
+            dm.sync()
+
+            // Get the read receipt message timestamp
+            val messages = dm.messages()
+            val readReceiptMessage = messages.first {
+                it.encodedContent.type.typeId == "readReceipt"
+            }
+
+            // Get last read times
+            val lastReadTimes = dm.getLastReadTimes()
+
+            // Check that Alix's read time matches the read receipt timestamp
+            assertEquals(readReceiptMessage.sentAtNs, lastReadTimes[alixClient.inboxId])
+        }
+    }
+
+    @Test
     fun testDmDisappearingMessages() = runBlocking {
         val initialSettings = DisappearingMessageSettings(
             1_000_000_000,

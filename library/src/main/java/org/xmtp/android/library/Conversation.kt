@@ -2,11 +2,11 @@ package org.xmtp.android.library
 
 import kotlinx.coroutines.flow.Flow
 import org.xmtp.android.library.codecs.EncodedContent
-import org.xmtp.android.library.libxmtp.Member
 import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.libxmtp.DecodedMessageV2
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
+import org.xmtp.android.library.libxmtp.Member
 import org.xmtp.proto.keystore.api.v1.Keystore
 import java.util.Date
 
@@ -263,6 +263,14 @@ sealed class Conversation {
         return when (this) {
             is Group -> group.isActive()
             is Dm -> dm.isActive()
+        }
+    }
+
+    // Get the last read receipt timestamp (in nanoseconds) for each member of the conversation, keyed by inbox ID
+    fun getLastReadTimes(): Map<InboxId, Long> {
+        return when (this) {
+            is Group -> group.getLastReadTimes()
+            is Dm -> dm.getLastReadTimes()
         }
     }
 }

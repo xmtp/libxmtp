@@ -1263,6 +1263,8 @@ internal open class UniffiVTableCallbackInterfaceFfiPreferenceCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1369,6 +1371,8 @@ fun uniffi_xmtpv3_checksum_method_fficonversation_find_messages_v2(
 fun uniffi_xmtpv3_checksum_method_fficonversation_find_messages_with_reactions(
 ): Short
 fun uniffi_xmtpv3_checksum_method_fficonversation_get_hmac_keys(
+): Short
+fun uniffi_xmtpv3_checksum_method_fficonversation_get_last_read_times(
 ): Short
 fun uniffi_xmtpv3_checksum_method_fficonversation_group_description(
 ): Short
@@ -1739,6 +1743,8 @@ fun uniffi_xmtpv3_fn_method_fficonversation_find_messages_v2(`ptr`: Pointer,`opt
 fun uniffi_xmtpv3_fn_method_fficonversation_find_messages_with_reactions(`ptr`: Pointer,`opts`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_method_fficonversation_get_hmac_keys(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_method_fficonversation_get_last_read_times(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_method_fficonversation_group_description(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -2384,6 +2390,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_get_hmac_keys() != 35284.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_get_last_read_times() != 5152.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_group_description() != 53570.toShort()) {
@@ -3692,6 +3701,8 @@ public interface FfiConversationInterface {
     
     fun `getHmacKeys`(): Map<kotlin.ByteArray, List<FfiHmacKey>>
     
+    fun `getLastReadTimes`(): Map<kotlin.String, kotlin.Long>
+    
     fun `groupDescription`(): kotlin.String
     
     fun `groupImageUrlSquare`(): kotlin.String
@@ -4114,6 +4125,19 @@ open class FfiConversation: Disposable, AutoCloseable, FfiConversationInterface
     callWithPointer {
     uniffiRustCallWithError(GenericException) { _status ->
     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_get_hmac_keys(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(GenericException::class)override fun `getLastReadTimes`(): Map<kotlin.String, kotlin.Long> {
+            return FfiConverterMapStringLong.lift(
+    callWithPointer {
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_get_last_read_times(
         it, _status)
 }
     }
@@ -14952,6 +14976,45 @@ public object FfiConverterMapStringULong: FfiConverterRustBuffer<Map<kotlin.Stri
         value.iterator().forEach { (k, v) ->
             FfiConverterString.write(k, buf)
             FfiConverterULong.write(v, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterMapStringLong: FfiConverterRustBuffer<Map<kotlin.String, kotlin.Long>> {
+    override fun read(buf: ByteBuffer): Map<kotlin.String, kotlin.Long> {
+        val len = buf.getInt()
+        return buildMap<kotlin.String, kotlin.Long>(len) {
+            repeat(len) {
+                val k = FfiConverterString.read(buf)
+                val v = FfiConverterLong.read(buf)
+                this[k] = v
+            }
+        }
+    }
+
+    override fun allocationSize(value: Map<kotlin.String, kotlin.Long>): ULong {
+        val spaceForMapSize = 4UL
+        val spaceForChildren = value.map { (k, v) ->
+            FfiConverterString.allocationSize(k) +
+            FfiConverterLong.allocationSize(v)
+        }.sum()
+        return spaceForMapSize + spaceForChildren
+    }
+
+    override fun write(value: Map<kotlin.String, kotlin.Long>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        // The parens on `(k, v)` here ensure we're calling the right method,
+        // which is important for compatibility with older android devices.
+        // Ref https://blog.danlew.net/2017/03/16/kotlin-puzzler-whose-line-is-it-anyways/
+        value.iterator().forEach { (k, v) ->
+            FfiConverterString.write(k, buf)
+            FfiConverterLong.write(v, buf)
         }
     }
 }

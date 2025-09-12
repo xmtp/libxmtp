@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.callbackFlow
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.compress
-import org.xmtp.android.library.libxmtp.Member
 import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.ConversationDebugInfo.CommitLogForkStatus
 import org.xmtp.android.library.libxmtp.DecodedMessage
@@ -17,9 +16,10 @@ import org.xmtp.android.library.libxmtp.DecodedMessage.SortDirection
 import org.xmtp.android.library.libxmtp.DecodedMessageV2
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.libxmtp.GroupMembershipResult
-import org.xmtp.android.library.libxmtp.PublicIdentity
+import org.xmtp.android.library.libxmtp.Member
 import org.xmtp.android.library.libxmtp.PermissionOption
 import org.xmtp.android.library.libxmtp.PermissionPolicySet
+import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.proto.keystore.api.v1.Keystore
 import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationMetadata
@@ -33,7 +33,6 @@ import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiMetadataField
 import uniffi.xmtpv3.FfiPermissionUpdateType
 import uniffi.xmtpv3.FfiSubscribeException
-
 import java.util.Date
 
 class Group(
@@ -538,5 +537,9 @@ class Group(
 
     suspend fun getDebugInformation(): ConversationDebugInfo {
         return ConversationDebugInfo(libXMTPGroup.conversationDebugInfo())
+    }
+
+    fun getLastReadTimes(): Map<InboxId, Long> {
+        return libXMTPGroup.getLastReadTimes()
     }
 }

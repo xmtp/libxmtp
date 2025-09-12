@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.callbackFlow
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.compress
-import org.xmtp.android.library.libxmtp.Member
 import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.ConversationDebugInfo.CommitLogForkStatus
 import org.xmtp.android.library.libxmtp.DecodedMessage
@@ -16,6 +15,7 @@ import org.xmtp.android.library.libxmtp.DecodedMessage.MessageDeliveryStatus
 import org.xmtp.android.library.libxmtp.DecodedMessage.SortDirection
 import org.xmtp.android.library.libxmtp.DecodedMessageV2
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
+import org.xmtp.android.library.libxmtp.Member
 import org.xmtp.proto.keystore.api.v1.Keystore
 import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationMetadata
@@ -346,5 +346,9 @@ class Dm(
 
     suspend fun getDebugInformation(): ConversationDebugInfo {
         return ConversationDebugInfo(libXMTPGroup.conversationDebugInfo())
+    }
+
+    fun getLastReadTimes(): Map<InboxId, Long> {
+        return libXMTPGroup.getLastReadTimes()
     }
 }
