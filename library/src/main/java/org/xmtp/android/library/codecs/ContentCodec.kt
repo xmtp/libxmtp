@@ -5,6 +5,7 @@ import org.bouncycastle.asn1.cms.CMSAttributes.contentType
 import org.xmtp.android.library.Client
 import org.xmtp.android.library.EncodedContentCompression
 import org.xmtp.proto.message.contents.Content
+import uniffi.xmtpv3.FfiEncodedContent
 
 typealias EncodedContent = Content.EncodedContent
 
@@ -63,6 +64,22 @@ fun EncodedContent.decompressContent(): EncodedContent {
         else -> return copy
     }
     return copy
+}
+
+fun encodedContentFromFfi(ffi: FfiEncodedContent): EncodedContent {
+    return EncodedContent.newBuilder().also { builder ->
+        ffi.typeId?.let {
+            builder.type = ContentTypeIdBuilder.fromFfi(it)
+        }
+        builder.putAllParameters(ffi.parameters)
+        ffi.fallback?.let {
+            builder.fallback = it
+        }
+        ffi.compression?.let {
+            builder.compressionValue = it
+        }
+        builder.content = ffi.content.toByteString()
+    }.build()
 }
 
 interface ContentCodec<T> {

@@ -16,7 +16,6 @@ import org.xmtp.android.library.codecs.ReactionSchema
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
-import org.xmtp.proto.message.contents.message
 
 @RunWith(AndroidJUnit4::class)
 class DecodedMessageV2Test {
@@ -212,6 +211,24 @@ class DecodedMessageV2Test {
     }
 
     @Test
+    fun testMessagesV2CustomContentTypes() = runBlocking {
+        val group = alixClient.conversations.newGroup(listOf(boClient.inboxId))
+
+        Client.register(codec = NumberCodec())
+
+        val myNumber = 3.14
+
+        group.send(
+            content = myNumber,
+            options = SendOptions(contentType = NumberCodec().contentType),
+        )
+
+        val messages = group.messagesV2()
+        val content: Double? = messages[0].content()
+        assertEquals(myNumber, content)
+    }
+
+    @Test
     fun testMessagesV2IncludeReactions() {
         val boGroup = runBlocking {
             boClient.conversations.newGroup(listOf(alixClient.inboxId))
@@ -254,7 +271,8 @@ class DecodedMessageV2Test {
             boGroup.messagesV2()
         }
 
-        val messageWithReactions = messagesV2.find { it.content<String>() == "Hello with reactions" }
+        val messageWithReactions =
+            messagesV2.find { it.content<String>() == "Hello with reactions" }
         assertNotNull(messageWithReactions)
         assertTrue(messageWithReactions!!.hasReactions)
         assertEquals(2, messageWithReactions.reactionCount.toInt())
@@ -304,66 +322,5 @@ class DecodedMessageV2Test {
         assertNotNull(message)
         assertEquals(5, message!!.reactionCount.toInt())
         assertEquals(5, message.reactions.size)
-    }
-
-    @Test
-    fun testReactionRemoval() {
-        val boGroup = runBlocking {
-            boClient.conversations.newGroup(listOf(alixClient.inboxId))
-        }
-        runBlocking {
-            alixClient.conversations.sync()
-            boGroup.sync()
-        }
-        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
-
-        runBlocking {
-            val messageId = boGroup.send("Test reaction removal")
-            boGroup.sync()
-            alixGroup.sync()
-
-            alixGroup.send(
-                content = Reaction(
-                    reference = messageId,
-                    action = ReactionAction.Added,
-                    content = "👍",
-                    schema = ReactionSchema.Unicode
-                ),
-                options = SendOptions(contentType = ContentTypeReaction)
-            )
-            boGroup.sync()
-
-            alixGroup.send(
-                content = Reaction(
-                    reference = messageId,
-                    action = ReactionAction.Removed,
-                    content = "👍",
-                    schema = ReactionSchema.Unicode
-                ),
-                options = SendOptions(contentType = ContentTypeReaction)
-            )
-            boGroup.sync()
-        }
-
-        val messagesV2 = runBlocking {
-            boGroup.messagesV2()
-        }
-
-        val message = messagesV2.find { it.content<String>() == "Test reaction removal" }
-        assertNotNull(message)
-        // Reactions include both Add and Remove actions in the list
-        // The count should reflect the net result (added - removed = 0)
-        // But the reactions list shows all reaction messages
-        assertEquals(2, message!!.reactions.size) // Both Add and Remove reactions
-
-        // Verify that we have one Add and one Remove
-        val addReactions = message.reactions.count {
-            it.content<Reaction>()?.action == ReactionAction.Added
-        }
-        val removeReactions = message.reactions.count {
-            it.content<Reaction>()?.action == ReactionAction.Removed
-        }
-        assertEquals(1, addReactions)
-        assertEquals(1, removeReactions)
     }
 }

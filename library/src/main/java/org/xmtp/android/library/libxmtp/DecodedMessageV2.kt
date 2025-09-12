@@ -6,16 +6,16 @@ import org.xmtp.android.library.InboxId
 import org.xmtp.android.library.codecs.Attachment
 import org.xmtp.android.library.codecs.ContentTypeId
 import org.xmtp.android.library.codecs.ContentTypeIdBuilder
-import org.xmtp.android.library.codecs.EncodedContent
+import org.xmtp.android.library.codecs.MultiRemoteAttachment
 import org.xmtp.android.library.codecs.Reaction
 import org.xmtp.android.library.codecs.ReactionAction
 import org.xmtp.android.library.codecs.ReactionSchema
 import org.xmtp.android.library.codecs.ReadReceipt
-import org.xmtp.android.library.codecs.MultiRemoteAttachment
 import org.xmtp.android.library.codecs.RemoteAttachment
 import org.xmtp.android.library.codecs.RemoteAttachmentInfo
 import org.xmtp.android.library.codecs.TransactionReference
 import org.xmtp.android.library.codecs.decoded
+import org.xmtp.android.library.codecs.encodedContentFromFfi
 import org.xmtp.android.library.toHex
 import uniffi.xmtpv3.FfiAttachment
 import uniffi.xmtpv3.FfiDecodedMessage
@@ -26,13 +26,13 @@ import uniffi.xmtpv3.FfiGroupUpdated
 import uniffi.xmtpv3.FfiInbox
 import uniffi.xmtpv3.FfiMetadataFieldChange
 import uniffi.xmtpv3.FfiMultiRemoteAttachment
-import uniffi.xmtpv3.FfiReactionPayload
 import uniffi.xmtpv3.FfiReactionAction
+import uniffi.xmtpv3.FfiReactionPayload
 import uniffi.xmtpv3.FfiReactionSchema
 import uniffi.xmtpv3.FfiRemoteAttachment
 import uniffi.xmtpv3.FfiRemoteAttachmentInfo
-import uniffi.xmtpv3.FfiTransactionReference
 import uniffi.xmtpv3.FfiTransactionMetadata
+import uniffi.xmtpv3.FfiTransactionReference
 import java.net.URL
 import java.util.Date
 
@@ -197,24 +197,25 @@ class DecodedMessageV2 private constructor(
         }
 
         private fun mapGroupUpdated(ffiGroupUpdated: FfiGroupUpdated): org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated {
-            return org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated.newBuilder().apply {
-                initiatedByInboxId = ffiGroupUpdated.initiatedByInboxId
+            return org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated.newBuilder()
+                .apply {
+                    initiatedByInboxId = ffiGroupUpdated.initiatedByInboxId
 
-                // Add added inboxes
-                ffiGroupUpdated.addedInboxes.forEach { ffiInbox ->
-                    addAddedInboxes(mapFfiInboxToProto(ffiInbox))
-                }
+                    // Add added inboxes
+                    ffiGroupUpdated.addedInboxes.forEach { ffiInbox ->
+                        addAddedInboxes(mapFfiInboxToProto(ffiInbox))
+                    }
 
-                // Add removed inboxes
-                ffiGroupUpdated.removedInboxes.forEach { ffiInbox ->
-                    addRemovedInboxes(mapFfiInboxToProto(ffiInbox))
-                }
+                    // Add removed inboxes
+                    ffiGroupUpdated.removedInboxes.forEach { ffiInbox ->
+                        addRemovedInboxes(mapFfiInboxToProto(ffiInbox))
+                    }
 
-                // Add metadata field changes
-                ffiGroupUpdated.metadataFieldChanges.forEach { ffiChange ->
-                    addMetadataFieldChanges(mapFfiMetadataChangeToProto(ffiChange))
-                }
-            }.build()
+                    // Add metadata field changes
+                    ffiGroupUpdated.metadataFieldChanges.forEach { ffiChange ->
+                        addMetadataFieldChanges(mapFfiMetadataChangeToProto(ffiChange))
+                    }
+                }.build()
         }
 
         /**
@@ -227,13 +228,16 @@ class DecodedMessageV2 private constructor(
                 is FfiDecodedMessageContent.Reply -> Reply.create(content.v1)
                 is FfiDecodedMessageContent.Attachment -> mapAttachment(content.v1)
                 is FfiDecodedMessageContent.RemoteAttachment -> mapRemoteAttachment(content.v1)
-                is FfiDecodedMessageContent.MultiRemoteAttachment -> mapMultiRemoteAttachment(content.v1)
+                is FfiDecodedMessageContent.MultiRemoteAttachment -> mapMultiRemoteAttachment(
+                    content.v1
+                )
+
                 is FfiDecodedMessageContent.TransactionReference -> mapTransactionReference(content.v1)
                 is FfiDecodedMessageContent.WalletSendCalls -> content.v1
                 is FfiDecodedMessageContent.GroupUpdated -> mapGroupUpdated(content.v1)
                 is FfiDecodedMessageContent.ReadReceipt -> ReadReceipt
                 is FfiDecodedMessageContent.Custom -> {
-                    val encodedContent = EncodedContent.parseFrom(content.v1.content)
+                    val encodedContent = encodedContentFromFfi(content.v1)
                     encodedContent.decoded<Any>()
                 }
 
@@ -255,7 +259,7 @@ class DecodedMessageV2 private constructor(
                 is FfiDecodedMessageBody.WalletSendCalls -> body.v1
                 is FfiDecodedMessageBody.GroupUpdated -> mapGroupUpdated(body.v1)
                 is FfiDecodedMessageBody.Custom -> {
-                    val encodedContent = EncodedContent.parseFrom(body.v1.content)
+                    val encodedContent = encodedContentFromFfi(body.v1)
                     encodedContent.decoded<Any>()
                 }
 
