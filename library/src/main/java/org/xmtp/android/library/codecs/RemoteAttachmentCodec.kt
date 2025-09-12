@@ -95,7 +95,10 @@ data class RemoteAttachment(
             )
         }
 
-        fun encodeEncryptedBytes(encodedContent: ByteArray, filename: String): EncryptedEncodedContent {
+        fun encodeEncryptedBytes(
+            encodedContent: ByteArray,
+            filename: String
+        ): EncryptedEncodedContent {
             val secret = SecureRandom().generateSeed(32)
             val ciphertext = Crypto.encrypt(secret, encodedContent)
                 ?: throw XMTPException("ciphertext not created")
@@ -190,7 +193,7 @@ data class RemoteAttachmentCodec(override var contentType: ContentTypeId = Conte
         )
     }
 
-    override fun fallback(content: RemoteAttachment): String? {
+    override fun fallback(content: RemoteAttachment): String {
         return "Can’t display \"${content.filename}”. This app doesn’t support attachments."
     }
 

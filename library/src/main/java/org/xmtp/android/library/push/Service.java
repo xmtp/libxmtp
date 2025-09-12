@@ -4,26 +4,34 @@
 package org.xmtp.android.library.push;
 
 public final class Service {
-    private Service() {}
+    private Service() {
+    }
+
     public static void registerAllExtensions(
             com.google.protobuf.ExtensionRegistryLite registry) {
     }
+
     public interface DeliveryMechanismOrBuilder extends
             // @@protoc_insertion_point(interface_extends:notifications.v1.DeliveryMechanism)
             com.google.protobuf.MessageLiteOrBuilder {
 
         /**
          * <code>string apns_device_token = 1;</code>
+         *
          * @return Whether the apnsDeviceToken field is set.
          */
         boolean hasApnsDeviceToken();
+
         /**
          * <code>string apns_device_token = 1;</code>
+         *
          * @return The apnsDeviceToken.
          */
         java.lang.String getApnsDeviceToken();
+
         /**
          * <code>string apns_device_token = 1;</code>
+         *
          * @return The bytes for apnsDeviceToken.
          */
         com.google.protobuf.ByteString
@@ -31,16 +39,21 @@ public final class Service {
 
         /**
          * <code>string firebase_device_token = 2;</code>
+         *
          * @return Whether the firebaseDeviceToken field is set.
          */
         boolean hasFirebaseDeviceToken();
+
         /**
          * <code>string firebase_device_token = 2;</code>
+         *
          * @return The firebaseDeviceToken.
          */
         java.lang.String getFirebaseDeviceToken();
+
         /**
          * <code>string firebase_device_token = 2;</code>
+         *
          * @return The bytes for firebaseDeviceToken.
          */
         com.google.protobuf.ByteString
@@ -48,48 +61,58 @@ public final class Service {
 
         /**
          * <code>string custom_token = 3;</code>
+         *
          * @return Whether the customToken field is set.
          */
         boolean hasCustomToken();
+
         /**
          * <code>string custom_token = 3;</code>
+         *
          * @return The customToken.
          */
         java.lang.String getCustomToken();
+
         /**
          * <code>string custom_token = 3;</code>
+         *
          * @return The bytes for customToken.
          */
         com.google.protobuf.ByteString
         getCustomTokenBytes();
 
-        public org.xmtp.android.library.push.Service.DeliveryMechanism.DeliveryMechanismTypeCase getDeliveryMechanismTypeCase();
+        org.xmtp.android.library.push.Service.DeliveryMechanism.DeliveryMechanismTypeCase getDeliveryMechanismTypeCase();
     }
+
     /**
      * <pre>
      * An union of possible delibery mechanisms
      * </pre>
-     *
+     * <p>
      * Protobuf type {@code notifications.v1.DeliveryMechanism}
      */
-    public  static final class DeliveryMechanism extends
+    public static final class DeliveryMechanism extends
             com.google.protobuf.GeneratedMessageLite<
                     DeliveryMechanism, DeliveryMechanism.Builder> implements
             // @@protoc_insertion_point(message_implements:notifications.v1.DeliveryMechanism)
             DeliveryMechanismOrBuilder {
         private DeliveryMechanism() {
         }
+
         private int deliveryMechanismTypeCase_ = 0;
         private java.lang.Object deliveryMechanismType_;
+
         public enum DeliveryMechanismTypeCase {
             APNS_DEVICE_TOKEN(1),
             FIREBASE_DEVICE_TOKEN(2),
             CUSTOM_TOKEN(3),
             DELIVERYMECHANISMTYPE_NOT_SET(0);
             private final int value;
-            private DeliveryMechanismTypeCase(int value) {
+
+            DeliveryMechanismTypeCase(int value) {
                 this.value = value;
             }
+
             /**
              * @deprecated Use {@link #forNumber(int)} instead.
              */
@@ -100,17 +123,23 @@ public final class Service {
 
             public static DeliveryMechanismTypeCase forNumber(int value) {
                 switch (value) {
-                    case 1: return APNS_DEVICE_TOKEN;
-                    case 2: return FIREBASE_DEVICE_TOKEN;
-                    case 3: return CUSTOM_TOKEN;
-                    case 0: return DELIVERYMECHANISMTYPE_NOT_SET;
-                    default: return null;
+                    case 1:
+                        return APNS_DEVICE_TOKEN;
+                    case 2:
+                        return FIREBASE_DEVICE_TOKEN;
+                    case 3:
+                        return CUSTOM_TOKEN;
+                    case 0:
+                        return DELIVERYMECHANISMTYPE_NOT_SET;
+                    default:
+                        return null;
                 }
             }
+
             public int getNumber() {
                 return this.value;
             }
-        };
+        }
 
         @java.lang.Override
         public DeliveryMechanismTypeCase
@@ -125,16 +154,20 @@ public final class Service {
         }
 
         public static final int APNS_DEVICE_TOKEN_FIELD_NUMBER = 1;
+
         /**
          * <code>string apns_device_token = 1;</code>
+         *
          * @return Whether the apnsDeviceToken field is set.
          */
         @java.lang.Override
         public boolean hasApnsDeviceToken() {
             return deliveryMechanismTypeCase_ == 1;
         }
+
         /**
          * <code>string apns_device_token = 1;</code>
+         *
          * @return The apnsDeviceToken.
          */
         @java.lang.Override
@@ -145,8 +178,10 @@ public final class Service {
             }
             return ref;
         }
+
         /**
          * <code>string apns_device_token = 1;</code>
+         *
          * @return The bytes for apnsDeviceToken.
          */
         @java.lang.Override
@@ -158,8 +193,10 @@ public final class Service {
             }
             return com.google.protobuf.ByteString.copyFromUtf8(ref);
         }
+
         /**
          * <code>string apns_device_token = 1;</code>
+         *
          * @param value The apnsDeviceToken to set.
          */
         private void setApnsDeviceToken(
@@ -168,6 +205,7 @@ public final class Service {
             deliveryMechanismTypeCase_ = 1;
             deliveryMechanismType_ = value;
         }
+
         /**
          * <code>string apns_device_token = 1;</code>
          */
@@ -177,8 +215,10 @@ public final class Service {
                 deliveryMechanismType_ = null;
             }
         }
+
         /**
          * <code>string apns_device_token = 1;</code>
+         *
          * @param value The bytes for apnsDeviceToken to set.
          */
         private void setApnsDeviceTokenBytes(
@@ -189,16 +229,20 @@ public final class Service {
         }
 
         public static final int FIREBASE_DEVICE_TOKEN_FIELD_NUMBER = 2;
+
         /**
          * <code>string firebase_device_token = 2;</code>
+         *
          * @return Whether the firebaseDeviceToken field is set.
          */
         @java.lang.Override
         public boolean hasFirebaseDeviceToken() {
             return deliveryMechanismTypeCase_ == 2;
         }
+
         /**
          * <code>string firebase_device_token = 2;</code>
+         *
          * @return The firebaseDeviceToken.
          */
         @java.lang.Override
@@ -209,8 +253,10 @@ public final class Service {
             }
             return ref;
         }
+
         /**
          * <code>string firebase_device_token = 2;</code>
+         *
          * @return The bytes for firebaseDeviceToken.
          */
         @java.lang.Override
@@ -222,8 +268,10 @@ public final class Service {
             }
             return com.google.protobuf.ByteString.copyFromUtf8(ref);
         }
+
         /**
          * <code>string firebase_device_token = 2;</code>
+         *
          * @param value The firebaseDeviceToken to set.
          */
         private void setFirebaseDeviceToken(
@@ -232,6 +280,7 @@ public final class Service {
             deliveryMechanismTypeCase_ = 2;
             deliveryMechanismType_ = value;
         }
+
         /**
          * <code>string firebase_device_token = 2;</code>
          */
@@ -241,8 +290,10 @@ public final class Service {
                 deliveryMechanismType_ = null;
             }
         }
+
         /**
          * <code>string firebase_device_token = 2;</code>
+         *
          * @param value The bytes for firebaseDeviceToken to set.
          */
         private void setFirebaseDeviceTokenBytes(
@@ -253,16 +304,20 @@ public final class Service {
         }
 
         public static final int CUSTOM_TOKEN_FIELD_NUMBER = 3;
+
         /**
          * <code>string custom_token = 3;</code>
+         *
          * @return Whether the customToken field is set.
          */
         @java.lang.Override
         public boolean hasCustomToken() {
             return deliveryMechanismTypeCase_ == 3;
         }
+
         /**
          * <code>string custom_token = 3;</code>
+         *
          * @return The customToken.
          */
         @java.lang.Override
@@ -273,8 +328,10 @@ public final class Service {
             }
             return ref;
         }
+
         /**
          * <code>string custom_token = 3;</code>
+         *
          * @return The bytes for customToken.
          */
         @java.lang.Override
@@ -286,8 +343,10 @@ public final class Service {
             }
             return com.google.protobuf.ByteString.copyFromUtf8(ref);
         }
+
         /**
          * <code>string custom_token = 3;</code>
+         *
          * @param value The customToken to set.
          */
         private void setCustomToken(
@@ -296,6 +355,7 @@ public final class Service {
             deliveryMechanismTypeCase_ = 3;
             deliveryMechanismType_ = value;
         }
+
         /**
          * <code>string custom_token = 3;</code>
          */
@@ -305,8 +365,10 @@ public final class Service {
                 deliveryMechanismType_ = null;
             }
         }
+
         /**
          * <code>string custom_token = 3;</code>
+         *
          * @param value The bytes for customToken to set.
          */
         private void setCustomTokenBytes(
@@ -322,6 +384,7 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(
                 java.nio.ByteBuffer data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -329,12 +392,14 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(
                 com.google.protobuf.ByteString data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(
                 com.google.protobuf.ByteString data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -342,11 +407,13 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(byte[] data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(
                 byte[] data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -354,11 +421,13 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(java.io.InputStream input)
                 throws java.io.IOException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -366,22 +435,26 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseDelimitedFrom(java.io.InputStream input)
                 throws java.io.IOException {
             return parseDelimitedFrom(DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseDelimitedFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
             return parseDelimitedFrom(DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(
                 com.google.protobuf.CodedInputStream input)
                 throws java.io.IOException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(
                 com.google.protobuf.CodedInputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -391,17 +464,18 @@ public final class Service {
         }
 
         public static Builder newBuilder() {
-            return (Builder) DEFAULT_INSTANCE.createBuilder();
+            return DEFAULT_INSTANCE.createBuilder();
         }
+
         public static Builder newBuilder(org.xmtp.android.library.push.Service.DeliveryMechanism prototype) {
-            return (Builder) DEFAULT_INSTANCE.createBuilder(prototype);
+            return DEFAULT_INSTANCE.createBuilder(prototype);
         }
 
         /**
          * <pre>
          * An union of possible delibery mechanisms
          * </pre>
-         *
+         * <p>
          * Protobuf type {@code notifications.v1.DeliveryMechanism}
          */
         public static final class Builder extends
@@ -429,22 +503,27 @@ public final class Service {
 
             /**
              * <code>string apns_device_token = 1;</code>
+             *
              * @return Whether the apnsDeviceToken field is set.
              */
             @java.lang.Override
             public boolean hasApnsDeviceToken() {
                 return instance.hasApnsDeviceToken();
             }
+
             /**
              * <code>string apns_device_token = 1;</code>
+             *
              * @return The apnsDeviceToken.
              */
             @java.lang.Override
             public java.lang.String getApnsDeviceToken() {
                 return instance.getApnsDeviceToken();
             }
+
             /**
              * <code>string apns_device_token = 1;</code>
+             *
              * @return The bytes for apnsDeviceToken.
              */
             @java.lang.Override
@@ -452,8 +531,10 @@ public final class Service {
             getApnsDeviceTokenBytes() {
                 return instance.getApnsDeviceTokenBytes();
             }
+
             /**
              * <code>string apns_device_token = 1;</code>
+             *
              * @param value The apnsDeviceToken to set.
              * @return This builder for chaining.
              */
@@ -463,8 +544,10 @@ public final class Service {
                 instance.setApnsDeviceToken(value);
                 return this;
             }
+
             /**
              * <code>string apns_device_token = 1;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearApnsDeviceToken() {
@@ -472,8 +555,10 @@ public final class Service {
                 instance.clearApnsDeviceToken();
                 return this;
             }
+
             /**
              * <code>string apns_device_token = 1;</code>
+             *
              * @param value The bytes for apnsDeviceToken to set.
              * @return This builder for chaining.
              */
@@ -486,22 +571,27 @@ public final class Service {
 
             /**
              * <code>string firebase_device_token = 2;</code>
+             *
              * @return Whether the firebaseDeviceToken field is set.
              */
             @java.lang.Override
             public boolean hasFirebaseDeviceToken() {
                 return instance.hasFirebaseDeviceToken();
             }
+
             /**
              * <code>string firebase_device_token = 2;</code>
+             *
              * @return The firebaseDeviceToken.
              */
             @java.lang.Override
             public java.lang.String getFirebaseDeviceToken() {
                 return instance.getFirebaseDeviceToken();
             }
+
             /**
              * <code>string firebase_device_token = 2;</code>
+             *
              * @return The bytes for firebaseDeviceToken.
              */
             @java.lang.Override
@@ -509,8 +599,10 @@ public final class Service {
             getFirebaseDeviceTokenBytes() {
                 return instance.getFirebaseDeviceTokenBytes();
             }
+
             /**
              * <code>string firebase_device_token = 2;</code>
+             *
              * @param value The firebaseDeviceToken to set.
              * @return This builder for chaining.
              */
@@ -520,8 +612,10 @@ public final class Service {
                 instance.setFirebaseDeviceToken(value);
                 return this;
             }
+
             /**
              * <code>string firebase_device_token = 2;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearFirebaseDeviceToken() {
@@ -529,8 +623,10 @@ public final class Service {
                 instance.clearFirebaseDeviceToken();
                 return this;
             }
+
             /**
              * <code>string firebase_device_token = 2;</code>
+             *
              * @param value The bytes for firebaseDeviceToken to set.
              * @return This builder for chaining.
              */
@@ -543,22 +639,27 @@ public final class Service {
 
             /**
              * <code>string custom_token = 3;</code>
+             *
              * @return Whether the customToken field is set.
              */
             @java.lang.Override
             public boolean hasCustomToken() {
                 return instance.hasCustomToken();
             }
+
             /**
              * <code>string custom_token = 3;</code>
+             *
              * @return The customToken.
              */
             @java.lang.Override
             public java.lang.String getCustomToken() {
                 return instance.getCustomToken();
             }
+
             /**
              * <code>string custom_token = 3;</code>
+             *
              * @return The bytes for customToken.
              */
             @java.lang.Override
@@ -566,8 +667,10 @@ public final class Service {
             getCustomTokenBytes() {
                 return instance.getCustomTokenBytes();
             }
+
             /**
              * <code>string custom_token = 3;</code>
+             *
              * @param value The customToken to set.
              * @return This builder for chaining.
              */
@@ -577,8 +680,10 @@ public final class Service {
                 instance.setCustomToken(value);
                 return this;
             }
+
             /**
              * <code>string custom_token = 3;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearCustomToken() {
@@ -586,8 +691,10 @@ public final class Service {
                 instance.clearCustomToken();
                 return this;
             }
+
             /**
              * <code>string custom_token = 3;</code>
+             *
              * @param value The bytes for customToken to set.
              * @return This builder for chaining.
              */
@@ -600,9 +707,10 @@ public final class Service {
 
             // @@protoc_insertion_point(builder_scope:notifications.v1.DeliveryMechanism)
         }
+
         @java.lang.Override
         @java.lang.SuppressWarnings({"unchecked", "fallthrough"})
-        protected final java.lang.Object dynamicMethod(
+        protected java.lang.Object dynamicMethod(
                 com.google.protobuf.GeneratedMessageLite.MethodToInvoke method,
                 java.lang.Object arg0, java.lang.Object arg1) {
             switch (method) {
@@ -613,7 +721,7 @@ public final class Service {
                     return new Builder();
                 }
                 case BUILD_MESSAGE_INFO: {
-                    java.lang.Object[] objects = new java.lang.Object[] {
+                    java.lang.Object[] objects = new java.lang.Object[]{
                             "deliveryMechanismType_",
                             "deliveryMechanismTypeCase_",
                     };
@@ -654,6 +762,7 @@ public final class Service {
 
         // @@protoc_insertion_point(class_scope:notifications.v1.DeliveryMechanism)
         private static final org.xmtp.android.library.push.Service.DeliveryMechanism DEFAULT_INSTANCE;
+
         static {
             DeliveryMechanism defaultInstance = new DeliveryMechanism();
             // New instances are implicitly immutable so no need to make
@@ -680,11 +789,14 @@ public final class Service {
 
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         java.lang.String getInstallationId();
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         com.google.protobuf.ByteString
@@ -692,23 +804,27 @@ public final class Service {
 
         /**
          * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
+         *
          * @return Whether the deliveryMechanism field is set.
          */
         boolean hasDeliveryMechanism();
+
         /**
          * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
+         *
          * @return The deliveryMechanism.
          */
         org.xmtp.android.library.push.Service.DeliveryMechanism getDeliveryMechanism();
     }
+
     /**
      * <pre>
      * A request to register an installation with the service
      * </pre>
-     *
+     * <p>
      * Protobuf type {@code notifications.v1.RegisterInstallationRequest}
      */
-    public  static final class RegisterInstallationRequest extends
+    public static final class RegisterInstallationRequest extends
             com.google.protobuf.GeneratedMessageLite<
                     RegisterInstallationRequest, RegisterInstallationRequest.Builder> implements
             // @@protoc_insertion_point(message_implements:notifications.v1.RegisterInstallationRequest)
@@ -716,18 +832,23 @@ public final class Service {
         private RegisterInstallationRequest() {
             installationId_ = "";
         }
+
         public static final int INSTALLATION_ID_FIELD_NUMBER = 1;
         private java.lang.String installationId_;
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         @java.lang.Override
         public java.lang.String getInstallationId() {
             return installationId_;
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         @java.lang.Override
@@ -735,8 +856,10 @@ public final class Service {
         getInstallationIdBytes() {
             return com.google.protobuf.ByteString.copyFromUtf8(installationId_);
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @param value The installationId to set.
          */
         private void setInstallationId(
@@ -745,6 +868,7 @@ public final class Service {
 
             installationId_ = value;
         }
+
         /**
          * <code>string installation_id = 1;</code>
          */
@@ -752,8 +876,10 @@ public final class Service {
 
             installationId_ = getDefaultInstance().getInstallationId();
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @param value The bytes for installationId to set.
          */
         private void setInstallationIdBytes(
@@ -765,6 +891,7 @@ public final class Service {
 
         public static final int DELIVERY_MECHANISM_FIELD_NUMBER = 2;
         private org.xmtp.android.library.push.Service.DeliveryMechanism deliveryMechanism_;
+
         /**
          * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
          */
@@ -772,6 +899,7 @@ public final class Service {
         public boolean hasDeliveryMechanism() {
             return deliveryMechanism_ != null;
         }
+
         /**
          * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
          */
@@ -779,6 +907,7 @@ public final class Service {
         public org.xmtp.android.library.push.Service.DeliveryMechanism getDeliveryMechanism() {
             return deliveryMechanism_ == null ? org.xmtp.android.library.push.Service.DeliveryMechanism.getDefaultInstance() : deliveryMechanism_;
         }
+
         /**
          * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
          */
@@ -787,6 +916,7 @@ public final class Service {
             deliveryMechanism_ = value;
 
         }
+
         /**
          * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
          */
@@ -802,10 +932,12 @@ public final class Service {
             }
 
         }
+
         /**
          * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
          */
-        private void clearDeliveryMechanism() {  deliveryMechanism_ = null;
+        private void clearDeliveryMechanism() {
+            deliveryMechanism_ = null;
 
         }
 
@@ -815,6 +947,7 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(
                 java.nio.ByteBuffer data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -822,12 +955,14 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(
                 com.google.protobuf.ByteString data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(
                 com.google.protobuf.ByteString data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -835,11 +970,13 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(byte[] data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(
                 byte[] data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -847,11 +984,13 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(java.io.InputStream input)
                 throws java.io.IOException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -859,22 +998,26 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseDelimitedFrom(java.io.InputStream input)
                 throws java.io.IOException {
             return parseDelimitedFrom(DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseDelimitedFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
             return parseDelimitedFrom(DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(
                 com.google.protobuf.CodedInputStream input)
                 throws java.io.IOException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(
                 com.google.protobuf.CodedInputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -884,17 +1027,18 @@ public final class Service {
         }
 
         public static Builder newBuilder() {
-            return (Builder) DEFAULT_INSTANCE.createBuilder();
+            return DEFAULT_INSTANCE.createBuilder();
         }
+
         public static Builder newBuilder(org.xmtp.android.library.push.Service.RegisterInstallationRequest prototype) {
-            return (Builder) DEFAULT_INSTANCE.createBuilder(prototype);
+            return DEFAULT_INSTANCE.createBuilder(prototype);
         }
 
         /**
          * <pre>
          * A request to register an installation with the service
          * </pre>
-         *
+         * <p>
          * Protobuf type {@code notifications.v1.RegisterInstallationRequest}
          */
         public static final class Builder extends
@@ -910,14 +1054,17 @@ public final class Service {
 
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The installationId.
              */
             @java.lang.Override
             public java.lang.String getInstallationId() {
                 return instance.getInstallationId();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The bytes for installationId.
              */
             @java.lang.Override
@@ -925,8 +1072,10 @@ public final class Service {
             getInstallationIdBytes() {
                 return instance.getInstallationIdBytes();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The installationId to set.
              * @return This builder for chaining.
              */
@@ -936,8 +1085,10 @@ public final class Service {
                 instance.setInstallationId(value);
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearInstallationId() {
@@ -945,8 +1096,10 @@ public final class Service {
                 instance.clearInstallationId();
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The bytes for installationId to set.
              * @return This builder for chaining.
              */
@@ -964,6 +1117,7 @@ public final class Service {
             public boolean hasDeliveryMechanism() {
                 return instance.hasDeliveryMechanism();
             }
+
             /**
              * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
              */
@@ -971,6 +1125,7 @@ public final class Service {
             public org.xmtp.android.library.push.Service.DeliveryMechanism getDeliveryMechanism() {
                 return instance.getDeliveryMechanism();
             }
+
             /**
              * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
              */
@@ -979,6 +1134,7 @@ public final class Service {
                 instance.setDeliveryMechanism(value);
                 return this;
             }
+
             /**
              * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
              */
@@ -988,6 +1144,7 @@ public final class Service {
                 instance.setDeliveryMechanism(builderForValue.build());
                 return this;
             }
+
             /**
              * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
              */
@@ -996,19 +1153,22 @@ public final class Service {
                 instance.mergeDeliveryMechanism(value);
                 return this;
             }
+
             /**
              * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
              */
-            public Builder clearDeliveryMechanism() {  copyOnWrite();
+            public Builder clearDeliveryMechanism() {
+                copyOnWrite();
                 instance.clearDeliveryMechanism();
                 return this;
             }
 
             // @@protoc_insertion_point(builder_scope:notifications.v1.RegisterInstallationRequest)
         }
+
         @java.lang.Override
         @java.lang.SuppressWarnings({"unchecked", "fallthrough"})
-        protected final java.lang.Object dynamicMethod(
+        protected java.lang.Object dynamicMethod(
                 com.google.protobuf.GeneratedMessageLite.MethodToInvoke method,
                 java.lang.Object arg0, java.lang.Object arg1) {
             switch (method) {
@@ -1019,13 +1179,12 @@ public final class Service {
                     return new Builder();
                 }
                 case BUILD_MESSAGE_INFO: {
-                    java.lang.Object[] objects = new java.lang.Object[] {
+                    java.lang.Object[] objects = new java.lang.Object[]{
                             "installationId_",
                             "deliveryMechanism_",
                     };
                     java.lang.String info =
-                            "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u0208\u0002\t" +
-                                    "";
+                            "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u0208\u0002\t";
                     return newMessageInfo(DEFAULT_INSTANCE, info, objects);
                 }
                 // fall through
@@ -1060,6 +1219,7 @@ public final class Service {
 
         // @@protoc_insertion_point(class_scope:notifications.v1.RegisterInstallationRequest)
         private static final org.xmtp.android.library.push.Service.RegisterInstallationRequest DEFAULT_INSTANCE;
+
         static {
             RegisterInstallationRequest defaultInstance = new RegisterInstallationRequest();
             // New instances are implicitly immutable so no need to make
@@ -1086,11 +1246,14 @@ public final class Service {
 
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         java.lang.String getInstallationId();
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         com.google.protobuf.ByteString
@@ -1098,18 +1261,20 @@ public final class Service {
 
         /**
          * <code>uint64 valid_until = 2;</code>
+         *
          * @return The validUntil.
          */
         long getValidUntil();
     }
+
     /**
      * <pre>
      * Response to RegisterInstallationRequest
      * </pre>
-     *
+     * <p>
      * Protobuf type {@code notifications.v1.RegisterInstallationResponse}
      */
-    public  static final class RegisterInstallationResponse extends
+    public static final class RegisterInstallationResponse extends
             com.google.protobuf.GeneratedMessageLite<
                     RegisterInstallationResponse, RegisterInstallationResponse.Builder> implements
             // @@protoc_insertion_point(message_implements:notifications.v1.RegisterInstallationResponse)
@@ -1117,18 +1282,23 @@ public final class Service {
         private RegisterInstallationResponse() {
             installationId_ = "";
         }
+
         public static final int INSTALLATION_ID_FIELD_NUMBER = 1;
         private java.lang.String installationId_;
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         @java.lang.Override
         public java.lang.String getInstallationId() {
             return installationId_;
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         @java.lang.Override
@@ -1136,8 +1306,10 @@ public final class Service {
         getInstallationIdBytes() {
             return com.google.protobuf.ByteString.copyFromUtf8(installationId_);
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @param value The installationId to set.
          */
         private void setInstallationId(
@@ -1146,6 +1318,7 @@ public final class Service {
 
             installationId_ = value;
         }
+
         /**
          * <code>string installation_id = 1;</code>
          */
@@ -1153,8 +1326,10 @@ public final class Service {
 
             installationId_ = getDefaultInstance().getInstallationId();
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @param value The bytes for installationId to set.
          */
         private void setInstallationIdBytes(
@@ -1166,22 +1341,27 @@ public final class Service {
 
         public static final int VALID_UNTIL_FIELD_NUMBER = 2;
         private long validUntil_;
+
         /**
          * <code>uint64 valid_until = 2;</code>
+         *
          * @return The validUntil.
          */
         @java.lang.Override
         public long getValidUntil() {
             return validUntil_;
         }
+
         /**
          * <code>uint64 valid_until = 2;</code>
+         *
          * @param value The validUntil to set.
          */
         private void setValidUntil(long value) {
 
             validUntil_ = value;
         }
+
         /**
          * <code>uint64 valid_until = 2;</code>
          */
@@ -1196,6 +1376,7 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(
                 java.nio.ByteBuffer data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -1203,12 +1384,14 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(
                 com.google.protobuf.ByteString data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(
                 com.google.protobuf.ByteString data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -1216,11 +1399,13 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(byte[] data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(
                 byte[] data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -1228,11 +1413,13 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(java.io.InputStream input)
                 throws java.io.IOException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -1240,22 +1427,26 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseDelimitedFrom(java.io.InputStream input)
                 throws java.io.IOException {
             return parseDelimitedFrom(DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseDelimitedFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
             return parseDelimitedFrom(DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(
                 com.google.protobuf.CodedInputStream input)
                 throws java.io.IOException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(
                 com.google.protobuf.CodedInputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -1265,17 +1456,18 @@ public final class Service {
         }
 
         public static Builder newBuilder() {
-            return (Builder) DEFAULT_INSTANCE.createBuilder();
+            return DEFAULT_INSTANCE.createBuilder();
         }
+
         public static Builder newBuilder(org.xmtp.android.library.push.Service.RegisterInstallationResponse prototype) {
-            return (Builder) DEFAULT_INSTANCE.createBuilder(prototype);
+            return DEFAULT_INSTANCE.createBuilder(prototype);
         }
 
         /**
          * <pre>
          * Response to RegisterInstallationRequest
          * </pre>
-         *
+         * <p>
          * Protobuf type {@code notifications.v1.RegisterInstallationResponse}
          */
         public static final class Builder extends
@@ -1291,14 +1483,17 @@ public final class Service {
 
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The installationId.
              */
             @java.lang.Override
             public java.lang.String getInstallationId() {
                 return instance.getInstallationId();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The bytes for installationId.
              */
             @java.lang.Override
@@ -1306,8 +1501,10 @@ public final class Service {
             getInstallationIdBytes() {
                 return instance.getInstallationIdBytes();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The installationId to set.
              * @return This builder for chaining.
              */
@@ -1317,8 +1514,10 @@ public final class Service {
                 instance.setInstallationId(value);
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearInstallationId() {
@@ -1326,8 +1525,10 @@ public final class Service {
                 instance.clearInstallationId();
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The bytes for installationId to set.
              * @return This builder for chaining.
              */
@@ -1340,14 +1541,17 @@ public final class Service {
 
             /**
              * <code>uint64 valid_until = 2;</code>
+             *
              * @return The validUntil.
              */
             @java.lang.Override
             public long getValidUntil() {
                 return instance.getValidUntil();
             }
+
             /**
              * <code>uint64 valid_until = 2;</code>
+             *
              * @param value The validUntil to set.
              * @return This builder for chaining.
              */
@@ -1356,8 +1560,10 @@ public final class Service {
                 instance.setValidUntil(value);
                 return this;
             }
+
             /**
              * <code>uint64 valid_until = 2;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearValidUntil() {
@@ -1368,9 +1574,10 @@ public final class Service {
 
             // @@protoc_insertion_point(builder_scope:notifications.v1.RegisterInstallationResponse)
         }
+
         @java.lang.Override
         @java.lang.SuppressWarnings({"unchecked", "fallthrough"})
-        protected final java.lang.Object dynamicMethod(
+        protected java.lang.Object dynamicMethod(
                 com.google.protobuf.GeneratedMessageLite.MethodToInvoke method,
                 java.lang.Object arg0, java.lang.Object arg1) {
             switch (method) {
@@ -1381,13 +1588,12 @@ public final class Service {
                     return new Builder();
                 }
                 case BUILD_MESSAGE_INFO: {
-                    java.lang.Object[] objects = new java.lang.Object[] {
+                    java.lang.Object[] objects = new java.lang.Object[]{
                             "installationId_",
                             "validUntil_",
                     };
                     java.lang.String info =
-                            "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u0208\u0002\u0003" +
-                                    "";
+                            "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u0208\u0002\u0003";
                     return newMessageInfo(DEFAULT_INSTANCE, info, objects);
                 }
                 // fall through
@@ -1422,6 +1628,7 @@ public final class Service {
 
         // @@protoc_insertion_point(class_scope:notifications.v1.RegisterInstallationResponse)
         private static final org.xmtp.android.library.push.Service.RegisterInstallationResponse DEFAULT_INSTANCE;
+
         static {
             RegisterInstallationResponse defaultInstance = new RegisterInstallationResponse();
             // New instances are implicitly immutable so no need to make
@@ -1448,24 +1655,28 @@ public final class Service {
 
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         java.lang.String getInstallationId();
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         com.google.protobuf.ByteString
         getInstallationIdBytes();
     }
+
     /**
      * <pre>
      * Delete an installation from the service
      * </pre>
-     *
+     * <p>
      * Protobuf type {@code notifications.v1.DeleteInstallationRequest}
      */
-    public  static final class DeleteInstallationRequest extends
+    public static final class DeleteInstallationRequest extends
             com.google.protobuf.GeneratedMessageLite<
                     DeleteInstallationRequest, DeleteInstallationRequest.Builder> implements
             // @@protoc_insertion_point(message_implements:notifications.v1.DeleteInstallationRequest)
@@ -1473,18 +1684,23 @@ public final class Service {
         private DeleteInstallationRequest() {
             installationId_ = "";
         }
+
         public static final int INSTALLATION_ID_FIELD_NUMBER = 1;
         private java.lang.String installationId_;
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         @java.lang.Override
         public java.lang.String getInstallationId() {
             return installationId_;
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         @java.lang.Override
@@ -1492,8 +1708,10 @@ public final class Service {
         getInstallationIdBytes() {
             return com.google.protobuf.ByteString.copyFromUtf8(installationId_);
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @param value The installationId to set.
          */
         private void setInstallationId(
@@ -1502,6 +1720,7 @@ public final class Service {
 
             installationId_ = value;
         }
+
         /**
          * <code>string installation_id = 1;</code>
          */
@@ -1509,8 +1728,10 @@ public final class Service {
 
             installationId_ = getDefaultInstance().getInstallationId();
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @param value The bytes for installationId to set.
          */
         private void setInstallationIdBytes(
@@ -1526,6 +1747,7 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(
                 java.nio.ByteBuffer data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -1533,12 +1755,14 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(
                 com.google.protobuf.ByteString data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(
                 com.google.protobuf.ByteString data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -1546,11 +1770,13 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(byte[] data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(
                 byte[] data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -1558,11 +1784,13 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(java.io.InputStream input)
                 throws java.io.IOException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -1570,22 +1798,26 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseDelimitedFrom(java.io.InputStream input)
                 throws java.io.IOException {
             return parseDelimitedFrom(DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseDelimitedFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
             return parseDelimitedFrom(DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(
                 com.google.protobuf.CodedInputStream input)
                 throws java.io.IOException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(
                 com.google.protobuf.CodedInputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -1595,17 +1827,18 @@ public final class Service {
         }
 
         public static Builder newBuilder() {
-            return (Builder) DEFAULT_INSTANCE.createBuilder();
+            return DEFAULT_INSTANCE.createBuilder();
         }
+
         public static Builder newBuilder(org.xmtp.android.library.push.Service.DeleteInstallationRequest prototype) {
-            return (Builder) DEFAULT_INSTANCE.createBuilder(prototype);
+            return DEFAULT_INSTANCE.createBuilder(prototype);
         }
 
         /**
          * <pre>
          * Delete an installation from the service
          * </pre>
-         *
+         * <p>
          * Protobuf type {@code notifications.v1.DeleteInstallationRequest}
          */
         public static final class Builder extends
@@ -1621,14 +1854,17 @@ public final class Service {
 
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The installationId.
              */
             @java.lang.Override
             public java.lang.String getInstallationId() {
                 return instance.getInstallationId();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The bytes for installationId.
              */
             @java.lang.Override
@@ -1636,8 +1872,10 @@ public final class Service {
             getInstallationIdBytes() {
                 return instance.getInstallationIdBytes();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The installationId to set.
              * @return This builder for chaining.
              */
@@ -1647,8 +1885,10 @@ public final class Service {
                 instance.setInstallationId(value);
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearInstallationId() {
@@ -1656,8 +1896,10 @@ public final class Service {
                 instance.clearInstallationId();
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The bytes for installationId to set.
              * @return This builder for chaining.
              */
@@ -1670,9 +1912,10 @@ public final class Service {
 
             // @@protoc_insertion_point(builder_scope:notifications.v1.DeleteInstallationRequest)
         }
+
         @java.lang.Override
         @java.lang.SuppressWarnings({"unchecked", "fallthrough"})
-        protected final java.lang.Object dynamicMethod(
+        protected java.lang.Object dynamicMethod(
                 com.google.protobuf.GeneratedMessageLite.MethodToInvoke method,
                 java.lang.Object arg0, java.lang.Object arg1) {
             switch (method) {
@@ -1683,7 +1926,7 @@ public final class Service {
                     return new Builder();
                 }
                 case BUILD_MESSAGE_INFO: {
-                    java.lang.Object[] objects = new java.lang.Object[] {
+                    java.lang.Object[] objects = new java.lang.Object[]{
                             "installationId_",
                     };
                     java.lang.String info =
@@ -1722,6 +1965,7 @@ public final class Service {
 
         // @@protoc_insertion_point(class_scope:notifications.v1.DeleteInstallationRequest)
         private static final org.xmtp.android.library.push.Service.DeleteInstallationRequest DEFAULT_INSTANCE;
+
         static {
             DeleteInstallationRequest defaultInstance = new DeleteInstallationRequest();
             // New instances are implicitly immutable so no need to make
@@ -1748,11 +1992,14 @@ public final class Service {
 
         /**
          * <code>string topic = 1;</code>
+         *
          * @return The topic.
          */
         java.lang.String getTopic();
+
         /**
          * <code>string topic = 1;</code>
+         *
          * @return The bytes for topic.
          */
         com.google.protobuf.ByteString
@@ -1763,10 +2010,12 @@ public final class Service {
          */
         java.util.List<org.xmtp.android.library.push.Service.Subscription.HmacKey>
         getHmacKeysList();
+
         /**
          * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
          */
         org.xmtp.android.library.push.Service.Subscription.HmacKey getHmacKeys(int index);
+
         /**
          * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
          */
@@ -1774,18 +2023,20 @@ public final class Service {
 
         /**
          * <code>bool is_silent = 3;</code>
+         *
          * @return The isSilent.
          */
         boolean getIsSilent();
     }
+
     /**
      * <pre>
      * A subscription with associated metadata
      * </pre>
-     *
+     * <p>
      * Protobuf type {@code notifications.v1.Subscription}
      */
-    public  static final class Subscription extends
+    public static final class Subscription extends
             com.google.protobuf.GeneratedMessageLite<
                     Subscription, Subscription.Builder> implements
             // @@protoc_insertion_point(message_implements:notifications.v1.Subscription)
@@ -1794,26 +2045,30 @@ public final class Service {
             topic_ = "";
             hmacKeys_ = emptyProtobufList();
         }
+
         public interface HmacKeyOrBuilder extends
                 // @@protoc_insertion_point(interface_extends:notifications.v1.Subscription.HmacKey)
                 com.google.protobuf.MessageLiteOrBuilder {
 
             /**
              * <code>uint32 thirty_day_periods_since_epoch = 1;</code>
+             *
              * @return The thirtyDayPeriodsSinceEpoch.
              */
             int getThirtyDayPeriodsSinceEpoch();
 
             /**
              * <code>bytes key = 2;</code>
+             *
              * @return The key.
              */
             com.google.protobuf.ByteString getKey();
         }
+
         /**
          * Protobuf type {@code notifications.v1.Subscription.HmacKey}
          */
-        public  static final class HmacKey extends
+        public static final class HmacKey extends
                 com.google.protobuf.GeneratedMessageLite<
                         HmacKey, HmacKey.Builder> implements
                 // @@protoc_insertion_point(message_implements:notifications.v1.Subscription.HmacKey)
@@ -1821,24 +2076,30 @@ public final class Service {
             private HmacKey() {
                 key_ = com.google.protobuf.ByteString.EMPTY;
             }
+
             public static final int THIRTY_DAY_PERIODS_SINCE_EPOCH_FIELD_NUMBER = 1;
             private int thirtyDayPeriodsSinceEpoch_;
+
             /**
              * <code>uint32 thirty_day_periods_since_epoch = 1;</code>
+             *
              * @return The thirtyDayPeriodsSinceEpoch.
              */
             @java.lang.Override
             public int getThirtyDayPeriodsSinceEpoch() {
                 return thirtyDayPeriodsSinceEpoch_;
             }
+
             /**
              * <code>uint32 thirty_day_periods_since_epoch = 1;</code>
+             *
              * @param value The thirtyDayPeriodsSinceEpoch to set.
              */
             private void setThirtyDayPeriodsSinceEpoch(int value) {
 
                 thirtyDayPeriodsSinceEpoch_ = value;
             }
+
             /**
              * <code>uint32 thirty_day_periods_since_epoch = 1;</code>
              */
@@ -1849,16 +2110,20 @@ public final class Service {
 
             public static final int KEY_FIELD_NUMBER = 2;
             private com.google.protobuf.ByteString key_;
+
             /**
              * <code>bytes key = 2;</code>
+             *
              * @return The key.
              */
             @java.lang.Override
             public com.google.protobuf.ByteString getKey() {
                 return key_;
             }
+
             /**
              * <code>bytes key = 2;</code>
+             *
              * @param value The key to set.
              */
             private void setKey(com.google.protobuf.ByteString value) {
@@ -1866,6 +2131,7 @@ public final class Service {
 
                 key_ = value;
             }
+
             /**
              * <code>bytes key = 2;</code>
              */
@@ -1880,6 +2146,7 @@ public final class Service {
                 return com.google.protobuf.GeneratedMessageLite.parseFrom(
                         DEFAULT_INSTANCE, data);
             }
+
             public static org.xmtp.android.library.push.Service.Subscription.HmacKey parseFrom(
                     java.nio.ByteBuffer data,
                     com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -1887,12 +2154,14 @@ public final class Service {
                 return com.google.protobuf.GeneratedMessageLite.parseFrom(
                         DEFAULT_INSTANCE, data, extensionRegistry);
             }
+
             public static org.xmtp.android.library.push.Service.Subscription.HmacKey parseFrom(
                     com.google.protobuf.ByteString data)
                     throws com.google.protobuf.InvalidProtocolBufferException {
                 return com.google.protobuf.GeneratedMessageLite.parseFrom(
                         DEFAULT_INSTANCE, data);
             }
+
             public static org.xmtp.android.library.push.Service.Subscription.HmacKey parseFrom(
                     com.google.protobuf.ByteString data,
                     com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -1900,11 +2169,13 @@ public final class Service {
                 return com.google.protobuf.GeneratedMessageLite.parseFrom(
                         DEFAULT_INSTANCE, data, extensionRegistry);
             }
+
             public static org.xmtp.android.library.push.Service.Subscription.HmacKey parseFrom(byte[] data)
                     throws com.google.protobuf.InvalidProtocolBufferException {
                 return com.google.protobuf.GeneratedMessageLite.parseFrom(
                         DEFAULT_INSTANCE, data);
             }
+
             public static org.xmtp.android.library.push.Service.Subscription.HmacKey parseFrom(
                     byte[] data,
                     com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -1912,11 +2183,13 @@ public final class Service {
                 return com.google.protobuf.GeneratedMessageLite.parseFrom(
                         DEFAULT_INSTANCE, data, extensionRegistry);
             }
+
             public static org.xmtp.android.library.push.Service.Subscription.HmacKey parseFrom(java.io.InputStream input)
                     throws java.io.IOException {
                 return com.google.protobuf.GeneratedMessageLite.parseFrom(
                         DEFAULT_INSTANCE, input);
             }
+
             public static org.xmtp.android.library.push.Service.Subscription.HmacKey parseFrom(
                     java.io.InputStream input,
                     com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -1924,22 +2197,26 @@ public final class Service {
                 return com.google.protobuf.GeneratedMessageLite.parseFrom(
                         DEFAULT_INSTANCE, input, extensionRegistry);
             }
+
             public static org.xmtp.android.library.push.Service.Subscription.HmacKey parseDelimitedFrom(java.io.InputStream input)
                     throws java.io.IOException {
                 return parseDelimitedFrom(DEFAULT_INSTANCE, input);
             }
+
             public static org.xmtp.android.library.push.Service.Subscription.HmacKey parseDelimitedFrom(
                     java.io.InputStream input,
                     com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                     throws java.io.IOException {
                 return parseDelimitedFrom(DEFAULT_INSTANCE, input, extensionRegistry);
             }
+
             public static org.xmtp.android.library.push.Service.Subscription.HmacKey parseFrom(
                     com.google.protobuf.CodedInputStream input)
                     throws java.io.IOException {
                 return com.google.protobuf.GeneratedMessageLite.parseFrom(
                         DEFAULT_INSTANCE, input);
             }
+
             public static org.xmtp.android.library.push.Service.Subscription.HmacKey parseFrom(
                     com.google.protobuf.CodedInputStream input,
                     com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -1949,10 +2226,11 @@ public final class Service {
             }
 
             public static Builder newBuilder() {
-                return (Builder) DEFAULT_INSTANCE.createBuilder();
+                return DEFAULT_INSTANCE.createBuilder();
             }
+
             public static Builder newBuilder(org.xmtp.android.library.push.Service.Subscription.HmacKey prototype) {
-                return (Builder) DEFAULT_INSTANCE.createBuilder(prototype);
+                return DEFAULT_INSTANCE.createBuilder(prototype);
             }
 
             /**
@@ -1971,14 +2249,17 @@ public final class Service {
 
                 /**
                  * <code>uint32 thirty_day_periods_since_epoch = 1;</code>
+                 *
                  * @return The thirtyDayPeriodsSinceEpoch.
                  */
                 @java.lang.Override
                 public int getThirtyDayPeriodsSinceEpoch() {
                     return instance.getThirtyDayPeriodsSinceEpoch();
                 }
+
                 /**
                  * <code>uint32 thirty_day_periods_since_epoch = 1;</code>
+                 *
                  * @param value The thirtyDayPeriodsSinceEpoch to set.
                  * @return This builder for chaining.
                  */
@@ -1987,8 +2268,10 @@ public final class Service {
                     instance.setThirtyDayPeriodsSinceEpoch(value);
                     return this;
                 }
+
                 /**
                  * <code>uint32 thirty_day_periods_since_epoch = 1;</code>
+                 *
                  * @return This builder for chaining.
                  */
                 public Builder clearThirtyDayPeriodsSinceEpoch() {
@@ -1999,14 +2282,17 @@ public final class Service {
 
                 /**
                  * <code>bytes key = 2;</code>
+                 *
                  * @return The key.
                  */
                 @java.lang.Override
                 public com.google.protobuf.ByteString getKey() {
                     return instance.getKey();
                 }
+
                 /**
                  * <code>bytes key = 2;</code>
+                 *
                  * @param value The key to set.
                  * @return This builder for chaining.
                  */
@@ -2015,8 +2301,10 @@ public final class Service {
                     instance.setKey(value);
                     return this;
                 }
+
                 /**
                  * <code>bytes key = 2;</code>
+                 *
                  * @return This builder for chaining.
                  */
                 public Builder clearKey() {
@@ -2027,9 +2315,10 @@ public final class Service {
 
                 // @@protoc_insertion_point(builder_scope:notifications.v1.Subscription.HmacKey)
             }
+
             @java.lang.Override
             @java.lang.SuppressWarnings({"unchecked", "fallthrough"})
-            protected final java.lang.Object dynamicMethod(
+            protected java.lang.Object dynamicMethod(
                     com.google.protobuf.GeneratedMessageLite.MethodToInvoke method,
                     java.lang.Object arg0, java.lang.Object arg1) {
                 switch (method) {
@@ -2040,13 +2329,12 @@ public final class Service {
                         return new Builder();
                     }
                     case BUILD_MESSAGE_INFO: {
-                        java.lang.Object[] objects = new java.lang.Object[] {
+                        java.lang.Object[] objects = new java.lang.Object[]{
                                 "thirtyDayPeriodsSinceEpoch_",
                                 "key_",
                         };
                         java.lang.String info =
-                                "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u000b\u0002\n" +
-                                        "";
+                                "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u000b\u0002\n";
                         return newMessageInfo(DEFAULT_INSTANCE, info, objects);
                     }
                     // fall through
@@ -2081,6 +2369,7 @@ public final class Service {
 
             // @@protoc_insertion_point(class_scope:notifications.v1.Subscription.HmacKey)
             private static final org.xmtp.android.library.push.Service.Subscription.HmacKey DEFAULT_INSTANCE;
+
             static {
                 HmacKey defaultInstance = new HmacKey();
                 // New instances are implicitly immutable so no need to make
@@ -2103,16 +2392,20 @@ public final class Service {
 
         public static final int TOPIC_FIELD_NUMBER = 1;
         private java.lang.String topic_;
+
         /**
          * <code>string topic = 1;</code>
+         *
          * @return The topic.
          */
         @java.lang.Override
         public java.lang.String getTopic() {
             return topic_;
         }
+
         /**
          * <code>string topic = 1;</code>
+         *
          * @return The bytes for topic.
          */
         @java.lang.Override
@@ -2120,8 +2413,10 @@ public final class Service {
         getTopicBytes() {
             return com.google.protobuf.ByteString.copyFromUtf8(topic_);
         }
+
         /**
          * <code>string topic = 1;</code>
+         *
          * @param value The topic to set.
          */
         private void setTopic(
@@ -2130,6 +2425,7 @@ public final class Service {
 
             topic_ = value;
         }
+
         /**
          * <code>string topic = 1;</code>
          */
@@ -2137,8 +2433,10 @@ public final class Service {
 
             topic_ = getDefaultInstance().getTopic();
         }
+
         /**
          * <code>string topic = 1;</code>
+         *
          * @param value The bytes for topic to set.
          */
         private void setTopicBytes(
@@ -2150,6 +2448,7 @@ public final class Service {
 
         public static final int HMAC_KEYS_FIELD_NUMBER = 2;
         private com.google.protobuf.Internal.ProtobufList<org.xmtp.android.library.push.Service.Subscription.HmacKey> hmacKeys_;
+
         /**
          * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
          */
@@ -2157,6 +2456,7 @@ public final class Service {
         public java.util.List<org.xmtp.android.library.push.Service.Subscription.HmacKey> getHmacKeysList() {
             return hmacKeys_;
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
          */
@@ -2164,6 +2464,7 @@ public final class Service {
         getHmacKeysOrBuilderList() {
             return hmacKeys_;
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
          */
@@ -2171,6 +2472,7 @@ public final class Service {
         public int getHmacKeysCount() {
             return hmacKeys_.size();
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
          */
@@ -2178,6 +2480,7 @@ public final class Service {
         public org.xmtp.android.library.push.Service.Subscription.HmacKey getHmacKeys(int index) {
             return hmacKeys_.get(index);
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
          */
@@ -2185,6 +2488,7 @@ public final class Service {
                 int index) {
             return hmacKeys_.get(index);
         }
+
         private void ensureHmacKeysIsMutable() {
             com.google.protobuf.Internal.ProtobufList<org.xmtp.android.library.push.Service.Subscription.HmacKey> tmp = hmacKeys_;
             if (!tmp.isModifiable()) {
@@ -2202,6 +2506,7 @@ public final class Service {
             ensureHmacKeysIsMutable();
             hmacKeys_.set(index, value);
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
          */
@@ -2210,6 +2515,7 @@ public final class Service {
             ensureHmacKeysIsMutable();
             hmacKeys_.add(value);
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
          */
@@ -2219,6 +2525,7 @@ public final class Service {
             ensureHmacKeysIsMutable();
             hmacKeys_.add(index, value);
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
          */
@@ -2228,12 +2535,14 @@ public final class Service {
             com.google.protobuf.AbstractMessageLite.addAll(
                     values, hmacKeys_);
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
          */
         private void clearHmacKeys() {
             hmacKeys_ = emptyProtobufList();
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
          */
@@ -2244,22 +2553,27 @@ public final class Service {
 
         public static final int IS_SILENT_FIELD_NUMBER = 3;
         private boolean isSilent_;
+
         /**
          * <code>bool is_silent = 3;</code>
+         *
          * @return The isSilent.
          */
         @java.lang.Override
         public boolean getIsSilent() {
             return isSilent_;
         }
+
         /**
          * <code>bool is_silent = 3;</code>
+         *
          * @param value The isSilent to set.
          */
         private void setIsSilent(boolean value) {
 
             isSilent_ = value;
         }
+
         /**
          * <code>bool is_silent = 3;</code>
          */
@@ -2274,6 +2588,7 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.Subscription parseFrom(
                 java.nio.ByteBuffer data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -2281,12 +2596,14 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.Subscription parseFrom(
                 com.google.protobuf.ByteString data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.Subscription parseFrom(
                 com.google.protobuf.ByteString data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -2294,11 +2611,13 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.Subscription parseFrom(byte[] data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.Subscription parseFrom(
                 byte[] data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -2306,11 +2625,13 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.Subscription parseFrom(java.io.InputStream input)
                 throws java.io.IOException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.Subscription parseFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -2318,22 +2639,26 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.Subscription parseDelimitedFrom(java.io.InputStream input)
                 throws java.io.IOException {
             return parseDelimitedFrom(DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.Subscription parseDelimitedFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
             return parseDelimitedFrom(DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.Subscription parseFrom(
                 com.google.protobuf.CodedInputStream input)
                 throws java.io.IOException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.Subscription parseFrom(
                 com.google.protobuf.CodedInputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -2343,17 +2668,18 @@ public final class Service {
         }
 
         public static Builder newBuilder() {
-            return (Builder) DEFAULT_INSTANCE.createBuilder();
+            return DEFAULT_INSTANCE.createBuilder();
         }
+
         public static Builder newBuilder(org.xmtp.android.library.push.Service.Subscription prototype) {
-            return (Builder) DEFAULT_INSTANCE.createBuilder(prototype);
+            return DEFAULT_INSTANCE.createBuilder(prototype);
         }
 
         /**
          * <pre>
          * A subscription with associated metadata
          * </pre>
-         *
+         * <p>
          * Protobuf type {@code notifications.v1.Subscription}
          */
         public static final class Builder extends
@@ -2369,14 +2695,17 @@ public final class Service {
 
             /**
              * <code>string topic = 1;</code>
+             *
              * @return The topic.
              */
             @java.lang.Override
             public java.lang.String getTopic() {
                 return instance.getTopic();
             }
+
             /**
              * <code>string topic = 1;</code>
+             *
              * @return The bytes for topic.
              */
             @java.lang.Override
@@ -2384,8 +2713,10 @@ public final class Service {
             getTopicBytes() {
                 return instance.getTopicBytes();
             }
+
             /**
              * <code>string topic = 1;</code>
+             *
              * @param value The topic to set.
              * @return This builder for chaining.
              */
@@ -2395,8 +2726,10 @@ public final class Service {
                 instance.setTopic(value);
                 return this;
             }
+
             /**
              * <code>string topic = 1;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearTopic() {
@@ -2404,8 +2737,10 @@ public final class Service {
                 instance.clearTopic();
                 return this;
             }
+
             /**
              * <code>string topic = 1;</code>
+             *
              * @param value The bytes for topic to set.
              * @return This builder for chaining.
              */
@@ -2424,19 +2759,23 @@ public final class Service {
                 return java.util.Collections.unmodifiableList(
                         instance.getHmacKeysList());
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
              */
             @java.lang.Override
             public int getHmacKeysCount() {
                 return instance.getHmacKeysCount();
-            }/**
+            }
+
+            /**
              * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
              */
             @java.lang.Override
             public org.xmtp.android.library.push.Service.Subscription.HmacKey getHmacKeys(int index) {
                 return instance.getHmacKeys(index);
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
              */
@@ -2446,6 +2785,7 @@ public final class Service {
                 instance.setHmacKeys(index, value);
                 return this;
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
              */
@@ -2456,6 +2796,7 @@ public final class Service {
                         builderForValue.build());
                 return this;
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
              */
@@ -2464,6 +2805,7 @@ public final class Service {
                 instance.addHmacKeys(value);
                 return this;
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
              */
@@ -2473,6 +2815,7 @@ public final class Service {
                 instance.addHmacKeys(index, value);
                 return this;
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
              */
@@ -2482,6 +2825,7 @@ public final class Service {
                 instance.addHmacKeys(builderForValue.build());
                 return this;
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
              */
@@ -2492,6 +2836,7 @@ public final class Service {
                         builderForValue.build());
                 return this;
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
              */
@@ -2501,6 +2846,7 @@ public final class Service {
                 instance.addAllHmacKeys(values);
                 return this;
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
              */
@@ -2509,6 +2855,7 @@ public final class Service {
                 instance.clearHmacKeys();
                 return this;
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription.HmacKey hmac_keys = 2;</code>
              */
@@ -2520,14 +2867,17 @@ public final class Service {
 
             /**
              * <code>bool is_silent = 3;</code>
+             *
              * @return The isSilent.
              */
             @java.lang.Override
             public boolean getIsSilent() {
                 return instance.getIsSilent();
             }
+
             /**
              * <code>bool is_silent = 3;</code>
+             *
              * @param value The isSilent to set.
              * @return This builder for chaining.
              */
@@ -2536,8 +2886,10 @@ public final class Service {
                 instance.setIsSilent(value);
                 return this;
             }
+
             /**
              * <code>bool is_silent = 3;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearIsSilent() {
@@ -2548,9 +2900,10 @@ public final class Service {
 
             // @@protoc_insertion_point(builder_scope:notifications.v1.Subscription)
         }
+
         @java.lang.Override
         @java.lang.SuppressWarnings({"unchecked", "fallthrough"})
-        protected final java.lang.Object dynamicMethod(
+        protected java.lang.Object dynamicMethod(
                 com.google.protobuf.GeneratedMessageLite.MethodToInvoke method,
                 java.lang.Object arg0, java.lang.Object arg1) {
             switch (method) {
@@ -2561,7 +2914,7 @@ public final class Service {
                     return new Builder();
                 }
                 case BUILD_MESSAGE_INFO: {
-                    java.lang.Object[] objects = new java.lang.Object[] {
+                    java.lang.Object[] objects = new java.lang.Object[]{
                             "topic_",
                             "hmacKeys_",
                             org.xmtp.android.library.push.Service.Subscription.HmacKey.class,
@@ -2604,6 +2957,7 @@ public final class Service {
 
         // @@protoc_insertion_point(class_scope:notifications.v1.Subscription)
         private static final org.xmtp.android.library.push.Service.Subscription DEFAULT_INSTANCE;
+
         static {
             Subscription defaultInstance = new Subscription();
             // New instances are implicitly immutable so no need to make
@@ -2630,11 +2984,14 @@ public final class Service {
 
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         java.lang.String getInstallationId();
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         com.google.protobuf.ByteString
@@ -2645,23 +3002,26 @@ public final class Service {
          */
         java.util.List<org.xmtp.android.library.push.Service.Subscription>
         getSubscriptionsList();
+
         /**
          * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
          */
         org.xmtp.android.library.push.Service.Subscription getSubscriptions(int index);
+
         /**
          * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
          */
         int getSubscriptionsCount();
     }
+
     /**
      * <pre>
      * A request to subscribe to a list of topics and update the associated metadata
      * </pre>
-     *
+     * <p>
      * Protobuf type {@code notifications.v1.SubscribeWithMetadataRequest}
      */
-    public  static final class SubscribeWithMetadataRequest extends
+    public static final class SubscribeWithMetadataRequest extends
             com.google.protobuf.GeneratedMessageLite<
                     SubscribeWithMetadataRequest, SubscribeWithMetadataRequest.Builder> implements
             // @@protoc_insertion_point(message_implements:notifications.v1.SubscribeWithMetadataRequest)
@@ -2670,18 +3030,23 @@ public final class Service {
             installationId_ = "";
             subscriptions_ = emptyProtobufList();
         }
+
         public static final int INSTALLATION_ID_FIELD_NUMBER = 1;
         private java.lang.String installationId_;
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         @java.lang.Override
         public java.lang.String getInstallationId() {
             return installationId_;
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         @java.lang.Override
@@ -2689,8 +3054,10 @@ public final class Service {
         getInstallationIdBytes() {
             return com.google.protobuf.ByteString.copyFromUtf8(installationId_);
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @param value The installationId to set.
          */
         private void setInstallationId(
@@ -2699,6 +3066,7 @@ public final class Service {
 
             installationId_ = value;
         }
+
         /**
          * <code>string installation_id = 1;</code>
          */
@@ -2706,8 +3074,10 @@ public final class Service {
 
             installationId_ = getDefaultInstance().getInstallationId();
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @param value The bytes for installationId to set.
          */
         private void setInstallationIdBytes(
@@ -2719,6 +3089,7 @@ public final class Service {
 
         public static final int SUBSCRIPTIONS_FIELD_NUMBER = 2;
         private com.google.protobuf.Internal.ProtobufList<org.xmtp.android.library.push.Service.Subscription> subscriptions_;
+
         /**
          * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
          */
@@ -2726,6 +3097,7 @@ public final class Service {
         public java.util.List<org.xmtp.android.library.push.Service.Subscription> getSubscriptionsList() {
             return subscriptions_;
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
          */
@@ -2733,6 +3105,7 @@ public final class Service {
         getSubscriptionsOrBuilderList() {
             return subscriptions_;
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
          */
@@ -2740,6 +3113,7 @@ public final class Service {
         public int getSubscriptionsCount() {
             return subscriptions_.size();
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
          */
@@ -2747,6 +3121,7 @@ public final class Service {
         public org.xmtp.android.library.push.Service.Subscription getSubscriptions(int index) {
             return subscriptions_.get(index);
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
          */
@@ -2754,6 +3129,7 @@ public final class Service {
                 int index) {
             return subscriptions_.get(index);
         }
+
         private void ensureSubscriptionsIsMutable() {
             com.google.protobuf.Internal.ProtobufList<org.xmtp.android.library.push.Service.Subscription> tmp = subscriptions_;
             if (!tmp.isModifiable()) {
@@ -2771,6 +3147,7 @@ public final class Service {
             ensureSubscriptionsIsMutable();
             subscriptions_.set(index, value);
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
          */
@@ -2779,6 +3156,7 @@ public final class Service {
             ensureSubscriptionsIsMutable();
             subscriptions_.add(value);
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
          */
@@ -2788,6 +3166,7 @@ public final class Service {
             ensureSubscriptionsIsMutable();
             subscriptions_.add(index, value);
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
          */
@@ -2797,12 +3176,14 @@ public final class Service {
             com.google.protobuf.AbstractMessageLite.addAll(
                     values, subscriptions_);
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
          */
         private void clearSubscriptions() {
             subscriptions_ = emptyProtobufList();
         }
+
         /**
          * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
          */
@@ -2817,6 +3198,7 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeWithMetadataRequest parseFrom(
                 java.nio.ByteBuffer data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -2824,12 +3206,14 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeWithMetadataRequest parseFrom(
                 com.google.protobuf.ByteString data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeWithMetadataRequest parseFrom(
                 com.google.protobuf.ByteString data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -2837,11 +3221,13 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeWithMetadataRequest parseFrom(byte[] data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeWithMetadataRequest parseFrom(
                 byte[] data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -2849,11 +3235,13 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeWithMetadataRequest parseFrom(java.io.InputStream input)
                 throws java.io.IOException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeWithMetadataRequest parseFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -2861,22 +3249,26 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeWithMetadataRequest parseDelimitedFrom(java.io.InputStream input)
                 throws java.io.IOException {
             return parseDelimitedFrom(DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeWithMetadataRequest parseDelimitedFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
             return parseDelimitedFrom(DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeWithMetadataRequest parseFrom(
                 com.google.protobuf.CodedInputStream input)
                 throws java.io.IOException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeWithMetadataRequest parseFrom(
                 com.google.protobuf.CodedInputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -2886,17 +3278,18 @@ public final class Service {
         }
 
         public static Builder newBuilder() {
-            return (Builder) DEFAULT_INSTANCE.createBuilder();
+            return DEFAULT_INSTANCE.createBuilder();
         }
+
         public static Builder newBuilder(org.xmtp.android.library.push.Service.SubscribeWithMetadataRequest prototype) {
-            return (Builder) DEFAULT_INSTANCE.createBuilder(prototype);
+            return DEFAULT_INSTANCE.createBuilder(prototype);
         }
 
         /**
          * <pre>
          * A request to subscribe to a list of topics and update the associated metadata
          * </pre>
-         *
+         * <p>
          * Protobuf type {@code notifications.v1.SubscribeWithMetadataRequest}
          */
         public static final class Builder extends
@@ -2912,14 +3305,17 @@ public final class Service {
 
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The installationId.
              */
             @java.lang.Override
             public java.lang.String getInstallationId() {
                 return instance.getInstallationId();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The bytes for installationId.
              */
             @java.lang.Override
@@ -2927,8 +3323,10 @@ public final class Service {
             getInstallationIdBytes() {
                 return instance.getInstallationIdBytes();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The installationId to set.
              * @return This builder for chaining.
              */
@@ -2938,8 +3336,10 @@ public final class Service {
                 instance.setInstallationId(value);
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearInstallationId() {
@@ -2947,8 +3347,10 @@ public final class Service {
                 instance.clearInstallationId();
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The bytes for installationId to set.
              * @return This builder for chaining.
              */
@@ -2967,19 +3369,23 @@ public final class Service {
                 return java.util.Collections.unmodifiableList(
                         instance.getSubscriptionsList());
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
              */
             @java.lang.Override
             public int getSubscriptionsCount() {
                 return instance.getSubscriptionsCount();
-            }/**
+            }
+
+            /**
              * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
              */
             @java.lang.Override
             public org.xmtp.android.library.push.Service.Subscription getSubscriptions(int index) {
                 return instance.getSubscriptions(index);
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
              */
@@ -2989,6 +3395,7 @@ public final class Service {
                 instance.setSubscriptions(index, value);
                 return this;
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
              */
@@ -2999,6 +3406,7 @@ public final class Service {
                         builderForValue.build());
                 return this;
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
              */
@@ -3007,6 +3415,7 @@ public final class Service {
                 instance.addSubscriptions(value);
                 return this;
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
              */
@@ -3016,6 +3425,7 @@ public final class Service {
                 instance.addSubscriptions(index, value);
                 return this;
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
              */
@@ -3025,6 +3435,7 @@ public final class Service {
                 instance.addSubscriptions(builderForValue.build());
                 return this;
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
              */
@@ -3035,6 +3446,7 @@ public final class Service {
                         builderForValue.build());
                 return this;
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
              */
@@ -3044,6 +3456,7 @@ public final class Service {
                 instance.addAllSubscriptions(values);
                 return this;
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
              */
@@ -3052,6 +3465,7 @@ public final class Service {
                 instance.clearSubscriptions();
                 return this;
             }
+
             /**
              * <code>repeated .notifications.v1.Subscription subscriptions = 2;</code>
              */
@@ -3063,9 +3477,10 @@ public final class Service {
 
             // @@protoc_insertion_point(builder_scope:notifications.v1.SubscribeWithMetadataRequest)
         }
+
         @java.lang.Override
         @java.lang.SuppressWarnings({"unchecked", "fallthrough"})
-        protected final java.lang.Object dynamicMethod(
+        protected java.lang.Object dynamicMethod(
                 com.google.protobuf.GeneratedMessageLite.MethodToInvoke method,
                 java.lang.Object arg0, java.lang.Object arg1) {
             switch (method) {
@@ -3076,14 +3491,13 @@ public final class Service {
                     return new Builder();
                 }
                 case BUILD_MESSAGE_INFO: {
-                    java.lang.Object[] objects = new java.lang.Object[] {
+                    java.lang.Object[] objects = new java.lang.Object[]{
                             "installationId_",
                             "subscriptions_",
                             org.xmtp.android.library.push.Service.Subscription.class,
                     };
                     java.lang.String info =
-                            "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0001\u0000\u0001\u0208\u0002\u001b" +
-                                    "";
+                            "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0001\u0000\u0001\u0208\u0002\u001b";
                     return newMessageInfo(DEFAULT_INSTANCE, info, objects);
                 }
                 // fall through
@@ -3118,6 +3532,7 @@ public final class Service {
 
         // @@protoc_insertion_point(class_scope:notifications.v1.SubscribeWithMetadataRequest)
         private static final org.xmtp.android.library.push.Service.SubscribeWithMetadataRequest DEFAULT_INSTANCE;
+
         static {
             SubscribeWithMetadataRequest defaultInstance = new SubscribeWithMetadataRequest();
             // New instances are implicitly immutable so no need to make
@@ -3144,11 +3559,14 @@ public final class Service {
 
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         java.lang.String getInstallationId();
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         com.google.protobuf.ByteString
@@ -3156,37 +3574,45 @@ public final class Service {
 
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @return A list containing the topics.
          */
         java.util.List<java.lang.String>
         getTopicsList();
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @return The count of topics.
          */
         int getTopicsCount();
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param index The index of the element to return.
          * @return The topics at the given index.
          */
         java.lang.String getTopics(int index);
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param index The index of the element to return.
          * @return The topics at the given index.
          */
         com.google.protobuf.ByteString
         getTopicsBytes(int index);
     }
+
     /**
      * <pre>
      * Subscribe to a list of topics
      * </pre>
-     *
+     * <p>
      * Protobuf type {@code notifications.v1.SubscribeRequest}
      */
-    public  static final class SubscribeRequest extends
+    public static final class SubscribeRequest extends
             com.google.protobuf.GeneratedMessageLite<
                     SubscribeRequest, SubscribeRequest.Builder> implements
             // @@protoc_insertion_point(message_implements:notifications.v1.SubscribeRequest)
@@ -3195,18 +3621,23 @@ public final class Service {
             installationId_ = "";
             topics_ = com.google.protobuf.GeneratedMessageLite.emptyProtobufList();
         }
+
         public static final int INSTALLATION_ID_FIELD_NUMBER = 1;
         private java.lang.String installationId_;
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         @java.lang.Override
         public java.lang.String getInstallationId() {
             return installationId_;
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         @java.lang.Override
@@ -3214,8 +3645,10 @@ public final class Service {
         getInstallationIdBytes() {
             return com.google.protobuf.ByteString.copyFromUtf8(installationId_);
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @param value The installationId to set.
          */
         private void setInstallationId(
@@ -3224,6 +3657,7 @@ public final class Service {
 
             installationId_ = value;
         }
+
         /**
          * <code>string installation_id = 1;</code>
          */
@@ -3231,8 +3665,10 @@ public final class Service {
 
             installationId_ = getDefaultInstance().getInstallationId();
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @param value The bytes for installationId to set.
          */
         private void setInstallationIdBytes(
@@ -3244,24 +3680,30 @@ public final class Service {
 
         public static final int TOPICS_FIELD_NUMBER = 2;
         private com.google.protobuf.Internal.ProtobufList<java.lang.String> topics_;
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @return A list containing the topics.
          */
         @java.lang.Override
         public java.util.List<java.lang.String> getTopicsList() {
             return topics_;
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @return The count of topics.
          */
         @java.lang.Override
         public int getTopicsCount() {
             return topics_.size();
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param index The index of the element to return.
          * @return The topics at the given index.
          */
@@ -3269,8 +3711,10 @@ public final class Service {
         public java.lang.String getTopics(int index) {
             return topics_.get(index);
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param index The index of the value to return.
          * @return The bytes of the topics at the given index.
          */
@@ -3280,15 +3724,19 @@ public final class Service {
             return com.google.protobuf.ByteString.copyFromUtf8(
                     topics_.get(index));
         }
+
         private void ensureTopicsIsMutable() {
             com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
-                    topics_;  if (!tmp.isModifiable()) {
+                    topics_;
+            if (!tmp.isModifiable()) {
                 topics_ =
                         com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
             }
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param index The index to set the value at.
          * @param value The topics to set.
          */
@@ -3298,8 +3746,10 @@ public final class Service {
             ensureTopicsIsMutable();
             topics_.set(index, value);
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param value The topics to add.
          */
         private void addTopics(
@@ -3308,8 +3758,10 @@ public final class Service {
             ensureTopicsIsMutable();
             topics_.add(value);
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param values The topics to add.
          */
         private void addAllTopics(
@@ -3318,14 +3770,17 @@ public final class Service {
             com.google.protobuf.AbstractMessageLite.addAll(
                     values, topics_);
         }
+
         /**
          * <code>repeated string topics = 2;</code>
          */
         private void clearTopics() {
             topics_ = com.google.protobuf.GeneratedMessageLite.emptyProtobufList();
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param value The bytes of the topics to add.
          */
         private void addTopicsBytes(
@@ -3341,6 +3796,7 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(
                 java.nio.ByteBuffer data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -3348,12 +3804,14 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(
                 com.google.protobuf.ByteString data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(
                 com.google.protobuf.ByteString data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -3361,11 +3819,13 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(byte[] data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(
                 byte[] data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -3373,11 +3833,13 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(java.io.InputStream input)
                 throws java.io.IOException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -3385,22 +3847,26 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseDelimitedFrom(java.io.InputStream input)
                 throws java.io.IOException {
             return parseDelimitedFrom(DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseDelimitedFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
             return parseDelimitedFrom(DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(
                 com.google.protobuf.CodedInputStream input)
                 throws java.io.IOException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(
                 com.google.protobuf.CodedInputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -3410,17 +3876,18 @@ public final class Service {
         }
 
         public static Builder newBuilder() {
-            return (Builder) DEFAULT_INSTANCE.createBuilder();
+            return DEFAULT_INSTANCE.createBuilder();
         }
+
         public static Builder newBuilder(org.xmtp.android.library.push.Service.SubscribeRequest prototype) {
-            return (Builder) DEFAULT_INSTANCE.createBuilder(prototype);
+            return DEFAULT_INSTANCE.createBuilder(prototype);
         }
 
         /**
          * <pre>
          * Subscribe to a list of topics
          * </pre>
-         *
+         * <p>
          * Protobuf type {@code notifications.v1.SubscribeRequest}
          */
         public static final class Builder extends
@@ -3436,14 +3903,17 @@ public final class Service {
 
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The installationId.
              */
             @java.lang.Override
             public java.lang.String getInstallationId() {
                 return instance.getInstallationId();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The bytes for installationId.
              */
             @java.lang.Override
@@ -3451,8 +3921,10 @@ public final class Service {
             getInstallationIdBytes() {
                 return instance.getInstallationIdBytes();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The installationId to set.
              * @return This builder for chaining.
              */
@@ -3462,8 +3934,10 @@ public final class Service {
                 instance.setInstallationId(value);
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearInstallationId() {
@@ -3471,8 +3945,10 @@ public final class Service {
                 instance.clearInstallationId();
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The bytes for installationId to set.
              * @return This builder for chaining.
              */
@@ -3485,6 +3961,7 @@ public final class Service {
 
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @return A list containing the topics.
              */
             @java.lang.Override
@@ -3493,16 +3970,20 @@ public final class Service {
                 return java.util.Collections.unmodifiableList(
                         instance.getTopicsList());
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @return The count of topics.
              */
             @java.lang.Override
             public int getTopicsCount() {
                 return instance.getTopicsCount();
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param index The index of the element to return.
              * @return The topics at the given index.
              */
@@ -3510,8 +3991,10 @@ public final class Service {
             public java.lang.String getTopics(int index) {
                 return instance.getTopics(index);
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param index The index of the value to return.
              * @return The bytes of the topics at the given index.
              */
@@ -3520,8 +4003,10 @@ public final class Service {
             getTopicsBytes(int index) {
                 return instance.getTopicsBytes(index);
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param index The index to set the value at.
              * @param value The topics to set.
              * @return This builder for chaining.
@@ -3532,8 +4017,10 @@ public final class Service {
                 instance.setTopics(index, value);
                 return this;
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param value The topics to add.
              * @return This builder for chaining.
              */
@@ -3543,8 +4030,10 @@ public final class Service {
                 instance.addTopics(value);
                 return this;
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param values The topics to add.
              * @return This builder for chaining.
              */
@@ -3554,8 +4043,10 @@ public final class Service {
                 instance.addAllTopics(values);
                 return this;
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearTopics() {
@@ -3563,8 +4054,10 @@ public final class Service {
                 instance.clearTopics();
                 return this;
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param value The bytes of the topics to add.
              * @return This builder for chaining.
              */
@@ -3577,9 +4070,10 @@ public final class Service {
 
             // @@protoc_insertion_point(builder_scope:notifications.v1.SubscribeRequest)
         }
+
         @java.lang.Override
         @java.lang.SuppressWarnings({"unchecked", "fallthrough"})
-        protected final java.lang.Object dynamicMethod(
+        protected java.lang.Object dynamicMethod(
                 com.google.protobuf.GeneratedMessageLite.MethodToInvoke method,
                 java.lang.Object arg0, java.lang.Object arg1) {
             switch (method) {
@@ -3590,13 +4084,12 @@ public final class Service {
                     return new Builder();
                 }
                 case BUILD_MESSAGE_INFO: {
-                    java.lang.Object[] objects = new java.lang.Object[] {
+                    java.lang.Object[] objects = new java.lang.Object[]{
                             "installationId_",
                             "topics_",
                     };
                     java.lang.String info =
-                            "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0001\u0000\u0001\u0208\u0002\u021a" +
-                                    "";
+                            "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0001\u0000\u0001\u0208\u0002\u021a";
                     return newMessageInfo(DEFAULT_INSTANCE, info, objects);
                 }
                 // fall through
@@ -3631,6 +4124,7 @@ public final class Service {
 
         // @@protoc_insertion_point(class_scope:notifications.v1.SubscribeRequest)
         private static final org.xmtp.android.library.push.Service.SubscribeRequest DEFAULT_INSTANCE;
+
         static {
             SubscribeRequest defaultInstance = new SubscribeRequest();
             // New instances are implicitly immutable so no need to make
@@ -3657,11 +4151,14 @@ public final class Service {
 
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         java.lang.String getInstallationId();
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         com.google.protobuf.ByteString
@@ -3669,37 +4166,45 @@ public final class Service {
 
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @return A list containing the topics.
          */
         java.util.List<java.lang.String>
         getTopicsList();
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @return The count of topics.
          */
         int getTopicsCount();
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param index The index of the element to return.
          * @return The topics at the given index.
          */
         java.lang.String getTopics(int index);
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param index The index of the element to return.
          * @return The topics at the given index.
          */
         com.google.protobuf.ByteString
         getTopicsBytes(int index);
     }
+
     /**
      * <pre>
      * Unsubscribe from a list of topics
      * </pre>
-     *
+     * <p>
      * Protobuf type {@code notifications.v1.UnsubscribeRequest}
      */
-    public  static final class UnsubscribeRequest extends
+    public static final class UnsubscribeRequest extends
             com.google.protobuf.GeneratedMessageLite<
                     UnsubscribeRequest, UnsubscribeRequest.Builder> implements
             // @@protoc_insertion_point(message_implements:notifications.v1.UnsubscribeRequest)
@@ -3708,18 +4213,23 @@ public final class Service {
             installationId_ = "";
             topics_ = com.google.protobuf.GeneratedMessageLite.emptyProtobufList();
         }
+
         public static final int INSTALLATION_ID_FIELD_NUMBER = 1;
         private java.lang.String installationId_;
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         @java.lang.Override
         public java.lang.String getInstallationId() {
             return installationId_;
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         @java.lang.Override
@@ -3727,8 +4237,10 @@ public final class Service {
         getInstallationIdBytes() {
             return com.google.protobuf.ByteString.copyFromUtf8(installationId_);
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @param value The installationId to set.
          */
         private void setInstallationId(
@@ -3737,6 +4249,7 @@ public final class Service {
 
             installationId_ = value;
         }
+
         /**
          * <code>string installation_id = 1;</code>
          */
@@ -3744,8 +4257,10 @@ public final class Service {
 
             installationId_ = getDefaultInstance().getInstallationId();
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @param value The bytes for installationId to set.
          */
         private void setInstallationIdBytes(
@@ -3757,24 +4272,30 @@ public final class Service {
 
         public static final int TOPICS_FIELD_NUMBER = 2;
         private com.google.protobuf.Internal.ProtobufList<java.lang.String> topics_;
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @return A list containing the topics.
          */
         @java.lang.Override
         public java.util.List<java.lang.String> getTopicsList() {
             return topics_;
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @return The count of topics.
          */
         @java.lang.Override
         public int getTopicsCount() {
             return topics_.size();
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param index The index of the element to return.
          * @return The topics at the given index.
          */
@@ -3782,8 +4303,10 @@ public final class Service {
         public java.lang.String getTopics(int index) {
             return topics_.get(index);
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param index The index of the value to return.
          * @return The bytes of the topics at the given index.
          */
@@ -3793,15 +4316,19 @@ public final class Service {
             return com.google.protobuf.ByteString.copyFromUtf8(
                     topics_.get(index));
         }
+
         private void ensureTopicsIsMutable() {
             com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
-                    topics_;  if (!tmp.isModifiable()) {
+                    topics_;
+            if (!tmp.isModifiable()) {
                 topics_ =
                         com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
             }
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param index The index to set the value at.
          * @param value The topics to set.
          */
@@ -3811,8 +4338,10 @@ public final class Service {
             ensureTopicsIsMutable();
             topics_.set(index, value);
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param value The topics to add.
          */
         private void addTopics(
@@ -3821,8 +4350,10 @@ public final class Service {
             ensureTopicsIsMutable();
             topics_.add(value);
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param values The topics to add.
          */
         private void addAllTopics(
@@ -3831,14 +4362,17 @@ public final class Service {
             com.google.protobuf.AbstractMessageLite.addAll(
                     values, topics_);
         }
+
         /**
          * <code>repeated string topics = 2;</code>
          */
         private void clearTopics() {
             topics_ = com.google.protobuf.GeneratedMessageLite.emptyProtobufList();
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param value The bytes of the topics to add.
          */
         private void addTopicsBytes(
@@ -3854,6 +4388,7 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(
                 java.nio.ByteBuffer data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -3861,12 +4396,14 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(
                 com.google.protobuf.ByteString data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(
                 com.google.protobuf.ByteString data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -3874,11 +4411,13 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(byte[] data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(
                 byte[] data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -3886,11 +4425,13 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(java.io.InputStream input)
                 throws java.io.IOException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -3898,22 +4439,26 @@ public final class Service {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseDelimitedFrom(java.io.InputStream input)
                 throws java.io.IOException {
             return parseDelimitedFrom(DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseDelimitedFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
             return parseDelimitedFrom(DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(
                 com.google.protobuf.CodedInputStream input)
                 throws java.io.IOException {
             return com.google.protobuf.GeneratedMessageLite.parseFrom(
                     DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(
                 com.google.protobuf.CodedInputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -3923,17 +4468,18 @@ public final class Service {
         }
 
         public static Builder newBuilder() {
-            return (Builder) DEFAULT_INSTANCE.createBuilder();
+            return DEFAULT_INSTANCE.createBuilder();
         }
+
         public static Builder newBuilder(org.xmtp.android.library.push.Service.UnsubscribeRequest prototype) {
-            return (Builder) DEFAULT_INSTANCE.createBuilder(prototype);
+            return DEFAULT_INSTANCE.createBuilder(prototype);
         }
 
         /**
          * <pre>
          * Unsubscribe from a list of topics
          * </pre>
-         *
+         * <p>
          * Protobuf type {@code notifications.v1.UnsubscribeRequest}
          */
         public static final class Builder extends
@@ -3949,14 +4495,17 @@ public final class Service {
 
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The installationId.
              */
             @java.lang.Override
             public java.lang.String getInstallationId() {
                 return instance.getInstallationId();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The bytes for installationId.
              */
             @java.lang.Override
@@ -3964,8 +4513,10 @@ public final class Service {
             getInstallationIdBytes() {
                 return instance.getInstallationIdBytes();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The installationId to set.
              * @return This builder for chaining.
              */
@@ -3975,8 +4526,10 @@ public final class Service {
                 instance.setInstallationId(value);
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearInstallationId() {
@@ -3984,8 +4537,10 @@ public final class Service {
                 instance.clearInstallationId();
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The bytes for installationId to set.
              * @return This builder for chaining.
              */
@@ -3998,6 +4553,7 @@ public final class Service {
 
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @return A list containing the topics.
              */
             @java.lang.Override
@@ -4006,16 +4562,20 @@ public final class Service {
                 return java.util.Collections.unmodifiableList(
                         instance.getTopicsList());
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @return The count of topics.
              */
             @java.lang.Override
             public int getTopicsCount() {
                 return instance.getTopicsCount();
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param index The index of the element to return.
              * @return The topics at the given index.
              */
@@ -4023,8 +4583,10 @@ public final class Service {
             public java.lang.String getTopics(int index) {
                 return instance.getTopics(index);
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param index The index of the value to return.
              * @return The bytes of the topics at the given index.
              */
@@ -4033,8 +4595,10 @@ public final class Service {
             getTopicsBytes(int index) {
                 return instance.getTopicsBytes(index);
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param index The index to set the value at.
              * @param value The topics to set.
              * @return This builder for chaining.
@@ -4045,8 +4609,10 @@ public final class Service {
                 instance.setTopics(index, value);
                 return this;
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param value The topics to add.
              * @return This builder for chaining.
              */
@@ -4056,8 +4622,10 @@ public final class Service {
                 instance.addTopics(value);
                 return this;
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param values The topics to add.
              * @return This builder for chaining.
              */
@@ -4067,8 +4635,10 @@ public final class Service {
                 instance.addAllTopics(values);
                 return this;
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearTopics() {
@@ -4076,8 +4646,10 @@ public final class Service {
                 instance.clearTopics();
                 return this;
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param value The bytes of the topics to add.
              * @return This builder for chaining.
              */
@@ -4090,9 +4662,10 @@ public final class Service {
 
             // @@protoc_insertion_point(builder_scope:notifications.v1.UnsubscribeRequest)
         }
+
         @java.lang.Override
         @java.lang.SuppressWarnings({"unchecked", "fallthrough"})
-        protected final java.lang.Object dynamicMethod(
+        protected java.lang.Object dynamicMethod(
                 com.google.protobuf.GeneratedMessageLite.MethodToInvoke method,
                 java.lang.Object arg0, java.lang.Object arg1) {
             switch (method) {
@@ -4103,13 +4676,12 @@ public final class Service {
                     return new Builder();
                 }
                 case BUILD_MESSAGE_INFO: {
-                    java.lang.Object[] objects = new java.lang.Object[] {
+                    java.lang.Object[] objects = new java.lang.Object[]{
                             "installationId_",
                             "topics_",
                     };
                     java.lang.String info =
-                            "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0001\u0000\u0001\u0208\u0002\u021a" +
-                                    "";
+                            "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0001\u0000\u0001\u0208\u0002\u021a";
                     return newMessageInfo(DEFAULT_INSTANCE, info, objects);
                 }
                 // fall through
@@ -4144,6 +4716,7 @@ public final class Service {
 
         // @@protoc_insertion_point(class_scope:notifications.v1.UnsubscribeRequest)
         private static final org.xmtp.android.library.push.Service.UnsubscribeRequest DEFAULT_INSTANCE;
+
         static {
             UnsubscribeRequest defaultInstance = new UnsubscribeRequest();
             // New instances are implicitly immutable so no need to make

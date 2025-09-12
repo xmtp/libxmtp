@@ -6,7 +6,7 @@ import org.xmtp.android.library.Client
 import org.xmtp.android.library.EncodedContentCompression
 import org.xmtp.proto.message.contents.Content
 
-typealias EncodedContent = org.xmtp.proto.message.contents.Content.EncodedContent
+typealias EncodedContent = Content.EncodedContent
 
 fun <T> EncodedContent.decoded(): T? {
     val codec = Client.codecRegistry.find(type)
@@ -25,6 +25,7 @@ fun EncodedContent.compress(compression: EncodedContentCompression): EncodedCont
                 it.compression = Content.Compression.COMPRESSION_DEFLATE
             }
         }
+
         EncodedContentCompression.GZIP -> {
             copy.also {
                 it.compression = Content.Compression.COMPRESSION_GZIP
@@ -50,6 +51,7 @@ fun EncodedContent.decompressContent(): EncodedContent {
                         ?.toByteString()
             }.build()
         }
+
         Content.Compression.COMPRESSION_GZIP -> {
             copy = copy.toBuilder().also {
                 it.content =
@@ -57,6 +59,7 @@ fun EncodedContent.decompressContent(): EncodedContent {
                         ?.toByteString()
             }.build()
         }
+
         else -> return copy
     }
     return copy

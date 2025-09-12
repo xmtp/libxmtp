@@ -14,7 +14,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.launch
 import org.xmtp.android.example.R
-import org.xmtp.android.example.databinding.BottomSheetNewConversationBinding
 import org.xmtp.android.example.databinding.BottomSheetNewGroupBinding
 import java.util.regex.Pattern
 
@@ -87,11 +86,13 @@ class NewGroupBottomSheet : BottomSheetDialogFragment() {
                 binding.progress.visibility = View.GONE
                 showError(uiState.message)
             }
+
             NewConversationViewModel.UiState.Loading -> {
                 binding.addressInput1.isEnabled = false
                 binding.addressInput2.isEnabled = false
-                binding.progress.visibility = View.VISIBLE
+                binding.progress.visibility = VISIBLE
             }
+
             is NewConversationViewModel.UiState.Success -> {
                 startActivity(
                     ConversationDetailActivity.intent(
@@ -102,6 +103,7 @@ class NewGroupBottomSheet : BottomSheetDialogFragment() {
                 )
                 dismiss()
             }
+
             NewConversationViewModel.UiState.Unknown -> Unit
         }
     }

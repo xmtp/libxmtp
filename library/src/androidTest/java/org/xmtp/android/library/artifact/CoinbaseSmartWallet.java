@@ -1,16 +1,8 @@
 package org.xmtp.android.library.artifact;
 
-import io.reactivex.Flowable;
-
-import java.math.BigInteger;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.concurrent.Callable;
-
 import org.web3j.abi.EventEncoder;
 import org.web3j.abi.TypeReference;
+import org.web3j.abi.Utils;
 import org.web3j.abi.datatypes.Address;
 import org.web3j.abi.datatypes.Bool;
 import org.web3j.abi.datatypes.DynamicArray;
@@ -37,6 +29,15 @@ import org.web3j.tuples.generated.Tuple7;
 import org.web3j.tx.Contract;
 import org.web3j.tx.TransactionManager;
 import org.web3j.tx.gas.ContractGasProvider;
+
+import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.Callable;
+
+import io.reactivex.Flowable;
 
 /**
  * <p>Auto generated code.
@@ -102,21 +103,18 @@ public class CoinbaseSmartWallet extends Contract {
     public static final String FUNC_VALIDATEUSEROP = "validateUserOp";
 
     public static final Event ADDOWNER_EVENT = new Event("AddOwner",
-            Arrays.<TypeReference<?>>asList(new TypeReference<Uint256>(true) {
+            Arrays.asList(new TypeReference<Uint256>(true) {
             }, new TypeReference<DynamicBytes>() {
             }));
-    ;
 
     public static final Event REMOVEOWNER_EVENT = new Event("RemoveOwner",
-            Arrays.<TypeReference<?>>asList(new TypeReference<Uint256>(true) {
+            Arrays.asList(new TypeReference<Uint256>(true) {
             }, new TypeReference<DynamicBytes>() {
             }));
-    ;
 
     public static final Event UPGRADED_EVENT = new Event("Upgraded",
-            Arrays.<TypeReference<?>>asList(new TypeReference<Address>(true) {
+            List.of(new TypeReference<Address>(true) {
             }));
-    ;
 
     @Deprecated
     protected CoinbaseSmartWallet(String contractAddress, Web3j web3j, Credentials credentials,
@@ -142,8 +140,8 @@ public class CoinbaseSmartWallet extends Contract {
 
     public RemoteFunctionCall<BigInteger> REPLAYABLE_NONCE_KEY() {
         final Function function = new Function(FUNC_REPLAYABLE_NONCE_KEY,
-                Arrays.<Type>asList(),
-                Arrays.<TypeReference<?>>asList(new TypeReference<Uint256>() {
+                List.of(),
+                List.of(new TypeReference<Uint256>() {
                 }));
         return executeRemoteCallSingleValueReturn(function, BigInteger.class);
     }
@@ -151,32 +149,32 @@ public class CoinbaseSmartWallet extends Contract {
     public RemoteFunctionCall<TransactionReceipt> addOwnerAddress(String owner) {
         final Function function = new Function(
                 FUNC_ADDOWNERADDRESS,
-                Arrays.<Type>asList(new org.web3j.abi.datatypes.Address(160, owner)),
-                Collections.<TypeReference<?>>emptyList());
+                List.of(new Address(160, owner)),
+                Collections.emptyList());
         return executeRemoteCallTransaction(function);
     }
 
     public RemoteFunctionCall<TransactionReceipt> addOwnerPublicKey(byte[] x, byte[] y) {
         final Function function = new Function(
                 FUNC_ADDOWNERPUBLICKEY,
-                Arrays.<Type>asList(new org.web3j.abi.datatypes.generated.Bytes32(x),
+                Arrays.asList(new org.web3j.abi.datatypes.generated.Bytes32(x),
                         new org.web3j.abi.datatypes.generated.Bytes32(y)),
-                Collections.<TypeReference<?>>emptyList());
+                Collections.emptyList());
         return executeRemoteCallTransaction(function);
     }
 
     public RemoteFunctionCall<Boolean> canSkipChainIdValidation(byte[] functionSelector) {
         final Function function = new Function(FUNC_CANSKIPCHAINIDVALIDATION,
-                Arrays.<Type>asList(new org.web3j.abi.datatypes.generated.Bytes4(functionSelector)),
-                Arrays.<TypeReference<?>>asList(new TypeReference<Bool>() {
+                List.of(new Bytes4(functionSelector)),
+                List.of(new TypeReference<Bool>() {
                 }));
         return executeRemoteCallSingleValueReturn(function, Boolean.class);
     }
 
     public RemoteFunctionCall<byte[]> domainSeparator() {
         final Function function = new Function(FUNC_DOMAINSEPARATOR,
-                Arrays.<Type>asList(),
-                Arrays.<TypeReference<?>>asList(new TypeReference<Bytes32>() {
+                List.of(),
+                List.of(new TypeReference<Bytes32>() {
                 }));
         return executeRemoteCallSingleValueReturn(function, byte[].class);
     }
@@ -184,8 +182,8 @@ public class CoinbaseSmartWallet extends Contract {
     public RemoteFunctionCall<Tuple7<byte[], String, String, BigInteger, String, byte[], List<BigInteger>>> eip712Domain(
     ) {
         final Function function = new Function(FUNC_EIP712DOMAIN,
-                Arrays.<Type>asList(),
-                Arrays.<TypeReference<?>>asList(new TypeReference<Bytes1>() {
+                List.of(),
+                Arrays.asList(new TypeReference<Bytes1>() {
                 }, new TypeReference<Utf8String>() {
                 }, new TypeReference<Utf8String>() {
                 }, new TypeReference<Uint256>() {
@@ -213,8 +211,8 @@ public class CoinbaseSmartWallet extends Contract {
 
     public RemoteFunctionCall<String> entryPoint() {
         final Function function = new Function(FUNC_ENTRYPOINT,
-                Arrays.<Type>asList(),
-                Arrays.<TypeReference<?>>asList(new TypeReference<Address>() {
+                List.of(),
+                List.of(new TypeReference<Address>() {
                 }));
         return executeRemoteCallSingleValueReturn(function, String.class);
     }
@@ -223,10 +221,10 @@ public class CoinbaseSmartWallet extends Contract {
                                                           byte[] data, BigInteger weiValue) {
         final Function function = new Function(
                 FUNC_EXECUTE,
-                Arrays.<Type>asList(new org.web3j.abi.datatypes.Address(160, target),
+                Arrays.asList(new org.web3j.abi.datatypes.Address(160, target),
                         new org.web3j.abi.datatypes.generated.Uint256(value),
                         new org.web3j.abi.datatypes.DynamicBytes(data)),
-                Collections.<TypeReference<?>>emptyList());
+                Collections.emptyList());
         return executeRemoteCallTransaction(function, weiValue);
     }
 
@@ -234,8 +232,8 @@ public class CoinbaseSmartWallet extends Contract {
                                                                BigInteger weiValue) {
         final Function function = new Function(
                 FUNC_EXECUTEBATCH,
-                Arrays.<Type>asList(new org.web3j.abi.datatypes.DynamicArray<Call>(Call.class, calls)),
-                Collections.<TypeReference<?>>emptyList());
+                List.of(new DynamicArray<Call>(Call.class, calls)),
+                Collections.emptyList());
         return executeRemoteCallTransaction(function, weiValue);
     }
 
@@ -243,23 +241,23 @@ public class CoinbaseSmartWallet extends Contract {
                                                                                   BigInteger weiValue) {
         final Function function = new Function(
                 FUNC_EXECUTEWITHOUTCHAINIDVALIDATION,
-                Arrays.<Type>asList(new org.web3j.abi.datatypes.DynamicBytes(data)),
-                Collections.<TypeReference<?>>emptyList());
+                List.of(new DynamicBytes(data)),
+                Collections.emptyList());
         return executeRemoteCallTransaction(function, weiValue);
     }
 
     public RemoteFunctionCall<byte[]> getUserOpHashWithoutChainId(UserOperation userOp) {
         final Function function = new Function(FUNC_GETUSEROPHASHWITHOUTCHAINID,
-                Arrays.<Type>asList(userOp),
-                Arrays.<TypeReference<?>>asList(new TypeReference<Bytes32>() {
+                Collections.singletonList(userOp),
+                List.of(new TypeReference<Bytes32>() {
                 }));
         return executeRemoteCallSingleValueReturn(function, byte[].class);
     }
 
     public RemoteFunctionCall<String> implementation() {
         final Function function = new Function(FUNC_IMPLEMENTATION,
-                Arrays.<Type>asList(),
-                Arrays.<TypeReference<?>>asList(new TypeReference<Address>() {
+                List.of(),
+                List.of(new TypeReference<Address>() {
                 }));
         return executeRemoteCallSingleValueReturn(function, String.class);
     }
@@ -268,67 +266,67 @@ public class CoinbaseSmartWallet extends Contract {
                                                              BigInteger weiValue) {
         final Function function = new Function(
                 FUNC_INITIALIZE,
-                Arrays.<Type>asList(new org.web3j.abi.datatypes.DynamicArray<org.web3j.abi.datatypes.DynamicBytes>(
-                        org.web3j.abi.datatypes.DynamicBytes.class,
-                        org.web3j.abi.Utils.typeMap(owners, org.web3j.abi.datatypes.DynamicBytes.class))),
-                Collections.<TypeReference<?>>emptyList());
+                List.of(new DynamicArray<DynamicBytes>(
+                        DynamicBytes.class,
+                        Utils.typeMap(owners, DynamicBytes.class))),
+                Collections.emptyList());
         return executeRemoteCallTransaction(function, weiValue);
     }
 
     public RemoteFunctionCall<Boolean> isOwnerAddress(String account) {
         final Function function = new Function(FUNC_ISOWNERADDRESS,
-                Arrays.<Type>asList(new org.web3j.abi.datatypes.Address(160, account)),
-                Arrays.<TypeReference<?>>asList(new TypeReference<Bool>() {
+                List.of(new Address(160, account)),
+                List.of(new TypeReference<Bool>() {
                 }));
         return executeRemoteCallSingleValueReturn(function, Boolean.class);
     }
 
     public RemoteFunctionCall<Boolean> isOwnerBytes(byte[] account) {
         final Function function = new Function(FUNC_ISOWNERBYTES,
-                Arrays.<Type>asList(new org.web3j.abi.datatypes.DynamicBytes(account)),
-                Arrays.<TypeReference<?>>asList(new TypeReference<Bool>() {
+                List.of(new DynamicBytes(account)),
+                List.of(new TypeReference<Bool>() {
                 }));
         return executeRemoteCallSingleValueReturn(function, Boolean.class);
     }
 
     public RemoteFunctionCall<Boolean> isOwnerPublicKey(byte[] x, byte[] y) {
         final Function function = new Function(FUNC_ISOWNERPUBLICKEY,
-                Arrays.<Type>asList(new org.web3j.abi.datatypes.generated.Bytes32(x),
+                Arrays.asList(new org.web3j.abi.datatypes.generated.Bytes32(x),
                         new org.web3j.abi.datatypes.generated.Bytes32(y)),
-                Arrays.<TypeReference<?>>asList(new TypeReference<Bool>() {
+                List.of(new TypeReference<Bool>() {
                 }));
         return executeRemoteCallSingleValueReturn(function, Boolean.class);
     }
 
     public RemoteFunctionCall<byte[]> isValidSignature(byte[] hash, byte[] signature) {
         final Function function = new Function(FUNC_ISVALIDSIGNATURE,
-                Arrays.<Type>asList(new org.web3j.abi.datatypes.generated.Bytes32(hash),
+                Arrays.asList(new org.web3j.abi.datatypes.generated.Bytes32(hash),
                         new org.web3j.abi.datatypes.DynamicBytes(signature)),
-                Arrays.<TypeReference<?>>asList(new TypeReference<Bytes4>() {
+                List.of(new TypeReference<Bytes4>() {
                 }));
         return executeRemoteCallSingleValueReturn(function, byte[].class);
     }
 
     public RemoteFunctionCall<BigInteger> nextOwnerIndex() {
         final Function function = new Function(FUNC_NEXTOWNERINDEX,
-                Arrays.<Type>asList(),
-                Arrays.<TypeReference<?>>asList(new TypeReference<Uint256>() {
+                List.of(),
+                List.of(new TypeReference<Uint256>() {
                 }));
         return executeRemoteCallSingleValueReturn(function, BigInteger.class);
     }
 
     public RemoteFunctionCall<byte[]> ownerAtIndex(BigInteger index) {
         final Function function = new Function(FUNC_OWNERATINDEX,
-                Arrays.<Type>asList(new org.web3j.abi.datatypes.generated.Uint256(index)),
-                Arrays.<TypeReference<?>>asList(new TypeReference<DynamicBytes>() {
+                List.of(new Uint256(index)),
+                List.of(new TypeReference<DynamicBytes>() {
                 }));
         return executeRemoteCallSingleValueReturn(function, byte[].class);
     }
 
     public RemoteFunctionCall<byte[]> proxiableUUID() {
         final Function function = new Function(FUNC_PROXIABLEUUID,
-                Arrays.<Type>asList(),
-                Arrays.<TypeReference<?>>asList(new TypeReference<Bytes32>() {
+                List.of(),
+                List.of(new TypeReference<Bytes32>() {
                 }));
         return executeRemoteCallSingleValueReturn(function, byte[].class);
     }
@@ -336,15 +334,15 @@ public class CoinbaseSmartWallet extends Contract {
     public RemoteFunctionCall<TransactionReceipt> removeOwnerAtIndex(BigInteger index) {
         final Function function = new Function(
                 FUNC_REMOVEOWNERATINDEX,
-                Arrays.<Type>asList(new org.web3j.abi.datatypes.generated.Uint256(index)),
-                Collections.<TypeReference<?>>emptyList());
+                List.of(new Uint256(index)),
+                Collections.emptyList());
         return executeRemoteCallTransaction(function);
     }
 
     public RemoteFunctionCall<byte[]> replaySafeHash(byte[] hash) {
         final Function function = new Function(FUNC_REPLAYSAFEHASH,
-                Arrays.<Type>asList(new org.web3j.abi.datatypes.generated.Bytes32(hash)),
-                Arrays.<TypeReference<?>>asList(new TypeReference<Bytes32>() {
+                List.of(new Bytes32(hash)),
+                List.of(new TypeReference<Bytes32>() {
                 }));
         return executeRemoteCallSingleValueReturn(function, byte[].class);
     }
@@ -353,9 +351,9 @@ public class CoinbaseSmartWallet extends Contract {
                                                                    byte[] data, BigInteger weiValue) {
         final Function function = new Function(
                 FUNC_UPGRADETOANDCALL,
-                Arrays.<Type>asList(new org.web3j.abi.datatypes.Address(160, newImplementation),
+                Arrays.asList(new org.web3j.abi.datatypes.Address(160, newImplementation),
                         new org.web3j.abi.datatypes.DynamicBytes(data)),
-                Collections.<TypeReference<?>>emptyList());
+                Collections.emptyList());
         return executeRemoteCallTransaction(function, weiValue);
     }
 
@@ -363,10 +361,10 @@ public class CoinbaseSmartWallet extends Contract {
                                                                  byte[] userOpHash, BigInteger missingAccountFunds, BigInteger weiValue) {
         final Function function = new Function(
                 FUNC_VALIDATEUSEROP,
-                Arrays.<Type>asList(userOp,
+                Arrays.asList(userOp,
                         new org.web3j.abi.datatypes.generated.Bytes32(userOpHash),
                         new org.web3j.abi.datatypes.generated.Uint256(missingAccountFunds)),
-                Collections.<TypeReference<?>>emptyList());
+                Collections.emptyList());
         return executeRemoteCallTransaction(function, weiValue);
     }
 

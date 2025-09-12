@@ -2,7 +2,7 @@ package org.xmtp.android.library.codecs
 
 import org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated
 
-typealias GroupUpdated = org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated
+typealias GroupUpdated = GroupUpdated
 
 val ContentTypeGroupUpdated = ContentTypeIdBuilder.builderFromAuthorityId(
     "xmtp.org",

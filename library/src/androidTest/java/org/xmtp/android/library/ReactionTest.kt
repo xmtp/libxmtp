@@ -148,7 +148,7 @@ class ReactionTest {
         assertEquals(messagesWithReactions.size, 2)
         assertEquals(messagesWithReactions[0].id, messageToReact.id)
         val reactionContent: FfiReactionPayload? =
-            messagesWithReactions[0]?.childMessages!![0]?.let { it?.content()!! }
+            messagesWithReactions[0].childMessages!![0].let { it.content()!! }
         assertEquals(reactionContent?.reference, messageToReact.id)
     }
 
