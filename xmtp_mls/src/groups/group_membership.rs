@@ -112,6 +112,8 @@ impl From<&GroupMembership> for Vec<u8> {
     }
 }
 
+/// Represents changes to the group membership extension/metadata
+/// Does NOT include installations being removed and readded (see `InstallationDiff`)
 #[derive(Debug, Clone)]
 pub struct MembershipDiff<'inbox_id> {
     pub added_inboxes: Vec<&'inbox_id String>,
