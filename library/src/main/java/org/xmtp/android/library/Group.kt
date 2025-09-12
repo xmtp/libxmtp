@@ -50,6 +50,12 @@ class Group(
     val createdAt: Date
         get() = Date(libXMTPGroup.createdAtNs() / 1_000_000)
 
+    val createdAtNs: Long
+        get() = libXMTPGroup.createdAtNs()
+
+    val lastActivityNs: Long
+        get() = ffiLastMessage?.sentAtNs ?: createdAtNs
+
     private suspend fun metadata(): FfiConversationMetadata {
         return libXMTPGroup.groupMetadata()
     }
@@ -541,5 +547,18 @@ class Group(
 
     fun getLastReadTimes(): Map<InboxId, Long> {
         return libXMTPGroup.getLastReadTimes()
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as Group
+
+        return id == other.id
+    }
+
+    override fun hashCode(): Int {
+        return id.hashCode()
     }
 }

@@ -10962,6 +10962,9 @@ public object FfiConverterTypeFfiLifetime: FfiConverterRustBuffer<FfiLifetime> {
 data class FfiListConversationsOptions (
     var `createdAfterNs`: kotlin.Long?, 
     var `createdBeforeNs`: kotlin.Long?, 
+    var `lastActivityBeforeNs`: kotlin.Long?, 
+    var `lastActivityAfterNs`: kotlin.Long?, 
+    var `orderBy`: FfiGroupQueryOrderBy?, 
     var `limit`: kotlin.Long?, 
     var `consentStates`: List<FfiConsentState>?, 
     var `includeDuplicateDms`: kotlin.Boolean
@@ -10979,6 +10982,9 @@ public object FfiConverterTypeFfiListConversationsOptions: FfiConverterRustBuffe
             FfiConverterOptionalLong.read(buf),
             FfiConverterOptionalLong.read(buf),
             FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalTypeFfiGroupQueryOrderBy.read(buf),
+            FfiConverterOptionalLong.read(buf),
             FfiConverterOptionalSequenceTypeFfiConsentState.read(buf),
             FfiConverterBoolean.read(buf),
         )
@@ -10987,6 +10993,9 @@ public object FfiConverterTypeFfiListConversationsOptions: FfiConverterRustBuffe
     override fun allocationSize(value: FfiListConversationsOptions) = (
             FfiConverterOptionalLong.allocationSize(value.`createdAfterNs`) +
             FfiConverterOptionalLong.allocationSize(value.`createdBeforeNs`) +
+            FfiConverterOptionalLong.allocationSize(value.`lastActivityBeforeNs`) +
+            FfiConverterOptionalLong.allocationSize(value.`lastActivityAfterNs`) +
+            FfiConverterOptionalTypeFfiGroupQueryOrderBy.allocationSize(value.`orderBy`) +
             FfiConverterOptionalLong.allocationSize(value.`limit`) +
             FfiConverterOptionalSequenceTypeFfiConsentState.allocationSize(value.`consentStates`) +
             FfiConverterBoolean.allocationSize(value.`includeDuplicateDms`)
@@ -10995,6 +11004,9 @@ public object FfiConverterTypeFfiListConversationsOptions: FfiConverterRustBuffe
     override fun write(value: FfiListConversationsOptions, buf: ByteBuffer) {
             FfiConverterOptionalLong.write(value.`createdAfterNs`, buf)
             FfiConverterOptionalLong.write(value.`createdBeforeNs`, buf)
+            FfiConverterOptionalLong.write(value.`lastActivityBeforeNs`, buf)
+            FfiConverterOptionalLong.write(value.`lastActivityAfterNs`, buf)
+            FfiConverterOptionalTypeFfiGroupQueryOrderBy.write(value.`orderBy`, buf)
             FfiConverterOptionalLong.write(value.`limit`, buf)
             FfiConverterOptionalSequenceTypeFfiConsentState.write(value.`consentStates`, buf)
             FfiConverterBoolean.write(value.`includeDuplicateDms`, buf)
@@ -12711,6 +12723,36 @@ public object FfiConverterTypeFfiGroupPermissionsOptions: FfiConverterRustBuffer
 
 
 
+enum class FfiGroupQueryOrderBy {
+    
+    CREATED_AT,
+    LAST_ACTIVITY;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiGroupQueryOrderBy: FfiConverterRustBuffer<FfiGroupQueryOrderBy> {
+    override fun read(buf: ByteBuffer) = try {
+        FfiGroupQueryOrderBy.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: FfiGroupQueryOrderBy) = 4UL
+
+    override fun write(value: FfiGroupQueryOrderBy, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
 enum class FfiIdentifierKind {
     
     ETHEREUM,
@@ -14189,6 +14231,38 @@ public object FfiConverterOptionalTypeFfiGroupPermissionsOptions: FfiConverterRu
         } else {
             buf.put(1)
             FfiConverterTypeFfiGroupPermissionsOptions.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeFfiGroupQueryOrderBy: FfiConverterRustBuffer<FfiGroupQueryOrderBy?> {
+    override fun read(buf: ByteBuffer): FfiGroupQueryOrderBy? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeFfiGroupQueryOrderBy.read(buf)
+    }
+
+    override fun allocationSize(value: FfiGroupQueryOrderBy?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeFfiGroupQueryOrderBy.allocationSize(value)
+        }
+    }
+
+    override fun write(value: FfiGroupQueryOrderBy?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeFfiGroupQueryOrderBy.write(value, buf)
         }
     }
 }

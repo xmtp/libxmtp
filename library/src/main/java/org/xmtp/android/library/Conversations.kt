@@ -22,6 +22,7 @@ import uniffi.xmtpv3.FfiConversations
 import uniffi.xmtpv3.FfiCreateDmOptions
 import uniffi.xmtpv3.FfiCreateGroupOptions
 import uniffi.xmtpv3.FfiGroupPermissionsOptions
+import uniffi.xmtpv3.FfiGroupQueryOrderBy
 import uniffi.xmtpv3.FfiListConversationsOptions
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
@@ -29,9 +30,6 @@ import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiPermissionPolicySet
 import uniffi.xmtpv3.FfiSubscribeException
 import uniffi.xmtpv3.FfiXmtpClient
-import java.util.Date
-import kotlin.time.Duration.Companion.nanoseconds
-import kotlin.time.DurationUnit
 
 data class Conversations(
     var client: Client,
@@ -43,6 +41,18 @@ data class Conversations(
         ALL,
         GROUPS,
         DMS;
+    }
+
+    enum class ListConversationsOrderBy {
+        CREATED_AT,
+        LAST_ACTIVITY;
+    }
+
+    fun ListConversationsOrderBy.toFfi(): FfiGroupQueryOrderBy {
+        return when (this) {
+            ListConversationsOrderBy.CREATED_AT -> FfiGroupQueryOrderBy.CREATED_AT
+            ListConversationsOrderBy.LAST_ACTIVITY -> FfiGroupQueryOrderBy.LAST_ACTIVITY
+        }
     }
 
     fun findGroup(groupId: String): Group? {
@@ -109,7 +119,8 @@ data class Conversations(
         return try {
             DecodedMessageV2.create(ffiClient.messageV2(messageId.hexToByteArray()))
         } catch (e: Exception) {
-            throw XMTPException("No message found")
+            Log.e("findMessageV2 failed", e.toString())
+            null
         }
     }
 
@@ -368,20 +379,26 @@ data class Conversations(
     }
 
     fun listGroups(
-        after: Date? = null,
-        before: Date? = null,
+        createdAfterNs: Long? = null,
+        createdBeforeNs: Long? = null,
+        lastActivityAfterNs: Long? = null,
+        lastActivityBeforeNs: Long? = null,
         limit: Int? = null,
         consentStates: List<ConsentState>? = null,
+        orderBy: ListConversationsOrderBy = ListConversationsOrderBy.LAST_ACTIVITY,
     ): List<Group> {
         val ffiGroups = ffiConversations.listGroups(
             opts = FfiListConversationsOptions(
-                after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
-                before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
-                limit?.toLong(),
-                consentStates?.let { states ->
+                createdAfterNs,
+                createdBeforeNs,
+                lastActivityBeforeNs,
+                lastActivityAfterNs,
+                limit = limit?.toLong(),
+                consentStates = consentStates?.let { states ->
                     states.map { ConsentState.toFfiConsentState(it) }
                 },
-                false
+                orderBy = orderBy.toFfi(),
+                includeDuplicateDms = false
             )
         )
 
@@ -391,20 +408,26 @@ data class Conversations(
     }
 
     fun listDms(
-        after: Date? = null,
-        before: Date? = null,
+        createdAfterNs: Long? = null,
+        createdBeforeNs: Long? = null,
+        lastActivityAfterNs: Long? = null,
+        lastActivityBeforeNs: Long? = null,
         limit: Int? = null,
         consentStates: List<ConsentState>? = null,
+        orderBy: ListConversationsOrderBy = ListConversationsOrderBy.LAST_ACTIVITY,
     ): List<Dm> {
         val ffiDms = ffiConversations.listDms(
             opts = FfiListConversationsOptions(
-                after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
-                before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
-                limit?.toLong(),
-                consentStates?.let { states ->
+                createdAfterNs,
+                createdBeforeNs,
+                lastActivityBeforeNs,
+                lastActivityAfterNs,
+                limit = limit?.toLong(),
+                consentStates = consentStates?.let { states ->
                     states.map { ConsentState.toFfiConsentState(it) }
                 },
-                false
+                orderBy = orderBy.toFfi(),
+                includeDuplicateDms = false
             )
         )
 
@@ -414,20 +437,26 @@ data class Conversations(
     }
 
     suspend fun list(
-        after: Date? = null,
-        before: Date? = null,
+        createdAfterNs: Long? = null,
+        createdBeforeNs: Long? = null,
+        lastActivityAfterNs: Long? = null,
+        lastActivityBeforeNs: Long? = null,
         limit: Int? = null,
         consentStates: List<ConsentState>? = null,
+        orderBy: ListConversationsOrderBy = ListConversationsOrderBy.LAST_ACTIVITY,
     ): List<Conversation> {
         val ffiConversation = ffiConversations.list(
-            FfiListConversationsOptions(
-                after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
-                before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
-                limit?.toLong(),
-                consentStates?.let { states ->
+            opts = FfiListConversationsOptions(
+                createdAfterNs = createdAfterNs,
+                createdBeforeNs = createdBeforeNs,
+                lastActivityBeforeNs = lastActivityBeforeNs,
+                lastActivityAfterNs = lastActivityAfterNs,
+                limit = limit?.toLong(),
+                consentStates = consentStates?.let { states ->
                     states.map { ConsentState.toFfiConsentState(it) }
                 },
-                false
+                orderBy = orderBy.toFfi(),
+                includeDuplicateDms = false
             )
         )
 
@@ -567,6 +596,9 @@ data class Conversations(
             FfiListConversationsOptions(
                 null,
                 null,
+                null,
+                null,
+                ListConversationsOrderBy.CREATED_AT.toFfi(),
                 null,
                 null,
                 includeDuplicateDms = true

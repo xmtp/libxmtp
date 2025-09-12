@@ -1,13 +1,11 @@
 package org.xmtp.android.library.libxmtp
 
-import android.util.Log
 import org.xmtp.android.library.InboxId
+import org.xmtp.android.library.Topic
 import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.decoded
-import org.xmtp.android.library.codecs.id
-import org.xmtp.android.library.Topic
 import org.xmtp.android.library.toHex
 import org.xmtp.proto.message.contents.Content
 import uniffi.xmtpv3.FfiConversationMessageKind
@@ -71,7 +69,6 @@ class DecodedMessage private constructor(
         fun create(libXMTPMessage: FfiMessage): DecodedMessage? {
             return try {
                 val encodedContent = EncodedContent.parseFrom(libXMTPMessage.content)
-                Log.d("XMTP Message Create", "encodedContent type:" + encodedContent.type.id)
                 if (encodedContent.type == ContentTypeGroupUpdated && libXMTPMessage.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE) {
                     throw XMTPException("Error decoding group membership change")
                 }
@@ -85,7 +82,8 @@ class DecodedMessage private constructor(
 
         fun create(libXMTPMessageWithReactions: FfiMessageWithReactions): DecodedMessage? {
             return try {
-                val encodedContent = EncodedContent.parseFrom(libXMTPMessageWithReactions.message.content)
+                val encodedContent =
+                    EncodedContent.parseFrom(libXMTPMessageWithReactions.message.content)
                 if (encodedContent.type == ContentTypeGroupUpdated && libXMTPMessageWithReactions.message.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE) {
                     throw XMTPException("Error decoding group membership change")
                 }
@@ -93,7 +91,8 @@ class DecodedMessage private constructor(
                 val decodedContent = encodedContent.decoded<Any>()
 
                 // Convert reactions to Message objects
-                val reactionMessages = libXMTPMessageWithReactions.reactions.mapNotNull { create(it) }
+                val reactionMessages =
+                    libXMTPMessageWithReactions.reactions.mapNotNull { create(it) }
 
                 DecodedMessage(
                     libXMTPMessageWithReactions.message,

@@ -43,6 +43,12 @@ class Dm(
     val createdAt: Date
         get() = Date(libXMTPGroup.createdAtNs() / 1_000_000)
 
+    val createdAtNs: Long
+        get() = libXMTPGroup.createdAtNs()
+
+    val lastActivityNs: Long
+        get() = ffiLastMessage?.sentAtNs ?: createdAtNs
+
     val peerInboxId: InboxId
         get() = libXMTPGroup.dmPeerInboxId() ?: throw XMTPException("peerInboxId not found")
 
@@ -350,5 +356,18 @@ class Dm(
 
     fun getLastReadTimes(): Map<InboxId, Long> {
         return libXMTPGroup.getLastReadTimes()
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as Dm
+
+        return id == other.id
+    }
+
+    override fun hashCode(): Int {
+        return id.hashCode()
     }
 }

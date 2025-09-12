@@ -48,6 +48,22 @@ sealed class Conversation {
             }
         }
 
+    val createdAtNs: Long
+        get() {
+            return when (this) {
+                is Group -> group.createdAtNs
+                is Dm -> dm.createdAtNs
+            }
+        }
+
+    val lastActivityNs: Long
+        get() {
+            return when (this) {
+                is Group -> group.lastActivityNs
+                is Dm -> dm.lastActivityNs
+            }
+        }
+
     val disappearingMessageSettings: DisappearingMessageSettings?
         get() {
             return when (this) {
