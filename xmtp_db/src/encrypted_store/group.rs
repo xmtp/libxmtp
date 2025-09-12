@@ -502,15 +502,13 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .into_boxed();
 
         if !include_duplicate_dms {
-            // Group by dm_id and grab the latest group (conversation stitching)
+            // Fast DM deduplication using EXISTS - avoids expensive window functions
+            // Keep only the latest group for each dm_id (or regular group if not a DM)
             query = query.filter(sql::<diesel::sql_types::Bool>(
-                "id IN (
-                    SELECT id FROM (
-                        SELECT id,
-                            ROW_NUMBER() OVER (PARTITION BY COALESCE(dm_id, id) ORDER BY last_message_ns DESC) AS row_num
-                        FROM groups
-                    ) AS ranked_groups
-                    WHERE row_num = 1
+                "NOT EXISTS (
+                    SELECT 1 FROM groups g2
+                    WHERE COALESCE(g2.dm_id, g2.id) = COALESCE(groups.dm_id, groups.id)
+                    AND (COALESCE(g2.last_message_ns, 0), g2.id) > (COALESCE(groups.last_message_ns, 0), groups.id)
                 )",
             ));
         }
