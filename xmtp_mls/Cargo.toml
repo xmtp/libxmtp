@@ -213,6 +213,11 @@ harness = false
 name = "identity"
 required-features = ["bench"]
 
+[[bench]]
+harness = false
+name = "groups"
+required-features = ["bench"]
+
 [[test]]
 harness = true
 name = "chaos"
