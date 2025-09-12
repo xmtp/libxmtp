@@ -384,6 +384,7 @@ impl ValidatedCommit {
 
         // Get the expected diff of installations added and removed based on the difference between the current
         // group membership and the new group membership.
+        // Does not account for readded installations.
         // Also gets back the added and removed inbox ids from the expected diff
         let expected_diff =
             ExpectedDiff::from_staged_commit(context, staged_commit, openmls_group).await?;
@@ -399,6 +400,7 @@ impl ValidatedCommit {
             !added_installations.is_empty() || !removed_installations.is_empty();
 
         // Ensure that the expected diff matches the added/removed installations in the proposals
+        // TODO(rich): Account for readd installations here, apply bookkeeping
         expected_diff_matches_commit(
             &expected_installation_diff,
             added_installations,
@@ -604,6 +606,9 @@ fn get_latest_group_membership(
     extract_group_membership(staged_commit.group_context().extensions())
 }
 
+/// The expected diff of installations added and removed based on the difference between the current
+/// [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`].
+/// Does not account for readded installations.
 struct ExpectedDiff {
     new_group_membership: GroupMembership,
     expected_installation_diff: InstallationDiff,
@@ -641,6 +646,7 @@ impl ExpectedDiff {
 
     /// Generates an expected diff of installations added and removed based on the difference between the current
     /// [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`].
+    /// Does not account for readded installations.
     /// This requires loading the Inbox state from the network.
     /// Satisfies Rule 2
     async fn extract_expected_diff(
