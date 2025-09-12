@@ -294,18 +294,22 @@ pub(crate) struct UpdateGroupMembershipIntentData {
     pub membership_updates: HashMap<String, u64>,
     pub removed_members: Vec<String>,
     pub failed_installations: Vec<Vec<u8>>,
+    pub installations_to_readd: Vec<Vec<u8>>,
 }
 
 impl UpdateGroupMembershipIntentData {
+    // TODO(rich): Does failed_installations need to be accurate here?
     pub fn new(
         membership_updates: HashMap<String, u64>,
         removed_members: Vec<String>,
         failed_installations: Vec<Vec<u8>>,
+        installations_to_readd: Vec<Vec<u8>>,
     ) -> Self {
         Self {
             membership_updates,
             removed_members,
             failed_installations,
+            installations_to_readd,
         }
     }
 
@@ -313,6 +317,7 @@ impl UpdateGroupMembershipIntentData {
         self.membership_updates.is_empty()
             && self.removed_members.is_empty()
             && self.failed_installations.is_empty()
+            && self.installations_to_readd.is_empty()
     }
 
     pub fn apply_to_group_membership(&self, group_membership: &GroupMembership) -> GroupMembership {
