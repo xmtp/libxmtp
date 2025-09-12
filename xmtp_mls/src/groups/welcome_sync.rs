@@ -2,6 +2,7 @@ use crate::client::ClientError;
 use crate::context::XmtpSharedContext;
 use crate::groups::InitialMembershipValidator;
 use crate::groups::ValidateGroupMembership;
+use crate::groups::XmtpWelcome;
 use crate::groups::{GroupError, MlsGroup};
 use crate::mls_store::MlsStore;
 use futures::stream::{self, FuturesUnordered, StreamExt};
@@ -36,14 +37,14 @@ where
         welcome: &welcome_message::V1,
         cursor_increment: bool,
         validator: impl ValidateGroupMembership,
-    ) -> Result<MlsGroup<Context>, GroupError> {
-        let result = MlsGroup::create_from_welcome(
-            self.context.clone(),
-            welcome,
-            cursor_increment,
-            validator,
-        )
-        .await;
+    ) -> Result<Option<MlsGroup<Context>>, GroupError> {
+        let result = XmtpWelcome::builder()
+            .context(self.context.clone())
+            .welcome(welcome)
+            .cursor_increment(cursor_increment)
+            .validator(validator)
+            .process()
+            .await;
 
         match result {
             Ok(mls_group) => Ok(mls_group),
@@ -78,7 +79,6 @@ where
         let envelopes = store.query_welcome_messages(&db).await?;
         let num_envelopes = envelopes.len();
 
-        // TODO: Update cursor correctly if some of the welcomes fail and some of the welcomes succeed
         let groups: Vec<MlsGroup<Context>> = stream::iter(envelopes.into_iter())
             .filter_map(|envelope: WelcomeMessage| async {
                 let welcome_v1 = match envelope.version {
@@ -97,7 +97,7 @@ where
                         self.process_new_welcome(&welcome_v1, true, validator).await
                     })
                 )
-                .ok()
+                .ok()?
             })
             .collect()
             .await;
