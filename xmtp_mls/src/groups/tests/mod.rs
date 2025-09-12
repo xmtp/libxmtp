@@ -1,5 +1,6 @@
 mod test_commit_log_fork_detection;
 mod test_commit_log_local;
+mod test_commit_log_readd_requests;
 mod test_commit_log_remote;
 mod test_consent;
 mod test_dm;

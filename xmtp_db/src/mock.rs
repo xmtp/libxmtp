@@ -324,6 +324,13 @@ mock! {
             installation_id: &[u8],
         ) -> Result<Option<crate::readd_status::ReaddStatus>, crate::ConnectionError>;
 
+        fn is_awaiting_readd(
+            &self,
+            group_id: &[u8],
+            inbox_id: &str,
+            installation_id: &[u8],
+        ) -> Result<bool, crate::ConnectionError>;
+
         fn update_requested_at_sequence_id(
             &self,
             group_id: &[u8],
