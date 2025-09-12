@@ -453,6 +453,7 @@ impl serde::Serialize for ConversationType {
             Self::Group => "CONVERSATION_TYPE_GROUP",
             Self::Dm => "CONVERSATION_TYPE_DM",
             Self::Sync => "CONVERSATION_TYPE_SYNC",
+            Self::Oneshot => "CONVERSATION_TYPE_ONESHOT",
         };
         serializer.serialize_str(variant)
     }
@@ -468,6 +469,7 @@ impl<'de> serde::Deserialize<'de> for ConversationType {
             "CONVERSATION_TYPE_GROUP",
             "CONVERSATION_TYPE_DM",
             "CONVERSATION_TYPE_SYNC",
+            "CONVERSATION_TYPE_ONESHOT",
         ];
 
         struct GeneratedVisitor;
@@ -512,6 +514,7 @@ impl<'de> serde::Deserialize<'de> for ConversationType {
                     "CONVERSATION_TYPE_GROUP" => Ok(ConversationType::Group),
                     "CONVERSATION_TYPE_DM" => Ok(ConversationType::Dm),
                     "CONVERSATION_TYPE_SYNC" => Ok(ConversationType::Sync),
+                    "CONVERSATION_TYPE_ONESHOT" => Ok(ConversationType::Oneshot),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -1095,6 +1098,9 @@ impl serde::Serialize for GroupMetadataV1 {
         if self.dm_members.is_some() {
             len += 1;
         }
+        if self.oneshot_message.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupMetadataV1", len)?;
         if self.conversation_type != 0 {
             let v = ConversationType::try_from(self.conversation_type)
@@ -1109,6 +1115,9 @@ impl serde::Serialize for GroupMetadataV1 {
         }
         if let Some(v) = self.dm_members.as_ref() {
             struct_ser.serialize_field("dm_members", v)?;
+        }
+        if let Some(v) = self.oneshot_message.as_ref() {
+            struct_ser.serialize_field("oneshot_message", v)?;
         }
         struct_ser.end()
     }
@@ -1128,6 +1137,8 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
             "creatorInboxId",
             "dm_members",
             "dmMembers",
+            "oneshot_message",
+            "oneshotMessage",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1136,6 +1147,7 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
             CreatorAccountAddress,
             CreatorInboxId,
             DmMembers,
+            OneshotMessage,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1162,6 +1174,7 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
                             "creatorAccountAddress" | "creator_account_address" => Ok(GeneratedField::CreatorAccountAddress),
                             "creatorInboxId" | "creator_inbox_id" => Ok(GeneratedField::CreatorInboxId),
                             "dmMembers" | "dm_members" => Ok(GeneratedField::DmMembers),
+                            "oneshotMessage" | "oneshot_message" => Ok(GeneratedField::OneshotMessage),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1185,6 +1198,7 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
                 let mut creator_account_address__ = None;
                 let mut creator_inbox_id__ = None;
                 let mut dm_members__ = None;
+                let mut oneshot_message__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConversationType => {
@@ -1211,6 +1225,12 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
                             }
                             dm_members__ = map_.next_value()?;
                         }
+                        GeneratedField::OneshotMessage => {
+                            if oneshot_message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("oneshotMessage"));
+                            }
+                            oneshot_message__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1221,6 +1241,7 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
                     creator_account_address: creator_account_address__.unwrap_or_default(),
                     creator_inbox_id: creator_inbox_id__.unwrap_or_default(),
                     dm_members: dm_members__,
+                    oneshot_message: oneshot_message__,
                 })
             }
         }
@@ -1244,9 +1265,6 @@ impl serde::Serialize for GroupMutableMetadataV1 {
         if self.super_admin_list.is_some() {
             len += 1;
         }
-        if self.commit_log_signer.is_some() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupMutableMetadataV1", len)?;
         if !self.attributes.is_empty() {
             struct_ser.serialize_field("attributes", &self.attributes)?;
@@ -1256,11 +1274,6 @@ impl serde::Serialize for GroupMutableMetadataV1 {
         }
         if let Some(v) = self.super_admin_list.as_ref() {
             struct_ser.serialize_field("super_admin_list", v)?;
-        }
-        if let Some(v) = self.commit_log_signer.as_ref() {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("commit_log_signer", pbjson::private::base64::encode(&v).as_str())?;
         }
         struct_ser.end()
     }
@@ -1277,8 +1290,6 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
             "adminList",
             "super_admin_list",
             "superAdminList",
-            "commit_log_signer",
-            "commitLogSigner",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1286,7 +1297,6 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
             Attributes,
             AdminList,
             SuperAdminList,
-            CommitLogSigner,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1312,7 +1322,6 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
                             "attributes" => Ok(GeneratedField::Attributes),
                             "adminList" | "admin_list" => Ok(GeneratedField::AdminList),
                             "superAdminList" | "super_admin_list" => Ok(GeneratedField::SuperAdminList),
-                            "commitLogSigner" | "commit_log_signer" => Ok(GeneratedField::CommitLogSigner),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1335,7 +1344,6 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
                 let mut attributes__ = None;
                 let mut admin_list__ = None;
                 let mut super_admin_list__ = None;
-                let mut commit_log_signer__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Attributes => {
@@ -1358,14 +1366,6 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
                             }
                             super_admin_list__ = map_.next_value()?;
                         }
-                        GeneratedField::CommitLogSigner => {
-                            if commit_log_signer__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("commitLogSigner"));
-                            }
-                            commit_log_signer__ = 
-                                map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| x.0)
-                            ;
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1375,7 +1375,6 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
                     attributes: attributes__.unwrap_or_default(),
                     admin_list: admin_list__,
                     super_admin_list: super_admin_list__,
-                    commit_log_signer: commit_log_signer__,
                 })
             }
         }
@@ -2980,6 +2979,107 @@ impl<'de> serde::Deserialize<'de> for metadata_policy::MetadataBasePolicy {
         deserializer.deserialize_any(GeneratedVisitor)
     }
 }
+impl serde::Serialize for OneshotMessage {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.message_type.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.OneshotMessage", len)?;
+        if let Some(v) = self.message_type.as_ref() {
+            match v {
+                oneshot_message::MessageType::ReaddRequest(v) => {
+                    struct_ser.serialize_field("readd_request", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for OneshotMessage {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "readd_request",
+            "readdRequest",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            ReaddRequest,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "readdRequest" | "readd_request" => Ok(GeneratedField::ReaddRequest),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = OneshotMessage;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.OneshotMessage")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<OneshotMessage, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut message_type__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::ReaddRequest => {
+                            if message_type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("readdRequest"));
+                            }
+                            message_type__ = map_.next_value::<::std::option::Option<_>>()?.map(oneshot_message::MessageType::ReaddRequest)
+;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(OneshotMessage {
+                    message_type: message_type__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.OneshotMessage", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for PermissionsUpdatePolicy {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -3848,9 +3948,6 @@ impl serde::Serialize for plaintext_envelope::V2 {
                 plaintext_envelope::v2::MessageType::UserPreferenceUpdate(v) => {
                     struct_ser.serialize_field("user_preference_update", v)?;
                 }
-                plaintext_envelope::v2::MessageType::ReaddRequest(v) => {
-                    struct_ser.serialize_field("readd_request", v)?;
-                }
             }
         }
         struct_ser.end()
@@ -3872,8 +3969,6 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V2 {
             "deviceSyncReply",
             "user_preference_update",
             "userPreferenceUpdate",
-            "readd_request",
-            "readdRequest",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3883,7 +3978,6 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V2 {
             DeviceSyncRequest,
             DeviceSyncReply,
             UserPreferenceUpdate,
-            ReaddRequest,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3911,7 +4005,6 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V2 {
                             "deviceSyncRequest" | "device_sync_request" => Ok(GeneratedField::DeviceSyncRequest),
                             "deviceSyncReply" | "device_sync_reply" => Ok(GeneratedField::DeviceSyncReply),
                             "userPreferenceUpdate" | "user_preference_update" => Ok(GeneratedField::UserPreferenceUpdate),
-                            "readdRequest" | "readd_request" => Ok(GeneratedField::ReaddRequest),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3966,13 +4059,6 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V2 {
                                 return Err(serde::de::Error::duplicate_field("userPreferenceUpdate"));
                             }
                             message_type__ = map_.next_value::<::std::option::Option<_>>()?.map(plaintext_envelope::v2::MessageType::UserPreferenceUpdate)
-;
-                        }
-                        GeneratedField::ReaddRequest => {
-                            if message_type__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("readdRequest"));
-                            }
-                            message_type__ = map_.next_value::<::std::option::Option<_>>()?.map(plaintext_envelope::v2::MessageType::ReaddRequest)
 ;
                         }
                         GeneratedField::__SkipField__ => {
@@ -4188,7 +4274,7 @@ impl serde::Serialize for ReaddRequest {
         if !self.group_id.is_empty() {
             len += 1;
         }
-        if self.commit_log_epoch != 0 {
+        if self.latest_commit_sequence_id != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.ReaddRequest", len)?;
@@ -4197,10 +4283,10 @@ impl serde::Serialize for ReaddRequest {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("group_id", pbjson::private::base64::encode(&self.group_id).as_str())?;
         }
-        if self.commit_log_epoch != 0 {
+        if self.latest_commit_sequence_id != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("commit_log_epoch", ToString::to_string(&self.commit_log_epoch).as_str())?;
+            struct_ser.serialize_field("latest_commit_sequence_id", ToString::to_string(&self.latest_commit_sequence_id).as_str())?;
         }
         struct_ser.end()
     }
@@ -4214,14 +4300,14 @@ impl<'de> serde::Deserialize<'de> for ReaddRequest {
         const FIELDS: &[&str] = &[
             "group_id",
             "groupId",
-            "commit_log_epoch",
-            "commitLogEpoch",
+            "latest_commit_sequence_id",
+            "latestCommitSequenceId",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             GroupId,
-            CommitLogEpoch,
+            LatestCommitSequenceId,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4245,7 +4331,7 @@ impl<'de> serde::Deserialize<'de> for ReaddRequest {
                     {
                         match value {
                             "groupId" | "group_id" => Ok(GeneratedField::GroupId),
-                            "commitLogEpoch" | "commit_log_epoch" => Ok(GeneratedField::CommitLogEpoch),
+                            "latestCommitSequenceId" | "latest_commit_sequence_id" => Ok(GeneratedField::LatestCommitSequenceId),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4266,7 +4352,7 @@ impl<'de> serde::Deserialize<'de> for ReaddRequest {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut group_id__ = None;
-                let mut commit_log_epoch__ = None;
+                let mut latest_commit_sequence_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::GroupId => {
@@ -4277,11 +4363,11 @@ impl<'de> serde::Deserialize<'de> for ReaddRequest {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::CommitLogEpoch => {
-                            if commit_log_epoch__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("commitLogEpoch"));
+                        GeneratedField::LatestCommitSequenceId => {
+                            if latest_commit_sequence_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("latestCommitSequenceId"));
                             }
-                            commit_log_epoch__ = 
+                            latest_commit_sequence_id__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -4292,7 +4378,7 @@ impl<'de> serde::Deserialize<'de> for ReaddRequest {
                 }
                 Ok(ReaddRequest {
                     group_id: group_id__.unwrap_or_default(),
-                    commit_log_epoch: commit_log_epoch__.unwrap_or_default(),
+                    latest_commit_sequence_id: latest_commit_sequence_id__.unwrap_or_default(),
                 })
             }
         }
