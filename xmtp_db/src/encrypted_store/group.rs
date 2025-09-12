@@ -143,23 +143,50 @@ impl StoredGroup {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub enum GroupQueryOrderBy {
+    #[default]
+    CreatedAt,
+    LastActivity,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct GroupQueryArgs {
     pub allowed_states: Option<Vec<GroupMembershipState>>,
     pub created_after_ns: Option<i64>,
     pub created_before_ns: Option<i64>,
-    pub activity_after_ns: Option<i64>,
+    pub last_activity_after_ns: Option<i64>,
+    pub last_activity_before_ns: Option<i64>,
     pub limit: Option<i64>,
     pub conversation_type: Option<ConversationType>,
     pub consent_states: Option<Vec<ConsentState>>,
     pub include_sync_groups: bool,
     pub include_duplicate_dms: bool,
     pub should_publish_commit_log: Option<bool>,
+    pub order_by: Option<GroupQueryOrderBy>,
 }
 
 impl AsRef<GroupQueryArgs> for GroupQueryArgs {
     fn as_ref(&self) -> &GroupQueryArgs {
         self
+    }
+}
+
+impl GroupQueryArgs {
+    pub fn validate(&self) -> Result<(), crate::ConnectionError> {
+        if self.last_activity_after_ns.is_some() && self.created_after_ns.is_some() {
+            return Err(crate::ConnectionError::InvalidQuery(
+                "last_activity_after_ns and created_after_ns cannot be used together".to_string(),
+            ));
+        }
+
+        if self.last_activity_before_ns.is_some() && self.created_before_ns.is_some() {
+            return Err(crate::ConnectionError::InvalidQuery(
+                "last_activity_before_ns and created_before_ns cannot be used together".to_string(),
+            ));
+        }
+
+        Ok(())
     }
 }
 
@@ -442,6 +469,9 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         args: A,
     ) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         use crate::schema::consent_records::dsl as consent_dsl;
+
+        args.as_ref().validate()?;
+
         let GroupQueryArgs {
             allowed_states,
             created_after_ns,
@@ -451,13 +481,24 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             consent_states,
             include_sync_groups,
             include_duplicate_dms,
-            activity_after_ns,
+            last_activity_after_ns,
+            last_activity_before_ns,
             should_publish_commit_log,
+            order_by,
         } = args.as_ref();
+
+        let order_expression = match order_by.clone().unwrap_or_default() {
+            GroupQueryOrderBy::CreatedAt => {
+                diesel::dsl::sql::<diesel::sql_types::BigInt>("created_at_ns ASC")
+            }
+            GroupQueryOrderBy::LastActivity => diesel::dsl::sql::<diesel::sql_types::BigInt>(
+                "COALESCE(last_message_ns, created_at_ns) DESC",
+            ),
+        };
 
         let mut query = dsl::groups
             .filter(dsl::conversation_type.ne(ConversationType::Sync))
-            .order(dsl::created_at_ns.asc())
+            .order(order_expression)
             .into_boxed();
 
         if !include_duplicate_dms {
@@ -482,21 +523,29 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             query = query.filter(dsl::membership_state.eq_any(allowed_states));
         }
 
-        // activity_after_ns takes precedence over created_after_ns
-        if let Some(activity_after_ns) = activity_after_ns {
+        // last_activity_after_ns takes precedence over created_after_ns
+        if let Some(last_activity_after_ns) = last_activity_after_ns {
             // "Activity after" means groups that were either created,
             // or have sent a message after the specified time.
-            if let Some(created_after_ns) = created_after_ns {
-                query = query.filter(
-                    dsl::last_message_ns
-                        .gt(activity_after_ns)
-                        .or(dsl::created_at_ns.gt(created_after_ns)),
-                );
-            } else {
-                query = query.filter(dsl::last_message_ns.gt(activity_after_ns));
-            }
-        } else if let Some(created_after_ns) = created_after_ns {
+            query = query.filter(
+                diesel::dsl::sql::<diesel::sql_types::BigInt>(
+                    "COALESCE(last_message_ns, created_at_ns)",
+                )
+                .gt(last_activity_after_ns),
+            );
+        }
+
+        if let Some(created_after_ns) = created_after_ns {
             query = query.filter(dsl::created_at_ns.gt(created_after_ns));
+        }
+
+        if let Some(last_activity_before_ns) = last_activity_before_ns {
+            query = query.filter(
+                diesel::dsl::sql::<diesel::sql_types::BigInt>(
+                    "COALESCE(last_message_ns, created_at_ns)",
+                )
+                .lt(last_activity_before_ns),
+            );
         }
 
         if let Some(created_before_ns) = created_before_ns {
@@ -540,8 +589,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                         .or(consent_dsl::state.eq(ConsentState::Unknown))
                         .or(consent_dsl::state.eq_any(filtered_states.clone())),
                 )
-                .select(dsl::groups::all_columns())
-                .order(dsl::created_at_ns.asc());
+                .select(dsl::groups::all_columns());
 
             self.raw_query_read(|conn| left_joined_query.load::<StoredGroup>(conn))?
         } else {
@@ -551,8 +599,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                     sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
                 ))
                 .filter(consent_dsl::state.eq_any(filtered_states.clone()))
-                .select(dsl::groups::all_columns())
-                .order(dsl::created_at_ns.asc());
+                .select(dsl::groups::all_columns());
 
             self.raw_query_read(|conn| inner_joined_query.load::<StoredGroup>(conn))?
         };
