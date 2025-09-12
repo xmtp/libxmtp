@@ -2329,6 +2329,7 @@ where
         &self,
         inbox_ids_to_add: &[InboxIdRef<'_>],
         inbox_ids_to_remove: &[InboxIdRef<'_>],
+        installations_to_readd: &[Vec<u8>],
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
         self.load_mls_group_with_lock_async(|mls_group| async move {
             let existing_group_membership = extract_group_membership(mls_group.extensions())?;
@@ -2385,11 +2386,17 @@ where
 
             let changes_with_kps = calculate_membership_changes_with_keypackages(
                 &self.context,
+                &mls_group,
                 &new_membership,
                 &old_group_membership,
+                installations_to_readd,
             )
             .await?;
 
+            // TODO(rich): Can we early fail if installations_to_readd is not correct?
+            // Or validate at caller?
+
+            // TODO(rich): What if there are installations to remove?
             // If we fail to fetch or verify all the added members' KeyPackage, return an error.
             // skip if the inbox ids is 0 from the beginning
             if !inbox_ids_to_add.is_empty()
@@ -2399,6 +2406,7 @@ where
                 return Err(GroupError::FailedToVerifyInstallations);
             }
 
+            // Do we need to make sure failed_installations is correct here if we're passing in installations_to_readd?
             Ok(UpdateGroupMembershipIntentData::new(
                 changed_inbox_ids,
                 inbox_ids_to_remove
@@ -2583,18 +2591,22 @@ fn extract_message_sender(
 
 async fn calculate_membership_changes_with_keypackages<'a>(
     context: &impl XmtpSharedContext,
+    openmls_group: &'a OpenMlsGroup,
     new_group_membership: &'a GroupMembership,
     old_group_membership: &'a GroupMembership,
+    installations_to_readd: &[Vec<u8>],
 ) -> Result<MembershipDiffWithKeyPackages, GroupError> {
     let membership_diff = old_group_membership.diff(new_group_membership);
 
     let identity = IdentityUpdates::new(&context);
     let mut installation_diff = identity
-        .get_installation_diff(
+        .get_installation_diff_with_readds(
             &context.db(),
+            openmls_group,
             old_group_membership,
             new_group_membership,
             &membership_diff,
+            installations_to_readd,
         )
         .await?;
 

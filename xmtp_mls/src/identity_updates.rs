@@ -6,6 +6,7 @@ use crate::{
     subscriptions::SyncWorkerEvent,
 };
 use futures::future::try_join_all;
+use openmls::group::MlsGroup as OpenMlsGroup;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{Retry, RetryableError, retry_async, retryable};
@@ -477,7 +478,7 @@ where
     }
 
     /// Given two group memberships and the diff, get the list of installations that were added or removed
-    /// between the two membership states.
+    /// between the two membership states. Does not include readded installations, see get_installation_diff_with_readds.
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_installation_diff(
         &self,
@@ -554,6 +555,51 @@ where
             added_installations,
             removed_installations,
         })
+    }
+
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub async fn get_installation_diff_with_readds(
+        &self,
+        conn: &impl DbQuery,
+        openmls_group: &OpenMlsGroup,
+        old_group_membership: &GroupMembership,
+        new_group_membership: &GroupMembership,
+        membership_diff: &MembershipDiff<'_>,
+        installations_to_readd: &[Vec<u8>],
+    ) -> Result<InstallationDiff, InstallationDiffError> {
+        let mut installation_diff = self
+            .get_installation_diff(
+                conn,
+                old_group_membership,
+                new_group_membership,
+                membership_diff,
+            )
+            .await?;
+
+        // If an installation is independently being removed, we don't want to readd it
+        let installations_to_readd = installations_to_readd
+            .iter()
+            .filter(|installation| {
+                !installation_diff
+                    .removed_installations
+                    .contains(*installation)
+            })
+            .collect::<HashSet<&Vec<u8>>>();
+        // If an installation wasn't already a member of the group, we shouldn't readd it
+        let installations_to_readd = openmls_group
+            .members()
+            .filter(|member| installations_to_readd.contains(&member.signature_key))
+            .map(|member| member.signature_key)
+            .collect::<Vec<Vec<u8>>>();
+
+        installation_diff
+            .removed_installations
+            .extend(installations_to_readd.iter().cloned());
+        installation_diff
+            .added_installations
+            .extend(installations_to_readd);
+
+        Ok(installation_diff)
     }
 }
 

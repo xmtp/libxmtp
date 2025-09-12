@@ -24,15 +24,25 @@ pub(crate) async fn apply_update_group_membership_intent(
     let new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
+    // TODO(rich):
+    // 1. We are computing this in two places, we are also fetching key packages in get_membership_update_intent
+    // 2. When we fetch key packages here, we may fail to fetch key packages that were previously fetched. These
+    //    installations will not be recorded in new_group_membership.failed_installations and be missing from the commit.
+    //    I think that means the commit will eventually fail validation - will that cause data loss?
     let changes_with_kps = calculate_membership_changes_with_keypackages(
         context,
+        openmls_group,
         &new_group_membership,
         &old_group_membership,
+        &intent_data.installations_to_readd,
     )
     .await?;
+
+    // Leaf indices derived here
     let leaf_nodes_to_remove: Vec<LeafNodeIndex> =
         get_removed_leaf_nodes(openmls_group, &changes_with_kps.removed_installations);
 
+    // TODO(rich): Does this cause data loss?
     if leaf_nodes_to_remove.contains(&openmls_group.own_leaf_index()) {
         tracing::info!("Cannot remove own leaf node");
         return Ok(None);
