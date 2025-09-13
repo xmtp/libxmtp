@@ -178,6 +178,13 @@ impl<Context: Clone> Clone for Client<Context> {
     }
 }
 
+impl<Context> Drop for Client<Context> {
+    fn drop(&mut self) {
+        // Cancel all workers when the client is dropped
+        self.workers.cancel_all();
+    }
+}
+
 impl<Context> Client<Context>
 where
     Context: XmtpSharedContext,
@@ -1832,5 +1839,36 @@ pub(crate) mod tests {
             15,
             "Should have 15 total conversations after deduping"
         );
+    }
+
+    #[xmtp_common::test]
+    async fn test_worker_cancellation_on_drop() {
+        // Test that verifies workers are actually cancelled when client is dropped
+        let wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(&wallet).await;
+
+        // Store a clone of the workers to check cancellation status after drop
+        let workers = client.workers.clone();
+
+        // Let workers start running
+        xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Verify workers are not cancelled yet
+        assert!(
+            !workers.is_cancelled(),
+            "Workers should not be cancelled before dropping client"
+        );
+
+        // Drop the client which should trigger worker cancellation
+        drop(client);
+
+        // Verify workers were cancelled
+        assert!(
+            workers.is_cancelled(),
+            "Workers MUST be cancelled after dropping client"
+        );
+
+        // Give workers time to actually stop executing
+        xmtp_common::time::sleep(std::time::Duration::from_millis(200)).await;
     }
 }

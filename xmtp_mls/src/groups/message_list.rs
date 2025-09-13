@@ -65,7 +65,7 @@ mod tests {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let group = client.create_group(None, Default::default()).unwrap();
 
-        (group, client.context)
+        (group, client.context.clone())
     }
 
     fn create_test_message(
