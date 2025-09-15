@@ -99,7 +99,7 @@ async fn force_add_member(
     sender_mls_group: &mut openmls::prelude::MlsGroup,
     sender_provider: &impl xmtp_db::MlsProviderExt,
 ) {
-    use crate::groups::mls_ext::WrapperAlgorithm;
+    use crate::groups::mls_ext::{WelcomePointersExtension, WrapperAlgorithm};
     use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
 
     use super::intents::{Installation, SendWelcomesAction};
@@ -129,6 +129,7 @@ async fn force_add_member(
             installation_key: new_member_client.installation_public_key().into(),
             hpke_public_key: hpke_init_key,
             welcome_wrapper_algorithm: WrapperAlgorithm::Curve25519,
+            welcome_pointee_encryption_aead_types: WelcomePointersExtension::empty(),
         }],
         serialized_welcome,
     );

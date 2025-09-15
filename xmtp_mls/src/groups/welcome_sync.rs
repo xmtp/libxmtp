@@ -84,6 +84,7 @@ where
         let envelopes = store.query_welcome_messages().await?;
         let num_envelopes = envelopes.len();
 
+        // TODO: Update cursor correctly if some of the welcomes fail and some of the welcomes succeed
         let groups: Vec<MlsGroup<Context>> = stream::iter(envelopes.into_iter())
             .filter_map(|welcome| async move {
                 retry_async!(
@@ -284,8 +285,7 @@ mod tests {
     use xmtp_db::sql_key_store::SqlKeyStore;
     use xmtp_db::{MemoryStorage, mock::MockDbQuery, sql_key_store::mock::MockSqlKeyStore};
     use xmtp_proto::mls_v1::WelcomeMetadata;
-    use xmtp_proto::types::Cursor;
-    use xmtp_proto::types::WelcomeMessage;
+    use xmtp_proto::types::{Cursor, WelcomeMessage, WelcomeMessageType, WelcomeMessageV1};
 
     fn generate_welcome(
         id: u64,
@@ -300,18 +300,24 @@ mod tests {
             }
             .encode_to_vec(),
             &public_key,
-            &WrapperAlgorithm::Curve25519,
+            WrapperAlgorithm::Curve25519,
         )
         .unwrap();
 
-        let mut message = WelcomeMessage::generate();
-        message.hpke_public_key = public_key;
-        message.wrapper_algorithm = WrapperAlgorithm::Curve25519.into();
-        message.data = data;
-        message.cursor.sequence_id = id;
-        message.cursor.originator_id = Originators::WELCOME_MESSAGES;
-        message.welcome_metadata = welcome_metadata;
-        message
+        let random = WelcomeMessage::generate();
+        let random_v1 = random.as_v1().unwrap();
+
+        WelcomeMessage {
+            cursor: crate::groups::Cursor::new(id, Originators::WELCOME_MESSAGES),
+            created_ns: random.created_ns,
+            variant: WelcomeMessageType::V1(WelcomeMessageV1 {
+                installation_key: random_v1.installation_key,
+                data,
+                hpke_public_key: public_key,
+                wrapper_algorithm: WrapperAlgorithm::Curve25519.into(),
+                welcome_metadata,
+            }),
+        }
     }
 
     #[derive(Builder)]

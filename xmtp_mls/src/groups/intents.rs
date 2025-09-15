@@ -3,36 +3,48 @@ use super::{
     group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
     mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension},
 };
-use xmtp_configuration::GROUP_KEY_ROTATION_INTERVAL_NS;
+use xmtp_configuration::{
+    GROUP_KEY_ROTATION_INTERVAL_NS, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+};
 
-use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
+use crate::{
+    groups::mls_ext::WelcomePointersExtension,
+    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+};
 use openmls::prelude::{
     MlsMessageOut,
     tls_codec::{Error as TlsCodecError, Serialize},
 };
-use prost::{DecodeError, Message, bytes::Bytes};
+use prost::{Message, bytes::Bytes};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::types::Address;
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
-use xmtp_proto::xmtp::mls::database::{
-    AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
-    InstallationIds, PostCommitAction as PostCommitActionProto, ReaddInstallationsData,
-    SendMessageData, UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData,
-    UpdatePermissionData,
-    addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
-    post_commit_action::{
-        Installation as InstallationProto, Kind as PostCommitActionKind,
-        SendWelcomes as SendWelcomesProto,
+use xmtp_proto::{
+    ConversionError,
+    xmtp::mls::database::{
+        AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
+        InstallationIds, PostCommitAction as PostCommitActionProto, ReaddInstallationsData,
+        SendMessageData, UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData,
+        UpdatePermissionData,
+        addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
+        post_commit_action::{
+            Installation as InstallationProto, Kind as PostCommitActionKind,
+            SendWelcomes as SendWelcomesProto,
+        },
+        readd_installations_data::{
+            V1 as ReaddInstallationsV1, Version as ReaddInstallationsVersion,
+        },
+        send_message_data::{V1 as SendMessageV1, Version as SendMessageVersion},
+        update_admin_lists_data::{V1 as UpdateAdminListsV1, Version as UpdateAdminListsVersion},
+        update_group_membership_data::{
+            V1 as UpdateGroupMembershipV1, Version as UpdateGroupMembershipVersion,
+        },
+        update_metadata_data::{V1 as UpdateMetadataV1, Version as UpdateMetadataVersion},
+        update_permission_data::{
+            self, V1 as UpdatePermissionV1, Version as UpdatePermissionVersion,
+        },
     },
-    readd_installations_data::{V1 as ReaddInstallationsV1, Version as ReaddInstallationsVersion},
-    send_message_data::{V1 as SendMessageV1, Version as SendMessageVersion},
-    update_admin_lists_data::{V1 as UpdateAdminListsV1, Version as UpdateAdminListsVersion},
-    update_group_membership_data::{
-        V1 as UpdateGroupMembershipV1, Version as UpdateGroupMembershipVersion,
-    },
-    update_metadata_data::{V1 as UpdateMetadataV1, Version as UpdateMetadataVersion},
-    update_permission_data::{self, V1 as UpdatePermissionV1, Version as UpdatePermissionVersion},
 };
 
 mod queue;
@@ -40,8 +52,8 @@ pub use queue::*;
 
 #[derive(Debug, Error)]
 pub enum IntentError {
-    #[error("decode error: {0}")]
-    Decode(#[from] DecodeError),
+    #[error("conversion error: {0}")]
+    Conversion(#[from] xmtp_proto::ConversionError),
     #[error("key package verification: {0}")]
     KeyPackageVerification(#[from] KeyPackageVerificationError),
     #[error("TLS Codec error: {0}")]
@@ -64,6 +76,12 @@ pub enum IntentError {
     UnknownPermissionPolicyOption,
     #[error("unknown value for AdminListActionType")]
     UnknownAdminListAction,
+}
+
+impl From<prost::DecodeError> for IntentError {
+    fn from(error: prost::DecodeError) -> Self {
+        IntentError::Conversion(xmtp_proto::ConversionError::Decode(error))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -692,6 +710,7 @@ pub struct Installation {
     pub(crate) installation_key: Vec<u8>,
     pub(crate) hpke_public_key: Vec<u8>,
     pub(crate) welcome_wrapper_algorithm: WrapperAlgorithm,
+    pub(crate) welcome_pointee_encryption_aead_types: WelcomePointersExtension,
 }
 
 impl Installation {
@@ -707,10 +726,19 @@ impl Installation {
             )
         });
 
+        let welcome_pointee_encryption_aead_types = key_package
+            .inner
+            .extensions()
+            .unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID)
+            .map(|ext| ext.0.as_slice().try_into())
+            .transpose()?;
+
         Ok(Self {
             installation_key: key_package.installation_id(),
             hpke_public_key: wrapper_encryption.pub_key_bytes,
             welcome_wrapper_algorithm: wrapper_encryption.algorithm,
+            welcome_pointee_encryption_aead_types: welcome_pointee_encryption_aead_types
+                .unwrap_or_else(WelcomePointersExtension::empty),
         })
     }
 }
@@ -721,18 +749,25 @@ impl From<Installation> for InstallationProto {
             installation_key: installation.installation_key,
             hpke_public_key: installation.hpke_public_key,
             welcome_wrapper_algorithm: installation.welcome_wrapper_algorithm.into(),
-            welcome_pointee_encryption_aead_types: None,
+            welcome_pointee_encryption_aead_types: Some(
+                installation.welcome_pointee_encryption_aead_types.into(),
+            ),
         }
     }
 }
 
-impl From<InstallationProto> for Installation {
-    fn from(installation: InstallationProto) -> Self {
-        Self {
+impl TryFrom<InstallationProto> for Installation {
+    type Error = ConversionError;
+    fn try_from(installation: InstallationProto) -> Result<Self, Self::Error> {
+        Ok(Self {
             installation_key: installation.installation_key,
             hpke_public_key: installation.hpke_public_key,
-            welcome_wrapper_algorithm: installation.welcome_wrapper_algorithm.into(),
-        }
+            welcome_wrapper_algorithm: installation.welcome_wrapper_algorithm.try_into()?,
+            welcome_pointee_encryption_aead_types: installation
+                .welcome_pointee_encryption_aead_types
+                .map(Into::into)
+                .unwrap_or_else(WelcomePointersExtension::empty),
+        })
     }
 }
 
@@ -774,15 +809,20 @@ impl PostCommitAction {
     }
 
     pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
-        let decoded = PostCommitActionProto::decode(data)?;
-        match decoded.kind {
-            Some(PostCommitActionKind::SendWelcomes(proto)) => {
+        let decoded = PostCommitActionProto::decode(data)?
+            .kind
+            .ok_or(IntentError::MissingPostCommit)?;
+        match decoded {
+            PostCommitActionKind::SendWelcomes(proto) => {
                 Ok(Self::SendWelcomes(SendWelcomesAction::new(
-                    proto.installations.into_iter().map(|i| i.into()).collect(),
+                    proto
+                        .installations
+                        .into_iter()
+                        .map(|i| i.try_into())
+                        .collect::<Result<_, _>>()?,
                     proto.welcome_message,
                 )))
             }
-            None => Err(IntentError::MissingPostCommit),
         }
     }
 

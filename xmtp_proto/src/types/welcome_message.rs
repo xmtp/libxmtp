@@ -1,8 +1,13 @@
-use crate::ConversionError;
+use crate::types::{Cursor, InstallationId};
+use crate::{
+    ConversionError,
+    xmtp::mls::message_contents::{
+        WelcomePointeeEncryptionAeadType, WelcomePointerWrapperAlgorithm, WelcomeWrapperAlgorithm,
+    },
+};
 use chrono::Utc;
 use derive_builder::Builder;
-
-use crate::types::{Cursor, InstallationId};
+use prost::Message;
 
 /// Welcome Message from the network
 #[derive(Clone, Builder, Debug)]
@@ -12,21 +17,19 @@ pub struct WelcomeMessage {
     pub cursor: Cursor,
     /// server timestamp indicating when this message was created
     pub created_ns: chrono::DateTime<Utc>,
-    /// Installation key of user sending the welcome
-    pub installation_key: InstallationId,
-    /// welcome message payload
-    pub data: Vec<u8>,
-    /// HPKE Public Key
-    pub hpke_public_key: Vec<u8>,
-    /// Welcome Wrapper Algorithm
-    pub wrapper_algorithm: i32,
-    /// Extra metadata attached to welcome
-    pub welcome_metadata: Vec<u8>,
+    /// Variant of the welcome message
+    pub variant: WelcomeMessageType,
 }
 
 impl WelcomeMessage {
     pub fn builder() -> WelcomeMessageBuilder {
         WelcomeMessageBuilder::default()
+    }
+    pub fn as_v1(&self) -> Option<&WelcomeMessageV1> {
+        match &self.variant {
+            WelcomeMessageType::V1(v1) => Some(v1),
+            _ => None,
+        }
     }
 }
 
@@ -46,18 +49,128 @@ impl WelcomeMessage {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum WelcomeMessageType {
+    V1(WelcomeMessageV1),
+    WelcomePointer(WelcomePointer),
+    DecryptedWelcomePointer(DecryptedWelcomePointer),
+}
+
+impl From<WelcomeMessageV1> for WelcomeMessageType {
+    fn from(v1: WelcomeMessageV1) -> Self {
+        WelcomeMessageType::V1(v1)
+    }
+}
+
+impl From<WelcomePointer> for WelcomeMessageType {
+    fn from(pointer: WelcomePointer) -> Self {
+        WelcomeMessageType::WelcomePointer(pointer)
+    }
+}
+
+impl From<DecryptedWelcomePointer> for WelcomeMessageType {
+    fn from(pointer: DecryptedWelcomePointer) -> Self {
+        WelcomeMessageType::DecryptedWelcomePointer(pointer)
+    }
+}
+
+#[derive(Clone, Builder, Debug)]
+#[builder(build_fn(error = "ConversionError"))]
+pub struct WelcomeMessageV1 {
+    // Installation key the welcome was sent to
+    pub installation_key: InstallationId,
+    // HPKE public key used to encrypt the welcome
+    pub hpke_public_key: Vec<u8>,
+    // Wrapper algorithm used to encrypt the welcome
+    pub wrapper_algorithm: WelcomeWrapperAlgorithm,
+    // Encrypted welcome message payload
+    pub data: Vec<u8>,
+    // Encrypted welcome metadata
+    pub welcome_metadata: Vec<u8>,
+}
+
+impl WelcomeMessageV1 {
+    pub fn builder() -> WelcomeMessageV1Builder {
+        WelcomeMessageV1Builder::default()
+    }
+}
+
+#[derive(Clone, Builder, Debug)]
+#[builder(build_fn(error = "ConversionError"))]
+pub struct WelcomePointer {
+    // Installation key the welcome pointer was sent to
+    pub installation_key: InstallationId,
+    // HPKE public key used to encrypt the welcome pointer
+    pub hpke_public_key: Vec<u8>,
+    // Wrapper algorithm used to encrypt the welcome pointer (Only post quantum compatible algorithms are allowed)
+    pub wrapper_algorithm: WelcomePointerWrapperAlgorithm,
+    // Encrypted welcome pointer data
+    pub welcome_pointer: Vec<u8>,
+}
+
+impl WelcomePointer {
+    pub fn builder() -> WelcomePointerBuilder {
+        WelcomePointerBuilder::default()
+    }
+}
+
+#[derive(Clone, Builder, Debug)]
+#[builder(build_fn(error = "ConversionError"))]
+pub struct DecryptedWelcomePointer {
+    // Topic the welcome pointee was sent to
+    pub destination: InstallationId,
+    // AEAD type used to encrypt the welcome pointee
+    pub aead_type: WelcomePointeeEncryptionAeadType,
+    // Encryption key used to encrypt the welcome pointee. Length MUST match the aead_type.
+    pub encryption_key: Vec<u8>,
+    // Nonce used to encrypt the welcome pointee data. Length MUST match the aead_type.
+    pub data_nonce: Vec<u8>,
+    // Nonce used to encrypt the welcome pointee metadata. Length MUST match the aead_type.
+    pub welcome_metadata_nonce: Vec<u8>,
+}
+
+impl DecryptedWelcomePointer {
+    pub fn builder() -> DecryptedWelcomePointerBuilder {
+        DecryptedWelcomePointerBuilder::default()
+    }
+    pub fn decode(data: &[u8]) -> Result<Self, ConversionError> {
+        let wp = crate::xmtp::mls::message_contents::WelcomePointer::decode(data)?;
+        let wp = match wp.version {
+            Some(
+                crate::xmtp::mls::message_contents::welcome_pointer::Version::WelcomeV1Pointer(v1),
+            ) => v1,
+            None => {
+                return Err(ConversionError::InvalidValue {
+                    item: "WelcomePointer",
+                    expected: "WelcomeV1Pointer",
+                    got: "None".into(),
+                });
+            }
+        };
+        Ok(Self {
+            destination: wp.destination.try_into()?,
+            aead_type: wp.aead_type.try_into()?,
+            encryption_key: wp.encryption_key,
+            data_nonce: wp.data_nonce,
+            welcome_metadata_nonce: wp.welcome_metadata_nonce,
+        })
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 impl xmtp_common::Generate for WelcomeMessage {
     fn generate() -> Self {
         Self {
             cursor: Cursor::generate(),
             created_ns: chrono::DateTime::from_timestamp_nanos(xmtp_common::rand_i64()),
-            installation_key: xmtp_common::rand_array::<32>().into(),
-            data: xmtp_common::rand_vec::<16>(),
-            hpke_public_key: xmtp_common::rand_vec::<16>(),
-            wrapper_algorithm:
-                crate::xmtp::mls::message_contents::WelcomeWrapperAlgorithm::Curve25519.into(),
-            welcome_metadata: xmtp_common::rand_vec::<16>(),
+            variant: WelcomeMessageV1 {
+                installation_key: xmtp_common::rand_array::<32>().into(),
+                data: xmtp_common::rand_vec::<16>(),
+                hpke_public_key: xmtp_common::rand_vec::<16>(),
+                wrapper_algorithm: WelcomeWrapperAlgorithm::Curve25519,
+                welcome_metadata: xmtp_common::rand_vec::<16>(),
+            }
+            .into(),
         }
     }
 }
@@ -65,7 +178,6 @@ impl xmtp_common::Generate for WelcomeMessage {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::xmtp::mls::message_contents::WelcomeWrapperAlgorithm;
     use rstest::rstest;
     use xmtp_common::Generate;
 
@@ -96,17 +208,5 @@ mod test {
             welcome_message.timestamp(),
             test_time.timestamp_nanos_opt().unwrap()
         );
-    }
-
-    #[rstest]
-    #[case(WelcomeWrapperAlgorithm::Curve25519)]
-    #[case(WelcomeWrapperAlgorithm::XwingMlkem768Draft6)]
-    #[case(WelcomeWrapperAlgorithm::Unspecified)]
-    #[xmtp_common::test]
-    fn test_wrapper_algorithms(#[case] algorithm: WelcomeWrapperAlgorithm) {
-        let mut welcome_message = WelcomeMessage::generate();
-        let algorithm_i32: i32 = algorithm.into();
-        welcome_message.wrapper_algorithm = algorithm_i32;
-        assert_eq!(welcome_message.wrapper_algorithm, algorithm_i32);
     }
 }
