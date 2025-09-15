@@ -271,6 +271,7 @@ impl TryFrom<GroupMutableMetadata> for Vec<u8> {
             super_admin_list: Some(InboxesProto {
                 inbox_ids: value.super_admin_list,
             }),
+            pending_remove_list: None,
             // Deprecated field - use attributes instead
             commit_log_signer: None,
         };
