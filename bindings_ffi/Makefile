@@ -1,4 +1,4 @@
-PROJECT_NAME = xmtpv3
+PROJECT_NAME = uniffi_xmtpv3
 WORKSPACE_MANIFEST=$(shell cargo locate-project --workspace --message-format=plain)
 WORKSPACE_PATH=$(shell dirname $(WORKSPACE_MANIFEST))
 TARGET_DIR=$(WORKSPACE_PATH)/target
@@ -6,7 +6,7 @@ TARGET_DIR=$(WORKSPACE_PATH)/target
 # Simulator config
 ARCHS_IOS = x86_64-apple-ios aarch64-apple-ios-sim
 ARCHS_MAC = x86_64-apple-darwin aarch64-apple-darwin
-LIB=libxmtpv3.a
+LIB=libuniffi_xmtpv3.a
 JAR_DIR=$(shell pwd)/tests/jar
 SQLCIPHER_DIR=$(shell pwd)/sqlcipher
 SQLCIPHER_LIB=$(SQLCIPHER_DIR)/.libs/libsqlcipher.a
@@ -84,8 +84,7 @@ swift: libxmtp-version
 	cargo build --release -p xmtpv3
 	rm -rf build/swift
 	cargo run --bin ffi-uniffi-bindgen --release --features uniffi/cli generate \
-		--lib-file $(TARGET_DIR)/release/$(LIB) \
-		src/$(PROJECT_NAME).udl \
+		--library $(TARGET_DIR)/release/$(LIB) \
 		--out-dir build/swift \
 		--language swift
 	# https://mozilla.github.io/uniffi-rs/swift/module.html#compiling-a-swift-module
@@ -94,6 +93,6 @@ swift: libxmtp-version
 	mv build/swift/$(PROJECT_NAME)FFI.modulemap build/swift/include/libxmtp/module.modulemap  # Move modulemap
 	cp libxmtp-version.txt build/swift/
 
-swiftlocal: libxmtpv3.a swift framework
+swiftlocal: libuniffi_xmtpv3.a swift framework
 
 .PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift lipo download-sqlcipher build-sqlcipher

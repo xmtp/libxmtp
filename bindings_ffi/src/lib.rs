@@ -18,7 +18,7 @@ use xmtp_mls::common::group_metadata::GroupMetadataError;
 
 extern crate tracing as log;
 
-uniffi::setup_scaffolding!("xmtpv3");
+uniffi::setup_scaffolding!("uniffi_xmtpv3");
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]
 #[uniffi(flat_error)]

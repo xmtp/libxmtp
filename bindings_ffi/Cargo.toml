@@ -22,7 +22,7 @@ tracing-subscriber = { workspace = true, features = [
   "fmt",
   "json",
 ] }
-uniffi = { version = "0.29.0", default-features = false, features = ["tokio"] }
+uniffi = { version = "0.29", features = ["tokio", "cli"] }
 xmtp_api.workspace = true
 xmtp_api_grpc.workspace = true
 xmtp_common = { workspace = true, features = ["logging"] }
@@ -47,7 +47,7 @@ tracing_android_trace = "0.1"
 tracing-oslog = "0.2"
 
 [build-dependencies]
-uniffi = { version = "0.29.0", features = ["build"] }
+uniffi = { version = "0.29", features = ["build"] }
 vergen-git2 = { workspace = true, features = ["build"] }
 
 [[bin]]

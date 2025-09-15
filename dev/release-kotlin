@@ -44,53 +44,7 @@ if [[ "${OSTYPE}" == "darwin"* ]]; then
   fi
 fi
 
-LIB_FILE=$([ "$(uname)" == "Darwin" ] && echo "lib$PROJECT_NAME.dylib" || echo "lib$PROJECT_NAME.so")
-
-echo "gen kotlin artifacts from xmtpv3 bindings..."
-cd $WORKSPACE_PATH
-$CARGO build --release -p xmtpv3
-rm -f $BINDINGS_PATH/src/uniffi/$PROJECT_NAME/$PROJECT_NAME.kt
-$CARGO run --bin ffi-uniffi-bindgen \
-  --manifest-path $BINDINGS_MANIFEST \
-  --features uniffi/cli --release -- \
-  generate \
-  --lib-file $TARGET_DIR/release/$LIB_FILE $BINDINGS_PATH/src/$PROJECT_NAME.udl \
-  --language kotlin
-
-cd $BINDINGS_PATH
-make libxmtp-version
-cp libxmtp-version.txt src/uniffi/$PROJECT_NAME/
-
-echo "$BINDINGS_PATH/src/uniffi/xmtpv3/xmtpv3.kt"
-# 1) Replace `return "xmtpv3"` with `return "uniffi_xmtpv3"`
-# 2) Replace `value.forEach { (k, v) ->` with `value.iterator().forEach { (k, v) ->`
-#    in the file xmtpv3.kt
-# nix sed is used to be consistent across mac and linux
-$SED -i \
-    -e 's/return "xmtpv3"/return "uniffi_xmtpv3"/' \
-    -e 's/value\.forEach { (k, v) ->/value.iterator().forEach { (k, v) ->/g' \
-    "$BINDINGS_PATH/src/uniffi/xmtpv3/xmtpv3.kt"
-
-echo "Replacements done in $XMTP_ANDROID/library/src/main/java/xmtpv3.kt"
-
-cp $BINDINGS_PATH/src/uniffi/xmtpv3/xmtpv3.kt $XMTP_ANDROID/library/src/main/java/xmtpv3.kt
-cp $BINDINGS_PATH/src/uniffi/xmtpv3/libxmtp-version.txt $XMTP_ANDROID/library/src/main/java/libxmtp-version.txt
-
-cd $WORKSPACE_PATH
-
-LIBRARY_NAME="libxmtpv3"
-TARGET_NAME="libuniffi_xmtpv3"
-
-$CARGO ndk --platform 23 -o bindings_ffi/jniLibs/ --manifest-path ./bindings_ffi/Cargo.toml \
-  -t aarch64-linux-android \
-  -t x86_64-linux-android \
-  -t i686-linux-android \
-  -t armv7-linux-androideabi \
-  -- build --release
-
-for arch in arm64-v8a armeabi-v7a x86 x86_64; do
-  mv "./bindings_ffi/jniLibs/$arch/$LIBRARY_NAME.so" "./bindings_ffi/jniLibs/$arch/$TARGET_NAME.so"
-done
+nix $ADD_EXPERIMENTAL_FEATURES build .#android-bindings
 
 echo -e "${WHITE}jniLib generation successful.${NC}"
 
@@ -99,7 +53,7 @@ response=${response}
 if [[ "$response" =~ ^(yes|y)$ ]]
 then
   rm -rf $XMTP_ANDROID/library/src/main/jniLibs
-  cp -r "./bindings_ffi/jniLibs" $XMTP_ANDROID/library/src/main
+  cp -r "./result/jniLibs" $XMTP_ANDROID/library/src/main
   echo "libs copied"
 else
   echo "done"
