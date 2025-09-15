@@ -18,6 +18,7 @@ pub mod summary;
 #[cfg(test)]
 mod tests;
 pub mod validated_commit;
+pub mod welcome_pointer;
 pub mod welcome_sync;
 mod welcomes;
 pub use welcomes::*;

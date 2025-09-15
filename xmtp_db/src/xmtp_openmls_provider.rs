@@ -27,8 +27,7 @@ pub trait XmtpMlsStorageProvider:
 
     fn db<'a>(&'a self) -> Self::DbQuery<'a>;
 
-    /// Start a savepoint within a transaction
-    /// Must only be used when already in a transaction
+    /// Start a new transaction
     fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
         F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,
@@ -96,7 +95,6 @@ impl<S> XmtpOpenMlsProvider<S> {
 impl<S> MlsProviderExt for XmtpOpenMlsProvider<S>
 where
     S: XmtpMlsStorageProvider,
-    <S as XmtpMlsStorageProvider>::Connection: ConnectionExt,
 {
     type XmtpStorage = S;
 
@@ -133,7 +131,6 @@ pub struct XmtpOpenMlsProviderRef<'a, S> {
 impl<'a, S> MlsProviderExt for XmtpOpenMlsProviderRef<'a, S>
 where
     S: XmtpMlsStorageProvider,
-    <S as XmtpMlsStorageProvider>::Connection: ConnectionExt,
 {
     type XmtpStorage = S;
 
@@ -188,7 +185,6 @@ impl<'a, S> XmtpOpenMlsProviderRefMut<'a, S> {
 impl<'a, S> MlsProviderExt for XmtpOpenMlsProviderRefMut<'a, S>
 where
     S: XmtpMlsStorageProvider,
-    <S as XmtpMlsStorageProvider>::Connection: ConnectionExt,
 {
     type XmtpStorage = S;
 

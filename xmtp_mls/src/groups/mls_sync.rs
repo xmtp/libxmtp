@@ -8,10 +8,12 @@ use super::{
     summary::{MessageIdentifier, MessageIdentifierBuilder, ProcessSummary, SyncSummary},
     validated_commit::{CommitValidationError, LibXMTPVersion, extract_group_membership},
 };
-use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use crate::groups::{
     device_sync_legacy::preference_sync_legacy::process_incoming_preference_update,
     intents::QueueIntent,
+};
+use crate::groups::{
+    mls_ext::WrapperAlgorithm, mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage,
 };
 use crate::identity_updates::IdentityUpdates;
 use crate::{
@@ -39,26 +41,6 @@ use crate::{
     subscriptions::LocalEvents,
     utils::{self, hash::sha256, id::calculate_message_id, time::hmac_epoch},
 };
-use update_group_membership::apply_update_group_membership_intent;
-use xmtp_configuration::{
-    GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
-    SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
-};
-use xmtp_db::XmtpMlsStorageProvider;
-use xmtp_db::{
-    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
-    events::EventLevel,
-    group::{ConversationType, StoredGroup},
-    group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
-    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-    refresh_state::EntityKind,
-    remote_commit_log::CommitResult,
-    sql_key_store,
-    user_preferences::StoredUserPreferences,
-};
-use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
-use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
-
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -87,13 +69,31 @@ use std::{
 };
 use thiserror::Error;
 use tracing::debug;
+use update_group_membership::apply_update_group_membership_intent;
 use xmtp_common::time::now_ns;
 use xmtp_common::{Retry, RetryableError, retry_async};
+use xmtp_configuration::{
+    GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
+    SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
+};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
+use xmtp_db::XmtpMlsStorageProvider;
+use xmtp_db::{
+    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
+    events::EventLevel,
+    group::{ConversationType, StoredGroup},
+    group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
+    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    refresh_state::EntityKind,
+    remote_commit_log::CommitResult,
+    sql_key_store,
+    user_preferences::StoredUserPreferences,
+};
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
+use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 use xmtp_proto::mls_v1::WelcomeMetadata;
-use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         GroupMessage, GroupMessageInput, WelcomeMessageInput,
@@ -101,10 +101,11 @@ use xmtp_proto::xmtp::mls::{
         group_message_input::{V1 as GroupMessageInputV1, Version as GroupMessageInputVersion},
         welcome_message_input::{
             V1 as WelcomeMessageInputV1, Version as WelcomeMessageInputVersion,
+            WelcomePointer as WelcomePointerInput,
         },
     },
     message_contents::{
-        GroupUpdated, PlaintextEnvelope,
+        GroupUpdated, PlaintextEnvelope, WelcomePointer as WelcomePointerProto, group_updated,
         plaintext_envelope::{Content, V1, V2, v2::MessageType},
     },
 };
@@ -2409,23 +2410,100 @@ where
         action: SendWelcomesAction,
         message_cursor: Option<i64>,
     ) -> Result<(), GroupError> {
-        let welcomes = action
+        // Only encode welcome metadata once
+        let welcome_metadata = WelcomeMetadata {
+            message_cursor: message_cursor.unwrap_or(0) as u64,
+        };
+        let welcome_metadata_bytes = welcome_metadata.encode_to_vec();
+
+        let wp_capable = action
             .installations
-            .into_iter()
-            .map(
-                |installation| -> Result<WelcomeMessageInput, WrapWelcomeError> {
+            .iter()
+            .filter(|installation| {
+                installation
+                    .welcome_pointee_encryption_aead_types
+                    .compatible()
+            })
+            .count();
+
+        let (welcome_pointer_bytes, welcome_pointee) = if wp_capable > 2 {
+            let destination = xmtp_common::rand_array::<32>();
+            tracing::debug!(
+                wp_capable,
+                destination = %hex::encode(destination),
+                "Using welcome pointers"
+            );
+            let symmetric_key = xmtp_common::rand_array::<32>();
+            let nonces = [
+                xmtp_common::rand_array::<12>(),
+                xmtp_common::rand_array::<12>(),
+            ];
+            let [data, welcome_metadata] = crate::groups::mls_ext::wrap_welcome_symmetric(
+                [&action.welcome_message, &welcome_metadata_bytes],
+                crate::groups::mls_ext::WelcomePointersExtension::preferred_type(),
+                &symmetric_key,
+                nonces.each_ref().map(|nonce| nonce.as_slice()),
+            )?;
+            let welcome_pointee = WelcomeMessageInput {
+                version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
+                    installation_key: destination.into(),
+                    data,
+                    hpke_public_key: vec![],
+                    wrapper_algorithm: xmtp_proto::xmtp::mls::message_contents::WelcomeWrapperAlgorithm::SymmetricKey.into(),
+                    welcome_metadata,
+                })),
+            };
+            let welcome_pointer_bytes = WelcomePointerProto {
+                version: Some(
+                    xmtp_proto::xmtp::mls::message_contents::welcome_pointer::Version::V1(
+                        xmtp_proto::xmtp::mls::message_contents::welcome_pointer::V1 {
+                            destination: destination.into(),
+                            aead_type: xmtp_proto::xmtp::mls::message_contents::WelcomePointeeEncryptionAeadType::Chacha20Poly1305.into(),
+                            encryption_key: symmetric_key.into(),
+                            nonces: nonces.each_ref().map(|nonce| nonce.to_vec()).into(),
+                        },
+                    ),
+                ),
+            }.encode_to_vec();
+
+            (Some(welcome_pointer_bytes), Some(welcome_pointee))
+        } else {
+            (None, None)
+        };
+
+        let total_installations = action.installations.len();
+
+        let welcomes_iter = action.installations.into_iter().map(
+            |installation| -> Result<WelcomeMessageInput, WrapWelcomeError> {
+                let wp_cap = installation.welcome_pointee_encryption_aead_types;
+                if let Some(welcome_pointer) = &welcome_pointer_bytes
+                    && wp_cap.compatible()
+                {
+                    Ok(WelcomeMessageInput {
+                        version: Some(WelcomeMessageInputVersion::WelcomePointer(
+                            WelcomePointerInput {
+                                destination: installation.installation_key,
+                                welcome_pointer: wrap_welcome(
+                                    welcome_pointer,
+                                    &[],
+                                    &installation.hpke_public_key,
+                                    WrapperAlgorithm::XWingMLKEM768Draft6,
+                                )?
+                                .0,
+                                hpke_public_key: installation.hpke_public_key,
+                                wrapper_algorithm: WrapperAlgorithm::XWingMLKEM768Draft6.into(),
+                            },
+                        )),
+                    })
+                } else {
                     let installation_key = installation.installation_key;
                     let algorithm = installation.welcome_wrapper_algorithm;
 
-                    let welcome_metadata = WelcomeMetadata {
-                        message_cursor: message_cursor.unwrap_or(0) as u64,
-                    };
-                    let welcome_metadata_bytes = welcome_metadata.encode_to_vec();
                     let (data, welcome_metadata) = wrap_welcome(
                         &action.welcome_message,
                         &welcome_metadata_bytes,
                         &installation.hpke_public_key,
-                        &algorithm,
+                        algorithm,
                     )?;
                     Ok(WelcomeMessageInput {
                         version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
@@ -2436,9 +2514,20 @@ where
                             welcome_metadata,
                         })),
                     })
-                },
-            )
+                }
+            },
+        );
+
+        let welcomes = welcome_pointee
+            .into_iter()
+            .map(Ok)
+            .chain(welcomes_iter)
             .collect::<Result<Vec<WelcomeMessageInput>, WrapWelcomeError>>()?;
+
+        assert_eq!(
+            welcomes.len(),
+            total_installations + welcome_pointer_bytes.as_ref().map_or(0, |_| 1)
+        );
 
         let welcome = welcomes.first().ok_or(GroupError::NoWelcomesToSend)?;
 
@@ -2456,7 +2545,7 @@ where
                     size
                 }
                 WelcomeMessageInputVersion::WelcomePointer(welcome_pointer) => {
-                    let size = welcome_pointer.identifier.len()
+                    let size = welcome_pointer.destination.len()
                         + welcome_pointer.welcome_pointer.len()
                         + welcome_pointer.hpke_public_key.len();
                     tracing::debug!("total welcome pointer proto bytes={size}");
@@ -2470,7 +2559,7 @@ where
         let per_welcome = welcome_calculated_payload_size.max(1);
 
         // Compute chunk_size and ensure it's at least 1 so chunks(n) won't panic.
-        let chunk_size = (GRPC_PAYLOAD_LIMIT / per_welcome).max(1);
+        let chunk_size = (GRPC_PAYLOAD_LIMIT / per_welcome).clamp(1, 50);
 
         tracing::debug!("welcome chunk_size={chunk_size}");
         let api = self.context.api();
