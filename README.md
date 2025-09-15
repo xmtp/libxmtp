@@ -170,6 +170,15 @@ buffers
 - **Generate flamegraph from one benchmark** ./dev/flamegraph
   add_1_member_to_group
 
+## Code Coverage
+
+Code coverage is generated using `cargo llvm-cov` and is integrated into ci and reported to [codecov](https://codecov.io).
+
+To run the tests locally you can run the `dev/llvm-cov` script to run the same workspace tests and generate both an lcov and html
+report.
+
+If you have installed the `Coverage Gutters` extension in vscode (or a derivative) you can get coverage information in your IDE.
+
 ## Contributing
 
 See our [contribution guide](./CONTRIBUTING.md) to learn more about contributing
