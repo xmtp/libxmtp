@@ -56,8 +56,6 @@ pub struct MutableMetadataSave {
     pub admin_list: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, repeated, tag = "3")]
     pub super_admin_list: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(string, repeated, tag = "4")]
-    pub pending_remove_list: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 impl ::prost::Name for MutableMetadataSave {
     const NAME: &'static str = "MutableMetadataSave";
