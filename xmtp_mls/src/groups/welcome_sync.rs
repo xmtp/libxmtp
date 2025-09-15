@@ -35,7 +35,7 @@ where
     /// applies the update after the welcome processed successfully.
     pub(crate) async fn process_new_welcome(
         &self,
-        welcome: &welcome_message::V1,
+        welcome: &welcome_message::Version,
         cursor_increment: bool,
         validator: impl ValidateGroupMembership,
     ) -> Result<Option<MlsGroup<Context>>, GroupError> {
@@ -55,17 +55,17 @@ where
 
                 if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
                     tracing::warn!(
-                        welcome_id = welcome.id,
+                        welcome_id = welcome.id(),
                         "Welcome ID already stored: {}",
                         err
                     );
                     return Err(GroupError::ProcessIntent(
-                        ProcessIntentError::WelcomeAlreadyProcessed(welcome.id),
+                        ProcessIntentError::WelcomeAlreadyProcessed(welcome.id()),
                     ));
                 } else {
                     tracing::error!(
                         "failed to create group from welcome created at {}: {}",
-                        welcome.created_ns,
+                        welcome.created_ns(),
                         err
                     );
                 }
@@ -84,14 +84,13 @@ where
         let envelopes = store.query_welcome_messages(&db).await?;
         let num_envelopes = envelopes.len();
 
+        // TODO: Update cursor correctly if some of the welcomes fail and some of the welcomes succeed
         let groups: Vec<MlsGroup<Context>> = stream::iter(envelopes.into_iter())
             .filter_map(|envelope: WelcomeMessage| async {
-                let welcome_v1 = match envelope.version {
-                    Some(welcome_message::Version::V1(v1)) => v1,
-                    _ => {
-                        tracing::error!(
-                            "failed to extract welcome message, invalid payload only v1 supported."
-                        );
+                let version = match envelope.version {
+                    Some(v) => v,
+                    None => {
+                        tracing::error!("failed to extract welcome message, no data provided.");
                         return None;
                     }
                 };
@@ -99,7 +98,7 @@ where
                     Retry::default(),
                     (async {
                         let validator = InitialMembershipValidator::new(&self.context);
-                        self.process_new_welcome(&welcome_v1, true, validator).await
+                        self.process_new_welcome(&version, true, validator).await
                     })
                 )
                 .ok()?
@@ -297,7 +296,7 @@ mod tests {
         public_key: Vec<u8>,
         welcome: MlsMessageOut,
         message_cursor: Option<u64>,
-    ) -> welcome_message::V1 {
+    ) -> welcome_message::Version {
         let (data, welcome_metadata) = wrap_welcome(
             &welcome.tls_serialize_detached().unwrap(),
             &WelcomeMetadata {
@@ -305,11 +304,11 @@ mod tests {
             }
             .encode_to_vec(),
             &public_key,
-            &WrapperAlgorithm::Curve25519,
+            WrapperAlgorithm::Curve25519,
         )
         .unwrap();
 
-        welcome_message::V1 {
+        welcome_message::Version::V1(welcome_message::V1 {
             id,
             created_ns: 0,
             installation_key: vec![0],
@@ -317,7 +316,7 @@ mod tests {
             hpke_public_key: public_key,
             wrapper_algorithm: WrapperAlgorithm::Curve25519.into(),
             welcome_metadata,
-        }
+        })
     }
 
     #[derive(Builder)]
