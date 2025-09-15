@@ -8,7 +8,7 @@ use crate::{groups::MlsGroup, subscriptions::WelcomeOrGroup};
 use std::collections::HashSet;
 use xmtp_common::{Retry, retry_async};
 use xmtp_db::{NotFound, group::ConversationType, prelude::*};
-use xmtp_proto::mls_v1::{WelcomeMessage, welcome_message};
+use xmtp_proto::mls_v1::welcome_message;
 
 /// Future for processing `WelcomeorGroup`
 pub struct ProcessWelcomeFuture<Context> {
@@ -79,13 +79,6 @@ where
     }
 }
 
-fn extract_welcome_message(welcome: &WelcomeMessage) -> Result<&welcome_message::V1> {
-    match welcome.version {
-        Some(welcome_message::Version::V1(ref welcome)) => Ok(welcome),
-        _ => Err(ConversationStreamError::InvalidPayload.into()),
-    }
-}
-
 /// bulk of the processing for a new welcome/group
 impl<Context> ProcessWelcomeFuture<Context>
 where
@@ -122,22 +115,28 @@ where
         use WelcomeOrGroup::*;
         let process_result = match self.item {
             Welcome(ref w) => {
-                let welcome = extract_welcome_message(w)?;
-                let id = welcome.id as i64;
-                tracing::debug!("got welcome with id {}", id);
+                let welcome = w.version.as_ref().ok_or_else(|| {
+                    crate::subscriptions::SubscribeError::from(
+                        ConversationStreamError::InvalidPayload,
+                    )
+                })?;
+                tracing::debug!("got welcome with id {}", welcome.id());
                 // try to load it from store first and avoid overhead
                 // of processing a welcome & erroring
                 // for immediate return, this must stay in the top-level future,
                 // to avoid a possible yield on the await in on_welcome.
-                if self.known_welcome_ids.contains(&id) {
+                if self.known_welcome_ids.contains(&(welcome.id() as i64)) {
                     tracing::debug!(
                         "Found existing welcome. Returning from db & skipping processing"
                     );
-                    if let Ok((group, id)) = self.load_from_store(id) {
+                    if let Ok((group, id)) = self.load_from_store(welcome.id() as i64) {
                         return self.filter(ProcessWelcomeResult::New { group, id }).await;
                     }
                 }
-                tracing::info!("could not find group for welcome {}, processing", id);
+                tracing::info!(
+                    "could not find group for welcome {}, processing",
+                    welcome.id()
+                );
                 // sync welcome from the network
                 let (group, id) = self.on_welcome(welcome).await?;
                 ProcessWelcomeResult::New { group, id }
@@ -261,26 +260,22 @@ where
     ///
     /// # Note
     /// This function uses retry logic to handle transient network failures
-    async fn on_welcome(&self, welcome: &welcome_message::V1) -> Result<(MlsGroup<Context>, i64)> {
-        let welcome_message::V1 {
-            id,
-            created_ns: _,
-            installation_key,
-            ..
-        } = welcome;
-        let id = *id as i64;
-
+    async fn on_welcome(
+        &self,
+        welcome: &welcome_message::Version,
+    ) -> Result<(MlsGroup<Context>, i64)> {
         tracing::info!(
-            installation_id = hex::encode(installation_key),
-            welcome_id = &id,
+            installation_id = hex::encode(welcome.installation_key()),
+            welcome_id = welcome.id() as i64,
             "Trying to process streamed welcome"
         );
         self.process_welcome(welcome).await
     }
 
+    // TODO: welcome-pointer-impl
     async fn process_welcome(
         &self,
-        welcome: &welcome_message::V1,
+        welcome: &welcome_message::Version,
     ) -> Result<(MlsGroup<Context>, i64)> {
         let welcomes = WelcomeService::new(self.context.clone());
         let res = retry_async!(
@@ -296,7 +291,7 @@ where
         if let Ok(_)
         | Err(GroupError::ProcessIntent(ProcessIntentError::WelcomeAlreadyProcessed(_))) = res
         {
-            self.load_from_store(welcome.id as i64)
+            self.load_from_store(welcome.id() as i64)
         } else {
             Err(res.expect_err("Checked for Ok value").into())
         }

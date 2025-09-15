@@ -17,6 +17,7 @@ pub mod summary;
 #[cfg(test)]
 mod tests;
 pub mod validated_commit;
+pub mod welcome_pointer;
 pub mod welcome_sync;
 mod welcomes;
 pub use welcomes::*;
@@ -564,9 +565,10 @@ where
     ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
     ///   processing from potentially out-of-order sources like streams.
     #[tracing::instrument(skip_all, level = "trace")]
+    // TODO: welcome-pointer-impl
     pub(super) async fn create_from_welcome(
         context: Context,
-        welcome: &welcome_message::V1,
+        welcome: &welcome_message::Version,
         cursor_increment: bool,
         validator: impl ValidateGroupMembership,
     ) -> Result<Self, GroupError> {

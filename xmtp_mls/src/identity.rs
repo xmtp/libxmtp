@@ -1,4 +1,6 @@
-use crate::groups::mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension};
+use crate::groups::mls_ext::{
+    WelcomePointersExtension, WrapperAlgorithm, WrapperEncryptionExtension,
+};
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
 use crate::worker::NeedsDbReconnect;
 use crate::{XmtpApi, verified_key_package_v2::KeyPackageVerificationError};
@@ -693,7 +695,9 @@ impl XmtpKeyPackageBuilder {
     ) -> Result<NewKeyPackageResult, IdentityError> {
         let this = self.inner_build()?;
         let last_resort = Extension::LastResort(LastResortExtension::default());
-        let mut extensions = vec![last_resort];
+        let welcome_pointee_encryption_aead_types =
+            WelcomePointersExtension::available_types().try_into()?;
+        let mut extensions = vec![last_resort, welcome_pointee_encryption_aead_types];
         let mut post_quantum_keypair = None;
         if include_post_quantum {
             let keypair = generate_post_quantum_key()?;

@@ -70,6 +70,17 @@ pub fn wrap_welcome(
     }
 }
 
+pub fn wrap_welcome_symmetric(
+    unwrapped_welcome: &[u8],
+    aead_type: openmls::prelude::AeadType,
+    encryption_key: &[u8],
+    nonce: &[u8],
+) -> Result<Vec<u8>, WrapWelcomeError> {
+    LibcruxCryptoProvider::new()?
+        .aead_encrypt(aead_type, encryption_key, unwrapped_welcome, nonce, &[])
+        .map_err(Into::into)
+}
+
 fn wrap_welcome_inner(
     crypto_provider: &impl OpenMlsCrypto,
     unwrapped_welcome: &[u8],

@@ -31,9 +31,10 @@ where
     /// Internal API to process a unread welcome message and convert to a group.
     /// In a database transaction, increments the cursor for a given installation and
     /// applies the update after the welcome processed successfully.
+    // TODO: welcome-pointer-impl
     pub(crate) async fn process_new_welcome(
         &self,
-        welcome: &welcome_message::V1,
+        welcome: &welcome_message::Version,
         cursor_increment: bool,
         validator: impl ValidateGroupMembership,
     ) -> Result<MlsGroup<Context>, GroupError> {
@@ -59,7 +60,7 @@ where
                 } else {
                     tracing::error!(
                         "failed to create group from welcome created at {}: {}",
-                        welcome.created_ns,
+                        welcome.created_ns(),
                         err
                     );
                 }
@@ -79,14 +80,13 @@ where
         let num_envelopes = envelopes.len();
 
         // TODO: Update cursor correctly if some of the welcomes fail and some of the welcomes succeed
+        // TODO: welcome-pointer-impl
         let groups: Vec<MlsGroup<Context>> = stream::iter(envelopes.into_iter())
             .filter_map(|envelope: WelcomeMessage| async {
-                let welcome_v1 = match envelope.version {
-                    Some(welcome_message::Version::V1(v1)) => v1,
-                    _ => {
-                        tracing::error!(
-                            "failed to extract welcome message, invalid payload only v1 supported."
-                        );
+                let version = match envelope.version {
+                    Some(v) => v,
+                    None => {
+                        tracing::error!("failed to extract welcome message, no data provided.");
                         return None;
                     }
                 };
@@ -94,7 +94,7 @@ where
                     Retry::default(),
                     (async {
                         let validator = InitialMembershipValidator::new(&self.context);
-                        self.process_new_welcome(&welcome_v1, true, validator).await
+                        self.process_new_welcome(&version, true, validator).await
                     })
                 )
                 .ok()
