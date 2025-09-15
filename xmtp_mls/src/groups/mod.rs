@@ -654,6 +654,8 @@ where
             return Err(GroupError::GroupInactive);
         }
 
+        // todo: check if the group is not in the pending removal state
+
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(update_interval_ns).await?;
@@ -1431,6 +1433,14 @@ where
     /// Checks if the given inbox ID is the pending-remove list of the group at the most recently synced epoch.
     pub fn is_in_pending_remove(&self, inbox_id: String) -> Result<bool, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
+        Self::is_in_pending_remove_from_extensions(inbox_id, &mutable_metadata)
+    }
+
+    /// Checks if the given inbox ID is the pending-remove list of the group at the most recently synced epoch.
+    pub fn is_in_pending_remove_from_extensions(
+        inbox_id: String,
+        mutable_metadata: &GroupMutableMetadata,
+    ) -> Result<bool, GroupError> {
         Ok(mutable_metadata.pending_remove_list.contains(&inbox_id))
     }
 
