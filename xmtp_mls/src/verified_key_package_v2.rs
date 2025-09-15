@@ -8,14 +8,14 @@ use openmls::{
     },
 };
 use openmls_rust_crypto::RustCrypto;
-use prost::{DecodeError, Message};
+use prost::Message;
 use std::panic::{self, AssertUnwindSafe};
 use thiserror::Error;
 use xmtp_configuration::MLS_PROTOCOL_VERSION;
 use xmtp_configuration::WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID;
 use xmtp_proto::xmtp::identity::MlsCredential;
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error)]
 pub enum KeyPackageVerificationError {
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
@@ -24,7 +24,13 @@ pub enum KeyPackageVerificationError {
     #[error("wrong credential type")]
     WrongCredentialType(#[from] BasicCredentialError),
     #[error(transparent)]
-    Decode(#[from] DecodeError),
+    ConversionError(#[from] xmtp_proto::ConversionError),
+}
+
+impl From<prost::DecodeError> for KeyPackageVerificationError {
+    fn from(value: prost::DecodeError) -> Self {
+        Self::ConversionError(value.into())
+    }
 }
 
 pub struct VerifiedLifetime {
@@ -88,15 +94,11 @@ impl VerifiedKeyPackageV2 {
     pub fn wrapper_encryption(
         &self,
     ) -> Result<Option<WrapperEncryptionExtension>, KeyPackageVerificationError> {
-        let unknown_ext = self
-            .inner
+        self.inner
             .extensions()
-            .unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID);
-
-        match unknown_ext {
-            Some(ext) => Ok(Some(ext.clone().try_into()?)),
-            None => Ok(None),
-        }
+            .unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID)
+            .map(|ext| ext.try_into().map_err(Into::into))
+            .transpose()
     }
 
     pub fn life_time(&self) -> Option<VerifiedLifetime> {
