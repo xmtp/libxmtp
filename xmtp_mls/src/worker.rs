@@ -14,6 +14,7 @@ pub enum WorkerKind {
     KeyPackageCleaner,
     Event,
     CommitLog,
+    PendingSelfRemove,
 }
 
 #[derive(Clone, Default)]
