@@ -476,48 +476,6 @@ impl ::prost::Name for PostCommitAction {
         "/xmtp.mls.database.PostCommitAction".into()
     }
 }
-/// The data required to update group pending-remove list
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct UpdatePendingRemoveListsData {
-    #[prost(oneof = "update_pending_remove_lists_data::Version", tags = "1")]
-    pub version: ::core::option::Option<update_pending_remove_lists_data::Version>,
-}
-/// Nested message and enum types in `UpdatePendingRemoveListsData`.
-pub mod update_pending_remove_lists_data {
-    /// V1 of PendingRemoveUpdateType
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct V1 {
-        #[prost(enumeration = "super::PendingRemoveListUpdateType", tag = "1")]
-        pub pending_remove_list_update_type: i32,
-        #[prost(string, tag = "2")]
-        pub inbox_id: ::prost::alloc::string::String,
-    }
-    impl ::prost::Name for V1 {
-        const NAME: &'static str = "V1";
-        const PACKAGE: &'static str = "xmtp.mls.database";
-        fn full_name() -> ::prost::alloc::string::String {
-            "xmtp.mls.database.UpdatePendingRemoveListsData.V1".into()
-        }
-        fn type_url() -> ::prost::alloc::string::String {
-            "/xmtp.mls.database.UpdatePendingRemoveListsData.V1".into()
-        }
-    }
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
-    pub enum Version {
-        #[prost(message, tag = "1")]
-        V1(V1),
-    }
-}
-impl ::prost::Name for UpdatePendingRemoveListsData {
-    const NAME: &'static str = "UpdatePendingRemoveListsData";
-    const PACKAGE: &'static str = "xmtp.mls.database";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.database.UpdatePendingRemoveListsData".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.database.UpdatePendingRemoveListsData".into()
-    }
-}
 /// Type of update to admin lists
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -625,36 +583,6 @@ impl PermissionPolicyOption {
             "PERMISSION_POLICY_OPTION_DENY" => Some(Self::Deny),
             "PERMISSION_POLICY_OPTION_ADMIN_ONLY" => Some(Self::AdminOnly),
             "PERMISSION_POLICY_OPTION_SUPER_ADMIN_ONLY" => Some(Self::SuperAdminOnly),
-            _ => None,
-        }
-    }
-}
-/// Type of update to pending-remove list
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum PendingRemoveListUpdateType {
-    Unspecified = 0,
-    Add = 1,
-    Remove = 2,
-}
-impl PendingRemoveListUpdateType {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            Self::Unspecified => "PENDING_REMOVE_LIST_UPDATE_TYPE_UNSPECIFIED",
-            Self::Add => "PENDING_REMOVE_LIST_UPDATE_TYPE_ADD",
-            Self::Remove => "PENDING_REMOVE_LIST_UPDATE_TYPE_REMOVE",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "PENDING_REMOVE_LIST_UPDATE_TYPE_UNSPECIFIED" => Some(Self::Unspecified),
-            "PENDING_REMOVE_LIST_UPDATE_TYPE_ADD" => Some(Self::Add),
-            "PENDING_REMOVE_LIST_UPDATE_TYPE_REMOVE" => Some(Self::Remove),
             _ => None,
         }
     }
