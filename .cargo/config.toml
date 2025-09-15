@@ -23,3 +23,20 @@ rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384"]
 
 [target.x86_64-linux-android]
 rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384"]
+
+# Codegen units can also be set if needed
+[profile.dev]
+# build scripts don't need extra assertions
+build-override = { opt-level = 3, debug = false, debug-assertions = false, overflow-checks = false, incremental = false }
+# Build all non-local dependencies in release mode
+package."*" = { opt-level = 3, debug = false, debug-assertions = false, overflow-checks = false, incremental = false }
+# It uses debug_assertions internally to decide whether to choose where to use `max_level_*` or `release_max_level_*`
+package.tracing = { opt-level = 3, debug = false, debug-assertions = true, overflow-checks = false, incremental = false }
+
+[profile.test]
+# build scripts don't need extra assertions
+build-override = { opt-level = 3, debug = false, debug-assertions = false, overflow-checks = false, incremental = false }
+# Build all non-local dependencies in release mode
+package."*" = { opt-level = 3, debug = false, debug-assertions = false, overflow-checks = false, incremental = false }
+# It uses debug_assertions internally to decide whether to choose where to use `max_level_*` or `release_max_level_*`
+package.tracing = { opt-level = 3, debug = false, debug-assertions = true, overflow-checks = false, incremental = false }
