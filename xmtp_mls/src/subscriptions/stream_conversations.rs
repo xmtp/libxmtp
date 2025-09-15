@@ -26,6 +26,8 @@ pub enum ConversationStreamError {
     InvalidPayload,
     #[error("the conversation was filtered because of the given conversation type")]
     InvalidConversationType,
+    #[error("the welcome pointer was not found")]
+    WelcomePointerNotFound,
 }
 
 impl xmtp_common::RetryableError for ConversationStreamError {
@@ -33,6 +35,7 @@ impl xmtp_common::RetryableError for ConversationStreamError {
         use ConversationStreamError::*;
         match self {
             InvalidPayload | InvalidConversationType => false,
+            WelcomePointerNotFound => true,
         }
     }
 }

@@ -18,6 +18,7 @@ pub mod summary;
 #[cfg(test)]
 mod tests;
 pub mod validated_commit;
+pub mod welcome_pointer;
 pub mod welcome_sync;
 mod welcomes;
 pub use welcomes::*;
@@ -560,6 +561,33 @@ where
 
         Ok(new_group)
     }
+
+    // /// Create a group from a decrypted and decoded welcome message.
+    // /// If the group already exists in the store, overwrite the MLS state and do not update the group entry
+    // ///
+    // /// # Parameters
+    // /// * `client` - The client context to use for group operations
+    // /// * `provider` - The OpenMLS provider for database access
+    // /// * `welcome` - The encrypted welcome message
+    // /// * `allow_cursor_increment` - Controls whether to allow cursor increments during processing.
+    // ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
+    // ///   processing from potentially out-of-order sources like streams.
+    // #[tracing::instrument(skip_all, level = "trace")]
+    // // TODO: welcome-pointer-impl
+    // pub(super) async fn create_from_welcome(
+    //     context: Context,
+    //     welcome: &welcome_message::Version,
+    //     cursor_increment: bool,
+    //     validator: impl ValidateGroupMembership,
+    // ) -> Result<Self, GroupError> {
+    //     XmtpWelcome::builder()
+    //         .context(context)
+    //         .welcome(welcome)
+    //         .cursor_increment(cursor_increment)
+    //         .validator(validator)
+    //         .process()
+    //         .await
+    // }
 
     // Super admin status is only criteria for whether to publish the commit log for now
     fn check_should_publish_commit_log(

@@ -1,4 +1,6 @@
-use crate::groups::mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension};
+use crate::groups::mls_ext::{
+    WelcomePointersExtension, WrapperAlgorithm, WrapperEncryptionExtension,
+};
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
 use crate::worker::NeedsDbReconnect;
 use crate::{XmtpApi, verified_key_package_v2::KeyPackageVerificationError};
@@ -31,7 +33,8 @@ use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::{
     CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
     GROUP_PERMISSIONS_EXTENSION_ID, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
-    MUTABLE_METADATA_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+    MUTABLE_METADATA_EXTENSION_ID, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+    WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
 use xmtp_cryptography::signature::IdentifierValidationError;
@@ -693,7 +696,9 @@ impl XmtpKeyPackageBuilder {
     ) -> Result<NewKeyPackageResult, IdentityError> {
         let this = self.inner_build()?;
         let last_resort = Extension::LastResort(LastResortExtension::default());
-        let mut extensions = vec![last_resort];
+        let welcome_pointee_encryption_aead_types =
+            WelcomePointersExtension::available_types().try_into()?;
+        let mut extensions = vec![last_resort, welcome_pointee_encryption_aead_types];
         let mut post_quantum_keypair = None;
         if include_post_quantum {
             let keypair = generate_post_quantum_key()?;
@@ -716,6 +721,7 @@ impl XmtpKeyPackageBuilder {
                 ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
                 ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
                 ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
+                ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
                 ExtensionType::ImmutableMetadata,
             ]),
             Some(&[ProposalType::GroupContextExtensions]),
@@ -903,13 +909,14 @@ mod tests {
     };
 
     async fn get_key_package_from_network(client: &FullXmtpClient) -> VerifiedKeyPackageV2 {
-        let kp_mapping = client
+        let mut kp_mapping = client
             .get_key_packages_for_installation_ids(vec![client.installation_public_key().to_vec()])
             .await
             .unwrap();
 
-        kp_mapping[&client.installation_public_key().to_vec()]
-            .clone()
+        kp_mapping
+            .remove(&client.installation_public_key().to_vec())
+            .unwrap()
             .unwrap()
     }
 

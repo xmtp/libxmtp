@@ -4,16 +4,18 @@ use openmls::{
         BasicCredential, KeyPackageBundle, KeyPackageRef, MlsMessageBodyIn, MlsMessageIn, Welcome,
     },
 };
-use openmls_traits::storage::StorageProvider;
 use prost::Message;
 use tls_codec::{Deserialize, Serialize};
-use xmtp_db::MlsProviderExt;
 use xmtp_db::XmtpMlsStorageProvider;
+use xmtp_db::XmtpOpenMlsProviderRef;
 
 use super::WrapperAlgorithm;
 use crate::{
     client::ClientError,
-    groups::{GroupError, mls_ext::unwrap_welcome},
+    groups::{
+        GroupError,
+        mls_ext::{unwrap_welcome, unwrap_welcome_symmetric},
+    },
     identity::parse_credential,
 };
 use xmtp_configuration::MAX_PAST_EPOCHS;
@@ -35,23 +37,25 @@ impl DecryptedWelcome {
     ///
     /// This function will find the appropriate private key for the algorithm from the database and use it
     /// to decrypt. It will error if the private key cannot be found or decryption fails
-    pub(crate) fn from_encrypted_bytes<P: MlsProviderExt>(
-        provider: &P,
-        hpke_public_key: &[u8],
-        encrypted_welcome_bytes: &[u8],
-        encrypted_welcome_metadata_bytes: &[u8],
-        wrapper_ciphersuite: WrapperAlgorithm,
-    ) -> Result<DecryptedWelcome, GroupError> {
-        tracing::info!("Trying to decrypt welcome");
+    fn welcome_from_proto_v1(
+        provider: &impl XmtpMlsStorageProvider,
+        proto: &xmtp_proto::mls_v1::welcome_message::V1,
+    ) -> Result<(openmls::messages::Welcome, Option<WelcomeMetadata>), GroupError> {
+        let xmtp_proto::mls_v1::welcome_message::V1 {
+            id,
+            data,
+            hpke_public_key,
+            wrapper_algorithm,
+            welcome_metadata,
+            ..
+        } = proto;
+        tracing::info!(id, "Trying to decrypt welcome");
+        let wrapper_ciphersuite = WrapperAlgorithm::try_from(*wrapper_algorithm)?;
         let hash_ref = find_key_package_hash_ref(provider, hpke_public_key)?;
         let private_key = find_private_key(provider, &hash_ref, &wrapper_ciphersuite)?;
 
-        let (welcome_bytes, welcome_metadata_bytes) = unwrap_welcome(
-            encrypted_welcome_bytes,
-            encrypted_welcome_metadata_bytes,
-            &private_key,
-            wrapper_ciphersuite,
-        )?;
+        let (welcome_bytes, welcome_metadata_bytes) =
+            unwrap_welcome(data, welcome_metadata, &private_key, wrapper_ciphersuite)?;
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
         let welcome_metadata = if welcome_metadata_bytes.is_empty() {
@@ -64,18 +68,94 @@ impl DecryptedWelcome {
                 })
                 .ok()
         };
+        Ok((welcome, welcome_metadata))
+    }
+    async fn welcome_from_proto_welcome_pointer(
+        provider: &impl XmtpMlsStorageProvider,
+        proto: &xmtp_proto::mls_v1::welcome_message::WelcomePointer,
+        context: &impl crate::context::XmtpSharedContext,
+    ) -> Result<(openmls::messages::Welcome, Option<WelcomeMetadata>), GroupError> {
+        let welcome_pointer = decrypt_welcome_pointer(provider, proto)?;
+        let v1 = super::super::welcome_pointer::resolve_welcome_pointer(&welcome_pointer, context)
+            .await?;
+        let welcome_pointer_v1 = match welcome_pointer.version {
+            Some(xmtp_proto::xmtp::mls::message_contents::welcome_pointer::Version::V1(v1)) => v1,
+            None => {
+                return Err(GroupError::MissingField("WelcomePointer.version"));
+            }
+        };
+        let aead_type =
+            xmtp_proto::xmtp::mls::message_contents::WelcomePointeeEncryptionAeadType::try_from(
+                welcome_pointer_v1.aead_type,
+            )
+            .unwrap_or_default();
+        let aead_type = match aead_type {
+            xmtp_proto::xmtp::mls::message_contents::WelcomePointeeEncryptionAeadType::Chacha20Poly1305 => {
+                openmls::prelude::AeadType::ChaCha20Poly1305
+            }
+            xmtp_proto::xmtp::mls::message_contents::WelcomePointeeEncryptionAeadType::Unspecified => {
+                return Err(GroupError::MissingField("WelcomePointer.version.v1.aead_type"));
+            }
+        };
+
+        if welcome_pointer_v1.nonces.len() < 2 {
+            return Err(GroupError::MissingField("WelcomePointer.version.v1.nonces"));
+        }
+
+        #[allow(clippy::get_first)]
+        let nonces = [
+            welcome_pointer_v1
+                .nonces
+                .get(0)
+                .ok_or(GroupError::MissingField("WelcomePointer.version.v1.nonces"))?
+                .as_slice(),
+            welcome_pointer_v1
+                .nonces
+                .get(1)
+                .ok_or(GroupError::MissingField("WelcomePointer.version.v1.nonces"))?
+                .as_slice(),
+        ];
+
+        let decrypted_welcome = unwrap_welcome_symmetric(
+            [v1.data.as_slice(), v1.welcome_metadata.as_slice()],
+            aead_type,
+            &welcome_pointer_v1.encryption_key,
+            nonces,
+        )?;
+        let welcome = deserialize_welcome(&decrypted_welcome[0])?;
+        let welcome_metadata = Some(decrypted_welcome[1].as_slice())
+            .filter(|data| !data.is_empty())
+            .map(deserialize_welcome_metadata)
+            .transpose()?;
+
+        Ok((welcome, welcome_metadata))
+    }
+    pub(crate) async fn from_welcome_proto(
+        proto: &xmtp_proto::mls_v1::welcome_message::Version,
+        provider: &impl XmtpMlsStorageProvider,
+        context: &impl crate::context::XmtpSharedContext,
+    ) -> Result<Self, GroupError> {
+        let (welcome, welcome_metadata) = match proto {
+            xmtp_proto::mls_v1::welcome_message::Version::V1(v1) => {
+                Self::welcome_from_proto_v1(provider, v1)?
+            }
+            xmtp_proto::mls_v1::welcome_message::Version::WelcomePointer(w) => {
+                Self::welcome_from_proto_welcome_pointer(provider, w, context).await?
+            }
+        };
 
         let join_config = build_group_join_config();
 
+        let provider = XmtpOpenMlsProviderRef::new(provider);
         let processed_welcome =
-            ProcessedWelcome::new_from_welcome(provider, &join_config, welcome.clone())?;
+            ProcessedWelcome::new_from_welcome(&provider, &join_config, welcome)?;
 
         let psks = processed_welcome.psks();
         if !psks.is_empty() {
             tracing::error!("No PSK support for welcome");
             return Err(GroupError::NoPSKSupport);
         }
-        let staged_welcome = processed_welcome.into_staged_welcome(provider, None)?;
+        let staged_welcome = processed_welcome.into_staged_welcome(&provider, None)?;
 
         let added_by_node = staged_welcome.welcome_sender()?;
 
@@ -93,13 +173,12 @@ impl DecryptedWelcome {
 }
 
 pub(super) fn find_key_package_hash_ref(
-    provider: &impl MlsProviderExt,
+    provider: &impl XmtpMlsStorageProvider,
     hpke_public_key: &[u8],
 ) -> Result<KeyPackageRef, GroupError> {
     let serialized_hpke_public_key = hpke_public_key.tls_serialize_detached()?;
 
     Ok(provider
-        .key_store()
         .read(KEY_PACKAGE_REFERENCES, &serialized_hpke_public_key)?
         .ok_or(NotFound::KeyPackageReference(serialized_hpke_public_key))?)
 }
@@ -108,14 +187,13 @@ pub(super) fn find_key_package_hash_ref(
 /// For Post Quantum keys, we use look up the KEY_PACKAGE_WRAPPER_PRIVATE_KEY which is keyed
 /// by the hash reference of the key package.
 pub(super) fn find_private_key(
-    provider: &impl MlsProviderExt,
+    provider: &impl XmtpMlsStorageProvider,
     hash_ref: &KeyPackageRef,
     wrapper_ciphersuite: &WrapperAlgorithm,
 ) -> Result<Vec<u8>, GroupError> {
     match wrapper_ciphersuite {
         WrapperAlgorithm::Curve25519 => {
-            let key_package: Option<KeyPackageBundle> =
-                provider.key_store().key_package(hash_ref)?;
+            let key_package: Option<KeyPackageBundle> = provider.key_package(hash_ref)?;
             Ok(key_package
                 .map(|kp| kp.init_private_key().to_vec())
                 .ok_or_else(|| NotFound::KeyPackage(hash_ref.as_slice().to_vec()))?)
@@ -123,9 +201,8 @@ pub(super) fn find_private_key(
         WrapperAlgorithm::XWingMLKEM768Draft6 => {
             let serialized_hash_ref = bincode::serialize(hash_ref)
                 .map_err(|_| GroupError::NotFound(NotFound::PostQuantumPrivateKey))?;
-            let private_key = provider
-                .key_store()
-                .read(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &serialized_hash_ref)?;
+            let private_key =
+                provider.read(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &serialized_hash_ref)?;
 
             Ok(private_key.ok_or(NotFound::PostQuantumPrivateKey)?)
         }
@@ -150,8 +227,33 @@ fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> 
     }
 }
 
-fn deserialize_welcome_metadata(metadata_bytes: &[u8]) -> Result<WelcomeMetadata, ClientError> {
-    let metadata = WelcomeMetadata::decode(metadata_bytes)
-        .map_err(|_| ClientError::Generic("unexpected message type in welcome".to_string()))?;
+fn deserialize_welcome_metadata(metadata_bytes: &[u8]) -> Result<WelcomeMetadata, GroupError> {
+    let metadata = WelcomeMetadata::decode(metadata_bytes).map_err(|_| {
+        GroupError::Client(ClientError::Generic(
+            "unexpected message type in welcome".to_string(),
+        ))
+    })?;
     Ok(metadata)
+}
+
+pub(crate) fn decrypt_welcome_pointer(
+    provider: &impl XmtpMlsStorageProvider,
+    welcome_pointer: &xmtp_proto::mls_v1::welcome_message::WelcomePointer,
+) -> Result<xmtp_proto::xmtp::mls::message_contents::WelcomePointer, GroupError> {
+    tracing::info!("Trying to decrypt welcome pointer");
+    let hash_ref = find_key_package_hash_ref(provider, &welcome_pointer.hpke_public_key)?;
+    let private_key =
+        find_private_key(provider, &hash_ref, &WrapperAlgorithm::XWingMLKEM768Draft6)?;
+
+    let welcome_bytes = unwrap_welcome(
+        &welcome_pointer.welcome_pointer,
+        &[],
+        &private_key,
+        WrapperAlgorithm::XWingMLKEM768Draft6,
+    )?;
+    let welcome_pointer =
+        <xmtp_proto::xmtp::mls::message_contents::WelcomePointer as prost::Message>::decode(
+            welcome_bytes.0.as_slice(),
+        )?;
+    Ok(welcome_pointer)
 }

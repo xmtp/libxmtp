@@ -102,6 +102,8 @@ pub enum GroupError {
     SelfUpdate(#[from] openmls::group::SelfUpdateError<sql_key_store::SqlKeyStoreError>),
     #[error("welcome error: {0}")]
     WelcomeError(#[from] openmls::prelude::WelcomeError<sql_key_store::SqlKeyStoreError>),
+    #[error("welcome pointer not found: {0}")]
+    WelcomePointerNotFound(String),
     #[error("Invalid extension {0}")]
     InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
     #[error("Invalid signature: {0}")]
@@ -124,6 +126,14 @@ pub enum GroupError {
     Identity(#[from] IdentityError),
     #[error("serialization error: {0}")]
     EncodeError(#[from] prost::EncodeError),
+    #[error("deserialization error: {0}")]
+    DecodeError(#[from] prost::DecodeError),
+    #[error("conversion error: {0}")]
+    ConversionError(#[from] xmtp_proto::ConversionError),
+    #[error("crypto error: {0}")]
+    CryptoError(#[from] openmls::prelude::CryptoError),
+    #[error("missing field {0}")]
+    MissingField(&'static str),
     #[error("create group context proposal error: {0}")]
     CreateGroupContextExtProposalError(
         #[from] CreateGroupContextExtProposalError<sql_key_store::SqlKeyStoreError>,
@@ -249,6 +259,7 @@ impl RetryableError for GroupError {
             Self::GroupCreate(group) => group.is_retryable(),
             Self::SelfUpdate(update) => update.is_retryable(),
             Self::WelcomeError(welcome) => welcome.is_retryable(),
+            Self::WelcomePointerNotFound(_) => true,
             Self::SqlKeyStore(sql) => sql.is_retryable(),
             Self::InstallationDiff(diff) => diff.is_retryable(),
             Self::CreateGroupContextExtProposalError(create) => create.is_retryable(),
@@ -284,6 +295,10 @@ impl RetryableError for GroupError {
             | Self::InvalidPublicKeys(_)
             | Self::CredentialError(_)
             | Self::EncodeError(_)
+            | Self::DecodeError(_)
+            | Self::ConversionError(_)
+            | Self::CryptoError(_)
+            | Self::MissingField(_)
             | Self::TooManyCharacters { .. }
             | Self::GroupPausedUntilUpdate(_)
             | Self::GroupInactive
