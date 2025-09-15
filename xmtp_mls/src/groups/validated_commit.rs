@@ -1079,6 +1079,7 @@ impl From<ValidatedCommit> for GroupUpdatedProto {
                 .iter()
                 .map(InboxProto::from)
                 .collect(),
+            left_inboxes: todo!("from other PRs"),
             metadata_field_changes: commit
                 .metadata_validation_info
                 .metadata_field_changes
