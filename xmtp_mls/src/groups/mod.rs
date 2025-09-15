@@ -31,6 +31,9 @@ use self::{
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
 };
+use crate::groups::intents::{
+    UpdatePendingRemoveListActionType, UpdatePendingRemoveListIntentData,
+};
 use crate::groups::{intents::QueueIntent, mls_ext::CommitLogStorer};
 use crate::{GroupCommitLock, context::XmtpSharedContext};
 use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
@@ -193,6 +196,12 @@ pub enum UpdateAdminListType {
     Remove,
     AddSuper,
     RemoveSuper,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UpdatePendingRemoveListType {
+    Add,
+    Remove,
 }
 
 /// Fields extracted from content of a message that should be stored in the DB
@@ -968,6 +977,90 @@ where
         Ok(())
     }
 
+    pub async fn update_pending_remove_list(
+        &self,
+        action_type: UpdatePendingRemoveListType,
+        inbox_id: String,
+    ) -> Result<(), GroupError> {
+        let intent_action_type = match action_type {
+            UpdatePendingRemoveListType::Add => UpdatePendingRemoveListActionType::Add,
+            UpdatePendingRemoveListType::Remove => UpdatePendingRemoveListActionType::Remove,
+        };
+        let intent_data: Vec<u8> =
+            UpdatePendingRemoveListIntentData::new(intent_action_type, inbox_id).into();
+        let intent = QueueIntent::update_pending_remove_list()
+            .data(intent_data)
+            .queue(self)?;
+
+        let _ = self.sync_until_intent_resolved(intent.id).await?;
+        Ok(())
+    }
+
+    pub async fn leave_group(&self) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+        self.is_member().await?;
+
+        //check member size
+        let members = self.members().await?;
+
+        // check if the group has other members
+        if members.len() == 1 {
+            return Err(GroupLeaveValidationError::SingleMemberLeaveRejected.into());
+        }
+
+        // check if the conversation is not a DM
+        if self.metadata().await?.conversation_type == ConversationType::Dm {
+            return Err(GroupLeaveValidationError::DmLeaveForbidden.into());
+        }
+
+        let is_admin = self.is_admin(self.context.inbox_id().to_string())?;
+        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
+        let admin_size = self.admin_list()?.len();
+        let super_admin_size = self.super_admin_list()?.len();
+
+        // check if the user is the only Admin or SuperAdmin of the group
+        if (is_admin && admin_size == 1) || (is_super_admin && super_admin_size == 1) {
+            return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
+        }
+
+        if !self.is_in_pending_remove(self.context.inbox_id().to_string())? {
+            self.update_pending_remove_list(
+                UpdatePendingRemoveListType::Add,
+                self.context.inbox_id().to_string(),
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn remove_from_pending_remove_list(&self) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+        self.is_member().await?;
+
+        if self.is_in_pending_remove(self.context.inbox_id().to_string())? {
+            self.update_pending_remove_list(
+                UpdatePendingRemoveListType::Remove,
+                self.context.inbox_id().to_string(),
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Checks if the current user is a member of the group.
+    /// Returns Ok(()) if the user is a member, otherwise returns NotAGroupMember error.
+    #[tracing::instrument(level = "debug", skip(self))]
+    async fn is_member(&self) -> Result<(), GroupError> {
+        let members = self.members().await?;
+        if !members
+            .iter()
+            .any(|m| m.inbox_id == self.context.inbox_id())
+        {
+            return Err(GroupLeaveValidationError::NotAGroupMember.into());
+        }
+        Ok(())
+    }
+
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
     /// to perform these updates.
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
@@ -1306,6 +1399,11 @@ where
         }
     }
 
+    pub fn pending_remove_list(&self) -> Result<Vec<String>, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        Ok(mutable_metadata.pending_remove_list)
+    }
+
     /// Retrieves the admin list of the group from the group's mutable metadata extension.
     pub fn admin_list(&self) -> Result<Vec<String>, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
@@ -1328,6 +1426,12 @@ where
     pub fn is_super_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
         Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
+    }
+
+    /// Checks if the given inbox ID is the pending-remove list of the group at the most recently synced epoch.
+    pub fn is_in_pending_remove(&self, inbox_id: String) -> Result<bool, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        Ok(mutable_metadata.pending_remove_list.contains(&inbox_id))
     }
 
     /// Retrieves the conversation type of the group from the group's metadata extension.
@@ -1753,6 +1857,7 @@ pub fn build_extensions_for_metadata_update(
         attributes,
         existing_metadata.admin_list,
         existing_metadata.super_admin_list,
+        existing_metadata.pending_remove_list,
     )
     .try_into()?;
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
@@ -1835,6 +1940,7 @@ pub fn build_extensions_for_admin_lists_update(
 ) -> Result<Extensions, MetadataPermissionsError> {
     let existing_metadata: GroupMutableMetadata = group.try_into()?;
     let attributes = existing_metadata.attributes.clone();
+    let pending_remove_list = existing_metadata.pending_remove_list.clone();
     let mut admin_list = existing_metadata.admin_list;
     let mut super_admin_list = existing_metadata.super_admin_list;
     match admin_lists_update.action_type {
@@ -1853,8 +1959,47 @@ pub fn build_extensions_for_admin_lists_update(
             super_admin_list.retain(|x| x != &admin_lists_update.inbox_id)
         }
     }
-    let new_mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new(attributes, admin_list, super_admin_list).try_into()?;
+    let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(
+        attributes,
+        admin_list,
+        super_admin_list,
+        pending_remove_list,
+    )
+    .try_into()?;
+    let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
+    let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
+    let mut extensions = group.extensions().clone();
+    extensions.add_or_replace(extension);
+    Ok(extensions)
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+pub fn build_extensions_for_pending_remove_lists_update(
+    group: &OpenMlsGroup,
+    pending_remove_lists_update: UpdatePendingRemoveListIntentData,
+) -> Result<Extensions, MetadataPermissionsError> {
+    let existing_metadata: GroupMutableMetadata = group.try_into()?;
+    let attributes = existing_metadata.attributes.clone();
+    let admin_list = existing_metadata.admin_list;
+    let super_admin_list = existing_metadata.super_admin_list;
+    let mut pending_remove_list = existing_metadata.pending_remove_list;
+    match pending_remove_lists_update.action_type {
+        UpdatePendingRemoveListActionType::Add => {
+            if !pending_remove_list.contains(&pending_remove_lists_update.inbox_id) {
+                pending_remove_list.push(pending_remove_lists_update.inbox_id);
+            }
+        }
+        UpdatePendingRemoveListActionType::Remove => {
+            pending_remove_list.retain(|x| x != &pending_remove_lists_update.inbox_id)
+        }
+    }
+    let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(
+        attributes,
+        admin_list,
+        super_admin_list,
+        pending_remove_list,
+    )
+    .try_into()?;
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
     let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
     let mut extensions = group.extensions().clone();

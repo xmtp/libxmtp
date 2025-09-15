@@ -181,6 +181,8 @@ pub struct MutableMetadataValidationInfo {
     pub admins_removed: Vec<Inbox>,
     pub super_admins_added: Vec<Inbox>,
     pub super_admins_removed: Vec<Inbox>,
+    pub pending_remove_added: Vec<Inbox>,
+    pub pending_remove_removed: Vec<Inbox>,
     pub num_super_admins: u32,
     pub minimum_supported_protocol_version: Option<String>,
 }
@@ -191,6 +193,8 @@ impl MutableMetadataValidationInfo {
             && self.admins_added.is_empty()
             && self.admins_removed.is_empty()
             && self.super_admins_added.is_empty()
+            && self.pending_remove_added.is_empty()
+            && self.pending_remove_removed.is_empty()
             && self.super_admins_removed.is_empty()
             && self.minimum_supported_protocol_version.is_none()
     }
@@ -298,6 +302,7 @@ pub struct ValidatedCommit {
     pub installations_changed: bool,
     pub permissions_changed: bool,
     pub dm_members: Option<DmMembers<String>>,
+    pub group_members: Vec<String>,
 }
 
 impl ValidatedCommit {
@@ -431,6 +436,10 @@ impl ValidatedCommit {
                 ));
             }
         }
+        let group_members: Vec<String> = openmls_group
+            .members()
+            .filter_map(|member| inbox_id_from_credential(&member.credential).ok())
+            .collect();
 
         let verified_commit = Self {
             actor,
@@ -440,6 +449,7 @@ impl ValidatedCommit {
             installations_changed,
             permissions_changed,
             dm_members: immutable_metadata.dm_members,
+            group_members,
         };
 
         let policy_set = extract_group_permissions(openmls_group)?;
@@ -871,6 +881,18 @@ fn extract_metadata_changes(
             immutable_metadata,
             old_mutable_metadata,
         ),
+        pending_remove_added: get_added_members(
+            &old_mutable_metadata.pending_remove_list,
+            &new_mutable_metadata.pending_remove_list,
+            immutable_metadata,
+            old_mutable_metadata,
+        ),
+        pending_remove_removed: get_removed_members(
+            &old_mutable_metadata.pending_remove_list,
+            &new_mutable_metadata.pending_remove_list,
+            immutable_metadata,
+            old_mutable_metadata,
+        ),
         num_super_admins: new_mutable_metadata.super_admin_list.len() as u32,
         minimum_supported_protocol_version: new_mutable_metadata
             .attributes
@@ -1079,7 +1101,7 @@ impl From<ValidatedCommit> for GroupUpdatedProto {
                 .iter()
                 .map(InboxProto::from)
                 .collect(),
-            left_inboxes: todo!("from other PRs"),
+            left_inboxes: vec![], //todo: completed in other PR
             metadata_field_changes: commit
                 .metadata_validation_info
                 .metadata_field_changes
