@@ -10,7 +10,7 @@ pub mod factory;
 use super::Result;
 use crate::context::XmtpSharedContext;
 use crate::groups::summary::MessageIdentifierBuilder;
-use factory::{GroupDatabase, GroupDb, MessageProcessor, Syncer};
+use factory::{GroupDb, MessageProcessor, Syncer};
 use xmtp_common::FutureWrapper;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::xmtp::mls::api::v1::group_message;
@@ -18,8 +18,6 @@ use xmtp_proto::xmtp::mls::api::v1::group_message;
 /// Creates a future that processes sa single message
 pub trait ProcessFutureFactory<'a> {
     fn create(&self, msg: group_message::V1) -> FutureWrapper<'a, Result<ProcessedMessage>>;
-    /// Try to retrieve a message
-    fn retrieve(&self, msg: &group_message::V1) -> Result<Option<StoredGroupMessage>>;
 }
 
 impl<'a, Context> ProcessFutureFactory<'a> for ProcessMessageFuture<Context>
@@ -33,11 +31,6 @@ where
         let future = processor.process(msg);
 
         FutureWrapper::new(future)
-    }
-    /// Try to retrieve a message
-    fn retrieve(&self, msg: &group_message::V1) -> Result<Option<StoredGroupMessage>> {
-        let db = GroupDb::new(self.context.clone());
-        db.msg(None, msg).map_err(Into::into)
     }
 }
 
