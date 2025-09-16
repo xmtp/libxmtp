@@ -975,7 +975,7 @@ where
                 &storage,
                 &mut deferred_events
             )?;
-            self.process_pending_remove_list_changes(mls_group, &storage, validated_commit.clone(),);
+            // self.process_pending_remove_list_changes(mls_group, &storage, validated_commit.clone(),);
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
                 tracing::info!(
