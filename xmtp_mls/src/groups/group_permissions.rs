@@ -1013,7 +1013,7 @@ impl PolicySet {
 
     fn validate_pending_remove_removal(&self, commit: &ValidatedCommit) -> bool {
         todo!("get from the message and validate not from the commit");
-       // let removed = vec![];//&commit.metadata_validation_info.pending_remove_removed;
+        // let removed = vec![];//&commit.metadata_validation_info.pending_remove_removed;
 
         //
         // // Empty removed list: nothing to validate

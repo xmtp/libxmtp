@@ -1957,12 +1957,8 @@ pub fn build_extensions_for_admin_lists_update(
             super_admin_list.retain(|x| x != &admin_lists_update.inbox_id)
         }
     }
-    let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(
-        attributes,
-        admin_list,
-        super_admin_list,
-    )
-    .try_into()?;
+    let new_mutable_metadata: Vec<u8> =
+        GroupMutableMetadata::new(attributes, admin_list, super_admin_list).try_into()?;
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
     let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
     let mut extensions = group.extensions().clone();

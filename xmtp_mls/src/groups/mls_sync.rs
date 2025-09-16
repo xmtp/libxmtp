@@ -1,7 +1,6 @@
 use super::{
     GroupError, HmacKey, MlsGroup, build_extensions_for_admin_lists_update,
-    build_extensions_for_metadata_update,
-    build_extensions_for_permissions_update,
+    build_extensions_for_metadata_update, build_extensions_for_permissions_update,
     intents::{
         Installation, IntentError, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,

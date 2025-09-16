@@ -17,6 +17,7 @@ use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 #[cfg(test)]
 mod compatibility_test;
+mod leave_request;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
