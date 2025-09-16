@@ -1086,8 +1086,9 @@ where
                                 deferred_events.add_worker_event(SyncWorkerEvent::NewSyncGroupMsg);
                             }
                         }
-                        //if(message.content_type ==  )
-                        self.process_pending_remove_list_changes(mls_group, &storage,&sender_inbox_id, &message );
+                        if message.content_type == ContentType::LeaveRequest {
+                            self.process_leave_request_message(mls_group, storage, &message);
+                        }
 
                         Ok::<_, GroupMessageProcessingError>(())
                     }
@@ -1270,66 +1271,17 @@ where
         identifier.build()
     }
 
-    fn process_pending_remove_list_changes(
+    fn process_leave_request_message(
         &self,
         mls_group: &OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,
-        sender_inbox_id: &InboxId,
         message: &StoredGroupMessage,
     ) {
-
-
         let current_inbox_id = self.context.inbox_id().to_string();
 
         // Process validated commit changes - only if the actor is the current user
-        if let Some(commit) = validated_commit {
-            // Only process changes if they were made by the same user
-            if sender_inbox_id == current_inbox_id {
-                self.process_self_pending_remove_changes(&commit, storage);
-                return; // Early return - we're done if this is our own action
-            }
-        }
-
-        // If we reach here, the action was by another user or no validated commit
-        // Only process admin actions if we're admin/super-admin
-        self.process_admin_pending_remove_actions(mls_group, storage);
-    }
-
-    fn process_self_pending_remove_changes(
-        &self,
-        commit: &ValidatedCommit,
-        storage: &impl XmtpMlsStorageProvider,
-    ) {
-        let current_inbox_id = self.context.inbox_id().to_string();
-        let metadata_info = &commit.metadata_validation_info;
-
-        // Handle removal from pending remove list (restore to Allowed state)
-        if metadata_info
-            .pending_remove_removed
-            .iter()
-            .any(|id| id.inbox_id == current_inbox_id)
-        {
-            if let Err(e) = storage
-                .db()
-                .update_group_membership(&self.group_id, GroupMembershipState::Allowed)
-            {
-                tracing::error!(
-                    operation = "update_group_membership",
-                    target_state = "Allowed",
-                    inbox_id = %current_inbox_id,
-                    group_id = hex::encode(&self.group_id),
-                    context = "self_removed_from_pending_list",
-                    "Failed to restore group membership after self-removal from pending_remove_list {}", e
-                );
-            }
-        }
-
-        // Handle addition to the pending remove list
-        if metadata_info
-            .pending_remove_added
-            .iter()
-            .any(|id| id.inbox_id == current_inbox_id)
-        {
+        // Only process changes if they were made by the same user
+        if message.sender_inbox_id == current_inbox_id {
             if let Err(e) = storage
                 .db()
                 .update_group_membership(&self.group_id, GroupMembershipState::PendingRemove)
@@ -1343,7 +1295,12 @@ where
                     "Failed to update group membership after self-addition to pending_remove_list {}", e
                 );
             }
+            return; // Early return - we're done if this is our own action
         }
+
+        // If we reach here, the action was by another user or no validated commit
+        // Only process admin actions if we're admin/super-admin
+        self.process_admin_pending_remove_actions(mls_group, storage);
     }
 
     fn process_admin_pending_remove_actions(
@@ -1368,27 +1325,27 @@ where
                     return;
                 }
 
-                let pending_remove = &metadata.pending_remove_list;
-                let has_pending_removes = !pending_remove.is_empty();
-                let current_user_not_pending = !pending_remove.contains(&current_inbox_id);
-
+                // let pending_remove = &metadata.pending_remove_list;
+                // let has_pending_removes = !pending_remove.is_empty();
+                // let current_user_not_pending = !pending_remove.contains(&current_inbox_id);
+                // add user to the pending remove db table
                 // Update group status based on pending remove list state
-                if current_user_not_pending {
-                    self.update_group_pending_status(storage, has_pending_removes);
-                    // Update the group's pending leave request status
-                    // if let Err(e) = storage
-                    //     .db()
-                    //     .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
-                    // {
-                    //     //     //     .map_err(|e| {
-                    //     tracing::error!("Failed to set group pending leave request status: {}", e);
-                    // } else {
-                    //     //     //         IntentError::Storage(e.into())
-                    //     //     //     })?;
-                    //     //
-                    //     tracing::info!("Marked the group as having pending leave requests");
-                    // }
-                }
+                // if current_user_not_pending {
+                //     self.update_group_pending_status(storage, has_pending_removes);
+                //     // Update the group's pending leave request status
+                //     // if let Err(e) = storage
+                //     //     .db()
+                //     //     .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
+                //     // {
+                //     //     //     //     .map_err(|e| {
+                //     //     tracing::error!("Failed to set group pending leave request status: {}", e);
+                //     // } else {
+                //     //     //     //         IntentError::Storage(e.into())
+                //     //     //     //     })?;
+                //     //     //
+                //     //     tracing::info!("Marked the group as having pending leave requests");
+                //     // }
+                // }
             }
             Err(GroupMutableMetadataError::MissingExtension) => {
                 tracing::warn!(

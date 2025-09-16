@@ -22,7 +22,10 @@ use diesel::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use xmtp_common::time::now_ns;
-use xmtp_content_types::{attachment, group_updated, leave_request, membership_change, reaction, read_receipt, remote_attachment, reply, text, transaction_reference, wallet_send_calls};
+use xmtp_content_types::{
+    attachment, group_updated, leave_request, membership_change, reaction, read_receipt,
+    remote_attachment, reply, text, transaction_reference, wallet_send_calls,
+};
 
 mod convert;
 #[cfg(test)]

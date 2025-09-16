@@ -353,14 +353,6 @@ where
                 None
             }
         });
-        let pending_remove_state = mutable_metadata.as_ref().and_then(|metadata| {
-            MlsGroup::<C>::is_in_pending_remove_from_extensions(
-                context.inbox_id().to_string(),
-                metadata,
-            )
-            .ok()
-        });
-
         let mut group = StoredGroup::builder();
         group
             .id(group_id)
@@ -376,21 +368,22 @@ where
                 mutable_metadata,
             ));
 
-        let membership_state = if pending_remove_state.unwrap_or(false) {
-            GroupMembershipState::PendingRemove
-        } else {
-            GroupMembershipState::Pending
-        };
+        // todo: revise the logic later
+        // let membership_state = if pending_remove_state.unwrap_or(false) {
+        //     GroupMembershipState::PendingRemove
+        // } else {
+        //     GroupMembershipState::Pending
+        // };
 
         let to_store = match conversation_type {
             ConversationType::Group => group
-                .membership_state(membership_state)
+                .membership_state(GroupMembershipState::Pending)
                 .paused_for_version(paused_for_version)
                 .build()?,
             ConversationType::Dm => {
                 validate_dm_group(context, &mls_group, &added_by_inbox_id)?;
                 group
-                    .membership_state(membership_state)
+                    .membership_state(GroupMembershipState::Pending)
                     .last_message_ns(welcome.created_ns as i64)
                     .build()?
             }

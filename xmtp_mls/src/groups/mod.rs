@@ -31,15 +31,13 @@ use self::{
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
 };
-use crate::groups::intents::{
-    UpdatePendingRemoveListActionType, UpdatePendingRemoveListIntentData,
-};
 use crate::groups::{intents::QueueIntent, mls_ext::CommitLogStorer};
 use crate::{GroupCommitLock, context::XmtpSharedContext};
 use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
 use crate::{subscriptions::SyncWorkerEvent, track};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
+use futures_util::SinkExt;
 use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
@@ -57,21 +55,20 @@ use prost::Message;
 use std::collections::HashMap;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
-use futures_util::SinkExt;
 use tokio::sync::Mutex;
 use xmtp_common::time::now_ns;
 use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
     MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
-use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
+use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_content_types::should_push;
+use xmtp_content_types::text::TextCodec;
+use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
 use xmtp_content_types::{
     reaction::{LegacyReaction, ReactionCodec},
     reply::ReplyCodec,
 };
-use xmtp_content_types::leave_request::LeaveRequestCodec;
-use xmtp_content_types::text::TextCodec;
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
@@ -101,6 +98,7 @@ use xmtp_mls_common::{
         GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings, MetadataField,
     },
 };
+use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
 use xmtp_proto::xmtp::mls::{
     api::v1::welcome_message,
     message_contents::{
@@ -109,7 +107,6 @@ use xmtp_proto::xmtp::mls::{
         plaintext_envelope::{Content, V1},
     },
 };
-use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
 
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
@@ -1031,10 +1028,11 @@ where
         }
 
         if !self.is_in_pending_remove(self.context.inbox_id().to_string())? {
-            let content = LeaveRequestCodec::encode(LeaveRequest{})
+            let content = LeaveRequestCodec::encode(LeaveRequest {})
                 .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-            self.send(encoded_content_to_bytes(content)).await?
-        }
+            self.send_message(&*encoded_content_to_bytes(content))
+                .await?;
+        };
         Ok(())
     }
 
