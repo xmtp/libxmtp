@@ -975,7 +975,6 @@ where
                 &storage,
                 &mut deferred_events
             )?;
-            // self.process_pending_remove_list_changes(mls_group, &storage, validated_commit.clone(),);
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
                 tracing::info!(
@@ -1087,6 +1086,9 @@ where
                                 deferred_events.add_worker_event(SyncWorkerEvent::NewSyncGroupMsg);
                             }
                         }
+                        //if(message.content_type ==  )
+                        self.process_pending_remove_list_changes(mls_group, &storage,&sender_inbox_id, &message );
+
                         Ok::<_, GroupMessageProcessingError>(())
                     }
                     Some(Content::V2(V2 {
@@ -1272,14 +1274,17 @@ where
         &self,
         mls_group: &OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,
-        validated_commit: Option<ValidatedCommit>,
+        sender_inbox_id: &InboxId,
+        message: &StoredGroupMessage,
     ) {
+
+
         let current_inbox_id = self.context.inbox_id().to_string();
 
         // Process validated commit changes - only if the actor is the current user
         if let Some(commit) = validated_commit {
             // Only process changes if they were made by the same user
-            if commit.actor.inbox_id == current_inbox_id {
+            if sender_inbox_id == current_inbox_id {
                 self.process_self_pending_remove_changes(&commit, storage);
                 return; // Early return - we're done if this is our own action
             }
