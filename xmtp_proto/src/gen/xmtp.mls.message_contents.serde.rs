@@ -1247,9 +1247,6 @@ impl serde::Serialize for GroupMutableMetadataV1 {
         if self.commit_log_signer.is_some() {
             len += 1;
         }
-        if self.pending_remove_list.is_some() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupMutableMetadataV1", len)?;
         if !self.attributes.is_empty() {
             struct_ser.serialize_field("attributes", &self.attributes)?;
@@ -1264,9 +1261,6 @@ impl serde::Serialize for GroupMutableMetadataV1 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("commit_log_signer", pbjson::private::base64::encode(&v).as_str())?;
-        }
-        if let Some(v) = self.pending_remove_list.as_ref() {
-            struct_ser.serialize_field("pending_remove_list", v)?;
         }
         struct_ser.end()
     }
@@ -1285,8 +1279,6 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
             "superAdminList",
             "commit_log_signer",
             "commitLogSigner",
-            "pending_remove_list",
-            "pendingRemoveList",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1295,7 +1287,6 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
             AdminList,
             SuperAdminList,
             CommitLogSigner,
-            PendingRemoveList,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1322,7 +1313,6 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
                             "adminList" | "admin_list" => Ok(GeneratedField::AdminList),
                             "superAdminList" | "super_admin_list" => Ok(GeneratedField::SuperAdminList),
                             "commitLogSigner" | "commit_log_signer" => Ok(GeneratedField::CommitLogSigner),
-                            "pendingRemoveList" | "pending_remove_list" => Ok(GeneratedField::PendingRemoveList),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1346,7 +1336,6 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
                 let mut admin_list__ = None;
                 let mut super_admin_list__ = None;
                 let mut commit_log_signer__ = None;
-                let mut pending_remove_list__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Attributes => {
@@ -1377,12 +1366,6 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
                                 map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
-                        GeneratedField::PendingRemoveList => {
-                            if pending_remove_list__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("pendingRemoveList"));
-                            }
-                            pending_remove_list__ = map_.next_value()?;
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1393,7 +1376,6 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
                     admin_list: admin_list__,
                     super_admin_list: super_admin_list__,
                     commit_log_signer: commit_log_signer__,
-                    pending_remove_list: pending_remove_list__,
                 })
             }
         }

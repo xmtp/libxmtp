@@ -982,22 +982,6 @@ impl PolicySet {
         let removed_admins_valid = commit.metadata_validation_info.admins_removed.is_empty()
             || self.remove_admin_policy.evaluate(&commit.actor);
 
-        // Verify that add inboxIds to pending remove policy was not violated
-        let added_pending_remove = commit
-            .metadata_validation_info
-            .pending_remove_added
-            .is_empty()
-            || (commit.metadata_validation_info.pending_remove_added.len() == 1
-                && commit.metadata_validation_info.pending_remove_added[0].inbox_id
-                    == commit.actor.inbox_id);
-
-        // Verify that remove inboxIds to pending remove policy was not violated
-        let removed_pending_remove = commit
-            .metadata_validation_info
-            .pending_remove_removed
-            .is_empty()
-            || self.validate_pending_remove_removal(commit);
-
         // Verify that super admin add policy was not violated
         let super_admin_add_valid = commit
             .metadata_validation_info
@@ -1025,32 +1009,32 @@ impl PolicySet {
             && super_admin_add_valid
             && super_admin_remove_valid
             && permissions_changes_valid
-            && added_pending_remove
-            && removed_pending_remove
     }
 
     fn validate_pending_remove_removal(&self, commit: &ValidatedCommit) -> bool {
-        let removed = &commit.metadata_validation_info.pending_remove_removed;
+        todo!("get from the message and validate not from the commit");
+       // let removed = vec![];//&commit.metadata_validation_info.pending_remove_removed;
 
-        // Empty removed list: nothing to validate
-        if removed.is_empty() {
-            return true;
-        }
-
-        // Single inbox removal case
-        if removed.len() == 1 && removed[0].inbox_id == commit.actor.inbox_id {
-            return true; // Anyone can remove themselves
-        }
-
-        // Multiple removals - only admins or super admins can do this
-        if !commit.actor.is_admin && !commit.actor.is_super_admin {
-            return false;
-        }
-
-        // Admin/super admin removing others - verify they're not in members list
-        removed
-            .iter()
-            .all(|inbox| !commit.group_members.contains(&inbox.inbox_id))
+        //
+        // // Empty removed list: nothing to validate
+        // if removed.is_empty() {
+        //     return true;
+        // }
+        //
+        // // Single inbox removal case
+        // if removed.len() == 1 && removed[0].inbox_id == commit.actor.inbox_id {
+        //     return true; // Anyone can remove themselves
+        // }
+        //
+        // // Multiple removals - only admins or super admins can do this
+        // if !commit.actor.is_admin && !commit.actor.is_super_admin {
+        //     return false;
+        // }
+        //
+        // // Admin/super admin removing others - verify they're not in members list
+        // removed
+        //     .iter()
+        //     .all(|inbox| !commit.group_members.contains(&inbox.inbox_id))
     }
 
     /// Evaluates a policy for a given set of changes.

@@ -31,9 +31,6 @@ use self::{
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
 };
-use crate::groups::intents::{
-    UpdatePendingRemoveListActionType, UpdatePendingRemoveListIntentData,
-};
 use crate::groups::{intents::QueueIntent, mls_ext::CommitLogStorer};
 use crate::{GroupCommitLock, context::XmtpSharedContext};
 use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
@@ -982,17 +979,18 @@ where
         action_type: UpdatePendingRemoveListType,
         inbox_id: String,
     ) -> Result<(), GroupError> {
-        let intent_action_type = match action_type {
-            UpdatePendingRemoveListType::Add => UpdatePendingRemoveListActionType::Add,
-            UpdatePendingRemoveListType::Remove => UpdatePendingRemoveListActionType::Remove,
-        };
-        let intent_data: Vec<u8> =
-            UpdatePendingRemoveListIntentData::new(intent_action_type, inbox_id).into();
-        let intent = QueueIntent::update_pending_remove_list()
-            .data(intent_data)
-            .queue(self)?;
-
-        let _ = self.sync_until_intent_resolved(intent.id).await?;
+        todo!("send a message to leave request");
+        // let intent_action_type = match action_type {
+        //     UpdatePendingRemoveListType::Add => UpdatePendingRemoveListActionType::Add,
+        //     UpdatePendingRemoveListType::Remove => UpdatePendingRemoveListActionType::Remove,
+        // };
+        // let intent_data: Vec<u8> =
+        //     UpdatePendingRemoveListIntentData::new(intent_action_type, inbox_id).into();
+        // let intent = QueueIntent::update_pending_remove_list()
+        //     .data(intent_data)
+        //     .queue(self)?;
+        //
+        // let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
     }
 
@@ -1400,8 +1398,9 @@ where
     }
 
     pub fn pending_remove_list(&self) -> Result<Vec<String>, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
-        Ok(mutable_metadata.pending_remove_list)
+        todo!()
+        // let mutable_metadata = self.mutable_metadata()?;
+        // Ok(mutable_metadata.pending_remove_list)
     }
 
     /// Retrieves the admin list of the group from the group's mutable metadata extension.
@@ -1430,8 +1429,9 @@ where
 
     /// Checks if the given inbox ID is the pending-remove list of the group at the most recently synced epoch.
     pub fn is_in_pending_remove(&self, inbox_id: String) -> Result<bool, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
-        Ok(mutable_metadata.pending_remove_list.contains(&inbox_id))
+        todo!("check if in pending remove list from db");
+        // let mutable_metadata = self.mutable_metadata()?;
+        // Ok(mutable_metadata.pending_remove_list.contains(&inbox_id))
     }
 
     /// Retrieves the conversation type of the group from the group's metadata extension.
@@ -1857,7 +1857,6 @@ pub fn build_extensions_for_metadata_update(
         attributes,
         existing_metadata.admin_list,
         existing_metadata.super_admin_list,
-        existing_metadata.pending_remove_list,
     )
     .try_into()?;
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
@@ -1940,7 +1939,6 @@ pub fn build_extensions_for_admin_lists_update(
 ) -> Result<Extensions, MetadataPermissionsError> {
     let existing_metadata: GroupMutableMetadata = group.try_into()?;
     let attributes = existing_metadata.attributes.clone();
-    let pending_remove_list = existing_metadata.pending_remove_list.clone();
     let mut admin_list = existing_metadata.admin_list;
     let mut super_admin_list = existing_metadata.super_admin_list;
     match admin_lists_update.action_type {
@@ -1963,41 +1961,6 @@ pub fn build_extensions_for_admin_lists_update(
         attributes,
         admin_list,
         super_admin_list,
-        pending_remove_list,
-    )
-    .try_into()?;
-    let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
-    let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
-    let mut extensions = group.extensions().clone();
-    extensions.add_or_replace(extension);
-    Ok(extensions)
-}
-
-#[tracing::instrument(level = "trace", skip_all)]
-pub fn build_extensions_for_pending_remove_lists_update(
-    group: &OpenMlsGroup,
-    pending_remove_lists_update: UpdatePendingRemoveListIntentData,
-) -> Result<Extensions, MetadataPermissionsError> {
-    let existing_metadata: GroupMutableMetadata = group.try_into()?;
-    let attributes = existing_metadata.attributes.clone();
-    let admin_list = existing_metadata.admin_list;
-    let super_admin_list = existing_metadata.super_admin_list;
-    let mut pending_remove_list = existing_metadata.pending_remove_list;
-    match pending_remove_lists_update.action_type {
-        UpdatePendingRemoveListActionType::Add => {
-            if !pending_remove_list.contains(&pending_remove_lists_update.inbox_id) {
-                pending_remove_list.push(pending_remove_lists_update.inbox_id);
-            }
-        }
-        UpdatePendingRemoveListActionType::Remove => {
-            pending_remove_list.retain(|x| x != &pending_remove_lists_update.inbox_id)
-        }
-    }
-    let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(
-        attributes,
-        admin_list,
-        super_admin_list,
-        pending_remove_list,
     )
     .try_into()?;
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);

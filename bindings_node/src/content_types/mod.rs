@@ -8,6 +8,7 @@ pub mod reaction;
 pub enum ContentType {
   Unknown,
   Text,
+  LeaveRequest,
   GroupMembershipChange,
   GroupUpdated,
   Reaction,

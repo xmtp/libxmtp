@@ -98,7 +98,6 @@ impl GroupSaveExt for GroupSave {
                 super_admin_list: mutable_metadata.super_admin_list,
                 attributes: mutable_metadata.attributes,
                 admin_list: mutable_metadata.admin_list,
-                pending_remove_list: mutable_metadata.pending_remove_list,
             }),
         }
     }

@@ -18,8 +18,7 @@ use xmtp_mls_common::group_mutable_metadata::MetadataField;
 use xmtp_proto::xmtp::mls::database::{
     AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
     InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
-    UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData,
-    UpdatePendingRemoveListsData, UpdatePermissionData,
+    UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
     addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
     post_commit_action::{
         Installation as InstallationProto, Kind as PostCommitActionKind,
@@ -31,9 +30,6 @@ use xmtp_proto::xmtp::mls::database::{
         V1 as UpdateGroupMembershipV1, Version as UpdateGroupMembershipVersion,
     },
     update_metadata_data::{V1 as UpdateMetadataV1, Version as UpdateMetadataVersion},
-    update_pending_remove_lists_data::{
-        V1 as UpdatePendingRemoveListsV1, Version as UpdatePendingRemoveListsVersion,
-    },
     update_permission_data::{self, V1 as UpdatePermissionV1, Version as UpdatePermissionVersion},
 };
 
@@ -68,8 +64,6 @@ pub enum IntentError {
     UnknownPermissionPolicyOption,
     #[error("unknown value for AdminListActionType")]
     UnknownAdminListAction,
-    #[error("unknown value for PendingRemoveListActionType")]
-    UnknownPendingRemoveListAction,
 }
 
 #[derive(Debug, Clone)]
@@ -473,81 +467,6 @@ impl TryFrom<Vec<u8>> for UpdateAdminListIntentData {
         let inbox_id = match msg.version {
             Some(UpdateAdminListsVersion::V1(ref v1)) => v1.inbox_id.clone(),
             None => return Err(IntentError::MissingUpdateAdminVersion),
-        };
-
-        Ok(Self::new(action_type, inbox_id))
-    }
-}
-
-#[repr(i32)]
-#[derive(Debug, Clone, PartialEq)]
-pub enum UpdatePendingRemoveListActionType {
-    Add = 1,    // Matches ADD in Protobuf
-    Remove = 2, // Matches REMOVE in Protobuf
-}
-
-impl TryFrom<i32> for UpdatePendingRemoveListActionType {
-    type Error = IntentError;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match value {
-            1 => Ok(UpdatePendingRemoveListActionType::Add),
-            2 => Ok(UpdatePendingRemoveListActionType::Remove),
-            _ => Err(IntentError::UnknownPendingRemoveListAction),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct UpdatePendingRemoveListIntentData {
-    pub action_type: UpdatePendingRemoveListActionType,
-    pub inbox_id: String,
-}
-
-impl UpdatePendingRemoveListIntentData {
-    pub fn new(action_type: UpdatePendingRemoveListActionType, inbox_id: String) -> Self {
-        Self {
-            action_type,
-            inbox_id,
-        }
-    }
-}
-
-impl From<UpdatePendingRemoveListIntentData> for Vec<u8> {
-    fn from(intent: UpdatePendingRemoveListIntentData) -> Self {
-        let mut buf = Vec::new();
-        let action_type = intent.action_type as i32;
-
-        UpdatePendingRemoveListsData {
-            version: Some(UpdatePendingRemoveListsVersion::V1(
-                UpdatePendingRemoveListsV1 {
-                    pending_remove_list_update_type: action_type,
-                    inbox_id: intent.inbox_id,
-                },
-            )),
-        }
-        .encode(&mut buf)
-        .expect("encode error");
-
-        buf
-    }
-}
-
-impl TryFrom<Vec<u8>> for UpdatePendingRemoveListIntentData {
-    type Error = IntentError;
-
-    fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
-        let msg = UpdatePendingRemoveListsData::decode(Bytes::from(data))?;
-
-        let action_type: UpdatePendingRemoveListActionType = match msg.version {
-            Some(UpdatePendingRemoveListsVersion::V1(ref v1)) => {
-                UpdatePendingRemoveListActionType::try_from(v1.pending_remove_list_update_type)?
-            }
-            None => return Err(IntentError::MissingUpdatePendingRemoveListVersion),
-        };
-        let inbox_id = match msg.version {
-            Some(UpdatePendingRemoveListsVersion::V1(ref v1)) => v1.inbox_id.clone(),
-            None => return Err(IntentError::MissingUpdatePendingRemoveListVersion),
         };
 
         Ok(Self::new(action_type, inbox_id))

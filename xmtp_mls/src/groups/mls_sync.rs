@@ -1,6 +1,6 @@
 use super::{
     GroupError, HmacKey, MlsGroup, build_extensions_for_admin_lists_update,
-    build_extensions_for_metadata_update, build_extensions_for_pending_remove_lists_update,
+    build_extensions_for_metadata_update,
     build_extensions_for_permissions_update,
     intents::{
         Installation, IntentError, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
@@ -60,7 +60,6 @@ use xmtp_db::{
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 
-use crate::groups::intents::UpdatePendingRemoveListIntentData;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -563,7 +562,6 @@ where
             IntentKind::KeyUpdate
             | IntentKind::UpdateGroupMembership
             | IntentKind::UpdateAdminList
-            | IntentKind::UpdatePendingRemoveList
             | IntentKind::MetadataUpdate
             | IntentKind::UpdatePermission => {
                 if let Some(published_in_epoch) = intent.published_in_epoch {
@@ -1563,18 +1561,18 @@ where
                     _ => {} // handle other metadata updates
                 }
             }
-            IntentKind::UpdatePendingRemoveList => {
-                let data = UpdatePendingRemoveListIntentData::try_from(intent.data.clone())?;
-                if data.inbox_id == self.context.inbox_id() {
-                    storage
-                        .db()
-                        .update_group_membership(
-                            &intent.group_id,
-                            GroupMembershipState::PendingRemove,
-                        )
-                        .map_err(|e| IntentError::Storage(e.into()))?
-                }
-            }
+            // IntentKind::UpdatePendingRemoveList => {
+            //     let data = UpdatePendingRemoveListIntentData::try_from(intent.data.clone())?;
+            //     if data.inbox_id == self.context.inbox_id() {
+            //         storage
+            //             .db()
+            //             .update_group_membership(
+            //                 &intent.group_id,
+            //                 GroupMembershipState::PendingRemove,
+            //             )
+            //             .map_err(|e| IntentError::Storage(e.into()))?
+            //     }
+            // }
             _ => (),
         }
         Ok(())
@@ -2187,43 +2185,43 @@ where
                     should_send_push_notification: intent.should_push,
                 }))
             }
-            IntentKind::UpdatePendingRemoveList => {
-                let pending_remove_list_update_intent =
-                    UpdatePendingRemoveListIntentData::try_from(intent.data.clone())?;
-                let mutable_metadata_extensions = build_extensions_for_pending_remove_lists_update(
-                    openmls_group,
-                    pending_remove_list_update_intent,
-                )?;
-
-                let result = storage.transaction(|conn| {
-                    let storage = conn.key_store();
-                    let provider = XmtpOpenMlsProviderRef::new(&storage);
-                    let (commit, _, _) = openmls_group.update_group_context_extensions(
-                        &provider,
-                        mutable_metadata_extensions,
-                        &self.context.identity().installation_keys,
-                    )?;
-                    let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
-
-                    Ok::<_, GroupError>((commit, staged_commit))
-                });
-                let (commit, staged_commit) = match result {
-                    Ok(res) => res,
-                    Err(e) => {
-                        openmls_group.reload(storage)?;
-                        return Err(e);
-                    }
-                };
-
-                let commit_bytes = commit.tls_serialize_detached()?;
-
-                Ok(Some(PublishIntentData {
-                    payload_to_publish: commit_bytes,
-                    staged_commit,
-                    post_commit_action: None,
-                    should_send_push_notification: intent.should_push,
-                }))
-            }
+            // IntentKind::UpdatePendingRemoveList => {
+            //     let pending_remove_list_update_intent =
+            //         UpdatePendingRemoveListIntentData::try_from(intent.data.clone())?;
+            //     let mutable_metadata_extensions = build_extensions_for_pending_remove_lists_update(
+            //         openmls_group,
+            //         pending_remove_list_update_intent,
+            //     )?;
+            //
+            //     let result = storage.transaction(|conn| {
+            //         let storage = conn.key_store();
+            //         let provider = XmtpOpenMlsProviderRef::new(&storage);
+            //         let (commit, _, _) = openmls_group.update_group_context_extensions(
+            //             &provider,
+            //             mutable_metadata_extensions,
+            //             &self.context.identity().installation_keys,
+            //         )?;
+            //         let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
+            //
+            //         Ok::<_, GroupError>((commit, staged_commit))
+            //     });
+            //     let (commit, staged_commit) = match result {
+            //         Ok(res) => res,
+            //         Err(e) => {
+            //             openmls_group.reload(storage)?;
+            //             return Err(e);
+            //         }
+            //     };
+            //
+            //     let commit_bytes = commit.tls_serialize_detached()?;
+            //
+            //     Ok(Some(PublishIntentData {
+            //         payload_to_publish: commit_bytes,
+            //         staged_commit,
+            //         post_commit_action: None,
+            //         should_send_push_notification: intent.should_push,
+            //     }))
+            // }
             IntentKind::UpdatePermission => {
                 let update_permissions_intent =
                     UpdatePermissionIntentData::try_from(intent.data.clone())?;

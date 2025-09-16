@@ -108,8 +108,6 @@ pub struct GroupMutableMetadata {
     /// List of super admin inbox IDs for this group.
     /// See [GroupMutablePermissions](crate::groups::GroupMutablePermissions) for more details on super admin permissions.
     pub super_admin_list: Vec<String>,
-    /// List of user inbox IDs want to leave this group.
-    pub pending_remove_list: Vec<String>,
 }
 
 impl GroupMutableMetadata {
@@ -118,13 +116,11 @@ impl GroupMutableMetadata {
         attributes: HashMap<String, String>,
         admin_list: Vec<String>,
         super_admin_list: Vec<String>,
-        pending_remove_list: Vec<String>,
     ) -> Self {
         Self {
             attributes,
             admin_list,
             super_admin_list,
-            pending_remove_list,
         }
     }
 
@@ -172,12 +168,10 @@ impl GroupMutableMetadata {
 
         let admin_list = vec![];
         let super_admin_list = vec![creator_inbox_id.clone()];
-        let pending_remove_list = vec![];
         Self {
             attributes,
             admin_list,
             super_admin_list,
-            pending_remove_list,
         }
     }
 
@@ -222,12 +216,10 @@ impl GroupMutableMetadata {
 
         let admin_list = vec![];
         let super_admin_list = vec![];
-        let pending_remove_list = vec![];
         Self {
             attributes,
             admin_list,
             super_admin_list,
-            pending_remove_list,
         }
     }
 
@@ -257,7 +249,7 @@ impl GroupMutableMetadata {
 
     /// Checks if the given inbox ID is in the pending remove list.
     pub fn is_in_pending_remove(&self, inbox_id: &String) -> bool {
-        self.pending_remove_list.contains(inbox_id)
+        todo!("check the db is this inbox in the pending remove list");
     }
 
     /// Retrieves the commit log signer secret from the metadata attributes.
@@ -284,12 +276,8 @@ impl TryFrom<GroupMutableMetadata> for Vec<u8> {
             super_admin_list: Some(InboxesProto {
                 inbox_ids: value.super_admin_list,
             }),
-            pending_remove_list: todo!(),
             // Deprecated field - use attributes instead
             commit_log_signer: None,
-            pending_remove_list: Some(InboxesProto {
-                inbox_ids: value.pending_remove_list,
-            }),
         };
         proto_val.encode(&mut buf)?;
 
@@ -322,16 +310,10 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
             .ok_or(GroupMutableMetadataError::MissingMetadataField)?
             .inbox_ids;
 
-        let pending_remove_list = value
-            .pending_remove_list
-            .ok_or(GroupMutableMetadataError::MissingMetadataField)?
-            .inbox_ids;
-
         Ok(Self::new(
             value.attributes.clone(),
             admin_list,
             super_admin_list,
-            pending_remove_list,
         ))
     }
 }
