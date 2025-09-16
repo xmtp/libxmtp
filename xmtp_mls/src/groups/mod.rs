@@ -54,18 +54,21 @@ use prost::Message;
 use std::collections::HashMap;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
+use futures_util::SinkExt;
 use tokio::sync::Mutex;
 use xmtp_common::time::now_ns;
 use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
     MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
-use xmtp_content_types::ContentCodec;
+use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
 use xmtp_content_types::should_push;
 use xmtp_content_types::{
     reaction::{LegacyReaction, ReactionCodec},
     reply::ReplyCodec,
 };
+use xmtp_content_types::leave_request::LeaveRequestCodec;
+use xmtp_content_types::text::TextCodec;
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
@@ -103,6 +106,7 @@ use xmtp_proto::xmtp::mls::{
         plaintext_envelope::{Content, V1},
     },
 };
+use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
 
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
@@ -1022,11 +1026,9 @@ where
         }
 
         if !self.is_in_pending_remove(self.context.inbox_id().to_string())? {
-            self.update_pending_remove_list(
-                UpdatePendingRemoveListType::Add,
-                self.context.inbox_id().to_string(),
-            )
-            .await?;
+            let content = LeaveRequestCodec::encode(LeaveRequest{})
+                .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+            self.send(encoded_content_to_bytes(content)).await?
         }
         Ok(())
     }
@@ -1429,6 +1431,7 @@ where
 
     /// Checks if the given inbox ID is the pending-remove list of the group at the most recently synced epoch.
     pub fn is_in_pending_remove(&self, inbox_id: String) -> Result<bool, GroupError> {
+        return Ok(false);
         todo!("check if in pending remove list from db");
         // let mutable_metadata = self.mutable_metadata()?;
         // Ok(mutable_metadata.pending_remove_list.contains(&inbox_id))

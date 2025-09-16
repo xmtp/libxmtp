@@ -10,6 +10,7 @@ pub mod text;
 pub mod transaction_reference;
 mod utils;
 pub mod wallet_send_calls;
+pub mod leave_request;
 
 use prost::Message;
 use thiserror::Error;
@@ -17,7 +18,6 @@ use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 #[cfg(test)]
 mod compatibility_test;
-mod leave_request;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
@@ -46,6 +46,7 @@ pub enum ContentType {
     TransactionReference,
     WalletSendCalls,
     DeviceSyncMessage,
+    LeaveRequest,
 }
 
 impl TryFrom<&str> for ContentType {
@@ -92,6 +93,7 @@ pub fn should_push(content_type_id: String) -> bool {
             ContentType::TransactionReference => true,
             ContentType::WalletSendCalls => true,
             ContentType::DeviceSyncMessage => false,
+            ContentType::LeaveRequest => false,
         }
     } else {
         false
