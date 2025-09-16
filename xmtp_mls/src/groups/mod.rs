@@ -1250,6 +1250,14 @@ where
         if is_admin && admin_size == 1 || is_super_admin && super_admin_size == 1 {
             return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
         }
+        let is_admin = self.is_admin(self.context.inbox_id().to_string())?;
+        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
+        let admin_size = self.admin_list()?.len();
+        let super_admin_size = self.super_admin_list()?.len();
+
+        if is_admin && admin_size == 1 || is_super_admin && super_admin_size == 1 {
+            return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
+        }
 
         if !self.is_in_pending_remove(self.context.inbox_id().to_string())? {
             let content = LeaveRequestCodec::encode(LeaveRequest {})
