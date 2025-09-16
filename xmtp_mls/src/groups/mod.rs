@@ -31,6 +31,9 @@ use self::{
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
 };
+use crate::groups::intents::{
+    UpdatePendingRemoveListActionType, UpdatePendingRemoveListIntentData,
+};
 use crate::groups::{intents::QueueIntent, mls_ext::CommitLogStorer};
 use crate::{GroupCommitLock, context::XmtpSharedContext};
 use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
