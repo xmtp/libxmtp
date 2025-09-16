@@ -57,7 +57,7 @@ mod test {
     async fn test_subscribe_envelopes() {
         use crate::d14n::SubscribeEnvelopes;
 
-        let client = crate::TestGrpcClient::create_local_d14n();
+        let client = crate::TestGrpcClient::create_d14n();
         let client = client.build().await.unwrap();
 
         let mut endpoint = SubscribeEnvelopes::builder()

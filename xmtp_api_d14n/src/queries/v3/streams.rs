@@ -13,7 +13,6 @@ use xmtp_proto::types::{GroupMessage, WelcomeMessage};
 impl<C> XmtpMlsStreams for V3Client<C>
 where
     C: Send + Sync + Client<Error = GrpcError>,
-    C::Stream: Send,
 {
     type Error = ApiClientError<GrpcError>;
 

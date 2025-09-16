@@ -8,7 +8,7 @@ use crate::{
     },
 };
 use xmtp_api_d14n::protocol::{Extractor, ProtocolEnvelope as _};
-use xmtp_common::{MaybeSend, types::GroupId};
+use xmtp_common::MaybeSend;
 use xmtp_db::group_message::StoredGroupMessage;
 
 use futures::{Stream, StreamExt};
@@ -16,7 +16,7 @@ use prost::Message;
 use tokio::sync::oneshot;
 use xmtp_common::StreamHandle;
 use xmtp_proto::api_client::XmtpMlsStreams;
-use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
+use xmtp_proto::{xmtp::mls::api::v1::GroupMessage, types::GroupId};
 
 impl<Context> MlsGroup<Context>
 where
@@ -60,7 +60,7 @@ where
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static>
     where
         Context: 'static,
-        Context::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
+        Context::ApiClient: XmtpMlsStreams + 'static,
         Context::Db: Send + Sync + 'static,
     {
         StreamGroupMessages::new_owned(self.context.clone(), vec![self.group_id.clone().into()])

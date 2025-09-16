@@ -7,7 +7,7 @@ use crate::intents::ProcessIntentError;
 use crate::{groups::MlsGroup, subscriptions::WelcomeOrGroup};
 use std::collections::HashSet;
 use xmtp_common::{Retry, retry_async};
-use xmtp_db::{NotFound, group::ConversationType, prelude::*};
+use xmtp_db::{group::ConversationType, prelude::*};
 use xmtp_proto::types::{Cursor, WelcomeMessage};
 
 /// Future for processing `WelcomeorGroup`
@@ -129,7 +129,12 @@ where
                         "Found existing welcome. Returning from db & skipping processing"
                     );
                     if let Ok(Some(group)) = self.load_from_store(welcome.cursor) {
-                        return self.filter(ProcessWelcomeResult::New { group, id }).await;
+                        return self
+                            .filter(ProcessWelcomeResult::New {
+                                group,
+                                id: welcome.cursor,
+                            })
+                            .await;
                     }
                 }
                 tracing::info!(
@@ -138,10 +143,13 @@ where
                 );
                 // sync welcome from the network
                 if let Some(group) = self.on_welcome(welcome).await? {
-                    ProcessWelcomeResult::New { group, id }
+                    ProcessWelcomeResult::New {
+                        group,
+                        id: welcome.cursor,
+                    }
                 } else {
                     tracing::info!("Oneshot welcome message processed, skipping stream event.");
-                    ProcessWelcomeResult::IgnoreId { id }
+                    ProcessWelcomeResult::IgnoreId { id: welcome.cursor }
                 }
             }
             Group(ref id) => {
@@ -285,8 +293,7 @@ where
     ///
     /// # Note
     /// This function uses retry logic to handle transient network failures
-    async fn on_welcome(
-        &self, welcome: &WelcomeMessage) -> Result<Option<MlsGroup<Context>>> {
+    async fn on_welcome(&self, welcome: &WelcomeMessage) -> Result<Option<MlsGroup<Context>>> {
         let WelcomeMessage {
             cursor,
             created_ns: _,
@@ -315,14 +322,14 @@ where
             })
         );
 
-        let id = welcome.id as i64;
+        let id = welcome.cursor;
         if let Ok(maybe_group) = res {
             Ok(maybe_group)
         } else if let Err(GroupError::ProcessIntent(ProcessIntentError::WelcomeAlreadyProcessed(
             _,
         ))) = res
         {
-            Ok(self.load_from_store(welcome.cursor)?)
+            Ok(self.load_from_store(id)?)
         } else {
             Err(res.expect_err("Checked for Ok value").into())
         }
@@ -333,7 +340,7 @@ where
         let maybe_group = self.context.db().find_group_by_sequence_id(cursor)?;
         let Some(group) = maybe_group else {
             tracing::warn!(
-                welcome_id = id,
+                welcome_id = %cursor,
                 "Already processed welcome not loaded from store (likely pre-existing group or oneshot message)"
             );
             return Ok(None);

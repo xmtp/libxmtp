@@ -5,10 +5,8 @@ use diesel::{
     deserialize::{self, FromSql, FromSqlRow},
     expression::AsExpression,
     prelude::*,
-    query_dsl,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
-    upsert::excluded,
 };
 use xmtp_proto::types::Cursor;
 
@@ -237,7 +235,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         for originator in originator_ids {
             let state: Option<RefreshState> =
                 self.get_refresh_state(&id, entity_kind, Some(*originator))?;
-            // TODO: handle negative cursor 
+            // TODO: handle negative cursor
             let state = match state {
                 Some(state) => Cursor {
                     sequence_id: state.cursor as u64,
@@ -266,6 +264,9 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         cursor: Cursor,
     ) -> Result<bool, StorageError> {
         use super::schema::refresh_state::dsl;
+        use crate::diesel::upsert::excluded;
+        use diesel::query_dsl::methods::FilterDsl;
+
         let state = RefreshState {
             entity_id: entity_id.as_ref().to_vec(),
             entity_kind,
@@ -277,7 +278,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
                 .values(&state)
                 .on_conflict((dsl::entity_id, dsl::entity_kind, dsl::originator_id))
                 .do_update()
-                .set(dsl::cursor.eq(excluded(dsl::cursor)));
+                .set(dsl::cursor.eq(excluded(dsl::cursor)))
                 .filter(dsl::cursor.lt(excluded(dsl::cursor)))
                 .execute(conn)
         })?;

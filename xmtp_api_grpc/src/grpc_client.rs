@@ -1,10 +1,8 @@
 mod client;
-pub use client::{ClientBuilder, GrpcStream};
+pub use client::{ClientBuilder, GrpcStream, GrpcClient};
 
 #[cfg(any(test, feature = "test-utils"))]
 mod test;
-
-pub type GrpcClient = client::GrpcClient<GrpcService>;
 
 pub type GrpcClientBuilder = client::ClientBuilder;
 

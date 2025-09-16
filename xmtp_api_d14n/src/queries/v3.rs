@@ -1,7 +1,7 @@
-use xmtp_proto::api_client::{
-    ApiStats, IdentityStats,
-};
+use xmtp_proto::api::{HasStats, IsConnectedCheck};
+use xmtp_proto::api_client::{AggregateStats, ApiStats, IdentityStats};
 use xmtp_proto::prelude::ApiBuilder;
+use xmtp_proto::types::AppVersion;
 
 mod identity;
 mod mls;
@@ -55,7 +55,7 @@ where
         <Builder as ApiBuilder>::set_libxmtp_version(&mut self.client, version)
     }
 
-    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
+    fn set_app_version(&mut self, version: AppVersion) -> Result<(), Self::Error> {
         <Builder as ApiBuilder>::set_app_version(&mut self.client, version)
     }
 
@@ -90,6 +90,26 @@ where
     }
 }
 
+impl<C> HasStats for V3Client<C> {
+    fn aggregate_stats(&self) -> AggregateStats {
+        AggregateStats {
+            mls: self.stats.clone(),
+            identity: self.identity_stats.clone(),
+        }
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<C> IsConnectedCheck for V3Client<C>
+where
+    C: IsConnectedCheck + Send + Sync,
+{
+    async fn is_connected(&self) -> bool {
+        self.client.is_connected().await
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 mod test {
     use xmtp_configuration::LOCALHOST;
@@ -112,4 +132,3 @@ mod test {
         }
     }
 }
-

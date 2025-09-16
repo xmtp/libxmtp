@@ -1,6 +1,6 @@
 use derive_builder::Builder;
-use prost::bytes::Bytes;
 use prost::Message;
+use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
@@ -49,7 +49,7 @@ mod test {
     use xmtp_common::rand_vec;
     use xmtp_proto::{
         prelude::*,
-        xmtp::xmtpv4::envelopes::{client_envelope::Payload, AuthenticatedData},
+        xmtp::xmtpv4::envelopes::{AuthenticatedData, client_envelope::Payload},
     };
 
     #[xmtp_common::test]
@@ -75,7 +75,7 @@ mod test {
             aad: Some(aad),
             payload: Some(Payload::GroupMessage(Default::default())),
         };
-        let endpoint = PublishClientEnvelopes::builder()
+        let mut endpoint = PublishClientEnvelopes::builder()
             .envelopes(vec![e])
             .build()
             .unwrap();

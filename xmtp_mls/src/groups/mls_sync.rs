@@ -92,6 +92,7 @@ use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCo
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::mls_v1::WelcomeMetadata;
+use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -106,7 +107,6 @@ use xmtp_proto::xmtp::mls::{
         plaintext_envelope::{Content, V1, V2, v2::MessageType},
     },
 };
-use xmtp_proto::types::Cursor;
 pub mod update_group_membership;
 
 #[derive(Debug, Error)]
@@ -1485,7 +1485,8 @@ where
                         }
                         IntentState::Committed => {
                             self.handle_metadata_update_from_intent(&intent, &storage)?;
-                            db.set_group_intent_committed(intent_id, cursor as i64)?;
+                            // TODO:d14n needs originator id
+                            db.set_group_intent_committed(intent_id, cursor.sequence_id as i64)?;
                         }
                         IntentState::Published => {
                             tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");

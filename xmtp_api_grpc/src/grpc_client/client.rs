@@ -15,18 +15,17 @@ use std::{
     task::{ready, Context, Poll},
 };
 use tonic::{
-    body::Body as TonicBody,
-    client::{Grpc, GrpcService as TonicGrpcService},
+    client::Grpc,
     metadata::{self, MetadataMap, MetadataValue},
-    transport::Body as HttpBody,
     Status,
 };
 use xmtp_common::Retry;
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
 use xmtp_proto::{
-    api::{ApiClientError, Client},
+    api::{ApiClientError, Client, IsConnectedCheck},
     api_client::ApiBuilder,
     codec::TransparentCodec,
+    types::AppVersion,
 };
 
 impl From<GrpcError> for ApiClientError<GrpcError> {
@@ -60,15 +59,15 @@ impl<T> ToHttp for tonic::Response<T> {
 }
 
 #[derive(Clone)]
-pub struct GrpcClient<T> {
-    inner: tonic::client::Grpc<T>,
+pub struct GrpcClient {
+    inner: tonic::client::Grpc<crate::GrpcService>,
     app_version: MetadataValue<metadata::Ascii>,
     libxmtp_version: MetadataValue<metadata::Ascii>,
 }
 
-impl<T> GrpcClient<T> {
+impl GrpcClient {
     pub fn new(
-        service: T,
+        service: crate::GrpcService,
         app_version: MetadataValue<metadata::Ascii>,
         libxmtp_version: MetadataValue<metadata::Ascii>,
     ) -> Self {
@@ -101,11 +100,7 @@ impl<T> GrpcClient<T> {
         Ok(tonic_request)
     }
 
-    async fn wait_for_ready(&self, client: &mut Grpc<T>) -> Result<(), Status>
-    where
-        T: tonic::client::GrpcService<tonic::body::Body>,
-        T::Error: std::fmt::Display,
-    {
+    async fn wait_for_ready(&self, client: &mut Grpc<crate::GrpcService>) -> Result<(), Status> {
         client.ready().await.map_err(|e| {
             tonic::Status::new(tonic::Code::Unknown, format!("Service was not ready: {e}"))
         })?;
@@ -141,15 +136,7 @@ impl Stream for GrpcStream {
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<T> Client for GrpcClient<T>
-where
-    T: Clone + Sync + Send + 'static,
-    T: TonicGrpcService<TonicBody>,
-    T::ResponseBody: HttpBody + Send + 'static,
-    <T::ResponseBody as HttpBody>::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-    T::Future: Send,
-    T::Error: std::error::Error,
-{
+impl Client for GrpcClient {
     type Error = GrpcError;
     type Stream = GrpcStream;
 
@@ -188,7 +175,9 @@ where
             let codec = TransparentCodec::default();
             client.server_streaming(request, path, codec).await
         };
-        let req = crate::streams::NonBlockingStreamRequest::new(Box::pin(response) as Pin<Box<_>>);
+        let req = crate::streams::NonBlockingStreamRequest::new(
+            Box::pin(response) as crate::streams::ResponseFuture
+        );
         let response = crate::streams::send(req).await.map_err(GrpcError::from)?;
         let response = response.map(|body| GrpcStream {
             inner: EscapableTonicStream::new(body),
@@ -197,7 +186,15 @@ where
     }
 }
 
-impl<T> GrpcClient<T> {
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl IsConnectedCheck for GrpcClient {
+    async fn is_connected(&self) -> bool {
+        self.inner.clone().ready().await.is_ok()
+    }
+}
+
+impl GrpcClient {
     pub fn builder() -> ClientBuilder {
         ClientBuilder::default()
     }
@@ -219,7 +216,7 @@ pub struct ClientBuilder {
 }
 
 impl ApiBuilder for ClientBuilder {
-    type Output = GrpcClient<crate::GrpcService>;
+    type Output = crate::GrpcClient;
     type Error = GrpcBuilderError;
 
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
@@ -227,7 +224,7 @@ impl ApiBuilder for ClientBuilder {
         Ok(())
     }
 
-    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
+    fn set_app_version(&mut self, version: AppVersion) -> Result<(), Self::Error> {
         self.app_version = Some(MetadataValue::try_from(&version)?);
         Ok(())
     }
@@ -278,6 +275,28 @@ impl ApiBuilder for ClientBuilder {
     }
 }
 
+impl GrpcClient {
+    pub async fn create(host: &str, is_secure: bool) -> Result<Self, GrpcBuilderError> {
+        let mut builder = Self::builder();
+        builder.set_host(host.to_string());
+        builder.set_tls(is_secure);
+        builder.build().await
+    }
+
+    /// Create a grpc client with `app_version` attached
+    pub async fn create_with_version(
+        host: &str,
+        is_secure: bool,
+        app_version: AppVersion,
+    ) -> Result<Self, GrpcBuilderError> {
+        let mut builder = Self::builder();
+        builder.set_host(host.to_string());
+        builder.set_tls(is_secure);
+        builder.set_app_version(app_version)?;
+        builder.build().await
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use crate::GrpcClient;
@@ -285,6 +304,7 @@ pub mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::prelude::XmtpTestClient;
+    use xmtp_proto::types::AppVersion;
     use xmtp_proto::xmtp::message_api::v1::{Envelope, PublishRequest};
 
     // Return the json serialization of an Envelope with bytes
@@ -301,7 +321,7 @@ pub mod tests {
     #[xmtp_common::test]
     async fn metadata_test() {
         let mut client = GrpcClient::create_dev();
-        let app_version = "test/1.0.0".to_string();
+        let app_version = AppVersion::from("test/1.0.0");
         let libxmtp_version = "0.0.1".to_string();
         client.set_app_version(app_version.clone()).unwrap();
         client.set_libxmtp_version(libxmtp_version.clone()).unwrap();

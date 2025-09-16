@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use super::ApiClientWrapper;
 use crate::{Result, XmtpApi};
 use xmtp_common::retry_async;
-use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, PublishCommitLogRequest,
@@ -338,13 +337,13 @@ pub mod tests {
     use xmtp_api_d14n::MockApiClient;
     use xmtp_api_d14n::MockError;
     use xmtp_api_d14n::V3Client;
-    use xmtp_api_grpc::GrpcClientBuilder;
     use xmtp_common::rand_vec;
     use xmtp_common::FakeMlsApplicationMessage;
     use xmtp_common::Generate;
     use xmtp_cryptography::openmls::prelude::MlsMessageOut;
     use xmtp_proto::api::mock::MockNetworkClient;
     use xmtp_proto::api_client::ApiBuilder;
+    use xmtp_proto::api_client::XmtpTestClient;
     use xmtp_proto::mls_v1::PagingInfo;
     use xmtp_proto::mls_v1::QueryGroupMessagesRequest;
     use xmtp_proto::mls_v1::QueryGroupMessagesResponse;
@@ -443,7 +442,7 @@ pub mod tests {
     // so that tests work for both v3 and d14n
     #[xmtp_common::test]
     async fn test_read_group_messages_single_page() {
-        let mut mock_api = MockNetworkClient::default();
+        let mock_api = MockNetworkClient::default();
         let mut v3_client = V3Client::new(mock_api);
         let group_id = rand_vec::<16>();
         let group_id_clone = group_id.clone();
@@ -618,9 +617,7 @@ pub mod tests {
     #[xmtp_common::test]
     #[ignore]
     async fn it_should_rate_limit() {
-        let mut client = crate::test_utils::TestClient::builder::<GrpcClientBuilder>();
-        client.set_host("http://localhost:5556".into());
-        client.set_tls(false);
+        let mut client = crate::test_utils::TestClient::create_local();
         client.rate_per_minute(1);
         let _ = client.set_app_version("999.999.999".into());
         let c = client.build().await.unwrap();
@@ -638,9 +635,7 @@ pub mod tests {
     #[xmtp_common::test]
     #[cfg_attr(any(target_arch = "wasm32"), ignore)]
     async fn it_should_allow_large_payloads() {
-        let mut client = crate::test_utils::TestClient::builder::<GrpcClientBuilder>();
-        client.set_host("http://localhost:5556".into());
-        client.set_tls(false);
+        let mut client = crate::test_utils::TestClient::create_local();
         client.set_app_version("0.0.0".into()).unwrap();
         let installation_key = rand_vec::<32>();
         let hpke_public_key = rand_vec::<32>();
@@ -679,9 +674,7 @@ pub mod tests {
     async fn test_publish_commit_log_batching_with_local_server() {
         // This test verifies that publish batching works correctly with a local server
         // It should handle 11 publish requests without hitting API limits
-        let mut client = crate::test_utils::TestClient::builder::<GrpcClientBuilder>();
-        client.set_host("http://localhost:5556".into());
-        client.set_tls(false);
+        let mut client = crate::test_utils::TestClient::create_local();
         client.set_app_version("0.0.0".into()).unwrap();
 
         let c = client.build().await.unwrap();
@@ -721,9 +714,7 @@ pub mod tests {
     async fn test_query_commit_log_batching_with_local_server() {
         // This test verifies that query batching works correctly with a local server
         // It should handle 21 query requests without hitting API limits
-        let mut client = crate::test_utils::TestClient::builder::<GrpcClientBuilder>();
-        client.set_host("http://localhost:5556".into());
-        client.set_tls(false);
+        let mut client = crate::test_utils::TestClient::create_local();
         client.set_app_version("0.0.0".into()).unwrap();
 
         let c = client.build().await.unwrap();

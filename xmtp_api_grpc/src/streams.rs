@@ -27,9 +27,9 @@ pub(crate) type NonBlocking =
 pub type XmtpStream<T> = XmtpTonicStream<crate::GrpcStream, T>;
 
 xmtp_common::if_wasm! {
-    type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response<Stream>, Status>>>>;
+    pub type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response<Stream>, Status>>>>;
 }
 
 xmtp_common::if_native! {
-    type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response<Stream>, Status>> + Send>>;
+    pub type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response<Stream>, Status>> + Send>>;
 }

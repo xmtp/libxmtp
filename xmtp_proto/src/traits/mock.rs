@@ -1,5 +1,5 @@
 use super::*;
-use crate::{prelude::*, ToxicProxies};
+use crate::{prelude::*, types::AppVersion, ToxicProxies};
 
 pub struct MockStream;
 pub struct MockApiBuilder;
@@ -9,7 +9,7 @@ impl ApiBuilder for MockApiBuilder {
     fn set_libxmtp_version(&mut self, _version: String) -> Result<(), Self::Error> {
         Ok(())
     }
-    fn set_app_version(&mut self, _version: String) -> Result<(), Self::Error> {
+    fn set_app_version(&mut self, _version: AppVersion) -> Result<(), Self::Error> {
         Ok(())
     }
     fn set_host(&mut self, _host: String) {}
@@ -49,7 +49,7 @@ impl xmtp_common::RetryableError for MockError {
     }
 }
 
-type Repeat = Box<dyn FnMut() -> Result<prost::bytes::Bytes, MockError>>;
+type Repeat = Box<dyn Send + FnMut() -> Result<prost::bytes::Bytes, MockError>>;
 type MockStreamT = futures::stream::RepeatWith<Repeat>;
 #[cfg(not(target_arch = "wasm32"))]
 mockall::mock! {

@@ -17,6 +17,7 @@ pub struct V3Paged<E> {
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+// #[async_trait::async_trait(?Send)]
 impl<E, T, C> Query<Vec<<T as Paged>::Message>, C> for V3Paged<E>
 where
     E: Endpoint<Output = T> + Pageable + Send + Sync,
@@ -82,6 +83,7 @@ where
 struct RetrySpecialized;
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+// #[async_trait::async_trait(?Send)]
 impl<E, T, C, S> Query<T, C, RetrySpecialized> for RetryQuery<E, S>
 where
     E: Endpoint<Output = T> + Send + Sync,

@@ -5,9 +5,6 @@ pub const LOCALHOST: &str = "http://localhost";
 /// should match GRPC_PAYLOAD_LIMIT in xmtp_api_grpc crate
 pub const GRPC_PAYLOAD_LIMIT: usize = 1024 * 1024 * 25;
 
-/// the max page size for queries
-pub const MAX_PAGE_SIZE: u32 = 100;
-
 pub struct DeviceSyncUrls;
 impl DeviceSyncUrls {
     pub const LOCAL_ADDRESS: &'static str = "http://0.0.0.0:5558";

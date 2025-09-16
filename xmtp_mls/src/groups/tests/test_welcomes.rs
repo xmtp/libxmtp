@@ -19,7 +19,7 @@ async fn test_welcome_cursor() {
     let alix2_refresh_state = alix2
         .context
         .db()
-        .get_refresh_state(&group.group_id, EntityKind::Group)??;
+        .get_refresh_state(&group.group_id, EntityKind::Group, None)??;
 
     assert!(alix2_refresh_state.cursor > 0);
 }

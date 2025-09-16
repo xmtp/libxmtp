@@ -19,6 +19,7 @@ use openmls::group::MlsGroup as OpenMlsGroup;
 use prost::Message;
 use xmtp_common::RetryableError;
 use xmtp_common::time::now_ns;
+use xmtp_configuration::Originators;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_db::{
@@ -32,6 +33,7 @@ use xmtp_db::{
 use xmtp_mls_common::{
     group_metadata::extract_group_metadata, group_mutable_metadata::extract_group_mutable_metadata,
 };
+use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, GroupUpdated, group_updated::Inbox};
 
 /// Create a group from a decrypted and decoded welcome message.
@@ -156,15 +158,15 @@ where
         let context = &self.context;
 
         // Check if this welcome was already processed. Return the existing group if so.
-        if self.last_sequence_id(db)? >= self.welcome.sequence_i() as i64 {
+        if self.last_sequence_id(db)? >= self.welcome.sequence_id() as i64 {
             tracing::debug!(
-                welcome_id = self.welcome.id,
+                welcome_id = %self.welcome.cursor,
                 "Welcome id is less than cursor, fetching from DB"
             );
             let maybe_group = db.find_group_by_sequence_id(self.welcome.cursor)?;
             let Some(group) = maybe_group else {
                 tracing::warn!(
-                    welcome_id = self.welcome.id,
+                    welcome_id = %self.welcome.cursor,
                     "Already processed welcome not found in DB, likely pre-existing group or oneshot message"
                 );
                 return Ok(None);
@@ -336,7 +338,7 @@ where
             extract_group_metadata(staged_welcome.public_group().group_context().extensions())
                 .map_err(MetadataPermissionsError::from)?;
         if metadata.conversation_type == ConversationType::Oneshot {
-            MlsGroup::process_oneshot_welcome(context, welcome.id, staged_welcome, metadata)?;
+            MlsGroup::process_oneshot_welcome(context, welcome.cursor, staged_welcome, metadata)?;
             return Ok(None);
         }
         let mls_group = OpenMlsGroup::from_welcome_logged(
@@ -421,7 +423,7 @@ where
             }
         };
 
-        tracing::info!("storing group with welcome id {}", welcome.id);
+        tracing::info!("storing group with welcome id {}", welcome.cursor);
         // Insert or replace the group in the database.
         // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
         let stored_group = db.insert_or_replace_group(to_store)?;
@@ -512,13 +514,23 @@ where
         let cursor = welcome_metadata
             .map(|m| m.message_cursor as i64)
             .unwrap_or_default();
-        db.update_cursor(&group.group_id, EntityKind::Group, cursor)?;
+        // TODO:d14n need to add originator to welcome
+        // this is not necessarily correct
+        db.update_cursor(
+            &group.group_id,
+            EntityKind::Group,
+            Cursor {
+                sequence_id: cursor as u64,
+                originator_id: Originators::APPLICATION_MESSAGES as u32,
+            },
+        )?;
 
         tracing::info!(
             inbox_id = %current_inbox_id,
             installation_id = %self.context.installation_id(),
             group_id = %hex::encode(&group.group_id),
-            welcome_id = welcome.id,
+            welcome_id = welcome.cursor.sequence_id,
+            originator_id = welcome.cursor.originator_id,
             cursor = cursor,
             "updated message cursor from welcome metadata"
         );

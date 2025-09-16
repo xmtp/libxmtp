@@ -68,4 +68,3 @@ hyper-util = { version = "0.1" }
 [features]
 default = []
 test-utils = ["xmtp_proto/test-utils", "dep:toxiproxy_rust"]
-v3 = []

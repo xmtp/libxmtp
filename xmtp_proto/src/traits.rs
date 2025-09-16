@@ -47,6 +47,9 @@ pub type BoxedClient = Box<
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait Client {
     type Error: std::error::Error + Send + Sync + 'static;
+    #[cfg(not(target_arch = "wasm32"))]
+    type Stream: futures::Stream<Item = Result<Bytes, Self::Error>> + Send;
+    #[cfg(target_arch = "wasm32")]
     type Stream: futures::Stream<Item = Result<Bytes, Self::Error>>;
 
     async fn request(
@@ -62,6 +65,13 @@ pub trait Client {
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>>;
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+pub trait IsConnectedCheck {
+    /// Check if a client is connected
+    async fn is_connected(&self) -> bool;
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]

@@ -41,7 +41,6 @@ bench = [
   "test-utils",
   "indicatif",
   "tracing-subscriber",
-  "dep:xmtp_api_grpc",
   "criterion",
   "dep:fdlimit",
   "dep:alloy",
@@ -91,7 +90,8 @@ xmtp_mls_common.workspace = true
 xmtp_api_d14n = { workspace = true }
 
 # XMTP/Local
-xmtp_api.workspace = true
+xmtp_api = { workspace = true }
+xmtp_api_grpc = { workspace = true }
 xmtp_content_types.workspace = true
 xmtp_cryptography = { workspace = true }
 xmtp_db.workspace = true
@@ -108,7 +108,6 @@ passkey = { version = "0.4", optional = true }
 public-suffix = { version = "0.1.2", optional = true }
 rstest = { workspace = true, features = ["async-timeout"], optional = true }
 url = { workspace = true, optional = true }
-xmtp_api_grpc = { workspace = true, optional = true }
 
 # Test/Bench Utils
 criterion = { workspace = true, optional = true }
