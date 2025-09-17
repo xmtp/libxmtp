@@ -135,10 +135,7 @@ where
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            Started { mut stream } => {
-                tracing::info!("started; polling");
-                stream.as_mut().try_poll_next(cx)
-            }
+            Started { mut stream } => stream.as_mut().try_poll_next(cx),
             Terminated => Poll::Ready(None),
         }
     }

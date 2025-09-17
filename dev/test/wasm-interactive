@@ -18,6 +18,6 @@ export WASM_BINDGEN_TEST_ONLY_WEB=1
 export NO_HEADLESS=1
 
 cargo test --target wasm32-unknown-unknown --release \
-  -p $PACKAGE --features dev -- \
+  -p $PACKAGE -- \
   --skip xmtp_mls::storage::encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
   $TESTS
