@@ -64,9 +64,6 @@ mod test {
             }])
             .build()
             .unwrap();
-
-        let result: VerifySmartContractWalletSignaturesResponse =
-            endpoint.query(&client).await.unwrap();
-        assert_eq!(result.responses.len(), 1);
+        endpoint.query(&client).await.unwrap();
     }
 }

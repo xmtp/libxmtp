@@ -84,6 +84,6 @@ mod test {
             .build()
             .unwrap();
 
-        assert!(endpoint.query(&client).await.is_ok());
+        endpoint.query(&client).await.unwrap();
     }
 }

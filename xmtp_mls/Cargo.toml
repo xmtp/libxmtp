@@ -49,6 +49,8 @@ bench = [
 ]
 default = []
 d14n = ["dep:xmtp_api_d14n"]
+# test against the dev network
+dev = ["xmtp_configuration/dev", "xmtp_proto/dev", "xmtp_api_d14n/dev"]
 
 [dependencies]
 aes-gcm.workspace = true
