@@ -51,7 +51,6 @@ impl Endpoint for QueryEnvelope {
             }),
             limit,
         };
-        tracing::debug!("{:?}", query);
         Ok(query.encode_to_vec().into())
     }
 }
@@ -96,6 +95,7 @@ impl Endpoint for QueryEnvelopes {
 #[cfg(test)]
 mod test {
     use super::*;
+    use xmtp_api_grpc::error::GrpcError;
     use xmtp_proto::prelude::*;
 
     #[xmtp_common::test]
@@ -120,6 +120,18 @@ mod test {
             })
             .build()
             .unwrap();
-        assert!(endpoint.query(&client).await.is_err());
+        let err = endpoint.query(&client).await.unwrap_err();
+        tracing::info!("{}", err);
+        // the request will fail b/c we're using dummy data but
+        // we just care if the endpoint is working
+        match err {
+            ApiClientError::<GrpcError>::ClientWithEndpoint { source, .. } => match source {
+                GrpcError::Status(s) => {
+                    assert!(s.message().contains("invalid topic"));
+                }
+                _ => panic!("request failed"),
+            },
+            _ => panic!("request failed"),
+        }
     }
 }

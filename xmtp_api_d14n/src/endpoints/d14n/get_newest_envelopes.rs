@@ -62,6 +62,6 @@ mod test {
         let client = client.build().await.unwrap();
 
         let endpoint = GetNewestEnvelopes::builder().topic(vec![]).build().unwrap();
-        assert!(endpoint.query(&client).await.is_ok());
+        endpoint.query(&client).await.unwrap();
     }
 }

@@ -23,6 +23,11 @@ static_resources:
                         - match: {prefix: "/"}
                           route:
                             cluster: node-go
+                            regex_rewrite:
+                              pattern:
+                                google_re2: {}
+                                regex: "^(.*)$"
+                              substitution: "\\1"
                             timeout: 0s
                             max_stream_duration:
                               grpc_timeout_header_max: 0s
@@ -66,18 +71,18 @@ static_resources:
                               pattern:
                                 google_re2: {}
                                 regex: "^/payer(.*)$"
-                              substitution: "\\1"  # This removes /xmtpd but keeps everything after it
+                              substitution: "\\1" # This removes /xmtpd but keeps everything after it
                             timeout: 0s
                             max_stream_duration:
                               grpc_timeout_header_max: 0s
-                        - match: { prefix: "/xmtpd" }
+                        - match: {prefix: "/xmtpd"}
                           route:
                             cluster: repnode
                             regex_rewrite:
                               pattern:
                                 google_re2: {}
                                 regex: "^/xmtpd(.*)$"
-                              substitution: "\\1"  # This removes /xmtpd but keeps everything after it
+                              substitution: "\\1" # This removes /xmtpd but keeps everything after it
                             timeout: 0s
                             max_stream_duration:
                               grpc_timeout_header_max: 0s
@@ -152,4 +157,4 @@ static_resources:
                   address:
                     socket_address:
                       address: gateway
-                      port_value: 5052
+                      port_value: 5050
