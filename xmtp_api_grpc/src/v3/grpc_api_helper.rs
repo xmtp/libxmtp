@@ -312,20 +312,33 @@ mod test {
 
         fn create_local() -> Self::Builder {
             let mut client = Client::builder();
+            let url = url::Url::parse(GrpcUrls::NODE).unwrap();
+            match url.scheme() {
+                "https" => client.set_tls(true),
+                _ => client.set_tls(false),
+            }
             client.set_host(GrpcUrls::NODE.into());
-            client.set_tls(false);
             client
         }
 
         fn create_d14n() -> Self::Builder {
             let mut client = Client::builder();
+            let url = url::Url::parse(GrpcUrls::XMTPD).unwrap();
+            match url.scheme() {
+                "https" => client.set_tls(true),
+                _ => client.set_tls(false),
+            }
             client.set_host(GrpcUrls::XMTPD.into());
-            client.set_tls(false);
             client
         }
 
         fn create_payer() -> Self::Builder {
             let mut payer = Client::builder();
+            let url = url::Url::parse(GrpcUrls::PAYER).unwrap();
+            match url.scheme() {
+                "https" => payer.set_tls(true),
+                _ => payer.set_tls(false),
+            }
             payer.set_host(GrpcUrls::PAYER.into());
             payer.set_tls(false);
             payer
