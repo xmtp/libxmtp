@@ -129,6 +129,7 @@ tokio-util = { version = "0.7", default-features = false, features = [
   "compat",
 ] }
 tonic = { version = "0.14", default-features = false }
+tonic-web-wasm-client = "0.8"
 tower = { version = "0.5", default-features = false }
 trait-variant = "0.1.2"
 tracing = { version = "0.1", features = ["log"] }
@@ -199,7 +200,6 @@ diesel = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_derives = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_migrations = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 tracing-forest = { git = "https://github.com/QnnOkabayashi/tracing-forest", branch = "main" }
-tonic-web-wasm-client = { git = "https://github.com/insipx/tonic-web-wasm-client.git", branch = "insipx/add-abort-signal" }
 
 [workspace.lints.clippy]
 uninlined_format_args = "allow"
