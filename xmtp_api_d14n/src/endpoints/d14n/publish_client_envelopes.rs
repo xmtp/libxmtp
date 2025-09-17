@@ -47,7 +47,10 @@ mod test {
     use super::*;
     use xmtp_api_grpc::error::GrpcError;
     use xmtp_common::rand_vec;
-    use xmtp_proto::{prelude::*, xmtp::xmtpv4::envelopes::{client_envelope::Payload, AuthenticatedData}};
+    use xmtp_proto::{
+        prelude::*,
+        xmtp::xmtpv4::envelopes::{AuthenticatedData, client_envelope::Payload},
+    };
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
@@ -66,11 +69,11 @@ mod test {
 
         let aad = AuthenticatedData {
             target_topic: TopicKind::GroupMessagesV1.build(&rand_vec::<16>()),
-            depends_on: None
+            depends_on: None,
         };
         let e = ClientEnvelope {
             aad: Some(aad),
-            payload: Some(Payload::GroupMessage(Default::default()))
+            payload: Some(Payload::GroupMessage(Default::default())),
         };
         let endpoint = PublishClientEnvelopes::builder()
             .envelopes(vec![e])
@@ -82,15 +85,13 @@ mod test {
         // the request will fail b/c we're using dummy data but
         // we just care if the endpoint is working
         match err {
-            ApiClientError::<GrpcError>::ClientWithEndpoint {  source, .. } => {
-                match source {
-                    GrpcError::Status(s) => {
-                        assert!(s.message().contains("invalid payload") );
-                    },
-                    _ => panic!("request failed")
-                }
-            },
-            _ => panic!("request failed")
+            ApiClientError::<GrpcError>::ClientWithEndpoint {
+                source: GrpcError::Status(s),
+                ..
+            } => {
+                assert!(s.message().contains("invalid payload"))
+            }
+            _ => panic!("request failed"),
         }
     }
 }
