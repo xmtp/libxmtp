@@ -125,12 +125,10 @@ mod test {
         // the request will fail b/c we're using dummy data but
         // we just care if the endpoint is working
         match err {
-            ApiClientError::<GrpcError>::ClientWithEndpoint { source, .. } => match source {
-                GrpcError::Status(s) => {
-                    assert!(s.message().contains("invalid topic"));
-                }
-                _ => panic!("request failed"),
-            },
+            ApiClientError::<GrpcError>::ClientWithEndpoint {
+                source: GrpcError::Status(s),
+                ..
+            } => assert!(s.message().contains("invalid topic")),
             _ => panic!("request failed"),
         }
     }
