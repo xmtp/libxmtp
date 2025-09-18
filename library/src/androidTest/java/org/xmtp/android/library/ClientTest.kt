@@ -214,7 +214,7 @@ class ClientTest {
         }
 
         assert(client.dbPath.isNotEmpty())
-        client.deleteLocalDatabase()
+        runBlocking { client.deleteLocalDatabase() }
 
         client = runBlocking {
             Client.create(
@@ -336,7 +336,7 @@ class ClientTest {
             assertEquals(boClient.conversations.listGroups().size, 1)
         }
 
-        boClient.dropLocalDatabaseConnection()
+        runBlocking { boClient.dropLocalDatabaseConnection() }
 
         assertThrows(
             "Client error: storage error: Pool needs to  reconnect before use",
@@ -621,7 +621,7 @@ class ClientTest {
             ),
             true
         )
-        fixtures.alixClient.deleteLocalDatabase()
+        runBlocking { fixtures.alixClient.deleteLocalDatabase() }
 
         val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext

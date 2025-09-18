@@ -93,12 +93,12 @@ class GroupTest {
         assertEquals(runBlocking { alixGroup.members().size }, 3)
         assertEquals(runBlocking { boGroup.members().size }, 3)
 
-        assertEquals(boGroup.permissionPolicySet().addMemberPolicy, PermissionOption.Allow)
-        assertEquals(alixGroup.permissionPolicySet().addMemberPolicy, PermissionOption.Allow)
-        assertEquals(boGroup.isSuperAdmin(boClient.inboxId), true)
-        assertEquals(boGroup.isSuperAdmin(alixClient.inboxId), false)
-        assertEquals(alixGroup.isSuperAdmin(boClient.inboxId), true)
-        assertEquals(alixGroup.isSuperAdmin(alixClient.inboxId), false)
+        assertEquals(runBlocking { boGroup.permissionPolicySet().addMemberPolicy }, PermissionOption.Allow)
+        assertEquals(runBlocking { alixGroup.permissionPolicySet().addMemberPolicy }, PermissionOption.Allow)
+        assertEquals(runBlocking { boGroup.isSuperAdmin(boClient.inboxId) }, true)
+        assertEquals(runBlocking { boGroup.isSuperAdmin(alixClient.inboxId) }, false)
+        assertEquals(runBlocking { alixGroup.isSuperAdmin(boClient.inboxId) }, true)
+        assertEquals(runBlocking { alixGroup.isSuperAdmin(alixClient.inboxId) }, false)
         // can not fetch creator ID. See https://github.com/xmtp/libxmtp/issues/788
 //       assert(boGroup.isCreator())
         assert(!runBlocking { alixGroup.isCreator() })
@@ -159,12 +159,12 @@ class GroupTest {
         assertEquals(runBlocking { alixGroup.members().size }, 2)
         assertEquals(runBlocking { boGroup.members().size }, 2)
 
-        assertEquals(boGroup.permissionPolicySet().addMemberPolicy, PermissionOption.Admin)
-        assertEquals(alixGroup.permissionPolicySet().addMemberPolicy, PermissionOption.Admin)
-        assertEquals(boGroup.isSuperAdmin(boClient.inboxId), true)
-        assertEquals(boGroup.isSuperAdmin(alixClient.inboxId), false)
-        assertEquals(alixGroup.isSuperAdmin(boClient.inboxId), true)
-        assertEquals(alixGroup.isSuperAdmin(alixClient.inboxId), false)
+        assertEquals(runBlocking { boGroup.permissionPolicySet().addMemberPolicy }, PermissionOption.Admin)
+        assertEquals(runBlocking { alixGroup.permissionPolicySet().addMemberPolicy }, PermissionOption.Admin)
+        assertEquals(runBlocking { boGroup.isSuperAdmin(boClient.inboxId) }, true)
+        assertEquals(runBlocking { boGroup.isSuperAdmin(alixClient.inboxId) }, false)
+        assertEquals(runBlocking { alixGroup.isSuperAdmin(boClient.inboxId) }, true)
+        assertEquals(runBlocking { alixGroup.isSuperAdmin(alixClient.inboxId) }, false)
         // can not fetch creator ID. See https://github.com/xmtp/libxmtp/issues/788
 //       assert(boGroup.isCreator())
         assert(!runBlocking { alixGroup.isCreator() })
@@ -208,12 +208,12 @@ class GroupTest {
         assertEquals(runBlocking { alixGroup.members().size }, 3)
         assertEquals(runBlocking { boGroup.members().size }, 3)
 
-        assertEquals(boGroup.permissionPolicySet().addMemberPolicy, PermissionOption.Allow)
-        assertEquals(alixGroup.permissionPolicySet().addMemberPolicy, PermissionOption.Allow)
-        assertEquals(boGroup.isSuperAdmin(boClient.inboxId), true)
-        assertEquals(boGroup.isSuperAdmin(alixClient.inboxId), false)
-        assertEquals(alixGroup.isSuperAdmin(boClient.inboxId), true)
-        assertEquals(alixGroup.isSuperAdmin(alixClient.inboxId), false)
+        assertEquals(runBlocking { boGroup.permissionPolicySet().addMemberPolicy }, PermissionOption.Allow)
+        assertEquals(runBlocking { alixGroup.permissionPolicySet().addMemberPolicy }, PermissionOption.Allow)
+        assertEquals(runBlocking { boGroup.isSuperAdmin(boClient.inboxId) }, true)
+        assertEquals(runBlocking { boGroup.isSuperAdmin(alixClient.inboxId) }, false)
+        assertEquals(runBlocking { alixGroup.isSuperAdmin(boClient.inboxId) }, true)
+        assertEquals(runBlocking { alixGroup.isSuperAdmin(alixClient.inboxId) }, false)
         assert(!runBlocking { alixGroup.isCreator() })
     }
 
@@ -430,14 +430,14 @@ class GroupTest {
         runBlocking { caroClient.conversations.sync() }
         val caroGroup = runBlocking { caroClient.conversations.listGroups().first() }
         runBlocking { caroGroup.sync() }
-        assert(caroGroup.isActive())
-        assert(group.isActive())
+        assert(runBlocking { caroGroup.isActive() })
+        assert(runBlocking { group.isActive() })
         runBlocking {
             group.removeMembers(listOf(caroClient.inboxId))
             caroGroup.sync()
         }
-        assert(group.isActive())
-        assert(!caroGroup.isActive())
+        assert(runBlocking { group.isActive() })
+        assert(!runBlocking { caroGroup.isActive() })
     }
 
     @Test
@@ -451,7 +451,7 @@ class GroupTest {
         }
         runBlocking { boClient.conversations.sync() }
         val boGroup = runBlocking { boClient.conversations.listGroups().first() }
-        assertEquals(boGroup.addedByInboxId(), alixClient.inboxId)
+        assertEquals(runBlocking { boGroup.addedByInboxId() }, alixClient.inboxId)
     }
 
     @Test
@@ -680,7 +680,7 @@ class GroupTest {
             group.send("howdy")
             group.send("gm")
         }
-        val message = boClient.conversations.findMessage(messageId)
+        val message = runBlocking { boClient.conversations.findMessage(messageId) }
         assertEquals(runBlocking { group.messages() }.size, 3)
         assertEquals(runBlocking { group.messages(afterNs = message?.sentAtNs) }.size, 0)
         runBlocking {
@@ -928,7 +928,7 @@ class GroupTest {
             )
         }
         runBlocking { alixClient.conversations.sync() }
-        val alixGroup = alixClient.conversations.findGroup(boGroup.id)
+        val alixGroup = runBlocking { alixClient.conversations.findGroup(boGroup.id) }
 
         assertEquals(alixGroup?.id, boGroup.id)
     }
@@ -945,9 +945,9 @@ class GroupTest {
         }
         val boMessageId = runBlocking { boGroup.send("Hello") }
         runBlocking { alixClient.conversations.sync() }
-        val alixGroup = alixClient.conversations.findGroup(boGroup.id)
+        val alixGroup = runBlocking { alixClient.conversations.findGroup(boGroup.id) }
         runBlocking { alixGroup?.sync() }
-        val alixMessage = alixClient.conversations.findMessage(boMessageId)
+        val alixMessage = runBlocking { alixClient.conversations.findMessage(boMessageId) }
 
         assertEquals(alixMessage?.id, boMessageId)
     }
@@ -963,7 +963,7 @@ class GroupTest {
             )
         }
         runBlocking { alixClient.conversations.sync() }
-        val alixGroup: Group = alixClient.conversations.findGroup(boGroup.id)!!
+        val alixGroup: Group = runBlocking { alixClient.conversations.findGroup(boGroup.id)!! }
         runBlocking { assertEquals(alixGroup.consentState(), ConsentState.UNKNOWN) }
         val preparedMessageId = runBlocking { alixGroup.prepareMessage("Test text") }
         assertEquals(runBlocking { alixGroup.messages() }.size, 2)
@@ -1013,8 +1013,8 @@ class GroupTest {
             )
         }
         runBlocking { alixClient.conversations.sync() }
-        val alixGroup: Group = alixClient.conversations.findGroup(boGroup.id)!!
-        val alixGroup2: Group = alixClient.conversations.findGroup(boGroup2.id)!!
+        val alixGroup: Group = runBlocking { alixClient.conversations.findGroup(boGroup.id)!! }
+        val alixGroup2: Group = runBlocking { alixClient.conversations.findGroup(boGroup2.id)!! }
         var numGroups: UInt?
 
         assertEquals(runBlocking { alixGroup.messages() }.size, 1)

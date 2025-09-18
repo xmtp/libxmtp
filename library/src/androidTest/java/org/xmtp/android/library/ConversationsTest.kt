@@ -60,9 +60,9 @@ class ConversationsTest {
 
     @Test
     fun testCanCreateOptimisticGroup() {
-        val optimisticGroup = boClient.conversations.newGroupOptimistic(groupName = "Testing")
+        val optimisticGroup = runBlocking { boClient.conversations.newGroupOptimistic(groupName = "Testing") }
         assertEquals(optimisticGroup.name, "Testing")
-        optimisticGroup.prepareMessage("testing")
+        runBlocking { optimisticGroup.prepareMessage("testing") }
         assertEquals(runBlocking { optimisticGroup.messages() }.size, 1)
 
         runBlocking {
@@ -282,9 +282,11 @@ class ConversationsTest {
             runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
         val blockedConversation =
             runBlocking { boClient.conversations.findOrCreateDm(alixClient.inboxId) }
-        blockedGroup.updateConsentState(ConsentState.DENIED)
-        blockedConversation.updateConsentState(ConsentState.DENIED)
-        runBlocking { boClient.conversations.sync() }
+        runBlocking {
+            blockedGroup.updateConsentState(ConsentState.DENIED)
+            blockedConversation.updateConsentState(ConsentState.DENIED)
+            boClient.conversations.sync()
+        }
 
         val allMessages = mutableListOf<DecodedMessage>()
 
@@ -347,7 +349,7 @@ class ConversationsTest {
                 )
             }
         }
-        val hmacKeys = alixClient.conversations.getHmacKeys()
+        val hmacKeys = runBlocking { alixClient.conversations.getHmacKeys() }
 
         val topics = hmacKeys.hmacKeysMap.keys
         conversations.forEach { convo ->
@@ -392,10 +394,10 @@ class ConversationsTest {
             eriClient.conversations.syncAllConversations()
         }
 
-        val allTopics = eriClient.conversations.allPushTopics()
+        val allTopics = runBlocking { eriClient.conversations.allPushTopics() }
         val conversations = runBlocking { eriClient.conversations.list() }
-        val allHmacKeys = eriClient.conversations.getHmacKeys()
-        val dmHmacKeys = dm1.getHmacKeys()
+        val allHmacKeys = runBlocking { eriClient.conversations.getHmacKeys() }
+        val dmHmacKeys = runBlocking { dm1.getHmacKeys() }
         val dmTopics = runBlocking { dm1.getPushTopics() }
 
         assertEquals(allTopics.size, 3)

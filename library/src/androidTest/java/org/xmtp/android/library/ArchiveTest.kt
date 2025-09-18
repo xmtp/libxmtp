@@ -156,9 +156,9 @@ class ArchiveTest {
         }
         val convosList = runBlocking { alixClient2.conversations.list() }
         assertEquals(1, convosList.size)
-        assertEquals(convosList.first().isActive(), false)
+        assertEquals(runBlocking { convosList.first().isActive() }, false)
         val dm2 = runBlocking { alixClient.conversations.findOrCreateDm(fixtures.boClient.inboxId) }
-        assertEquals(dm2.isActive(), true)
+        assertEquals(runBlocking { dm2.isActive() }, true)
 
         runBlocking {
             boDm.send("hey")

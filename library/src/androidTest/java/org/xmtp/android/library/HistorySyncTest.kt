@@ -101,7 +101,7 @@ class HistorySyncTest {
             alixClient2.conversations.syncAllConversations()
             Thread.sleep(2000)
         }
-        val alix2Group = alixClient2.conversations.findGroup(alixGroup.id)!!
+        val alix2Group = runBlocking { alixClient2.conversations.findGroup(alixGroup.id)!! }
 
         val consent = mutableListOf<ConsentRecord>()
         val job1 = CoroutineScope(Dispatchers.IO).launch {
@@ -135,7 +135,7 @@ class HistorySyncTest {
 
         Thread.sleep(2000)
         assertEquals(5, consent.size)
-        assertEquals(alixGroup.consentState(), ConsentState.DENIED)
+        assertEquals(runBlocking { alixGroup.consentState() }, ConsentState.DENIED)
         job.cancel()
         job1.cancel()
     }

@@ -1,6 +1,8 @@
 package org.xmtp.android.library
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.DecodedMessage
@@ -64,6 +66,10 @@ sealed class Conversation {
             }
         }
 
+    @Deprecated(
+        message = "Use suspend disappearingMessageSettings()",
+        replaceWith = ReplaceWith("disappearingMessageSettings()")
+    )
     val disappearingMessageSettings: DisappearingMessageSettings?
         get() {
             return when (this) {
@@ -72,6 +78,17 @@ sealed class Conversation {
             }
         }
 
+    suspend fun disappearingMessageSettings(): DisappearingMessageSettings? = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
+            is Group -> group.disappearingMessageSettings()
+            is Dm -> dm.disappearingMessageSettings()
+        }
+    }
+
+    @Deprecated(
+        message = "Use suspend isDisappearingMessagesEnabled()",
+        replaceWith = ReplaceWith("isDisappearingMessagesEnabled()")
+    )
     val isDisappearingMessagesEnabled: Boolean
         get() {
             return when (this) {
@@ -80,8 +97,15 @@ sealed class Conversation {
             }
         }
 
-    suspend fun lastMessage(): DecodedMessage? {
-        return when (this) {
+    suspend fun isDisappearingMessagesEnabled(): Boolean = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
+            is Group -> group.isDisappearingMessagesEnabled()
+            is Dm -> dm.isDisappearingMessagesEnabled()
+        }
+    }
+
+    suspend fun lastMessage(): DecodedMessage? = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.lastMessage()
             is Dm -> dm.lastMessage()
         }
@@ -94,78 +118,78 @@ sealed class Conversation {
         }
     }
 
-    suspend fun members(): List<Member> {
-        return when (this) {
+    suspend fun members(): List<Member> = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.members()
             is Dm -> dm.members()
         }
     }
 
-    suspend fun clearDisappearingMessageSettings() {
-        return when (this) {
+    suspend fun clearDisappearingMessageSettings() = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.clearDisappearingMessageSettings()
             is Dm -> dm.clearDisappearingMessageSettings()
         }
     }
 
-    suspend fun updateDisappearingMessageSettings(disappearingMessageSettings: DisappearingMessageSettings?) {
-        return when (this) {
+    suspend fun updateDisappearingMessageSettings(disappearingMessageSettings: DisappearingMessageSettings?) = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.updateDisappearingMessageSettings(disappearingMessageSettings)
             is Dm -> dm.updateDisappearingMessageSettings(disappearingMessageSettings)
         }
     }
 
-    fun updateConsentState(state: ConsentState) {
-        return when (this) {
+    suspend fun updateConsentState(state: ConsentState) = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.updateConsentState(state)
             is Dm -> dm.updateConsentState(state)
         }
     }
 
-    fun consentState(): ConsentState {
-        return when (this) {
+    suspend fun consentState(): ConsentState = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.consentState()
             is Dm -> dm.consentState()
         }
     }
 
-    fun <T> prepareMessage(content: T, options: SendOptions? = null): String {
-        return when (this) {
+    suspend fun <T> prepareMessage(content: T, options: SendOptions? = null): String = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.prepareMessage(content, options)
             is Dm -> dm.prepareMessage(content, options)
         }
     }
 
-    fun prepareMessage(encodedContent: EncodedContent): String {
-        return when (this) {
+    suspend fun prepareMessage(encodedContent: EncodedContent): String = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.prepareMessage(encodedContent)
             is Dm -> dm.prepareMessage(encodedContent)
         }
     }
 
-    suspend fun <T> send(content: T, options: SendOptions? = null): String {
-        return when (this) {
+    suspend fun <T> send(content: T, options: SendOptions? = null): String = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.send(content = content, options = options)
             is Dm -> dm.send(content = content, options = options)
         }
     }
 
-    suspend fun send(encodedContent: EncodedContent): String {
-        return when (this) {
+    suspend fun send(encodedContent: EncodedContent): String = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.send(encodedContent)
             is Dm -> dm.send(encodedContent)
         }
     }
 
-    suspend fun send(text: String): String {
-        return when (this) {
+    suspend fun send(text: String): String = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.send(text)
             is Dm -> dm.send(text)
         }
     }
 
-    suspend fun sync() {
-        return when (this) {
+    suspend fun sync() = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.sync()
             is Dm -> dm.sync()
         }
@@ -177,8 +201,8 @@ sealed class Conversation {
         afterNs: Long? = null,
         direction: DecodedMessage.SortDirection = DecodedMessage.SortDirection.DESCENDING,
         deliveryStatus: DecodedMessage.MessageDeliveryStatus = DecodedMessage.MessageDeliveryStatus.ALL,
-    ): List<DecodedMessage> {
-        return when (this) {
+    ): List<DecodedMessage> = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.messages(limit, beforeNs, afterNs, direction, deliveryStatus)
             is Dm -> dm.messages(limit, beforeNs, afterNs, direction, deliveryStatus)
         }
@@ -190,8 +214,8 @@ sealed class Conversation {
         afterNs: Long? = null,
         direction: DecodedMessage.SortDirection = DecodedMessage.SortDirection.DESCENDING,
         deliveryStatus: DecodedMessage.MessageDeliveryStatus = DecodedMessage.MessageDeliveryStatus.ALL,
-    ): List<DecodedMessageV2> {
-        return when (this) {
+    ): List<DecodedMessageV2> = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.enrichedMessages(limit, beforeNs, afterNs, direction, deliveryStatus)
             is Dm -> dm.enrichedMessages(limit, beforeNs, afterNs, direction, deliveryStatus)
         }
@@ -203,8 +227,8 @@ sealed class Conversation {
         afterNs: Long? = null,
         direction: DecodedMessage.SortDirection = DecodedMessage.SortDirection.DESCENDING,
         deliveryStatus: DecodedMessage.MessageDeliveryStatus = DecodedMessage.MessageDeliveryStatus.ALL,
-    ): List<DecodedMessage> {
-        return when (this) {
+    ): List<DecodedMessage> = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.messagesWithReactions(
                 limit,
                 beforeNs,
@@ -217,23 +241,23 @@ sealed class Conversation {
         }
     }
 
-    suspend fun processMessage(messageBytes: ByteArray): DecodedMessage? {
-        return when (this) {
+    suspend fun processMessage(messageBytes: ByteArray): DecodedMessage? = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.processMessage(messageBytes)
             is Dm -> dm.processMessage(messageBytes)
         }
     }
 
-    suspend fun publishMessages() {
-        return when (this) {
+    suspend fun publishMessages() = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.publishMessages()
             is Dm -> dm.publishMessages()
         }
     }
 
     // Returns null if conversation is not paused, otherwise the min version required to unpause this conversation
-    fun pausedForVersion(): String? {
-        return when (this) {
+    suspend fun pausedForVersion(): String? = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.pausedForVersion()
             is Dm -> dm.pausedForVersion()
         }
@@ -254,37 +278,37 @@ sealed class Conversation {
         }
     }
 
-    fun getHmacKeys(): Keystore.GetConversationHmacKeysResponse {
-        return when (this) {
+    suspend fun getHmacKeys(): Keystore.GetConversationHmacKeysResponse = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.getHmacKeys()
             is Dm -> dm.getHmacKeys()
         }
     }
 
-    suspend fun getPushTopics(): List<String> {
-        return when (this) {
+    suspend fun getPushTopics(): List<String> = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.getPushTopics()
             is Dm -> dm.getPushTopics()
         }
     }
 
-    suspend fun getDebugInformation(): ConversationDebugInfo {
-        return when (this) {
+    suspend fun getDebugInformation(): ConversationDebugInfo = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.getDebugInformation()
             is Dm -> dm.getDebugInformation()
         }
     }
 
-    fun isActive(): Boolean {
-        return when (this) {
+    suspend fun isActive(): Boolean = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.isActive()
             is Dm -> dm.isActive()
         }
     }
 
     // Get the last read receipt timestamp (in nanoseconds) for each member of the conversation, keyed by inbox ID
-    fun getLastReadTimes(): Map<InboxId, Long> {
-        return when (this) {
+    suspend fun getLastReadTimes(): Map<InboxId, Long> = withContext(Dispatchers.IO) {
+        when (this@Conversation) {
             is Group -> group.getLastReadTimes()
             is Dm -> dm.getLastReadTimes()
         }

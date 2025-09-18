@@ -46,6 +46,8 @@ class MainViewModel : ViewModel() {
             val listItems = mutableListOf<MainListItem>()
             try {
                 val conversations = ClientManager.client.conversations
+                // Ensure we fetch the latest conversations from the network before listing
+                conversations.sync()
                 val subscriptions = conversations.allPushTopics().map {
                     val hmacKeysResult = ClientManager.client.conversations.getHmacKeys()
                     val hmacKeys = hmacKeysResult.hmacKeysMap

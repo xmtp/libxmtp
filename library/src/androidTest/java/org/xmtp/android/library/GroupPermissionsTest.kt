@@ -51,7 +51,7 @@ class GroupPermissionsTest {
     }
 
     @Test
-    fun testGroupCreatedWithCorrectAdminList() {
+    fun testGroupCreatedWithCorrectAdminList() = runBlocking {
         val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
         runBlocking { alixClient.conversations.sync() }
         val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
@@ -75,7 +75,7 @@ class GroupPermissionsTest {
     }
 
     @Test
-    fun testGroupCanUpdateAdminList() {
+    fun testGroupCanUpdateAdminList() = runBlocking {
         val boGroup = runBlocking {
             boClient.conversations.newGroup(
                 listOf(
@@ -177,7 +177,7 @@ class GroupPermissionsTest {
     }
 
     @Test
-    fun testGroupCanUpdateSuperAdminList() {
+    fun testGroupCanUpdateSuperAdminList() = runBlocking {
         val boGroup = runBlocking {
             boClient.conversations.newGroup(
                 listOf(
@@ -322,7 +322,7 @@ class GroupPermissionsTest {
     }
 
     @Test
-    fun testCanUpdatePermissions() {
+    fun testCanUpdatePermissions() = runBlocking {
         val boGroup = runBlocking {
             boClient.conversations.newGroup(
                 listOf(
@@ -374,7 +374,7 @@ class GroupPermissionsTest {
     }
 
     @Test
-    fun canCreateGroupWithCustomPermissions() {
+    fun canCreateGroupWithCustomPermissions() = runBlocking {
         val permissionPolicySet = PermissionPolicySet(
             addMemberPolicy = PermissionOption.Admin,
             removeMemberPolicy = PermissionOption.Deny,
@@ -454,7 +454,7 @@ class GroupPermissionsTest {
     }
 
     @Test
-    fun canCreateGroupWithInboxIdCustomPermissions() {
+    fun canCreateGroupWithInboxIdCustomPermissions() = runBlocking {
         val permissionPolicySet = PermissionPolicySet(
             addMemberPolicy = PermissionOption.Admin,
             removeMemberPolicy = PermissionOption.Deny,

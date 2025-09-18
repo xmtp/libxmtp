@@ -2,9 +2,11 @@ package org.xmtp.android.library
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.libxmtp.ArchiveMetadata
@@ -177,7 +179,7 @@ class Client(
         suspend fun getOrCreateInboxId(
             api: ClientOptions.Api,
             publicIdentity: PublicIdentity,
-        ): InboxId {
+        ): InboxId = withContext(Dispatchers.IO) {
             val rootIdentity = publicIdentity.ffiPrivate
             var inboxId = getInboxIdForIdentifier(
                 api = connectToApiBackend(api),
@@ -186,7 +188,7 @@ class Client(
             if (inboxId.isNullOrBlank()) {
                 inboxId = generateInboxId(rootIdentity, 0.toULong())
             }
-            return inboxId
+            inboxId
         }
 
         suspend fun revokeInstallations(
@@ -194,7 +196,7 @@ class Client(
             signingKey: SigningKey,
             inboxId: InboxId,
             installationIds: List<String>,
-        ) {
+        ) = withContext(Dispatchers.IO) {
             val apiClient = connectToApiBackend(api)
             val rootIdentity = signingKey.publicIdentity.ffiPrivate
             val ids = installationIds.map { it.hexToByteArray() }
@@ -209,19 +211,19 @@ class Client(
             publicIdentity: PublicIdentity,
             inboxId: InboxId,
             installationIds: List<String>,
-        ): SignatureRequest {
+        ): SignatureRequest = withContext(Dispatchers.IO) {
             val apiClient = connectToApiBackend(api)
             val rootIdentity = publicIdentity.ffiPrivate
             val ids = installationIds.map { it.hexToByteArray() }
             val signatureRequest = revokeInstallations(apiClient, rootIdentity, inboxId, ids)
-            return SignatureRequest(signatureRequest)
+            SignatureRequest(signatureRequest)
         }
 
         @DelicateApi("This function is delicate and should be used with caution. Should only be used if trying to manage the signature flow independently otherwise use `revokeInstallations()` instead")
         suspend fun ffiApplySignatureRequest(
             api: ClientOptions.Api,
             signatureRequest: SignatureRequest,
-        ) {
+        ) = withContext(Dispatchers.IO) {
             val apiClient = connectToApiBackend(api)
             applySignatureRequest(apiClient, signatureRequest.ffiSignatureRequest)
         }
@@ -233,7 +235,7 @@ class Client(
         private suspend fun <T> withFfiClient(
             api: ClientOptions.Api,
             useClient: suspend (ffiClient: FfiXmtpClient) -> T,
-        ): T {
+        ): T = withContext(Dispatchers.IO) {
             val publicIdentity = PublicIdentity(
                 IdentityKind.ETHEREUM,
                 "0x0000000000000000000000000000000000000000"
@@ -255,22 +257,22 @@ class Client(
                 disableEvents = true,
             )
 
-            return useClient(ffiClient)
+            useClient(ffiClient)
         }
 
         suspend fun inboxStatesForInboxIds(
             inboxIds: List<InboxId>,
             api: ClientOptions.Api,
-        ): List<InboxState> {
+        ): List<InboxState> = withContext(Dispatchers.IO) {
             val apiClient = connectToApiBackend(api)
-            return inboxStateFromInboxIds(apiClient, inboxIds).map { InboxState(it) }
+            inboxStateFromInboxIds(apiClient, inboxIds).map { InboxState(it) }
         }
 
         suspend fun keyPackageStatusesForInstallationIds(
             installationIds: List<String>,
             api: ClientOptions.Api,
-        ): Map<String, FfiKeyPackageStatus> {
-            return withFfiClient(api) { ffiClient ->
+        ): Map<String, FfiKeyPackageStatus> = withContext(Dispatchers.IO) {
+            withFfiClient(api) { ffiClient ->
                 val byteArrays = installationIds.map { it.hexToByteArray() }
                 val result = ffiClient.getKeyPackageStatusesForInstallationIds(byteArrays)
                 result.entries.associate { (byteArrayKey, status) ->
@@ -282,8 +284,8 @@ class Client(
         suspend fun canMessage(
             identities: List<PublicIdentity>,
             api: ClientOptions.Api,
-        ): Map<String, Boolean> {
-            return withFfiClient(api) { ffiClient ->
+        ): Map<String, Boolean> = withContext(Dispatchers.IO) {
+            withFfiClient(api) { ffiClient ->
                 val ffiIdentifiers = identities.map { it.ffiPrivate }
                 val result = ffiClient.canMessage(ffiIdentifiers)
 
@@ -299,7 +301,7 @@ class Client(
             signingKey: SigningKey? = null,
             inboxId: InboxId? = null,
             buildOffline: Boolean = false,
-        ): Client {
+        ): Client = withContext(Dispatchers.IO) {
             val recoveredInboxId =
                 inboxId ?: getOrCreateInboxId(clientOptions.api, publicIdentity)
 
@@ -336,7 +338,7 @@ class Client(
                 ffiClient.registerIdentity(signatureRequest)
             }
 
-            return Client(
+            Client(
                 ffiClient,
                 dbPath,
                 ffiClient.installationId().toHex(),
@@ -350,8 +352,8 @@ class Client(
         suspend fun create(
             account: SigningKey,
             options: ClientOptions,
-        ): Client {
-            return try {
+        ): Client = withContext(Dispatchers.IO) {
+            try {
                 initializeV3Client(account.publicIdentity, options, account)
             } catch (e: Exception) {
                 throw XMTPException("Error creating V3 client: ${e.message}", e)
@@ -363,8 +365,8 @@ class Client(
             publicIdentity: PublicIdentity,
             options: ClientOptions,
             inboxId: InboxId? = null,
-        ): Client {
-            return try {
+        ): Client = withContext(Dispatchers.IO) {
+            try {
                 initializeV3Client(
                     publicIdentity,
                     options,
@@ -382,7 +384,7 @@ class Client(
             options: ClientOptions,
             appContext: Context,
             buildOffline: Boolean = false,
-        ): Pair<FfiXmtpClient, String> {
+        ): Pair<FfiXmtpClient, String> = withContext(Dispatchers.IO) {
             val alias = "xmtp-${options.api.env}-$inboxId"
 
             val mlsDbDirectory = options.dbDirectory
@@ -414,7 +416,7 @@ class Client(
                 allowOffline = buildOffline,
                 disableEvents = options.debugEventsEnabled,
             )
-            return Pair(ffiClient, dbPath)
+            Pair(ffiClient, dbPath)
         }
 
         private suspend fun handleSignature(
@@ -445,7 +447,7 @@ class Client(
         suspend fun ffiCreateClient(
             publicIdentity: PublicIdentity,
             clientOptions: ClientOptions,
-        ): Client {
+        ): Client = withContext(Dispatchers.IO) {
             val recoveredInboxId = getOrCreateInboxId(clientOptions.api, publicIdentity)
 
             val (ffiClient, dbPath) = createFfiClient(
@@ -454,7 +456,7 @@ class Client(
                 clientOptions,
                 clientOptions.appContext,
             )
-            return Client(
+            Client(
                 ffiClient,
                 dbPath,
                 ffiClient.installationId().toHex(),
@@ -465,27 +467,27 @@ class Client(
         }
     }
 
-    suspend fun revokeInstallations(signingKey: SigningKey, installationIds: List<String>) {
+    suspend fun revokeInstallations(signingKey: SigningKey, installationIds: List<String>) = withContext(Dispatchers.IO) {
         val ids = installationIds.map { it.hexToByteArray() }
         val signatureRequest = ffiRevokeInstallations(ids)
         handleSignature(signatureRequest, signingKey)
         ffiApplySignatureRequest(signatureRequest)
     }
 
-    suspend fun revokeAllOtherInstallations(signingKey: SigningKey) {
+    suspend fun revokeAllOtherInstallations(signingKey: SigningKey) = withContext(Dispatchers.IO) {
         val signatureRequest = ffiRevokeAllOtherInstallations()
         handleSignature(signatureRequest, signingKey)
         ffiApplySignatureRequest(signatureRequest)
     }
 
     @DelicateApi("This function is delicate and should be used with caution. Adding a identity already associated with an inboxId will cause the identity to lose access to that inbox. See: inboxIdFromIdentity(publicIdentity)")
-    suspend fun addAccount(newAccount: SigningKey, allowReassignInboxId: Boolean = false) {
+    suspend fun addAccount(newAccount: SigningKey, allowReassignInboxId: Boolean = false) = withContext(Dispatchers.IO) {
         val signatureRequest = ffiAddIdentity(newAccount.publicIdentity, allowReassignInboxId)
         handleSignature(signatureRequest, newAccount)
         ffiApplySignatureRequest(signatureRequest)
     }
 
-    suspend fun removeAccount(recoverAccount: SigningKey, publicIdentityToRemove: PublicIdentity) {
+    suspend fun removeAccount(recoverAccount: SigningKey, publicIdentityToRemove: PublicIdentity) = withContext(Dispatchers.IO) {
         val signatureRequest = ffiRevokeIdentity(publicIdentityToRemove)
         handleSignature(signatureRequest, recoverAccount)
         ffiApplySignatureRequest(signatureRequest)
@@ -517,59 +519,59 @@ class Client(
         }
     }
 
-    suspend fun canMessage(identities: List<PublicIdentity>): Map<String, Boolean> {
+    suspend fun canMessage(identities: List<PublicIdentity>): Map<String, Boolean> = withContext(Dispatchers.IO) {
         val ffiIdentifiers = identities.map { it.ffiPrivate }
         val result = ffiClient.canMessage(ffiIdentifiers)
 
-        return result.mapKeys { (ffiIdentifier, _) ->
+        result.mapKeys { (ffiIdentifier, _) ->
             ffiIdentifier.identifier
         }
     }
 
-    suspend fun inboxIdFromIdentity(publicIdentity: PublicIdentity): InboxId? {
-        return ffiClient.findInboxId(publicIdentity.ffiPrivate)
+    suspend fun inboxIdFromIdentity(publicIdentity: PublicIdentity): InboxId? = withContext(Dispatchers.IO) {
+        ffiClient.findInboxId(publicIdentity.ffiPrivate)
     }
 
-    fun deleteLocalDatabase() {
+    suspend fun deleteLocalDatabase() = withContext(Dispatchers.IO) {
         dropLocalDatabaseConnection()
         File(dbPath).delete()
     }
 
     @DelicateApi("This function is delicate and should be used with caution. App will error if database not properly reconnected. See: reconnectLocalDatabase()")
-    fun dropLocalDatabaseConnection() {
+    suspend fun dropLocalDatabaseConnection() = withContext(Dispatchers.IO) {
         ffiClient.releaseDbConnection()
     }
 
-    suspend fun reconnectLocalDatabase() {
+    suspend fun reconnectLocalDatabase() = withContext(Dispatchers.IO) {
         ffiClient.dbReconnect()
     }
 
     suspend fun inboxStatesForInboxIds(
         refreshFromNetwork: Boolean,
         inboxIds: List<InboxId>,
-    ): List<InboxState> {
-        return ffiClient.addressesFromInboxId(refreshFromNetwork, inboxIds)
+    ): List<InboxState> = withContext(Dispatchers.IO) {
+        ffiClient.addressesFromInboxId(refreshFromNetwork, inboxIds)
             .map { InboxState(it) }
     }
 
-    suspend fun inboxState(refreshFromNetwork: Boolean): InboxState {
-        return InboxState(ffiClient.inboxState(refreshFromNetwork))
+    suspend fun inboxState(refreshFromNetwork: Boolean): InboxState = withContext(Dispatchers.IO) {
+        InboxState(ffiClient.inboxState(refreshFromNetwork))
     }
 
     suspend fun createArchive(
         path: String,
         encryptionKey: ByteArray,
         opts: ArchiveOptions = ArchiveOptions(),
-    ) {
+    ) = withContext(Dispatchers.IO) {
         ffiClient.createArchive(path, opts.toFfi(), encryptionKey)
     }
 
-    suspend fun importArchive(path: String, encryptionKey: ByteArray) {
+    suspend fun importArchive(path: String, encryptionKey: ByteArray) = withContext(Dispatchers.IO) {
         ffiClient.importArchive(path, encryptionKey)
     }
 
-    suspend fun archiveMetadata(path: String, encryptionKey: ByteArray): ArchiveMetadata {
-        return ArchiveMetadata(ffiClient.archiveMetadata(path, encryptionKey))
+    suspend fun archiveMetadata(path: String, encryptionKey: ByteArray): ArchiveMetadata = withContext(Dispatchers.IO) {
+        ArchiveMetadata(ffiClient.archiveMetadata(path, encryptionKey))
     }
 
     @DelicateApi("This function is delicate and should be used with caution. Should only be used if trying to manage the signature flow independently otherwise use `addAccount(), removeAccount(), or revoke()` instead")
