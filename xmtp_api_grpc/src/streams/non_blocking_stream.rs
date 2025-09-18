@@ -4,7 +4,7 @@
 //! may complete succesfully, but the fetch promise does not resolve until the first bytes of the
 //! body are received by the browser.[issue](https://github.com/devashishdxt/tonic-web-wasm-client/issues/22).
 //!
-//! This poses a behavior incosistency between gRPC native - HTTP/2 and gRPC-web HTTP/1.1. On
+//! This poses a behavior inconsistency between gRPC native - HTTP/2 and gRPC-web HTTP/1.1. On
 //! native, gRPC streams do not block on the first body received, while web streams do.
 //! This is particularly obvious in tests, where:
 //! 1. stream is started
@@ -23,7 +23,7 @@
 //! In context of gRPC, this should not break anything that already works with native -- grpc requests, even
 //! unary requests, are all modeled as streams (a unary request is a stream with a single message),
 //! and none block on receipt of the body. Ideally, we could check the header status and ensure the
-//! initial response is 200 (OK), although the browser environment constraints does not allow for
+//! initial response is 200 (OK), although the browser environment constraints do not allow for
 //! this.
 
 use futures::{stream::FusedStream, Stream, TryFuture, TryStream};

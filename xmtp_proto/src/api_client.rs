@@ -20,6 +20,7 @@ use crate::xmtp::mls::api::v1::{
 use futures::Stream;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use xmtp_common::MaybeSend;
 use xmtp_common::RetryableError;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -372,17 +373,9 @@ where
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait XmtpMlsStreams {
-    #[cfg(not(target_arch = "wasm32"))]
-    type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>> + Send;
+    type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>> + MaybeSend;
 
-    #[cfg(target_arch = "wasm32")]
-    type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>>;
-
-    #[cfg(not(target_arch = "wasm32"))]
-    type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>> + Send;
-
-    #[cfg(target_arch = "wasm32")]
-    type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>>;
+    type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>> + MaybeSend;
 
     type Error: RetryableError + Send + Sync + 'static;
 
