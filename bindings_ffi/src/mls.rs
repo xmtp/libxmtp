@@ -7408,13 +7408,15 @@ mod tests {
             .stream_all_group_messages(stream_callback.clone(), None)
             .await;
         stream.wait_for_ready().await;
+        // Wait for the initial GroupUpdated message
+        stream_callback.wait_for_delivery(Some(2)).await.unwrap();
 
         alix_group
             .send("first".as_bytes().to_vec(), FfiSendMessageOpts::default())
             .await
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
-        assert_eq!(stream_callback.message_count(), 1);
+        assert_eq!(stream_callback.message_count(), 2);
 
         alix_dm
             .send("second".as_bytes().to_vec(), FfiSendMessageOpts::default())
@@ -7422,10 +7424,14 @@ mod tests {
             .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(result.is_err(), "Stream unexpectedly received a DM message");
-        assert_eq!(stream_callback.message_count(), 1);
 
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
+
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
 
         // Stream just dms
         let stream_callback = Arc::new(RustStreamCallback::default());

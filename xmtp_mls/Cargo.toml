@@ -217,10 +217,6 @@ required-features = ["bench"]
 harness = false
 name = "messages"
 required-features = ["bench"]
-[[bench]]
-harness = false
-name = "sync_conversations"
-required-features = ["bench"]
 
 [[test]]
 harness = true
