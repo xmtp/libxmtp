@@ -14,6 +14,9 @@ pub mod re_export {
     pub use crate::groups::mls_ext::{WrapperAlgorithm, wrap_welcome};
 }
 
+pub mod groups;
+pub use groups::*;
+
 #[derive(Debug, Error)]
 pub enum BenchError {
     #[error(transparent)]
