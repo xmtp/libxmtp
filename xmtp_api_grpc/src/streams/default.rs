@@ -22,12 +22,6 @@ pin_project! {
         endpoint: ApiEndpoint,
         _marker: PhantomData<T>,
     }
-
-    impl<S, T> PinnedDrop for XmtpTonicStream<S, T> {
-        fn drop(_this: Pin<&mut Self>) {
-            tracing::info!("dropped tonic stream");
-        }
-    }
 }
 
 impl<S, T> XmtpTonicStream<S, T> {
