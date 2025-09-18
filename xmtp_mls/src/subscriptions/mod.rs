@@ -487,7 +487,7 @@ pub(crate) mod tests {
         };
     }
 
-    /// A macro for asserting that a stream yields a specific decrypted message.
+    /// A macro for asserting that a stream yields any message
     ///
     /// # Example
     /// ```rust

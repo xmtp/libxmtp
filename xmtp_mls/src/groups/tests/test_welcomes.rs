@@ -66,6 +66,7 @@ async fn test_spoofed_inbox_id() {
         scw_verifier: alix.context.scw_verifier.clone(),
         device_sync: alix.context.device_sync.clone(),
         workers: alix.context.workers.clone(),
+        shared_last_streamed: alix.context.shared_last_streamed.clone(),
     });
     let group = MlsGroup::create_and_insert(
         malicious_context,

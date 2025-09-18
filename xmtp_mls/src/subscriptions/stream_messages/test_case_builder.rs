@@ -6,13 +6,13 @@ use std::task::{Context, Poll};
 
 use crate::subscriptions::process_message::ProcessedMessage;
 use crate::test::mock::{MockContext, MockProcessFutureFactory, NewMockContext};
-use crate::test::mock::{context, generate_message, generate_message_and_v1, generate_stored_msg};
+use crate::test::mock::{context, generate_message_and_v1, generate_stored_msg};
 use mockall::Sequence;
 use parking_lot::Mutex;
 use pin_project_lite::pin_project;
 use xmtp_api::test_utils::MockGroupStream;
 use xmtp_common::FutureWrapper;
-use xmtp_proto::mls_v1::QueryGroupMessagesResponse;
+use xmtp_db::mock::MockDbQuery;
 use xmtp_proto::types::GroupId;
 
 pin_project! {
@@ -175,11 +175,6 @@ impl MessageCase {
         Self::message(cursor, group_id, true, next_cursor, false, 1, 1)
     }
 
-    /// The message should be retrieved from the database
-    pub fn retrieved(cursor: u64, group_id: u8, found: bool) -> Self {
-        Self::message(cursor, group_id, found, 9999, true, 1, 1)
-    }
-
     pub fn not_found(cursor: u64, group_id: u8, next_cursor: u64) -> Self {
         Self::message(cursor, group_id, false, next_cursor, false, 1, 1)
     }
@@ -280,37 +275,19 @@ impl StreamSequenceBuilder {
                             ))
                         }
                     });
-            } else {
-                self.factory
-                    .expect_retrieve()
-                    .once()
-                    .in_sequence(&mut self.process_sequence)
-                    .returning({
-                        let case = *case;
-                        move |msg| {
-                            Ok(case
-                                .found
-                                .then(|| generate_stored_msg(msg.id, msg.group_id.clone())))
-                        }
-                    });
             }
         }
     }
 
-    fn init_session(&mut self, groups: Vec<GroupTestCase>) {
-        let times = groups.len();
-        self.context
-            .api_client
-            .api_client
-            .expect_query_group_messages()
-            .times(times)
-            .returning(|req| {
-                let message = generate_message(1, &req.group_id);
-                Ok(QueryGroupMessagesResponse {
-                    messages: vec![message],
-                    paging_info: None,
-                })
-            });
+    fn init_session(&mut self, _groups: Vec<GroupTestCase>) {
+        // Set up database expectation for get_last_cursor_for_ids
+        self.context.store.expect_db().once().returning(|| {
+            let mut mock_db = MockDbQuery::new();
+            mock_db
+                .expect_get_last_cursor_for_ids()
+                .returning(|_, _| Ok(std::collections::HashMap::new()));
+            mock_db
+        });
         let state = self.case_state.clone();
         self.context
             .api_client
