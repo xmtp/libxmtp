@@ -91,11 +91,11 @@ xmtp_configuration.workspace = true
 xmtp_mls_common.workspace = true
 
 # XMTP/Local
-xmtp_api = { workspace = true }
-xmtp_content_types = { path = "../xmtp_content_types" }
+xmtp_api.workspace = true
+xmtp_content_types.workspace = true
 xmtp_cryptography = { workspace = true }
-xmtp_db = { workspace = true }
-xmtp_id = { path = "../xmtp_id" }
+xmtp_db.workspace = true
+xmtp_id.workspace = true
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Optional/Features
