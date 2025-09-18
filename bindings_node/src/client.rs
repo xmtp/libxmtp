@@ -92,6 +92,21 @@ pub struct LogOptions {
   pub level: Option<LogLevel>,
 }
 
+#[napi(object)]
+pub struct GroupSyncSummary {
+  pub num_eligible: u32,
+  pub num_synced: u32,
+}
+
+impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for GroupSyncSummary {
+  fn from(summary: xmtp_mls::groups::welcome_sync::GroupSyncSummary) -> Self {
+    Self {
+      num_eligible: summary.num_eligible as u32,
+      num_synced: summary.num_synced as u32,
+    }
+  }
+}
+
 fn init_logging(options: LogOptions) -> Result<()> {
   LOGGER_INIT
     .get_or_init(|| {
@@ -346,17 +361,15 @@ impl Client {
   }
 
   #[napi]
-  pub async fn sync_preferences(&self) -> Result<u32> {
+  pub async fn sync_preferences(&self) -> Result<GroupSyncSummary> {
     let inner = self.inner_client.as_ref();
 
-    let num_groups_synced: usize = inner
+    let summary = inner
       .sync_all_welcomes_and_history_sync_groups()
       .await
       .map_err(ErrorWrapper::from)?;
 
-    let num_groups_synced: u32 = num_groups_synced.try_into().map_err(ErrorWrapper::from)?;
-
-    Ok(num_groups_synced)
+    Ok(summary.into())
   }
 
   #[napi]

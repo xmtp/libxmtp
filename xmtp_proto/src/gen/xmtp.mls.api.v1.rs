@@ -47,7 +47,8 @@ pub mod welcome_message {
         /// The topic of the welcome message (generally the installation id)
         #[prost(bytes = "vec", tag = "3")]
         pub installation_key: ::prost::alloc::vec::Vec<u8>,
-        /// A WelcomePointer encrypted using the algorithm specified by wrapper_algorithm
+        /// A WelcomePointer encrypted using the algorithm specified by
+        /// wrapper_algorithm
         #[prost(bytes = "vec", tag = "4")]
         pub welcome_pointer: ::prost::alloc::vec::Vec<u8>,
         /// The public key used to encrypt the welcome pointer
@@ -96,8 +97,9 @@ pub struct WelcomeMessageInput {
 }
 /// Nested message and enum types in `WelcomeMessageInput`.
 pub mod welcome_message_input {
-    /// Version 1 of the WelcomeMessageInput format, if used as the pointee of a WelcomePointer then
-    /// the hpke_public_key will be unset, and the wrapper_algorithm will be WELCOME_WRAPPER_ALGORITHM_SYMMETRIC_KEY
+    /// Version 1 of the WelcomeMessageInput format, if used as the pointee of a
+    /// WelcomePointer then the hpke_public_key will be unset, and the
+    /// wrapper_algorithm will be WELCOME_WRAPPER_ALGORITHM_SYMMETRIC_KEY
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct V1 {
         /// The topic of the welcome message (generally the installation id)
@@ -216,6 +218,8 @@ pub mod group_message {
         pub sender_hmac: ::prost::alloc::vec::Vec<u8>,
         #[prost(bool, tag = "6")]
         pub should_push: bool,
+        #[prost(bool, tag = "7")]
+        pub is_commit: bool,
     }
     impl ::prost::Name for V1 {
         const NAME: &'static str = "V1";
@@ -862,6 +866,61 @@ impl ::prost::Name for BatchQueryCommitLogResponse {
         "/xmtp.mls.api.v1.BatchQueryCommitLogResponse".into()
     }
 }
+/// Request to get the newest group message from a range of topics
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GetNewestGroupMessageRequest {
+    /// Get the newest message from each of these topics
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub group_ids: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bool, tag = "2")]
+    pub include_content: bool,
+}
+impl ::prost::Name for GetNewestGroupMessageRequest {
+    const NAME: &'static str = "GetNewestGroupMessageRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.GetNewestGroupMessageRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.GetNewestGroupMessageRequest".into()
+    }
+}
+/// Returns a list of responses that will always be the same length as the
+/// request
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetNewestGroupMessageResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub responses: ::prost::alloc::vec::Vec<get_newest_group_message_response::Response>,
+}
+/// Nested message and enum types in `GetNewestGroupMessageResponse`.
+pub mod get_newest_group_message_response {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Response {
+        /// If no message is found on the topic, will be nil
+        #[prost(message, optional, tag = "1")]
+        pub group_message: ::core::option::Option<super::GroupMessage>,
+    }
+    impl ::prost::Name for Response {
+        const NAME: &'static str = "Response";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.GetNewestGroupMessageResponse.Response".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.GetNewestGroupMessageResponse.Response".into()
+        }
+    }
+}
+impl ::prost::Name for GetNewestGroupMessageResponse {
+    const NAME: &'static str = "GetNewestGroupMessageResponse";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.GetNewestGroupMessageResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.GetNewestGroupMessageResponse".into()
+    }
+}
 /// Sort direction for queries
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1007,6 +1066,13 @@ pub mod mls_api_server {
             request: tonic::Request<super::BatchQueryCommitLogRequest>,
         ) -> std::result::Result<
             tonic::Response<super::BatchQueryCommitLogResponse>,
+            tonic::Status,
+        >;
+        async fn get_newest_group_message(
+            &self,
+            request: tonic::Request<super::GetNewestGroupMessageRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetNewestGroupMessageResponse>,
             tonic::Status,
         >;
     }
@@ -1666,6 +1732,52 @@ pub mod mls_api_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = BatchQueryCommitLogSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/xmtp.mls.api.v1.MlsApi/GetNewestGroupMessage" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetNewestGroupMessageSvc<T: MlsApi>(pub Arc<T>);
+                    impl<
+                        T: MlsApi,
+                    > tonic::server::UnaryService<super::GetNewestGroupMessageRequest>
+                    for GetNewestGroupMessageSvc<T> {
+                        type Response = super::GetNewestGroupMessageResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetNewestGroupMessageRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as MlsApi>::get_newest_group_message(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetNewestGroupMessageSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

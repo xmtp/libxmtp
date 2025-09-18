@@ -568,8 +568,8 @@ mock! {
         fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
             &self,
             ids: &[Id],
-            entity_kind: crate::refresh_state::EntityKind,
-        ) -> Result<std::collections::HashMap<Vec<u8>, i64>, StorageError>;
+            entities: &[crate::refresh_state::EntityKind],
+        ) -> Result<std::collections::HashMap<Vec<u8>, GlobalCursor>, StorageError>;
 
         #[mockall::concretize]
         fn update_cursor<Id: AsRef<[u8]>>(

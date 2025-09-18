@@ -437,6 +437,7 @@ where
             }],
             removed_inboxes: vec![],
             metadata_field_changes: vec![],
+            left_inboxes: vec![],
         };
 
         let encoded_added_payload = GroupUpdatedCodec::encode(added_payload)?;
@@ -504,17 +505,10 @@ where
             .unwrap_or_default();
         db.update_cursor(
             &group.group_id,
-            EntityKind::ApplicationMessage,
+            EntityKind::CommitMessage,
             //TODO:d14n this must change before D14n-only
             //Originator must be included in welcome
-            if cfg!(feature = "d14n") {
-                Cursor {
-                    originator_id: 100,
-                    sequence_id: cursor as u64,
-                }
-            } else {
-                Cursor::v3_messages(cursor as u64)
-            },
+            Cursor::mls_commits(cursor as u64),
         )?;
         MlsGroup::<C>::mark_readd_requests_as_responded(
             &storage,

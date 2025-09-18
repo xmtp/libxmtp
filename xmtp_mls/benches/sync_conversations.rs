@@ -102,7 +102,7 @@ async fn setup_sync_conversations_bench(
         .await
         .unwrap();
     assert!(
-        synced_groups > 0,
+        synced_groups.num_eligible > 0,
         "Other client should have received the group"
     );
 

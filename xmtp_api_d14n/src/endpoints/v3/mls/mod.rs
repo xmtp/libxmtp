@@ -27,3 +27,6 @@ pub use subscribe_group_messages::*;
 
 mod subscribe_welcome_messages;
 pub use subscribe_welcome_messages::*;
+
+mod get_newest_group_message;
+pub use get_newest_group_message::*;

@@ -83,7 +83,9 @@ impl WelcomePointeeEncryptionAeadType {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::Unspecified => "WELCOME_POINTEE_ENCRYPTION_AEAD_TYPE_UNSPECIFIED",
-            Self::Chacha20Poly1305 => "WELCOME_POINTEE_ENCRYPTION_AEAD_TYPE_CHACHA20_POLY1305",
+            Self::Chacha20Poly1305 => {
+                "WELCOME_POINTEE_ENCRYPTION_AEAD_TYPE_CHACHA20_POLY1305"
+            }
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -165,7 +167,9 @@ impl WelcomeWrapperAlgorithm {
         match self {
             Self::Unspecified => "WELCOME_WRAPPER_ALGORITHM_UNSPECIFIED",
             Self::Curve25519 => "WELCOME_WRAPPER_ALGORITHM_CURVE25519",
-            Self::XwingMlkem768Draft6 => "WELCOME_WRAPPER_ALGORITHM_XWING_MLKEM_768_DRAFT_6",
+            Self::XwingMlkem768Draft6 => {
+                "WELCOME_WRAPPER_ALGORITHM_XWING_MLKEM_768_DRAFT_6"
+            }
             Self::SymmetricKey => "WELCOME_WRAPPER_ALGORITHM_SYMMETRIC_KEY",
         }
     }
@@ -174,7 +178,9 @@ impl WelcomeWrapperAlgorithm {
         match value {
             "WELCOME_WRAPPER_ALGORITHM_UNSPECIFIED" => Some(Self::Unspecified),
             "WELCOME_WRAPPER_ALGORITHM_CURVE25519" => Some(Self::Curve25519),
-            "WELCOME_WRAPPER_ALGORITHM_XWING_MLKEM_768_DRAFT_6" => Some(Self::XwingMlkem768Draft6),
+            "WELCOME_WRAPPER_ALGORITHM_XWING_MLKEM_768_DRAFT_6" => {
+                Some(Self::XwingMlkem768Draft6)
+            }
             "WELCOME_WRAPPER_ALGORITHM_SYMMETRIC_KEY" => Some(Self::SymmetricKey),
             _ => None,
         }
@@ -185,8 +191,10 @@ impl WelcomeWrapperAlgorithm {
 pub struct GroupMutableMetadataV1 {
     /// Map to store various metadata attributes (Group name, etc.)
     #[prost(map = "string, string", tag = "1")]
-    pub attributes:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub attributes: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
     #[prost(message, optional, tag = "2")]
     pub admin_list: ::core::option::Option<Inboxes>,
     /// Creator starts as only super_admin
@@ -260,8 +268,9 @@ pub struct CommitLogEntry {
     #[prost(bytes = "vec", tag = "2")]
     pub serialized_commit_log_entry: ::prost::alloc::vec::Vec<u8>,
     #[prost(message, optional, tag = "3")]
-    pub signature:
-        ::core::option::Option<super::super::identity::associations::RecoverableEd25519Signature>,
+    pub signature: ::core::option::Option<
+        super::super::identity::associations::RecoverableEd25519Signature,
+    >,
 }
 impl ::prost::Name for CommitLogEntry {
     const NAME: &'static str = "CommitLogEntry";
@@ -344,8 +353,10 @@ pub struct EncodedContent {
     pub r#type: ::core::option::Option<ContentTypeId>,
     /// optional encoding parameters required to correctly decode the content
     #[prost(map = "string, string", tag = "2")]
-    pub parameters:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub parameters: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
     /// optional fallback description of the content that can be used in case
     /// the client cannot decode or render the content
     #[prost(string, optional, tag = "3")]
@@ -418,10 +429,14 @@ pub mod plaintext_envelope {
             Content(::prost::alloc::vec::Vec<u8>),
             /// Initiator sends a request to receive sync payload
             #[prost(message, tag = "3")]
-            DeviceSyncRequest(super::super::super::super::device_sync::content::DeviceSyncRequest),
+            DeviceSyncRequest(
+                super::super::super::super::device_sync::content::DeviceSyncRequest,
+            ),
             /// Some other authorized installation sends a reply with a link to payload
             #[prost(message, tag = "4")]
-            DeviceSyncReply(super::super::super::super::device_sync::content::DeviceSyncReply),
+            DeviceSyncReply(
+                super::super::super::super::device_sync::content::DeviceSyncReply,
+            ),
             /// A serialized user preference update
             #[prost(message, tag = "5")]
             UserPreferenceUpdate(
@@ -487,24 +502,493 @@ impl Compression {
         }
     }
 }
-/// Contains a mapping of `inbox_id` -> `sequence_id` for all members of a group.
-/// Designed to be stored in the group context extension of the MLS group
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GroupMembership {
-    #[prost(map = "string, uint64", tag = "1")]
-    pub members: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
-    /// List of installations that failed to be added due to errors encountered during the evaluation process.
-    #[prost(bytes = "vec", repeated, tag = "2")]
-    pub failed_installations: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+/// A group member and affected installation IDs
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct MembershipChange {
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub installation_ids: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    #[prost(string, tag = "2")]
+    pub account_address: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub initiated_by_account_address: ::prost::alloc::string::String,
 }
-impl ::prost::Name for GroupMembership {
-    const NAME: &'static str = "GroupMembership";
+impl ::prost::Name for MembershipChange {
+    const NAME: &'static str = "MembershipChange";
     const PACKAGE: &'static str = "xmtp.mls.message_contents";
     fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.GroupMembership".into()
+        "xmtp.mls.message_contents.MembershipChange".into()
     }
     fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.GroupMembership".into()
+        "/xmtp.mls.message_contents.MembershipChange".into()
+    }
+}
+/// The group membership change proto
+///
+/// protolint:disable REPEATED_FIELD_NAMES_PLURALIZED
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GroupMembershipChanges {
+    /// Members that have been added in the commit
+    #[prost(message, repeated, tag = "1")]
+    pub members_added: ::prost::alloc::vec::Vec<MembershipChange>,
+    /// Members that have been removed in the commit
+    #[prost(message, repeated, tag = "2")]
+    pub members_removed: ::prost::alloc::vec::Vec<MembershipChange>,
+    /// Installations that have been added in the commit, grouped by member
+    #[prost(message, repeated, tag = "3")]
+    pub installations_added: ::prost::alloc::vec::Vec<MembershipChange>,
+    /// Installations removed in the commit, grouped by member
+    #[prost(message, repeated, tag = "4")]
+    pub installations_removed: ::prost::alloc::vec::Vec<MembershipChange>,
+}
+impl ::prost::Name for GroupMembershipChanges {
+    const NAME: &'static str = "GroupMembershipChanges";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.GroupMembershipChanges".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.GroupMembershipChanges".into()
+    }
+}
+/// A summary of the changes in a commit.
+/// Includes added/removed inboxes and changes to metadata
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GroupUpdated {
+    #[prost(string, tag = "1")]
+    pub initiated_by_inbox_id: ::prost::alloc::string::String,
+    /// The inboxes added in the commit
+    #[prost(message, repeated, tag = "2")]
+    pub added_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
+    /// The inboxes removed in the commit
+    #[prost(message, repeated, tag = "3")]
+    pub removed_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
+    /// The metadata changes in the commit
+    #[prost(message, repeated, tag = "4")]
+    pub metadata_field_changes: ::prost::alloc::vec::Vec<
+        group_updated::MetadataFieldChange,
+    >,
+    /// / The inboxes that were removed from the group in response to pending-remove/self-remove requests
+    #[prost(message, repeated, tag = "5")]
+    pub left_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
+}
+/// Nested message and enum types in `GroupUpdated`.
+pub mod group_updated {
+    /// An inbox that was added or removed in this commit
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Inbox {
+        #[prost(string, tag = "1")]
+        pub inbox_id: ::prost::alloc::string::String,
+    }
+    impl ::prost::Name for Inbox {
+        const NAME: &'static str = "Inbox";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.GroupUpdated.Inbox".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.GroupUpdated.Inbox".into()
+        }
+    }
+    /// A summary of a change to the mutable metadata
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct MetadataFieldChange {
+        /// The field that was changed
+        #[prost(string, tag = "1")]
+        pub field_name: ::prost::alloc::string::String,
+        /// The previous value
+        #[prost(string, optional, tag = "2")]
+        pub old_value: ::core::option::Option<::prost::alloc::string::String>,
+        /// The updated value
+        #[prost(string, optional, tag = "3")]
+        pub new_value: ::core::option::Option<::prost::alloc::string::String>,
+    }
+    impl ::prost::Name for MetadataFieldChange {
+        const NAME: &'static str = "MetadataFieldChange";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange".into()
+        }
+    }
+}
+impl ::prost::Name for GroupUpdated {
+    const NAME: &'static str = "GroupUpdated";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.GroupUpdated".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.GroupUpdated".into()
+    }
+}
+/// Message for group mutable metadata
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GroupMutablePermissionsV1 {
+    #[prost(message, optional, tag = "1")]
+    pub policies: ::core::option::Option<PolicySet>,
+}
+impl ::prost::Name for GroupMutablePermissionsV1 {
+    const NAME: &'static str = "GroupMutablePermissionsV1";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.GroupMutablePermissionsV1".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.GroupMutablePermissionsV1".into()
+    }
+}
+/// The set of policies that govern the group
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PolicySet {
+    #[prost(message, optional, tag = "1")]
+    pub add_member_policy: ::core::option::Option<MembershipPolicy>,
+    #[prost(message, optional, tag = "2")]
+    pub remove_member_policy: ::core::option::Option<MembershipPolicy>,
+    #[prost(map = "string, message", tag = "3")]
+    pub update_metadata_policy: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        MetadataPolicy,
+    >,
+    #[prost(message, optional, tag = "4")]
+    pub add_admin_policy: ::core::option::Option<PermissionsUpdatePolicy>,
+    #[prost(message, optional, tag = "5")]
+    pub remove_admin_policy: ::core::option::Option<PermissionsUpdatePolicy>,
+    #[prost(message, optional, tag = "6")]
+    pub update_permissions_policy: ::core::option::Option<PermissionsUpdatePolicy>,
+}
+impl ::prost::Name for PolicySet {
+    const NAME: &'static str = "PolicySet";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.PolicySet".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.PolicySet".into()
+    }
+}
+/// A policy that governs adding/removing members or installations
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MembershipPolicy {
+    #[prost(oneof = "membership_policy::Kind", tags = "1, 2, 3")]
+    pub kind: ::core::option::Option<membership_policy::Kind>,
+}
+/// Nested message and enum types in `MembershipPolicy`.
+pub mod membership_policy {
+    /// Combine multiple policies. All must evaluate to true
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct AndCondition {
+        #[prost(message, repeated, tag = "1")]
+        pub policies: ::prost::alloc::vec::Vec<super::MembershipPolicy>,
+    }
+    impl ::prost::Name for AndCondition {
+        const NAME: &'static str = "AndCondition";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.MembershipPolicy.AndCondition".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.MembershipPolicy.AndCondition".into()
+        }
+    }
+    /// Combine multiple policies. Any must evaluate to true
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct AnyCondition {
+        #[prost(message, repeated, tag = "1")]
+        pub policies: ::prost::alloc::vec::Vec<super::MembershipPolicy>,
+    }
+    impl ::prost::Name for AnyCondition {
+        const NAME: &'static str = "AnyCondition";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.MembershipPolicy.AnyCondition".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.MembershipPolicy.AnyCondition".into()
+        }
+    }
+    /// Base policy
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum BasePolicy {
+        Unspecified = 0,
+        Allow = 1,
+        Deny = 2,
+        AllowIfAdminOrSuperAdmin = 3,
+        AllowIfSuperAdmin = 4,
+    }
+    impl BasePolicy {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Unspecified => "BASE_POLICY_UNSPECIFIED",
+                Self::Allow => "BASE_POLICY_ALLOW",
+                Self::Deny => "BASE_POLICY_DENY",
+                Self::AllowIfAdminOrSuperAdmin => {
+                    "BASE_POLICY_ALLOW_IF_ADMIN_OR_SUPER_ADMIN"
+                }
+                Self::AllowIfSuperAdmin => "BASE_POLICY_ALLOW_IF_SUPER_ADMIN",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "BASE_POLICY_UNSPECIFIED" => Some(Self::Unspecified),
+                "BASE_POLICY_ALLOW" => Some(Self::Allow),
+                "BASE_POLICY_DENY" => Some(Self::Deny),
+                "BASE_POLICY_ALLOW_IF_ADMIN_OR_SUPER_ADMIN" => {
+                    Some(Self::AllowIfAdminOrSuperAdmin)
+                }
+                "BASE_POLICY_ALLOW_IF_SUPER_ADMIN" => Some(Self::AllowIfSuperAdmin),
+                _ => None,
+            }
+        }
+    }
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Kind {
+        #[prost(enumeration = "BasePolicy", tag = "1")]
+        Base(i32),
+        #[prost(message, tag = "2")]
+        AndCondition(AndCondition),
+        #[prost(message, tag = "3")]
+        AnyCondition(AnyCondition),
+    }
+}
+impl ::prost::Name for MembershipPolicy {
+    const NAME: &'static str = "MembershipPolicy";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.MembershipPolicy".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.MembershipPolicy".into()
+    }
+}
+/// A policy that governs updating metadata
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MetadataPolicy {
+    #[prost(oneof = "metadata_policy::Kind", tags = "1, 2, 3")]
+    pub kind: ::core::option::Option<metadata_policy::Kind>,
+}
+/// Nested message and enum types in `MetadataPolicy`.
+pub mod metadata_policy {
+    /// Combine multiple policies. All must evaluate to true
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct AndCondition {
+        #[prost(message, repeated, tag = "1")]
+        pub policies: ::prost::alloc::vec::Vec<super::MetadataPolicy>,
+    }
+    impl ::prost::Name for AndCondition {
+        const NAME: &'static str = "AndCondition";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.MetadataPolicy.AndCondition".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.MetadataPolicy.AndCondition".into()
+        }
+    }
+    /// Combine multiple policies. Any must evaluate to true
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct AnyCondition {
+        #[prost(message, repeated, tag = "1")]
+        pub policies: ::prost::alloc::vec::Vec<super::MetadataPolicy>,
+    }
+    impl ::prost::Name for AnyCondition {
+        const NAME: &'static str = "AnyCondition";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.MetadataPolicy.AnyCondition".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.MetadataPolicy.AnyCondition".into()
+        }
+    }
+    /// Base policy
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum MetadataBasePolicy {
+        Unspecified = 0,
+        Allow = 1,
+        Deny = 2,
+        AllowIfAdmin = 3,
+        AllowIfSuperAdmin = 4,
+    }
+    impl MetadataBasePolicy {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Unspecified => "METADATA_BASE_POLICY_UNSPECIFIED",
+                Self::Allow => "METADATA_BASE_POLICY_ALLOW",
+                Self::Deny => "METADATA_BASE_POLICY_DENY",
+                Self::AllowIfAdmin => "METADATA_BASE_POLICY_ALLOW_IF_ADMIN",
+                Self::AllowIfSuperAdmin => "METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "METADATA_BASE_POLICY_UNSPECIFIED" => Some(Self::Unspecified),
+                "METADATA_BASE_POLICY_ALLOW" => Some(Self::Allow),
+                "METADATA_BASE_POLICY_DENY" => Some(Self::Deny),
+                "METADATA_BASE_POLICY_ALLOW_IF_ADMIN" => Some(Self::AllowIfAdmin),
+                "METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN" => {
+                    Some(Self::AllowIfSuperAdmin)
+                }
+                _ => None,
+            }
+        }
+    }
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Kind {
+        #[prost(enumeration = "MetadataBasePolicy", tag = "1")]
+        Base(i32),
+        #[prost(message, tag = "2")]
+        AndCondition(AndCondition),
+        #[prost(message, tag = "3")]
+        AnyCondition(AnyCondition),
+    }
+}
+impl ::prost::Name for MetadataPolicy {
+    const NAME: &'static str = "MetadataPolicy";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.MetadataPolicy".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.MetadataPolicy".into()
+    }
+}
+/// A policy that governs updating permissions
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PermissionsUpdatePolicy {
+    #[prost(oneof = "permissions_update_policy::Kind", tags = "1, 2, 3")]
+    pub kind: ::core::option::Option<permissions_update_policy::Kind>,
+}
+/// Nested message and enum types in `PermissionsUpdatePolicy`.
+pub mod permissions_update_policy {
+    /// Combine multiple policies. All must evaluate to true
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct AndCondition {
+        #[prost(message, repeated, tag = "1")]
+        pub policies: ::prost::alloc::vec::Vec<super::PermissionsUpdatePolicy>,
+    }
+    impl ::prost::Name for AndCondition {
+        const NAME: &'static str = "AndCondition";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.PermissionsUpdatePolicy.AndCondition".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.PermissionsUpdatePolicy.AndCondition".into()
+        }
+    }
+    /// Combine multiple policies. Any must evaluate to true
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct AnyCondition {
+        #[prost(message, repeated, tag = "1")]
+        pub policies: ::prost::alloc::vec::Vec<super::PermissionsUpdatePolicy>,
+    }
+    impl ::prost::Name for AnyCondition {
+        const NAME: &'static str = "AnyCondition";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.PermissionsUpdatePolicy.AnyCondition".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.PermissionsUpdatePolicy.AnyCondition".into()
+        }
+    }
+    /// Base policy
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum PermissionsBasePolicy {
+        Unspecified = 0,
+        Deny = 1,
+        AllowIfAdmin = 2,
+        AllowIfSuperAdmin = 3,
+    }
+    impl PermissionsBasePolicy {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Unspecified => "PERMISSIONS_BASE_POLICY_UNSPECIFIED",
+                Self::Deny => "PERMISSIONS_BASE_POLICY_DENY",
+                Self::AllowIfAdmin => "PERMISSIONS_BASE_POLICY_ALLOW_IF_ADMIN",
+                Self::AllowIfSuperAdmin => "PERMISSIONS_BASE_POLICY_ALLOW_IF_SUPER_ADMIN",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "PERMISSIONS_BASE_POLICY_UNSPECIFIED" => Some(Self::Unspecified),
+                "PERMISSIONS_BASE_POLICY_DENY" => Some(Self::Deny),
+                "PERMISSIONS_BASE_POLICY_ALLOW_IF_ADMIN" => Some(Self::AllowIfAdmin),
+                "PERMISSIONS_BASE_POLICY_ALLOW_IF_SUPER_ADMIN" => {
+                    Some(Self::AllowIfSuperAdmin)
+                }
+                _ => None,
+            }
+        }
+    }
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Kind {
+        #[prost(enumeration = "PermissionsBasePolicy", tag = "1")]
+        Base(i32),
+        #[prost(message, tag = "2")]
+        AndCondition(AndCondition),
+        #[prost(message, tag = "3")]
+        AnyCondition(AnyCondition),
+    }
+}
+impl ::prost::Name for PermissionsUpdatePolicy {
+    const NAME: &'static str = "PermissionsUpdatePolicy";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.PermissionsUpdatePolicy".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.PermissionsUpdatePolicy".into()
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -650,447 +1134,23 @@ impl ConversationType {
         }
     }
 }
-/// Message for group mutable metadata
+/// Contains a mapping of `inbox_id` -> `sequence_id` for all members of a group.
+/// Designed to be stored in the group context extension of the MLS group
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GroupMutablePermissionsV1 {
-    #[prost(message, optional, tag = "1")]
-    pub policies: ::core::option::Option<PolicySet>,
+pub struct GroupMembership {
+    #[prost(map = "string, uint64", tag = "1")]
+    pub members: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
+    /// List of installations that failed to be added due to errors encountered during the evaluation process.
+    #[prost(bytes = "vec", repeated, tag = "2")]
+    pub failed_installations: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
-impl ::prost::Name for GroupMutablePermissionsV1 {
-    const NAME: &'static str = "GroupMutablePermissionsV1";
+impl ::prost::Name for GroupMembership {
+    const NAME: &'static str = "GroupMembership";
     const PACKAGE: &'static str = "xmtp.mls.message_contents";
     fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.GroupMutablePermissionsV1".into()
+        "xmtp.mls.message_contents.GroupMembership".into()
     }
     fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.GroupMutablePermissionsV1".into()
-    }
-}
-/// The set of policies that govern the group
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PolicySet {
-    #[prost(message, optional, tag = "1")]
-    pub add_member_policy: ::core::option::Option<MembershipPolicy>,
-    #[prost(message, optional, tag = "2")]
-    pub remove_member_policy: ::core::option::Option<MembershipPolicy>,
-    #[prost(map = "string, message", tag = "3")]
-    pub update_metadata_policy:
-        ::std::collections::HashMap<::prost::alloc::string::String, MetadataPolicy>,
-    #[prost(message, optional, tag = "4")]
-    pub add_admin_policy: ::core::option::Option<PermissionsUpdatePolicy>,
-    #[prost(message, optional, tag = "5")]
-    pub remove_admin_policy: ::core::option::Option<PermissionsUpdatePolicy>,
-    #[prost(message, optional, tag = "6")]
-    pub update_permissions_policy: ::core::option::Option<PermissionsUpdatePolicy>,
-}
-impl ::prost::Name for PolicySet {
-    const NAME: &'static str = "PolicySet";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.PolicySet".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.PolicySet".into()
-    }
-}
-/// A policy that governs adding/removing members or installations
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct MembershipPolicy {
-    #[prost(oneof = "membership_policy::Kind", tags = "1, 2, 3")]
-    pub kind: ::core::option::Option<membership_policy::Kind>,
-}
-/// Nested message and enum types in `MembershipPolicy`.
-pub mod membership_policy {
-    /// Combine multiple policies. All must evaluate to true
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct AndCondition {
-        #[prost(message, repeated, tag = "1")]
-        pub policies: ::prost::alloc::vec::Vec<super::MembershipPolicy>,
-    }
-    impl ::prost::Name for AndCondition {
-        const NAME: &'static str = "AndCondition";
-        const PACKAGE: &'static str = "xmtp.mls.message_contents";
-        fn full_name() -> ::prost::alloc::string::String {
-            "xmtp.mls.message_contents.MembershipPolicy.AndCondition".into()
-        }
-        fn type_url() -> ::prost::alloc::string::String {
-            "/xmtp.mls.message_contents.MembershipPolicy.AndCondition".into()
-        }
-    }
-    /// Combine multiple policies. Any must evaluate to true
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct AnyCondition {
-        #[prost(message, repeated, tag = "1")]
-        pub policies: ::prost::alloc::vec::Vec<super::MembershipPolicy>,
-    }
-    impl ::prost::Name for AnyCondition {
-        const NAME: &'static str = "AnyCondition";
-        const PACKAGE: &'static str = "xmtp.mls.message_contents";
-        fn full_name() -> ::prost::alloc::string::String {
-            "xmtp.mls.message_contents.MembershipPolicy.AnyCondition".into()
-        }
-        fn type_url() -> ::prost::alloc::string::String {
-            "/xmtp.mls.message_contents.MembershipPolicy.AnyCondition".into()
-        }
-    }
-    /// Base policy
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-    #[repr(i32)]
-    pub enum BasePolicy {
-        Unspecified = 0,
-        Allow = 1,
-        Deny = 2,
-        AllowIfAdminOrSuperAdmin = 3,
-        AllowIfSuperAdmin = 4,
-    }
-    impl BasePolicy {
-        /// String value of the enum field names used in the ProtoBuf definition.
-        ///
-        /// The values are not transformed in any way and thus are considered stable
-        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-        pub fn as_str_name(&self) -> &'static str {
-            match self {
-                Self::Unspecified => "BASE_POLICY_UNSPECIFIED",
-                Self::Allow => "BASE_POLICY_ALLOW",
-                Self::Deny => "BASE_POLICY_DENY",
-                Self::AllowIfAdminOrSuperAdmin => "BASE_POLICY_ALLOW_IF_ADMIN_OR_SUPER_ADMIN",
-                Self::AllowIfSuperAdmin => "BASE_POLICY_ALLOW_IF_SUPER_ADMIN",
-            }
-        }
-        /// Creates an enum from field names used in the ProtoBuf definition.
-        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-            match value {
-                "BASE_POLICY_UNSPECIFIED" => Some(Self::Unspecified),
-                "BASE_POLICY_ALLOW" => Some(Self::Allow),
-                "BASE_POLICY_DENY" => Some(Self::Deny),
-                "BASE_POLICY_ALLOW_IF_ADMIN_OR_SUPER_ADMIN" => Some(Self::AllowIfAdminOrSuperAdmin),
-                "BASE_POLICY_ALLOW_IF_SUPER_ADMIN" => Some(Self::AllowIfSuperAdmin),
-                _ => None,
-            }
-        }
-    }
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Kind {
-        #[prost(enumeration = "BasePolicy", tag = "1")]
-        Base(i32),
-        #[prost(message, tag = "2")]
-        AndCondition(AndCondition),
-        #[prost(message, tag = "3")]
-        AnyCondition(AnyCondition),
-    }
-}
-impl ::prost::Name for MembershipPolicy {
-    const NAME: &'static str = "MembershipPolicy";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.MembershipPolicy".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.MembershipPolicy".into()
-    }
-}
-/// A policy that governs updating metadata
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct MetadataPolicy {
-    #[prost(oneof = "metadata_policy::Kind", tags = "1, 2, 3")]
-    pub kind: ::core::option::Option<metadata_policy::Kind>,
-}
-/// Nested message and enum types in `MetadataPolicy`.
-pub mod metadata_policy {
-    /// Combine multiple policies. All must evaluate to true
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct AndCondition {
-        #[prost(message, repeated, tag = "1")]
-        pub policies: ::prost::alloc::vec::Vec<super::MetadataPolicy>,
-    }
-    impl ::prost::Name for AndCondition {
-        const NAME: &'static str = "AndCondition";
-        const PACKAGE: &'static str = "xmtp.mls.message_contents";
-        fn full_name() -> ::prost::alloc::string::String {
-            "xmtp.mls.message_contents.MetadataPolicy.AndCondition".into()
-        }
-        fn type_url() -> ::prost::alloc::string::String {
-            "/xmtp.mls.message_contents.MetadataPolicy.AndCondition".into()
-        }
-    }
-    /// Combine multiple policies. Any must evaluate to true
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct AnyCondition {
-        #[prost(message, repeated, tag = "1")]
-        pub policies: ::prost::alloc::vec::Vec<super::MetadataPolicy>,
-    }
-    impl ::prost::Name for AnyCondition {
-        const NAME: &'static str = "AnyCondition";
-        const PACKAGE: &'static str = "xmtp.mls.message_contents";
-        fn full_name() -> ::prost::alloc::string::String {
-            "xmtp.mls.message_contents.MetadataPolicy.AnyCondition".into()
-        }
-        fn type_url() -> ::prost::alloc::string::String {
-            "/xmtp.mls.message_contents.MetadataPolicy.AnyCondition".into()
-        }
-    }
-    /// Base policy
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-    #[repr(i32)]
-    pub enum MetadataBasePolicy {
-        Unspecified = 0,
-        Allow = 1,
-        Deny = 2,
-        AllowIfAdmin = 3,
-        AllowIfSuperAdmin = 4,
-    }
-    impl MetadataBasePolicy {
-        /// String value of the enum field names used in the ProtoBuf definition.
-        ///
-        /// The values are not transformed in any way and thus are considered stable
-        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-        pub fn as_str_name(&self) -> &'static str {
-            match self {
-                Self::Unspecified => "METADATA_BASE_POLICY_UNSPECIFIED",
-                Self::Allow => "METADATA_BASE_POLICY_ALLOW",
-                Self::Deny => "METADATA_BASE_POLICY_DENY",
-                Self::AllowIfAdmin => "METADATA_BASE_POLICY_ALLOW_IF_ADMIN",
-                Self::AllowIfSuperAdmin => "METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN",
-            }
-        }
-        /// Creates an enum from field names used in the ProtoBuf definition.
-        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-            match value {
-                "METADATA_BASE_POLICY_UNSPECIFIED" => Some(Self::Unspecified),
-                "METADATA_BASE_POLICY_ALLOW" => Some(Self::Allow),
-                "METADATA_BASE_POLICY_DENY" => Some(Self::Deny),
-                "METADATA_BASE_POLICY_ALLOW_IF_ADMIN" => Some(Self::AllowIfAdmin),
-                "METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN" => Some(Self::AllowIfSuperAdmin),
-                _ => None,
-            }
-        }
-    }
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Kind {
-        #[prost(enumeration = "MetadataBasePolicy", tag = "1")]
-        Base(i32),
-        #[prost(message, tag = "2")]
-        AndCondition(AndCondition),
-        #[prost(message, tag = "3")]
-        AnyCondition(AnyCondition),
-    }
-}
-impl ::prost::Name for MetadataPolicy {
-    const NAME: &'static str = "MetadataPolicy";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.MetadataPolicy".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.MetadataPolicy".into()
-    }
-}
-/// A policy that governs updating permissions
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PermissionsUpdatePolicy {
-    #[prost(oneof = "permissions_update_policy::Kind", tags = "1, 2, 3")]
-    pub kind: ::core::option::Option<permissions_update_policy::Kind>,
-}
-/// Nested message and enum types in `PermissionsUpdatePolicy`.
-pub mod permissions_update_policy {
-    /// Combine multiple policies. All must evaluate to true
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct AndCondition {
-        #[prost(message, repeated, tag = "1")]
-        pub policies: ::prost::alloc::vec::Vec<super::PermissionsUpdatePolicy>,
-    }
-    impl ::prost::Name for AndCondition {
-        const NAME: &'static str = "AndCondition";
-        const PACKAGE: &'static str = "xmtp.mls.message_contents";
-        fn full_name() -> ::prost::alloc::string::String {
-            "xmtp.mls.message_contents.PermissionsUpdatePolicy.AndCondition".into()
-        }
-        fn type_url() -> ::prost::alloc::string::String {
-            "/xmtp.mls.message_contents.PermissionsUpdatePolicy.AndCondition".into()
-        }
-    }
-    /// Combine multiple policies. Any must evaluate to true
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct AnyCondition {
-        #[prost(message, repeated, tag = "1")]
-        pub policies: ::prost::alloc::vec::Vec<super::PermissionsUpdatePolicy>,
-    }
-    impl ::prost::Name for AnyCondition {
-        const NAME: &'static str = "AnyCondition";
-        const PACKAGE: &'static str = "xmtp.mls.message_contents";
-        fn full_name() -> ::prost::alloc::string::String {
-            "xmtp.mls.message_contents.PermissionsUpdatePolicy.AnyCondition".into()
-        }
-        fn type_url() -> ::prost::alloc::string::String {
-            "/xmtp.mls.message_contents.PermissionsUpdatePolicy.AnyCondition".into()
-        }
-    }
-    /// Base policy
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-    #[repr(i32)]
-    pub enum PermissionsBasePolicy {
-        Unspecified = 0,
-        Deny = 1,
-        AllowIfAdmin = 2,
-        AllowIfSuperAdmin = 3,
-    }
-    impl PermissionsBasePolicy {
-        /// String value of the enum field names used in the ProtoBuf definition.
-        ///
-        /// The values are not transformed in any way and thus are considered stable
-        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-        pub fn as_str_name(&self) -> &'static str {
-            match self {
-                Self::Unspecified => "PERMISSIONS_BASE_POLICY_UNSPECIFIED",
-                Self::Deny => "PERMISSIONS_BASE_POLICY_DENY",
-                Self::AllowIfAdmin => "PERMISSIONS_BASE_POLICY_ALLOW_IF_ADMIN",
-                Self::AllowIfSuperAdmin => "PERMISSIONS_BASE_POLICY_ALLOW_IF_SUPER_ADMIN",
-            }
-        }
-        /// Creates an enum from field names used in the ProtoBuf definition.
-        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-            match value {
-                "PERMISSIONS_BASE_POLICY_UNSPECIFIED" => Some(Self::Unspecified),
-                "PERMISSIONS_BASE_POLICY_DENY" => Some(Self::Deny),
-                "PERMISSIONS_BASE_POLICY_ALLOW_IF_ADMIN" => Some(Self::AllowIfAdmin),
-                "PERMISSIONS_BASE_POLICY_ALLOW_IF_SUPER_ADMIN" => Some(Self::AllowIfSuperAdmin),
-                _ => None,
-            }
-        }
-    }
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Kind {
-        #[prost(enumeration = "PermissionsBasePolicy", tag = "1")]
-        Base(i32),
-        #[prost(message, tag = "2")]
-        AndCondition(AndCondition),
-        #[prost(message, tag = "3")]
-        AnyCondition(AnyCondition),
-    }
-}
-impl ::prost::Name for PermissionsUpdatePolicy {
-    const NAME: &'static str = "PermissionsUpdatePolicy";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.PermissionsUpdatePolicy".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.PermissionsUpdatePolicy".into()
-    }
-}
-/// A group member and affected installation IDs
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct MembershipChange {
-    #[prost(bytes = "vec", repeated, tag = "1")]
-    pub installation_ids: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-    #[prost(string, tag = "2")]
-    pub account_address: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub initiated_by_account_address: ::prost::alloc::string::String,
-}
-impl ::prost::Name for MembershipChange {
-    const NAME: &'static str = "MembershipChange";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.MembershipChange".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.MembershipChange".into()
-    }
-}
-/// The group membership change proto
-///
-/// protolint:disable REPEATED_FIELD_NAMES_PLURALIZED
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GroupMembershipChanges {
-    /// Members that have been added in the commit
-    #[prost(message, repeated, tag = "1")]
-    pub members_added: ::prost::alloc::vec::Vec<MembershipChange>,
-    /// Members that have been removed in the commit
-    #[prost(message, repeated, tag = "2")]
-    pub members_removed: ::prost::alloc::vec::Vec<MembershipChange>,
-    /// Installations that have been added in the commit, grouped by member
-    #[prost(message, repeated, tag = "3")]
-    pub installations_added: ::prost::alloc::vec::Vec<MembershipChange>,
-    /// Installations removed in the commit, grouped by member
-    #[prost(message, repeated, tag = "4")]
-    pub installations_removed: ::prost::alloc::vec::Vec<MembershipChange>,
-}
-impl ::prost::Name for GroupMembershipChanges {
-    const NAME: &'static str = "GroupMembershipChanges";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.GroupMembershipChanges".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.GroupMembershipChanges".into()
-    }
-}
-/// A summary of the changes in a commit.
-/// Includes added/removed inboxes and changes to metadata
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GroupUpdated {
-    #[prost(string, tag = "1")]
-    pub initiated_by_inbox_id: ::prost::alloc::string::String,
-    /// The inboxes added in the commit
-    #[prost(message, repeated, tag = "2")]
-    pub added_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
-    /// The inboxes removed in the commit
-    #[prost(message, repeated, tag = "3")]
-    pub removed_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
-    /// The metadata changes in the commit
-    #[prost(message, repeated, tag = "4")]
-    pub metadata_field_changes: ::prost::alloc::vec::Vec<group_updated::MetadataFieldChange>,
-}
-/// Nested message and enum types in `GroupUpdated`.
-pub mod group_updated {
-    /// An inbox that was added or removed in this commit
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Inbox {
-        #[prost(string, tag = "1")]
-        pub inbox_id: ::prost::alloc::string::String,
-    }
-    impl ::prost::Name for Inbox {
-        const NAME: &'static str = "Inbox";
-        const PACKAGE: &'static str = "xmtp.mls.message_contents";
-        fn full_name() -> ::prost::alloc::string::String {
-            "xmtp.mls.message_contents.GroupUpdated.Inbox".into()
-        }
-        fn type_url() -> ::prost::alloc::string::String {
-            "/xmtp.mls.message_contents.GroupUpdated.Inbox".into()
-        }
-    }
-    /// A summary of a change to the mutable metadata
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct MetadataFieldChange {
-        /// The field that was changed
-        #[prost(string, tag = "1")]
-        pub field_name: ::prost::alloc::string::String,
-        /// The previous value
-        #[prost(string, optional, tag = "2")]
-        pub old_value: ::core::option::Option<::prost::alloc::string::String>,
-        /// The updated value
-        #[prost(string, optional, tag = "3")]
-        pub new_value: ::core::option::Option<::prost::alloc::string::String>,
-    }
-    impl ::prost::Name for MetadataFieldChange {
-        const NAME: &'static str = "MetadataFieldChange";
-        const PACKAGE: &'static str = "xmtp.mls.message_contents";
-        fn full_name() -> ::prost::alloc::string::String {
-            "xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange".into()
-        }
-        fn type_url() -> ::prost::alloc::string::String {
-            "/xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange".into()
-        }
-    }
-}
-impl ::prost::Name for GroupUpdated {
-    const NAME: &'static str = "GroupUpdated";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.GroupUpdated".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.GroupUpdated".into()
+        "/xmtp.mls.message_contents.GroupMembership".into()
     }
 }
