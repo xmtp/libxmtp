@@ -10,7 +10,8 @@ use crate::{
     identity::{Identity, IdentityError},
     mutex_registry::MutexRegistry,
 };
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_db::XmtpDb;
@@ -43,6 +44,8 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync: DeviceSync,
     pub(crate) workers: WorkerRunner,
+    /// Shared mapping of group_id -> last_streamed cursor across all stream instances
+    pub(crate) shared_last_streamed: Arc<RwLock<HashMap<Vec<u8>, u64>>>,
 }
 
 impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S>
@@ -108,6 +111,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             scw_verifier: self.scw_verifier,
             device_sync: self.device_sync,
             workers: self.workers,
+            shared_last_streamed: self.shared_last_streamed,
         }
     }
 }
@@ -200,6 +204,15 @@ where
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
     fn workers(&self) -> &WorkerRunner;
     fn mutexes(&self) -> &MutexRegistry;
+
+    /// Get the shared last_streamed mapping
+    fn shared_last_streamed(&self) -> &Arc<RwLock<HashMap<Vec<u8>, u64>>>;
+
+    /// Update the last_streamed value for a group
+    fn update_shared_last_streamed(&self, group_id: &[u8], cursor: u64);
+
+    /// Get the last_streamed value for a group
+    fn get_shared_last_streamed(&self, group_id: &[u8]) -> Option<u64>;
 }
 
 impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
@@ -269,6 +282,33 @@ where
 
     fn mutexes(&self) -> &MutexRegistry {
         &self.mutexes
+    }
+
+    fn shared_last_streamed(&self) -> &Arc<RwLock<HashMap<Vec<u8>, u64>>> {
+        &self.shared_last_streamed
+    }
+
+    fn update_shared_last_streamed(&self, group_id: &[u8], cursor: u64) {
+        if let Ok(mut mapping) = self.shared_last_streamed.write() {
+            let group_key = group_id.to_vec();
+
+            // Only update if new cursor is greater than existing
+            if let Some(existing) = mapping.get(&group_key) {
+                if cursor > *existing {
+                    mapping.insert(group_key, cursor);
+                }
+            } else {
+                mapping.insert(group_key, cursor);
+            }
+        }
+    }
+
+    fn get_shared_last_streamed(&self, group_id: &[u8]) -> Option<u64> {
+        if let Ok(mapping) = self.shared_last_streamed.read() {
+            mapping.get(group_id).copied()
+        } else {
+            None
+        }
     }
 }
 
@@ -343,5 +383,17 @@ where
 
     fn mutexes(&self) -> &MutexRegistry {
         <T as XmtpSharedContext>::mutexes(self)
+    }
+
+    fn shared_last_streamed(&self) -> &Arc<RwLock<HashMap<Vec<u8>, u64>>> {
+        <T as XmtpSharedContext>::shared_last_streamed(self)
+    }
+
+    fn update_shared_last_streamed(&self, group_id: &[u8], cursor: u64) {
+        <T as XmtpSharedContext>::update_shared_last_streamed(self, group_id, cursor)
+    }
+
+    fn get_shared_last_streamed(&self, group_id: &[u8]) -> Option<u64> {
+        <T as XmtpSharedContext>::get_shared_last_streamed(self, group_id)
     }
 }

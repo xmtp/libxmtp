@@ -143,8 +143,10 @@ where
     ) -> Result<Self> {
         tracing::debug!("setting up messages subscription");
         let api = context.api();
-        let groups = GroupList::new(groups, api).await?;
-        let subscription = api.subscribe_group_messages(groups.filters()).await?;
+        let groups = GroupList::new(groups, context.as_ref())?;
+        let filters = groups.filters();
+        let subscription = api.subscribe_group_messages(filters.clone()).await?;
+        tracing::info!("stream_messages ready. Filters: {:?}", filters);
 
         Ok(Self {
             inner: subscription,
@@ -230,7 +232,7 @@ where
     )> {
         // get the last synced cursor
         let stream = context.api().subscribe_group_messages(filters).await?;
-        Ok((stream, new_group, Some(1)))
+        Ok((stream, new_group, Some(0)))
     }
 }
 
@@ -293,13 +295,8 @@ where
                 let (stream, group, cursor) = ready!(future.poll(cx))?;
                 let this = self.as_mut();
                 if let Some(c) = cursor {
-                    this.set_cursor(
-                        group.as_slice(),
-                        Cursor {
-                            sequence_id: c,
-                            originator_id: 0,
-                        },
-                    );
+                    // TODO:(nm) Currently hardcoding to a v3 cursor
+                    this.set_cursor(group.as_slice(), Cursor::v3_messages(c));
                 };
                 let mut this = self.as_mut().project();
                 this.inner.set(stream);
@@ -359,34 +356,23 @@ where
             return Poll::Ready(None);
         }
         let mut next_msg = next_msg.expect("checked for none")?;
-        // ensure we have not tried processing this message yet
-        // if we have tried to process, replay messages up to the known cursor.
+
+        // Ensure we have not already returned this message to the caller before in this stream
         let group_position = self.groups.position(&next_msg.group_id);
         if let Some(group) = group_position {
-            if group.has_seen(next_msg.cursor) && group.started_after(next_msg.cursor) {
+            if group.has_seen(next_msg.cursor) {
                 tracing::warn!(
-                    "stream started @[{:?}] has cursor@[{:?}] for group_id@[{}], skipping messages for msg with cursor@[{}]",
-                    group.started(),
+                    "stream synced @[{:?}] has cursor@[{:?}] for group_id@[{}], skipping messages for msg with cursor@[{}]",
+                    group.synced(),
                     group.last_streamed(),
                     xmtp_common::fmt::truncate_hex(hex::encode(next_msg.group_id.as_slice())),
                     next_msg.cursor,
                 );
                 next_msg = ready!(self.as_mut().skip(cx, next_msg))?;
-            // we got a message with a sequence_id greater than a message we already processed
-            // so it must be present in the database
-            } else if group.has_seen(next_msg.cursor) && group.started_before(next_msg.cursor) {
-                tracing::debug!(
-                    "stream synced up to cursor@[{:?}], checking for message with cursor@[{}] in database",
-                    group.last_streamed(),
-                    next_msg.cursor
-                );
-                if let Some(stored) = self.factory.retrieve(&next_msg)? {
-                    return Poll::Ready(Some(Ok(stored)));
-                } else {
-                    cx.waker().wake_by_ref();
-                    return Poll::Pending;
-                }
+                // we got a message with a sequence_id greater than a message we already processed
+                // so it must be present in the database
             }
+
             tracing::debug!(
                 "stream @cursor=[{:?}] for group_id@[{}] encountered newly unprocessed message @cursor=[{}]",
                 group.last_streamed(),
@@ -557,6 +543,10 @@ where
     fn set_cursor(mut self: Pin<&mut Self>, group_id: &[u8], new_cursor: Cursor) {
         let this = self.as_mut().project();
         this.groups.set(group_id, new_cursor);
+
+        // Update shared mapping
+        self.context
+            .update_shared_last_streamed(group_id, new_cursor.sequence_id);
     }
 }
 
@@ -564,36 +554,43 @@ where
 pub mod tests {
     use std::sync::Arc;
 
-    use futures::stream::StreamExt;
+    // use futures::stream::StreamExt;
+    use tokio_stream::StreamExt;
 
     use crate::assert_msg;
     use crate::builder::ClientBuilder;
+    use crate::groups::MlsGroup;
     use crate::groups::send_message_opts::SendMessageOpts;
+    use crate::utils::TestXmtpMlsContext;
     use rstest::*;
     use xmtp_cryptography::utils::generate_local_wallet;
+
+    // Creates both sides of a conversation, with both sides synced and up to date
+    async fn setup_groups() -> (MlsGroup<TestXmtpMlsContext>, MlsGroup<TestXmtpMlsContext>) {
+        let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let amal_group = amal
+            .create_group_with_inbox_ids(&[bola.inbox_id()], None, None)
+            .await
+            .unwrap();
+
+        bola.sync_welcomes().await.unwrap();
+        let bola_group = bola.group(&amal_group.group_id).unwrap();
+        bola_group.sync().await.unwrap();
+
+        (amal_group, bola_group)
+    }
 
     #[rstest]
     #[xmtp_common::test]
     #[timeout(std::time::Duration::from_secs(5))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_messages() {
-        let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let (amal_group, bola_group) = setup_groups().await;
 
-        let alice_group = alice.create_group(None, None).unwrap();
-        tracing::info!("Group Id = [{}]", hex::encode(&alice_group.group_id));
-
-        alice_group
-            .add_members_by_inbox_id(&[bob.inbox_id()])
-            .await
-            .unwrap();
-        let bob_groups = bob.sync_welcomes().await.unwrap();
-        let bob_group = bob_groups.first().unwrap();
-        alice_group.sync().await.unwrap();
-
-        let stream = alice_group.stream().await.unwrap();
+        let stream = amal_group.stream().await.unwrap();
         futures::pin_mut!(stream);
-        bob_group
+        bola_group
             .send_message(b"hello", SendMessageOpts::default())
             .await
             .unwrap();
@@ -602,7 +599,107 @@ pub mod tests {
         // assert_msg_exists!(stream);
         assert_msg!(stream, "hello");
 
-        bob_group
+        bola_group
+            .send_message(b"hello2", SendMessageOpts::default())
+            .await
+            .unwrap();
+        assert_msg!(stream, "hello2");
+    }
+
+    #[rstest]
+    #[xmtp_common::test]
+    #[timeout(std::time::Duration::from_secs(5))]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn test_stream_covers_missing_messages() {
+        let (amal_group, bola_group) = setup_groups().await;
+        bola_group
+            .send_message(b"hello", SendMessageOpts::default())
+            .await
+            .unwrap();
+        bola_group
+            .send_message(b"hello2", SendMessageOpts::default())
+            .await
+            .unwrap();
+        bola_group
+            .send_message(b"hello3", SendMessageOpts::default())
+            .await
+            .unwrap();
+        bola_group
+            .send_message(b"hello4", SendMessageOpts::default())
+            .await
+            .unwrap();
+        bola_group
+            .send_message(b"hello5", SendMessageOpts::default())
+            .await
+            .unwrap();
+
+        let stream = amal_group.stream().await.unwrap();
+        futures::pin_mut!(stream);
+
+        assert_msg!(stream, "hello");
+        assert_msg!(stream, "hello2");
+        assert_msg!(stream, "hello3");
+        assert_msg!(stream, "hello4");
+        assert_msg!(stream, "hello5");
+    }
+
+    #[rstest]
+    #[xmtp_common::test]
+    #[timeout(std::time::Duration::from_secs(5))]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn test_stream_interrupt_and_resume() {
+        let (amal_group, bola_group) = setup_groups().await;
+        {
+            let stream = amal_group.stream().await.unwrap();
+            futures::pin_mut!(stream);
+
+            bola_group
+                .send_message(b"hello from bola", SendMessageOpts::default())
+                .await
+                .unwrap();
+            // Ensure the group updated message is streamed
+            assert_msg!(stream, "hello from bola");
+        }
+        {
+            let stream = amal_group.stream().await.unwrap();
+            futures::pin_mut!(stream);
+
+            // Send a message
+            bola_group
+                .send_message(b"hello again", SendMessageOpts::default())
+                .await
+                .unwrap();
+            // Ensure that the new message is the first result from the stream...not the group updated
+            assert_msg!(stream, "hello again");
+
+            // Send a second message
+            bola_group
+                .send_message(b"hello 3", SendMessageOpts::default())
+                .await
+                .unwrap();
+            assert_msg!(stream, "hello 3");
+        }
+    }
+
+    #[rstest]
+    #[xmtp_common::test]
+    #[timeout(std::time::Duration::from_secs(5))]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn test_stream_after_last_sync() {
+        let (amal_group, bola_group) = setup_groups().await;
+
+        bola_group
+            .send_message(b"hello", SendMessageOpts::default())
+            .await
+            .unwrap();
+        // Syncing the group will update the cursor so the "hello" message is not returned
+        amal_group.sync().await.unwrap();
+
+        // The stream should only return messages after the last sync
+        let stream = amal_group.stream().await.unwrap();
+        futures::pin_mut!(stream);
+
+        bola_group
             .send_message(b"hello2", SendMessageOpts::default())
             .await
             .unwrap();
