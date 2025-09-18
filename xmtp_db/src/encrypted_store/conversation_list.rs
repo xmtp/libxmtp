@@ -119,15 +119,18 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
             .into_boxed();
 
         if !include_duplicate_dms {
-            // Group by dm_id and grab the latest group (conversation stitching)
+            // Fast DM deduplication using EXISTS - avoids expensive window functions
+            // For each group, ensure no other group exists with same dm_id and newer last_message_ns
             query = query.filter(sql::<diesel::sql_types::Bool>(
-                "id IN (
-                    SELECT id FROM (
-                        SELECT id,
-                            ROW_NUMBER() OVER (PARTITION BY COALESCE(dm_id, id) ORDER BY last_message_ns DESC) AS row_num
-                        FROM groups
-                    ) AS ranked_groups
-                    WHERE row_num = 1
+                "NOT EXISTS (
+                    SELECT 1 FROM groups g2
+                    WHERE COALESCE(g2.dm_id, g2.id) = COALESCE(conversation_list.dm_id, conversation_list.id)
+                    AND (COALESCE(g2.last_message_ns, 0) > COALESCE((
+                        SELECT g1.last_message_ns FROM groups g1 WHERE g1.id = conversation_list.id
+                    ), 0)
+                    OR (COALESCE(g2.last_message_ns, 0) = COALESCE((
+                        SELECT g1.last_message_ns FROM groups g1 WHERE g1.id = conversation_list.id
+                    ), 0) AND g2.id > conversation_list.id))
                 )",
             ));
         }
