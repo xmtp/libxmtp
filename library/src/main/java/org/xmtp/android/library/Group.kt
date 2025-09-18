@@ -215,7 +215,7 @@ class Group(
         }
     }
 
-    suspend fun messagesV2(
+    suspend fun enrichedMessages(
         limit: Int? = null,
         beforeNs: Long? = null,
         afterNs: Long? = null,

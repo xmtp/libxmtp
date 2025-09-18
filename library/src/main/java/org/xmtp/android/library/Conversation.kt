@@ -184,7 +184,7 @@ sealed class Conversation {
         }
     }
 
-    suspend fun messagesV2(
+    suspend fun enrichedMessages(
         limit: Int? = null,
         beforeNs: Long? = null,
         afterNs: Long? = null,
@@ -192,8 +192,8 @@ sealed class Conversation {
         deliveryStatus: DecodedMessage.MessageDeliveryStatus = DecodedMessage.MessageDeliveryStatus.ALL,
     ): List<DecodedMessageV2> {
         return when (this) {
-            is Group -> group.messagesV2(limit, beforeNs, afterNs, direction, deliveryStatus)
-            is Dm -> dm.messagesV2(limit, beforeNs, afterNs, direction, deliveryStatus)
+            is Group -> group.enrichedMessages(limit, beforeNs, afterNs, direction, deliveryStatus)
+            is Dm -> dm.enrichedMessages(limit, beforeNs, afterNs, direction, deliveryStatus)
         }
     }
 

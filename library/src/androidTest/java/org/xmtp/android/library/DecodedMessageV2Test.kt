@@ -48,7 +48,7 @@ class DecodedMessageV2Test {
     }
 
     @Test
-    fun testCanRetrieveMessagesV2FromGroup() {
+    fun testCanRetrieveEnrichedMessagesFromGroup() {
         val boGroup = runBlocking {
             boClient.conversations.newGroup(listOf(alixClient.inboxId))
         }
@@ -65,7 +65,7 @@ class DecodedMessageV2Test {
         }
 
         val messagesV2 = runBlocking {
-            boGroup.messagesV2()
+            boGroup.enrichedMessages()
         }
 
         // Groups include a GroupUpdated message when members are added
@@ -94,7 +94,7 @@ class DecodedMessageV2Test {
         }
 
         val messagesV2 = runBlocking {
-            boDm.messagesV2()
+            boDm.enrichedMessages()
         }
 
         // DMs include a GroupUpdated message when the conversation is created
@@ -124,17 +124,17 @@ class DecodedMessageV2Test {
         }
 
         val limitedMessages = runBlocking {
-            boGroup.messagesV2(limit = 5)
+            boGroup.enrichedMessages(limit = 5)
         }
         assertEquals(5, limitedMessages.size)
 
         val beforeMessages = runBlocking {
-            boGroup.messagesV2(beforeNs = limitedMessages[2].sentAtNs)
+            boGroup.enrichedMessages(beforeNs = limitedMessages[2].sentAtNs)
         }
         assertTrue(beforeMessages.all { it.sentAtNs < limitedMessages[2].sentAtNs })
 
         val afterMessages = runBlocking {
-            boGroup.messagesV2(afterNs = limitedMessages[2].sentAtNs)
+            boGroup.enrichedMessages(afterNs = limitedMessages[2].sentAtNs)
         }
         assertTrue(afterMessages.all { it.sentAtNs > limitedMessages[2].sentAtNs })
     }
@@ -158,7 +158,7 @@ class DecodedMessageV2Test {
         }
 
         val descendingMessages = runBlocking {
-            boGroup.messagesV2(direction = DecodedMessage.SortDirection.DESCENDING)
+            boGroup.enrichedMessages(direction = DecodedMessage.SortDirection.DESCENDING)
         }
         // Skip GroupUpdated message, check text messages
         assertEquals("Third message", descendingMessages[0].content<String>())
@@ -166,7 +166,7 @@ class DecodedMessageV2Test {
         assertEquals("First message", descendingMessages[2].content<String>())
 
         val ascendingMessages = runBlocking {
-            boGroup.messagesV2(direction = DecodedMessage.SortDirection.ASCENDING)
+            boGroup.enrichedMessages(direction = DecodedMessage.SortDirection.ASCENDING)
         }
         // First message is GroupUpdated, then text messages
         assertNotNull(ascendingMessages[0].content<Any>()) // GroupUpdated
@@ -191,20 +191,20 @@ class DecodedMessageV2Test {
         }
 
         val allMessages = runBlocking {
-            boGroup.messagesV2(deliveryStatus = DecodedMessage.MessageDeliveryStatus.ALL)
+            boGroup.enrichedMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.ALL)
         }
         // 2 user messages + 1 GroupUpdated message
         assertEquals(3, allMessages.size)
 
         val publishedMessages = runBlocking {
-            boGroup.messagesV2(deliveryStatus = DecodedMessage.MessageDeliveryStatus.PUBLISHED)
+            boGroup.enrichedMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.PUBLISHED)
         }
         // 1 published user message + 1 GroupUpdated message
         assertEquals(2, publishedMessages.size)
         assertEquals("Published message", publishedMessages[0].content<String>())
 
         val unpublishedMessages = runBlocking {
-            boGroup.messagesV2(deliveryStatus = DecodedMessage.MessageDeliveryStatus.UNPUBLISHED)
+            boGroup.enrichedMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.UNPUBLISHED)
         }
         assertEquals(1, unpublishedMessages.size)
         assertEquals("Unpublished message", unpublishedMessages[0].content<String>())
@@ -223,8 +223,8 @@ class DecodedMessageV2Test {
             options = SendOptions(contentType = NumberCodec().contentType),
         )
 
-        val messages = group.messagesV2()
-        val content: Double? = messages[0].content()
+        val messages = group.enrichedMessages()
+        val content: Double? = messages[0].content<Double>()
         assertEquals(myNumber, content)
     }
 
@@ -268,7 +268,7 @@ class DecodedMessageV2Test {
         }
 
         val messagesV2 = runBlocking {
-            boGroup.messagesV2()
+            boGroup.enrichedMessages()
         }
 
         val messageWithReactions =
@@ -315,7 +315,7 @@ class DecodedMessageV2Test {
         }
 
         val messagesV2 = runBlocking {
-            boGroup.messagesV2()
+            boGroup.enrichedMessages()
         }
 
         val message = messagesV2.find { it.content<String>() == "Test reaction count" }

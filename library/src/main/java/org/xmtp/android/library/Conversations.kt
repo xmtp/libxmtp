@@ -115,11 +115,11 @@ data class Conversations(
         }
     }
 
-    fun findMessageV2(messageId: String): DecodedMessageV2? {
+    fun findEnrichedMessage(messageId: String): DecodedMessageV2? {
         return try {
             DecodedMessageV2.create(ffiClient.messageV2(messageId.hexToByteArray()))
         } catch (e: Exception) {
-            Log.e("findMessageV2 failed", e.toString())
+            Log.e("findEnrichedMessage failed", e.toString())
             null
         }
     }

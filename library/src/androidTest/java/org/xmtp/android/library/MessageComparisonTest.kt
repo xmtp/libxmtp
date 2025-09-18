@@ -78,7 +78,7 @@ class MessageComparisonTest {
         }
 
         val messagesV2 = runBlocking {
-            boGroup.messagesV2()
+            boGroup.enrichedMessages()
         }
 
         // V1 also includes system messages now, so filter for text messages only
@@ -169,7 +169,7 @@ class MessageComparisonTest {
         }
 
         val messagesV2 = runBlocking {
-            boGroup.messagesV2(direction = DecodedMessage.SortDirection.ASCENDING)
+            boGroup.enrichedMessages(direction = DecodedMessage.SortDirection.ASCENDING)
         }
 
         // V2 includes GroupUpdated message at the beginning, filter to text messages only
@@ -253,7 +253,7 @@ class MessageComparisonTest {
 
         val v2StartTime = System.currentTimeMillis()
         val messagesV2 = runBlocking {
-            boGroup.messagesV2()
+            boGroup.enrichedMessages()
         }
         val v2EndTime = System.currentTimeMillis()
         val v2Duration = v2EndTime - v2StartTime
@@ -262,7 +262,10 @@ class MessageComparisonTest {
         println("V2 fetch time: ${v2Duration}ms for ${messagesV2.size} messages (excluding embedded reactions)")
 
         val v2MessagesWithReactions = messagesV2.filter { it.hasReactions }
-        assertTrue("V2 should include messages with embedded reactions", v2MessagesWithReactions.isNotEmpty())
+        assertTrue(
+            "V2 should include messages with embedded reactions",
+            v2MessagesWithReactions.isNotEmpty()
+        )
     }
 
     @Test
@@ -309,7 +312,7 @@ class MessageComparisonTest {
         }
 
         val messagesV2 = runBlocking {
-            boGroup.messagesV2()
+            boGroup.enrichedMessages()
         }
 
         // V1 messages include reactions as separate messages

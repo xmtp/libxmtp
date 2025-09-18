@@ -84,7 +84,7 @@ class ReplyTest {
             aliceGroup.sync()
         }
 
-        val messagesV2 = runBlocking { aliceGroup.messagesV2() }
+        val messagesV2 = runBlocking { aliceGroup.enrichedMessages() }
         // 2 user messages + 1 GroupUpdated message
         assertEquals(3, messagesV2.size)
 
@@ -126,7 +126,7 @@ class ReplyTest {
             aliceGroup.sync()
         }
 
-        val messagesV2 = runBlocking { aliceGroup.messagesV2() }
+        val messagesV2 = runBlocking { aliceGroup.enrichedMessages() }
         // 1 user message + 1 GroupUpdated message
         assertEquals(2, messagesV2.size)
 
@@ -170,7 +170,7 @@ class ReplyTest {
             aliceGroup.sync()
         }
 
-        val messagesV2 = runBlocking { aliceGroup.messagesV2() }
+        val messagesV2 = runBlocking { aliceGroup.enrichedMessages() }
         // 2 user messages + 1 GroupUpdated message
         assertEquals(3, messagesV2.size)
 

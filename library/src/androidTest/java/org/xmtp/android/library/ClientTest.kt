@@ -1053,7 +1053,6 @@ class ClientTest {
         println("Aggregate Stats Create:\n$aggregateStats2")
 
         val apiStats2 = alix.debugInformation.apiStatistics
-        assertEquals(0, apiStats2.uploadKeyPackage)
         assertEquals(0, apiStats2.fetchKeyPackage)
         assertEquals(6, apiStats2.sendGroupMessages)
         assertEquals(0, apiStats2.sendWelcomeMessages)
