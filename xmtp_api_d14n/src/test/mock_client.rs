@@ -1,10 +1,16 @@
 use std::pin::Pin;
 
+use crate::protocol::CursorStore;
+use crate::protocol::XmtpQuery;
 use futures::Stream;
+use mockall::mock;
+use std::sync::Arc;
 use xmtp_proto::api::mock::MockApiBuilder;
+use xmtp_proto::api_client::CursorAwareApi;
+use xmtp_proto::api_client::XmtpTestClient;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
-    types::{GroupMessage, WelcomeMessage},
+    types::{GroupId, GroupMessage, GroupMessageMetadata, InstallationId, WelcomeMessage},
     xmtp::{
         identity::api::v1::{
             GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -20,14 +26,6 @@ use xmtp_proto::{
         },
     },
 };
-
-use crate::protocol::CursorStore;
-use crate::protocol::XmtpQuery;
-use mockall::mock;
-use std::sync::Arc;
-use xmtp_proto::api_client::CursorAwareApi;
-use xmtp_proto::api_client::XmtpTestClient;
-use xmtp_proto::types::{GroupId, InstallationId};
 xmtp_common::if_native! {
     pub use not_wasm::*;
 }
@@ -104,6 +102,7 @@ mod not_wasm {
             async fn query_welcome_messages(&self, installation_key: InstallationId) -> Result<Vec<WelcomeMessage>, MockError>;
             async fn publish_commit_log(&self, request: BatchPublishCommitLogRequest) -> Result<(), MockError>;
             async fn query_commit_log(&self, request: BatchQueryCommitLogRequest) -> Result<BatchQueryCommitLogResponse, MockError>;
+            async fn get_newest_group_message(&self, request: xmtp_proto::mls_v1::GetNewestGroupMessageRequest) -> Result<Vec<Option<GroupMessageMetadata>>, MockError>;
         }
 
         #[async_trait::async_trait]

@@ -5,9 +5,9 @@ pub use super::xmtp::message_api::v1::{
 use crate::api::IsConnectedCheck;
 use crate::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
-    PagingInfo,
+    GetNewestGroupMessageRequest, PagingInfo,
 };
-use crate::types::{GroupId, GroupMessage, InstallationId, WelcomeMessage};
+use crate::types::{GroupId, GroupMessage, GroupMessageMetadata, InstallationId, WelcomeMessage};
 use crate::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
@@ -141,6 +141,10 @@ pub trait XmtpMlsClient {
         &self,
         request: BatchQueryCommitLogRequest,
     ) -> Result<BatchQueryCommitLogResponse, Self::Error>;
+    async fn get_newest_group_message(
+        &self,
+        request: GetNewestGroupMessageRequest,
+    ) -> Result<Vec<Option<GroupMessageMetadata>>, Self::Error>;
 }
 
 /// Represents the backend API required for an MLS Delivery Service

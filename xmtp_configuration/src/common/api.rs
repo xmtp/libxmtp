@@ -89,8 +89,8 @@ xmtp_common::if_native! {
 pub struct GrpcUrlsLocal;
 impl GrpcUrlsLocal {
     pub const NODE: &'static str = "http://localhost:5556";
-    pub const XMTPD: &'static str = "http://localhost:5050";
-    pub const GATEWAY: &'static str = "http://localhost:5052";
+    pub const XMTPD: &'static str = "http://localhost:5150";
+    pub const GATEWAY: &'static str = "http://localhost:5152";
 }
 
 /// GRPC URLS corresponding to dev environments

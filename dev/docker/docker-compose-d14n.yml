@@ -142,8 +142,8 @@ services:
       replicationdb:
         condition: service_healthy
     ports:
-      - 5050:5050
-      - 5052:5052
+      - 5150:5050
+      - 5152:5052
 
   # Gateway runs on the same network namespace as xmtpd.
   # That means it can access xmtpd on localhost:5050, but docker

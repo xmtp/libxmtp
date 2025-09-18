@@ -5,6 +5,7 @@ mod cursor;
 mod global_cursor;
 mod group_message;
 mod ids;
+mod message_metadata;
 mod topic;
 mod welcome_message;
 pub use api_identifier::*;
@@ -13,6 +14,7 @@ pub use cursor::*;
 pub use global_cursor::*;
 pub use group_message::*;
 pub use ids::*;
+pub use message_metadata::*;
 pub use topic::*;
 pub use welcome_message::*;
 

@@ -1085,6 +1085,7 @@ impl From<ValidatedCommit> for GroupUpdatedProto {
                 .iter()
                 .map(MetadataFieldChangeProto::from)
                 .collect(),
+            left_inboxes: vec![], // TODO: Add real value
         }
     }
 }
