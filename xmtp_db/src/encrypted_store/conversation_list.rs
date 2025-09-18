@@ -124,7 +124,7 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
                 "id IN (
                     SELECT id FROM (
                         SELECT id,
-                            ROW_NUMBER() OVER (PARTITION BY COALESCE(dm_id, id) ORDER BY last_message_ns DESC) AS row_num
+                            ROW_NUMBER() OVER (PARTITION BY COALESCE(dm_id, id) ORDER BY id DESC) AS row_num
                         FROM groups
                     ) AS ranked_groups
                     WHERE row_num = 1
