@@ -6,8 +6,8 @@ use xmtp_common::retry_async;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1::{
-    BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, PublishCommitLogRequest,
-    QueryCommitLogRequest, QueryCommitLogResponse,
+    BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, GetNewestGroupMessageRequest,
+    PublishCommitLogRequest, QueryCommitLogRequest, QueryCommitLogResponse, group_message,
 };
 use xmtp_proto::xmtp::mls::api::v1::{
     FetchKeyPackagesRequest, GroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo,
@@ -52,6 +52,12 @@ impl From<GroupFilter> for GroupFilterProto {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct MessageMetadata {
+    pub sequence_id: u64,
+    pub sent_at_ns: u64,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct NewInstallation {
     pub installation_key: Vec<u8>,
@@ -73,6 +79,7 @@ pub enum IdentityUpdate {
 }
 
 type KeyPackageMap = HashMap<Vec<u8>, Vec<u8>>;
+type MessageMetadataMap = HashMap<Vec<u8>, MessageMetadata>;
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
@@ -406,6 +413,45 @@ where
         }
 
         Ok(all_responses)
+    }
+
+    pub async fn get_newest_message_metadata(
+        &self,
+        group_ids: Vec<&[u8]>,
+    ) -> Result<MessageMetadataMap> {
+        const BATCH_SIZE: usize = 1000;
+
+        let res =
+            futures::future::try_join_all(group_ids.chunks(BATCH_SIZE).map(|chunk| async move {
+                self.api_client
+                    .get_newest_group_message(GetNewestGroupMessageRequest {
+                        group_ids: chunk.to_vec().iter().map(|id| id.to_vec()).collect(),
+                        include_content: false,
+                    })
+                    .await
+                    .map_err(crate::dyn_err)
+            }))
+            .await?;
+
+        // Functionally process responses into metadata map
+        let metadata_map = res
+            .into_iter()
+            .flat_map(|response| response.responses)
+            .filter_map(|response| {
+                response.group_message.and_then(|msg| match msg.version? {
+                    group_message::Version::V1(v1_inner) => Some((
+                        v1_inner.group_id,
+                        MessageMetadata {
+                            // TODO: With decentralization we are going to need to handle this as a multi-cursor
+                            sequence_id: v1_inner.id,
+                            sent_at_ns: v1_inner.created_ns,
+                        },
+                    )),
+                })
+            })
+            .collect();
+
+        Ok(metadata_map)
     }
 }
 

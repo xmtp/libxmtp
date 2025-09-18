@@ -4,8 +4,9 @@ pub use super::xmtp::message_api::v1::{
 };
 use crate::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
-    GroupMessage, PagingInfo, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
-    QueryWelcomeMessagesRequest, WelcomeMessage,
+    GetNewestGroupMessageRequest, GetNewestGroupMessageResponse, GroupMessage, PagingInfo,
+    QueryGroupMessagesRequest, QueryGroupMessagesResponse, QueryWelcomeMessagesRequest,
+    WelcomeMessage,
 };
 use crate::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -106,6 +107,10 @@ pub trait XmtpMlsClient {
         &self,
         request: BatchQueryCommitLogRequest,
     ) -> Result<BatchQueryCommitLogResponse, Self::Error>;
+    async fn get_newest_group_message(
+        &self,
+        request: GetNewestGroupMessageRequest,
+    ) -> Result<GetNewestGroupMessageResponse, Self::Error>;
     fn stats(&self) -> ApiStats;
 }
 

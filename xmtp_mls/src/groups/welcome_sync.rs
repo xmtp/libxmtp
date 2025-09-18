@@ -7,11 +7,15 @@ use crate::groups::{GroupError, MlsGroup};
 use crate::intents::ProcessIntentError;
 use crate::mls_store::MlsStore;
 use futures::stream::{self, FuturesUnordered, StreamExt};
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+use xmtp_api::MessageMetadata;
 use xmtp_common::{Retry, retry_async};
+use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
 use xmtp_proto::xmtp::mls::api::v1::{WelcomeMessage, welcome_message};
 
@@ -124,8 +128,9 @@ where
         groups: Vec<MlsGroup<Context>>,
     ) -> Result<usize, GroupError> {
         let active_group_count = Arc::new(AtomicUsize::new(0));
-
-        let sync_futures = groups
+        let sync_futures = self
+            .filter_groups_needing_sync(groups)
+            .await?
             .into_iter()
             .map(|group| {
                 let active_group_count = Arc::clone(&active_group_count);
@@ -158,6 +163,26 @@ where
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(active_group_count.load(Ordering::SeqCst))
+    }
+
+    async fn filter_groups_needing_sync(
+        &self,
+        groups: Vec<MlsGroup<Context>>,
+    ) -> Result<Vec<MlsGroup<Context>>, GroupError> {
+        let db = self.context.db();
+        let api = self.context.api();
+
+        let group_ids: Vec<&[u8]> = groups.iter().map(|group| group.group_id.as_ref()).collect();
+        let last_synced_cursors = db.get_last_cursor_for_ids(&group_ids, EntityKind::Group)?;
+        let latest_message_metadata = api.get_newest_message_metadata(group_ids).await?;
+
+        let group_ids_needing_sync =
+            filter_groups_with_new_messages(last_synced_cursors, latest_message_metadata);
+
+        Ok(groups
+            .into_iter()
+            .filter(|group| group_ids_needing_sync.contains(&group.group_id))
+            .collect::<Vec<_>>())
     }
 
     pub async fn sync_all_welcomes_and_history_sync_groups(&self) -> Result<usize, ClientError> {
@@ -201,7 +226,7 @@ where
 
         let conversations = db.fetch_conversation_list(query_args)?;
 
-        let groups: Vec<MlsGroup<Context>> = conversations
+        let all_groups: Vec<MlsGroup<Context>> = conversations
             .into_iter()
             .map(|c| {
                 MlsGroup::new(
@@ -214,7 +239,9 @@ where
             })
             .collect();
 
-        let success_count = self.sync_groups_in_batches(groups, 10).await?;
+        let filtered_groups = self.filter_groups_needing_sync(all_groups).await?;
+
+        let success_count = self.sync_groups_in_batches(filtered_groups, 10).await?;
 
         Ok(success_count)
     }
@@ -272,6 +299,31 @@ where
 
         Ok(active_group_count.load(Ordering::SeqCst))
     }
+}
+
+// Take the mapping of last synced cursors and the latest messages
+// Filter groups that have messages newer than their last synced cursor
+fn filter_groups_with_new_messages(
+    last_synced_cursors: HashMap<Vec<u8>, i64>,
+    latest_messages: HashMap<Vec<u8>, MessageMetadata>,
+) -> HashSet<Vec<u8>> {
+    let mut groups_with_unread_messages = HashSet::new();
+    for (group_id, latest_message_metadata) in latest_messages {
+        match last_synced_cursors.get(&group_id) {
+            Some(cursor) => {
+                // Check if the latest message is newer than the last synced cursor
+                if latest_message_metadata.sequence_id as i64 > *cursor {
+                    groups_with_unread_messages.insert(group_id);
+                }
+            }
+            None => {
+                // No cursor found. Must have never been synced before.
+                groups_with_unread_messages.insert(group_id);
+            }
+        }
+    }
+
+    groups_with_unread_messages
 }
 
 #[cfg(test)]

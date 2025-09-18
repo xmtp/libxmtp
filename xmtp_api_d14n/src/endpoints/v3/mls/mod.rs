@@ -21,3 +21,6 @@ pub use publish_commit_log::*;
 
 mod query_commit_log;
 pub use query_commit_log::*;
+
+mod get_newest_group_message;
+pub use get_newest_group_message::*;
