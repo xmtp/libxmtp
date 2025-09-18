@@ -59,32 +59,6 @@ use std::borrow::Cow;
             vec![10]
         )
     ])]
-#[case::out_of_order(vec![
-        StreamSession::session(
-            vec![1, 2, 3, 4],
-            vec![
-                MessageCase::found(15, 1, 20),
-                MessageCase::retrieved(10, 1, true),
-                MessageCase::not_found(20, 1, 25),
-                MessageCase::found(25, 1, 30),
-            ],
-            vec![15, 10, 25]
-        )
-    ])]
-#[case::out_of_order(vec![
-        StreamSession::session(
-            vec![1, 2, 3, 4],
-            vec![
-                MessageCase::found(25, 1, 30),
-                MessageCase::retrieved(15, 1, true),
-                MessageCase::retrieved(10, 1, true),
-                MessageCase::retrieved(20, 1, false),
-                MessageCase::found(9, 2, 25),
-                MessageCase::found(31, 2, 25),
-            ],
-            vec![25, 15, 10, 9, 31]
-        )
-    ])]
 #[xmtp_common::test]
 async fn it_can_stream_messages(#[case] mut cases: Vec<StreamSession>) {
     use std::borrow::Cow;

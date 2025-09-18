@@ -1,12 +1,10 @@
 use std::collections::HashMap;
 
-use futures::{StreamExt, TryStreamExt, stream};
-use xmtp_api::{ApiClientWrapper, GroupFilter, XmtpApi};
+use xmtp_api::GroupFilter;
 use xmtp_common::types::GroupId;
+use xmtp_db::{prelude::QueryRefreshState, refresh_state::EntityKind};
 
-use crate::subscriptions::SubscribeError;
-
-use super::extract_message_cursor;
+use crate::{context::XmtpSharedContext, subscriptions::SubscribeError};
 
 #[derive(thiserror::Error, Debug)]
 pub enum MessageStreamError {
@@ -38,9 +36,9 @@ impl std::fmt::Debug for MessagePosition {
 }
 
 impl MessagePosition {
-    pub fn new(cursor: u64, started_at: u64) -> Self {
+    pub fn new(last_streamed: u64, started_at: u64) -> Self {
         Self {
-            last_streamed: Some(cursor),
+            last_streamed: Some(last_streamed),
             started_at,
         }
     }
@@ -77,57 +75,42 @@ impl std::fmt::Display for MessagePosition {
     }
 }
 
-pub(super) trait Api {
-    /// get the latest message for a cursor
-    async fn query_latest_position(
-        &self,
-        group: &GroupId,
-    ) -> Result<MessagePosition, SubscribeError>;
-}
-
-impl<A> Api for ApiClientWrapper<A>
-where
-    A: XmtpApi,
-{
-    async fn query_latest_position(
-        &self,
-        group: &GroupId,
-    ) -> Result<MessagePosition, SubscribeError> {
-        if let Some(msg) = self.query_latest_group_message(group).await? {
-            let cursor = extract_message_cursor(&msg).ok_or(MessageStreamError::InvalidPayload)?;
-            Ok(MessagePosition::new(cursor, cursor))
-        } else {
-            Ok(MessagePosition::new(0, 0))
-        } // there is no cursor for this group yet
-    }
-}
-
 #[derive(Clone, Debug, Default)]
 pub(super) struct GroupList {
     list: HashMap<GroupId, MessagePosition>,
 }
 
 impl GroupList {
-    pub(super) async fn new(list: Vec<GroupId>, api: &impl Api) -> Result<Self, SubscribeError> {
-        let list = stream::iter(list)
-            .map(|group| async {
-                let position = api.query_latest_position(&group).await?;
-                Ok((group, position))
-            })
-            .buffer_unordered(8)
-            .try_fold(HashMap::new(), async move |mut map, (group, position)| {
-                map.insert(group, position);
-                Ok::<_, SubscribeError>(map)
-            })
-            .await?;
-        Ok(Self { list })
+    pub(super) fn new(
+        list: Vec<GroupId>,
+        ctx: &impl XmtpSharedContext,
+    ) -> Result<Self, SubscribeError> {
+        let db = ctx.db();
+        let mut existing_positions = db.get_last_cursor_for_ids(&list, EntityKind::Group)?;
+
+        let mut group_list = HashMap::new();
+
+        for group_id in list {
+            let db_cursor = existing_positions.remove(group_id.as_ref()).unwrap_or(0) as u64;
+
+            // Query shared last_streamed mapping
+            let last_streamed = ctx
+                .get_shared_last_streamed(group_id.as_ref())
+                .unwrap_or(db_cursor); // fallback to db cursor if not found
+
+            let message_position = MessagePosition::new(last_streamed, db_cursor);
+            group_list.insert(group_id, message_position);
+        }
+
+        Ok(Self { list: group_list })
     }
 
     pub(super) fn filters(&self) -> Vec<GroupFilter> {
         self.list
             .iter()
             .map(|(group_id, cursor)| {
-                GroupFilter::new(group_id.to_vec(), Some(cursor.last_streamed()))
+                let filter_cursor = std::cmp::max(cursor.last_streamed(), cursor.started());
+                GroupFilter::new(group_id.to_vec(), Some(filter_cursor))
             })
             .collect()
     }
