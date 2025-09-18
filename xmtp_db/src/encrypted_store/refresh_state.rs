@@ -89,6 +89,12 @@ pub trait QueryRefreshState {
         entity_kind: EntityKind,
     ) -> Result<i64, StorageError>;
 
+    fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+        &self,
+        ids: &[Id],
+        entity_kind: EntityKind,
+    ) -> Result<HashMap<Vec<u8>, i64>, StorageError>;
+
     fn update_cursor<Id: AsRef<[u8]>>(
         &self,
         entity_id: Id,
@@ -117,6 +123,14 @@ impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
         entity_kind: EntityKind,
     ) -> Result<i64, StorageError> {
         (**self).get_last_cursor_for_id(id, entity_kind)
+    }
+
+    fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+        &self,
+        ids: &[Id],
+        entity_kind: EntityKind,
+    ) -> Result<HashMap<Vec<u8>, i64>, StorageError> {
+        (**self).get_last_cursor_for_ids(ids, entity_kind)
     }
 
     fn update_cursor<Id: AsRef<[u8]>>(
@@ -171,6 +185,39 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
                 Ok(0)
             }
         }
+    }
+
+    fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+        &self,
+        ids: &[Id],
+        entity_kind: EntityKind,
+    ) -> Result<HashMap<Vec<u8>, i64>, StorageError> {
+        use super::schema::refresh_state::dsl;
+        use std::collections::HashMap;
+
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // Run multiple small IN-queries and merge results.
+        // Keep chunks comfortably under SQLite's default 999-bind limit.
+        const CHUNK: usize = 900;
+
+        let map = self.raw_query_read(|conn| {
+            ids.chunks(CHUNK)
+                .map(|chunk| {
+                    let id_refs: Vec<&[u8]> = chunk.iter().map(|id| id.as_ref()).collect();
+                    dsl::refresh_state
+                        .filter(dsl::entity_kind.eq(entity_kind))
+                        .filter(dsl::entity_id.eq_any(&id_refs))
+                        .select((dsl::entity_id, dsl::cursor))
+                        .load::<(Vec<u8>, i64)>(conn)
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map(|vecs| vecs.into_iter().flatten().collect::<HashMap<_, _>>())
+        })?;
+
+        Ok(map)
     }
 
     fn update_cursor<Id: AsRef<[u8]>>(
