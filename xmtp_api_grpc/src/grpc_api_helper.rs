@@ -7,6 +7,7 @@ use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams};
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
+    GetNewestGroupMessageRequest, GetNewestGroupMessageResponse,
 };
 use xmtp_proto::traits::ApiClientError;
 use xmtp_proto::traits::HasStats;
@@ -273,6 +274,19 @@ impl XmtpMlsClient for Client {
             .await
             .map(|r| r.into_inner())
             .map_err(|e| ApiClientError::new(ApiEndpoint::QueryCommitLog, e.into()))
+    }
+
+    async fn get_newest_group_message(
+        &self,
+        req: GetNewestGroupMessageRequest,
+    ) -> Result<GetNewestGroupMessageResponse, Self::Error> {
+        self.stats.get_newest_group_message.count_request();
+        let client = &mut self.mls_client.clone();
+        client
+            .get_newest_group_message(self.build_request(req))
+            .await
+            .map(|r| r.into_inner())
+            .map_err(|e| ApiClientError::new(ApiEndpoint::GetNewestGroupMessage, e.into()))
     }
 
     fn stats(&self) -> ApiStats {

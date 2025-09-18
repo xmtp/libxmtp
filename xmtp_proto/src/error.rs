@@ -20,6 +20,7 @@ pub enum ApiEndpoint {
     PublishEnvelopes,
     PublishCommitLog,
     QueryCommitLog,
+    GetNewestGroupMessage,
 }
 
 impl std::fmt::Display for ApiEndpoint {
@@ -43,6 +44,7 @@ impl std::fmt::Display for ApiEndpoint {
             PublishEnvelopes => write!(f, "publish_envelopes"),
             PublishCommitLog => write!(f, "publish_commit_log"),
             QueryCommitLog => write!(f, "query_commit_log"),
+            GetNewestGroupMessage => write!(f, "get_newest_group_message"),
         }
     }
 }

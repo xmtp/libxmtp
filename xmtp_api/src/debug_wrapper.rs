@@ -3,6 +3,8 @@ use xmtp_common::RetryableError;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
+use xmtp_proto::mls_v1::GetNewestGroupMessageRequest;
+use xmtp_proto::mls_v1::GetNewestGroupMessageResponse;
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
 };
@@ -174,6 +176,17 @@ where
     ) -> Result<BatchQueryCommitLogResponse, Self::Error> {
         wrap_err(
             || self.inner.query_commit_log(request),
+            || self.inner.aggregate_stats(),
+        )
+        .await
+    }
+
+    async fn get_newest_group_message(
+        &self,
+        request: GetNewestGroupMessageRequest,
+    ) -> Result<GetNewestGroupMessageResponse, Self::Error> {
+        wrap_err(
+            || self.inner.get_newest_group_message(request),
             || self.inner.aggregate_stats(),
         )
         .await
