@@ -12,9 +12,9 @@ use wasm_bindgen::UnwrapThrowExt;
 use wasm_bindgen::{JsError, JsValue};
 use wasm_streams::ReadableStream;
 use xmtp_db::consent_record::ConsentState as XmtpConsentState;
-use xmtp_db::group::ConversationType as XmtpConversationType;
 use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
+use xmtp_db::group::{ConversationType as XmtpConversationType, GroupQueryOrderBy};
 use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
 use xmtp_mls::common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
@@ -108,8 +108,10 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       allowed_states: None,
       conversation_type: opts.conversation_type.map(Into::into),
       include_sync_groups: false,
-      activity_after_ns: None,
+      last_activity_before_ns: None,
+      last_activity_after_ns: None,
       should_publish_commit_log: None,
+      order_by: Some(GroupQueryOrderBy::LastActivity),
     }
   }
 }
