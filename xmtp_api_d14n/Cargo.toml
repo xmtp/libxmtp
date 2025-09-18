@@ -24,10 +24,11 @@ thiserror.workspace = true
 tracing.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration = { workspace = true }
+
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Test Utils
-xmtp_api_grpc = { path = "../xmtp_api_grpc", optional = true, default-features = false }
+xmtp_api_grpc = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 openmls = { workspace = true }
@@ -39,9 +40,7 @@ openmls = { workspace = true, features = ["js"] }
 hex.workspace = true
 tokio.workspace = true
 wasm-bindgen-test.workspace = true
-xmtp_api_grpc = { path = "../xmtp_api_grpc", default-features = false, features = [
-  "test-utils",
-] }
+xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["convert", "test-utils"] }
 
