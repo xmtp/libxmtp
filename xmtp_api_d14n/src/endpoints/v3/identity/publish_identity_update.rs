@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::identity::api::v1::{
     PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
 };
@@ -56,9 +56,9 @@ mod test {
         use xmtp_common::time::now_ns;
         use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 
-        let client = crate::TestClient::create_local();
+        let client = crate::TestGrpcClient::create_local();
         let client = client.build().await.unwrap();
-        let endpoint = PublishIdentityUpdate::builder()
+        let mut endpoint = PublishIdentityUpdate::builder()
             .identity_update(Some(IdentityUpdate {
                 actions: vec![],
                 inbox_id: "".to_string(),

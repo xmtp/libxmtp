@@ -61,8 +61,8 @@ diesel::table! {
         version_major -> Integer,
         authority_id -> Text,
         reference_id -> Nullable<Binary>,
-        sequence_id -> Nullable<BigInt>,
-        originator_id -> Nullable<BigInt>,
+        sequence_id -> BigInt,
+        originator_id -> BigInt,
         expire_at_ns -> Nullable<BigInt>,
     }
 }
@@ -74,7 +74,7 @@ diesel::table! {
         membership_state -> Integer,
         installations_last_checked -> BigInt,
         added_by_inbox_id -> Text,
-        welcome_id -> Nullable<BigInt>,
+        sequence_id -> Nullable<BigInt>,
         rotated_at_ns -> BigInt,
         conversation_type -> Integer,
         dm_id -> Nullable<Text>,
@@ -84,7 +84,6 @@ diesel::table! {
         paused_for_version -> Nullable<Text>,
         maybe_forked -> Bool,
         fork_details -> Text,
-        sequence_id -> Nullable<BigInt>,
         originator_id -> Nullable<BigInt>,
         should_publish_commit_log -> Bool,
         commit_log_public_key -> Nullable<Binary>,
@@ -126,6 +125,7 @@ diesel::table! {
         sequence_id -> BigInt,
         server_timestamp_ns -> BigInt,
         payload -> Binary,
+        originator_id -> Integer,
     }
 }
 
@@ -177,10 +177,11 @@ diesel::table! {
 }
 
 diesel::table! {
-    refresh_state (entity_id, entity_kind) {
+    refresh_state (entity_id, entity_kind, originator_id) {
         entity_id -> Binary,
         entity_kind -> Integer,
         cursor -> BigInt,
+        originator_id -> Integer,
     }
 }
 

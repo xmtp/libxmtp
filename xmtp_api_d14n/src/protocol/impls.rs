@@ -187,6 +187,7 @@ where
         Ok(())
     }
 }
+
 /*
 * WARN: ProtocolEnvelope implementation for a Vec<T>
 * should be avoided, since it may cause Envelope

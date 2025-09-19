@@ -26,7 +26,7 @@ pub struct ConversationListItem {
     /// The inbox_id of who added the user to the group
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
-    pub welcome_id: Option<i64>,
+    pub welcome_sequence_id: Option<i64>,
     /// concatenation of dm participant inbox_ids in alphanumeric order
     pub dm_id: Option<String>,
     /// The last time the leaf node encryption key was rotated
@@ -57,6 +57,10 @@ pub struct ConversationListItem {
     pub version_minor: Option<i32>,
     /// The ID of the authority defining the content type
     pub authority_id: Option<String>,
+    /// sequence id of the message
+    pub sequence_id: Option<i64>,
+    /// originator id of the message null if no messages for a group yet
+    pub originator_id: Option<i64>,
 }
 
 pub trait QueryConversationList {
@@ -243,7 +247,6 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::Store;
     use crate::consent_record::{ConsentState, ConsentType};
     use crate::group::tests::{
         generate_consent_record, generate_dm, generate_group, generate_group_with_created_at,
@@ -252,6 +255,7 @@ pub(crate) mod tests {
     use crate::group_message::ContentType;
     use crate::prelude::*;
     use crate::test_utils::with_connection;
+    use crate::Store;
 
     #[xmtp_common::test]
     async fn test_single_group_multiple_messages() {
@@ -315,9 +319,7 @@ pub(crate) mod tests {
             message.store(conn).unwrap();
 
             // Fetch the conversation list
-            let conversation_list = conn
-                .fetch_conversation_list(GroupQueryArgs::default())
-                .unwrap();
+            let conversation_list = conn.fetch_conversation_list(GroupQueryArgs::default()).unwrap();
 
             assert_eq!(conversation_list.len(), 3, "Should return all three groups");
             assert_eq!(

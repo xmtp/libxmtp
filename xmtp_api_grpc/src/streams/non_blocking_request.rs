@@ -74,7 +74,7 @@ pub async fn send<F>(
     Status,
 >
 where
-    F: Future<Output = Result<Response<tonic::Streaming<Bytes>>, Status>> + Unpin,
+    F: Future<Output = Result<Response<tonic::Streaming<Bytes>>, Status>> +  Unpin,
 {
     this.establish().await;
     let body = NonBlockingWebStream::new(this);

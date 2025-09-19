@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 
 use xmtp_common::RetryableError;
+use xmtp_proto::types::Cursor;
 
 use crate::protocol::ExtractionError;
 
@@ -13,7 +13,7 @@ use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
 /// Extract Cursors from Envelopes
 #[derive(Default, Clone, Debug)]
 pub struct CursorExtractor {
-    seen: HashMap<u32, u64>,
+    cursor: Option<Cursor>,
 }
 
 impl CursorExtractor {
@@ -21,11 +21,12 @@ impl CursorExtractor {
         Default::default()
     }
 }
+
 impl Extractor for CursorExtractor {
-    type Output = HashMap<u32, u64>;
+    type Output = Result<Cursor, ExtractionError>;
 
     fn get(self) -> Self::Output {
-        self.seen
+        self.cursor.ok_or(CursorExtractionError::Failed).map_err(Into::into)
     }
 }
 
@@ -67,8 +68,10 @@ impl EnvelopeVisitor<'_> for CursorExtractor {
         &mut self,
         e: &UnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
-        self.seen
-            .insert(e.originator_node_id, e.originator_sequence_id);
+        self.cursor = Some(Cursor {
+            sequence_id: e.originator_sequence_id,
+            originator_id: e.originator_node_id,
+        });
         Ok(())
     }
 }

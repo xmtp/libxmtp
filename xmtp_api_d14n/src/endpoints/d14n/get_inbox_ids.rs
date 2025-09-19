@@ -1,11 +1,11 @@
 use derive_builder::Builder;
-use prost::Message;
 use prost::bytes::Bytes;
+use prost::Message;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
-    GetInboxIdsRequest, GetInboxIdsResponse, get_inbox_ids_request,
+    get_inbox_ids_request, GetInboxIdsRequest, GetInboxIdsResponse,
 };
 
 #[derive(Debug, Builder, Default)]
@@ -74,12 +74,12 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_get_inbox_ids() {
-        let client = crate::TestClient::create_d14n();
+        let client = crate::TestGrpcClient::create_d14n();
         let client = client.build().await.unwrap();
 
-        let endpoint = GetInboxIds::builder()
+        let mut endpoint = GetInboxIds::builder()
             .addresses(vec![
-                "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
+                "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string()
             ])
             .build()
             .unwrap();
