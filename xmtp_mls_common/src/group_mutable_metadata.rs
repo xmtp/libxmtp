@@ -380,13 +380,13 @@ mod tests {
             test_secret_hex.clone(),
         );
 
-        let metadata = GroupMutableMetadata::new(attributes, vec![], vec![], vec![]);
+        let metadata = GroupMutableMetadata::new(attributes, vec![], vec![]);
 
         let retrieved_secret = metadata.commit_log_signer().unwrap();
         assert_eq!(retrieved_secret.as_slice(), &test_secret_bytes);
 
         // Test with missing signer
-        let empty_metadata = GroupMutableMetadata::new(HashMap::new(), vec![], vec![], vec![]);
+        let empty_metadata = GroupMutableMetadata::new(HashMap::new(), vec![], vec![]);
         assert!(empty_metadata.commit_log_signer().is_none());
 
         // Test with invalid hex
@@ -396,7 +396,7 @@ mod tests {
             "invalid_hex".to_string(),
         );
 
-        let bad_metadata = GroupMutableMetadata::new(bad_attributes, vec![], vec![], vec![]);
+        let bad_metadata = GroupMutableMetadata::new(bad_attributes, vec![], vec![]);
         assert!(bad_metadata.commit_log_signer().is_none());
     }
 }

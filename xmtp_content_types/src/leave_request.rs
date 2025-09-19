@@ -4,7 +4,7 @@ use prost::Message;
 
 use super::{CodecError, ContentCodec};
 use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
-use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent, GroupUpdated};
+use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 pub struct LeaveRequestCodec {}
 

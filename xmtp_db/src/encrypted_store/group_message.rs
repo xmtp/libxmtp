@@ -221,7 +221,7 @@ where
             8 => Ok(ContentType::RemoteAttachment),
             9 => Ok(ContentType::TransactionReference),
             10 => Ok(ContentType::WalletSendCalls),
-            10 => Ok(ContentType::LeaveRequest),
+            11 => Ok(ContentType::LeaveRequest),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

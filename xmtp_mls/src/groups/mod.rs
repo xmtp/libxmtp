@@ -199,12 +199,6 @@ pub enum UpdateAdminListType {
     RemoveSuper,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum UpdatePendingRemoveListType {
-    Add,
-    Remove,
-}
-
 /// Fields extracted from content of a message that should be stored in the DB
 pub struct QueryableContentFields {
     pub content_type: ContentType,
@@ -980,26 +974,6 @@ where
         Ok(())
     }
 
-    pub async fn update_pending_remove_list(
-        &self,
-        action_type: UpdatePendingRemoveListType,
-        inbox_id: String,
-    ) -> Result<(), GroupError> {
-        todo!("send a message to leave request");
-        // let intent_action_type = match action_type {
-        //     UpdatePendingRemoveListType::Add => UpdatePendingRemoveListActionType::Add,
-        //     UpdatePendingRemoveListType::Remove => UpdatePendingRemoveListActionType::Remove,
-        // };
-        // let intent_data: Vec<u8> =
-        //     UpdatePendingRemoveListIntentData::new(intent_action_type, inbox_id).into();
-        // let intent = QueueIntent::update_pending_remove_list()
-        //     .data(intent_data)
-        //     .queue(self)?;
-        //
-        // let _ = self.sync_until_intent_resolved(intent.id).await?;
-        Ok(())
-    }
-
     pub async fn leave_group(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         self.is_member().await?;
@@ -1028,24 +1002,9 @@ where
         }
 
         if !self.is_in_pending_remove(self.context.inbox_id().to_string())? {
-            let content = LeaveRequestCodec::encode(LeaveRequest {})
-                .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-            self.send_message(&*encoded_content_to_bytes(content))
+            let content = LeaveRequestCodec::encode(LeaveRequest {})?;
+            self.send_message(&encoded_content_to_bytes(content))
                 .await?;
-        };
-        Ok(())
-    }
-
-    pub async fn remove_from_pending_remove_list(&self) -> Result<(), GroupError> {
-        self.ensure_not_paused().await?;
-        self.is_member().await?;
-
-        if self.is_in_pending_remove(self.context.inbox_id().to_string())? {
-            self.update_pending_remove_list(
-                UpdatePendingRemoveListType::Remove,
-                self.context.inbox_id().to_string(),
-            )
-            .await?;
         }
         Ok(())
     }
