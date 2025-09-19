@@ -584,21 +584,21 @@ impl<'de> serde::Deserialize<'de> for InstallationIds {
         deserializer.deserialize_struct("xmtp.mls.database.InstallationIds", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for PendingRemoveUpdateType {
+impl serde::Serialize for PendingRemoveListUpdateType {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         let variant = match self {
-            Self::PendingRemoveListUpdateTypeUnspecified => "PENDING_REMOVE_LIST_UPDATE_TYPE_UNSPECIFIED",
-            Self::PendingRemoveListUpdateTypeAdd => "PENDING_REMOVE_LIST_UPDATE_TYPE_ADD",
-            Self::Remove => "PENDING_REMOVE_UPDATE_TYPE_REMOVE",
+            Self::Unspecified => "PENDING_REMOVE_LIST_UPDATE_TYPE_UNSPECIFIED",
+            Self::Add => "PENDING_REMOVE_LIST_UPDATE_TYPE_ADD",
+            Self::Remove => "PENDING_REMOVE_LIST_UPDATE_TYPE_REMOVE",
         };
         serializer.serialize_str(variant)
     }
 }
-impl<'de> serde::Deserialize<'de> for PendingRemoveUpdateType {
+impl<'de> serde::Deserialize<'de> for PendingRemoveListUpdateType {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -607,13 +607,13 @@ impl<'de> serde::Deserialize<'de> for PendingRemoveUpdateType {
         const FIELDS: &[&str] = &[
             "PENDING_REMOVE_LIST_UPDATE_TYPE_UNSPECIFIED",
             "PENDING_REMOVE_LIST_UPDATE_TYPE_ADD",
-            "PENDING_REMOVE_UPDATE_TYPE_REMOVE",
+            "PENDING_REMOVE_LIST_UPDATE_TYPE_REMOVE",
         ];
 
         struct GeneratedVisitor;
 
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = PendingRemoveUpdateType;
+            type Value = PendingRemoveListUpdateType;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(formatter, "expected one of: {:?}", &FIELDS)
@@ -648,9 +648,9 @@ impl<'de> serde::Deserialize<'de> for PendingRemoveUpdateType {
                 E: serde::de::Error,
             {
                 match value {
-                    "PENDING_REMOVE_LIST_UPDATE_TYPE_UNSPECIFIED" => Ok(PendingRemoveUpdateType::PendingRemoveListUpdateTypeUnspecified),
-                    "PENDING_REMOVE_LIST_UPDATE_TYPE_ADD" => Ok(PendingRemoveUpdateType::PendingRemoveListUpdateTypeAdd),
-                    "PENDING_REMOVE_UPDATE_TYPE_REMOVE" => Ok(PendingRemoveUpdateType::Remove),
+                    "PENDING_REMOVE_LIST_UPDATE_TYPE_UNSPECIFIED" => Ok(PendingRemoveListUpdateType::Unspecified),
+                    "PENDING_REMOVE_LIST_UPDATE_TYPE_ADD" => Ok(PendingRemoveListUpdateType::Add),
+                    "PENDING_REMOVE_LIST_UPDATE_TYPE_REMOVE" => Ok(PendingRemoveListUpdateType::Remove),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -2562,7 +2562,7 @@ impl serde::Serialize for update_pending_remove_lists_data::V1 {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.UpdatePendingRemoveListsData.V1", len)?;
         if self.pending_remove_list_update_type != 0 {
-            let v = PendingRemoveUpdateType::try_from(self.pending_remove_list_update_type)
+            let v = PendingRemoveListUpdateType::try_from(self.pending_remove_list_update_type)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.pending_remove_list_update_type)))?;
             struct_ser.serialize_field("pending_remove_list_update_type", &v)?;
         }
@@ -2640,7 +2640,7 @@ impl<'de> serde::Deserialize<'de> for update_pending_remove_lists_data::V1 {
                             if pending_remove_list_update_type__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("pendingRemoveListUpdateType"));
                             }
-                            pending_remove_list_update_type__ = Some(map_.next_value::<PendingRemoveUpdateType>()? as i32);
+                            pending_remove_list_update_type__ = Some(map_.next_value::<PendingRemoveListUpdateType>()? as i32);
                         }
                         GeneratedField::InboxId => {
                             if inbox_id__.is_some() {

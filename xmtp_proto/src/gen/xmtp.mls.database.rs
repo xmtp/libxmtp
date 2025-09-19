@@ -476,7 +476,7 @@ impl ::prost::Name for PostCommitAction {
         "/xmtp.mls.database.PostCommitAction".into()
     }
 }
-/// The data required to update group pending-remove lists
+/// The data required to update group pending-remove list
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct UpdatePendingRemoveListsData {
     #[prost(oneof = "update_pending_remove_lists_data::Version", tags = "1")]
@@ -487,7 +487,7 @@ pub mod update_pending_remove_lists_data {
     /// V1 of PendingRemoveUpdateType
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct V1 {
-        #[prost(enumeration = "super::PendingRemoveUpdateType", tag = "1")]
+        #[prost(enumeration = "super::PendingRemoveListUpdateType", tag = "1")]
         pub pending_remove_list_update_type: i32,
         #[prost(string, tag = "2")]
         pub inbox_id: ::prost::alloc::string::String,
@@ -629,38 +629,32 @@ impl PermissionPolicyOption {
         }
     }
 }
-/// Type of update to pending-remove lists
+/// Type of update to pending-remove list
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum PendingRemoveUpdateType {
-    PendingRemoveListUpdateTypeUnspecified = 0,
-    PendingRemoveListUpdateTypeAdd = 1,
+pub enum PendingRemoveListUpdateType {
+    Unspecified = 0,
+    Add = 1,
     Remove = 2,
 }
-impl PendingRemoveUpdateType {
+impl PendingRemoveListUpdateType {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            Self::PendingRemoveListUpdateTypeUnspecified => {
-                "PENDING_REMOVE_LIST_UPDATE_TYPE_UNSPECIFIED"
-            }
-            Self::PendingRemoveListUpdateTypeAdd => "PENDING_REMOVE_LIST_UPDATE_TYPE_ADD",
-            Self::Remove => "PENDING_REMOVE_UPDATE_TYPE_REMOVE",
+            Self::Unspecified => "PENDING_REMOVE_LIST_UPDATE_TYPE_UNSPECIFIED",
+            Self::Add => "PENDING_REMOVE_LIST_UPDATE_TYPE_ADD",
+            Self::Remove => "PENDING_REMOVE_LIST_UPDATE_TYPE_REMOVE",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
-            "PENDING_REMOVE_LIST_UPDATE_TYPE_UNSPECIFIED" => {
-                Some(Self::PendingRemoveListUpdateTypeUnspecified)
-            }
-            "PENDING_REMOVE_LIST_UPDATE_TYPE_ADD" => {
-                Some(Self::PendingRemoveListUpdateTypeAdd)
-            }
-            "PENDING_REMOVE_UPDATE_TYPE_REMOVE" => Some(Self::Remove),
+            "PENDING_REMOVE_LIST_UPDATE_TYPE_UNSPECIFIED" => Some(Self::Unspecified),
+            "PENDING_REMOVE_LIST_UPDATE_TYPE_ADD" => Some(Self::Add),
+            "PENDING_REMOVE_LIST_UPDATE_TYPE_REMOVE" => Some(Self::Remove),
             _ => None,
         }
     }
