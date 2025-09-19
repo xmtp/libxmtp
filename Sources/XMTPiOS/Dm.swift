@@ -479,4 +479,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
     public func getDebugInformation() async throws -> ConversationDebugInfo {
         return ConversationDebugInfo(ffiConversationDebugInfo: try await ffiConversation.conversationDebugInfo())
     }
+    
+    public func getLastReadTimes() throws -> Dictionary<String, Int64> {
+        return try ffiConversation.getLastReadTimes()
+    }
 }

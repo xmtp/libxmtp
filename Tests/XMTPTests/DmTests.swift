@@ -513,4 +513,23 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(sameConvoAlixMessageCount, 5)  // memberAdd, Bo hey, Alix hey, Bo hey2, Alix hey2
 		try fixtures.cleanUpDatabases()
 	}
+    
+    func testLastReadTimes() async throws {
+        let fixtures = try await fixtures()
+        
+        let convoBo = try await fixtures.boClient.conversations.findOrCreateDm(
+            with: fixtures.alixClient.inboxID)
+        
+        Client.register(codec: ReadReceiptCodec())
+        let messageID = try await convoBo.send(
+            content: ReadReceipt(),
+            options: .init(contentType: ReadReceiptCodec().contentType))
+        
+        let message = try fixtures.boClient.conversations.findMessage(messageId: messageID)
+        
+        let lastReadTimes = try convoBo.getLastReadTimes()
+        
+        XCTAssertEqual(lastReadTimes.count, 1)
+        XCTAssertEqual(lastReadTimes[fixtures.boClient.inboxID], message?.sentAtNs)
+    }
 }

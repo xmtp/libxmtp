@@ -661,4 +661,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 			ffiConversationDebugInfo: try await ffiGroup.conversationDebugInfo()
 		)
 	}
+    
+    public func getLastReadTimes() throws -> Dictionary<String, Int64> {
+        return try ffiGroup.getLastReadTimes()
+    }
 }

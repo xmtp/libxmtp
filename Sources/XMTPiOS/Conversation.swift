@@ -359,4 +359,15 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			return try dm.isActive()
 		}
 	}
+    
+    // Returns a dictionary where the keys are inbox IDs and the values
+    // are the timestamp in nanoseconds of their last read receipt
+    public func getLastReadTimes() throws -> Dictionary<String, Int64> {
+        switch self {
+            case let .group(group):
+            return try group.getLastReadTimes()
+        case let .dm(dm):
+            return try dm.getLastReadTimes()
+        }
+    }
 }
