@@ -6,7 +6,7 @@ use super::{
     schema::groups::{self, dsl},
 };
 use crate::NotFound;
-use crate::{DuplicateItem, StorageError, Store, impl_fetch, impl_store, impl_store_or_ignore};
+use crate::{DuplicateItem, StorageError, impl_fetch, impl_store, impl_store_or_ignore};
 use derive_builder::Builder;
 use diesel::{
     backend::Backend,
@@ -120,26 +120,6 @@ impl StoredGroupBuilder {
 impl StoredGroup {
     pub fn builder() -> StoredGroupBuilder {
         StoredGroupBuilder::default()
-    }
-
-    pub fn create_sync_group(
-        conn: &impl crate::DbQuery,
-        id: ID,
-        created_at_ns: i64,
-        membership_state: GroupMembershipState,
-    ) -> Result<Self, StorageError> {
-        let stored_group = StoredGroup::builder()
-            .id(id)
-            .conversation_type(ConversationType::Sync)
-            .created_at_ns(created_at_ns)
-            .membership_state(membership_state)
-            .added_by_inbox_id("")
-            .build()
-            .expect("No fields should be uninitialized");
-
-        stored_group.store(conn)?;
-
-        Ok(stored_group)
     }
 }
 
@@ -1390,38 +1370,6 @@ pub(crate) mod tests {
             assert_eq!(fetched_group, Some(test_group));
             let conversation_type = fetched_group.unwrap().conversation_type;
             assert_eq!(conversation_type, ConversationType::Group);
-        })
-        .await
-    }
-
-    #[xmtp_common::test]
-    async fn test_new_sync_group() {
-        with_connection(|conn| {
-            let id = rand_vec::<24>();
-            let created_at_ns = now_ns();
-            let membership_state = GroupMembershipState::Allowed;
-
-            let sync_group =
-                StoredGroup::create_sync_group(conn, id, created_at_ns, membership_state).unwrap();
-
-            let conversation_type = sync_group.conversation_type;
-            assert_eq!(conversation_type, ConversationType::Sync);
-
-            let found = conn.primary_sync_group().unwrap();
-            assert!(found.is_some());
-            assert_eq!(found.unwrap().conversation_type, ConversationType::Sync);
-
-            // Load the sync group with a consent filter
-            let allowed_groups = conn
-                .find_groups(&GroupQueryArgs {
-                    consent_states: Some([ConsentState::Allowed].to_vec()),
-                    include_sync_groups: true,
-                    ..Default::default()
-                })
-                .unwrap();
-
-            assert_eq!(allowed_groups.len(), 1);
-            assert_eq!(allowed_groups[0].id, sync_group.id);
         })
         .await
     }
