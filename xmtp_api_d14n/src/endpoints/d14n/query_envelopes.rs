@@ -126,9 +126,9 @@ mod test {
         // we just care if the endpoint is working
         match err {
             ApiClientError::<GrpcError>::ClientWithEndpoint {
-                source: GrpcError::Status(s),
+                source: GrpcError::Status(ref s),
                 ..
-            } => assert!(s.message().contains("invalid topic")),
+            } => assert!(s.message().contains("invalid topic"), "{}", err),
             _ => panic!("request failed"),
         }
     }

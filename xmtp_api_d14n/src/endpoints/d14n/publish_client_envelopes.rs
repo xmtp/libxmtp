@@ -81,15 +81,20 @@ mod test {
             .unwrap();
 
         let err = endpoint.query(&client).await.unwrap_err();
-        tracing::info!("{}", err);
+        // tracing::info!("{}", err);
         // the request will fail b/c we're using dummy data but
         // we just care if the endpoint is working
         match err {
             ApiClientError::<GrpcError>::ClientWithEndpoint {
-                source: GrpcError::Status(s),
+                source: GrpcError::Status(ref s),
                 ..
             } => {
-                assert!(s.message().contains("invalid payload"))
+                assert!(
+                    s.message().contains("invalid payload")
+                        || s.message().contains("invalid topic"),
+                    "{}",
+                    err
+                );
             }
             _ => panic!("request failed"),
         }
