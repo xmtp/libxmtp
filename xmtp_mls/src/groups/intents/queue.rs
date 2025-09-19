@@ -142,6 +142,12 @@ impl QueueIntent {
         this
     }
 
+    pub fn readd_installations() -> QueueIntentBuilder {
+        let mut this = QueueIntent::builder();
+        this.kind = Some(IntentKind::ReaddInstallations);
+        this
+    }
+
     fn builder() -> QueueIntentBuilder {
         QueueIntentBuilder::default()
     }
