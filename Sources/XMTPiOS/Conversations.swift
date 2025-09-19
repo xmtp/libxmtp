@@ -175,6 +175,14 @@ public class Conversations {
 		}
 	}
 
+	public func findMessageV2(messageId: String) throws -> DecodedMessageV2? {
+		do {
+			return DecodedMessageV2.create(ffiMessage: try ffiClient.messageV2(messageId: messageId.hexToData))
+		} catch {
+			return nil
+		}
+	}
+
 	public func sync() async throws {
 		try await ffiConversations.sync()
 	}

@@ -13,11 +13,20 @@ public struct Reply {
 	public var reference: String
 	public var content: Any
 	public var contentType: ContentTypeID
+	public var inReplyTo: DecodedMessageV2?
 
 	public init(reference: String, content: Any, contentType: ContentTypeID) {
 		self.reference = reference
 		self.content = content
 		self.contentType = contentType
+		self.inReplyTo = nil
+	}
+
+	public init(reference: String, content: Any, contentType: ContentTypeID, inReplyTo: DecodedMessageV2?) {
+		self.reference = reference
+		self.content = content
+		self.contentType = contentType
+		self.inReplyTo = inReplyTo
 	}
 }
 

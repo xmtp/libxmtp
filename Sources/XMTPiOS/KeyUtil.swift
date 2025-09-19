@@ -134,7 +134,7 @@ enum KeyUtilx {
 		let address = hash.subdata(in: 12..<hash.count)
 		return "0x" + address.toHex
 	}
-	
+
 	static func ethPersonalMessage(_ message: String) throws -> Data {
 		let prefix = "\u{19}Ethereum Signed Message:\n\(message.count)"
 
@@ -150,7 +150,7 @@ enum KeyUtilx {
 
 		return data
 	}
-	
+
 	static func ethHash(_ message: String) throws -> Data {
 		let data = try ethPersonalMessage(message)
 

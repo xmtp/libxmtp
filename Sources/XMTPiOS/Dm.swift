@@ -10,19 +10,19 @@ public struct Dm: Identifiable, Equatable, Hashable {
 
     public enum ConversationError: Error, CustomStringConvertible, LocalizedError {
         case missingPeerInboxId
-        
+
         public var description: String {
             switch self {
             case .missingPeerInboxId:
                 return "ConversationError.missingPeerInboxId: The direct message is missing a peer inbox ID"
             }
         }
-        
+
         public var errorDescription: String? {
             return description
         }
     }
-    
+
 	public var id: String {
 		ffiConversation.id().toHex
 	}
@@ -62,7 +62,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	public func isCreator() async throws -> Bool {
 		return try await metadata().creatorInboxId() == client.inboxID
 	}
-	
+
 	public func isActive() throws -> Bool {
 		return try ffiConversation.isActive()
 	}
@@ -124,7 +124,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	public func clearDisappearingMessageSettings() async throws {
 		try await ffiConversation.removeConversationMessageDisappearingSettings()
 	}
-    
+
     // Returns null if dm is not paused, otherwise the min version required to unpause this dm
     public func pausedForVersion() throws -> String? {
         return try ffiConversation.pausedForVersion()
@@ -234,12 +234,12 @@ public struct Dm: Identifiable, Equatable, Hashable {
 					}
 				)
 
-				continuation.onTermination = { @Sendable reason in
+				continuation.onTermination = { @Sendable _ in
 					self.streamHolder.stream?.end()
 				}
 			}
 
-			continuation.onTermination = { @Sendable reason in
+			continuation.onTermination = { @Sendable _ in
 				task.cancel()
 				self.streamHolder.stream?.end()
 			}
@@ -253,11 +253,11 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			return try await messages(limit: 1).first
 		}
 	}
-    
+
     public func commitLogForkStatus() -> CommitLogForkStatus {
         switch ffiCommitLogForkStatus {
-            case true : return .forked
-            case false : return .notForked
+            case true: return .forked
+            case false: return .notForked
             default: return .unknown
         }
     }
@@ -385,6 +385,66 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	public func messagesV2(
+		beforeNs: Int64? = nil,
+		afterNs: Int64? = nil,
+		limit: Int? = nil,
+		direction: SortDirection? = .descending,
+		deliveryStatus: MessageDeliveryStatus = .all
+	) async throws -> [DecodedMessageV2] {
+		var options = FfiListMessagesOptions(
+			sentBeforeNs: nil,
+			sentAfterNs: nil,
+			limit: nil,
+			deliveryStatus: nil,
+			direction: nil,
+			contentTypes: nil
+		)
+
+		if let beforeNs {
+			options.sentBeforeNs = beforeNs
+		}
+
+		if let afterNs {
+			options.sentAfterNs = afterNs
+		}
+
+		if let limit {
+			options.limit = Int64(limit)
+		}
+
+		let status: FfiDeliveryStatus? = {
+			switch deliveryStatus {
+			case .published:
+				return FfiDeliveryStatus.published
+			case .unpublished:
+				return FfiDeliveryStatus.unpublished
+			case .failed:
+				return FfiDeliveryStatus.failed
+			default:
+				return nil
+			}
+		}()
+
+		options.deliveryStatus = status
+
+		let direction: FfiDirection? = {
+			switch direction {
+			case .ascending:
+				return FfiDirection.ascending
+			default:
+				return FfiDirection.descending
+			}
+		}()
+
+		options.direction = direction
+
+		return try await ffiConversation.findMessagesV2(opts: options).compactMap {
+			ffiDecodedMessage in
+			return DecodedMessageV2(ffiMessage: ffiDecodedMessage)
+		}
+	}
+
     public func getHmacKeys() throws
     -> Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse {
         var hmacKeysResponse =
@@ -408,14 +468,14 @@ public struct Dm: Identifiable, Equatable, Hashable {
 
 		return hmacKeysResponse
     }
-    
+
     public func getPushTopics() async throws -> [String] {
         var duplicates = try await ffiConversation.findDuplicateDms()
         var topicIds = duplicates.map { $0.id().toHex }
         topicIds.append(id)
         return topicIds.map { Topic.groupMessage($0).description }
     }
-    
+
     public func getDebugInformation() async throws -> ConversationDebugInfo {
         return ConversationDebugInfo(ffiConversationDebugInfo: try await ffiConversation.conversationDebugInfo())
     }

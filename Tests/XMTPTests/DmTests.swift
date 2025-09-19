@@ -466,8 +466,8 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(convoBoMessageCount, 2)  // memberAdd and Bo hey
 		XCTAssertEqual(convoAlixMessageCount, 2)  // memberAdd and Alix hey
 
-		try await fixtures.boClient.conversations.syncAllConversations()
-		try await fixtures.alixClient.conversations.syncAllConversations()
+		let _ = try await fixtures.boClient.conversations.syncAllConversations()
+		let _ = try await fixtures.alixClient.conversations.syncAllConversations()
 
 		let convoBoMessageCountAfterSync = try await convoBo.messages().count
 		let convoAlixMessageCountAfterSync = try await convoAlix.messages()
@@ -489,9 +489,9 @@ class DmTests: XCTestCase {
 		let alixConvoID = convoAlix.id
 		let topicBoSameID = topicBoSame?.id
 		let topicAlixSameID = topicAlixSame?.id
-		let firstAlixDmID = try await fixtures.alixClient.conversations
+		let firstAlixDmID = try fixtures.alixClient.conversations
 			.listDms().first?.id
-		let firstBoDmID = try await fixtures.boClient.conversations.listDms()
+		let firstBoDmID = try fixtures.boClient.conversations.listDms()
 			.first?.id
 
 		XCTAssertEqual(alixConvoID, sameConvoBo.id)

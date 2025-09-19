@@ -52,7 +52,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			return try await dm.lastMessage()
 		}
 	}
-    
+
     public func commitLogForkStatus() -> CommitLogForkStatus {
         switch self {
         case let .group(group):
@@ -262,7 +262,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			)
 		}
 	}
-    
+
     // Returns null if conversation is not paused, otherwise the min version required to unpause this conversation
     public func pausedForVersion() async throws -> String? {
         switch self {
@@ -272,8 +272,6 @@ public enum Conversation: Identifiable, Equatable, Hashable {
             return try dm.pausedForVersion()
         }
     }
-    
-    
 
 	public var client: Client {
 		switch self {
@@ -299,6 +297,27 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			)
 		case let .dm(dm):
 			return try await dm.messagesWithReactions(
+				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
+				direction: direction, deliveryStatus: deliveryStatus
+			)
+		}
+	}
+
+	public func messagesV2(
+		limit: Int? = nil,
+		beforeNs: Int64? = nil,
+		afterNs: Int64? = nil,
+		direction: SortDirection? = .descending,
+		deliveryStatus: MessageDeliveryStatus = .all
+	) async throws -> [DecodedMessageV2] {
+		switch self {
+		case let .group(group):
+			return try await group.findMessagesV2(
+				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
+				direction: direction, deliveryStatus: deliveryStatus
+			)
+		case let .dm(dm):
+			return try await dm.messagesV2(
 				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
 				direction: direction, deliveryStatus: deliveryStatus
 			)
@@ -331,7 +350,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			return try await dm.getDebugInformation()
 		}
 	}
-	
+
 	public func isActive() throws -> Bool {
 		switch self {
 		case let .group(group):

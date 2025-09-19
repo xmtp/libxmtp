@@ -7,7 +7,7 @@ public let ContentTypeMultiRemoteAttachment = ContentTypeID(authorityID: "xmtp.o
 
 public enum MultiRemoteAttachmentError: Error, CustomStringConvertible {
     case invalidURL, v1NotSupported, invalidParameters(String), invalidDigest(String), invalidScheme(String), payloadNotFound
-    
+
     public var description: String {
         switch self {
         case .invalidURL:
@@ -30,13 +30,13 @@ public struct MultiRemoteAttachment {
     public enum Scheme: String {
         case https = "https"
     }
-    
+
     public let remoteAttachments: [RemoteAttachmentInfo]
 
 	public init(remoteAttachments: [RemoteAttachmentInfo]) {
         self.remoteAttachments = remoteAttachments
     }
-    
+
     public struct RemoteAttachmentInfo {
         public let url: String
         public let filename: String
@@ -46,7 +46,7 @@ public struct MultiRemoteAttachment {
         public let scheme: String
         public let salt: Data
         public let secret: Data
-        
+
         public init(
             url: String,
             filename: String,
@@ -66,12 +66,12 @@ public struct MultiRemoteAttachment {
             self.salt = salt
             self.secret = secret
         }
-        
+
         public static func from(url: URL, encryptedEncodedContent: EncryptedEncodedContent) throws -> RemoteAttachmentInfo {
             guard url.scheme == "https" else {
                 throw MultiRemoteAttachmentError.invalidScheme("scheme must be https://")
             }
-            
+
             return RemoteAttachmentInfo(
                 url: url.absoluteString,
                 filename: encryptedEncodedContent.filename ?? "",
@@ -87,29 +87,29 @@ public struct MultiRemoteAttachment {
 }
 
 public struct MultiRemoteAttachmentCodec: ContentCodec {
-    
+
     public typealias T = MultiRemoteAttachment
-    
+
     public init() {}
-    
+
     public var contentType = ContentTypeMultiRemoteAttachment
-    
+
     public func encode(content: MultiRemoteAttachment) throws -> EncodedContent {
         let ffiMultiRemoteAttachment = FfiMultiRemoteAttachment(attachments: content.remoteAttachments.map { FfiRemoteAttachmentInfo(
-            secret: $0.secret,
+            url: $0.url,
             contentDigest: $0.contentDigest,
+            secret: $0.secret,
+            salt: $0.salt,
             nonce: $0.nonce,
             scheme: $0.scheme,
-            url: $0.url,
-            salt: $0.salt,
             contentLength: $0.contentLength,
             filename: $0.filename
         )})
         return try EncodedContent(serializedBytes: encodeMultiRemoteAttachment(ffiMultiRemoteAttachment: ffiMultiRemoteAttachment))
     }
-    
+
     public func decode(content: EncodedContent) throws -> MultiRemoteAttachment {
-       
+
         let ffiMultiRemoteAttachment = try decodeMultiRemoteAttachment(bytes: content.serializedData())
         let remoteAttachments = ffiMultiRemoteAttachment.attachments.map { attachment in
             return MultiRemoteAttachment.RemoteAttachmentInfo(
@@ -125,21 +125,21 @@ public struct MultiRemoteAttachmentCodec: ContentCodec {
         }
         return MultiRemoteAttachment(remoteAttachments: remoteAttachments)
     }
-    
+
     public func fallback(content: MultiRemoteAttachment) throws -> String? {
         return "MultiRemoteAttachment not supported"
     }
-    
+
     public func shouldPush(content: MultiRemoteAttachment) throws -> Bool {
         return true
     }
-    
+
     /// Encrypt arbitrary bytes (already encoded with some codec, e.g. AttachmentCodec)
     /// so that they can be uploaded to remote storage.
     static func encryptBytesForLocalAttachment(_ bytesToEncrypt: Data, filename: String) throws -> EncryptedEncodedContent {
         return try RemoteAttachment.encodeEncryptedBytes(encodedContent: bytesToEncrypt, filename: filename)
     }
-    
+
     /// Builds a `RemoteAttachmentInfo` from an `EncryptedEncodedContent` plus a remote HTTPS URL.
     static func buildRemoteAttachmentInfo(
         encryptedAttachment: EncryptedEncodedContent,
@@ -147,7 +147,7 @@ public struct MultiRemoteAttachmentCodec: ContentCodec {
     ) throws -> MultiRemoteAttachment.RemoteAttachmentInfo {
         return try MultiRemoteAttachment.RemoteAttachmentInfo.from(url: remoteUrl, encryptedEncodedContent: encryptedAttachment)
     }
-    
+
     /// Build a new `EncryptedEncodedContent` by combining the original `RemoteAttachment`
     /// fields (digest, salt, nonce, etc.) with the actual encrypted payload you downloaded (or stored).
     static func buildEncryptAttachmentResult(
@@ -164,7 +164,7 @@ public struct MultiRemoteAttachmentCodec: ContentCodec {
             contentLength: remoteAttachment.contentLength.map(UInt32.init)
         )
     }
-    
+
     /// Decrypt an `EncryptedEncodedContent` back to the underlying `EncodedContent`.
     static func decryptAttachment(_ encryptedAttachment: EncryptedEncodedContent) throws -> EncodedContent {
         // Delegate to a "decryptEncoded" function from `RemoteAttachment`, if you have it.

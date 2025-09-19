@@ -142,7 +142,7 @@ class ReactionTests: XCTestCase {
         
         let messageToReact = try await conversation.messages()[0]
         
-        let reaction = FfiReaction(
+        let reaction = FfiReactionPayload(
             reference: messageToReact.id,
             referenceInboxId: "",
             action: .added,
@@ -158,7 +158,7 @@ class ReactionTests: XCTestCase {
         let messages = try await conversation.messages()
         XCTAssertEqual(messages.count, 3)
         
-        let content: FfiReaction = try messages[0].content()
+        let content: FfiReactionPayload = try messages[0].content()
         XCTAssertEqual("U+1F603", content.content)
         XCTAssertEqual(messageToReact.id, content.reference)
         XCTAssertEqual(FfiReactionAction.added, content.action)
@@ -168,7 +168,7 @@ class ReactionTests: XCTestCase {
         XCTAssertEqual(messagesWithReactions.count, 2)
         XCTAssertEqual(messagesWithReactions[0].id, messageToReact.id)
         
-        let reactionContent: FfiReaction = try messagesWithReactions[0].childMessages![0].content()
+        let reactionContent: FfiReactionPayload = try messagesWithReactions[0].childMessages![0].content()
         XCTAssertEqual(reactionContent.reference, messageToReact.id)
     }
     
@@ -186,7 +186,7 @@ class ReactionTests: XCTestCase {
         let messageToReact = try await conversation.messages()[0]
         
         // Send V2 reaction
-        let reactionV2 = FfiReaction(
+        let reactionV2 = FfiReactionPayload(
             reference: messageToReact.id,
             referenceInboxId: fixtures.alixClient.inboxID,
             action: .added,
@@ -222,8 +222,8 @@ class ReactionTests: XCTestCase {
         let childContent1: Reaction = try messagesWithReactions[0].childMessages![0].content()
         XCTAssertEqual("U+1F604", childContent1.content)
         
-        let childContent2: FfiReaction = try messagesWithReactions[0].childMessages![1].content()
+        let childContent2: FfiReactionPayload = try messagesWithReactions[0].childMessages![1].content()
         XCTAssertEqual("U+1F603", childContent2.content)
-        XCTAssertEqual(.unicode, childContent2.schema)
+        XCTAssertEqual(FfiReactionSchema.unicode, childContent2.schema)
     }
 }

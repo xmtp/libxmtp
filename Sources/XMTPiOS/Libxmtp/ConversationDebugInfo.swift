@@ -8,7 +8,7 @@ public enum CommitLogForkStatus {
 
 public struct ConversationDebugInfo {
 	let ffiConversationDebugInfo: FfiConversationDebugInfo
-	
+
 	public init(ffiConversationDebugInfo: FfiConversationDebugInfo) {
 		self.ffiConversationDebugInfo = ffiConversationDebugInfo
 	}
@@ -24,7 +24,7 @@ public struct ConversationDebugInfo {
 	public var forkDetails: String {
 		ffiConversationDebugInfo.forkDetails
 	}
-    
+
     public var localCommitLog: String {
         ffiConversationDebugInfo.localCommitLog
     }
@@ -32,7 +32,7 @@ public struct ConversationDebugInfo {
     public var remoteCommitLog: String {
         ffiConversationDebugInfo.remoteCommitLog
     }
-	
+
 	public var commitLogForkStatus: CommitLogForkStatus {
 		switch ffiConversationDebugInfo.isCommitLogForked {
 		case true:

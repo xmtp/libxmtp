@@ -11,31 +11,31 @@ import LibXMTP
 public let ContentTypeReactionV2 = ContentTypeID(authorityID: "xmtp.org", typeID: "reaction", versionMajor: 2, versionMinor: 0)
 
 public struct ReactionV2Codec: ContentCodec {
-    public typealias T = FfiReaction
+    public typealias T = FfiReactionPayload
     public var contentType = ContentTypeReactionV2
 
     public init() {}
 
-    public func encode(content: FfiReaction) throws -> EncodedContent {
-        return try EncodedContent(serializedBytes: encodeReaction(reaction: content))
-    }
- 
-    public func decode(content: EncodedContent) throws -> FfiReaction {
-        try decodeReaction(bytes: content.serializedBytes())
+    public func encode(content: FfiReactionPayload) throws -> EncodedContent {
+        return try EncodedContent(serializedBytes: LibXMTP.encodeReaction(reaction: content))
     }
 
-    public func fallback(content: FfiReaction) throws -> String? {
+    public func decode(content: EncodedContent) throws -> FfiReactionPayload {
+        try LibXMTP.decodeReaction(bytes: content.serializedBytes())
+    }
+
+    public func fallback(content: FfiReactionPayload) throws -> String? {
         switch content.action {
         case .added:
-            return "Reacted “\(content.content)” to an earlier message"
+            return "Reacted \"\(content.content)\" to an earlier message"
         case .removed:
-            return "Removed “\(content.content)” from an earlier message"            
+            return "Removed \"\(content.content)\" from an earlier message"
         case .unknown:
             return nil
         }
     }
 
-	public func shouldPush(content: FfiReaction) throws -> Bool {
+	public func shouldPush(content: FfiReactionPayload) throws -> Bool {
         switch content.action {
         case .added:
             return true

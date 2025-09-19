@@ -43,6 +43,8 @@ struct NumberCodec: ContentCodec {
 class CodecTests: XCTestCase {
 	func testCanRoundTripWithCustomContentType() async throws {
 		let fixtures = try await fixtures()
+        
+        let expectedContent = 3.14
 
 		let alixClient = fixtures.alixClient!
 		let alixConversation = try await alixClient.conversations
@@ -51,7 +53,7 @@ class CodecTests: XCTestCase {
 		Client.register(codec: NumberCodec())
 
 		try await alixConversation.send(
-			content: 3.14,
+			content: expectedContent,
 			options: .init(contentType: NumberCodec().contentType))
 
 		let messages = try await alixConversation.messages()
@@ -59,8 +61,15 @@ class CodecTests: XCTestCase {
 
 		if messages.count == 2 {
 			let content: Double = try messages[0].content()
-			XCTAssertEqual(3.14, content)
+			XCTAssertEqual(expectedContent, content)
 		}
+        
+        let messagesV2 = try await alixConversation.messagesV2()
+        XCTAssertEqual(messagesV2.count, 2)
+        if messages.count == 2 {
+            let content: Double = try messages[0].content()
+            XCTAssertEqual(expectedContent, content)
+        }
 	}
 
 	func testFallsBackToFallbackContentWhenCannotDecode() async throws {
