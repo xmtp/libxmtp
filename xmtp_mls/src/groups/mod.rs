@@ -1213,7 +1213,6 @@ where
             .queue(self)?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
-        let s = 10;
         Ok(())
     }
 
