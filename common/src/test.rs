@@ -165,7 +165,7 @@ pub fn logger() {
     use tracing_subscriber::util::SubscriberInitExt;
 
     INIT.get_or_init(|| {
-        let filter = EnvFilter::builder().parse("info").unwrap();
+        let filter = EnvFilter::builder().parse("debug").unwrap();
 
         tracing_subscriber::registry()
             .with(tracing_wasm::WASMLayer::default())

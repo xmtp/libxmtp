@@ -15,6 +15,9 @@ pub use generated::*;
 mod error;
 mod impls;
 
+mod proto_cache;
+pub use proto_cache::*;
+
 pub use error::*;
 
 pub mod api_client;
