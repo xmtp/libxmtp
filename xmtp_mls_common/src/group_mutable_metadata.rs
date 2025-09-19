@@ -246,7 +246,7 @@ impl GroupMutableMetadata {
     pub fn is_super_admin(&self, inbox_id: &String) -> bool {
         self.super_admin_list.contains(inbox_id)
     }
-    
+
     /// Retrieves the commit log signer secret from the metadata attributes.
     /// Returns None if the field is not present or if hex decoding fails.
     pub fn commit_log_signer(&self) -> Option<Secret> {

@@ -621,19 +621,19 @@ mock! {
     impl QueryPendingRemove for DbQuery{
         fn get_pending_remove_users(
         &self,
-        group_id: &Vec<u8>,
+        group_id: &[u8],
     ) -> Result<Vec<String>, crate::ConnectionError>;
     fn delete_pending_remove_users(
     &self,
-        group_id: &Vec<u8>,
+        group_id: &[u8],
         inbox_ids: Vec<String>,
     ) -> Result<usize, crate::ConnectionError>;
          fn get_user_pending_remove_status(&self,
-        group_id: &Vec<u8>,
-        inbox_id: &String,
+        group_id: &[u8],
+        inbox_id: &str,
     ) -> Result<bool, crate::ConnectionError>;
     }
-   
+
 }
 
 impl ConnectionExt for MockDbQuery {

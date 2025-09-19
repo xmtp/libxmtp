@@ -39,7 +39,6 @@ use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculat
 use crate::{subscriptions::SyncWorkerEvent, track};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
-use futures_util::SinkExt;
 use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
@@ -199,12 +198,6 @@ pub enum UpdateAdminListType {
     Remove,
     AddSuper,
     RemoveSuper,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum UpdatePendingRemoveListType {
-    Add,
-    Remove,
 }
 
 /// Fields extracted from content of a message that should be stored in the DB
@@ -1199,7 +1192,7 @@ where
 
         if !self.is_in_pending_remove(&self.context.inbox_id().to_string())? {
             let content = LeaveRequestCodec::encode(LeaveRequest {})?;
-            self.send_message(&*encoded_content_to_bytes(content))
+            self.send_message(&encoded_content_to_bytes(content))
                 .await?;
         };
         Ok(())
@@ -1565,10 +1558,10 @@ where
     }
 
     /// Checks if the given inbox ID is the pending-remove list of the group at the most recently synced epoch.
-    pub fn is_in_pending_remove(&self, inbox_id: &String) -> Result<bool, GroupError> {
+    pub fn is_in_pending_remove(&self, inbox_id: &str) -> Result<bool, GroupError> {
         self.context
             .db()
-            .get_user_pending_remove_status(&self.group_id, &inbox_id)
+            .get_user_pending_remove_status(&self.group_id, inbox_id)
             .map_err(Into::into)
     }
 
