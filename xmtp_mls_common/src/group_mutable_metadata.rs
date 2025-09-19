@@ -246,12 +246,7 @@ impl GroupMutableMetadata {
     pub fn is_super_admin(&self, inbox_id: &String) -> bool {
         self.super_admin_list.contains(inbox_id)
     }
-
-    /// Checks if the given inbox ID is in the pending remove list.
-    pub fn is_in_pending_remove(&self, inbox_id: &String) -> bool {
-        todo!("check the db is this inbox in the pending remove list");
-    }
-
+    
     /// Retrieves the commit log signer secret from the metadata attributes.
     /// Returns None if the field is not present or if hex decoding fails.
     pub fn commit_log_signer(&self) -> Option<Secret> {
@@ -380,13 +375,13 @@ mod tests {
             test_secret_hex.clone(),
         );
 
-        let metadata = GroupMutableMetadata::new(attributes, vec![], vec![], vec![]);
+        let metadata = GroupMutableMetadata::new(attributes, vec![], vec![]);
 
         let retrieved_secret = metadata.commit_log_signer().unwrap();
         assert_eq!(retrieved_secret.as_slice(), &test_secret_bytes);
 
         // Test with missing signer
-        let empty_metadata = GroupMutableMetadata::new(HashMap::new(), vec![], vec![], vec![]);
+        let empty_metadata = GroupMutableMetadata::new(HashMap::new(), vec![], vec![]);
         assert!(empty_metadata.commit_log_signer().is_none());
 
         // Test with invalid hex
@@ -396,7 +391,7 @@ mod tests {
             "invalid_hex".to_string(),
         );
 
-        let bad_metadata = GroupMutableMetadata::new(bad_attributes, vec![], vec![], vec![]);
+        let bad_metadata = GroupMutableMetadata::new(bad_attributes, vec![], vec![]);
         assert!(bad_metadata.commit_log_signer().is_none());
     }
 }

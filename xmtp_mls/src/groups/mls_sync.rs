@@ -1318,6 +1318,7 @@ where
             let x = PendingRemove {
                 inbox_id: current_inbox_id,
                 group_id: self.group_id.clone(),
+                message_id: message.id.clone(),
             }
             .store_or_ignore(&storage.db());
             return; // Early return - we're done if this is our own action
@@ -1326,6 +1327,7 @@ where
             PendingRemove {
                 group_id: message.group_id.clone(),
                 inbox_id: message.sender_inbox_id.clone(),
+                message_id: message.id.clone(),
             }
             .store_or_ignore(&storage.db())
             .expect("Failed to store pending remove");

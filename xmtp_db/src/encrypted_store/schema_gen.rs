@@ -175,6 +175,7 @@ diesel::table! {
     pending_remove (group_id, inbox_id) {
         group_id -> Binary,
         inbox_id -> Text,
+        message_id -> Binary,
     }
 }
 
