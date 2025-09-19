@@ -8,6 +8,7 @@ use xmtp_common::RetryableError;
 use xmtp_proto::api::{ApiClientError, Client, QueryStream, XmtpStream};
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1;
+use xmtp_proto::types::Topic;
 use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, SubscribeEnvelopesResponse};
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -33,7 +34,7 @@ where
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         let _stream = SubscribeEnvelopes::builder()
             .envelopes(EnvelopesQuery {
-                topics: request.topics()?,
+                topics: request.topics()?.into_iter().map(Topic::to_bytes).collect(),
                 originator_node_ids: todo!(),
                 last_seen: todo!() // TODO: requires cursor store
             })
@@ -48,7 +49,7 @@ where
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         let _stream = SubscribeEnvelopes::builder()
             .envelopes(EnvelopesQuery {
-                topics: request.topics()?,
+                topics: request.topics()?.into_iter().map(Topic::to_bytes).collect(),
                 originator_node_ids: todo!(),
                 last_seen: todo!() // TODO: requires cursor store
             })

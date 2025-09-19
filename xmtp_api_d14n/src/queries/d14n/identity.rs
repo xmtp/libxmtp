@@ -7,6 +7,8 @@ use crate::protocol::traits::{Envelope, EnvelopeCollection, Extractor};
 use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
 use itertools::Itertools;
 use xmtp_common::RetryableError;
+use xmtp_configuration::Originators;
+use xmtp_proto::types::Topic;
 use xmtp_proto::ConversionError;
 use xmtp_proto::api_client::{IdentityStats, XmtpIdentityClient};
 use xmtp_proto::identity_v1;
@@ -64,19 +66,22 @@ where
         //todo: replace with returned node_id
         let node_id = 100;
         let last_seen = Some(Cursor {
-            node_id_to_sequence_id: [(node_id, request.requests.first().unwrap().sequence_id)]
+            node_id_to_sequence_id: [
+                (node_id, request.requests.first().unwrap().sequence_id),
+                (Originators::INBOX_LOG  as u32, 0)
+            ]
                 .into(),
         });
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {
-                topics: topics.clone(),
+                topics: topics.iter().map(Topic::bytes).collect(),
                 originator_node_ids: vec![],
                 last_seen,
             })
             .build()?
             .query(&self.message_client)
             .await?;
-
+        tracing::info!("{:?}", result);
         let updates: HashMap<String, Vec<IdentityUpdateLog>> = SequencedExtractor::builder()
             .envelopes(result.envelopes)
             .build::<IdentityUpdateExtractor>()

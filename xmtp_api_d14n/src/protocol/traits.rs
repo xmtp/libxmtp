@@ -3,6 +3,7 @@
 
 use crate::protocol::CursorExtractor;
 use crate::protocol::SequencedExtractor;
+use xmtp_proto::types::Topic;
 
 use super::ExtractionError;
 use super::PayloadExtractor;
@@ -20,6 +21,9 @@ pub use visitor::*;
 
 mod openmls_ext;
 pub use openmls_ext::*;
+
+mod cursor_store;
+pub use cursor_store::*;
 
 /// An low-level envelope from the network gRPC interface
 pub trait ProtocolEnvelope<'env> {
@@ -67,7 +71,7 @@ impl RetryableError for EnvelopeError {
 /// A Generic Higher-Level Collection of Envelopes
 pub trait EnvelopeCollection<'env> {
     /// Get the topic for an envelope
-    fn topics(&self) -> Result<Vec<Vec<u8>>, EnvelopeError>;
+    fn topics(&self) -> Result<Vec<Topic>, EnvelopeError>;
     /// Get the payload for an envelope
     fn payloads(&self) -> Result<Vec<Payload>, EnvelopeError>;
     /// Build the ClientEnvelope
@@ -110,7 +114,7 @@ impl<'env, T> TryEnvelopeCollectionExt<'env> for T where T: EnvelopeCollection<'
 /// Represents a Single High-Level Envelope
 pub trait Envelope<'env> {
     /// Extract the topic for this envelope
-    fn topic(&self) -> Result<Vec<u8>, EnvelopeError>;
+    fn topic(&self) -> Result<Topic, EnvelopeError>;
     /// Extract the payload for this envelope
     fn payload(&self) -> Result<Payload, EnvelopeError>;
     /// Extract the client envelope (envelope containing message payload & AAD, if any) for this
@@ -156,7 +160,7 @@ impl<'env, T> Envelope<'env> for T
 where
     T: ProtocolEnvelope<'env> + std::fmt::Debug,
 {
-    fn topic(&self) -> Result<Vec<u8>, EnvelopeError> {
+    fn topic(&self) -> Result<Topic, EnvelopeError> {
         let mut extractor = TopicExtractor::new();
         self.accept(&mut extractor)?;
         Ok(extractor.get()?)
@@ -201,10 +205,10 @@ impl<'env, T> EnvelopeCollection<'env> for Vec<T>
 where
     T: ProtocolEnvelope<'env> + std::fmt::Debug,
 {
-    fn topics(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
+    fn topics(&self) -> Result<Vec<Topic>, EnvelopeError> {
         self.iter()
             .map(|t| t.topic())
-            .collect::<Result<Vec<Vec<u8>>, _>>()
+            .collect::<Result<Vec<Topic>, _>>()
     }
 
     fn payloads(&self) -> Result<Vec<Payload>, EnvelopeError> {
