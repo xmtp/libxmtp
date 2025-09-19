@@ -64,7 +64,7 @@ class CodecTests: XCTestCase {
 			XCTAssertEqual(expectedContent, content)
 		}
         
-        let messagesV2 = try await alixConversation.messagesV2()
+        let messagesV2 = try await alixConversation.enrichedMessages()
         XCTAssertEqual(messagesV2.count, 2)
         if messages.count == 2 {
             let content: Double = try messages[0].content()

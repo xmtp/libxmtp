@@ -321,7 +321,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	public func messagesV2(
+	public func enrichedMessages(
 		limit: Int? = nil,
 		beforeNs: Int64? = nil,
 		afterNs: Int64? = nil,
@@ -330,12 +330,12 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 	) async throws -> [DecodedMessageV2] {
 		switch self {
 		case let .group(group):
-			return try await group.findMessagesV2(
+			return try await group.enrichedMessages(
 				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
 				direction: direction, deliveryStatus: deliveryStatus
 			)
 		case let .dm(dm):
-			return try await dm.messagesV2(
+			return try await dm.enrichedMessages(
 				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
 				direction: direction, deliveryStatus: deliveryStatus
 			)

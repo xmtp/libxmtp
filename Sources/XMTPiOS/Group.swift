@@ -575,7 +575,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 			}
 	}
 
-	public func findMessagesV2(
+	public func enrichedMessages(
 		beforeNs: Int64? = nil,
 		afterNs: Int64? = nil,
 		limit: Int? = nil,

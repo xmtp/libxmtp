@@ -393,7 +393,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	public func messagesV2(
+	public func enrichedMessages(
 		beforeNs: Int64? = nil,
 		afterNs: Int64? = nil,
 		limit: Int? = nil,

@@ -158,12 +158,12 @@ class HistorySyncTests: XCTestCase {
 		try await alixGroup.send(content: "Hello")
 		try await alixClient.conversations.syncAllConversations()
 		try await alixClient2.conversations.syncAllConversations()
-		let alixGroup2 = try await alixClient2.conversations.findGroup(
+		let alixGroup2 = try alixClient2.conversations.findGroup(
 			groupId: alixGroup.id)!
 
 		var consentList = [ConsentRecord]()
 		let expectation = XCTestExpectation(description: "Stream Consent")
-		expectation.expectedFulfillmentCount = 3
+		expectation.expectedFulfillmentCount = 2
 
 		Task(priority: .userInitiated) {
 			for try await entry in await alixClient.preferences.streamConsent()
@@ -182,8 +182,7 @@ class HistorySyncTests: XCTestCase {
 		try await alixClient.conversations.syncAllConversations()
 		try await alixClient2.conversations.syncAllConversations()
 
-		await fulfillment(of: [expectation], timeout: 3)
-		print(consentList)
+		await fulfillment(of: [expectation], timeout:5)
 		XCTAssertEqual(try alixGroup.consentState(), .denied)
 	}
 

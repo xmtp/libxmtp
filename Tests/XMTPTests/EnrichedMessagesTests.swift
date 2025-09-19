@@ -6,7 +6,7 @@ import XMTPTestHelpers
 @testable import XMTPiOS
 
 @available(iOS 16, *)
-class MessagesV2Tests: XCTestCase {
+class EnrichedMessagesTests: XCTestCase {
 	
 	func testFindMessagesV2ComparedToFindMessages() async throws {
 		// Register codecs
@@ -47,7 +47,7 @@ class MessagesV2Tests: XCTestCase {
 		
 		// Get messages using both methods
 		let messagesV1 = try await group.messages()
-		let messagesV2 = try await group.findMessagesV2()
+		let messagesV2 = try await group.enrichedMessages()
 		
 		// V1 includes reactions as separate messages, V2 attaches them to parent messages
 		// Filter out reactions from V1 for comparison
@@ -139,7 +139,7 @@ class MessagesV2Tests: XCTestCase {
 			]
 			
 			// Retrieve messages using messagesV2
-			let messagesV2 = try await conversation.messagesV2()
+			let messagesV2 = try await conversation.enrichedMessages()
 			
 			// Verify messages were retrieved
 			let textMessages = messagesV2.filter { $0.contentTypeId.typeID == "text" }
@@ -176,20 +176,20 @@ class MessagesV2Tests: XCTestCase {
 		}
 		
 		// Test limit
-		let limited = try await group.findMessagesV2(limit: 3)
+		let limited = try await group.enrichedMessages(limit: 3)
 		XCTAssertLessThanOrEqual(limited.count, 4) // 3 + possible membership message
 		
 		// Test beforeNs (messages before middle timestamp)
 		let middleTimestamp = messageTimestamps[2]
-		let beforeMessages = try await group.findMessagesV2(beforeNs: middleTimestamp)
-		let afterMessages = try await group.findMessagesV2(afterNs: middleTimestamp)
+		let beforeMessages = try await group.enrichedMessages(beforeNs: middleTimestamp)
+		let afterMessages = try await group.enrichedMessages(afterNs: middleTimestamp)
 		
 		XCTAssertGreaterThan(beforeMessages.count, 0)
 		XCTAssertGreaterThan(afterMessages.count, 0)
 		
 		// Test sort direction
-		let ascending = try await group.findMessagesV2(direction: .ascending)
-		let descending = try await group.findMessagesV2(direction: .descending)
+		let ascending = try await group.enrichedMessages(direction: .ascending)
+		let descending = try await group.enrichedMessages(direction: .descending)
 		
 		if ascending.count > 1 && descending.count > 1 {
 			// Verify sort order
@@ -243,7 +243,7 @@ class MessagesV2Tests: XCTestCase {
 		
 		// Sync and retrieve all messages using V2
 		try await group.sync()
-		let messagesV2 = try await group.findMessagesV2()
+		let messagesV2 = try await group.enrichedMessages()
 		
 		// V2 should NOT have reactions as separate messages
 		let contentTypes = Set(messagesV2.map { $0.contentTypeId.typeID })
@@ -290,7 +290,7 @@ class MessagesV2Tests: XCTestCase {
 		let group = try await fixtures.alixClient.conversations.newGroup(with: [fixtures.boClient.inboxID])
 		
 		// Test empty conversation (only membership message)
-		let emptyMessages = try await group.findMessagesV2()
+		let emptyMessages = try await group.enrichedMessages()
 		XCTAssertGreaterThanOrEqual(emptyMessages.count, 1)
 		if let firstMessage = emptyMessages.first {
 			XCTAssertEqual(firstMessage.contentTypeId.typeID, "group_updated")
@@ -300,9 +300,9 @@ class MessagesV2Tests: XCTestCase {
 		try await group.send(content: "Published message")
 		let unpublishedId = try await group.prepareMessage(content: "Unpublished")
 		
-		let allMessages = try await group.findMessagesV2(deliveryStatus: .all)
-		let publishedOnly = try await group.findMessagesV2(deliveryStatus: .published)
-		let unpublishedOnly = try await group.findMessagesV2(deliveryStatus: .unpublished)
+		let allMessages = try await group.enrichedMessages(deliveryStatus: .all)
+		let publishedOnly = try await group.enrichedMessages(deliveryStatus: .published)
+		let unpublishedOnly = try await group.enrichedMessages(deliveryStatus: .unpublished)
 		
 		XCTAssertGreaterThan(allMessages.count, publishedOnly.count)
 		
@@ -332,18 +332,18 @@ class MessagesV2Tests: XCTestCase {
 		
 		// Measure performance
 		let startTime = Date()
-		let messages = try await group.findMessagesV2()
+		let messages = try await group.enrichedMessages()
 		let timeElapsed = Date().timeIntervalSince(startTime)
 		
 		XCTAssertGreaterThanOrEqual(messages.count, messageCount)
 		XCTAssertLessThan(timeElapsed, 2.0, "Should retrieve \(messageCount) messages in under 2 seconds")
 		
 		// Test pagination with large set
-		let firstPage = try await group.findMessagesV2(limit: 10)
+		let firstPage = try await group.enrichedMessages(limit: 10)
 		XCTAssertLessThanOrEqual(firstPage.count, 11) // 10 + membership
 		
 		if let oldestInFirstPage = firstPage.last {
-			let secondPage = try await group.findMessagesV2(
+			let secondPage = try await group.enrichedMessages(
 				beforeNs: oldestInFirstPage.sentAtNs,
 				limit: 10
 			)
@@ -395,7 +395,7 @@ class MessagesV2Tests: XCTestCase {
 		let remoteId = try await group.send(content: remoteAttachment, options: .init(contentType: ContentTypeRemoteAttachment))
 		
 		// Retrieve messages using V2
-		let messagesV2 = try await group.findMessagesV2()
+		let messagesV2 = try await group.enrichedMessages()
 		
 		// Should have: group_updated, original, reply, remote attachment (4 total)
 		XCTAssertEqual(messagesV2.count, 4, "Should have 4 messages")

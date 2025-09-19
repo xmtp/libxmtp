@@ -186,7 +186,7 @@ public class Conversations {
 		}
 	}
 
-	public func findMessageV2(messageId: String) throws -> DecodedMessageV2? {
+	public func findEnrichedMessage(messageId: String) throws -> DecodedMessageV2? {
 		do {
 			return DecodedMessageV2.create(ffiMessage: try ffiClient.messageV2(messageId: messageId.hexToData))
 		} catch {
