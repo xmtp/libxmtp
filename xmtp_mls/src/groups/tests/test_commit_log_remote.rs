@@ -306,12 +306,13 @@ async fn test_publish_commit_log_to_remote() {
     let published_commit_log_cursor = alix
         .context
         .db()
-        .get_last_cursor_for_id(
+        .get_last_cursor_for_originator(
             &alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+            Originators::REMOTE_COMMIT_LOG as u32
         )
         .unwrap();
-    assert_eq!(published_commit_log_cursor, Cursor::default());
+    assert_eq!(published_commit_log_cursor, Cursor::commit_log(0));
 
     // Alix runs the commit log worker, which will publish the commit log entry to the remote commit log
     let mut commit_log_worker = CommitLogWorker::new(alix.context.clone());
@@ -323,16 +324,18 @@ async fn test_publish_commit_log_to_remote() {
     let published_commit_log_cursor = alix
         .context
         .db()
-        .get_last_cursor_for_id(
+        .get_last_cursor_for_originator(
             &alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+            Originators::REMOTE_COMMIT_LOG as u32
         )
         .unwrap();
-    assert!(published_commit_log_cursor > Cursor::default());
+    tracing::info!("{}", published_commit_log_cursor);
+    assert!(published_commit_log_cursor > Cursor::commit_log(0));
     let last_commit_log_entry = commit_log_entries.last().unwrap();
     // Verify that the local cursor has now been updated to the last commit log entry's sequence id
     assert_eq!(
-        Cursor::new(last_commit_log_entry.rowid as u64, Originators::REMOTE_COMMIT_LOG),
+        Cursor::commit_log(last_commit_log_entry.rowid as u64),
         published_commit_log_cursor
     );
 
@@ -404,12 +407,13 @@ async fn test_download_commit_log_from_remote() {
     let alix_group_1_cursor = alix
         .context
         .db()
-        .get_last_cursor_for_id(
+        .get_last_cursor_for_originator(
             &alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+            Originators::REMOTE_COMMIT_LOG as u32
         )
         .unwrap();
-    assert_eq!(alix_group_1_cursor, Cursor::default());
+    assert_eq!(alix_group_1_cursor, Cursor::commit_log(0));
 
     // Verify that publish works as expected
     let mut commit_log_worker = CommitLogWorker::new(alix.context.clone());
@@ -461,9 +465,10 @@ async fn test_download_commit_log_from_remote() {
     let alix_group_1_cursor = alix
         .context
         .db()
-        .get_last_cursor_for_id(
+        .get_last_cursor_for_originator(
             &alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+            Originators::REMOTE_COMMIT_LOG as u32
         )
         .unwrap();
 
@@ -473,7 +478,7 @@ async fn test_download_commit_log_from_remote() {
         alix_group_1_cursor,
         Cursor::new(
             alix_group1_publish_result_upload_cursor as u64,
-           Originators::REMOTE_COMMIT_LOG
+           Originators::REMOTE_COMMIT_LOG as u32
         )
     );
 

@@ -1,4 +1,4 @@
-use std::{fmt, str::FromStr};
+use std::{fmt, ops::Deref, str::FromStr};
 
 use bytes::Bytes;
 use hex::FromHexError;
@@ -57,7 +57,7 @@ impl fmt::Display for GroupId {
     }
 }
 
-impl std::ops::Deref for GroupId {
+impl Deref for GroupId {
     type Target = bytes::Bytes;
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -97,7 +97,7 @@ impl TryFrom<&[u8]> for InstallationId {
     }
 }
 
-impl std::ops::Deref for InstallationId {
+impl Deref for InstallationId {
     type Target = [u8; 32];
 
     fn deref(&self) -> &Self::Target {

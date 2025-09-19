@@ -204,12 +204,10 @@ where
                     conn.update_cursor(
                         &conversation_cursor_info.conversation_id,
                         xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-                        Cursor {
-                            sequence_id: conversation_cursor_info.last_entry_published_rowid as u64,
-                            originator_id: Originators::REMOTE_COMMIT_LOG.into(), // TODO:d14n must be done before merge
-                                                                                  // originator id must be oassed in from message
-                                                                                  // most of this could be taken care of from the commit log
-                        },
+                        // TODO:d14n must be done before merge
+                        // originator id must be oassed in from message
+                        // most of this could be taken care of from the commit log
+                        Cursor::commit_log(conversation_cursor_info.last_entry_published_rowid as u64)
                     )?;
                 }
             }
@@ -242,9 +240,10 @@ where
                 .unwrap_or(0);
             let published_commit_log_cursor = conn
                 //TODO:d14n
-                .get_last_cursor_for_id(
+                .get_last_cursor_for_originator(
                     &conversation.id,
                     xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+                    Originators::REMOTE_COMMIT_LOG as u32
                 )
                 .unwrap_or_default()
                 .sequence_id;
@@ -461,10 +460,7 @@ where
             conn.update_cursor(
                 &group_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogDownload,
-                Cursor {
-                    sequence_id: last_entry.sequence_id,
-                    originator_id: xmtp_configuration::Originators::MLS_COMMITS.into(),
-                },
+                Cursor::commit_log(last_entry.sequence_id)
             )?;
         }
 
@@ -572,13 +568,15 @@ where
         conversation_id: &[u8],
     ) -> Result<Option<bool>, CommitLogError> {
         // Get cursors for this conversation
-        let fork_check_local_cursor = conn.get_last_cursor_for_id(
+        let fork_check_local_cursor = conn.get_last_cursor_for_originator(
             conversation_id,
             xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
+            Originators::REMOTE_COMMIT_LOG as u32
         )?;
-        let fork_check_remote_cursor = conn.get_last_cursor_for_id(
+        let fork_check_remote_cursor = conn.get_last_cursor_for_originator(
             conversation_id,
             xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
+            Originators::REMOTE_COMMIT_LOG as u32
         )?;
 
         // TODO:d14n needs recheck
@@ -628,18 +626,12 @@ where
             conn.update_cursor(
                 conversation_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-                Cursor {
-                    sequence_id: local_log.rowid as u64,
-                    originator_id: xmtp_configuration::Originators::MLS_COMMITS as u32,
-                },
+                Cursor::commit_log(local_log.rowid as u64),
             )?;
             conn.update_cursor(
                 conversation_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-                Cursor {
-                    sequence_id: matching_remote_log.rowid as u64,
-                    originator_id: xmtp_configuration::Originators::MLS_COMMITS.into(),
-                },
+                Cursor::commit_log(matching_remote_log.rowid as u64)
             )?;
 
             if is_mismatched {

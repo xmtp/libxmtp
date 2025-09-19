@@ -1,6 +1,7 @@
 //! xmtp message cursor type and implementations
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use xmtp_configuration::Originators;
 
 /// XMTP cursor type
 /// represents a position in an ordered sequence of messages, belonging
@@ -10,8 +11,8 @@ use std::fmt;
 // TODO:d14n comparing cursors is unsafe/undefined behavior if originator ids are not equal.
 // maybe Ord should not be derived?
 pub struct Cursor {
-    pub originator_id: u32,
-    pub sequence_id: u64,
+    pub originator_id: super::OriginatorId,
+    pub sequence_id: super::SequenceId,
 }
 
 impl Cursor {
@@ -19,6 +20,48 @@ impl Cursor {
         Self {
             sequence_id,
             originator_id: originator_id.into(),
+        }
+    }
+
+    pub const fn commit_log(sequence_id: u64) -> Self {
+        Self {
+            sequence_id,
+            originator_id: Originators::REMOTE_COMMIT_LOG as u32,
+        }
+    }
+
+    pub const fn welcomes(sequence_id: u64) -> Self {
+        Self {
+            sequence_id,
+            originator_id: Originators::WELCOME_MESSAGES as u32,
+        }
+    }
+
+    pub const fn v3_messages(sequence_id: u64) -> Self {
+        Self {
+            sequence_id,
+            originator_id: Originators::APPLICATION_MESSAGES as u32,
+        }
+    }
+
+    pub const fn installations(sequence_id: u64) -> Self {
+        Self {
+            sequence_id,
+            originator_id: Originators::INSTALLATIONS as u32
+        }
+    }
+
+    pub const fn mls_commits(sequence_id: u64) -> Self {
+        Self {
+            sequence_id,
+            originator_id: Originators::MLS_COMMITS as u32
+        }
+    }
+
+    pub const fn inbox_log(sequence_id: u64) -> Self {
+        Self {
+            sequence_id,
+            originator_id: Originators::INBOX_LOG as u32
         }
     }
 }

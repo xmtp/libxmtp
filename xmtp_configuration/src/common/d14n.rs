@@ -7,6 +7,7 @@ impl Originators {
 
     pub const APPLICATION_MESSAGES: u16 = 10;
     pub const WELCOME_MESSAGES: u16 = 11;
+    /// Key Packages
     pub const INSTALLATIONS: u16 = 13;
-    pub const REMOTE_COMMIT_LOG: u16 = 10;
+    pub const REMOTE_COMMIT_LOG: u16 = 100;
 }

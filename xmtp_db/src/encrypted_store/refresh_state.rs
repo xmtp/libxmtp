@@ -8,7 +8,8 @@ use diesel::{
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
 };
-use xmtp_proto::types::Cursor;
+use xmtp_configuration::Originators;
+use xmtp_proto::types::{Cursor, OriginatorId};
 
 use super::{ConnectionExt, Sqlite, db_connection::DbConnection, schema::refresh_state};
 use crate::{StorageError, StoreOrIgnore, impl_store_or_ignore};
@@ -86,7 +87,9 @@ pub trait QueryRefreshState {
         originator_ids: Option<u32>,
     ) -> Result<Option<RefreshState>, StorageError>;
 
-    #[deprecated(note = "callers must specify originator")]
+    #[deprecated(
+        note = "callers must specify originator, use an originator variant of this getter."
+    )]
     fn get_last_cursor_for_id<Id: AsRef<[u8]>>(
         &self,
         id: Id,
@@ -207,6 +210,14 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         entity_kind: EntityKind,
     ) -> Result<Cursor, StorageError> {
         let state: Option<RefreshState> = self.get_refresh_state(&id, entity_kind, None)?;
+        let originator = match entity_kind {
+            EntityKind::Welcome => Originators::WELCOME_MESSAGES,
+            EntityKind::CommitLogUpload
+            | EntityKind::CommitLogDownload
+            | EntityKind::CommitLogForkCheckLocal
+            | EntityKind::CommitLogForkCheckRemote => Originators::REMOTE_COMMIT_LOG,
+            EntityKind::Group => 0,
+        };
         match state {
             Some(state) => Ok(Cursor {
                 sequence_id: state.cursor as u64,
@@ -217,10 +228,13 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
                     entity_id: id.as_ref().to_vec(),
                     entity_kind,
                     cursor: 0,
-                    originator_id: 0,
+                    originator_id: originator as i32,
                 };
                 new_state.store_or_ignore(self)?;
-                Ok(Cursor::default())
+                Ok(Cursor {
+                    sequence_id: 0,
+                    originator_id: originator as OriginatorId
+                })
             }
         }
     }
@@ -257,6 +271,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         Ok(last_seen)
     }
 
+    #[tracing::instrument(level = "info", skip(self), fields(entity_id = %hex::encode(&entity_id)))]
     fn update_cursor<Id: AsRef<[u8]>>(
         &self,
         entity_id: Id,

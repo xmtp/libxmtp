@@ -19,7 +19,6 @@ use openmls::group::MlsGroup as OpenMlsGroup;
 use prost::Message;
 use xmtp_common::RetryableError;
 use xmtp_common::time::now_ns;
-use xmtp_configuration::Originators;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_db::{
@@ -519,10 +518,7 @@ where
         db.update_cursor(
             &group.group_id,
             EntityKind::Group,
-            Cursor {
-                sequence_id: cursor as u64,
-                originator_id: Originators::APPLICATION_MESSAGES as u32,
-            },
+            Cursor::v3_messages(cursor as u64)
         )?;
 
         tracing::info!(
