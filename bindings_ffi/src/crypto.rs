@@ -32,10 +32,16 @@ fn ethereum_generate_public_key(private_key32: Vec<u8>) -> Result<Vec<u8>, FfiCr
     Ok(public_key.to_vec())
 }
 
-/// 2) Ethereum recoverable signature.
-///    Returns **65 bytes r||s||v**, with **v in {0,1}** (parity bit).
-///    - if `hashing == true`: keccak256(message) then sign_hash
-///    - else: `msg` must be a 32-byte prehash
+/// 2) Ethereum recoverable signature (FFI).
+///    Returns 65 bytes `r || s || v`, with **v ∈ {27,28}**
+///    (legacy/Electrum encoding where **v = 27 + parity**, parity ∈ {0,1}).
+///    - If `hashing == true`: signs per **EIP-191**
+///      ("Ethereum Signed Message:\n{len(msg)}" || msg, then keccak256).
+///    - If `hashing == false`: `msg` must be a **32-byte** prehash (e.g., keccak256/EIP-712 digest).
+///    Notes:
+///    - Signature is low-S normalized; recovery id is encoded as 27/28 for compatibility.
+///    - To get the parity bit use `parity = v - 27`.
+///    - For EIP-155 txs compute `tx.v = 35 + 2*chainId + parity`
 #[uniffi::export]
 fn ethereum_sign_recoverable(
     msg: Vec<u8>,
