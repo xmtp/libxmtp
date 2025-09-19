@@ -31,6 +31,7 @@ pub enum IntentKind {
     UpdateGroupMembership = 4,
     UpdateAdminList = 5,
     UpdatePermission = 6,
+    ReaddInstallations = 7,
 }
 
 impl std::fmt::Display for IntentKind {
@@ -42,6 +43,7 @@ impl std::fmt::Display for IntentKind {
             IntentKind::UpdateGroupMembership => "UpdateGroupMembership",
             IntentKind::UpdateAdminList => "UpdateAdminList",
             IntentKind::UpdatePermission => "UpdatePermission",
+            IntentKind::ReaddInstallations => "ReaddInstallations",
         };
         write!(f, "{}", description)
     }
