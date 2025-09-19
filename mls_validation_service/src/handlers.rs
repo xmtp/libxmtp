@@ -485,6 +485,7 @@ mod tests {
     }
 
     #[rstest::rstest]
+    #[timeout(std::time::Duration::from_secs(30))]
     #[tokio::test]
     async fn test_validate_scw(#[future] docker_smart_wallet: SmartWalletContext) {
         let SmartWalletContext {
