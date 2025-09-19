@@ -28,8 +28,8 @@ xmtp_common::if_wasm! {
     xmtp_common::if_dev! {
         impl GrpcUrls {
             pub const NODE: &'static str = "https://api.dev.xmtp.network:5558";
-            pub const XMTPD: &'static str = "https://api.dev.xmtp.network:5558/xmtpd";
-            pub const PAYER: &'static str = "https://api.dev.xmtp.network:5558/payer";
+            pub const XMTPD: &'static str = "https://grpc.testnet-staging.xmtp.network:5558/xmtpd";
+            pub const PAYER: &'static str = "https://payer.testnet-staging.xmtp.network:5558/payer";
         }
     }
 
