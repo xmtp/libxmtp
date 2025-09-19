@@ -652,7 +652,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
 
         let mut query = group_messages::table
             .left_join(groups::table)
-            .filter(groups::conversation_type.ne(ConversationType::Sync))
+            .filter(groups::conversation_type.ne_all(ConversationType::virtual_types()))
             .filter(group_messages::kind.eq(GroupMessageKind::Application))
             .select(group_messages::all_columns)
             .order_by(group_messages::id)

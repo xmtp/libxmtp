@@ -2288,8 +2288,7 @@ where
                 self.group_id.clone(),
             )));
         };
-        if stored_group.conversation_type == ConversationType::Sync {
-            // Sync groups should not add new installations, new installations will create their own.
+        if stored_group.conversation_type.is_virtual() {
             return Ok(());
         }
 

@@ -276,8 +276,6 @@ impl TryFrom<GroupMutableMetadata> for Vec<u8> {
             super_admin_list: Some(InboxesProto {
                 inbox_ids: value.super_admin_list,
             }),
-            // Deprecated field - use attributes instead
-            commit_log_signer: None,
         };
         proto_val.encode(&mut buf)?;
 
