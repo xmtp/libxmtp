@@ -8,10 +8,13 @@ use super::{
     summary::{MessageIdentifier, MessageIdentifierBuilder, ProcessSummary, SyncSummary},
     validated_commit::{CommitValidationError, LibXMTPVersion, extract_group_membership},
 };
-use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use crate::groups::{
     device_sync_legacy::preference_sync_legacy::process_incoming_preference_update,
-    intents::QueueIntent,
+    intents::QueueIntent, mls_sync::update_group_membership::apply_readd_installations_intent,
+};
+use crate::groups::{
+    intents::ReaddInstallationsIntentData,
+    mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage,
 };
 use crate::identity_updates::IdentityUpdates;
 use crate::{
@@ -68,6 +71,7 @@ use openmls::{
     extensions::Extensions,
     framing::ProtocolMessage,
     group::{GroupEpoch, StagedCommit},
+    key_packages::KeyPackage,
     prelude::{
         LeafNodeIndex, MlsGroup as OpenMlsGroup, ProcessedMessage, ProcessedMessageContent, Sender,
         tls_codec::{Error as TlsCodecError, Serialize},
@@ -569,7 +573,8 @@ where
             | IntentKind::UpdateGroupMembership
             | IntentKind::UpdateAdminList
             | IntentKind::MetadataUpdate
-            | IntentKind::UpdatePermission => {
+            | IntentKind::UpdatePermission
+            | IntentKind::ReaddInstallations => {
                 if let Some(published_in_epoch) = intent.published_in_epoch {
                     let group_epoch = group_epoch.as_u64() as i64;
 
@@ -1444,7 +1449,6 @@ where
                                 // Rollback the transaction so that we can retry
                                 return Err(err.processing_error);
                             }
-                            // TODO(rich): Add log_err! macro/trait for swallowing errors
                             if envelope.is_commit() && let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor.sequence_id, envelope.message.epoch(), &err.processing_error) {
                                 tracing::error!("Error inserting commit entry for failed self commit: {}", accounting_error);
                             }
@@ -2154,6 +2158,12 @@ where
                     should_send_push_notification: intent.should_push,
                 }))
             }
+            IntentKind::ReaddInstallations => {
+                let intent_data = ReaddInstallationsIntentData::try_from(intent.data.as_slice())?;
+                let signer = &self.context.identity().installation_keys;
+                apply_readd_installations_intent(&self.context, openmls_group, intent_data, signer)
+                    .await
+            }
         }
     }
 
@@ -2538,23 +2548,14 @@ async fn calculate_membership_changes_with_keypackages<'a>(
     let mut new_failed_installations = Vec::new();
 
     if !installation_diff.added_installations.is_empty() {
-        let key_packages = get_keypackages_for_installation_ids(
+        get_keypackages_for_installation_ids(
             context,
             installation_diff.added_installations,
+            &mut new_installations,
+            &mut new_key_packages,
             &mut new_failed_installations,
         )
         .await?;
-        for (installation_id, result) in key_packages {
-            match result {
-                Ok(verified_key_package) => {
-                    new_installations.push(Installation::from_verified_key_package(
-                        &verified_key_package,
-                    )?);
-                    new_key_packages.push(verified_key_package.inner.clone());
-                }
-                Err(_) => new_failed_installations.push(installation_id.clone()),
-            }
-        }
     }
 
     let mut failed_installations: HashSet<Vec<u8>> = old_group_membership
@@ -2582,23 +2583,35 @@ async fn calculate_membership_changes_with_keypackages<'a>(
         failed_installations.into_iter().collect(),
     ))
 }
+
 #[allow(dead_code)]
 #[cfg(any(test, feature = "test-utils"))]
-async fn get_keypackages_for_installation_ids(
-    context: &impl XmtpSharedContext,
-    added_installations: HashSet<Vec<u8>>,
+async fn inject_failed_installations_for_test(
+    key_packages: &mut HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
     failed_installations: &mut Vec<Vec<u8>>,
-) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
-{
+) {
     use crate::utils::test_mocks_helpers::{
         get_test_mode_malformed_installations, is_test_mode_upload_malformed_keypackage,
     };
+    if is_test_mode_upload_malformed_keypackage() {
+        let malformed_installations = get_test_mode_malformed_installations();
+        key_packages.retain(|id, _| !malformed_installations.contains(id));
+        failed_installations.extend(malformed_installations);
+    }
+}
 
+async fn get_keypackages_for_installation_ids(
+    context: impl XmtpSharedContext,
+    requested_installations: HashSet<Vec<u8>>,
+    fetched_installations: &mut Vec<Installation>,
+    fetched_key_packages: &mut Vec<KeyPackage>,
+    failed_installations: &mut Vec<Vec<u8>>,
+) -> Result<(), GroupError> {
     let my_installation_id = context.installation_id().to_vec();
     let store = MlsStore::new(context.clone());
     let mut key_packages = store
         .get_key_packages_for_installation_ids(
-            added_installations
+            requested_installations
                 .iter()
                 .filter(|installation| my_installation_id.ne(*installation))
                 .cloned()
@@ -2606,36 +2619,22 @@ async fn get_keypackages_for_installation_ids(
         )
         .await?;
 
-    tracing::info!("trying to validate keypackages");
+    #[cfg(any(test, feature = "test-utils"))]
+    inject_failed_installations_for_test(&mut key_packages, failed_installations).await;
 
-    if is_test_mode_upload_malformed_keypackage() {
-        let malformed_installations = get_test_mode_malformed_installations();
-        key_packages.retain(|id, _| !malformed_installations.contains(id));
-        failed_installations.extend(malformed_installations);
+    for (installation_id, result) in key_packages {
+        match result {
+            Ok(verified_key_package) => {
+                fetched_installations.push(Installation::from_verified_key_package(
+                    &verified_key_package,
+                )?);
+                fetched_key_packages.push(verified_key_package.inner.clone());
+            }
+            Err(_) => failed_installations.push(installation_id.clone()),
+        }
     }
 
-    Ok(key_packages)
-}
-#[allow(unused_variables, dead_code)]
-#[cfg(not(any(test, feature = "test-utils")))]
-async fn get_keypackages_for_installation_ids(
-    context: impl XmtpSharedContext,
-    added_installations: HashSet<Vec<u8>>,
-    failed_installations: &mut [Vec<u8>],
-) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
-{
-    let my_installation_id = context.installation_id().to_vec();
-    let store = MlsStore::new(context.clone());
-    store
-        .get_key_packages_for_installation_ids(
-            added_installations
-                .iter()
-                .filter(|installation| my_installation_id.ne(*installation))
-                .cloned()
-                .collect(),
-        )
-        .await
-        .map_err(Into::into)
+    Ok(())
 }
 
 fn get_removed_leaf_nodes(
