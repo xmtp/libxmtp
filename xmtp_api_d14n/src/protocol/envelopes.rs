@@ -8,6 +8,7 @@ use xmtp_proto::mls_v1::subscribe_welcome_messages_request::Filter as SubscribeW
 use xmtp_proto::mls_v1::{
     SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest, welcome_message,
 };
+use xmtp_proto::types::Topic;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     SubscribeEnvelopesResponse, get_newest_envelope_response,
 };
@@ -412,7 +413,7 @@ impl<'env> ProtocolEnvelope<'env> for () {
 }
 
 impl EnvelopeCollection<'_> for SubscribeEnvelopesResponse {
-    fn topics(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
+    fn topics(&self) -> Result<Vec<Topic>, EnvelopeError> {
         self.envelopes.topics()
     }
 
@@ -444,7 +445,7 @@ impl EnvelopeCollection<'_> for SubscribeEnvelopesResponse {
 }
 
 impl EnvelopeCollection<'_> for SubscribeGroupMessagesRequest {
-    fn topics(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
+    fn topics(&self) -> Result<Vec<Topic>, EnvelopeError> {
         self.filters.topics()
     }
 
@@ -468,13 +469,14 @@ impl EnvelopeCollection<'_> for SubscribeGroupMessagesRequest {
     where
         for<'a> E: Default + super::Extractor + EnvelopeVisitor<'a>,
         for<'a> EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
-        Self: Sized {
+        Self: Sized,
+    {
         self.filters.consume()
     }
 }
 
 impl EnvelopeCollection<'_> for SubscribeWelcomeMessagesRequest {
-    fn topics(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
+    fn topics(&self) -> Result<Vec<Topic>, EnvelopeError> {
         self.filters.topics()
     }
 
@@ -498,7 +500,8 @@ impl EnvelopeCollection<'_> for SubscribeWelcomeMessagesRequest {
     where
         for<'a> E: Default + super::Extractor + EnvelopeVisitor<'a>,
         for<'a> EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
-        Self: Sized {
+        Self: Sized,
+    {
         self.filters.consume()
     }
 }

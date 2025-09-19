@@ -29,7 +29,7 @@ use crate::groups::{
 };
 use crate::tester;
 use crate::utils::fixtures::{alix, bola, caro};
-use crate::utils::{ClientTester, TestMlsGroup, Tester, VersionInfo};
+use crate::utils::{ClientTester, LocalTesterBuilder, TestMlsGroup, Tester, TesterBuilder, VersionInfo};
 use crate::{
     builder::ClientBuilder,
     groups::{
@@ -2046,8 +2046,8 @@ async fn test_group_members_permission_level_update() {
 #[xmtp_common::test]
 async fn test_staged_welcome() {
     // Create Clients
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let amal = TesterBuilder::new().with_commit_log_worker(false).with_name("amal").build().await;
+    let bola = TesterBuilder::new().with_commit_log_worker(false).with_name("bola").build().await;
 
     // Amal creates a group
     let amal_group = amal.create_group(None, None).unwrap();

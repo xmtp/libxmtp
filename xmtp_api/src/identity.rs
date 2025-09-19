@@ -49,6 +49,7 @@ impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpIdentityClient,
 {
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn publish_identity_update<U: Into<IdentityUpdate>>(&self, update: U) -> Result<()> {
         let update: IdentityUpdate = update.into();
         self.api_client
