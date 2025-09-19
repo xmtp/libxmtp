@@ -27,11 +27,7 @@ use xmtp_db::{
     NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs,
     group_message::StoredGroupMessage,
 };
-use xmtp_db::{
-    XmtpDb,
-    group::{ConversationType, GroupMembershipState},
-    prelude::*,
-};
+use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
 use xmtp_id::{InboxIdRef, associations::DeserializationError};
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::xmtp::{
@@ -250,10 +246,10 @@ where
             None => {
                 let sync_group = MlsGroup::create_and_insert(
                     self.context.clone(),
-                    GroupMembershipState::Allowed,
                     ConversationType::Sync,
                     PreconfiguredPolicies::default().to_policy_set(),
                     GroupMetadataOptions::default(),
+                    None,
                 )?;
                 tracing::info!(
                     "[{}] Creating sync group: {}",

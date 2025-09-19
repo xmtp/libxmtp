@@ -26,6 +26,7 @@ pub enum ConversationType {
   Dm = 0,
   Group = 1,
   Sync = 2,
+  Oneshot = 3,
 }
 
 impl From<XmtpConversationType> for ConversationType {
@@ -34,6 +35,7 @@ impl From<XmtpConversationType> for ConversationType {
       XmtpConversationType::Dm => ConversationType::Dm,
       XmtpConversationType::Group => ConversationType::Group,
       XmtpConversationType::Sync => ConversationType::Sync,
+      XmtpConversationType::Oneshot => ConversationType::Oneshot,
     }
   }
 }
@@ -44,6 +46,7 @@ impl From<ConversationType> for XmtpConversationType {
       ConversationType::Dm => XmtpConversationType::Dm,
       ConversationType::Group => XmtpConversationType::Group,
       ConversationType::Sync => XmtpConversationType::Sync,
+      ConversationType::Oneshot => XmtpConversationType::Oneshot,
     }
   }
 }

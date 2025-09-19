@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use openmls::{extensions::Extensions, group::MlsGroup as OpenMlsGroup};
+use openmls::extensions::Extensions;
 use prost::Message;
 use serde::Serialize;
 use thiserror::Error;
@@ -8,7 +8,7 @@ use thiserror::Error;
 use xmtp_id::InboxId;
 use xmtp_proto::xmtp::mls::message_contents::{
     ConversationType as ConversationTypeProto, DmMembers as DmMembersProto,
-    GroupMetadataV1 as GroupMetadataProto, Inbox as InboxProto,
+    GroupMetadataV1 as GroupMetadataProto, Inbox as InboxProto, OneshotMessage,
 };
 
 use xmtp_db::group::ConversationType;
@@ -38,6 +38,7 @@ pub struct GroupMetadata {
     // TODO: Remove this once transition is completed
     pub creator_inbox_id: String,
     pub dm_members: Option<DmMembers<InboxId>>,
+    pub oneshot_message: Option<OneshotMessage>,
 }
 
 impl GroupMetadata {
@@ -45,11 +46,13 @@ impl GroupMetadata {
         conversation_type: ConversationType,
         creator_inbox_id: String,
         dm_members: Option<DmMembers<InboxId>>,
+        oneshot_message: Option<OneshotMessage>,
     ) -> Self {
         Self {
             conversation_type,
             creator_inbox_id,
             dm_members,
+            oneshot_message,
         }
     }
 }
@@ -64,7 +67,7 @@ impl TryFrom<GroupMetadata> for Vec<u8> {
             creator_inbox_id: value.creator_inbox_id.clone(),
             creator_account_address: "".to_string(), // TODO: remove from proto
             dm_members: value.dm_members.clone().map(|dm| dm.into()),
-            oneshot_message: None,
+            oneshot_message: value.oneshot_message,
         };
         let mut buf: Vec<u8> = Vec::new();
         proto_val.encode(&mut buf)?;
@@ -91,6 +94,7 @@ impl TryFrom<GroupMetadataProto> for GroupMetadata {
             value.conversation_type.try_into()?,
             value.creator_inbox_id,
             dm_members,
+            value.oneshot_message,
         ))
     }
 }
@@ -190,9 +194,10 @@ impl TryFrom<DmMembersProto> for DmMembers<InboxId> {
     }
 }
 
-pub fn extract_group_metadata(group: &OpenMlsGroup) -> Result<GroupMetadata, GroupMetadataError> {
-    let extension = group
-        .extensions()
+pub fn extract_group_metadata(
+    extensions: &Extensions,
+) -> Result<GroupMetadata, GroupMetadataError> {
+    let extension = extensions
         .immutable_metadata()
         .ok_or(GroupMetadataError::MissingExtension)?;
 
