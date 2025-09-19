@@ -1745,11 +1745,11 @@ pub(crate) mod tests {
         );
 
         // Commit should fail because actor is not superadmin
-        let commit = build_validated_commit(None, None, None, true, false, false, None, None);
+        let commit = build_validated_commit(None, None, None, true, false, false, None);
         assert!(!permissions.evaluate_commit(&commit));
 
         // Commit should pass because actor is superadmin
-        let commit = build_validated_commit(None, None, None, true, false, true, None, None);
+        let commit = build_validated_commit(None, None, None, true, false, true, None);
         assert!(permissions.evaluate_commit(&commit));
     }
 
@@ -1894,7 +1894,6 @@ pub(crate) mod tests {
             false,
             false,
             Some(TARGET_INBOX_ID.to_string()),
-            None,
         );
         assert!(!permissions.evaluate_commit(&commit));
         let commit = build_validated_commit(
