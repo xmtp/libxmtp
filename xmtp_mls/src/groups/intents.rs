@@ -52,8 +52,6 @@ pub enum IntentError {
     MissingPayload,
     #[error("missing update admin version")]
     MissingUpdateAdminVersion,
-    #[error("missing update pending remove list version")]
-    MissingUpdatePendingRemoveListVersion,
     #[error("missing post commit action")]
     MissingPostCommit,
     #[error("unsupported permission version")]

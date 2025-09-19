@@ -1542,39 +1542,24 @@ where
         intent: &StoredGroupIntent,
         storage: &impl XmtpMlsStorageProvider,
     ) -> Result<(), IntentError> {
-        match intent.kind {
-            IntentKind::MetadataUpdate => {
-                let data = UpdateMetadataIntentData::try_from(intent.data.clone())?;
+        if intent.kind == IntentKind::MetadataUpdate {
+            let data = UpdateMetadataIntentData::try_from(intent.data.clone())?;
 
-                match data.field_name.as_str() {
-                    field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
-                        storage.db().update_message_disappearing_from_ns(
-                            self.group_id.clone(),
-                            data.field_value.parse::<i64>().ok(),
-                        )?
-                    }
-                    field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
-                        storage.db().update_message_disappearing_in_ns(
-                            self.group_id.clone(),
-                            data.field_value.parse::<i64>().ok(),
-                        )?
-                    }
-                    _ => {} // handle other metadata updates
+            match data.field_name.as_str() {
+                field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
+                    storage.db().update_message_disappearing_from_ns(
+                        self.group_id.clone(),
+                        data.field_value.parse::<i64>().ok(),
+                    )?
                 }
+                field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
+                    storage.db().update_message_disappearing_in_ns(
+                        self.group_id.clone(),
+                        data.field_value.parse::<i64>().ok(),
+                    )?
+                }
+                _ => {} // handle other metadata updates
             }
-            // IntentKind::UpdatePendingRemoveList => {
-            //     let data = UpdatePendingRemoveListIntentData::try_from(intent.data.clone())?;
-            //     if data.inbox_id == self.context.inbox_id() {
-            //         storage
-            //             .db()
-            //             .update_group_membership(
-            //                 &intent.group_id,
-            //                 GroupMembershipState::PendingRemove,
-            //             )
-            //             .map_err(|e| IntentError::Storage(e.into()))?
-            //     }
-            // }
-            _ => (),
         }
         Ok(())
     }

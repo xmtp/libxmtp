@@ -54,21 +54,20 @@ use prost::Message;
 use std::collections::HashMap;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
-use futures_util::SinkExt;
 use tokio::sync::Mutex;
 use xmtp_common::time::now_ns;
 use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
     MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
-use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
+use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_content_types::should_push;
+use xmtp_content_types::text::TextCodec;
+use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
 use xmtp_content_types::{
     reaction::{LegacyReaction, ReactionCodec},
     reply::ReplyCodec,
 };
-use xmtp_content_types::leave_request::LeaveRequestCodec;
-use xmtp_content_types::text::TextCodec;
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
@@ -98,6 +97,7 @@ use xmtp_mls_common::{
         GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings, MetadataField,
     },
 };
+use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
 use xmtp_proto::xmtp::mls::{
     api::v1::welcome_message,
     message_contents::{
@@ -106,7 +106,6 @@ use xmtp_proto::xmtp::mls::{
         plaintext_envelope::{Content, V1},
     },
 };
-use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
 
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
@@ -197,12 +196,6 @@ pub enum UpdateAdminListType {
     Remove,
     AddSuper,
     RemoveSuper,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum UpdatePendingRemoveListType {
-    Add,
-    Remove,
 }
 
 /// Fields extracted from content of a message that should be stored in the DB
@@ -978,26 +971,6 @@ where
         Ok(())
     }
 
-    pub async fn update_pending_remove_list(
-        &self,
-        action_type: UpdatePendingRemoveListType,
-        inbox_id: String,
-    ) -> Result<(), GroupError> {
-        todo!("send a message to leave request");
-        // let intent_action_type = match action_type {
-        //     UpdatePendingRemoveListType::Add => UpdatePendingRemoveListActionType::Add,
-        //     UpdatePendingRemoveListType::Remove => UpdatePendingRemoveListActionType::Remove,
-        // };
-        // let intent_data: Vec<u8> =
-        //     UpdatePendingRemoveListIntentData::new(intent_action_type, inbox_id).into();
-        // let intent = QueueIntent::update_pending_remove_list()
-        //     .data(intent_data)
-        //     .queue(self)?;
-        //
-        // let _ = self.sync_until_intent_resolved(intent.id).await?;
-        Ok(())
-    }
-
     pub async fn leave_group(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         self.is_member().await?;
@@ -1026,23 +999,9 @@ where
         }
 
         if !self.is_in_pending_remove(self.context.inbox_id().to_string())? {
-            let content = LeaveRequestCodec::encode(LeaveRequest{})
-                .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-            self.send(encoded_content_to_bytes(content)).await?
-        }
-        Ok(())
-    }
-
-    pub async fn remove_from_pending_remove_list(&self) -> Result<(), GroupError> {
-        self.ensure_not_paused().await?;
-        self.is_member().await?;
-
-        if self.is_in_pending_remove(self.context.inbox_id().to_string())? {
-            self.update_pending_remove_list(
-                UpdatePendingRemoveListType::Remove,
-                self.context.inbox_id().to_string(),
-            )
-            .await?;
+            let content = LeaveRequestCodec::encode(LeaveRequest {})?;
+            self.send_message(&encoded_content_to_bytes(content))
+                .await?;
         }
         Ok(())
     }
