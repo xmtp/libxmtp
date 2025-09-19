@@ -1,4 +1,4 @@
-use crate::{mls_v1::QueryGroupMessagesResponse, types::WelcomeMessage};
+use crate::{mls_v1::QueryGroupMessagesResponse, types::{GroupId, WelcomeMessage}};
 
 use super::*;
 
@@ -125,7 +125,7 @@ where
     async fn query_group_messages(
         &self,
         group_id: crate::types::GroupId,
-        cursor: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<GroupMessage>, Self::Error> {
         (**self).query_group_messages(group_id, cursor).await
     }
@@ -140,7 +140,7 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         (**self)
             .query_welcome_messages(installation_key, cursor)
@@ -201,7 +201,7 @@ where
     async fn query_group_messages(
         &self,
         group_id: crate::types::GroupId,
-        cursor: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<GroupMessage>, Self::Error> {
         (**self).query_group_messages(group_id, cursor).await
     }
@@ -216,7 +216,7 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         (**self)
             .query_welcome_messages(installation_key, cursor)
@@ -252,16 +252,18 @@ where
 
     async fn subscribe_group_messages(
         &self,
-        request: SubscribeGroupMessagesRequest,
+        group_ids: &[&GroupId],
+        cursor: GlobalCursor
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        (**self).subscribe_group_messages(request).await
+        (**self).subscribe_group_messages(group_ids, cursor).await
     }
 
     async fn subscribe_welcome_messages(
         &self,
-        request: SubscribeWelcomeMessagesRequest,
+        installations: &[&InstallationId],
+        cursor: GlobalCursor
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
-        (**self).subscribe_welcome_messages(request).await
+        (**self).subscribe_welcome_messages(installations, cursor).await
     }
 }
 
@@ -279,16 +281,18 @@ where
 
     async fn subscribe_group_messages(
         &self,
-        request: SubscribeGroupMessagesRequest,
+        group_ids: &[&GroupId],
+        cursor: GlobalCursor
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        (**self).subscribe_group_messages(request).await
+        (**self).subscribe_group_messages(group_ids, cursor).await
     }
 
     async fn subscribe_welcome_messages(
         &self,
-        request: SubscribeWelcomeMessagesRequest,
+        installations: &[&InstallationId],
+        cursor: GlobalCursor
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
-        (**self).subscribe_welcome_messages(request).await
+        (**self).subscribe_welcome_messages(installations, cursor).await
     }
 }
 

@@ -8588,6 +8588,7 @@ dependencies = [
  "diesel_migrations",
  "dyn-clone",
  "futures-timer",
+ "itertools 0.14.0",
  "libsqlite3-sys",
  "mockall",
  "openmls",

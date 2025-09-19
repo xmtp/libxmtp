@@ -1,12 +1,14 @@
+use std::cmp;
+
 use crate::protocol::{ProtocolEnvelope, V3WelcomeMessageExtractor};
 use crate::protocol::{SequencedExtractor, V3GroupMessageExtractor, traits::Extractor};
 use crate::{V3Client, v3::*};
 use xmtp_common::RetryableError;
-use xmtp_configuration::MAX_PAGE_SIZE;
+use xmtp_configuration::{MAX_PAGE_SIZE, Originators};
 use xmtp_proto::api::{self, ApiClientError, Client, Query};
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1::{self, GroupMessage as ProtoGroupMessage, PagingInfo, SortDirection};
-use xmtp_proto::types::{Cursor, GroupId, InstallationId, WelcomeMessage};
+use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, InstallationId, WelcomeMessage};
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -62,18 +64,20 @@ where
     async fn query_group_messages(
         &self,
         group_id: GroupId,
-        cursors: Vec<xmtp_proto::types::Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
-        let cursor = cursors.into_iter().map(|c| c.sequence_id).max();
+        let application = cursor.v3_welcome();
+        let commit = cursor.v3_message();
+        let id_cursor = cmp::max(application, commit);
         let endpoint = QueryGroupMessages::builder()
             .group_id(group_id.to_vec())
             .paging_info(PagingInfo {
                 limit: MAX_PAGE_SIZE,
                 direction: SortDirection::Ascending as i32,
-                id_cursor: cursor.unwrap_or(0),
+                id_cursor,
             })
             .build()?;
-        let messages = api::v3_paged(api::retry(endpoint), cursor)
+        let messages = api::v3_paged(api::retry(endpoint), Some(id_cursor))
             .query(&self.client)
             .await?;
         let messages = SequencedExtractor::builder()
@@ -114,18 +118,19 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursors: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
-        let cursor = cursors.into_iter().map(|c| c.sequence_id).max();
+        // v3 welcome must be from a single originator
+        let id_cursor = cursor.v3_welcome();
         let endpoint = QueryWelcomeMessages::builder()
             .installation_key(installation_key)
             .paging_info(PagingInfo {
                 limit: MAX_PAGE_SIZE,
                 direction: SortDirection::Ascending as i32,
-                id_cursor: cursor.unwrap_or(0),
+                id_cursor,
             })
             .build()?;
-        let messages = api::v3_paged(api::retry(endpoint), Some(cursor.unwrap_or(0)))
+        let messages = api::v3_paged(api::retry(endpoint), Some(id_cursor))
             .query(&self.client)
             .await?;
         let messages = SequencedExtractor::builder()

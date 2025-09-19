@@ -8,6 +8,7 @@ use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n:
 use itertools::Itertools;
 use xmtp_common::RetryableError;
 use xmtp_configuration::Originators;
+use xmtp_proto::types::Topic;
 use xmtp_proto::ConversionError;
 use xmtp_proto::api;
 use xmtp_proto::api::Client;
@@ -77,14 +78,14 @@ where
         });
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {
-                topics: topics.clone(),
+                topics: topics.iter().map(Topic::bytes).collect(),
                 originator_node_ids: vec![],
                 last_seen,
             })
             .build()?
             .query(&self.message_client)
             .await?;
-
+        tracing::info!("{:?}", result);
         let updates: HashMap<String, Vec<IdentityUpdateLog>> = SequencedExtractor::builder()
             .envelopes(result.envelopes)
             .build::<IdentityUpdateExtractor>()

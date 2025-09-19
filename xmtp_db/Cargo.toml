@@ -36,6 +36,7 @@ xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_proto.workspace = true
 zeroize.workspace = true
+itertools.workspace = true
 
 mockall = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = [

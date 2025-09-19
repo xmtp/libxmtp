@@ -2,6 +2,7 @@ use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::identity_v1;
 use xmtp_proto::mls_v1;
 use xmtp_proto::prelude::XmtpIdentityClient;
+use xmtp_proto::types::GlobalCursor;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::types::{Cursor, GroupId, GroupMessage};
@@ -51,7 +52,7 @@ where
     async fn query_group_messages(
         &self,
         group_id: GroupId,
-        cursor: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<GroupMessage>, Self::Error> {
         self.xmtpd_client
             .query_group_messages(group_id, cursor)
@@ -68,7 +69,7 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         self.xmtpd_client
             .query_welcome_messages(installation_key, cursor)
