@@ -1727,7 +1727,7 @@ where
         intent: &StoredGroupIntent,
         storage: &impl XmtpMlsStorageProvider,
     ) -> Result<(), IntentError> {
-        if intent.kind != IntentKind::MetadataUpdate {
+        if intent.kind == IntentKind::MetadataUpdate {
             let data = UpdateMetadataIntentData::try_from(intent.data.clone())?;
 
             match data.field_name.as_str() {
