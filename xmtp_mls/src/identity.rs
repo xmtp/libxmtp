@@ -889,6 +889,7 @@ mod tests {
     use openmls::prelude::{KeyPackageBundle, KeyPackageRef};
     use openmls_traits::{OpenMlsProvider, storage::StorageProvider};
     use tls_codec::Serialize;
+    use xmtp_api_d14n::protocol::XmtpQuery;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::XmtpMlsStorageProvider;
     use xmtp_db::XmtpOpenMlsProviderRef;
@@ -898,6 +899,7 @@ mod tests {
         sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
     };
     use xmtp_mls_common::group::DMMetadataOptions;
+    use xmtp_proto::types::TopicKind;
 
     async fn get_key_package_from_network(client: &FullXmtpClient) -> VerifiedKeyPackageV2 {
         let kp_mapping = client
@@ -914,8 +916,13 @@ mod tests {
         let welcomes = client
             .context
             .api()
-            .query_welcome_messages(client.context.installation_id(), Default::default())
+            .query_at(
+                TopicKind::WelcomeMessagesV1.create(client.context.installation_id()),
+                None,
+            )
             .await
+            .unwrap()
+            .welcome_messages()
             .unwrap();
 
         welcomes[0].clone()

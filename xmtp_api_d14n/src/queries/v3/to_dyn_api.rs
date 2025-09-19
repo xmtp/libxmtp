@@ -1,10 +1,8 @@
 use std::sync::Arc;
 
+use crate::{FullXmtpApiArc, FullXmtpApiBox, ToDynApi};
 use xmtp_api_grpc::error::GrpcError;
-use xmtp_proto::{
-    api::{ApiClientError, Client, IsConnectedCheck},
-    api_client::ToDynApi,
-};
+use xmtp_proto::api::{ApiClientError, Client, IsConnectedCheck};
 
 use crate::{BoxedStreamsClient, V3Client};
 
@@ -15,11 +13,11 @@ where
 {
     type Error = ApiClientError<GrpcError>;
 
-    fn boxed(self) -> xmtp_proto::api_client::BoxedXmtpApi<Self::Error> {
+    fn boxed(self) -> FullXmtpApiBox<Self::Error> {
         Box::new(BoxedStreamsClient::new(self))
     }
 
-    fn arced(self) -> xmtp_proto::api_client::ArcedXmtpApi<Self::Error> {
+    fn arced(self) -> FullXmtpApiArc<Self::Error> {
         Arc::new(BoxedStreamsClient::new(self))
     }
 }

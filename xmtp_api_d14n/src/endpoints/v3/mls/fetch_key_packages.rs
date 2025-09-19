@@ -9,7 +9,7 @@ use xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest;
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct FetchKeyPackages {
-    #[builder(setter(into))]
+    #[builder(setter(into, each = "installation_key"))]
     installation_keys: Vec<Vec<u8>>,
 }
 

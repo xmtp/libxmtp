@@ -1393,12 +1393,12 @@ where
         let msgs = db.get_last_cursor_for_originator(
             &self.group_id,
             EntityKind::ApplicationMessage,
-            Originators::APPLICATION_MESSAGES.into(),
+            Originators::APPLICATION_MESSAGES,
         )?;
         let commits = db.get_last_cursor_for_originator(
             &self.group_id,
             EntityKind::CommitMessage,
-            Originators::MLS_COMMITS.into(),
+            Originators::MLS_COMMITS,
         )?;
         Ok([msgs, commits])
     }

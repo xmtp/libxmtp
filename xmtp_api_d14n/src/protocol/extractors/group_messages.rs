@@ -7,7 +7,7 @@ use xmtp_proto::{
 
 use crate::protocol::traits::EnvelopeVisitor;
 use crate::protocol::{ExtractionError, Extractor};
-use chrono::DateTime;
+use chrono::{DateTime, Local};
 use openmls::{
     framing::MlsMessageIn,
     prelude::{ContentType, ProtocolMessage, tls_codec::Deserialize},
@@ -18,14 +18,30 @@ use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
 /// Type to extract a Group Message from Originator Envelopes
 #[derive(Default)]
 pub struct GroupMessageExtractor {
-    group_message: GroupMessageBuilder,
+    cursor: Cursor,
+    created_ns: DateTime<Local>,
+    group_message: Option<GroupMessageBuilder>,
 }
 
 impl Extractor for GroupMessageExtractor {
     type Output = Result<GroupMessage, ExtractionError>;
 
     fn get(self) -> Self::Output {
-        Ok(self.group_message.build()?)
+        let Self {
+            cursor,
+            created_ns,
+            group_message,
+        } = self;
+        if let Some(mut gm) = group_message {
+            gm.cursor(cursor);
+            gm.created_ns(created_ns);
+            Ok(gm.build()?)
+        } else {
+            Err(ExtractionError::Conversion(ConversionError::Missing {
+                item: "group_message",
+                r#type: std::any::type_name::<GroupMessage>(),
+            }))
+        }
     }
 }
 
@@ -36,12 +52,11 @@ impl EnvelopeVisitor<'_> for GroupMessageExtractor {
         &mut self,
         envelope: &UnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
-        self.group_message
-            .created_ns(DateTime::from_timestamp_nanos(envelope.originator_ns))
-            .cursor(Cursor {
-                originator_id: envelope.originator_node_id,
-                sequence_id: envelope.originator_sequence_id,
-            });
+        self.cursor = Cursor {
+            originator_id: envelope.originator_node_id,
+            sequence_id: envelope.originator_sequence_id,
+        };
+        self.created_ns = DateTime::from_timestamp_nanos(envelope.originator_ns).into();
         Ok(())
     }
 
@@ -49,12 +64,13 @@ impl EnvelopeVisitor<'_> for GroupMessageExtractor {
         &mut self,
         message: &group_message_input::V1,
     ) -> Result<(), Self::Error> {
+        let mut gm = GroupMessageBuilder::default();
         let payload_hash = sha256_bytes(message.data.as_slice());
-        self.group_message
-            .sender_hmac(message.sender_hmac.clone())
+        gm.sender_hmac(message.sender_hmac.clone())
             .should_push(message.should_push)
             .payload_hash(payload_hash);
-        extract_common_mls(&mut self.group_message, &message.data)?;
+        extract_common_mls(&mut gm, &message.data)?;
+        self.group_message = Some(gm);
         Ok(())
     }
 }
@@ -93,14 +109,13 @@ impl EnvelopeVisitor<'_> for V3GroupMessageExtractor {
         };
         group_message
             .cursor(Cursor {
-                originator_id: originator_node_id.into(),
+                originator_id: originator_node_id,
                 sequence_id: message.id,
             })
             .created_ns(DateTime::from_timestamp_nanos(message.created_ns as i64))
             .sender_hmac(message.sender_hmac.clone())
             .should_push(message.should_push)
             .payload_hash(payload_hash);
-
         self.group_message = Some(group_message);
         Ok(())
     }

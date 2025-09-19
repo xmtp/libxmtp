@@ -2,7 +2,8 @@
 
 use std::sync::Arc;
 
-use xmtp_api::XmtpApi;
+use xmtp_api::{ApiError, XmtpApi};
+use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_db::{XmtpDb, sql_key_store::SqlKeyStore};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 

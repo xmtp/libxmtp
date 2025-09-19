@@ -27,7 +27,7 @@ use xmtp_id::{
             UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature, UnverifiedSignature,
         },
     },
-    scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
+    scw_verifier::SmartContractSignatureVerifier,
 };
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
@@ -593,7 +593,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
                 sequence_id: update.sequence_id as i64,
                 server_timestamp_ns: update.server_timestamp_ns as i64,
                 payload: update.update.clone().into(),
-                originator_id: Originators::INBOX_LOG.into(),
+                originator_id: Originators::INBOX_LOG as i32,
             })
         })
         .collect::<Vec<StoredIdentityUpdate>>();
@@ -643,10 +643,8 @@ where
 
     let mut association_state = None;
 
-    let scw_verifier = scw_verifier.unwrap_or_else(|| {
-        Box::new(RemoteSignatureVerifier::new(api_client.clone()))
-            as Box<dyn SmartContractSignatureVerifier>
-    });
+    let scw_verifier = scw_verifier
+        .unwrap_or_else(|| Box::new(api_client.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
     let updates: Vec<_> = updates
         .iter()
@@ -748,7 +746,7 @@ pub(crate) mod tests {
             sequence_id,
             0,
             rand_vec::<24>(),
-            Originators::INBOX_LOG.into(),
+            Originators::INBOX_LOG as i32,
         );
 
         conn.insert_or_ignore_identity_updates(&[identity_update])

@@ -1,4 +1,4 @@
-use chrono::DateTime;
+use chrono::{DateTime, Local};
 use xmtp_proto::ConversionError;
 use xmtp_proto::types::{Cursor, InstallationId, WelcomeMessage, WelcomeMessageBuilder};
 
@@ -10,14 +10,30 @@ use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
 /// Type to extract a Welcome Message from Originator Envelopes
 #[derive(Default)]
 pub struct WelcomeMessageExtractor {
-    welcome_message: WelcomeMessageBuilder,
+    cursor: Cursor,
+    created_ns: DateTime<Local>,
+    welcome_message: Option<WelcomeMessageBuilder>,
 }
 
 impl Extractor for WelcomeMessageExtractor {
     type Output = Result<WelcomeMessage, ExtractionError>;
 
     fn get(self) -> Self::Output {
-        Ok(self.welcome_message.build()?)
+        let Self {
+            cursor,
+            created_ns,
+            welcome_message,
+        } = self;
+        if let Some(mut gm) = welcome_message {
+            gm.cursor(cursor);
+            gm.created_ns(created_ns);
+            Ok(gm.build().unwrap())
+        } else {
+            Err(ExtractionError::Conversion(ConversionError::Missing {
+                item: "welcome_message",
+                r#type: std::any::type_name::<WelcomeMessage>(),
+            }))
+        }
     }
 }
 
@@ -28,23 +44,22 @@ impl EnvelopeVisitor<'_> for WelcomeMessageExtractor {
         &mut self,
         envelope: &UnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
-        info!(from = envelope.originator_node_id, "extracting envelope");
-        self.welcome_message
-            .created_ns(DateTime::from_timestamp_nanos(envelope.originator_ns))
-            .cursor(Cursor {
-                originator_id: envelope.originator_node_id,
-                sequence_id: envelope.originator_sequence_id,
-            });
+        self.cursor = Cursor {
+            originator_id: envelope.originator_node_id,
+            sequence_id: envelope.originator_sequence_id,
+        };
+        self.created_ns = DateTime::from_timestamp_nanos(envelope.originator_ns).into();
         Ok(())
     }
 
     fn visit_welcome_message_v1(&mut self, message: &WelcomeMessageV1) -> Result<(), Self::Error> {
-        self.welcome_message
-            .installation_key(InstallationId::try_from(message.installation_key.clone())?)
+        let mut wm = WelcomeMessageBuilder::default();
+        wm.installation_key(InstallationId::try_from(message.installation_key.clone())?)
             .data(message.data.clone())
             .hpke_public_key(message.hpke_public_key.clone())
             .wrapper_algorithm(message.wrapper_algorithm)
             .welcome_metadata(message.welcome_metadata.clone());
+        self.welcome_message = Some(wm);
         Ok(())
     }
 }
@@ -73,7 +88,7 @@ impl EnvelopeVisitor<'_> for V3WelcomeMessageExtractor {
 
         self.welcome_message
             .cursor(Cursor {
-                originator_id: originator_node_id.into(),
+                originator_id: originator_node_id,
                 sequence_id: message.id,
             })
             .created_ns(DateTime::from_timestamp_nanos(message.created_ns as i64))

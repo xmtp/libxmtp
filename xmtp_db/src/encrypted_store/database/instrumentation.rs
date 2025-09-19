@@ -40,13 +40,13 @@ impl Instrumentation for TestInstrumentation {
                 }
             }
             BeginTransaction { depth, .. } => {
-                tracing::debug!("Begin Transaction @ depth={}", depth);
+                tracing::trace!("Begin Transaction @ depth={}", depth);
             }
             CommitTransaction { depth, .. } => {
-                tracing::debug!("Commit Transaction @ depth={}", depth);
+                tracing::trace!("Commit Transaction @ depth={}", depth);
             }
             RollbackTransaction { depth, .. } => {
-                tracing::debug!("Rollback Transaction @ depth={}", depth);
+                tracing::trace!("Rollback Transaction @ depth={}", depth);
             }
 
             _ => (),

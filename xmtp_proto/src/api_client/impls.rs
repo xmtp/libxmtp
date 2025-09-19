@@ -1,4 +1,7 @@
-use crate::{mls_v1::QueryGroupMessagesResponse, types::WelcomeMessage};
+use crate::{
+    mls_v1::QueryGroupMessagesResponse,
+    types::{GroupId, WelcomeMessage},
+};
 
 use super::*;
 
@@ -125,9 +128,8 @@ where
     async fn query_group_messages(
         &self,
         group_id: crate::types::GroupId,
-        cursor: Vec<Cursor>,
     ) -> Result<Vec<GroupMessage>, Self::Error> {
-        (**self).query_group_messages(group_id, cursor).await
+        (**self).query_group_messages(group_id).await
     }
 
     async fn query_latest_group_message(
@@ -140,11 +142,8 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: Vec<Cursor>,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
-        (**self)
-            .query_welcome_messages(installation_key, cursor)
-            .await
+        (**self).query_welcome_messages(installation_key).await
     }
 
     async fn publish_commit_log(
@@ -201,9 +200,8 @@ where
     async fn query_group_messages(
         &self,
         group_id: crate::types::GroupId,
-        cursor: Vec<Cursor>,
     ) -> Result<Vec<GroupMessage>, Self::Error> {
-        (**self).query_group_messages(group_id, cursor).await
+        (**self).query_group_messages(group_id).await
     }
 
     async fn query_latest_group_message(
@@ -216,11 +214,8 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: Vec<Cursor>,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
-        (**self)
-            .query_welcome_messages(installation_key, cursor)
-            .await
+        (**self).query_welcome_messages(installation_key).await
     }
 
     async fn publish_commit_log(
@@ -252,16 +247,16 @@ where
 
     async fn subscribe_group_messages(
         &self,
-        request: SubscribeGroupMessagesRequest,
+        group_ids: &[&GroupId],
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        (**self).subscribe_group_messages(request).await
+        (**self).subscribe_group_messages(group_ids).await
     }
 
     async fn subscribe_welcome_messages(
         &self,
-        request: SubscribeWelcomeMessagesRequest,
+        installations: &[&InstallationId],
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
-        (**self).subscribe_welcome_messages(request).await
+        (**self).subscribe_welcome_messages(installations).await
     }
 }
 
@@ -279,16 +274,16 @@ where
 
     async fn subscribe_group_messages(
         &self,
-        request: SubscribeGroupMessagesRequest,
+        group_ids: &[&GroupId],
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        (**self).subscribe_group_messages(request).await
+        (**self).subscribe_group_messages(group_ids).await
     }
 
     async fn subscribe_welcome_messages(
         &self,
-        request: SubscribeWelcomeMessagesRequest,
+        installations: &[&InstallationId],
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
-        (**self).subscribe_welcome_messages(request).await
+        (**self).subscribe_welcome_messages(installations).await
     }
 }
 
@@ -367,5 +362,31 @@ where
         (**self)
             .verify_smart_contract_wallet_signatures(request)
             .await
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<T> CursorAwareApi for Box<T>
+where
+    T: CursorAwareApi + ?Sized,
+{
+    type CursorStore = T::CursorStore;
+
+    fn set_cursor_store(&self, store: Self::CursorStore) {
+        <T as CursorAwareApi>::set_cursor_store(self, store)
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<T> CursorAwareApi for Arc<T>
+where
+    T: CursorAwareApi + ?Sized,
+{
+    type CursorStore = T::CursorStore;
+
+    fn set_cursor_store(&self, store: Self::CursorStore) {
+        <T as CursorAwareApi>::set_cursor_store(self, store)
     }
 }

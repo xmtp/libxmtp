@@ -1,8 +1,9 @@
 use crate::identity::Identifier;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
-use xmtp_api::{ApiClientWrapper, ApiIdentifier, strategies};
+use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_d14n::{MessageBackendBuilder, TrackedStatsClient};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
+use xmtp_proto::types::ApiIdentifier;
 
 #[wasm_bindgen(js_name = getInboxIdForIdentifier)]
 pub async fn get_inbox_id_for_identifier(

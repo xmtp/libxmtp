@@ -1,7 +1,16 @@
 //! Traits to implement functionality according to
 //! <https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#33-client-to-node-protocol>
 
+use crate::protocol::GroupMessageExtractor;
 use crate::protocol::SequencedExtractor;
+use crate::protocol::V3GroupMessageExtractor;
+use crate::protocol::V3WelcomeMessageExtractor;
+use crate::protocol::WelcomeMessageExtractor;
+use itertools::Itertools;
+use xmtp_proto::types::GlobalCursor;
+use xmtp_proto::types::GroupMessage;
+use xmtp_proto::types::Topic;
+use xmtp_proto::types::WelcomeMessage;
 
 use super::ExtractionError;
 use super::PayloadExtractor;
@@ -15,6 +24,9 @@ use xmtp_proto::xmtp::xmtpv4::envelopes::client_envelope::Payload;
 
 mod visitor;
 pub use visitor::*;
+
+mod cursor_store;
+pub use cursor_store::*;
 
 /// An low-level envelope from the network gRPC interface
 /*
@@ -62,18 +74,69 @@ impl RetryableError for EnvelopeError {
     }
 }
 
+/// XMTP Query queries the network for any envelopes
+/// matching the cursor criteria given.
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+pub trait XmtpQuery: Send + Sync {
+    type Error: RetryableError + Send + Sync + 'static;
+    /// Query every [`Topic`] at [`GlobalCursor`]
+    async fn query_at(
+        &self,
+        topic: Topic,
+        at: Option<GlobalCursor>,
+    ) -> Result<XmtpEnvelope, Self::Error>;
+}
+
+// hides implementation detail of XmtpEnvelope/traits
+/// Envelopes from the XMTP Network received from a general [`XmtpQuery`]
+pub struct XmtpEnvelope {
+    inner: Box<dyn EnvelopeCollection<'static> + Send + Sync>,
+}
+
+impl XmtpEnvelope {
+    pub fn new(envelope: impl EnvelopeCollection<'static> + Send + Sync + 'static) -> Self {
+        Self {
+            inner: Box::new(envelope) as Box<_>,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    pub fn group_messages(&self) -> Result<Vec<GroupMessage>, EnvelopeError> {
+        Ok(self.inner.group_messages()?.into_iter().flatten().collect())
+    }
+
+    pub fn welcome_messages(&self) -> Result<Vec<WelcomeMessage>, EnvelopeError> {
+        Ok(self
+            .inner
+            .welcome_messages()?
+            .into_iter()
+            .flatten()
+            .collect())
+    }
+}
+
 // TODO: Maybe we can do something with Iterators and Extractors
 // to avoid the Combinators like `CollectionExtractor`?
-// TODO: Make topic type instead of bytes
-// topic not fixed length
 /// A Generic Higher-Level Collection of Envelopes
 pub trait EnvelopeCollection<'env> {
     /// Get the topic for an envelope
-    fn topics(&self) -> Result<Vec<Vec<u8>>, EnvelopeError>;
+    fn topics(&self) -> Result<Vec<Topic>, EnvelopeError>;
     /// Get the payload for an envelope
     fn payloads(&self) -> Result<Vec<Payload>, EnvelopeError>;
     /// Build the ClientEnvelope
     fn client_envelopes(&self) -> Result<Vec<ClientEnvelope>, EnvelopeError>;
+    /// Try to get a group message from this Envelope
+    fn group_messages(&self) -> Result<Vec<Option<GroupMessage>>, EnvelopeError>;
+    /// Try to get a welcome message
+    fn welcome_messages(&self) -> Result<Vec<Option<WelcomeMessage>>, EnvelopeError>;
     /// Length of the Collection
     fn len(&self) -> usize;
     /// Whether the Collection of Envelopes is empty
@@ -90,7 +153,16 @@ pub trait EnvelopeCollection<'env> {
 pub trait TryEnvelopeCollectionExt<'env>: EnvelopeCollection<'env> {
     /// run a sequenced extraction on the envelopes in this collection.
     /// Flattens and returns errors into one Result<_, E>
-    fn try_consume<E>(self) -> Result<Vec<<E as TryExtractor>::Ok>, EnvelopeError>
+    #[allow(clippy::type_complexity)]
+    fn try_consume<E>(
+        self,
+    ) -> Result<
+        (
+            Vec<<E as TryExtractor>::Ok>,
+            Vec<<E as TryExtractor>::Error>,
+        ),
+        EnvelopeError,
+    >
     where
         for<'a> E: TryExtractor,
         for<'a> E: Default + EnvelopeVisitor<'a>,
@@ -98,10 +170,9 @@ pub trait TryEnvelopeCollectionExt<'env>: EnvelopeCollection<'env> {
         EnvelopeError: From<<E as TryExtractor>::Error>,
         Self: Sized,
     {
-        Ok(self
-            .consume::<E>()?
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()?)
+        let (success, failure): (Vec<_>, Vec<_>) =
+            self.consume::<E>()?.into_iter().partition_result();
+        Ok((success, failure))
     }
     // TODO: fn like try_consume but that does not fail on only one element failure
     // i.e keeps processing messages, keeping errors around
@@ -112,12 +183,16 @@ impl<'env, T> TryEnvelopeCollectionExt<'env> for T where T: EnvelopeCollection<'
 /// Represents a Single High-Level Envelope
 pub trait Envelope<'env> {
     /// Extract the topic for this envelope
-    fn topic(&self) -> Result<Vec<u8>, EnvelopeError>;
+    fn topic(&self) -> Result<Topic, EnvelopeError>;
     /// Extract the payload for this envelope
     fn payload(&self) -> Result<Payload, EnvelopeError>;
     /// Extract the client envelope (envelope containing message payload & AAD, if any) for this
     /// envelope.
     fn client_envelope(&self) -> Result<ClientEnvelope, EnvelopeError>;
+    /// Try to get a group message from this Envelope
+    fn group_message(&self) -> Result<Option<GroupMessage>, EnvelopeError>;
+    /// Try to get a welcome message
+    fn welcome_message(&self) -> Result<Option<WelcomeMessage>, EnvelopeError>;
     /// consume this envelope by extracting its contents with extractor `E`
     fn consume<E>(&self, extractor: E) -> Result<E::Output, EnvelopeError>
     where
@@ -160,7 +235,7 @@ impl<'env, T> Envelope<'env> for T
 where
     T: ProtocolEnvelope<'env> + std::fmt::Debug,
 {
-    fn topic(&self) -> Result<Vec<u8>, EnvelopeError> {
+    fn topic(&self) -> Result<Topic, EnvelopeError> {
         let mut extractor = TopicExtractor::new();
         self.accept(&mut extractor)?;
         Ok(extractor.get()?)
@@ -193,16 +268,57 @@ where
         self.accept(&mut extractor)?;
         Ok(extractor.get())
     }
+
+    fn group_message(&self) -> Result<Option<GroupMessage>, EnvelopeError> {
+        let mut extractor = (
+            V3GroupMessageExtractor::default(),
+            GroupMessageExtractor::default(),
+        );
+        self.accept(&mut extractor)?;
+        if let Ok(Some(v3)) = extractor.0.get() {
+            return Ok(Some(v3));
+        }
+
+        match extractor.1.get() {
+            Ok(v) => return Ok(Some(v)),
+            Err(ExtractionError::Conversion(ConversionError::Missing { .. })) => (),
+            Err(e) => return Err(e.into()),
+        }
+
+        Ok(None)
+    }
+
+    fn welcome_message(&self) -> Result<Option<WelcomeMessage>, EnvelopeError> {
+        let mut extractor = (
+            V3WelcomeMessageExtractor::default(),
+            WelcomeMessageExtractor::default(),
+        );
+        self.accept(&mut extractor)?;
+        match extractor.0.get() {
+            Ok(v) => return Ok(Some(v)),
+            Err(ConversionError::Builder(_)) | Err(ConversionError::Missing { .. }) => (),
+            Err(e) => return Err(e.into()),
+        }
+
+        match extractor.1.get() {
+            Ok(v) => return Ok(Some(v)),
+            Err(ExtractionError::Conversion(ConversionError::Builder(_)))
+            | Err(ExtractionError::Conversion(ConversionError::Missing { .. })) => (),
+            Err(e) => return Err(e.into()),
+        }
+
+        Ok(None)
+    }
 }
 
 impl<'env, T> EnvelopeCollection<'env> for Vec<T>
 where
     T: ProtocolEnvelope<'env> + std::fmt::Debug,
 {
-    fn topics(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
+    fn topics(&self) -> Result<Vec<Topic>, EnvelopeError> {
         self.iter()
             .map(|t| t.topic())
-            .collect::<Result<Vec<Vec<u8>>, _>>()
+            .collect::<Result<Vec<Topic>, _>>()
     }
 
     fn payloads(&self) -> Result<Vec<Payload>, EnvelopeError> {
@@ -215,6 +331,18 @@ where
         self.iter()
             .map(|t| t.client_envelope())
             .collect::<Result<Vec<ClientEnvelope>, EnvelopeError>>()
+    }
+
+    fn group_messages(&self) -> Result<Vec<Option<GroupMessage>>, EnvelopeError> {
+        self.iter()
+            .map(|t| t.group_message())
+            .collect::<Result<Vec<Option<GroupMessage>>, EnvelopeError>>()
+    }
+
+    fn welcome_messages(&self) -> Result<Vec<Option<WelcomeMessage>>, EnvelopeError> {
+        self.iter()
+            .map(|t| t.welcome_message())
+            .collect::<Result<Vec<Option<WelcomeMessage>>, EnvelopeError>>()
     }
 
     fn len(&self) -> usize {

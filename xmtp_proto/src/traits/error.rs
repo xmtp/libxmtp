@@ -43,6 +43,8 @@ pub enum ApiClientError<E: std::error::Error> {
     ProtoError(#[from] ProtoError),
     #[error(transparent)]
     InvalidUri(#[from] http::uri::InvalidUri),
+    #[error(transparent)]
+    Expired(#[from] xmtp_common::time::Expired),
     #[error("{0}")]
     Other(Box<dyn RetryableError + Send + Sync>),
 }
@@ -84,6 +86,7 @@ where
             Conversion(_) => false,
             ProtoError(_) => false,
             InvalidUri(_) => false,
+            Expired(_) => true,
             Other(r) => retryable!(r),
         }
     }
@@ -100,6 +103,8 @@ impl<E: std::error::Error> From<std::convert::Infallible> for ApiClientError<E> 
 pub enum BodyError {
     #[error(transparent)]
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
+    #[error(transparent)]
+    Conversion(#[from] crate::ConversionError),
 }
 
 impl RetryableError for BodyError {

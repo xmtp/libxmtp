@@ -1,27 +1,40 @@
+use std::collections::HashSet;
+use std::hash::DefaultHasher;
+use std::hash::Hash;
+use std::hash::Hasher;
+
 use super::D14nClient;
 use crate::d14n::GetNewestEnvelopes;
 use crate::d14n::PublishClientEnvelopes;
 use crate::d14n::QueryEnvelope;
+use crate::d14n::SubscribeEnvelopes;
 use crate::protocol::CollectionExtractor;
 use crate::protocol::EnvelopeError;
 use crate::protocol::GroupMessageExtractor;
 use crate::protocol::KeyPackagesExtractor;
+use crate::protocol::MlsDataExtractor;
 use crate::protocol::ProtocolEnvelope;
 use crate::protocol::SequencedExtractor;
-use crate::protocol::TopicKind;
 use crate::protocol::WelcomeMessageExtractor;
 use crate::protocol::traits::Envelope;
 use crate::protocol::traits::EnvelopeCollection;
 use crate::protocol::traits::Extractor;
+use crate::queries::stream;
+use futures::TryStreamExt;
+use itertools::Itertools;
 use xmtp_common::RetryableError;
+use xmtp_common::time::timeout;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api;
 use xmtp_proto::api::Client;
+use xmtp_proto::api::EndpointExt;
+use xmtp_proto::api::QueryStreamExt;
 use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::types::InstallationId;
+use xmtp_proto::types::TopicKind;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeResponse;
@@ -83,32 +96,73 @@ where
     ) -> Result<(), Self::Error> {
         let envelopes: Vec<ClientEnvelope> = request.messages.client_envelopes()?;
 
-        api::ignore(
+        for e in envelopes {
             PublishClientEnvelopes::builder()
-                .envelopes(envelopes)
-                .build()?,
-        )
-        .query(&self.gateway_client)
-        .await?;
+                .envelope(e)
+                .build()?
+                .ignore_response()
+                .query(&self.gateway_client)
+                .await?;
+        }
 
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn send_welcome_messages(
         &self,
         request: mls_v1::SendWelcomeMessagesRequest,
     ) -> Result<(), Self::Error> {
-        let envelope = request.messages.client_envelopes()?;
+        let topics = request.messages.topics()?;
+        let mut data_hashes = request
+            .messages
+            .clone()
+            .consume::<MlsDataExtractor>()?
+            .into_iter()
+            .map_ok(|data| {
+                let mut hasher = DefaultHasher::new();
+                data.hash(&mut hasher);
+                hasher.finish()
+            })
+            .collect::<Result<HashSet<_>, _>>()?;
+        let envelopes = request.messages.client_envelopes()?;
 
-        api::ignore(
+        let last_seen = self
+            .cursor_store
+            .load()
+            .lowest_common_cursor(&topics.iter().collect::<Vec<_>>())?;
+        let s = SubscribeEnvelopes::builder()
+            .last_seen(last_seen)
+            .topics(topics)
+            .build()?
+            .subscribe(&self.message_client)
+            .await?;
+        let s = stream::try_extractor::<_, WelcomeMessageExtractor>(s);
+
+        // TODO:d14n revert this once [batch publishes](https://github.com/xmtp/xmtpd/issues/262)
+        for e in envelopes {
             PublishClientEnvelopes::builder()
-                .envelopes(envelope)
-                .build()?,
-        )
-        .query(&self.gateway_client)
-        .await?;
-
+                .envelope(e)
+                .build()?
+                .ignore_response()
+                .query(&self.gateway_client)
+                .await?;
+        }
+        futures::pin_mut!(s);
+        let duration = std::time::Duration::from_secs(5);
+        while let Some(item) = timeout(duration, s.try_next()).await?? {
+            let mut hasher = DefaultHasher::new();
+            let _ = &item.data.hash(&mut hasher);
+            let hash = hasher.finish();
+            tracing::info!(
+                "read welcome for {hash} @cursor {} after publish",
+                item.cursor
+            );
+            data_hashes.remove(&hash);
+            if data_hashes.is_empty() {
+                break;
+            }
+        }
         Ok(())
     }
 
@@ -116,11 +170,12 @@ where
     async fn query_group_messages(
         &self,
         group_id: GroupId,
-        cursor: Vec<xmtp_proto::types::Cursor>,
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
+        let topic = TopicKind::GroupMessagesV1.create(&group_id);
+        let lcc = self.cursor_store.load().lowest_common_cursor(&[&topic])?;
         let response: QueryEnvelopesResponse = QueryEnvelope::builder()
-            .topic(TopicKind::GroupMessagesV1.build(group_id))
-            .last_seen(cursor)
+            .topic(topic)
+            .last_seen(lcc)
             .limit(MAX_PAGE_SIZE)
             .build()?
             .query(&self.message_client)
@@ -164,13 +219,13 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: Vec<xmtp_proto::types::Cursor>,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
-        let topic = TopicKind::WelcomeMessagesV1.build(installation_key.as_slice());
-
-        let response: QueryEnvelopesResponse = QueryEnvelope::builder()
+        let topic = TopicKind::WelcomeMessagesV1.create(installation_key);
+        let lcc = self.cursor_store.load().lowest_common_cursor(&[&topic])?;
+        tracing::info!("querying welcomes @{:?}", lcc);
+        let response = QueryEnvelope::builder()
             .topic(topic)
-            .last_seen(cursor)
+            .last_seen(lcc)
             .limit(MAX_PAGE_SIZE)
             .build()?
             .query(&self.message_client)
@@ -192,7 +247,7 @@ where
         &self,
         _request: mls_v1::BatchPublishCommitLogRequest,
     ) -> Result<(), Self::Error> {
-        Ok(())
+        unimplemented!();
     }
 
     // TODO(cvoell): implement
@@ -200,6 +255,6 @@ where
         &self,
         _request: mls_v1::BatchQueryCommitLogRequest,
     ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
-        Ok(mls_v1::BatchQueryCommitLogResponse { responses: vec![] })
+        unimplemented!();
     }
 }

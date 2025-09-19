@@ -12,6 +12,7 @@ use xmtp_common::{
     RetryableError,
     time::{Duration, Instant},
 };
+use xmtp_configuration::internal_to_localhost;
 use xmtp_proto::{
     ApiEndpoint,
     api::{ApiClientError, BodyError, Client, Query},
@@ -168,10 +169,14 @@ async fn get_nodes(
             // Clone a fresh builder per node so we can mutate it safely.
             let mut client_builder = template.clone();
             tracing::debug!("building client for node {}: {}", node_id, url);
-
             // Validate TLS policy against the fully-qualified URL.
             validate_tls_guard(&client_builder, &url).map_err(|e| (node_id, e))?;
-
+            let url = if cfg!(feature = "test-utils") || cfg!(test) {
+                internal_to_localhost(&url)
+            } else {
+                url
+            };
+            tracing::debug!("changed url to {url}");
             client_builder.set_host(url);
 
             let client = client_builder.build().map_err(|e| (node_id, e.into()))?;
@@ -247,6 +252,7 @@ async fn get_fastest_node(
                     )
                 })
                 .and_then(|r| {
+                    tracing::info!("{:?}", r);
                     r.map_err(|_| {
                         tracing::error!("node is unhealthy: {}", node_id);
                         ApiClientError::new(
@@ -546,6 +552,6 @@ mod tests {
         let mut gateway_b = GrpcClient::builder();
         gateway_b.set_host(GrpcUrls::GATEWAY.into());
         gateway_b.set_tls(url.scheme() == "https");
-        let _d14n = D14nClientBuilder::new(multi_node, gateway_b);
+        let _d14n = D14nClientBuilder::new_stateless(multi_node, gateway_b);
     }
 }

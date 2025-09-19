@@ -1,12 +1,9 @@
 use std::{error::Error, sync::Arc};
 
 use xmtp_common::RetryableError;
-use xmtp_proto::{
-    api::{ApiClientError, Client, IsConnectedCheck},
-    api_client::ToDynApi,
-};
+use xmtp_proto::api::{ApiClientError, Client, IsConnectedCheck};
 
-use crate::{BoxedStreamsClient, D14nClient};
+use crate::{BoxedStreamsClient, D14nClient, FullXmtpApiArc, FullXmtpApiBox, ToDynApi};
 
 impl<M, G, E> ToDynApi for D14nClient<M, G>
 where
@@ -18,11 +15,11 @@ where
 {
     type Error = ApiClientError<E>;
 
-    fn boxed(self) -> xmtp_proto::api_client::BoxedXmtpApi<Self::Error> {
+    fn boxed(self) -> FullXmtpApiBox<Self::Error> {
         Box::new(BoxedStreamsClient::new(self))
     }
 
-    fn arced(self) -> xmtp_proto::api_client::ArcedXmtpApi<Self::Error> {
+    fn arced(self) -> FullXmtpApiArc<Self::Error> {
         Arc::new(BoxedStreamsClient::new(self))
     }
 }

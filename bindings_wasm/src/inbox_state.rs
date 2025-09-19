@@ -8,7 +8,6 @@ use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_api_d14n::TrackedStatsClient;
 use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
 use xmtp_id::associations::{AssociationState, MemberIdentifier, ident};
-use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_mls::client::inbox_addresses_with_verifier;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
@@ -135,9 +134,7 @@ pub async fn inbox_state_from_inbox_ids(
     .map_err(|e| JsError::new(&e.to_string()))?;
   let backend = TrackedStatsClient::new(backend);
   let api = ApiClientWrapper::new(backend, strategies::exponential_cooldown());
-  let scw_verifier =
-    Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
-      as Box<dyn SmartContractSignatureVerifier>);
+  let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
   let db = WasmDb::new(&StorageOption::Ephemeral).await?;
   let store = EncryptedMessageStore::new(db)

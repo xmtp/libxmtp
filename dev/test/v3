@@ -5,4 +5,4 @@ set -eou pipefail
 # Skips tests for unimplemented features (streams)
 
 EXTRA_FLAGS=${1:-}
-cargo nextest run $EXTRA_FLAGS -E 'package(xmtp_mls)'
+cargo nextest run $EXTRA_FLAGS

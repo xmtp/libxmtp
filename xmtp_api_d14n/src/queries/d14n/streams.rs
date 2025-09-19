@@ -1,14 +1,14 @@
 use crate::TryExtractorStream;
 use crate::d14n::SubscribeEnvelopes;
-use crate::protocol::{EnvelopeCollection, GroupMessageExtractor, WelcomeMessageExtractor};
+use crate::protocol::{GroupMessageExtractor, WelcomeMessageExtractor};
 use crate::queries::stream;
 
 use super::D14nClient;
 use xmtp_common::{MaybeSend, RetryableError};
 use xmtp_proto::api::{ApiClientError, Client, QueryStream, XmtpStream};
 use xmtp_proto::api_client::XmtpMlsStreams;
-use xmtp_proto::mls_v1;
-use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, SubscribeEnvelopesResponse};
+use xmtp_proto::types::{GroupId, InstallationId, TopicKind};
+use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse;
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -33,33 +33,44 @@ where
 
     async fn subscribe_group_messages(
         &self,
-        _request: mls_v1::SubscribeGroupMessagesRequest,
+        group_ids: &[&GroupId],
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        let _stream = SubscribeEnvelopes::builder()
-            .envelopes(EnvelopesQuery {
-                topics: _request.topics()?,
-                originator_node_ids: vec![],
-                last_seen: None, // TODO: requires cursor store
-            })
+        let topics = group_ids
+            .iter()
+            .map(|gid| TopicKind::GroupMessagesV1.create(gid))
+            .collect::<Vec<_>>();
+        let lcc = self
+            .cursor_store
+            .load()
+            .lcc_maybe_missing(&topics.iter().collect::<Vec<_>>())?;
+        tracing::info!("subscribing to messages @cursor={}", lcc);
+        let s = SubscribeEnvelopes::builder()
+            .topics(topics)
+            .last_seen(lcc)
             .build()?
             .stream(&self.message_client)
             .await?;
-        Ok(stream::try_extractor(_stream))
+        Ok(stream::try_extractor(s))
     }
 
     async fn subscribe_welcome_messages(
         &self,
-        request: mls_v1::SubscribeWelcomeMessagesRequest,
+        installations: &[&InstallationId],
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
-        let _stream = SubscribeEnvelopes::builder()
-            .envelopes(EnvelopesQuery {
-                topics: request.topics()?,
-                originator_node_ids: vec![],
-                last_seen: None, // TODO: requires cursor store
-            })
+        let topics = installations
+            .iter()
+            .map(|ins| TopicKind::WelcomeMessagesV1.create(ins))
+            .collect::<Vec<_>>();
+        let lcc = self
+            .cursor_store
+            .load()
+            .lowest_common_cursor(&topics.iter().collect::<Vec<_>>())?;
+        let s = SubscribeEnvelopes::builder()
+            .topics(topics)
+            .last_seen(lcc)
             .build()?
             .stream(&self.message_client)
             .await?;
-        Ok(stream::try_extractor(_stream))
+        Ok(stream::try_extractor(s))
     }
 }

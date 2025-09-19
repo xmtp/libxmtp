@@ -9,7 +9,7 @@ use futures::future::try_join_all;
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
-use xmtp_api::{ApiClientWrapper, ApiIdentifier, strategies};
+use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
@@ -42,7 +42,6 @@ use xmtp_db::{
 use xmtp_id::associations::{
     DeserializationError, Identifier, ident, verify_signed_with_public_context,
 };
-use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     InboxId,
@@ -90,6 +89,7 @@ use xmtp_mls::{
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
+use xmtp_proto::types::ApiIdentifier;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
@@ -160,8 +160,7 @@ pub async fn inbox_state_from_inbox_ids(
 ) -> Result<Vec<FfiInboxState>, GenericError> {
     let api: ApiClientWrapper<xmtp_mls::XmtpApiClient> =
         ApiClientWrapper::new(api.0.clone(), strategies::exponential_cooldown());
-    let scw_verifier = Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
-        as Box<dyn SmartContractSignatureVerifier>);
+    let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
     let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral)?;
     let store = EncryptedMessageStore::new(db)?;
@@ -202,9 +201,7 @@ pub fn revoke_installations(
 ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
     let api: ApiClientWrapper<xmtp_mls::XmtpApiClient> =
         ApiClientWrapper::new(api.0.clone(), strategies::exponential_cooldown());
-    let scw_verifier = Arc::new(
-        Box::new(RemoteSignatureVerifier::new(api)) as Box<dyn SmartContractSignatureVerifier>
-    );
+    let scw_verifier = Arc::new(Box::new(api) as Box<dyn SmartContractSignatureVerifier>);
     let ident = recovery_identifier.try_into()?;
 
     let signature_request = revoke_installations_with_verifier(&ident, inbox_id, installation_ids)?;
@@ -225,8 +222,7 @@ pub async fn apply_signature_request(
 ) -> Result<(), GenericError> {
     let api = ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
     let signature_request = signature_request.inner.lock().await;
-    let scw_verifier = Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
-        as Box<dyn SmartContractSignatureVerifier>);
+    let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
     apply_signature_request_with_verifier(&api.clone(), signature_request.clone(), &scw_verifier)
         .await?;
@@ -5030,6 +5026,10 @@ mod tests {
             .list(FfiListConversationsOptions::default())
             .unwrap();
 
+        if cfg!(feature = "d14n") {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+
         let alix_group1 = alix_groups[0].clone();
         let alix_group5 = alix_groups[5].clone();
         let bo_group1 = bo.conversation(alix_group1.conversation.id()).unwrap();
@@ -7317,7 +7317,10 @@ mod tests {
 
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
-
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         // Stream just groups
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
@@ -7344,6 +7347,10 @@ mod tests {
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
 
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         // Stream just dms
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
@@ -9888,7 +9895,7 @@ mod tests {
             .unwrap();
         let api = ApiClientWrapper::new(api.0.clone(), Default::default());
         let result = api
-            .query_group_messages(xmtp_common::rand_vec::<16>().into(), Default::default())
+            .query_group_messages(xmtp_common::rand_vec::<16>().into())
             .await;
         assert!(result.is_err(), "Expected connection to fail");
     }

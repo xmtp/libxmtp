@@ -10,7 +10,7 @@ use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request::Request;
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct GetIdentityUpdatesV2 {
-    #[builder(setter(into))]
+    #[builder(setter(into, each = "request"))]
     pub requests: Vec<Request>,
 }
 
