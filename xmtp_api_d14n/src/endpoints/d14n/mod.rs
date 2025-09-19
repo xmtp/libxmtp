@@ -9,3 +9,6 @@ pub use get_inbox_ids::*;
 
 mod get_newest_envelopes;
 pub use get_newest_envelopes::*;
+
+mod subscribe_envelopes;
+pub use subscribe_envelopes::*;
