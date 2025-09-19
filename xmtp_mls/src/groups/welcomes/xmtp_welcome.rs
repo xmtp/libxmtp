@@ -227,7 +227,7 @@ where
                         .as_u64()
                         <= group.epoch().await?
                 {
-                    tracing::error!(
+                    tracing::warn!(
                         "Skipping welcome {} because we are already in group {}",
                         welcome.id,
                         hex::encode(group_id.as_slice())
@@ -417,7 +417,7 @@ where
             }
         };
 
-        tracing::warn!("storing group with welcome id {}", welcome.id);
+        tracing::info!("storing group with welcome id {}", welcome.id);
         // Insert or replace the group in the database.
         // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
         let stored_group = db.insert_or_replace_group(to_store)?;
