@@ -8,7 +8,7 @@ use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, PublishCommitLogRequest,
     QueryCommitLogRequest, QueryCommitLogResponse,
 };
-use xmtp_proto::types::{Cursor, GroupId, GroupMessage, WelcomeMessage};
+use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, GroupMessage, WelcomeMessage};
 use xmtp_proto::xmtp::mls::api::v1::{
     subscribe_group_messages_request::Filter as GroupFilterProto,
     subscribe_welcome_messages_request::Filter as WelcomeFilterProto, FetchKeyPackagesRequest,
@@ -81,7 +81,7 @@ where
     pub async fn query_group_messages(
         &self,
         group_id: GroupId,
-        cursor: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<GroupMessage>> {
         self.api_client
             .query_group_messages(group_id, cursor)
@@ -110,7 +110,7 @@ where
     pub async fn query_welcome_messages<Id: AsRef<[u8]> + Copy>(
         &self,
         installation_id: Id,
-        cursor: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<WelcomeMessage>> {
         tracing::debug!(
             installation_id = hex::encode(installation_id),
@@ -243,16 +243,15 @@ where
 
     pub async fn subscribe_group_messages(
         &self,
-        filters: Vec<GroupFilter>,
+        group_ids: &[GroupId],
+        cursor: GlobalCursor,
     ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream>
     where
         ApiClient: XmtpMlsStreams,
     {
         tracing::debug!(inbox_id = self.inbox_id, "subscribing to group messages");
         self.api_client
-            .subscribe_group_messages(SubscribeGroupMessagesRequest {
-                filters: filters.into_iter().map(|f| f.into()).collect(),
-            })
+            .subscribe_group_messages(group_ids, cursor)
             .await
             .map_err(crate::dyn_err)
     }

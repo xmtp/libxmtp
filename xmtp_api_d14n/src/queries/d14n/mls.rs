@@ -8,7 +8,6 @@ use crate::protocol::GroupMessageExtractor;
 use crate::protocol::KeyPackagesExtractor;
 use crate::protocol::ProtocolEnvelope;
 use crate::protocol::SequencedExtractor;
-use crate::protocol::TopicKind;
 use crate::protocol::WelcomeMessageExtractor;
 use crate::protocol::traits::Envelope;
 use crate::protocol::traits::EnvelopeCollection;
@@ -19,8 +18,10 @@ use xmtp_proto::api::Client;
 use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
+use xmtp_proto::types::GlobalCursor;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::types::InstallationId;
+use xmtp_proto::types::TopicKind;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeResponse;
@@ -109,7 +110,7 @@ where
     async fn query_group_messages(
         &self,
         group_id: GroupId,
-        cursor: Vec<xmtp_proto::types::Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
         let response: QueryEnvelopesResponse = QueryEnvelope::builder()
             .topic(TopicKind::GroupMessagesV1.build(group_id))
@@ -154,7 +155,7 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: Vec<xmtp_proto::types::Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         let topic = TopicKind::WelcomeMessagesV1.build(installation_key.as_slice());
 
@@ -182,6 +183,7 @@ where
         &self,
         _request: mls_v1::BatchPublishCommitLogRequest,
     ) -> Result<(), Self::Error> {
+        unimplemented!();
         Ok(())
     }
 
@@ -190,6 +192,7 @@ where
         &self,
         _request: mls_v1::BatchQueryCommitLogRequest,
     ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
+        unimplemented!();
         Ok(mls_v1::BatchQueryCommitLogResponse { responses: vec![] })
     }
 }

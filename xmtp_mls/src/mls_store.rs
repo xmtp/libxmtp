@@ -5,13 +5,11 @@ use std::collections::HashMap;
 
 use xmtp_api::ApiError;
 use xmtp_common::RetryableError;
-use xmtp_configuration::Originators;
 use xmtp_db::{
     Fetch, NotFound, XmtpOpenMlsProvider,
     group::{GroupQueryArgs, StoredGroup},
-    refresh_state::EntityKind,
 };
-use xmtp_proto::types::{GroupMessage, WelcomeMessage};
+use xmtp_proto::types::{GroupMessage, TopicKind, WelcomeMessage};
 
 use crate::{
     context::XmtpSharedContext,
@@ -67,11 +65,7 @@ where
         conn: &impl DbQuery,
     ) -> Result<Vec<WelcomeMessage>, MlsStoreError> {
         let installation_id = self.context.installation_id();
-        let cursor = conn.get_last_cursor_for_originators(
-            installation_id,
-            EntityKind::Welcome,
-            &[Originators::WELCOME_MESSAGES.into()],
-        )?;
+        let cursor = conn.lowest_common_cursor(&[&TopicKind::WelcomeMessagesV1.create(installation_id)])?;
 
         let welcomes = self
             .context
@@ -93,14 +87,7 @@ where
         group_id: &[u8],
         conn: &impl DbQuery,
     ) -> Result<Vec<GroupMessage>, MlsStoreError> {
-        let cursor = conn.get_last_cursor_for_originators(
-            group_id,
-            EntityKind::Group,
-            &[
-                Originators::MLS_COMMITS.into(),
-                Originators::APPLICATION_MESSAGES.into(),
-            ],
-        )?;
+        let cursor = conn.lowest_common_cursor(&[&TopicKind::GroupMessagesV1.create(group_id)])?;
 
         // TODO:d14n query with cursor store to include last seen per originator
         let messages = self

@@ -10,6 +10,7 @@ use xmtp_proto::mls_v1::SubscribeGroupMessagesRequest;
 use xmtp_proto::mls_v1::SubscribeWelcomeMessagesRequest;
 use xmtp_proto::prelude::XmtpIdentityClient;
 use xmtp_proto::prelude::XmtpMlsStreams;
+use xmtp_proto::types::GlobalCursor;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::types::{Cursor, GroupId, GroupMessage};
@@ -66,7 +67,7 @@ where
     async fn query_group_messages(
         &self,
         group_id: GroupId,
-        cursor: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<GroupMessage>, Self::Error> {
         self.inner.query_group_messages(group_id, cursor).await
     }
@@ -81,7 +82,7 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         self.inner
             .query_welcome_messages(installation_key, cursor)
@@ -156,17 +157,19 @@ where
 
     async fn subscribe_group_messages(
         &self,
-        request: SubscribeGroupMessagesRequest,
+        group_ids: &[&GroupId],
+        cursor: GlobalCursor
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        let s = self.inner.subscribe_group_messages(request).await?;
+        let s = self.inner.subscribe_group_messages(group_ids, cursor).await?;
         Ok(Box::pin(s) as Pin<Box<_>>)
     }
 
     async fn subscribe_welcome_messages(
         &self,
-        request: SubscribeWelcomeMessagesRequest,
+        installations: &[&InstallationId],
+        cursor: GlobalCursor
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
-        let s = self.inner.subscribe_welcome_messages(request).await?;
+        let s = self.inner.subscribe_welcome_messages(installations, cursor).await?;
         Ok(Box::pin(s) as Pin<Box<_>>)
     }
 }

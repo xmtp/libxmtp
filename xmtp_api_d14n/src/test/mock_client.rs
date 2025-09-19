@@ -73,6 +73,8 @@ mock! {
 // need separate defs for wasm and not wasm, b/c `cfg_attr` not supportd in macro! block
 #[cfg(not(target_arch = "wasm32"))]
 mod not_wasm {
+    use xmtp_proto::types::GlobalCursor;
+
     use super::*;
 
     #[derive(Clone)]
@@ -95,10 +97,10 @@ mod not_wasm {
             ) -> Result<FetchKeyPackagesResponse, MockError>;
             async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), MockError>;
             async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), MockError>;
-            async fn query_group_messages(&self, group_id: GroupId, cursor: Vec<Cursor>) -> Result<Vec<GroupMessage>, MockError>;
+            async fn query_group_messages(&self, group_id: GroupId, cursor: GlobalCursor) -> Result<Vec<GroupMessage>, MockError>;
             async fn query_latest_group_message(&self, group_id: GroupId) -> Result<Option<GroupMessage>, MockError>;
 
-            async fn query_welcome_messages(&self, installation_key: InstallationId, cursor: Vec<Cursor>) -> Result<Vec<WelcomeMessage>, MockError>;
+            async fn query_welcome_messages(&self, installation_key: InstallationId, cursor: GlobalCursor) -> Result<Vec<WelcomeMessage>, MockError>;
             async fn publish_commit_log(&self, request: BatchPublishCommitLogRequest) -> Result<(), MockError>;
             async fn query_commit_log(&self, request: BatchQueryCommitLogRequest) -> Result<BatchQueryCommitLogResponse, MockError>;
         }
@@ -109,8 +111,8 @@ mod not_wasm {
             type GroupMessageStream = MockGroupStream;
             type WelcomeMessageStream = MockWelcomeStream;
 
-            async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<MockGroupStream, MockError>;
-            async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<MockWelcomeStream, MockError>;
+            async fn subscribe_group_messages(&self, group_ids: &[&GroupId], cursor: GlobalCursor) -> Result<MockGroupStream, MockError>;
+            async fn subscribe_welcome_messages(&self, installations: &[&InstallationId], cursor: GlobalCursor) -> Result<MockWelcomeStream, MockError>;
         }
 
         #[async_trait::async_trait]
@@ -155,9 +157,9 @@ mod wasm {
             ) -> Result<FetchKeyPackagesResponse, MockError>;
             async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), MockError>;
             async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), MockError>;
-            async fn query_group_messages(&self, group_id: GroupId, cursor: Vec<Cursor>) -> Result<Vec<GroupMessage>, MockError>;
+            async fn query_group_messages(&self, group_id: GroupId, cursor: GlobalCursor) -> Result<Vec<GroupMessage>, MockError>;
             async fn query_latest_group_message(&self, group_id: GroupId) -> Result<Option<GroupMessage>, MockError>;
-            async fn query_welcome_messages(&self, installation_key: InstallationId, cursor: Vec<Cursor>) -> Result<Vec<WelcomeMessage>, MockError>;
+            async fn query_welcome_messages(&self, installation_key: InstallationId, cursor: GlobalCursor) -> Result<Vec<WelcomeMessage>, MockError>;
             async fn publish_commit_log(&self, request: BatchPublishCommitLogRequest) -> Result<(), MockError>;
             async fn query_commit_log(&self, request: BatchQueryCommitLogRequest) -> Result<BatchQueryCommitLogResponse, MockError>;
         }
@@ -168,8 +170,8 @@ mod wasm {
             type GroupMessageStream = MockGroupStream;
             type WelcomeMessageStream = MockWelcomeStream;
 
-            async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<MockGroupStream, MockError>;
-            async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<MockWelcomeStream, MockError>;
+            async fn subscribe_group_messages(&self, group_ids: &[&GroupId], cursor: GlobalCursor) -> Result<MockGroupStream, MockError>;
+            async fn subscribe_welcome_messages(&self, installations: &[&InstallationId], cursor: GlobalCursor) -> Result<MockWelcomeStream, MockError>;
         }
 
         #[async_trait::async_trait(?Send)]

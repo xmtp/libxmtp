@@ -8,6 +8,7 @@ use xmtp_common::{MaybeSend, RetryableError};
 use xmtp_proto::api::{ApiClientError, Client, QueryStream, XmtpStream};
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1;
+use xmtp_proto::types::{GlobalCursor, GroupId, InstallationId, Topic, TopicKind};
 use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, SubscribeEnvelopesResponse};
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -33,13 +34,14 @@ where
 
     async fn subscribe_group_messages(
         &self,
-        _request: mls_v1::SubscribeGroupMessagesRequest,
+        group_ids: &[&GroupId],
+        cursor: GlobalCursor
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         let _stream = SubscribeEnvelopes::builder()
             .envelopes(EnvelopesQuery {
-                topics: _request.topics()?,
-                originator_node_ids: todo!(),
-                last_seen: todo!(), // TODO: requires cursor store
+                topics: group_ids.iter().map(|id| TopicKind::GroupMessagesV1.build(id)).collect(),
+                originator_node_ids: vec![],
+                last_seen: cursor, // TODO: requires cursor store
             })
             .build()?
             .stream(&self.message_client)
@@ -49,13 +51,14 @@ where
 
     async fn subscribe_welcome_messages(
         &self,
-        request: mls_v1::SubscribeWelcomeMessagesRequest,
+        installations: &[&InstallationId],
+        cursor: GlobalCursor
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         let _stream = SubscribeEnvelopes::builder()
             .envelopes(EnvelopesQuery {
-                topics: request.topics()?,
-                originator_node_ids: todo!(),
-                last_seen: todo!(), // TODO: requires cursor store
+                topics: installations.iter().map(|id| TopicKind::WelcomeMessagesV1.build(id)).collect(),
+                originator_node_ids: vec![],
+                last_seen: cursor
             })
             .build()?
             .stream(&self.message_client)
