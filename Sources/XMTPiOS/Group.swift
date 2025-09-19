@@ -151,6 +151,14 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public var createdAt: Date {
 		Date(millisecondsSinceEpoch: ffiGroup.createdAtNs())
 	}
+    
+    public var createdAtNs: Int64 {
+        ffiGroup.createdAtNs()
+    }
+    
+    public var lastActivityAtNs: Int64 {
+        ffiLastMessage?.sentAtNs ?? createdAtNs
+    }
 
 	public func addMembers(inboxIds: [InboxId]) async throws
 		-> GroupMembershipResult

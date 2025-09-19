@@ -189,6 +189,24 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			return dm.createdAt
 		}
 	}
+    
+    public var createdAtNs: Int64 {
+        switch self {
+        case let .group(group):
+            return group.createdAtNs
+        case let .dm(dm):
+            return dm.createdAtNs
+        }
+    }
+    
+    public var lastActivityAtNs: Int64 {
+        switch self {
+        case let .group(group):
+            return group.lastActivityAtNs
+        case let .dm(dm):
+            return dm.lastActivityAtNs
+        }
+    }
 
 	@discardableResult public func send<T>(
 		content: T, options: SendOptions? = nil, fallback _: String? = nil
@@ -359,10 +377,10 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			return try dm.isActive()
 		}
 	}
-    
+
     // Returns a dictionary where the keys are inbox IDs and the values
     // are the timestamp in nanoseconds of their last read receipt
-    public func getLastReadTimes() throws -> Dictionary<String, Int64> {
+    public func getLastReadTimes() throws -> [String: Int64] {
         switch self {
             case let .group(group):
             return try group.getLastReadTimes()

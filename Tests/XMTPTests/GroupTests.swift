@@ -1267,4 +1267,83 @@ class GroupTests: XCTestCase {
 		try fixtures.cleanUpDatabases()
     }
     
+    func testPaginationOfConversationsList() async throws {
+        let fixtures = try await fixtures()
+        
+        // Create 15 groups
+        var groups: [Group] = []
+        for i in 0...14 {
+            let group = try await fixtures.boClient.conversations.newGroup(
+                with: [fixtures.caroClient.inboxID],
+                name: "Test Group \(i)"
+            )
+            groups.append(group)
+        }
+        
+        let firstPage = try await fixtures.boClient.conversations.list(limit: 10)
+        let secondPage = try await fixtures.boClient.conversations.list(lastActivityBeforeNs: firstPage.last!.lastActivityAtNs, limit: 10)
+        
+        // Send a message to half the groups to ensure they're ordered by last message
+        // and not by created_at
+        for (index, group) in groups.enumerated() {
+            if index % 2 == 0 {
+                _ = try await group.send(content: "Sending a message to ensure filtering by last message time works")
+            }
+        }
+        
+        // Track all conversations retrieved through pagination
+        var allConversations = Set<String>()
+        var pageCount = 0
+        
+        // Get the first page
+        var page = try fixtures.boClient.conversations.listGroups(
+            limit: 5
+        )
+        
+        while !page.isEmpty {
+            pageCount += 1
+            
+            // Add new conversation IDs to our set
+            for conversation in page {
+                if allConversations.contains(conversation.id) {
+                    XCTFail("Duplicate conversation ID found: \(conversation.id)")
+                }
+                allConversations.insert(conversation.id)
+            }
+            
+            // If we got fewer than the limit, we've reached the end
+            if page.count < 5 {
+                break
+            }
+            
+            // Get the oldest (last) conversation's timestamp for the next page
+            let lastConversation = page.last!
+            
+            // Get the next page - subtract 1 nanosecond to avoid including the same conversation
+            page = try fixtures.boClient.conversations.listGroups(
+                lastActivityBeforeNs: lastConversation.lastActivityAtNs,
+                limit: 5
+            )
+            
+            // Safety check to prevent infinite loop
+            if pageCount > 10 {
+                XCTFail("Too many pages, possible infinite loop")
+            }
+        }
+        
+        // Validate results
+        XCTAssertEqual(allConversations.count, 15, "Should have retrieved all 15 groups")
+        
+        // Verify all created groups are in the results
+        for group in groups {
+            XCTAssert(
+                allConversations.contains(group.id),
+                "Group \(group.id) should be in paginated results"
+            )
+        }
+        
+        try fixtures.cleanUpDatabases()
+    }
+    
+    
 }

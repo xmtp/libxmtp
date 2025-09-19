@@ -96,6 +96,14 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	public var createdAt: Date {
 		Date(millisecondsSinceEpoch: ffiConversation.createdAtNs())
 	}
+    
+    public var createdAtNs: Int64 {
+        ffiConversation.createdAtNs()
+    }
+    
+    public var lastActivityAtNs: Int64 {
+        ffiLastMessage?.sentAtNs ?? createdAtNs
+    }
 
 	public func updateConsentState(state: ConsentState) async throws {
 		try ffiConversation.updateConsentState(state: state.toFFI)
