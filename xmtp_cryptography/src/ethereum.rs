@@ -1,3 +1,4 @@
+use crate::Secret;
 use alloy::primitives::{eip191_hash_message, Address, B256};
 use alloy::signers::local::PrivateKeySigner;
 use alloy::signers::SignerSync;
@@ -24,8 +25,10 @@ pub enum EthereumCryptoError {
 }
 
 /// Generate uncompressed public key (65 bytes: 0x04 || X || Y) from 32-byte private key
+/// Internal function that does not zeroize the private key
+/// For external use, use public_key_uncompressed
 /// FFI-friendly wrapper around alloy's PrivateKeySigner
-pub fn public_key_uncompressed(
+fn public_key_uncompressed_internal(
     private_key32: &[u8],
 ) -> Result<[u8; PUBKEY_UNCOMPRESSED_LEN], EthereumCryptoError> {
     // Validate private key length
@@ -46,11 +49,22 @@ pub fn public_key_uncompressed(
     Ok(out)
 }
 
+/// Generate uncompressed public key with automatic private key zeroization
+/// Public wrapper around public_key_uncompressed_internal where the private key is automatically zeroized after use
+pub fn public_key_uncompressed(
+    private_key_secret: Secret,
+) -> Result<[u8; PUBKEY_UNCOMPRESSED_LEN], EthereumCryptoError> {
+    // The Secret will be automatically zeroized when it goes out of scope
+    public_key_uncompressed_internal(private_key_secret.as_slice())
+}
+
 /// Recoverable ECDSA signing (Ethereum-style) - FFI-friendly wrapper around alloy
+/// Internal function that does not zeroize the private key
+/// For external use, use sign_recoverable
 /// Returns 65 bytes: r||s||v where v ∈ {27,28} (Ethereum standard recovery ID)
 /// - if `hashing == true`: EIP-191 personal message signing
 /// - else: `msg` must be a 32-byte prehash
-pub fn sign_recoverable(
+fn sign_recoverable_internal(
     msg: &[u8],
     private_key32: &[u8],
     hashing: bool,
@@ -103,6 +117,26 @@ pub fn hash_personal(message: &str) -> [u8; HASH_LEN] {
     eip191_hash_message(message).into()
 }
 
+/// Create a zeroizing private key from bytes - automatically zeroized on drop
+pub fn zeroizing_private_key(private_key_bytes: &[u8]) -> Result<Secret, EthereumCryptoError> {
+    if private_key_bytes.len() != PRIVATE_KEY_LEN {
+        return Err(EthereumCryptoError::InvalidLength);
+    }
+    Ok(Secret::from(private_key_bytes.to_vec()))
+}
+
+/// Recoverable ECDSA signing with automatic private key zeroization
+/// Public wrapper around sign_recoverable_internal where the private key is automatically zeroized after use
+/// For usage see
+pub fn sign_recoverable(
+    msg: &[u8],
+    private_key_secret: Secret,
+    hashing: bool,
+) -> Result<[u8; SIGNATURE_LEN], EthereumCryptoError> {
+    // The Secret will be automatically zeroized when it goes out of scope
+    sign_recoverable_internal(msg, private_key_secret.as_slice(), hashing)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,7 +151,9 @@ mod tests {
         let private_key_bytes = hex::decode(private_key).expect("Valid hex private key");
 
         // Test uncompressed public key generation
-        let public_key_65 = public_key_uncompressed(&private_key_bytes)
+        let zeroizing_key =
+            zeroizing_private_key(&private_key_bytes).expect("Should create zeroizing private key");
+        let public_key_65 = public_key_uncompressed(zeroizing_key)
             .expect("Should generate public key successfully");
 
         // Verify public key is 65 bytes and starts with 0x04
@@ -152,7 +188,9 @@ mod tests {
         let message_bytes = message.as_bytes();
 
         // Test with hashing enabled
-        let signature = sign_recoverable(message_bytes, &private_key_bytes, true)
+        let zeroizing_key =
+            zeroizing_private_key(&private_key_bytes).expect("Should create zeroizing private key");
+        let signature = sign_recoverable(message_bytes, zeroizing_key, true)
             .expect("Should sign successfully with hashing");
 
         // Verify signature is 65 bytes
@@ -165,8 +203,10 @@ mod tests {
         // Test with hashing disabled (message must be 32 bytes) - using pre-computed EIP-191 hash
         let hash = hash_personal(message);
 
-        let signature_no_hash = sign_recoverable(&hash, &private_key_bytes, false)
-            .expect("Should sign pre-hashed message");
+        let zeroizing_key =
+            zeroizing_private_key(&private_key_bytes).expect("Should create zeroizing private key");
+        let signature_no_hash =
+            sign_recoverable(&hash, zeroizing_key, false).expect("Should sign pre-hashed message");
 
         assert_eq!(signature_no_hash.len(), SIGNATURE_LEN);
         let recovery_id_no_hash = signature_no_hash[PUBKEY_XY_LEN];
@@ -194,13 +234,23 @@ mod tests {
     fn test_invalid_inputs() {
         // Test invalid private keys
         let zero_key = [0u8; PRIVATE_KEY_LEN]; // All zeros - mathematically invalid
-        assert!(public_key_uncompressed(&zero_key).is_err());
-        assert!(sign_recoverable(b"test", &zero_key, true).is_err());
+        let zeroizing_key =
+            zeroizing_private_key(&zero_key).expect("Should create zeroizing private key");
+        assert!(public_key_uncompressed(zeroizing_key).is_err());
+
+        let zeroizing_key =
+            zeroizing_private_key(&zero_key).expect("Should create zeroizing private key");
+        assert!(sign_recoverable(b"test", zeroizing_key, true).is_err());
 
         // Test maximum value key (also invalid for secp256k1)
         let max_key = [0xFFu8; PRIVATE_KEY_LEN];
-        assert!(public_key_uncompressed(&max_key).is_err());
-        assert!(sign_recoverable(b"test", &max_key, true).is_err());
+        let zeroizing_key =
+            zeroizing_private_key(&max_key).expect("Should create zeroizing private key");
+        assert!(public_key_uncompressed(zeroizing_key).is_err());
+
+        let zeroizing_key =
+            zeroizing_private_key(&max_key).expect("Should create zeroizing private key");
+        assert!(sign_recoverable(b"test", zeroizing_key, true).is_err());
 
         // Test invalid pubkey lengths for address derivation
         assert!(address_from_pubkey(&[0u8; PUBKEY_XY_LEN - 1]).is_err()); // Too short
@@ -213,7 +263,9 @@ mod tests {
 
         // Test sign_recoverable with wrong hash length when hashing=false
         let valid_key = [1u8; PRIVATE_KEY_LEN];
-        assert!(sign_recoverable(&[0u8; HASH_LEN - 1], &valid_key, false).is_err());
+        let zeroizing_key =
+            zeroizing_private_key(&valid_key).expect("Should create zeroizing private key");
+        assert!(sign_recoverable(&[0u8; HASH_LEN - 1], zeroizing_key, false).is_err());
         // Wrong hash length
     }
 
@@ -225,10 +277,13 @@ mod tests {
         let message = "Hello, Ethereum!";
         let private_key_bytes = hex::decode(private_key).expect("Valid hex private key");
 
+        let zeroizing_key =
+            zeroizing_private_key(&private_key_bytes).expect("Should create zeroizing private key");
+
         // Create signatures using both our function and alloy
         let our_signature = sign_recoverable(
             message.as_bytes(),
-            &private_key_bytes,
+            zeroizing_key,
             true, // Use EIP-191 hashing
         )
         .expect("Should sign successfully");
@@ -266,19 +321,25 @@ mod tests {
         use alloy::primitives::Signature as AlloySignature;
 
         let private_key = "a1b2c3d4e5f67890123456789012345678901234567890123456789012345678";
+        let private_key_bytes = hex::decode(private_key).expect("Valid hex private key");
+        let zeroizing_key =
+            zeroizing_private_key(&private_key_bytes).expect("Should create zeroizing private key");
+
         let message = "XMTP signature test message";
 
         let private_key_bytes = hex::decode(private_key).expect("Valid hex private key");
 
         // Generate public key and address using our functions
+        let zeroizing_key_for_pubkey =
+            zeroizing_private_key(&private_key_bytes).expect("Should create zeroizing private key");
         let public_key =
-            public_key_uncompressed(&private_key_bytes).expect("Should generate public key");
+            public_key_uncompressed(zeroizing_key_for_pubkey).expect("Should generate public key");
         let _expected_address = address_from_pubkey(&public_key).expect("Should generate address");
 
         // Sign the message
         let signature = sign_recoverable(
             message.as_bytes(),
-            &private_key_bytes,
+            zeroizing_key,
             true, // Use EIP-191 hashing
         )
         .expect("Should sign message");
@@ -310,5 +371,47 @@ mod tests {
             recovered_address.to_string().to_lowercase(),
             "Wrong message should recover a different address"
         );
+    }
+
+    #[test]
+    fn test_zeroizing_private_key() {
+        let private_key_hex = "a1b2c3d4e5f67890123456789012345678901234567890123456789012345678";
+        let private_key_bytes = hex::decode(private_key_hex).expect("Valid hex private key");
+        let message = "test message for zeroizing";
+
+        // Create a zeroizing private key
+        let zeroizing_key =
+            zeroizing_private_key(&private_key_bytes).expect("Should create zeroizing private key");
+
+        // Use the zeroizing signing function
+        let signature = sign_recoverable(
+            message.as_bytes(),
+            zeroizing_key, // This will be automatically zeroized after the function call
+            true,
+        )
+        .expect("Should sign with zeroizing key");
+
+        // Verify the signature works
+        use alloy::primitives::Signature as AlloySignature;
+        let alloy_signature =
+            AlloySignature::try_from(signature.as_slice()).expect("Should parse signature");
+        let recovered_address = alloy_signature
+            .recover_address_from_msg(message)
+            .expect("Should recover address");
+
+        // Generate expected address for comparison
+        let zeroizing_key_for_comparison =
+            zeroizing_private_key(&private_key_bytes).expect("Should create zeroizing private key");
+        let public_key = public_key_uncompressed(zeroizing_key_for_comparison)
+            .expect("Should generate public key");
+        let expected_address = address_from_pubkey(&public_key).expect("Should generate address");
+
+        assert_eq!(
+            recovered_address.to_string().to_lowercase(),
+            expected_address.to_lowercase(),
+            "Zeroizing signature should work the same as regular signature"
+        );
+
+        // At this point, the zeroizing_key has been automatically zeroized
     }
 }

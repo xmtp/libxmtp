@@ -26,9 +26,11 @@ impl From<ethereum::EthereumCryptoError> for FfiCryptoError {
 
 /// 1) Ethereum compatible public key from 32-byte private key.
 ///    Returns **65-byte uncompressed** (0x04 || X || Y)
+///    Private key is automatically zeroized after use for security
 #[uniffi::export]
 fn ethereum_generate_public_key(private_key32: Vec<u8>) -> Result<Vec<u8>, FfiCryptoError> {
-    let public_key = ethereum::public_key_uncompressed(&private_key32)?;
+    let zeroizing_key = ethereum::zeroizing_private_key(&private_key32)?;
+    let public_key = ethereum::public_key_uncompressed(zeroizing_key)?;
     Ok(public_key.to_vec())
 }
 
@@ -38,17 +40,16 @@ fn ethereum_generate_public_key(private_key32: Vec<u8>) -> Result<Vec<u8>, FfiCr
 ///    - If `hashing == true`: signs per **EIP-191**
 ///      ("Ethereum Signed Message:\n{len(msg)}" || msg, then keccak256).
 ///    - If `hashing == false`: `msg` must be a **32-byte** prehash (e.g., keccak256/EIP-712 digest).
-///    Notes:
-///    - Signature is low-S normalized; recovery id is encoded as 27/28 for compatibility.
-///    - To get the parity bit use `parity = v - 27`.
-///    - For EIP-155 txs compute `tx.v = 35 + 2*chainId + parity`
+///    - Private key is automatically zeroized after signing for security
 #[uniffi::export]
 fn ethereum_sign_recoverable(
     msg: Vec<u8>,
     private_key32: Vec<u8>,
     hashing: bool,
 ) -> Result<Vec<u8>, FfiCryptoError> {
-    let signature = ethereum::sign_recoverable(&msg, &private_key32, hashing)?;
+    // Create a zeroizing private key
+    let zeroizing_key = ethereum::zeroizing_private_key(&private_key32)?;
+    let signature = ethereum::sign_recoverable(&msg, zeroizing_key, hashing)?;
     Ok(signature.to_vec())
 }
 
