@@ -72,6 +72,7 @@ use xmtp_content_types::{
     reply::ReplyCodec,
 };
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
+use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::{Fetch, consent_record::ConsentType};
@@ -1229,7 +1230,7 @@ where
         if members.len() == 1 {
             return Err(GroupLeaveValidationError::SingleMemberLeaveRejected.into());
         }
-// check if the conversation is not a DM
+        // check if the conversation is not a DM
         if self.metadata().await?.conversation_type == ConversationType::Dm {
             return Err(GroupLeaveValidationError::DmLeaveForbidden.into());
         }
@@ -1237,7 +1238,7 @@ where
         let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
         let admin_size = self.admin_list()?.len();
         let super_admin_size = self.super_admin_list()?.len();
-// check if the user is the only Admin or SuperAdmin of the group
+        // check if the user is the only Admin or SuperAdmin of the group
         if (is_admin && admin_size == 1) || (is_super_admin && super_admin_size == 1) {
             return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
         }
@@ -1260,8 +1261,7 @@ where
         }
 
         if !self.is_in_pending_remove(self.context.inbox_id().to_string())? {
-            let content = LeaveRequestCodec::encode(LeaveRequest {})
-                .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+            let content = LeaveRequestCodec::encode(LeaveRequest {})?;
             self.send_message(&*encoded_content_to_bytes(content))
                 .await?;
         };
@@ -1638,9 +1638,10 @@ where
     }
 
     pub fn pending_remove_list(&self) -> Result<Vec<String>, GroupError> {
-        todo!()
-        // let mutable_metadata = self.mutable_metadata()?;
-        // Ok(mutable_metadata.pending_remove_list)
+        self.context
+            .db()
+            .get_pending_remove_users(&self.group_id)
+            .map_err(Into::into)
     }
 
     /// Retrieves the admin list of the group from the group's mutable metadata extension.

@@ -11,7 +11,9 @@ use diesel::prelude::SqliteConnection;
 use mockall::mock;
 use parking_lot::Mutex;
 
+use crate::pending_remove::QueryPendingRemove;
 use crate::{ConnectionError, ConnectionExt};
+
 pub type MockDb = MockDbQuery;
 
 #[derive(Clone)]
@@ -614,6 +616,18 @@ mock! {
             &self,
             level: S
         ) -> Result<(), crate::ConnectionError>;
+    }
+
+    impl QueryPendingRemove for DbQuery{
+        fn get_pending_remove_users(
+        &self,
+        group_id: &Vec<u8>,
+    ) -> Result<Vec<String>, crate::ConnectionError>;
+    fn delete_pending_remove_user(
+        &self,
+        inbox_id: Vec<String>,
+        group_id: Vec<u8>,
+    ) -> Result<usize, crate::ConnectionError>;
     }
 }
 

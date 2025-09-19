@@ -94,6 +94,7 @@ use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::NotFound;
 use xmtp_db::group::GroupMembershipState;
+use xmtp_db::pending_remove::{PendingRemove, QueryPendingRemove};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::mls_v1::WelcomeMetadata;
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
@@ -342,7 +343,8 @@ where
     /// Sync from the network with the 'conn' (local database).
     /// must return a summary of all messages synced, whether they were
     /// successful or not.
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(fields(who = %self.context.inbox_id())))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(fields(who = %self.context.inbox_id()
+    )))]
     #[cfg_attr(not(any(test, feature = "test-utils")), tracing::instrument(skip_all))]
     pub async fn sync_with_conn(&self) -> Result<SyncSummary, SyncSummary> {
         let _mutex = self.mutex.lock().await;
@@ -398,7 +400,8 @@ where
         }
     }
 
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip_all))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()
+    ), skip_all))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip_all)
@@ -432,7 +435,8 @@ where
      *
      * This method will retry up to `xmtp_configuration::MAX_GROUP_SYNC_RETRIES` times.
      */
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()
+    ), skip(self)))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip(self))
@@ -821,6 +825,7 @@ where
                 processing_error: GroupMessageProcessingError::Db(err),
                 next_intent_state: IntentState::Error,
             })?;
+        self.process_leave_request_message_by_message_id(mls_group, storage, &id);
         Ok(Some(id))
     }
 
@@ -973,7 +978,7 @@ where
                 envelope,
                 validated_commit.clone(),
                 &storage,
-                &mut deferred_events
+                &mut deferred_events,
             )?;
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
@@ -1271,6 +1276,21 @@ where
         identifier.build()
     }
 
+    fn process_leave_request_message_by_message_id(
+        &self,
+        mls_group: &OpenMlsGroup,
+        storage: &impl XmtpMlsStorageProvider,
+        message_id: &[u8],
+    ) {
+        tracing::info!("### started processing send leave request");
+        if let Ok(Some(message)) = self.context.db().get_group_message(message_id) {
+            if message.content_type == ContentType::LeaveRequest {
+                tracing::info!("### content is LeaveRequest");
+                self.process_leave_request_message(mls_group, storage, &message);
+            }
+        }
+    }
+
     fn process_leave_request_message(
         &self,
         mls_group: &OpenMlsGroup,
@@ -1295,7 +1315,20 @@ where
                     "Failed to update group membership after self-addition to pending_remove_list {}", e
                 );
             }
+            let x = PendingRemove {
+                inbox_id: current_inbox_id,
+                group_id: self.group_id.clone(),
+            }
+            .store_or_ignore(&storage.db());
             return; // Early return - we're done if this is our own action
+        } else {
+            // put the user leave request in the db
+            PendingRemove {
+                group_id: message.group_id.clone(),
+                inbox_id: message.sender_inbox_id.clone(),
+            }
+            .store_or_ignore(&storage.db())
+            .expect("Failed to store pending remove");
         }
 
         // If we reach here, the action was by another user or no validated commit
@@ -1319,43 +1352,38 @@ where
             Ok(metadata) => {
                 let is_admin = metadata.admin_list.contains(&current_inbox_id)
                     || metadata.super_admin_list.contains(&current_inbox_id);
-                // if is_admin && current_user_not_pending && has_pending_removes {
-                //     let _ = storage
-                //         .db()
-                //         .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
-                //         .map_err(|e| {
-                //             tracing::error!("Failed to set group pending leave request status: {}", e);
-                //             IntentError::Storage(e.into())
-                //         });
-                //
-                //     tracing::info!("Marked the group as having pending leave requests");
-                // }
                 // Only process if we're an admin/super-admin
                 if !is_admin {
                     return;
                 }
+                match storage
+                    .db()
+                    .get_pending_remove_users(&mls_group.group_id().to_vec())
+                {
+                    Ok(users) => {
+                        let current_user_not_pending = !users.contains(&current_inbox_id);
+                        if is_admin && current_user_not_pending && users.len() > 0 {
+                            let _ = storage
+                                .db()
+                                .set_group_has_pending_leave_request_status(
+                                    &self.group_id,
+                                    Some(true),
+                                )
+                                .map_err(|e| {
+                                    tracing::error!(
+                                        "Failed to set group pending leave request status: {}",
+                                        e
+                                    );
+                                    IntentError::Storage(e.into())
+                                });
 
-                // let pending_remove = &metadata.pending_remove_list;
-                // let has_pending_removes = !pending_remove.is_empty();
-                // let current_user_not_pending = !pending_remove.contains(&current_inbox_id);
-                // add user to the pending remove db table
-                // Update group status based on pending remove list state
-                // if current_user_not_pending {
-                //     self.update_group_pending_status(storage, has_pending_removes);
-                //     // Update the group's pending leave request status
-                //     // if let Err(e) = storage
-                //     //     .db()
-                //     //     .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
-                //     // {
-                //     //     //     //     .map_err(|e| {
-                //     //     tracing::error!("Failed to set group pending leave request status: {}", e);
-                //     // } else {
-                //     //     //     //         IntentError::Storage(e.into())
-                //     //     //     //     })?;
-                //     //     //
-                //     //     tracing::info!("Marked the group as having pending leave requests");
-                //     // }
-                // }
+                            tracing::info!("Marked the group as having pending leave requests");
+                        }
+                    }
+                    Err(_) => {
+                        return;
+                    }
+                };
             }
             Err(GroupMutableMetadataError::MissingExtension) => {
                 tracing::warn!(
@@ -1829,7 +1857,7 @@ where
                 // Do not update the cursor if you have been removed from the group - you may be readded
                 // later
                 if !e.is_retryable() && mls_group.is_active()
-                && let Err(transaction_error) = self.context.mls_storage().transaction(|conn| {
+                    && let Err(transaction_error) = self.context.mls_storage().transaction(|conn| {
                     let storage = conn.key_store();
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
                     // TODO(rich): Add log_err! macro/trait for swallowing errors
@@ -1840,13 +1868,13 @@ where
                         // that the non-retriable error is processed again
                         tracing::error!("Error updating cursor for non-retriable error: {update_cursor_error:?}");
                     } else if message_type == MlsContentType::Commit
-                    && let Err(accounting_error) = mls_group.mark_failed_commit_logged(
-                            &provider,
-                            message_cursor,
-                            message_epoch,
-                            &e,
-                        ) {
-                            tracing::error!(
+                        && let Err(accounting_error) = mls_group.mark_failed_commit_logged(
+                        &provider,
+                        message_cursor,
+                        message_epoch,
+                        &e,
+                    ) {
+                        tracing::error!(
                                 "Error inserting commit entry for failed commit: {}",
                                 accounting_error
                         );
@@ -2127,7 +2155,7 @@ where
                             let id = utils::id::calculate_message_id_for_intent(&intent)?;
                             db.set_group_intent_error_and_fail_msg(&intent, id)?;
                         } else {
-                           db.increment_intent_publish_attempt_count(intent.id)?;
+                            db.increment_intent_publish_attempt_count(intent.id)?;
                         }
 
                         return Err(err);
@@ -2142,7 +2170,7 @@ where
                         let has_staged_commit = staged_commit.is_some();
                         let intent_hash = sha256(payload_slice);
                         // removing this transaction causes missed messages
-                       self.context.mls_storage().transaction(|conn| {
+                        self.context.mls_storage().transaction(|conn| {
                             let storage = conn.key_store();
                             let db = storage.db();
                             db.set_group_intent_published(
@@ -2487,7 +2515,8 @@ where
      * This is designed to handle cases where existing members have added a new installation to their inbox or revoked an installation
      * and the group has not been updated to include it.
      */
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip_all))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()
+    ), skip_all))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip_all)

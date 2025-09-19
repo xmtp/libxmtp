@@ -172,6 +172,13 @@ diesel::table! {
 }
 
 diesel::table! {
+    pending_remove (group_id, inbox_id) {
+        group_id -> Binary,
+        inbox_id -> Text,
+    }
+}
+
+diesel::table! {
     processed_device_sync_messages (message_id) {
         message_id -> Binary,
     }
@@ -223,6 +230,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     local_commit_log,
     openmls_key_store,
     openmls_key_value,
+    pending_remove,
     processed_device_sync_messages,
     refresh_state,
     remote_commit_log,
