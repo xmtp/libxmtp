@@ -11,6 +11,7 @@ use xmtp_proto::prelude::ApiBuilder;
 use xmtp_proto::prelude::XmtpIdentityClient;
 use xmtp_proto::prelude::XmtpMlsStreams;
 use xmtp_proto::types::AppVersion;
+use xmtp_proto::types::GlobalCursor;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::types::{Cursor, GroupId, GroupMessage};
@@ -75,7 +76,7 @@ where
     async fn query_group_messages(
         &self,
         group_id: GroupId,
-        cursor: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<GroupMessage>, Self::Error> {
         self.stats.query_group_messages.count_request();
         self.inner.query_group_messages(group_id, cursor).await
@@ -92,7 +93,7 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         self.stats.query_welcome_messages.count_request();
         self.inner
@@ -174,18 +175,20 @@ where
 
     async fn subscribe_group_messages(
         &self,
-        request: SubscribeGroupMessagesRequest,
+        group_ids: &[&GroupId],
+        cursor: GlobalCursor
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         self.stats.subscribe_messages.count_request();
-        self.inner.subscribe_group_messages(request).await
+        self.inner.subscribe_group_messages(group_ids, cursor).await
     }
 
     async fn subscribe_welcome_messages(
         &self,
-        request: SubscribeWelcomeMessagesRequest,
+        installations: &[&InstallationId],
+        cursor: GlobalCursor
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         self.stats.subscribe_welcomes.count_request();
-        self.inner.subscribe_welcome_messages(request).await
+        self.inner.subscribe_welcome_messages(installations, cursor).await
     }
 }
 

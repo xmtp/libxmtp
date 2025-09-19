@@ -9,9 +9,8 @@ use xmtp_configuration::Originators;
 use xmtp_db::{
     Fetch, NotFound, XmtpOpenMlsProvider,
     group::{GroupQueryArgs, StoredGroup},
-    refresh_state::EntityKind,
 };
-use xmtp_proto::types::{GroupMessage, WelcomeMessage};
+use xmtp_proto::types::{GroupMessage, TopicKind, WelcomeMessage};
 
 use crate::{
     context::XmtpSharedContext,
@@ -66,11 +65,7 @@ where
         conn: &impl DbQuery,
     ) -> Result<Vec<WelcomeMessage>, MlsStoreError> {
         let installation_id = self.context.installation_id();
-        let cursor = conn.get_last_cursor_for_originators(
-            installation_id,
-            EntityKind::Welcome,
-            &[Originators::WELCOME_MESSAGES.into()],
-        )?;
+        let cursor = conn.lowest_common_cursor(&[&TopicKind::WelcomeMessagesV1.create(installation_id)])?;
 
         let welcomes = self
             .context
@@ -88,19 +83,7 @@ where
         group_id: &[u8],
         conn: &impl DbQuery,
     ) -> Result<Vec<GroupMessage>, MlsStoreError> {
-        // TODO:d14n this is replaced with an lcc
-        // query in future PRs
-        let app_msgs = conn.get_last_cursor_for_originator(
-            group_id,
-            EntityKind::ApplicationMessage,
-            Originators::APPLICATION_MESSAGES.into(),
-        )?;
-
-        let commits = conn.get_last_cursor_for_originator(
-            group_id,
-            EntityKind::CommitMessage,
-            Originators::MLS_COMMITS.into(),
-        )?;
+        let cursor = conn.lowest_common_cursor(&[&TopicKind::GroupMessagesV1.create(group_id)])?;
 
         let messages = self
             .context

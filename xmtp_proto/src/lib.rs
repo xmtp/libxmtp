@@ -26,6 +26,8 @@ pub mod api_client;
 #[cfg(any(test, feature = "test-utils"))]
 pub use api_client::tests::*;
 
+mod convert;
+
 pub mod codec;
 mod traits;
 
@@ -34,11 +36,6 @@ pub mod api {
     pub use super::traits::stream::*;
     pub use super::traits::*;
 }
-
-#[cfg(feature = "convert")]
-pub mod convert;
-#[cfg(feature = "convert")]
-pub mod v4_utils;
 
 #[cfg(test)]
 pub mod test {

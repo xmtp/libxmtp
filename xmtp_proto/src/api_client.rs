@@ -7,7 +7,7 @@ use crate::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
     PagingInfo,
 };
-use crate::types::{Cursor, GroupMessage, InstallationId, WelcomeMessage};
+use crate::types::{Cursor, GlobalCursor, GroupId, GroupMessage, InstallationId, WelcomeMessage};
 use crate::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
@@ -125,7 +125,7 @@ pub trait XmtpMlsClient {
     async fn query_group_messages(
         &self,
         group_id: crate::types::GroupId,
-        cursor: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<GroupMessage>, Self::Error>;
     async fn query_latest_group_message(
         &self,
@@ -134,7 +134,7 @@ pub trait XmtpMlsClient {
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<WelcomeMessage>, Self::Error>;
     async fn publish_commit_log(
         &self,
@@ -159,11 +159,13 @@ pub trait XmtpMlsStreams {
 
     async fn subscribe_group_messages(
         &self,
-        request: SubscribeGroupMessagesRequest,
+        group_ids: &[&GroupId],
+        cursor: GlobalCursor,
     ) -> Result<Self::GroupMessageStream, Self::Error>;
     async fn subscribe_welcome_messages(
         &self,
-        request: SubscribeWelcomeMessagesRequest,
+        installations: &[&InstallationId],
+        cursor: GlobalCursor,
     ) -> Result<Self::WelcomeMessageStream, Self::Error>;
 }
 

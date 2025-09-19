@@ -43,6 +43,7 @@ impl EnvelopeVisitor<'_> for IdentityUpdateExtractor {
         &mut self,
         envelope: &UnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
+        tracing::info!("{:?}", envelope);
         self.originator_node_id = envelope.originator_node_id;
         self.originator_sequence_id = envelope.originator_sequence_id;
         self.server_timestamp_ns = envelope.originator_ns as u64;

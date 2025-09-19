@@ -8,6 +8,7 @@ use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
 };
 use xmtp_proto::types::Cursor;
+use xmtp_proto::types::GlobalCursor;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::types::GroupMessage;
 use xmtp_proto::types::InstallationId;
@@ -147,7 +148,7 @@ where
     async fn query_group_messages(
         &self,
         group_id: GroupId,
-        cursor: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<GroupMessage>, Self::Error> {
         wrap_err(
             || self.inner.query_group_messages(group_id, cursor),
@@ -170,7 +171,7 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: Vec<Cursor>,
+        cursor: GlobalCursor,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         wrap_err(
             || self.inner.query_welcome_messages(installation_key, cursor),
@@ -218,10 +219,11 @@ where
 
     async fn subscribe_group_messages(
         &self,
-        request: SubscribeGroupMessagesRequest,
+        group_ids: &[&GroupId],
+        cursor: GlobalCursor
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         wrap_err(
-            || self.inner.subscribe_group_messages(request),
+            || self.inner.subscribe_group_messages(group_ids, cursor),
             || self.inner.aggregate_stats(),
         )
         .await
@@ -229,10 +231,11 @@ where
 
     async fn subscribe_welcome_messages(
         &self,
-        request: SubscribeWelcomeMessagesRequest,
+        installations: &[&InstallationId],
+        cursor: GlobalCursor
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         wrap_err(
-            || self.inner.subscribe_welcome_messages(request),
+            || self.inner.subscribe_welcome_messages(installations, cursor),
             || self.inner.aggregate_stats(),
         )
         .await

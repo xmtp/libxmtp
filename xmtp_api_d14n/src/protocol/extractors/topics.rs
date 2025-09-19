@@ -6,13 +6,14 @@ use xmtp_proto::ConversionError;
 use crate::protocol::ExtractionError;
 
 use super::{EnvelopeError, Extractor};
-use crate::protocol::{TopicKind, traits::EnvelopeVisitor};
+use crate::protocol::traits::EnvelopeVisitor;
 use openmls::prelude::KeyPackageVerifyError;
 use openmls::{
     framing::MlsMessageIn,
     prelude::{KeyPackageIn, ProtocolMessage, tls_codec::Deserialize},
 };
 use openmls_rust_crypto::RustCrypto;
+use xmtp_proto::types::{Topic, TopicKind};
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 use xmtp_proto::xmtp::mls::api::v1::KeyPackageUpload;
@@ -24,7 +25,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 /// Extract Topics from Envelopes
 #[derive(Default, Clone, Debug)]
 pub struct TopicExtractor {
-    topic: Option<Vec<u8>>,
+    topic: Option<Topic>,
 }
 
 impl TopicExtractor {
@@ -33,7 +34,7 @@ impl TopicExtractor {
     }
 }
 impl Extractor for TopicExtractor {
-    type Output = Result<Vec<u8>, TopicExtractionError>;
+    type Output = Result<Topic, TopicExtractionError>;
 
     fn get(self) -> Self::Output {
         self.topic.ok_or(TopicExtractionError::Failed)
@@ -41,7 +42,7 @@ impl Extractor for TopicExtractor {
 }
 
 impl TopicExtractor {
-    pub fn get(self) -> Result<Vec<u8>, TopicExtractionError> {
+    pub fn get(self) -> Result<Topic, TopicExtractionError> {
         self.topic.ok_or(TopicExtractionError::Failed)
     }
 }
@@ -80,12 +81,13 @@ impl EnvelopeVisitor<'_> for TopicExtractor {
     fn visit_group_message_v1(&mut self, message: &GroupMessageV1) -> Result<(), Self::Error> {
         let msg_result = MlsMessageIn::tls_deserialize(&mut message.data.as_slice())?;
         let protocol_message: ProtocolMessage = msg_result.try_into_protocol_message()?;
-        self.topic = Some(TopicKind::GroupMessagesV1.build(protocol_message.group_id().as_slice()));
+        self.topic =
+            Some(TopicKind::GroupMessagesV1.create(protocol_message.group_id().as_slice()));
         Ok(())
     }
 
     fn visit_welcome_message_v1(&mut self, message: &WelcomeMessageV1) -> Result<(), Self::Error> {
-        self.topic = Some(TopicKind::WelcomeMessagesV1.build(message.installation_key.as_slice()));
+        self.topic = Some(TopicKind::WelcomeMessagesV1.create(message.installation_key.as_slice()));
         Ok(())
     }
 
@@ -106,13 +108,13 @@ impl EnvelopeVisitor<'_> for TopicExtractor {
             openmls::prelude::LeafNodeLifetimePolicy::Verify,
         )?;
         let installation_key = kp.leaf_node().signature_key().as_slice();
-        self.topic = Some(TopicKind::KeyPackagesV1.build(installation_key));
+        self.topic = Some(TopicKind::KeyPackagesV1.create(installation_key));
         Ok(())
     }
 
     fn visit_identity_update(&mut self, update: &IdentityUpdate) -> Result<(), Self::Error> {
         let decoded_id = hex::decode(&update.inbox_id)?;
-        self.topic = Some(TopicKind::IdentityUpdatesV1.build(&decoded_id));
+        self.topic = Some(TopicKind::IdentityUpdatesV1.create(&decoded_id));
         Ok(())
     }
 
@@ -121,7 +123,7 @@ impl EnvelopeVisitor<'_> for TopicExtractor {
         update: &get_identity_updates_request::Request,
     ) -> Result<(), Self::Error> {
         let decoded_id = hex::decode(&update.inbox_id)?;
-        self.topic = Some(TopicKind::IdentityUpdatesV1.build(&decoded_id));
+        self.topic = Some(TopicKind::IdentityUpdatesV1.create(&decoded_id));
         Ok(())
     }
 }
