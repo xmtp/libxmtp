@@ -110,6 +110,7 @@ pub(crate) mod tests {
     use alloy::signers::Signer;
 
     #[rstest::rstest]
+    #[timeout(std::time::Duration::from_secs(30))]
     #[tokio::test]
     async fn test_coinbase_smart_wallet(#[future] docker_smart_wallet: SmartWalletContext) {
         let SmartWalletContext {
