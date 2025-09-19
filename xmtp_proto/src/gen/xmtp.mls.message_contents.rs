@@ -66,6 +66,10 @@ pub struct GroupMutableMetadataV1 {
     /// Only super_admin can add/remove other super_admin
     #[prost(message, optional, tag = "3")]
     pub super_admin_list: ::core::option::Option<Inboxes>,
+    /// The ED25519 private key used to sign commit log entries
+    /// Must match the first entry in the commit log to be valid
+    #[prost(bytes = "vec", optional, tag = "4")]
+    pub commit_log_signer: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 impl ::prost::Name for GroupMutableMetadataV1 {
     const NAME: &'static str = "GroupMutableMetadataV1";
@@ -182,6 +186,26 @@ impl CommitResult {
         }
     }
 }
+/// A request sent by an installation to recover from a fork. Other members
+/// may remove and readd that installation from the group.
+/// XIP: <https://community.xmtp.org/t/xip-68-draft-automated-fork-recovery/951>
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ReaddRequest {
+    #[prost(bytes = "vec", tag = "1")]
+    pub group_id: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint64, tag = "2")]
+    pub commit_log_epoch: u64,
+}
+impl ::prost::Name for ReaddRequest {
+    const NAME: &'static str = "ReaddRequest";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.ReaddRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.ReaddRequest".into()
+    }
+}
 /// ContentTypeId is used to identify the type of content stored in a Message.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ContentTypeId {
@@ -282,7 +306,7 @@ pub mod plaintext_envelope {
         /// produce different hashes. May be the sender timestamp.
         #[prost(string, tag = "1")]
         pub idempotency_key: ::prost::alloc::string::String,
-        #[prost(oneof = "v2::MessageType", tags = "2, 3, 4, 5")]
+        #[prost(oneof = "v2::MessageType", tags = "2, 3, 4, 5, 6")]
         pub message_type: ::core::option::Option<v2::MessageType>,
     }
     /// Nested message and enum types in `V2`.
@@ -307,6 +331,9 @@ pub mod plaintext_envelope {
             UserPreferenceUpdate(
                 super::super::super::super::device_sync::content::V1UserPreferenceUpdate,
             ),
+            /// A readd request for fork recovery
+            #[prost(message, tag = "6")]
+            ReaddRequest(super::super::ReaddRequest),
         }
     }
     impl ::prost::Name for V2 {
@@ -432,6 +459,9 @@ pub struct GroupUpdated {
     pub metadata_field_changes: ::prost::alloc::vec::Vec<
         group_updated::MetadataFieldChange,
     >,
+    /// / The inboxes that were removed from the group in response to pending-remove/self-remove requests
+    #[prost(message, repeated, tag = "5")]
+    pub left_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
 }
 /// Nested message and enum types in `GroupUpdated`.
 pub mod group_updated {
@@ -853,52 +883,6 @@ impl ::prost::Name for PermissionsUpdatePolicy {
         "/xmtp.mls.message_contents.PermissionsUpdatePolicy".into()
     }
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct OneshotMessage {
-    #[prost(oneof = "oneshot_message::MessageType", tags = "1")]
-    pub message_type: ::core::option::Option<oneshot_message::MessageType>,
-}
-/// Nested message and enum types in `OneshotMessage`.
-pub mod oneshot_message {
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
-    pub enum MessageType {
-        #[prost(message, tag = "1")]
-        ReaddRequest(super::ReaddRequest),
-    }
-}
-impl ::prost::Name for OneshotMessage {
-    const NAME: &'static str = "OneshotMessage";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.OneshotMessage".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.OneshotMessage".into()
-    }
-}
-/// A request sent by an installation to recover from a fork. Other members
-/// may remove and readd that installation from the group.
-/// XIP: <https://community.xmtp.org/t/xip-68-draft-automated-fork-recovery/951>
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ReaddRequest {
-    #[prost(bytes = "vec", tag = "1")]
-    pub group_id: ::prost::alloc::vec::Vec<u8>,
-    /// The sequence ID of the latest commit log entry at the time the request
-    /// is sent; used to disambiguate cases where an installation forks
-    /// and is readded multiple times.
-    #[prost(uint64, tag = "2")]
-    pub latest_commit_sequence_id: u64,
-}
-impl ::prost::Name for ReaddRequest {
-    const NAME: &'static str = "ReaddRequest";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.ReaddRequest".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.ReaddRequest".into()
-    }
-}
 /// Parent message for group metadata
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GroupMetadataV1 {
@@ -912,9 +896,6 @@ pub struct GroupMetadataV1 {
     /// Should only be present for CONVERSATION_TYPE_DM
     #[prost(message, optional, tag = "4")]
     pub dm_members: ::core::option::Option<DmMembers>,
-    /// Should only be present for CONVERSATION_TYPE_ONESHOT
-    #[prost(message, optional, tag = "5")]
-    pub oneshot_message: ::core::option::Option<OneshotMessage>,
 }
 impl ::prost::Name for GroupMetadataV1 {
     const NAME: &'static str = "GroupMetadataV1";
@@ -968,7 +949,6 @@ pub enum ConversationType {
     Group = 1,
     Dm = 2,
     Sync = 3,
-    Oneshot = 4,
 }
 impl ConversationType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -981,7 +961,6 @@ impl ConversationType {
             Self::Group => "CONVERSATION_TYPE_GROUP",
             Self::Dm => "CONVERSATION_TYPE_DM",
             Self::Sync => "CONVERSATION_TYPE_SYNC",
-            Self::Oneshot => "CONVERSATION_TYPE_ONESHOT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -991,7 +970,6 @@ impl ConversationType {
             "CONVERSATION_TYPE_GROUP" => Some(Self::Group),
             "CONVERSATION_TYPE_DM" => Some(Self::Dm),
             "CONVERSATION_TYPE_SYNC" => Some(Self::Sync),
-            "CONVERSATION_TYPE_ONESHOT" => Some(Self::Oneshot),
             _ => None,
         }
     }
