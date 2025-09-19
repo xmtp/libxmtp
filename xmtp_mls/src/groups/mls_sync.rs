@@ -90,7 +90,8 @@ use tracing::debug;
 use xmtp_common::time::now_ns;
 use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
-use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
+use xmtp_db::NotFound;
+use xmtp_db::group::GroupMembershipState;
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::mls_v1::WelcomeMetadata;
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
@@ -1061,6 +1062,8 @@ where
                             originator_id: None,
                             expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                         };
+                        // todo: process leave message type here
+
                         message.store_or_ignore(&storage.db())?;
                         // make sure internal id is on return type after its stored successfully
                         identifier.internal_id(message_id);
@@ -1539,7 +1542,7 @@ where
         intent: &StoredGroupIntent,
         storage: &impl XmtpMlsStorageProvider,
     ) -> Result<(), IntentError> {
-        if intent.kind == MetadataUpdate {
+        if intent.kind == IntentKind::MetadataUpdate {
             let data = UpdateMetadataIntentData::try_from(intent.data.clone())?;
 
             match data.field_name.as_str() {
@@ -1558,7 +1561,6 @@ where
                 _ => {} // handle other metadata updates
             }
         }
-
         Ok(())
     }
 
@@ -2169,6 +2171,43 @@ where
                     should_send_push_notification: intent.should_push,
                 }))
             }
+            // IntentKind::UpdatePendingRemoveList => {
+            //     let pending_remove_list_update_intent =
+            //         UpdatePendingRemoveListIntentData::try_from(intent.data.clone())?;
+            //     let mutable_metadata_extensions = build_extensions_for_pending_remove_lists_update(
+            //         openmls_group,
+            //         pending_remove_list_update_intent,
+            //     )?;
+            //
+            //     let result = storage.transaction(|conn| {
+            //         let storage = conn.key_store();
+            //         let provider = XmtpOpenMlsProviderRef::new(&storage);
+            //         let (commit, _, _) = openmls_group.update_group_context_extensions(
+            //             &provider,
+            //             mutable_metadata_extensions,
+            //             &self.context.identity().installation_keys,
+            //         )?;
+            //         let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
+            //
+            //         Ok::<_, GroupError>((commit, staged_commit))
+            //     });
+            //     let (commit, staged_commit) = match result {
+            //         Ok(res) => res,
+            //         Err(e) => {
+            //             openmls_group.reload(storage)?;
+            //             return Err(e);
+            //         }
+            //     };
+            //
+            //     let commit_bytes = commit.tls_serialize_detached()?;
+            //
+            //     Ok(Some(PublishIntentData {
+            //         payload_to_publish: commit_bytes,
+            //         staged_commit,
+            //         post_commit_action: None,
+            //         should_send_push_notification: intent.should_push,
+            //     }))
+            // }
             IntentKind::UpdatePermission => {
                 let update_permissions_intent =
                     UpdatePermissionIntentData::try_from(intent.data.clone())?;

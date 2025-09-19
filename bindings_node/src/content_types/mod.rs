@@ -8,6 +8,7 @@ pub mod reaction;
 pub enum ContentType {
   Unknown,
   Text,
+  LeaveRequest,
   GroupMembershipChange,
   GroupUpdated,
   Reaction,
@@ -23,6 +24,7 @@ impl From<ContentType> for XmtpContentType {
     match value {
       ContentType::Unknown => XmtpContentType::Unknown,
       ContentType::Text => XmtpContentType::Text,
+      ContentType::LeaveRequest => XmtpContentType::LeaveRequest,
       ContentType::GroupMembershipChange => XmtpContentType::GroupMembershipChange,
       ContentType::GroupUpdated => XmtpContentType::GroupUpdated,
       ContentType::Reaction => XmtpContentType::Reaction,
