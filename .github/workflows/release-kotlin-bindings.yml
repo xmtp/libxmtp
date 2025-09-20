@@ -39,11 +39,17 @@ jobs:
           tool: cargo-ndk
       - name: Build target
         run: |
+          # Set 16 KB page alignment for Android compatibility
+          export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
           cargo ndk --platform 23 -o bindings_ffi/jniLibs/ --manifest-path bindings_ffi/Cargo.toml -t ${{ matrix.target }} build --release
       - name: Prepare JNI libs
         run: |
           mkdir -p bindings_ffi/jniLibs/${{ matrix.output_target }}/ && \
           cp target/${{ matrix.target }}/release/libxmtpv3.so bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
+      - name: Verify 16 KB alignment
+        run: |
+          echo "Verifying 16 KB alignment for ${{ matrix.output_target }}:"
+          readelf -l bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so | grep LOAD | head -1
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
