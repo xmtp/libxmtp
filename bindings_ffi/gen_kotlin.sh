@@ -61,12 +61,12 @@ echo "DOWNLOAD_URL: $DOWNLOAD_URL"
 rm -f src/uniffi/$PROJECT_NAME/LibXMTPKotlinFFI.zip
 rm -rf src/uniffi/$PROJECT_NAME/jniLibs
 
-# Download the zip file
+# Download the zip file (now with 16 KB aligned libraries from GitHub Actions)
 echo "Downloading from: ${DOWNLOAD_URL}"
 curl -fL -o ./LibXMTPKotlinFFI.zip "${DOWNLOAD_URL}"
 
 if [ $? -eq 0 ]; then
-    echo "Successfully downloaded LibXMTPKotlinFFI.zip"
+    echo "Successfully downloaded LibXMTPKotlinFFI.zip (16 KB aligned)"
 else
     echo "Failed to download zip file. Make sure the kotlin bindings GH action for this commit is finished: https://github.com/xmtp/libxmtp/actions/workflows/release-kotlin-bindings.yml"
     exit 1
