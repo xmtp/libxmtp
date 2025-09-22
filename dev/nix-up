@@ -1,7 +1,7 @@
 #!/bin/bash
 set -eou pipefail
 
-# Local script to release android jniLibs with same environment as CI
+# Local script install & configure nix
 if ! which nix &>/dev/null; then
   echo "Please review the installation script at:"
   echo "https://install.determinate.systems/nix"
@@ -13,7 +13,7 @@ if ! which nix &>/dev/null; then
     echo "Nix installation aborted."
   fi
 else
-  echo "detected exiting nix installation"
+  echo "detected existing nix installation"
 fi
 
 
@@ -29,5 +29,5 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   [[ -n "${ZSH_VERSION:-}" ]] && echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc
 else
   echo "direnv not installed"
-exit 1
+exit 0
 fi

@@ -18,4 +18,5 @@ if [[ "${OSTYPE}" == "darwin"* ]]; then
     [[ "$OSTYPE" == "darwin"* ]] && brew remove direnv
     [[ -f /etc/arch-release ]] && sudo pacman -Rns direnv
     grep -q "ubuntu" /etc/os-release 2>/dev/null && sudo apt remove direnv
+  fi
 fi

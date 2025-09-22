@@ -127,7 +127,8 @@ up a reproducible & deterministic environment of the dependency tree libxmtp
 requires. In the future the hope is to cover all SDKs -- currently, Android &
 Wasm are best supported. Flake outputs are cached with
 [determinate nix](https://docs.determinate.systems/). Determinate is a
-distribution of nix catered towards developers & CI.
+distribution of nix catered towards developers & CI with sophisticated caching
+ability.
 
 ### Install
 
