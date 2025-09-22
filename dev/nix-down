@@ -1,0 +1,21 @@
+#!/bin/bash
+set -eou pipefail
+
+# Local script to release android jniLibs with same environment as CI
+if [[ "${OSTYPE}" == "darwin"* ]]; then
+  if which nix &>/dev/null; then
+    read -p "Are you sure you want to uninstall nix? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      /nix/nix-installer uninstall
+    else
+      echo "no nix installation detected"
+      exit 1
+    fi
+  fi
+
+  if which direnv &> /dev/null; then
+    [[ "$OSTYPE" == "darwin"* ]] && brew remove direnv
+    [[ -f /etc/arch-release ]] && sudo pacman -Rns direnv
+    grep -q "ubuntu" /etc/os-release 2>/dev/null && sudo apt remove direnv
+fi

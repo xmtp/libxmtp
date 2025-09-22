@@ -1,0 +1,33 @@
+#!/bin/bash
+set -eou pipefail
+
+# Local script to release android jniLibs with same environment as CI
+if ! which nix &>/dev/null; then
+  echo "Please review the installation script at:"
+  echo "https://install.determinate.systems/nix"
+  read -p "Do you want to proceed with the installation? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --determinate
+  else
+    echo "Nix installation aborted."
+  fi
+else
+  echo "detected exiting nix installation"
+fi
+
+
+echo "direnv will automatically enter the default nix environment upon entering a configured directory"
+read -p "install direnv? (y/n) " -n 1 -r
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+  [[ "$OSTYPE" == "darwin"* ]] && brew install direnv
+  [[ -f /etc/arch-release ]] && sudo pacman -S direnv
+  grep -q "ubuntu" /etc/os-release 2>/dev/null && sudo apt install direnv
+  echo ""
+  echo "installing shell hook for bash/zsh"
+  [[ -n "${BASH_VERSION:-}" ]] && echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
+  [[ -n "${ZSH_VERSION:-}" ]] && echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc
+else
+  echo "direnv not installed"
+exit 1
+fi
