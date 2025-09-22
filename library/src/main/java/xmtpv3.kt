@@ -1265,6 +1265,14 @@ internal open class UniffiVTableCallbackInterfaceFfiPreferenceCallback(
 
 
 
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1317,6 +1325,14 @@ fun uniffi_xmtpv3_checksum_func_encode_transaction_reference(
 fun uniffi_xmtpv3_checksum_func_enter_debug_writer(
 ): Short
 fun uniffi_xmtpv3_checksum_func_enter_debug_writer_with_level(
+): Short
+fun uniffi_xmtpv3_checksum_func_ethereum_address_from_pubkey(
+): Short
+fun uniffi_xmtpv3_checksum_func_ethereum_generate_public_key(
+): Short
+fun uniffi_xmtpv3_checksum_func_ethereum_hash_personal(
+): Short
+fun uniffi_xmtpv3_checksum_func_ethereum_sign_recoverable(
 ): Short
 fun uniffi_xmtpv3_checksum_func_exit_debug_writer(
 ): Short
@@ -2114,6 +2130,14 @@ fun uniffi_xmtpv3_fn_func_enter_debug_writer(`directory`: RustBuffer.ByValue,`lo
 ): Unit
 fun uniffi_xmtpv3_fn_func_enter_debug_writer_with_level(`directory`: RustBuffer.ByValue,`rotation`: RustBuffer.ByValue,`maxFiles`: Int,`logLevel`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_xmtpv3_fn_func_ethereum_address_from_pubkey(`pubkey`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_ethereum_generate_public_key(`privateKey32`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_ethereum_hash_personal(`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_ethereum_sign_recoverable(`msg`: RustBuffer.ByValue,`privateKey32`: RustBuffer.ByValue,`hashing`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_exit_debug_writer(uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_xmtpv3_fn_func_generate_inbox_id(`accountIdentifier`: RustBuffer.ByValue,`nonce`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -2309,6 +2333,18 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_enter_debug_writer_with_level() != 7232.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_ethereum_address_from_pubkey() != 12568.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_ethereum_generate_public_key() != 36134.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_ethereum_hash_personal() != 43764.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_ethereum_sign_recoverable() != 58098.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_exit_debug_writer() != 31716.toShort()) {
@@ -12011,7 +12047,8 @@ enum class FfiConversationType {
     
     GROUP,
     DM,
-    SYNC;
+    SYNC,
+    ONESHOT;
     companion object
 }
 
@@ -12034,6 +12071,104 @@ public object FfiConverterTypeFfiConversationType: FfiConverterRustBuffer<FfiCon
 }
 
 
+
+
+
+
+
+sealed class FfiCryptoException: kotlin.Exception() {
+    
+    class InvalidLength(
+        ) : FfiCryptoException() {
+        override val message
+            get() = ""
+    }
+    
+    class InvalidKey(
+        ) : FfiCryptoException() {
+        override val message
+            get() = ""
+    }
+    
+    class SignFailure(
+        ) : FfiCryptoException() {
+        override val message
+            get() = ""
+    }
+    
+    class DecompressFailure(
+        ) : FfiCryptoException() {
+        override val message
+            get() = ""
+    }
+    
+
+    companion object ErrorHandler : UniffiRustCallStatusErrorHandler<FfiCryptoException> {
+        override fun lift(error_buf: RustBuffer.ByValue): FfiCryptoException = FfiConverterTypeFfiCryptoError.lift(error_buf)
+    }
+
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiCryptoError : FfiConverterRustBuffer<FfiCryptoException> {
+    override fun read(buf: ByteBuffer): FfiCryptoException {
+        
+
+        return when(buf.getInt()) {
+            1 -> FfiCryptoException.InvalidLength()
+            2 -> FfiCryptoException.InvalidKey()
+            3 -> FfiCryptoException.SignFailure()
+            4 -> FfiCryptoException.DecompressFailure()
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: FfiCryptoException): ULong {
+        return when(value) {
+            is FfiCryptoException.InvalidLength -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is FfiCryptoException.InvalidKey -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is FfiCryptoException.SignFailure -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is FfiCryptoException.DecompressFailure -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+        }
+    }
+
+    override fun write(value: FfiCryptoException, buf: ByteBuffer) {
+        when(value) {
+            is FfiCryptoException.InvalidLength -> {
+                buf.putInt(1)
+                Unit
+            }
+            is FfiCryptoException.InvalidKey -> {
+                buf.putInt(2)
+                Unit
+            }
+            is FfiCryptoException.SignFailure -> {
+                buf.putInt(3)
+                Unit
+            }
+            is FfiCryptoException.DecompressFailure -> {
+                buf.putInt(4)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
 
 
 
@@ -15494,6 +15629,66 @@ public object FfiConverterMapTypeFfiIdentifierBoolean: FfiConverterRustBuffer<Ma
         FfiConverterString.lower(`directory`),FfiConverterTypeFfiLogRotation.lower(`rotation`),FfiConverterUInt.lower(`maxFiles`),FfiConverterTypeFfiLogLevel.lower(`logLevel`),_status)
 }
     
+    
+
+        /**
+         * 3) Ethereum address from public key (accepts 65-byte 0x04||XY or 64-byte XY).
+         */
+    @Throws(FfiCryptoException::class) fun `ethereumAddressFromPubkey`(`pubkey`: kotlin.ByteArray): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiCryptoException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_ethereum_address_from_pubkey(
+        FfiConverterByteArray.lower(`pubkey`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 1) Ethereum compatible public key from 32-byte private key.
+         * Returns **65-byte uncompressed** (0x04 || X || Y)
+         * Private key is automatically zeroized after use for security
+         */
+    @Throws(FfiCryptoException::class) fun `ethereumGeneratePublicKey`(`privateKey32`: kotlin.ByteArray): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(FfiCryptoException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_ethereum_generate_public_key(
+        FfiConverterByteArray.lower(`privateKey32`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 4) EIP-191 personal message hash: keccak256("\x19Ethereum Signed Message:\n{len}" || message)
+         */
+    @Throws(FfiCryptoException::class) fun `ethereumHashPersonal`(`message`: kotlin.String): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(FfiCryptoException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_ethereum_hash_personal(
+        FfiConverterString.lower(`message`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 2) Ethereum recoverable signature (FFI).
+         * Returns 65 bytes `r || s || v`, with **v ∈ {27,28}**
+         * (legacy/Electrum encoding where **v = 27 + parity**, parity ∈ {0,1}).
+         * - If `hashing == true`: signs per **EIP-191**
+         * ("Ethereum Signed Message:\n{len(msg)}" || msg, then keccak256).
+         * - If `hashing == false`: `msg` must be a **32-byte** prehash (e.g., keccak256/EIP-712 digest).
+         * - Private key is automatically zeroized after signing for security
+         */
+    @Throws(FfiCryptoException::class) fun `ethereumSignRecoverable`(`msg`: kotlin.ByteArray, `privateKey32`: kotlin.ByteArray, `hashing`: kotlin.Boolean): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(FfiCryptoException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_ethereum_sign_recoverable(
+        FfiConverterByteArray.lower(`msg`),FfiConverterByteArray.lower(`privateKey32`),FfiConverterBoolean.lower(`hashing`),_status)
+}
+    )
+    }
     
 
         /**
