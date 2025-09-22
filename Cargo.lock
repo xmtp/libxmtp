@@ -3086,11 +3086,28 @@ dependencies = [
 [[package]]
 name = "hpke-rs"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36874953dfe0223fd877a77b0eefcd84f8da36161b446c6fcb47b8311fa0251a"
+dependencies = [
+ "hpke-rs-crypto 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hpke-rs-libcrux 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hpke-rs-rust-crypto 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libcrux-sha3",
+ "log",
+ "rand_core 0.9.3",
+ "serde",
+ "tls_codec",
+ "zeroize",
+]
+
+[[package]]
+name = "hpke-rs"
+version = "0.3.0"
 source = "git+https://github.com/cryspen/hpke-rs?tag=v0.3.0#6bb771df1f0f3fb76337329f5ebdcbfbfc4099fa"
 dependencies = [
- "hpke-rs-crypto 0.3.0",
- "hpke-rs-libcrux",
- "hpke-rs-rust-crypto 0.3.0",
+ "hpke-rs-crypto 0.3.0 (git+https://github.com/cryspen/hpke-rs?tag=v0.3.0)",
+ "hpke-rs-libcrux 0.3.0 (git+https://github.com/cryspen/hpke-rs?tag=v0.3.0)",
+ "hpke-rs-rust-crypto 0.3.0 (git+https://github.com/cryspen/hpke-rs?tag=v0.3.0)",
  "libcrux-sha3",
  "log",
  "rand_core 0.9.3",
@@ -3111,6 +3128,15 @@ dependencies = [
 [[package]]
 name = "hpke-rs-crypto"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d51ffd304e06803f90f2e56a24a6910f19b8516f842d7b72a436c51026279876"
+dependencies = [
+ "rand_core 0.9.3",
+]
+
+[[package]]
+name = "hpke-rs-crypto"
+version = "0.3.0"
 source = "git+https://github.com/cryspen/hpke-rs?tag=v0.3.0#6bb771df1f0f3fb76337329f5ebdcbfbfc4099fa"
 dependencies = [
  "rand_core 0.9.3",
@@ -3119,9 +3145,25 @@ dependencies = [
 [[package]]
 name = "hpke-rs-libcrux"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb9f3bdfd7bc6a45f985b47cce25c5409312af06c2dec07a2af2cca5c89579ae"
+dependencies = [
+ "hpke-rs-crypto 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libcrux-chacha20poly1305 0.0.3",
+ "libcrux-ecdh",
+ "libcrux-hkdf 0.0.3",
+ "libcrux-kem",
+ "rand 0.9.2",
+ "rand_chacha 0.9.0",
+ "rand_core 0.9.3",
+]
+
+[[package]]
+name = "hpke-rs-libcrux"
+version = "0.3.0"
 source = "git+https://github.com/cryspen/hpke-rs?tag=v0.3.0#6bb771df1f0f3fb76337329f5ebdcbfbfc4099fa"
 dependencies = [
- "hpke-rs-crypto 0.3.0",
+ "hpke-rs-crypto 0.3.0 (git+https://github.com/cryspen/hpke-rs?tag=v0.3.0)",
  "libcrux-chacha20poly1305 0.0.3",
  "libcrux-ecdh",
  "libcrux-hkdf 0.0.3",
@@ -3152,12 +3194,32 @@ dependencies = [
 [[package]]
 name = "hpke-rs-rust-crypto"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff7dc0df494528a0b90005bb511c117453c6a89cd8819f6cf311d0f4446dcf45"
+dependencies = [
+ "aes-gcm",
+ "chacha20poly1305",
+ "hkdf",
+ "hpke-rs-crypto 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "k256",
+ "p256",
+ "p384",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+ "sha2",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "hpke-rs-rust-crypto"
+version = "0.3.0"
 source = "git+https://github.com/cryspen/hpke-rs?tag=v0.3.0#6bb771df1f0f3fb76337329f5ebdcbfbfc4099fa"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
  "hkdf",
- "hpke-rs-crypto 0.3.0",
+ "hpke-rs-crypto 0.3.0 (git+https://github.com/cryspen/hpke-rs?tag=v0.3.0)",
  "k256",
  "p256",
  "p384",
@@ -4659,9 +4721,9 @@ name = "openmls_libcrux_crypto"
 version = "0.2.0"
 source = "git+https://github.com/xmtp/openmls?rev=76829d6c715ed115cf77e9086bac1f7bea15aa8a#76829d6c715ed115cf77e9086bac1f7bea15aa8a"
 dependencies = [
- "hpke-rs 0.3.0",
- "hpke-rs-crypto 0.3.0",
- "hpke-rs-libcrux",
+ "hpke-rs 0.3.0 (git+https://github.com/cryspen/hpke-rs?tag=v0.3.0)",
+ "hpke-rs-crypto 0.3.0 (git+https://github.com/cryspen/hpke-rs?tag=v0.3.0)",
+ "hpke-rs-libcrux 0.3.0 (git+https://github.com/cryspen/hpke-rs?tag=v0.3.0)",
  "libcrux-chacha20poly1305 0.0.2",
  "libcrux-ed25519 0.0.2",
  "libcrux-hkdf 0.0.2",
@@ -8913,6 +8975,7 @@ dependencies = [
  "getrandom 0.3.3",
  "hkdf",
  "hmac",
+ "hpke-rs 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "indicatif 0.17.11",
  "itertools 0.14.0",
  "json-patch",
