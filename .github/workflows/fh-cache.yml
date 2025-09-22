@@ -1,0 +1,30 @@
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - release/v*.*.*
+    tags:
+      - v?[0-9]+.[0-9]+.[0-9]+*
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: wimpysworld/nothing-but-nix@main
+        with:
+          hatchet-protocol: 'carve'
+  DeterminateCI:
+    needs: setup
+    uses: DeterminateSystems/ci/.github/workflows/workflow.yml@main
+    with:
+      visibility: public
+    permissions:
+      id-token: write
+      contents: read
