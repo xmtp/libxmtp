@@ -17,6 +17,8 @@ else
 fi
 
 
+
+
 echo "direnv will automatically enter the default nix environment upon entering a configured directory"
 read -p "install direnv? (y/n) " -n 1 -r
 if [[ $REPLY =~ ^[Yy]$ ]]; then
@@ -25,9 +27,15 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   grep -q "ubuntu" /etc/os-release 2>/dev/null && sudo apt install direnv
   echo ""
   echo "installing shell hook for bash/zsh"
-  [[ -n "${BASH_VERSION:-}" ]] && echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
-  [[ -n "${ZSH_VERSION:-}" ]] && echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc
+  # Check if hook already exists before appending
+  for shell_rc in ~/.bashrc ~/.zshrc; do
+    if [[ -f "$shell_rc" ]] && ! grep -q "direnv hook" "$shell_rc"; then
+      case "$shell_rc" in
+        *bashrc) echo 'eval "$(direnv hook bash)"' >> "$shell_rc" ;;
+        *zshrc) echo 'eval "$(direnv hook zsh)"' >> "$shell_rc" ;;
+      esac
+    fi
+  done
 else
   echo "direnv not installed"
-exit 0
 fi

@@ -132,7 +132,7 @@ ability.
 
 ### Install
 
-use the `./dev/up-nix` script and follow the prompts. this will install
+use the `./dev/nix-up` script and follow the prompts. this will install
 determinate nix & direnv. Direnv is a useful tool to auto-load default nix
 environments (with your consent, given `direnv allow` && `direnv deny` commands)
 with your already-used shell environment.
@@ -144,11 +144,12 @@ direnv.
 
 ### Using direnv
 
-to configure direnv for a project, run the command `echo "use flake . > .envrc"`
-in the project root. direnv will prompt you to allow the environment which can
-be done with `direnv allow`. using a non-default environment (ex: android) can
-be done using `nix develop .#environment`. EX: `nix develop .#android`. the
-environment description must be available in nix flake `devShells` output.
+to configure direnv for a project, run the command
+`echo "use flake" . > .envrc"` in the project root. direnv will prompt you to
+allow the environment which can be done with `direnv allow`. using a non-default
+environment (ex: android) can be done using `nix develop .#environment`. EX:
+`nix develop .#android`. the environment description must be available in nix
+flake `devShells` output.
 
 ## Structure
 
