@@ -63,6 +63,7 @@ futures = { workspace = true, features = ["alloc", "std"] }
 futures-util.workspace = true
 hex.workspace = true
 hkdf.workspace = true
+hpke-rs-xmtp.workspace = true
 itertools.workspace = true
 json-patch = "4"
 openmls_libcrux_crypto = { workspace = true }

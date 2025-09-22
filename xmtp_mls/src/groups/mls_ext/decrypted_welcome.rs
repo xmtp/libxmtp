@@ -46,35 +46,23 @@ impl DecryptedWelcome {
         let hash_ref = find_key_package_hash_ref(provider, hpke_public_key)?;
         let private_key = find_private_key(provider, &hash_ref, &wrapper_ciphersuite)?;
 
-        let welcome_bytes = unwrap_welcome(
+        let (welcome_bytes, welcome_metadata_bytes) = unwrap_welcome(
             encrypted_welcome_bytes,
+            encrypted_welcome_metadata_bytes,
             &private_key,
-            wrapper_ciphersuite.clone(),
+            wrapper_ciphersuite,
         )?;
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
-        let welcome_metadata = if encrypted_welcome_metadata_bytes.is_empty() {
+        let welcome_metadata = if welcome_metadata_bytes.is_empty() {
             tracing::debug!("Welcome Metadata is empty; proceeding without metadata.");
             None
         } else {
-            match unwrap_welcome(
-                encrypted_welcome_metadata_bytes,
-                &private_key,
-                wrapper_ciphersuite,
-            ) {
-                Ok(metadata_bytes) => deserialize_welcome_metadata(&metadata_bytes)
-                    .map_err(|e| {
-                        tracing::debug!(?e, "Failed to deserialize welcome metadata; ignoring.")
-                    })
-                    .ok(),
-                Err(e) => {
-                    tracing::debug!(
-                        ?e,
-                        "Could not read welcome metadata; proceeding without it."
-                    );
-                    None
-                }
-            }
+            deserialize_welcome_metadata(&welcome_metadata_bytes)
+                .map_err(|e| {
+                    tracing::debug!(?e, "Failed to deserialize welcome metadata; ignoring.")
+                })
+                .ok()
         };
 
         let join_config = build_group_join_config();
