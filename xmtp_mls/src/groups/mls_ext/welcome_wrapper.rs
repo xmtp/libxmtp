@@ -80,13 +80,13 @@ pub fn wrap_welcome(
             let mut config = wrapper_algorithm.to_hpke_config();
 
             let map_hpke_error = |e| match e {
-                hpke_rs_xmtp::HpkeError::InvalidConfig => {
+                hpke_rs::HpkeError::InvalidConfig => {
                     openmls::prelude::CryptoError::SenderSetupError
                 }
                 _ => openmls::prelude::CryptoError::HpkeEncryptionError,
             };
 
-            let pk_r = hpke_rs_xmtp::HpkePublicKey::new(hpke_public_key.to_vec());
+            let pk_r = hpke_rs::HpkePublicKey::new(hpke_public_key.to_vec());
 
             let (enc, mut ctxt) = config
                 .setup_sender(&pk_r, &info, None, None, None)
@@ -163,7 +163,7 @@ pub fn unwrap_welcome(
 
             let config = wrapper_algorithm.to_hpke_config();
 
-            let sk_r = hpke_rs_xmtp::HpkePrivateKey::new(private_key.to_vec());
+            let sk_r = hpke_rs::HpkePrivateKey::new(private_key.to_vec());
 
             let map_hpke_error = |_| openmls::ciphersuite::hpke::Error::DecryptionFailed;
 

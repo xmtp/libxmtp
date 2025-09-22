@@ -24,17 +24,15 @@ impl WrapperAlgorithm {
     }
     // hardcoded because the functions to do the translations are private
     // and placed here so that any changes to the this algorithm will have to be handled
-    pub fn to_hpke_config(&self) -> hpke_rs_xmtp::Hpke<hpke_rs_xmtp::libcrux::HpkeLibcrux> {
+    pub fn to_hpke_config(&self) -> hpke_rs::Hpke<hpke_rs::libcrux::HpkeLibcrux> {
         match self {
             Self::Curve25519 => unimplemented!(),
-            Self::XWingMLKEM768Draft6 => {
-                hpke_rs_xmtp::Hpke::<hpke_rs_xmtp::libcrux::HpkeLibcrux>::new(
-                    hpke_rs_xmtp::Mode::Base,
-                    hpke_rs_xmtp::hpke_types::KemAlgorithm::XWingDraft06,
-                    hpke_rs_xmtp::hpke_types::KdfAlgorithm::HkdfSha256,
-                    hpke_rs_xmtp::hpke_types::AeadAlgorithm::ChaCha20Poly1305,
-                )
-            }
+            Self::XWingMLKEM768Draft6 => hpke_rs::Hpke::<hpke_rs::libcrux::HpkeLibcrux>::new(
+                hpke_rs::Mode::Base,
+                hpke_rs::hpke_types::KemAlgorithm::XWingDraft06,
+                hpke_rs::hpke_types::KdfAlgorithm::HkdfSha256,
+                hpke_rs::hpke_types::AeadAlgorithm::ChaCha20Poly1305,
+            ),
         }
     }
 }
