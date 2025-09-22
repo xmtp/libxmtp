@@ -1,5 +1,6 @@
 pub mod basic_credential;
 pub mod configuration;
+pub mod ethereum;
 pub mod hash;
 pub mod rand;
 pub mod signature;

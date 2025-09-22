@@ -1749,6 +1749,7 @@ impl From<FfiConversationType> for ConversationType {
             FfiConversationType::Dm => ConversationType::Dm,
             FfiConversationType::Group => ConversationType::Group,
             FfiConversationType::Sync => ConversationType::Sync,
+            FfiConversationType::Oneshot => ConversationType::Oneshot,
         }
     }
 }
@@ -2121,6 +2122,7 @@ impl FfiConversation {
             FfiConversationType::Group => None,
             FfiConversationType::Dm => None,
             FfiConversationType::Sync => None,
+            FfiConversationType::Oneshot => None,
         };
 
         let messages: Vec<FfiMessage> = self
@@ -2153,6 +2155,7 @@ impl FfiConversation {
             FfiConversationType::Group => None,
             FfiConversationType::Dm => None,
             FfiConversationType::Sync => None,
+            FfiConversationType::Oneshot => None,
         };
 
         let messages: Vec<FfiMessageWithReactions> = self
@@ -2184,6 +2187,7 @@ impl FfiConversation {
             FfiConversationType::Group => None,
             FfiConversationType::Dm => None,
             FfiConversationType::Sync => None,
+            FfiConversationType::Oneshot => None,
         };
 
         let messages: Vec<Arc<FfiDecodedMessage>> = self
@@ -2583,6 +2587,7 @@ pub enum FfiConversationType {
     Group,
     Dm,
     Sync,
+    Oneshot,
 }
 
 impl From<ConversationType> for FfiConversationType {
@@ -2591,6 +2596,7 @@ impl From<ConversationType> for FfiConversationType {
             ConversationType::Group => FfiConversationType::Group,
             ConversationType::Dm => FfiConversationType::Dm,
             ConversationType::Sync => FfiConversationType::Sync,
+            ConversationType::Oneshot => FfiConversationType::Oneshot,
         }
     }
 }
@@ -3030,6 +3036,7 @@ impl FfiConversationMetadata {
             ConversationType::Group => FfiConversationType::Group,
             ConversationType::Dm => FfiConversationType::Dm,
             ConversationType::Sync => FfiConversationType::Sync,
+            ConversationType::Oneshot => FfiConversationType::Oneshot,
         }
     }
 }

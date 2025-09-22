@@ -358,6 +358,9 @@ where
         // Step 3 save the remote commit log entries to the local saved remote commit log
         let mut save_remote_commit_log_results = HashMap::new();
         for response in query_commit_log_responses {
+            if response.commit_log_entries.is_empty() {
+                continue;
+            }
             let group_id = response.group_id.clone();
             let mut consensus_public_key: Option<Vec<u8>> = conversation_id_to_public_key
                 .get(&group_id)
