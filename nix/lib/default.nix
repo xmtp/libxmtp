@@ -15,6 +15,7 @@
         mkToolchain = pkgs.callPackage ./mkToolchain.nix { inherit inputs; };
         filesets = import ./filesets.nix;
       };
+      wasm-bindgen-cli = pkgs.callPackage ./packages/wasm-bindgen-cli.nix { };
     };
   };
 }

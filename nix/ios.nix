@@ -2,7 +2,6 @@
 { stdenv
 , darwin
 , lib
-, mkToolchain
 , pkg-config
 , mkShell
 , openssl
@@ -10,12 +9,12 @@
 , zstd
 , llvmPackages_19
 , xcbuild
+, xmtp
 , ...
 }:
 
 let
   inherit (stdenv) isDarwin;
-  inherit (darwin.apple_sdk) frameworks;
 
   iosTargets = [
     "x86_64-apple-darwin"
@@ -25,7 +24,7 @@ let
   ];
 
   # Pinned Rust Version
-  rust-ios-toolchain = mkToolchain iosTargets [ "clippy-preview" "rustfmt-preview" ];
+  rust-ios-toolchain = xmtp.mkToolchain iosTargets [ "clippy-preview" "rustfmt-preview" ];
 in
 mkShell {
   OPENSSL_DIR = "${openssl.dev}";
