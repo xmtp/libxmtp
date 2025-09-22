@@ -677,6 +677,14 @@ where
             .ok_or_else(|| ClientError::Generic("Failed to decode message".to_string()))
     }
 
+    /// Delete a message by its ID
+    /// This method is idempotent and will not error if the message is not found
+    /// Returns the number of messages deleted (0 or 1)
+    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<usize, ClientError> {
+        let conn = self.context.db();
+        Ok(conn.delete_message_by_id(&message_id)?)
+    }
+
     /// Query for groups with optional filters
     ///
     /// Filters:
@@ -927,6 +935,7 @@ pub(crate) mod tests {
     use diesel::RunQueryDsl;
     use futures::TryStreamExt;
     use futures::stream::StreamExt;
+    use prost::Message;
     use std::time::Duration;
     use xmtp_common::NS_IN_SEC;
     use xmtp_common::time::now_ns;
@@ -1831,6 +1840,48 @@ pub(crate) mod tests {
             all_conversation_ids.len(),
             15,
             "Should have 15 total conversations after deduping"
+        );
+    }
+
+    #[xmtp_common::test]
+    async fn test_delete_message() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create a group with both users
+        let group = alix
+            .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
+            .await
+            .unwrap();
+
+        // Send a message
+        let message_id = group
+            .send_message(
+                TextCodec::encode("test message".to_string())
+                    .unwrap()
+                    .encode_to_vec()
+                    .as_slice(),
+            )
+            .await
+            .unwrap();
+
+        // Verify the message exists
+        let message = alix.message(message_id.clone()).unwrap();
+        assert_eq!(message.id, message_id);
+
+        // Delete the message
+        let deleted_count = alix.delete_message(message_id.clone()).unwrap();
+        assert_eq!(deleted_count, 1, "Should delete exactly 1 message");
+
+        // Verify the message no longer exists
+        let result = alix.message(message_id.clone());
+        assert!(result.is_err(), "Message should not exist after deletion");
+
+        // Test idempotency - deleting again should not error and return 0
+        let deleted_count = alix.delete_message(message_id).unwrap();
+        assert_eq!(
+            deleted_count, 0,
+            "Deleting non-existent message should return 0"
         );
     }
 }
