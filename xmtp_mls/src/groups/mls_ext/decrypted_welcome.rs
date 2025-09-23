@@ -1,5 +1,5 @@
 use openmls::{
-    group::{MlsGroupJoinConfig, ProcessedWelcome, StagedWelcome, WireFormatPolicy},
+    group::{MlsGroupJoinConfig, StagedWelcome, WireFormatPolicy},
     prelude::{
         BasicCredential, KeyPackageBundle, KeyPackageRef, MlsMessageBodyIn, MlsMessageIn, Welcome,
     },
@@ -67,15 +67,15 @@ impl DecryptedWelcome {
 
         let join_config = build_group_join_config();
 
-        let processed_welcome =
-            ProcessedWelcome::new_from_welcome(provider, &join_config, welcome.clone())?;
+        let builder = StagedWelcome::build_from_welcome(provider, &join_config, welcome.clone())?;
+        let processed_welcome = builder.processed_welcome();
 
         let psks = processed_welcome.psks();
         if !psks.is_empty() {
             tracing::error!("No PSK support for welcome");
             return Err(GroupError::NoPSKSupport);
         }
-        let staged_welcome = processed_welcome.into_staged_welcome(provider, None)?;
+        let staged_welcome = builder.skip_lifetime_validation().build()?;
 
         let added_by_node = staged_welcome.welcome_sender()?;
 
