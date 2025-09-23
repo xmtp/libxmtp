@@ -130,13 +130,6 @@ pub enum GroupQueryOrderBy {
     LastActivity,
 }
 
-#[derive(Debug, Clone, Default)]
-pub enum GroupQueryOrderBy {
-    #[default]
-    CreatedAt,
-    LastActivity,
-}
-
 #[derive(Debug, Default, Clone)]
 pub struct GroupQueryArgs {
     pub allowed_states: Option<Vec<GroupMembershipState>>,
