@@ -1,17 +1,24 @@
 use crate::identity::Identifier;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_api::{strategies, ApiClientWrapper, ApiIdentifier};
-use xmtp_api_d14n::queries::V3Client;
-use xmtp_api_grpc::GrpcClient;
+use xmtp_api_d14n::{MessageBackendBuilder, TrackedStatsClient};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 
 #[wasm_bindgen(js_name = getInboxIdForIdentifier)]
 pub async fn get_inbox_id_for_identifier(
   host: String,
+  payer_host: Option<String>,
   #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
 ) -> Result<Option<String>, JsError> {
+  let backend = MessageBackendBuilder::default()
+    .node_host(&host)
+    .maybe_payer_host(payer_host)
+    .is_secure(true)
+    .build()
+    .await
+    .map_err(|e| JsError::new(&e.to_string()))?;
   let api_client = ApiClientWrapper::new(
-    V3Client::new(GrpcClient::create(&host, true).await?),
+    TrackedStatsClient::new(backend),
     strategies::exponential_cooldown(),
   );
 

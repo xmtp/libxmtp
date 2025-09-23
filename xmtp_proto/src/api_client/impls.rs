@@ -160,10 +160,6 @@ where
     ) -> Result<BatchQueryCommitLogResponse, Self::Error> {
         (**self).query_commit_log(request).await
     }
-
-    fn stats(&self) -> ApiStats {
-        (**self).stats()
-    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -239,10 +235,6 @@ where
         request: BatchQueryCommitLogRequest,
     ) -> Result<BatchQueryCommitLogResponse, Self::Error> {
         (**self).query_commit_log(request).await
-    }
-
-    fn stats(&self) -> ApiStats {
-        (**self).stats()
     }
 }
 
@@ -337,9 +329,6 @@ where
             .verify_smart_contract_wallet_signatures(request)
             .await
     }
-    fn identity_stats(&self) -> IdentityStats {
-        (**self).identity_stats()
-    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -378,9 +367,5 @@ where
         (**self)
             .verify_smart_contract_wallet_signatures(request)
             .await
-    }
-
-    fn identity_stats(&self) -> IdentityStats {
-        (**self).identity_stats()
     }
 }

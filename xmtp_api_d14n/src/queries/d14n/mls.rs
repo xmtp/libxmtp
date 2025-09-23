@@ -17,7 +17,7 @@ use xmtp_common::RetryableError;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api::Client;
 use xmtp_proto::api::{ApiClientError, Query};
-use xmtp_proto::api_client::{ApiStats, XmtpMlsClient};
+use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::types::InstallationId;
@@ -33,7 +33,7 @@ where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client,
     C: Send + Sync + Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<P as xmtp_proto::api::Client>::Error>>,
+    ApiClientError<E>: From<ApiClientError<<P as xmtp_proto::api::Client>::Error>> + 'static,
 {
     type Error = ApiClientError<E>;
 
@@ -191,9 +191,5 @@ where
         _request: mls_v1::BatchQueryCommitLogRequest,
     ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
         Ok(mls_v1::BatchQueryCommitLogResponse { responses: vec![] })
-    }
-
-    fn stats(&self) -> ApiStats {
-        Default::default()
     }
 }

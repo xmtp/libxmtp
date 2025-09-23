@@ -1,6 +1,9 @@
 //! Api Client Traits
 
-use crate::{api::XmtpStream, api_client::AggregateStats};
+use crate::{
+    api::XmtpStream,
+    api_client::{AggregateStats, ApiStats, IdentityStats},
+};
 use http::{request, uri::PathAndQuery};
 use prost::bytes::Bytes;
 use std::borrow::Cow;
@@ -16,6 +19,8 @@ pub use error::*;
 
 pub trait HasStats {
     fn aggregate_stats(&self) -> AggregateStats;
+    fn mls_stats(&self) -> ApiStats;
+    fn identity_stats(&self) -> IdentityStats;
 }
 
 pub trait Endpoint {

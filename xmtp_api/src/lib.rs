@@ -81,6 +81,17 @@ impl<ApiClient> ApiClientWrapper<ApiClient> {
         }
     }
 
+    pub fn map<F, NewApiClient>(self, f: F) -> ApiClientWrapper<NewApiClient>
+    where
+        F: FnOnce(ApiClient) -> NewApiClient,
+    {
+        ApiClientWrapper {
+            api_client: f(self.api_client),
+            retry_strategy: self.retry_strategy,
+            inbox_id: self.inbox_id,
+        }
+    }
+
     /// Attach an InboxId to this API Client Wrapper.
     /// Attaches an inbox_id context to tracing logs, useful for debugging
     pub fn attach_inbox_id(&mut self, inbox_id: Option<String>) {
