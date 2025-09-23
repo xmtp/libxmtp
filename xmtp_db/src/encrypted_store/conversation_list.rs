@@ -1,5 +1,5 @@
-use super::schema::conversation_list::dsl::conversation_list;
 use super::ConnectionExt;
+use super::schema::conversation_list::dsl::conversation_list;
 use crate::consent_record::ConsentState;
 use crate::group::{ConversationType, GroupMembershipState, GroupQueryArgs, GroupQueryOrderBy};
 use crate::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
@@ -243,6 +243,7 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use crate::Store;
     use crate::consent_record::{ConsentState, ConsentType};
     use crate::group::tests::{
         generate_consent_record, generate_dm, generate_group, generate_group_with_created_at,
@@ -251,7 +252,6 @@ pub(crate) mod tests {
     use crate::group_message::ContentType;
     use crate::prelude::*;
     use crate::test_utils::with_connection;
-    use crate::Store;
 
     #[xmtp_common::test]
     async fn test_single_group_multiple_messages() {

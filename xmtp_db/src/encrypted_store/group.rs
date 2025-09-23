@@ -1,12 +1,12 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
 use super::{
+    ConnectionExt, Sqlite,
     consent_record::ConsentState,
     db_connection::DbConnection,
     schema::groups::{self, dsl},
-    ConnectionExt, Sqlite,
 };
 use crate::NotFound;
-use crate::{impl_fetch, impl_store, impl_store_or_ignore, DuplicateItem, StorageError};
+use crate::{DuplicateItem, StorageError, impl_fetch, impl_store, impl_store_or_ignore};
 use derive_builder::Builder;
 use diesel::{
     backend::Backend,
@@ -121,13 +121,6 @@ impl StoredGroup {
     pub fn builder() -> StoredGroupBuilder {
         StoredGroupBuilder::default()
     }
-}
-
-#[derive(Debug, Clone, Default)]
-pub enum GroupQueryOrderBy {
-    #[default]
-    CreatedAt,
-    LastActivity,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1146,10 +1139,10 @@ pub(crate) mod tests {
     use super::*;
 
     use crate::{
+        Fetch, Store,
         consent_record::{ConsentType, StoredConsentRecord},
         schema::groups::dsl::groups,
         test_utils::{with_connection, with_connection_async},
-        Fetch, Store,
     };
     use xmtp_common::{assert_ok, rand_vec, time::now_ns};
 
