@@ -293,36 +293,25 @@ mod tests {
         welcome: MlsMessageOut,
         message_cursor: Option<u64>,
     ) -> welcome_message::V1 {
-        let w = wrap_welcome(
+        let (data, welcome_metadata) = wrap_welcome(
             &welcome.tls_serialize_detached().unwrap(),
+            &WelcomeMetadata {
+                message_cursor: message_cursor.unwrap_or(0),
+            }
+            .encode_to_vec(),
             &public_key,
             &WrapperAlgorithm::Curve25519,
         )
         .unwrap();
 
-        let wrapped_welcome_metadata: Vec<u8> = if let Some(cursor) = message_cursor {
-            let welcome_metadata = WelcomeMetadata {
-                message_cursor: cursor,
-            }
-            .encode_to_vec();
-            wrap_welcome(
-                &welcome_metadata,
-                &public_key,
-                &WrapperAlgorithm::Curve25519,
-            )
-            .unwrap()
-        } else {
-            Vec::new()
-        };
-
         welcome_message::V1 {
             id,
             created_ns: 0,
             installation_key: vec![0],
-            data: w,
+            data,
             hpke_public_key: public_key,
             wrapper_algorithm: WrapperAlgorithm::Curve25519.into(),
-            welcome_metadata: wrapped_welcome_metadata,
+            welcome_metadata,
         }
     }
 

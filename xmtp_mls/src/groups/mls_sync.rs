@@ -134,7 +134,9 @@ pub enum GroupMessageProcessingError {
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
-    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
+    OpenMlsProcessMessage(
+        #[from] openmls::prelude::ProcessMessageError<sql_key_store::SqlKeyStoreError>,
+    ),
     #[error("merge staged commit: {0}")]
     MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::SqlKeyStoreError>),
     #[error("TLS Codec error: {0}")]
@@ -2418,24 +2420,20 @@ where
                     let welcome_metadata = WelcomeMetadata {
                         message_cursor: message_cursor.unwrap_or(0) as u64,
                     };
-                    let wrapped_welcome_metadata = wrap_welcome(
-                        &welcome_metadata.encode_to_vec(),
-                        &installation.hpke_public_key,
-                        &algorithm,
-                    )?;
-
-                    let wrapped_welcome = wrap_welcome(
+                    let welcome_metadata_bytes = welcome_metadata.encode_to_vec();
+                    let (data, welcome_metadata) = wrap_welcome(
                         &action.welcome_message,
+                        &welcome_metadata_bytes,
                         &installation.hpke_public_key,
                         &algorithm,
                     )?;
                     Ok(WelcomeMessageInput {
                         version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
                             installation_key,
-                            data: wrapped_welcome,
+                            data,
                             hpke_public_key: installation.hpke_public_key,
                             wrapper_algorithm: algorithm.into(),
-                            welcome_metadata: wrapped_welcome_metadata,
+                            welcome_metadata,
                         })),
                     })
                 },
