@@ -4,7 +4,7 @@ use crate::{V3Client, v3::*};
 use xmtp_common::RetryableError;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api::{self, ApiClientError, Client, Query};
-use xmtp_proto::api_client::{ApiStats, XmtpMlsClient};
+use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1::{self, GroupMessage as ProtoGroupMessage, PagingInfo, SortDirection};
 use xmtp_proto::types::{Cursor, GroupId, InstallationId, WelcomeMessage};
 
@@ -22,7 +22,6 @@ where
         &self,
         request: mls_v1::UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
-        self.stats.upload_key_package.count_request();
         UploadKeyPackage::builder()
             .key_package(request.key_package)
             .is_inbox_id_credential(request.is_inbox_id_credential)
@@ -34,7 +33,6 @@ where
         &self,
         request: mls_v1::FetchKeyPackagesRequest,
     ) -> Result<mls_v1::FetchKeyPackagesResponse, Self::Error> {
-        self.stats.fetch_key_package.count_request();
         FetchKeyPackages::builder()
             .installation_keys(request.installation_keys)
             .build()?
@@ -45,7 +43,6 @@ where
         &self,
         request: mls_v1::SendGroupMessagesRequest,
     ) -> Result<(), Self::Error> {
-        self.stats.send_group_messages.count_request();
         SendGroupMessages::builder()
             .messages(request.messages)
             .build()?
@@ -56,7 +53,6 @@ where
         &self,
         request: mls_v1::SendWelcomeMessagesRequest,
     ) -> Result<(), Self::Error> {
-        self.stats.send_welcome_messages.count_request();
         SendWelcomeMessages::builder()
             .messages(request.messages)
             .build()?
@@ -69,7 +65,6 @@ where
         cursors: Vec<xmtp_proto::types::Cursor>,
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
         let cursor = cursors.into_iter().map(|c| c.sequence_id).max();
-        self.stats.query_group_messages.count_request();
         let endpoint = QueryGroupMessages::builder()
             .group_id(group_id.to_vec())
             .paging_info(PagingInfo {
@@ -97,7 +92,6 @@ where
         &self,
         group_id: GroupId,
     ) -> Result<Option<xmtp_proto::types::GroupMessage>, Self::Error> {
-        self.stats.query_group_messages.count_request();
         let endpoint = QueryGroupMessages::builder()
             .group_id(group_id.to_vec())
             .paging_info(PagingInfo {
@@ -122,7 +116,6 @@ where
         installation_key: InstallationId,
         cursors: Vec<Cursor>,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
-        self.stats.query_welcome_messages.count_request();
         let cursor = cursors.into_iter().map(|c| c.sequence_id).max();
         let endpoint = QueryWelcomeMessages::builder()
             .installation_key(installation_key)
@@ -146,7 +139,6 @@ where
         &self,
         request: mls_v1::BatchPublishCommitLogRequest,
     ) -> Result<(), Self::Error> {
-        self.stats.publish_commit_log.count_request();
         PublishCommitLog::builder()
             .commit_log_entries(request.requests)
             .build()?
@@ -158,15 +150,10 @@ where
         &self,
         request: mls_v1::BatchQueryCommitLogRequest,
     ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
-        self.stats.query_commit_log.count_request();
         QueryCommitLog::builder()
             .query_log_requests(request.requests)
             .build()?
             .query(&self.client)
             .await
-    }
-
-    fn stats(&self) -> ApiStats {
-        self.stats.clone()
     }
 }

@@ -13,6 +13,10 @@ crate::if_wasm! {
     pub trait MaybeSend {}
     impl<T> MaybeSend for T {}
 
+    /// Marker trait to determine whether a type implements `Send` or not.
+    pub trait MaybeSync {}
+    impl<T> MaybeSync for T {}
+
     /// Global Marker trait for WebAssembly
     pub trait Wasm {}
     impl<T> Wasm for T {}
@@ -26,6 +30,10 @@ crate::if_native! {
     /// Marker trait to determine whether a type implements `Send` or not.
     pub trait MaybeSend: Send {}
     impl<T: Send> MaybeSend for T {}
+
+    /// Marker trait to determine whether a type implements `Send` or not.
+    pub trait MaybeSync {}
+    impl<T: Sync> MaybeSync for T {}
 
     pub struct StreamWrapper<'a, I> {
         inner: Pin<Box<dyn Stream<Item = I> + Send + 'a>>,

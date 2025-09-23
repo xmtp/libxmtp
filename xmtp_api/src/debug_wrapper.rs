@@ -80,6 +80,14 @@ where
     fn aggregate_stats(&self) -> AggregateStats {
         self.inner.aggregate_stats()
     }
+
+    fn mls_stats(&self) -> ApiStats {
+        self.inner.mls_stats()
+    }
+
+    fn identity_stats(&self) -> IdentityStats {
+        self.inner.identity_stats()
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -192,10 +200,6 @@ where
         )
         .await
     }
-
-    fn stats(&self) -> ApiStats {
-        self.inner.stats()
-    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -287,9 +291,5 @@ where
             || self.inner.aggregate_stats(),
         )
         .await
-    }
-
-    fn identity_stats(&self) -> IdentityStats {
-        self.inner.identity_stats()
     }
 }

@@ -55,8 +55,11 @@ use xmtp_mls_common::{
     group_metadata::DmMembers,
     group_mutable_metadata::MessageDisappearingSettings,
 };
-use xmtp_proto::api_client::{ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient};
 use xmtp_proto::types::InstallationId;
+use xmtp_proto::{
+    api::HasStats,
+    api_client::{ApiStats, IdentityStats},
+};
 
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
@@ -190,8 +193,22 @@ where
         MlsStore::new(self.context.clone())
     }
 
+    pub fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
+        self.context.scw_verifier()
+    }
+
+    pub fn version_info(&self) -> &VersionInfo {
+        self.context.version_info()
+    }
+}
+
+impl<Context> Client<Context>
+where
+    Context: XmtpSharedContext,
+    Context::ApiClient: HasStats,
+{
     pub fn api_stats(&self) -> ApiStats {
-        self.context.api().api_client.stats()
+        self.context.api().api_client.mls_stats()
     }
 
     pub fn identity_api_stats(&self) -> IdentityStats {
@@ -199,16 +216,8 @@ where
     }
 
     pub fn clear_stats(&self) {
-        self.context.api().api_client.stats().clear();
+        self.context.api().api_client.mls_stats().clear();
         self.context.api().api_client.identity_stats().clear();
-    }
-
-    pub fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
-        self.context.scw_verifier()
-    }
-
-    pub fn version_info(&self) -> &VersionInfo {
-        self.context.version_info()
     }
 }
 

@@ -1,5 +1,6 @@
 //! Compatibility layer for d14n and previous xmtp_api crate
 mod identity;
+mod misc;
 mod mls;
 mod streams;
 
