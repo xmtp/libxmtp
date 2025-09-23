@@ -134,7 +134,9 @@ pub enum GroupMessageProcessingError {
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
-    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
+    OpenMlsProcessMessage(
+        #[from] openmls::prelude::ProcessMessageError<sql_key_store::SqlKeyStoreError>,
+    ),
     #[error("merge staged commit: {0}")]
     MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::SqlKeyStoreError>),
     #[error("TLS Codec error: {0}")]

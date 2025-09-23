@@ -321,7 +321,9 @@ impl RetryableError<Mls>
     }
 }
 
-impl RetryableError<Mls> for openmls::prelude::ProcessMessageError {
+impl RetryableError<Mls>
+    for openmls::prelude::ProcessMessageError<sql_key_store::SqlKeyStoreError>
+{
     fn is_retryable(&self) -> bool {
         match self {
             Self::GroupStateError(err) => retryable!(err),
