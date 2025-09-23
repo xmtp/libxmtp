@@ -5,7 +5,6 @@
 //  Created by Naomi Plasterer on 8/5/25.
 //
 
-import LibXMTP
 
 public struct ArchiveOptions {
 	public var startNs: Int64?

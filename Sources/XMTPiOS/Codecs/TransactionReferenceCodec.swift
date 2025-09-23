@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import LibXMTP
 
 public let ContentTypeTransactionReference = ContentTypeID(
 	authorityID: "xmtp.org",
@@ -83,12 +82,12 @@ public struct TransactionReferenceCodec: ContentCodec {
 			}
 		)
 		return try EncodedContent(
-			serializedBytes: LibXMTP.encodeTransactionReference(
+			serializedBytes: encodeTransactionReference(
 				reference: ffi))
 	}
 
 	public func decode(content: EncodedContent) throws -> TransactionReference {
-		let decoded = try LibXMTP.decodeTransactionReference(
+		let decoded = try decodeTransactionReference(
 			bytes: content.serializedData())
 
 		let metadata = decoded.metadata.map {

@@ -5,7 +5,6 @@
 //  Created by Naomi Plasterer on 2/9/25.
 //
 
-import LibXMTP
 
 public struct DisappearingMessageSettings {
 	public let disappearStartingAtNs: Int64

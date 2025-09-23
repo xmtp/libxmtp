@@ -1,5 +1,4 @@
 import Foundation
-import LibXMTP
 
 public struct DecodedMessageV2: Identifiable {
     private let ffiMessage: FfiDecodedMessage

@@ -1,5 +1,4 @@
 import Foundation
-import LibXMTP
 
 public struct Dm: Identifiable, Equatable, Hashable {
 	var ffiConversation: FfiConversation

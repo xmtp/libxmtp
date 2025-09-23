@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import LibXMTP
 
 public class XMTPDebugInformation {
     private let client: Client

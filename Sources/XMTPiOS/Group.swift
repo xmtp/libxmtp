@@ -1,17 +1,16 @@
 import Foundation
-import LibXMTP
 
 final class MessageCallback: FfiMessageCallback {
 	func onClose() {
 		self.onCloseCallback()
 	}
 
-	func onError(error: LibXMTP.FfiSubscribeError) {
+	func onError(error: FfiSubscribeError) {
 		print("Error MessageCallback \(error)")
 	}
 
 	let onCloseCallback: () -> Void
-	let callback: (LibXMTP.FfiMessage) -> Void
+	let callback: (FfiMessage) -> Void
 
 	init(
 		callback: @escaping (FfiMessage) -> Void,
@@ -21,7 +20,7 @@ final class MessageCallback: FfiMessageCallback {
 		self.onCloseCallback = onClose
 	}
 
-	func onMessage(message: LibXMTP.FfiMessage) {
+	func onMessage(message: FfiMessage) {
 		callback(message)
 	}
 }

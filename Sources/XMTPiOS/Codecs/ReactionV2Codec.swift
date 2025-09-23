@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import LibXMTP
 
 public let ContentTypeReactionV2 = ContentTypeID(authorityID: "xmtp.org", typeID: "reaction", versionMajor: 2, versionMinor: 0)
 
@@ -17,11 +16,11 @@ public struct ReactionV2Codec: ContentCodec {
     public init() {}
 
     public func encode(content: FfiReactionPayload) throws -> EncodedContent {
-        return try EncodedContent(serializedBytes: LibXMTP.encodeReaction(reaction: content))
+        return try EncodedContent(serializedBytes: encodeReaction(reaction: content))
     }
 
     public func decode(content: EncodedContent) throws -> FfiReactionPayload {
-        try LibXMTP.decodeReaction(bytes: content.serializedBytes())
+        try decodeReaction(bytes: content.serializedBytes())
     }
 
     public func fallback(content: FfiReactionPayload) throws -> String? {

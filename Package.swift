@@ -17,19 +17,21 @@ let package = Package(
 		),
 	],
 	dependencies: [
-		.package(url: "https://github.com/tesseract-one/CSecp256k1.swift.git", from: "0.2.0"),
 		.package(url: "https://github.com/bufbuild/connect-swift", exact: "1.0.0"),
 		.package(url: "https://github.com/apple/swift-docc-plugin.git", from: "1.4.3"),
-		.package(url: "https://github.com/krzyzanowskim/CryptoSwift.git", "1.8.4" ..< "2.0.0"),
-		.package(url: "https://github.com/xmtp/libxmtp-swift.git", exact: "4.5.0-dev.b31478c")
+		.package(url: "https://github.com/krzyzanowskim/CryptoSwift.git", "1.8.4" ..< "2.0.0")
 	],
 	targets: [
+		.binaryTarget(
+			name: "LibXMTPSwiftFFI",
+			url: "https://github.com/xmtp/libxmtp/releases/download/swift-bindings-1.5.0-rc1.e5c3c75/LibXMTPSwiftFFI.zip",
+			checksum: "4dce1d93cfb02250add40fa6b33a839736057a32d497d1a56c7a5482456a2978"
+		),
 		.target(
 			name: "XMTPiOS",
 			dependencies: [
-				.product(name: "CSecp256k1", package: "CSecp256k1.swift"),
 				.product(name: "Connect", package: "connect-swift"),
-				.product(name: "LibXMTP", package: "libxmtp-swift"),
+				"LibXMTPSwiftFFI",
 				.product(name: "CryptoSwift", package: "CryptoSwift"),
 			]
 		),

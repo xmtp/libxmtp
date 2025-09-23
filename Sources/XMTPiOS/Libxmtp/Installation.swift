@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import LibXMTP
 
 public struct Installation {
 	var ffiInstallation: FfiInstallation

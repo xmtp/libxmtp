@@ -1,7 +1,6 @@
 import CryptoKit
 import CryptoSwift
 import Foundation
-import LibXMTP
 
 public let ContentTypeMultiRemoteAttachment = ContentTypeID(authorityID: "xmtp.org", typeID: "multiRemoteStaticAttachment", versionMajor: 1, versionMinor: 0)
 

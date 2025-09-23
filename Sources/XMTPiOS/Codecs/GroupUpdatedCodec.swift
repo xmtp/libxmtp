@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import LibXMTP
 
 public typealias GroupUpdated = Xmtp_Mls_MessageContents_GroupUpdated
 

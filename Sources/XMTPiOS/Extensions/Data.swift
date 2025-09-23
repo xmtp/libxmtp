@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import LibXMTP
 
 extension Data {
 	init?(base64String: String) {

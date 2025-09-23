@@ -1,4 +1,3 @@
-import LibXMTP
 import XCTest
 import XMTPTestHelpers
 

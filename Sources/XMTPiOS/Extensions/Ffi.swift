@@ -1,5 +1,4 @@
 import Foundation
-import LibXMTP
 
 extension FfiConversation {
 	func groupFromFFI(client: Client) -> Group {

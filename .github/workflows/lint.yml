@@ -15,4 +15,3 @@ jobs:
           xcode-version: '14'
       - uses: actions/checkout@v3
       - run: swiftlint Sources/ example/
-      - run: pod lib lint --allow-warnings

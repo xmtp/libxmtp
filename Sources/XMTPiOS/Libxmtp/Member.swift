@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import LibXMTP
 
 public enum PermissionLevel {
     case Member, Admin, SuperAdmin

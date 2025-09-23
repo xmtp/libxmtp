@@ -1,8 +1,7 @@
 #if canImport(XCTest)
 	import Combine
 	import XCTest
-	@testable import XMTPiOS
-	import LibXMTP
+	import XMTPiOS
 
 	public struct TestConfig {
 		static let TEST_SERVER_ENABLED = _env("TEST_SERVER_ENABLED") == "true"
@@ -50,7 +49,7 @@
 			caro = try PrivateKey.generate()
 			davon = try PrivateKey.generate()
 
-			let key = try Crypto.secureRandomBytes(count: 32)
+			let key = Data((0..<32).map { _ in UInt8.random(in: 0...255) })
 			let clientOptions: ClientOptions = ClientOptions(
 				api: clientOptions,
 				dbEncryptionKey: key

@@ -1,5 +1,4 @@
 import Foundation
-import LibXMTP
 
 public enum PermissionOption {
 	case allow

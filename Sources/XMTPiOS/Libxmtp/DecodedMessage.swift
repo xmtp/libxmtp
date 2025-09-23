@@ -1,5 +1,4 @@
 import Foundation
-import LibXMTP
 
 enum DecodedMessageError: Error {
 	case decodeError(String)

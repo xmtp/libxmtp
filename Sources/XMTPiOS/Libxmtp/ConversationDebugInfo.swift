@@ -1,4 +1,3 @@
-import LibXMTP
 
 public enum CommitLogForkStatus {
 	case forked

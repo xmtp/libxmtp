@@ -1,5 +1,4 @@
 import Foundation
-import LibXMTP
 
 /// Represents a secp256k1 private key.  ``PrivateKey`` conforms to ``SigningKey`` so you can use it
 /// to create a ``Client``.
@@ -59,6 +58,9 @@ extension PrivateKey {
 		let publicData = try KeyUtilx.generatePublicKey(from: privateKeyData)
 		publicKey.secp256K1Uncompressed.bytes = publicData
 		publicKey.timestamp = timestamp
+		
+		// Validate that we can generate a wallet address - throw if invalid
+		_ = try KeyUtilx.generateAddress(from: publicData)
 	}
 
 	/// **Compute Ethereum wallet address from public key (matching Kotlin)**
@@ -70,6 +72,8 @@ extension PrivateKey {
 /// **Compute wallet address from PublicKey like in Kotlin**
 extension PublicKey {
 	var walletAddress: String {
-		KeyUtilx.generateAddress(from: secp256K1Uncompressed.bytes).lowercased()
+		// Safe to force unwrap since we validate address generation during PrivateKey initialization
+		// swiftlint:disable:next force_try
+		try! KeyUtilx.generateAddress(from: secp256K1Uncompressed.bytes).lowercased()
 	}
 }

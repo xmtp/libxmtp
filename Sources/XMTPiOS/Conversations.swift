@@ -1,5 +1,4 @@
 import Foundation
-import LibXMTP
 
 public enum ConversationError: Error, CustomStringConvertible, LocalizedError {
 	case memberCannotBeSelf
@@ -61,7 +60,7 @@ final class ConversationStreamCallback: FfiConversationCallback {
 		self.onCloseCallback()
 	}
 
-	func onError(error: LibXMTP.FfiSubscribeError) {
+	func onError(error: FfiSubscribeError) {
 		print("Error ConversationStreamCallback \(error)")
 	}
 

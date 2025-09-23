@@ -1,5 +1,4 @@
 import Foundation
-import LibXMTP
 
 public enum Conversation: Identifiable, Equatable, Hashable {
 	case group(Group)

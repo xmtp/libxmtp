@@ -1,5 +1,4 @@
 import Foundation
-import LibXMTP
 
 public enum ConsentState: String, Codable {
 	case allowed, denied, unknown

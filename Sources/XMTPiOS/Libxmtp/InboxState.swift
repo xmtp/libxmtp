@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import LibXMTP
 
 public struct InboxState {
 	var ffiInboxState: FfiInboxState

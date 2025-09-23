@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import LibXMTP
 
 public struct GroupMembershipResult {
 	var ffiGroupMembershipResult: FfiUpdateGroupMembershipResult
