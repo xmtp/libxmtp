@@ -2,5 +2,6 @@
 set -eou pipefail
 script_dir="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
+export BUILD_VALIDATION_SERVICE=true
 "${script_dir}"/compose pull
 "${script_dir}"/compose up -d --build --remove-orphans --wait --timeout 500

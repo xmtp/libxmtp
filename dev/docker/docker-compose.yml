@@ -1,6 +1,8 @@
 services:
   node:
     image: ghcr.io/xmtp/node-go:main
+    profiles:
+      - node-go
     platform: linux/amd64
     environment:
       - GOWAKU-NODEKEY=8a30dcb604b0b53627a5adc054dbf434b446628d4bd1eccc681d223f0550ce67
@@ -11,16 +13,21 @@ services:
       - --mls-store.db-connection-string=postgres://postgres:xmtp@mlsdb:5432/postgres?sslmode=disable
       - --mls-validation.grpc-address=validation:50051
       - --api.enable-mls
+      - --api.grpc-port=5556
+      - --api.http-port=5555
       - --wait-for-db=30s
       # Disable authn until we have reliable support for generating auth tokens
       # - --api.authn.enable
     ports:
-      - 5555:5555
-      - 5556:5556
+      - "${NODE_GRPC_PORT}:5556"
+      - "${NODE_HTTP_PORT}:5555"
     depends_on:
       - db
+      - mlsdb
   node-web:
     image: ghcr.io/xmtp/grpc-web
+    profiles:
+      - node-go
     pull_policy: never
     platform: linux/amd64
     depends_on:
@@ -35,31 +42,36 @@ services:
   validation:
     image: ghcr.io/xmtp/mls-validation-service:main
     platform: linux/amd64
-    build:
-      context: ../..
-      dockerfile: ./dev/validation_service/local.Dockerfile
+    profiles:
+      - node-go
+      - xmtpd
     environment:
-      ANVIL_URL: "http://anvil:8545"
-  anvil:
-    build:
-      dockerfile: ./anvil.Dockerfile
-    platform: linux/amd64
-    ports:
-      - 8545:8545
+      ANVIL_URL: "http://chain:8545"
+    depends_on:
+      - chain
   history-server:
+    profiles:
+      - node-go
+      - xmtpd
     image: ghcr.io/xmtp/message-history-server:main
     platform: linux/amd64
     ports:
-      - 5558:5558
+      - "${HISTORY_SERVER_PORT}:5558"
   db:
+    profiles:
+      - node-go
     image: postgres:13
     environment:
       POSTGRES_PASSWORD: xmtp
   mlsdb:
+    profiles:
+      - node-go
     image: postgres:13
     environment:
       POSTGRES_PASSWORD: xmtp
   toxiproxy:
+    profiles:
+      - node-go
     image: ghcr.io/shopify/toxiproxy:2.12.0
     ports:
       - 8474:8474

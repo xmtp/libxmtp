@@ -7,6 +7,8 @@ x-redis-image: &x-redis-image redis:7-alpine
 
 services:
   redis:
+    profiles:
+      - xmtpd
     image: *x-redis-image
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -15,6 +17,8 @@ services:
       retries: 3
       start_period: 5s
   replicationdb:
+    profiles:
+      - xmtpd
     image: *x-postgres-image
     environment:
       POSTGRES_PASSWORD: xmtp
@@ -24,9 +28,16 @@ services:
       timeout: 5s
       retries: 5
   chain:
+    profiles:
+      - xmtpd
+      - node-go
     platform: linux/amd64
     image: *x-xmtpd-contracts-image
+    ports:
+      - "8545:8545"
   register-node:
+    profiles:
+      - xmtpd
     platform: linux/amd64
     image: *x-xmtpd-cli-image
     env_file:
@@ -38,16 +49,19 @@ services:
         "--config-file=/cfg/anvil.json",
         "--private-key=${REGISTER_NODE_ADMIN_KEY}",
         "--rpc-url=${XMTPD_SETTLEMENT_CHAIN_RPC_URL}",
-        "nodes", "register",
+        "nodes",
+        "register",
         "--owner-address=${REGISTER_NODE_OWNER_ADDRESS}",
         "--signing-key-pub=${REGISTER_NODE_PUBKEY}",
-        "--http-address=${REGISTER_NODE_HTTP_ADDRESS}"
+        "--http-address=${REGISTER_NODE_HTTP_ADDRESS}",
       ]
     depends_on:
       chain:
         condition: service_started
     restart: on-failure
   enable-node:
+    profiles:
+      - xmtpd
     platform: linux/amd64
     image: *x-xmtpd-cli-image
     env_file:
@@ -59,9 +73,10 @@ services:
         "--config-file=/cfg/anvil.json",
         "--private-key=${REGISTER_NODE_ADMIN_KEY}",
         "--rpc-url=${XMTPD_SETTLEMENT_CHAIN_RPC_URL}",
-        "nodes", "canonical-network",
+        "nodes",
+        "canonical-network",
         "--add",
-        "--node-id=100"
+        "--node-id=100",
       ]
     depends_on:
       chain:
@@ -70,6 +85,8 @@ services:
         condition: service_completed_successfully
     restart: on-failure
   repnode:
+    profiles:
+      - xmtpd
     platform: linux/amd64
     image: *x-xmtpd-server-image
     env_file:
@@ -87,6 +104,8 @@ services:
       - 5050:5050
       - 5055:5055
   gateway:
+    profiles:
+      - xmtpd
     platform: linux/amd64
     image: *x-xmtpd-gateway-image
     env_file:
@@ -101,4 +120,3 @@ services:
     ports:
       - 5052:5050
       - 5057:5055
-

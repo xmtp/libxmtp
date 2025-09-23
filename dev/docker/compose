@@ -2,8 +2,10 @@
 set -eou pipefail
 
 docker compose \
-  -f dev/docker/docker-compose.yml \
-  -f dev/docker/docker-compose-d14n.yml \
-  --env-file dev/docker/local.env \
-  -p "libxmtp" \
-  "$@"
+    -f dev/docker/docker-compose.yml \
+    -f dev/docker/docker-compose-d14n.yml \
+    -f dev/docker/docker-compose-build-validation.yml \
+    --profile node-go --profile xmtpd \
+    --env-file dev/docker/local.env \
+    -p "libxmtp" \
+    "$@"
