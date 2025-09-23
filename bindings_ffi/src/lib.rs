@@ -13,6 +13,7 @@ pub use logger::{enter_debug_writer, exit_debug_writer};
 pub use message::*;
 pub use mls::*;
 use std::error::Error;
+use xmtp_api_d14n::MessageBackendBuilderError;
 use xmtp_common::time::Expired;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_mls::common::group_metadata::GroupMetadataError;
@@ -76,6 +77,8 @@ pub enum GenericError {
     Log(String),
     #[error(transparent)]
     Expired(#[from] Expired),
+    #[error(transparent)]
+    BackendBuilder(#[from] MessageBackendBuilderError),
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]

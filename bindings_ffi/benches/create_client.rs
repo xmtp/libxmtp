@@ -32,7 +32,7 @@ fn network_url() -> (String, bool) {
     let is_dev_network = matches!(dev, Ok(d) if d == "true" || d == "1");
 
     if is_dev_network {
-        (xmtp_configuration::GrpcUrls::NODE_DEV.to_string(), true)
+        (xmtp_configuration::GrpcUrlsDev::NODE.to_string(), true)
     } else {
         (xmtp_configuration::GrpcUrls::NODE.to_string(), false)
     }
@@ -58,10 +58,10 @@ fn create_ffi_client(c: &mut Criterion) {
                     let inbox_id = ident.inbox_id(nonce).unwrap();
                     let path = tmp_path();
                     let (url, is_secure) = network_url();
-                    let api = xmtpv3::mls::connect_to_backend(url.clone(), is_secure, None)
+                    let api = xmtpv3::mls::connect_to_backend(url.clone(), is_secure, None, None)
                         .await
                         .unwrap();
-                    let sync_api = xmtpv3::mls::connect_to_backend(url, is_secure, None)
+                    let sync_api = xmtpv3::mls::connect_to_backend(url, is_secure, None, None)
                         .await
                         .unwrap();
                     (
@@ -118,7 +118,7 @@ fn cached_create_ffi_client(c: &mut Criterion) {
     let path = tmp_path();
     let (url, is_secure) = network_url();
     let api = runtime.block_on(async {
-        let api = xmtpv3::mls::connect_to_backend(url.clone(), is_secure, None)
+        let api = xmtpv3::mls::connect_to_backend(url.clone(), is_secure, None, None)
             .await
             .unwrap();
         xmtpv3::mls::create_client(

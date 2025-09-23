@@ -1,0 +1,10 @@
+#!/bin/bash
+set -eou pipefail
+
+cargo clippy --quiet --locked --workspace --all-features --all-targets --no-deps --exclude bindings_wasm -- -Dwarnings &
+cargo clippy --quiet --locked --manifest-path "./bindings_wasm/Cargo.toml" --all-features --target wasm32-unknown-unknown --no-deps -- -Dwarnings &
+cargo check --quiet --locked --tests --target wasm32-unknown-unknown -p bindings_wasm &
+
+wait
+
+echo "Lints Good ✅"
