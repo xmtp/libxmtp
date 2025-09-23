@@ -87,6 +87,11 @@ getrandom = { version = "0.3", default-features = false }
 gloo-timers = "0.3"
 hex = { package = "const-hex", version = "1.14" }
 hkdf = "0.12.3"
+hpke-rs = { version = "0.3.0", features = [
+  "hazmat",
+  "serialization",
+  "libcrux",
+] }
 itertools = "0.14"
 js-sys = "0.3"
 mockall = { version = "0.13" }
