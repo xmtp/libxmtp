@@ -8346,6 +8346,7 @@ dependencies = [
  "xmtp_api",
  "xmtp_api_d14n",
  "xmtp_api_grpc",
+ "xmtp_configuration",
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",

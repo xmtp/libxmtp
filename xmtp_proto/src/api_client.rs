@@ -2,6 +2,7 @@ pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PublishRequest, PublishResponse, QueryRequest,
     QueryResponse, SubscribeRequest,
 };
+use crate::api::IsConnectedCheck;
 use crate::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
     PagingInfo,
@@ -20,6 +21,7 @@ use crate::xmtp::mls::api::v1::{
     WelcomeMessage as ProtoWelcomeMessage,
 };
 use futures::Stream;
+use std::pin::Pin;
 use std::sync::Arc;
 use xmtp_common::MaybeSend;
 use xmtp_common::{Retry, RetryableError};
@@ -28,31 +30,58 @@ mod impls;
 mod stats;
 pub use stats::*;
 
-#[cfg(any(test, feature = "test-utils"))]
-pub mod tests;
+xmtp_common::if_test! {
+    pub mod tests;
 
-#[cfg(any(test, feature = "test-utils"))]
-pub trait XmtpTestClient {
-    type Builder: ApiBuilder;
-    fn create_local() -> Self::Builder;
-    fn create_d14n() -> Self::Builder;
-    fn create_gateway() -> Self::Builder;
-    fn create_dev() -> Self::Builder;
+    pub trait XmtpTestClient {
+        type Builder: ApiBuilder;
+        fn create_local() -> Self::Builder;
+        fn create_d14n() -> Self::Builder;
+        fn create_gateway() -> Self::Builder;
+        fn create_dev() -> Self::Builder;
+    }
 }
 
+/// A type-erased version of the Xmtp Api in a [`Box`]
 pub type BoxedXmtpApi<Error> = Box<dyn BoxableXmtpApi<Error>>;
+/// A type-erased version of the Xntp Api in a [`Arc`]
 pub type ArcedXmtpApi<Error> = Arc<dyn BoxableXmtpApi<Error>>;
 
-/// XMTP Api Super Trait
-/// Implements all Trait Network APIs for convenience.
+xmtp_common::if_native! {
+    pub type BoxedGroupS<Err> = Pin<Box<dyn Stream<Item = Result<GroupMessage, Err>> + Send>>;
+    pub type BoxedWelcomeS<Err> = Pin<Box<dyn Stream<Item = Result<WelcomeMessage, Err>> + Send>>;
+}
+
+xmtp_common::if_wasm! {
+    pub type BoxedGroupS<Err> = Pin<Box<dyn Stream<Item = Result<GroupMessage, Err>>>>;
+    pub type BoxedWelcomeS<Err> = Pin<Box<dyn Stream<Item = Result<WelcomeMessage, Err>>>>;
+}
+
 pub trait BoxableXmtpApi<Err>
 where
-    Self: XmtpMlsClient<Error = Err> + XmtpIdentityClient<Error = Err> + Send + Sync,
+    Self: XmtpMlsClient<Error = Err>
+        + XmtpIdentityClient<Error = Err>
+        + XmtpMlsStreams<
+            Error = Err,
+            WelcomeMessageStream = BoxedWelcomeS<Err>,
+            GroupMessageStream = BoxedGroupS<Err>,
+        > + IsConnectedCheck
+        + Send
+        + Sync,
 {
 }
 
 impl<T, Err> BoxableXmtpApi<Err> for T where
-    T: XmtpMlsClient<Error = Err> + XmtpIdentityClient<Error = Err> + Send + Sync + ?Sized
+    T: XmtpMlsClient<Error = Err>
+        + XmtpIdentityClient<Error = Err>
+        + XmtpMlsStreams<
+            Error = Err,
+            WelcomeMessageStream = BoxedWelcomeS<Err>,
+            GroupMessageStream = BoxedGroupS<Err>,
+        > + IsConnectedCheck
+        + Send
+        + Sync
+        + ?Sized
 {
 }
 
@@ -64,13 +93,16 @@ where
 
 impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + Send + Sync {}
 
+/// Trait which for protobuf-generated type
+/// which can be paged.
 pub trait Paged {
     type Message;
     fn info(&self) -> &Option<PagingInfo>;
     fn messages(self) -> Vec<Self::Message>;
 }
 
-// Wasm futures don't have `Send` or `Sync` bounds.
+/// Represents the backend API required for an MLS Delivery Service
+/// to be compatible with XMTP
 #[allow(async_fn_in_trait)]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -112,9 +144,10 @@ pub trait XmtpMlsClient {
         &self,
         request: BatchQueryCommitLogRequest,
     ) -> Result<BatchQueryCommitLogResponse, Self::Error>;
-    fn stats(&self) -> ApiStats;
 }
 
+/// Represents the backend API required for an MLS Delivery Service
+/// to be compatible with XMTP streaming
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait XmtpMlsStreams {
@@ -134,6 +167,8 @@ pub trait XmtpMlsStreams {
     ) -> Result<Self::WelcomeMessageStream, Self::Error>;
 }
 
+/// Represents the backend API required for the XMTP
+/// Identity Service described by [XIP-46 Multi-Wallet Identity](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-46-multi-wallet-identity.md)
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait XmtpIdentityClient {
@@ -157,10 +192,17 @@ pub trait XmtpIdentityClient {
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error>;
-
-    fn identity_stats(&self) -> IdentityStats;
 }
 
+/// Indicates this api implementation can be type-erased
+/// and coerced into a [`Box`] or [`Arc`]
+pub trait ToDynApi {
+    type Error;
+    fn boxed(self) -> BoxedXmtpApi<Self::Error>;
+    fn arced(self) -> ArcedXmtpApi<Self::Error>;
+}
+
+/// Build an API from its parts for the XMTP Backend
 pub trait ApiBuilder {
     type Output;
     type Error;

@@ -2,7 +2,7 @@
 
 use crate::{
     api::{RetryQuery, V3Paged, XmtpStream, combinators::Ignore},
-    api_client::AggregateStats,
+    api_client::{AggregateStats, ApiStats, IdentityStats},
 };
 use http::{request, uri::PathAndQuery};
 use prost::bytes::Bytes;
@@ -20,6 +20,8 @@ pub use error::*;
 
 pub trait HasStats {
     fn aggregate_stats(&self) -> AggregateStats;
+    fn mls_stats(&self) -> ApiStats;
+    fn identity_stats(&self) -> IdentityStats;
 }
 
 /// provides the necessary information for a backend API call.

@@ -3,7 +3,7 @@ use std::pin::Pin;
 use futures::Stream;
 use xmtp_proto::api::mock::MockApiBuilder;
 use xmtp_proto::{
-    api_client::{ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
+    api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
     types::{GroupMessage, WelcomeMessage},
     xmtp::{
         identity::api::v1::{
@@ -101,7 +101,6 @@ mod not_wasm {
             async fn query_welcome_messages(&self, installation_key: InstallationId, cursor: Vec<Cursor>) -> Result<Vec<WelcomeMessage>, MockError>;
             async fn publish_commit_log(&self, request: BatchPublishCommitLogRequest) -> Result<(), MockError>;
             async fn query_commit_log(&self, request: BatchQueryCommitLogRequest) -> Result<BatchQueryCommitLogResponse, MockError>;
-            fn stats(&self) -> ApiStats;
         }
 
         #[async_trait::async_trait]
@@ -121,7 +120,6 @@ mod not_wasm {
             async fn get_identity_updates_v2(&self, request: GetIdentityUpdatesV2Request) -> Result<GetIdentityUpdatesV2Response, MockError>;
             async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, MockError>;
             async fn verify_smart_contract_wallet_signatures(&self, request: VerifySmartContractWalletSignaturesRequest) -> Result<VerifySmartContractWalletSignaturesResponse, MockError>;
-            fn identity_stats(&self) -> IdentityStats;
         }
 
         impl XmtpTestClient for ApiClient {
@@ -162,7 +160,6 @@ mod wasm {
             async fn query_welcome_messages(&self, installation_key: InstallationId, cursor: Vec<Cursor>) -> Result<Vec<WelcomeMessage>, MockError>;
             async fn publish_commit_log(&self, request: BatchPublishCommitLogRequest) -> Result<(), MockError>;
             async fn query_commit_log(&self, request: BatchQueryCommitLogRequest) -> Result<BatchQueryCommitLogResponse, MockError>;
-            fn stats(&self) -> ApiStats;
         }
 
         #[async_trait::async_trait(?Send)]
@@ -183,7 +180,6 @@ mod wasm {
             async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, MockError>;
             async fn verify_smart_contract_wallet_signatures(&self, request: VerifySmartContractWalletSignaturesRequest)
             -> Result<VerifySmartContractWalletSignaturesResponse, MockError>;
-            fn identity_stats(&self) -> IdentityStats;
         }
 
         #[async_trait::async_trait(?Send)]

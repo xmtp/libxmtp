@@ -18,7 +18,7 @@ use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api;
 use xmtp_proto::api::Client;
 use xmtp_proto::api::{ApiClientError, Query};
-use xmtp_proto::api_client::{ApiStats, XmtpMlsClient};
+use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::types::InstallationId;
@@ -29,12 +29,12 @@ use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, P, E> XmtpMlsClient for D14nClient<C, P>
+impl<C, G, E> XmtpMlsClient for D14nClient<C, G>
 where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
-    P: Send + Sync + Client,
+    G: Send + Sync + Client,
     C: Send + Sync + Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<P as xmtp_proto::api::Client>::Error>>,
+    ApiClientError<E>: From<ApiClientError<<G as xmtp_proto::api::Client>::Error>> + 'static,
 {
     type Error = ApiClientError<E>;
 
@@ -201,9 +201,5 @@ where
         _request: mls_v1::BatchQueryCommitLogRequest,
     ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
         Ok(mls_v1::BatchQueryCommitLogResponse { responses: vec![] })
-    }
-
-    fn stats(&self) -> ApiStats {
-        Default::default()
     }
 }

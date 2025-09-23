@@ -24,7 +24,6 @@ where
         &self,
         req: mls_v1::SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        self.stats.subscribe_messages.count_request();
         Ok(try_from_stream(
             SubscribeGroupMessages::builder()
                 .filters(req.filters)

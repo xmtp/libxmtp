@@ -1,15 +1,12 @@
 //! App Argument Options
-use std::path::PathBuf;
-use std::sync::Arc;
-
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use color_eyre::eyre;
-use xmtp_api_grpc::GrpcClient;
+use std::path::PathBuf;
 use xxhash_rust::xxh3;
 mod types;
 pub use types::*;
-use xmtp_api_d14n::queries::{D14nClient, V3Client};
+use xmtp_api_d14n::MessageBackendBuilder;
 
 /// Debug & Generate data on the XMTP Network
 #[derive(Parser, Debug)]
@@ -281,18 +278,15 @@ impl BackendOpts {
         let network = self.network_url();
         let is_secure = network.scheme() == "https";
 
+        let mut builder = MessageBackendBuilder::default();
+        builder.v3_host(network.as_str()).is_secure(is_secure);
         if self.d14n {
             let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
             trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
-            let gateway_is_secure = xmtpd_gateway_host.scheme() == "https";
-            let gateway = GrpcClient::create(xmtpd_gateway_host.as_str(), gateway_is_secure)?;
-            let message = GrpcClient::create(network.as_str(), is_secure)?;
-            Ok(Arc::new(D14nClient::new(message, gateway)))
+            Ok(builder.gateway_host(xmtpd_gateway_host.as_str()).build()?)
         } else {
             trace!(url = %network, is_secure, "create grpc");
-            let client = GrpcClient::create(network.as_str(), is_secure)?;
-            let client = V3Client::new(client);
-            Ok(Arc::new(client))
+            Ok(builder.build()?)
         }
     }
 }

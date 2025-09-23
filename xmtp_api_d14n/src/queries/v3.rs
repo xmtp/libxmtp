@@ -1,26 +1,20 @@
-use xmtp_proto::api::{HasStats, IsConnectedCheck};
-use xmtp_proto::api_client::{AggregateStats, ApiStats, IdentityStats};
+use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::prelude::ApiBuilder;
 use xmtp_proto::types::AppVersion;
 
 mod identity;
 mod mls;
 mod streams;
+mod to_dyn_api;
 
 #[derive(Clone)]
 pub struct V3Client<C> {
     client: C,
-    stats: ApiStats,
-    identity_stats: IdentityStats,
 }
 
 impl<C> V3Client<C> {
     pub fn new(client: C) -> Self {
-        Self {
-            client,
-            stats: Default::default(),
-            identity_stats: Default::default(),
-        }
+        Self { client }
     }
 
     pub fn builder<T: Default>() -> V3ClientBuilder<T> {
@@ -85,15 +79,6 @@ where
 
     fn set_retry(&mut self, retry: xmtp_common::Retry) {
         <Builder as ApiBuilder>::set_retry(&mut self.client, retry)
-    }
-}
-
-impl<C> HasStats for V3Client<C> {
-    fn aggregate_stats(&self) -> AggregateStats {
-        AggregateStats {
-            mls: self.stats.clone(),
-            identity: self.identity_stats.clone(),
-        }
     }
 }
 
