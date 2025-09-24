@@ -218,6 +218,18 @@ impl Conversation {
   }
 
   #[napi]
+  pub async fn count_messages(&self, opts: Option<ListMessagesOptions>) -> Result<i64> {
+    let opts = opts.unwrap_or_default();
+    let group = self.create_mls_group();
+    let msg_args: MsgQueryArgs = opts.into();
+    let count = group
+      .count_messages(&msg_args)
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(count)
+  }
+
+  #[napi]
   pub async fn find_messages_with_reactions(
     &self,
     opts: Option<ListMessagesOptions>,
