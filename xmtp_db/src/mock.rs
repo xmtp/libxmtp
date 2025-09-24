@@ -351,6 +351,12 @@ mock! {
             args: &crate::group_message::MsgQueryArgs,
         ) -> Result<Vec<crate::group_message::StoredGroupMessage>, crate::ConnectionError>;
 
+        fn count_group_messages(
+            &self,
+            group_id: &[u8],
+            args: &crate::group_message::MsgQueryArgs,
+        ) -> Result<i64, crate::ConnectionError>;
+
         fn group_messages_paged(
             &self,
             args: &crate::group_message::MsgQueryArgs,
