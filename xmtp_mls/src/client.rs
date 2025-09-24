@@ -1137,24 +1137,36 @@ pub(crate) mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(flavor = "multi_thread")]
-    async fn test_sync_welcomes_when_kp_life_time_ended() {
+    async fn test_leaf_node_lifetime_validation_disabled() {
         use crate::utils::test_mocks_helpers::set_test_mode_limit_key_package_lifetime;
 
         // Create a client with default KP lifetime
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        // Create a client with a KP that expires in 5 seconds
-        set_test_mode_limit_key_package_lifetime(true, 5);
-        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-
         // Create a client with default KP lifetime
         set_test_mode_limit_key_package_lifetime(false, 0);
         let cat = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        // Alice creates a group and invites Bob with short living KP
         let alice_bob_group = alice.create_group(None, None).unwrap();
         alice_bob_group
-            .add_members_by_inbox_id(&[bob.inbox_id(), cat.inbox_id()])
+            .add_members_by_inbox_id(&[cat.inbox_id()])
+            .await
+            .unwrap();
+
+        let cat_received_groups = cat.sync_welcomes().await.unwrap();
+        assert_eq!(cat_received_groups.len(), 1);
+        assert_eq!(
+            cat_received_groups.first().unwrap().group_id,
+            alice_bob_group.group_id
+        );
+
+        // Create a client with a KP that expires in 5 seconds
+        set_test_mode_limit_key_package_lifetime(true, 5);
+        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Alice invites Bob with short living KP
+        alice_bob_group
+            .add_members_by_inbox_id(&[bob.inbox_id()])
             .await
             .unwrap();
 
@@ -1164,17 +1176,9 @@ pub(crate) mod tests {
         // Wait for Bob's KP and their leafnode's lifetime to expire
         xmtp_common::time::sleep(Duration::from_secs(7)).await;
 
-        //cat receives welcomes after Bob's KP is expired, Cat should be able to process the welcome successfully
-        let cat_received_groups = cat.sync_welcomes().await.unwrap();
-
         assert_eq!(bob_received_groups.len(), 1);
-        assert_eq!(cat_received_groups.len(), 1);
         assert_eq!(
             bob_received_groups.first().unwrap().group_id,
-            alice_bob_group.group_id
-        );
-        assert_eq!(
-            cat_received_groups.first().unwrap().group_id,
             alice_bob_group.group_id
         );
 
@@ -1189,6 +1193,7 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[dave.inbox_id()])
             .await
             .unwrap();
+        // Dave should be okay receiving a welcome where members of the group are expired
         let dave_received_groups = dave.sync_welcomes().await.unwrap();
         assert_eq!(dave_received_groups.len(), 1);
         assert_eq!(
@@ -1197,6 +1202,11 @@ pub(crate) mod tests {
         );
         let dave_duplicate_received_groups = dave.sync_welcomes().await.unwrap();
         assert_eq!(dave_duplicate_received_groups.len(), 0);
+
+        // Cat receives commits to add expired group members, they should pass validation and be added
+        let cat_group = cat_received_groups.first().unwrap();
+        cat_group.sync().await.unwrap();
+        assert_eq!(cat_group.members().await.unwrap().len(), 4);
     }
 
     #[rstest::rstest]
