@@ -322,6 +322,13 @@ pub trait QueryGroupMessage {
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
 
+    /// Count group messages matching the given criteria
+    fn count_group_messages(
+        &self,
+        group_id: &[u8],
+        args: &MsgQueryArgs,
+    ) -> Result<i64, crate::ConnectionError>;
+
     fn group_messages_paged(
         &self,
         args: &MsgQueryArgs,
@@ -423,6 +430,15 @@ where
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
         (**self).get_group_messages(group_id, args)
+    }
+
+    /// Count group messages matching the given criteria
+    fn count_group_messages(
+        &self,
+        group_id: &[u8],
+        args: &MsgQueryArgs,
+    ) -> Result<i64, crate::ConnectionError> {
+        (**self).count_group_messages(group_id, args)
     }
 
     fn group_messages_paged(
@@ -550,6 +566,35 @@ where
     }
 }
 
+// Macro to apply common message filters to any boxed query
+macro_rules! apply_message_filters {
+    ($query:expr, $args:expr) => {{
+        let mut query = $query;
+
+        if let Some(sent_after) = $args.sent_after_ns {
+            query = query.filter(dsl::sent_at_ns.gt(sent_after));
+        }
+
+        if let Some(sent_before) = $args.sent_before_ns {
+            query = query.filter(dsl::sent_at_ns.lt(sent_before));
+        }
+
+        if let Some(kind) = $args.kind {
+            query = query.filter(dsl::kind.eq(kind));
+        }
+
+        if let Some(status) = $args.delivery_status {
+            query = query.filter(dsl::delivery_status.eq(status));
+        }
+
+        if let Some(content_types) = &$args.content_types {
+            query = query.filter(dsl::content_type.eq_any(content_types));
+        }
+
+        query
+    }};
+}
+
 impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     /// Query for group messages
     fn get_group_messages(
@@ -557,32 +602,25 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         group_id: &[u8],
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
-        // Get all messages that have a group with an id equal the provided id,
-        // or a dm_id equal to the dm_id that belongs to the loaded group with the provided id.
+        use crate::schema::{group_messages::dsl, groups::dsl as groups_dsl};
+
+        // Check if this is a DM group
+        let is_dm = self.raw_query_read(|conn| {
+            groups_dsl::groups
+                .filter(groups_dsl::id.eq(group_id))
+                .select(groups_dsl::conversation_type)
+                .first::<ConversationType>(conn)
+        })? == ConversationType::Dm;
+
+        // Start with base query
         let mut query = dsl::group_messages
             .filter(group_id_filter(group_id))
             .into_boxed();
 
-        if let Some(sent_after) = args.sent_after_ns {
-            query = query.filter(dsl::sent_at_ns.gt(sent_after));
-        }
+        // Apply common filters using macro
+        query = apply_message_filters!(query, args);
 
-        if let Some(sent_before) = args.sent_before_ns {
-            query = query.filter(dsl::sent_at_ns.lt(sent_before));
-        }
-
-        if let Some(kind) = args.kind {
-            query = query.filter(dsl::kind.eq(kind));
-        }
-
-        if let Some(status) = args.delivery_status {
-            query = query.filter(dsl::delivery_status.eq(status));
-        }
-
-        if let Some(content_types) = &args.content_types {
-            query = query.filter(dsl::content_type.eq_any(content_types));
-        }
-
+        // Apply ordering
         query = match args.direction.as_ref().unwrap_or(&SortDirection::Ascending) {
             SortDirection::Ascending => query.order(dsl::sent_at_ns.asc()),
             SortDirection::Descending => query.order(dsl::sent_at_ns.desc()),
@@ -594,6 +632,47 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
 
         let messages = self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?;
 
+        // Mirroring previous behaviour, if you explicitly want duplicate group updates for DMs
+        // you can include that type in the content_types argument.
+        let include_duplicate_group_updated = args
+            .content_types
+            .as_ref()
+            .map(|types| types.contains(&ContentType::GroupUpdated))
+            .unwrap_or(false);
+
+        let messages = if is_dm && !include_duplicate_group_updated {
+            // For DM conversations, do some gymnastics to make sure that there is only one GroupUpdated
+            // message and that it is treated as the oldest
+            let (group_updated_msgs, non_group_msgs): (Vec<_>, Vec<_>) = messages
+                .into_iter()
+                .partition(|msg| msg.content_type == ContentType::GroupUpdated);
+
+            let oldest_group_updated = group_updated_msgs
+                .into_iter()
+                .min_by_key(|msg| msg.sent_at_ns);
+
+            match oldest_group_updated {
+                Some(msg) => match args.direction.as_ref().unwrap_or(&SortDirection::Ascending) {
+                    SortDirection::Ascending => [vec![msg], non_group_msgs].concat(),
+                    SortDirection::Descending => [non_group_msgs, vec![msg]].concat(),
+                },
+                None => non_group_msgs,
+            }
+        } else {
+            messages
+        };
+
+        Ok(messages)
+    }
+
+    /// Count group messages matching the given criteria
+    fn count_group_messages(
+        &self,
+        group_id: &[u8],
+        args: &MsgQueryArgs,
+    ) -> Result<i64, crate::ConnectionError> {
+        use crate::schema::{group_messages::dsl, groups::dsl as groups_dsl};
+
         // Check if this is a DM group
         let is_dm = self.raw_query_read(|conn| {
             groups_dsl::groups
@@ -602,47 +681,34 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
                 .first::<ConversationType>(conn)
         })? == ConversationType::Dm;
 
-        // If DM, retain only one GroupUpdated message (the oldest)
-        let messages = if is_dm {
-            let mut grouped: Vec<StoredGroupMessage> = Vec::with_capacity(messages.len());
-            let mut oldest_group_updated: Option<StoredGroupMessage> = None;
-            let mut non_group_msgs: Vec<StoredGroupMessage> = Vec::new();
+        let include_group_updated = args
+            .content_types
+            .as_ref()
+            .map(|types| types.contains(&ContentType::GroupUpdated))
+            .unwrap_or(false);
 
-            for msg in messages {
-                if msg.content_type == ContentType::GroupUpdated {
-                    if oldest_group_updated
-                        .as_ref()
-                        .map(|existing| msg.sent_at_ns < existing.sent_at_ns)
-                        .unwrap_or(true)
-                    {
-                        oldest_group_updated = Some(msg);
-                    }
-                } else {
-                    non_group_msgs.push(msg);
-                }
-            }
+        // Start with base query
+        let mut query = dsl::group_messages
+            .filter(group_id_filter(group_id))
+            .into_boxed();
 
-            if let Some(msg) = oldest_group_updated {
-                match args.direction.as_ref().unwrap_or(&SortDirection::Ascending) {
-                    SortDirection::Ascending => {
-                        grouped.push(msg); // Add GroupUpdated at start
-                        grouped.extend(non_group_msgs);
-                    }
-                    SortDirection::Descending => {
-                        grouped.extend(non_group_msgs);
-                        grouped.push(msg); // Add GroupUpdated at end
-                    }
-                }
-            } else {
-                grouped = non_group_msgs;
-            }
+        // For DM groups, exclude GroupUpdated messages unless specifically requested
+        // In find_group_messages we do some post-query deduplication to return the first GroupUpdated
+        // message but not the subsequent ones. That's not really an option here, so instead we are excluding
+        // them altogether.
+        //
+        // Ideally we would prevent the duplicate GroupUpdated messages from being inserted in the first place.
+        if is_dm && !include_group_updated {
+            query = query.filter(dsl::content_type.ne(ContentType::GroupUpdated));
+        }
 
-            grouped
-        } else {
-            messages
-        };
+        // Apply common filters using macro
+        query = apply_message_filters!(query, args);
 
-        Ok(messages)
+        let count =
+            self.raw_query_read(|conn| query.select(diesel::dsl::count_star()).first::<i64>(conn))?;
+
+        Ok(count)
     }
 
     fn group_messages_paged(
