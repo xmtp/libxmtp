@@ -365,7 +365,11 @@ impl EnvelopeVisitor<'_> for TopicExtractor {
         let kp_in: KeyPackageIn =
             KeyPackageIn::tls_deserialize_exact(upload.key_package_tls_serialized.as_slice())?;
         let rust_crypto = RustCrypto::default();
-        let kp = kp_in.validate(&rust_crypto, super::MLS_PROTOCOL_VERSION)?;
+        let kp = kp_in.validate(
+            &rust_crypto,
+            super::MLS_PROTOCOL_VERSION,
+            openmls::prelude::LeafNodeLifetimePolicy::Verify,
+        )?;
         let installation_key = kp.leaf_node().signature_key().as_slice();
         self.topic = Some(TopicKind::KeyPackagesV1.build(installation_key));
         Ok(())

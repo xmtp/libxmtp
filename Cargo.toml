@@ -97,11 +97,11 @@ js-sys = "0.3"
 mockall = { version = "0.13" }
 mockall_double = "0.3.1"
 once_cell = "1.2"
-openmls = { git = "https://github.com/xmtp/openmls", rev = "6670113de406d42a8d0205b76961adcf610967ff", default-features = false }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "6670113de406d42a8d0205b76961adcf610967ff" }
-openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "6670113de406d42a8d0205b76961adcf610967ff" }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "6670113de406d42a8d0205b76961adcf610967ff" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "6670113de406d42a8d0205b76961adcf610967ff" }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "ef01de5f0f3cbc99f58dd55d5a38e5722d2e1e08", default-features = false }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "ef01de5f0f3cbc99f58dd55d5a38e5722d2e1e08" }
+openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "ef01de5f0f3cbc99f58dd55d5a38e5722d2e1e08" }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "ef01de5f0f3cbc99f58dd55d5a38e5722d2e1e08" }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "ef01de5f0f3cbc99f58dd55d5a38e5722d2e1e08" }
 owo-colors = { version = "4.1" }
 p256 = { version = "0.13.2", features = ["ecdsa"] }
 parking_lot = "0.12.3"
