@@ -671,6 +671,11 @@ impl Identity {
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+tokio::task_local! {
+    pub static ENABLE_WELCOME_POINTERS: bool;
+}
+
 #[derive(Builder, Debug)]
 #[builder(build_fn(error = "IdentityError", name = "inner_build", private))]
 pub struct XmtpKeyPackage {
@@ -699,6 +704,18 @@ impl XmtpKeyPackageBuilder {
         let welcome_pointee_encryption_aead_types =
             WelcomePointersExtension::available_types().try_into()?;
         let mut extensions = vec![last_resort, welcome_pointee_encryption_aead_types];
+        #[cfg(any(test, feature = "test-utils"))]
+        {
+            if !ENABLE_WELCOME_POINTERS.try_with(|v| *v).unwrap_or(true) {
+                let extension = extensions
+                    .pop()
+                    .expect("Welcome pointers extension is always present");
+                assert_eq!(
+                    extension.extension_type(),
+                    ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID)
+                );
+            }
+        }
         let mut post_quantum_keypair = None;
         if include_post_quantum {
             let keypair = generate_post_quantum_key()?;

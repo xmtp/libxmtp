@@ -10,6 +10,7 @@ mod test_libxmtp_version;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_network;
 mod test_send_message_opts;
+mod test_welcome_pointers;
 mod test_welcomes;
 
 use crate::groups::send_message_opts::SendMessageOpts;
