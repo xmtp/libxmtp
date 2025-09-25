@@ -1,9 +1,9 @@
 [package]
 build = "build.rs"
 edition = "2021"
-license.workspace = true
 name = "mls_validation_service"
-version = "0.1.5"
+version.workspace = true
+license.workspace = true
 
 [[bin]] # Bin to run the Validation Service
 name = "mls-validation-service"
