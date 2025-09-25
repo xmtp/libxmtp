@@ -8,13 +8,13 @@ use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n:
 use itertools::Itertools;
 use xmtp_common::RetryableError;
 use xmtp_configuration::Originators;
-use xmtp_proto::types::Topic;
 use xmtp_proto::ConversionError;
 use xmtp_proto::api::Client;
 use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::XmtpIdentityClient;
 use xmtp_proto::identity_v1;
 use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
+use xmtp_proto::types::Topic;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
@@ -69,7 +69,7 @@ where
         let last_seen = Some(Cursor {
             node_id_to_sequence_id: [
                 (node_id, request.requests.first().unwrap().sequence_id),
-                (Originators::INBOX_LOG as u32, 0),
+                (Originators::INBOX_LOG, 0),
             ]
             .into(),
         });
@@ -82,7 +82,7 @@ where
             .build()?
             .query(&self.message_client)
             .await?;
-        tracing::info!("{:?}", result);
+
         let updates: HashMap<String, Vec<IdentityUpdateLog>> = SequencedExtractor::builder()
             .envelopes(result.envelopes)
             .build::<IdentityUpdateExtractor>()

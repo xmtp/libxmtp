@@ -1,14 +1,36 @@
-use std::fmt::{Debug, Display};
+use std::{
+    fmt::{Debug, Display},
+    ops::Deref,
+};
 
-use crate::xmtp::xmtpv4::envelopes::AuthenticatedData;
+use crate::{xmtp::xmtpv4::envelopes::AuthenticatedData, ConversionError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
+#[non_exhaustive]
 pub enum TopicKind {
     GroupMessagesV1 = 0,
     WelcomeMessagesV1 = 1,
     IdentityUpdatesV1 = 2,
     KeyPackagesV1 = 3,
+}
+
+impl TryFrom<u8> for TopicKind {
+    type Error = crate::ConversionError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(TopicKind::GroupMessagesV1),
+            1 => Ok(TopicKind::WelcomeMessagesV1),
+            2 => Ok(TopicKind::IdentityUpdatesV1),
+            3 => Ok(TopicKind::KeyPackagesV1),
+            i => Err(ConversionError::InvalidValue {
+                item: "u8",
+                expected: "an unsigned integer in the range 0-3",
+                got: i.to_string(),
+            }),
+        }
+    }
 }
 
 impl Display for TopicKind {
@@ -34,36 +56,42 @@ impl TopicKind {
 
     pub fn create<B: AsRef<[u8]>>(&self, bytes: B) -> Topic {
         Topic {
-            kind: *self,
-            bytes: bytes.as_ref().to_vec(),
+            inner: self.build(bytes),
         }
     }
 }
 
 /// A topic where the first byte is the kind
 /// https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#332-envelopes
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Topic {
-    pub kind: TopicKind,
-    bytes: Vec<u8>,
+    inner: Vec<u8>,
 }
 
 impl Topic {
     pub fn new(kind: TopicKind, bytes: Vec<u8>) -> Self {
-        Self { kind, bytes }
+        Self {
+            inner: kind.build(bytes),
+        }
+    }
+
+    pub fn kind(&self) -> TopicKind {
+        self.inner[0]
+            .try_into()
+            .expect("A topic must always be built with a valid `TopicKind`")
     }
 
     /// Get only the identifying portion of this topic
     pub fn identifier(&self) -> &[u8] {
-        &self.bytes
+        &self.inner[1..]
     }
 
     pub fn bytes(&self) -> Vec<u8> {
-        self.kind.build(&self.bytes)
+        self.inner.clone()
     }
 
     pub fn to_bytes(self) -> Vec<u8> {
-        self.kind.build(self.bytes)
+        self.inner
     }
 }
 
@@ -76,15 +104,39 @@ impl From<Topic> for Vec<u8> {
 impl Debug for Topic {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Topic")
-            .field("kind", &self.kind)
-            .field("bytes", &hex::encode(&self.bytes))
+            .field("kind", &self.kind())
+            .field("bytes", &hex::encode(&self.identifier()))
             .finish()
     }
 }
 
 impl Display for Topic {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}:{}]", self.kind, hex::encode(&self.bytes))
+        write!(f, "[{}:{}]", self.kind(), hex::encode(&self.identifier()))
+    }
+}
+
+impl Deref for Topic {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<T> AsRef<T> for Topic
+where
+    T: ?Sized,
+    <Topic as Deref>::Target: AsRef<T>,
+{
+    fn as_ref(&self) -> &T {
+        self.deref().as_ref()
+    }
+}
+
+impl AsRef<Topic> for Topic {
+    fn as_ref(&self) -> &Topic {
+        &self
     }
 }
 

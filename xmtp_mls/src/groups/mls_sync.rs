@@ -91,7 +91,6 @@ use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_id::{InboxId, InboxIdRef};
-use xmtp_proto::{mls_v1::WelcomeMetadata, types::GroupMessage};
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
@@ -107,6 +106,7 @@ use xmtp_proto::xmtp::mls::{
         plaintext_envelope::{Content, V1, V2, v2::MessageType},
     },
 };
+use xmtp_proto::{mls_v1::WelcomeMetadata, types::GroupMessage};
 pub mod update_group_membership;
 
 #[derive(Debug, Error)]
@@ -1680,10 +1680,7 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip(self, messages))]
-    pub async fn process_messages(
-        &self,
-        messages: Vec<GroupMessage>,
-    ) -> ProcessSummary {
+    pub async fn process_messages(&self, messages: Vec<GroupMessage>) -> ProcessSummary {
         let mut summary = ProcessSummary::default();
         for message in messages {
             summary.add_id(message.cursor);
@@ -1728,9 +1725,8 @@ where
     /// cursor ids, so that streams do not unintentially retry O(n^2) messages.
     #[tracing::instrument(skip_all, level = "trace")]
     pub async fn receive(&self) -> Result<ProcessSummary, GroupError> {
-        let db = self.context.db();
         let messages = MlsStore::new(self.context.clone())
-            .query_group_messages(&self.group_id, &db)
+            .query_group_messages(&self.group_id)
             .await?;
 
         let summary = self.process_messages(messages).await;

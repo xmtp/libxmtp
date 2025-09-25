@@ -9,7 +9,7 @@ use xmtp_db::{
     Fetch, NotFound, XmtpOpenMlsProvider,
     group::{GroupQueryArgs, StoredGroup},
 };
-use xmtp_proto::types::{GroupMessage, TopicKind, WelcomeMessage};
+use xmtp_proto::types::{GroupMessage, WelcomeMessage};
 
 use crate::{
     context::XmtpSharedContext,
@@ -57,24 +57,16 @@ impl<Context> MlsStore<Context>
 where
     Context: XmtpSharedContext,
 {
-    // TODO:d14n
     /// Query for welcome messages that have a `sequence_id` > than the highest cursor
     /// found in the local database
     pub(crate) async fn query_welcome_messages(
         &self,
-        conn: &impl DbQuery,
     ) -> Result<Vec<WelcomeMessage>, MlsStoreError> {
         let installation_id = self.context.installation_id();
-        let cursor = conn.lowest_common_cursor(&[&TopicKind::WelcomeMessagesV1.create(installation_id)])?;
-
         let welcomes = self
             .context
             .api()
-            .query_welcome_messages(
-                installation_id.as_ref(),
-                // TODO:d14n query with cursor store to include last seen per originator
-                cursor,
-            )
+            .query_welcome_messages(installation_id.as_ref())
             .await?;
 
         Ok(welcomes)
@@ -85,15 +77,11 @@ where
     pub(crate) async fn query_group_messages(
         &self,
         group_id: &[u8],
-        conn: &impl DbQuery,
     ) -> Result<Vec<GroupMessage>, MlsStoreError> {
-        let cursor = conn.lowest_common_cursor(&[&TopicKind::GroupMessagesV1.create(group_id)])?;
-
-        // TODO:d14n query with cursor store to include last seen per originator
         let messages = self
             .context
             .sync_api()
-            .query_group_messages(group_id.into(), cursor)
+            .query_group_messages(group_id.into())
             .await?;
 
         Ok(messages)

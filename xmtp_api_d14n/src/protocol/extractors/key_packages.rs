@@ -4,7 +4,6 @@ use crate::protocol::Extractor;
 use crate::protocol::traits::EnvelopeVisitor;
 use xmtp_proto::xmtp::mls::api::v1::UploadKeyPackageRequest;
 use xmtp_proto::xmtp::mls::api::v1::fetch_key_packages_response::KeyPackage;
-use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 
 /// Key Packages Extractor
 /// This Extractor can be applied to multiple envelopes without losing state
@@ -33,11 +32,6 @@ impl KeyPackagesExtractor {
 
 impl EnvelopeVisitor<'_> for KeyPackagesExtractor {
     type Error = ConversionError;
-
-    fn visit_client(&mut self, e: &ClientEnvelope) -> Result<(), Self::Error> {
-        tracing::debug!("client: {:?}", e);
-        Ok(())
-    }
 
     fn visit_none(&mut self) -> Result<(), Self::Error> {
         // TODO: Handle empty key package response (when key package is None)
