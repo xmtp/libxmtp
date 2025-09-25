@@ -426,6 +426,18 @@ impl Conversation {
   }
 
   #[napi]
+  pub async fn update_group_min_version_to_match_self(&self) -> Result<()> {
+    let group = self.create_mls_group();
+
+    group
+      .update_group_min_version_to_match_self()
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
   pub fn group_name(&self) -> Result<String> {
     let group = self.create_mls_group();
 
