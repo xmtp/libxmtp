@@ -1,0 +1,144 @@
+name: Update XMTP Android Repository
+on:
+  push:
+    tags:
+      - "kotlinl-bindings-*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to use (e.g. kotlin-bindings-0.1.0.abc1234)"
+        required: true
+      xmtp_android_branch:
+        description: "xmtp-android branch to base PR off of (default: main)"
+        required: false
+        default: "main"
+
+jobs:
+  update-xmtp-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout libxmtp
+        uses: actions/checkout@v5
+        with:
+          path: libxmtp
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+
+      - name: Checkout xmtp-android
+        uses: actions/checkout@v5
+        with:
+          repository: xmtp/xmtp-android
+          path: xmtp-android
+          token: ${{ secrets.LIBXMTP_SWIFT_PAT }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.xmtp_android_branch || 'main' }}
+
+      - name: Get version and SHA
+        id: version_info
+        run: |
+          cd libxmtp
+          # Get the original version from cargo metadata
+          ORIG_VERSION=$(cargo metadata --manifest-path bindings_ffi/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')
+
+          # Extract the major version and add 3 to it
+          MAJOR_VERSION=$(echo $ORIG_VERSION | cut -d. -f1)
+          NEW_MAJOR=$((MAJOR_VERSION + 3))
+
+          # Replace the major version in the original version string
+          VERSION=$(echo $ORIG_VERSION | sed "s/^$MAJOR_VERSION/$NEW_MAJOR/")
+
+          # Get the tag - either from the push event or from workflow_dispatch input
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            # Find the kotlin-bindings-* tag on the current commit
+            COMMIT_SHA=$(git rev-parse HEAD)
+            KOTLIN_TAG=$(git tag --points-at $COMMIT_SHA | grep "^kotlin-bindings-" | head -n 1)
+            
+            # If no kotlin-bindings-* tag found, fall back to github.ref_name
+            if [[ -z "$KOTLIN_TAG" ]]; then
+              TAG="${{ github.ref_name }}"
+            else
+              TAG="$KOTLIN_TAG"
+            fi
+          fi
+
+          # Extract version and SHA from tag
+          VERSION_INPUT=$(echo $TAG | sed 's/kotlin-bindings-//' | cut -d. -f1-3)
+          SHA7=$(echo $TAG | cut -d. -f4)
+          RELEASE_TAG="${TAG}"
+
+          # If version contains "dev", append the git commit SHA
+          if [[ "$VERSION" == *"dev"* ]]; then
+            VERSION="${VERSION}.${SHA7}"
+          fi
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "sha7=${SHA7}" >> $GITHUB_OUTPUT
+          echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Create branch in xmtp-android
+        run: |
+          cd xmtp-android
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git checkout -b update-to-${{ steps.version_info.outputs.release_tag }}
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'adopt'
+          java-version: '17'
+
+      - name: Run gen_kotlin.sh
+        run: |
+          cd libxmtp/bindings_ffi
+          ./gen_kotlin.sh
+
+      - name: Update release version in workflow file
+        run: |
+          cd xmtp-android
+          VERSION="${{ steps.version_info.outputs.version }}"
+          
+          # Find the GitHub workflow file that contains RELEASE_VERSION
+          WORKFLOW_FILE=".github/workflows/release.yml"
+          
+          if [[ -f "$WORKFLOW_FILE" ]]; then
+            # Update the RELEASE_VERSION environment variable
+            sed -i "s/RELEASE_VERSION: \"[^\"]*\"/RELEASE_VERSION: \"${VERSION}\"/" "$WORKFLOW_FILE"
+            echo "Updated RELEASE_VERSION in $WORKFLOW_FILE to $VERSION"
+          else
+            echo "Warning: Could not find workflow file at $WORKFLOW_FILE"
+            # List available workflow files for debugging
+            echo "Available workflow files:"
+            find .github/workflows -name "*.yml" -o -name "*.yaml" 2>/dev/null || echo "No .github/workflows directory found"
+          fi
+
+      - name: Commit and push changes
+        run: |
+          cd xmtp-android
+          git add -A
+          
+          # Check if there are any changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 1
+          fi
+          
+          git commit -m "Update to libxmtp ${{ steps.version_info.outputs.version }}"
+          git push origin update-to-${{ steps.version_info.outputs.release_tag }}
+
+      - name: Create PR
+        env:
+          GH_TOKEN: ${{ secrets.LIBXMTP_SWIFT_PAT }}
+        run: |
+          BASE_BRANCH="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.xmtp_android_branch || 'main' }}"
+          gh pr create --repo xmtp/xmtp-android \
+            --base "${BASE_BRANCH}" \
+            --head update-to-${{ steps.version_info.outputs.release_tag }} \
+            --title "Update to libxmtp ${{ steps.version_info.outputs.version }}" \
+            --body "This PR updates the Android bindings to libxmtp version ${{ steps.version_info.outputs.version }}. 
+            
+          Changes:
+          - Updated Kotlin bindings via gen_kotlin.sh
+          - Updated RELEASE_VERSION in workflow file to ${{ steps.version_info.outputs.version }}
+          
+          Base branch: ${BASE_BRANCH}"
