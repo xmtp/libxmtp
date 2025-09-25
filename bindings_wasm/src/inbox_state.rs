@@ -1,10 +1,10 @@
 use crate::{client::Client, identity::Identifier};
 use js_sys::Uint8Array;
-use xmtp_api::strategies;
 use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::{JsError, JsValue, prelude::wasm_bindgen};
 use xmtp_api::ApiClientWrapper;
+use xmtp_api::strategies;
 use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_api_d14n::TrackedStatsClient;
 use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};

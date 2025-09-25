@@ -6,7 +6,7 @@ use futures::lock::Mutex;
 use js_sys::Uint8Array;
 use std::sync::Arc;
 use wasm_bindgen::prelude::{JsError, wasm_bindgen};
-use xmtp_api::{strategies, ApiClientWrapper};
+use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_d14n::{MessageBackendBuilder, TrackedStatsClient};
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::{

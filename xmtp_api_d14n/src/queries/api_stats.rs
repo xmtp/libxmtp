@@ -1,20 +1,18 @@
 use xmtp_proto::api::HasStats;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
+use xmtp_proto::api_client::CursorAwareApi;
 use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::identity_v1;
 use xmtp_proto::mls_v1;
-use xmtp_proto::mls_v1::SubscribeGroupMessagesRequest;
-use xmtp_proto::mls_v1::SubscribeWelcomeMessagesRequest;
 use xmtp_proto::prelude::ApiBuilder;
 use xmtp_proto::prelude::XmtpIdentityClient;
 use xmtp_proto::prelude::XmtpMlsStreams;
 use xmtp_proto::types::AppVersion;
-use xmtp_proto::types::GlobalCursor;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::WelcomeMessage;
-use xmtp_proto::types::{Cursor, GroupId, GroupMessage};
+use xmtp_proto::types::{GroupId, GroupMessage};
 
 /// Wraps an ApiClient that tracks stats of each api call
 #[derive(Clone)]
@@ -76,10 +74,9 @@ where
     async fn query_group_messages(
         &self,
         group_id: GroupId,
-        cursor: GlobalCursor,
     ) -> Result<Vec<GroupMessage>, Self::Error> {
         self.stats.query_group_messages.count_request();
-        self.inner.query_group_messages(group_id, cursor).await
+        self.inner.query_group_messages(group_id).await
     }
 
     async fn query_latest_group_message(
@@ -93,12 +90,9 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: GlobalCursor,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         self.stats.query_welcome_messages.count_request();
-        self.inner
-            .query_welcome_messages(installation_key, cursor)
-            .await
+        self.inner.query_welcome_messages(installation_key).await
     }
 
     async fn publish_commit_log(
@@ -176,19 +170,17 @@ where
     async fn subscribe_group_messages(
         &self,
         group_ids: &[&GroupId],
-        cursor: GlobalCursor
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         self.stats.subscribe_messages.count_request();
-        self.inner.subscribe_group_messages(group_ids, cursor).await
+        self.inner.subscribe_group_messages(group_ids).await
     }
 
     async fn subscribe_welcome_messages(
         &self,
         installations: &[&InstallationId],
-        cursor: GlobalCursor
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         self.stats.subscribe_welcomes.count_request();
-        self.inner.subscribe_welcome_messages(installations, cursor).await
+        self.inner.subscribe_welcome_messages(installations).await
     }
 }
 
@@ -269,6 +261,28 @@ where
 
     fn set_retry(&mut self, retry: xmtp_common::Retry) {
         <Builder as ApiBuilder>::set_retry(&mut self.client, retry)
+    }
+}
+
+impl<C> CursorAwareApi for TrackedStatsClient<C>
+where
+    C: CursorAwareApi,
+{
+    type CursorStore = <C as CursorAwareApi>::CursorStore;
+
+    fn set_cursor_store(&mut self, store: Self::CursorStore) {
+        <C as CursorAwareApi>::set_cursor_store(&mut self.inner, store);
+    }
+}
+
+impl<Builder> CursorAwareApi for StatsBuilder<Builder>
+where
+    Builder: CursorAwareApi,
+{
+    type CursorStore = <Builder as CursorAwareApi>::CursorStore;
+
+    fn set_cursor_store(&mut self, store: Self::CursorStore) {
+        <Builder as CursorAwareApi>::set_cursor_store(&mut self.client, store);
     }
 }
 

@@ -277,7 +277,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         let entities = topics
             .iter()
             .map(|t| {
-                let kind = match t.kind {
+                let kind = match t.kind() {
                     TopicKind::GroupMessagesV1 => EntityKind::Group,
                     TopicKind::WelcomeMessagesV1 => EntityKind::Welcome,
                     _ => panic!("not tracking identity/key packages"),

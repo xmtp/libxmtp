@@ -1,14 +1,13 @@
 use crate::TryExtractorStream;
 use crate::d14n::SubscribeEnvelopes;
-use crate::protocol::{EnvelopeCollection, GroupMessageExtractor, WelcomeMessageExtractor};
+use crate::protocol::{GroupMessageExtractor, WelcomeMessageExtractor};
 use crate::queries::stream;
 
 use super::D14nClient;
 use xmtp_common::{MaybeSend, RetryableError};
 use xmtp_proto::api::{ApiClientError, Client, QueryStream, XmtpStream};
 use xmtp_proto::api_client::XmtpMlsStreams;
-use xmtp_proto::mls_v1;
-use xmtp_proto::types::{GlobalCursor, GroupId, InstallationId, Topic, TopicKind};
+use xmtp_proto::types::{GroupId, InstallationId, Topic, TopicKind};
 use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, SubscribeEnvelopesResponse};
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -35,34 +34,46 @@ where
     async fn subscribe_group_messages(
         &self,
         group_ids: &[&GroupId],
-        cursor: GlobalCursor
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        let _stream = SubscribeEnvelopes::builder()
+        let topics = group_ids
+            .iter()
+            .map(|gid| TopicKind::GroupMessagesV1.create(gid))
+            .collect::<Vec<_>>();
+        let lcc = self
+            .cursor_store
+            .lowest_common_cursor(&topics.iter().collect::<Vec<_>>())?;
+        let s = SubscribeEnvelopes::builder()
             .envelopes(EnvelopesQuery {
-                topics: group_ids.iter().map(|id| TopicKind::GroupMessagesV1.build(id)).collect(),
+                topics: topics.into_iter().map(Topic::to_bytes).collect(),
                 originator_node_ids: vec![],
-                last_seen: cursor, // TODO: requires cursor store
+                last_seen: Some(lcc.into()),
             })
             .build()?
             .stream(&self.message_client)
             .await?;
-        Ok(stream::try_extractor(_stream))
+        Ok(stream::try_extractor(s))
     }
 
     async fn subscribe_welcome_messages(
         &self,
         installations: &[&InstallationId],
-        cursor: GlobalCursor
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
-        let _stream = SubscribeEnvelopes::builder()
+        let topics = installations
+            .iter()
+            .map(|ins| TopicKind::WelcomeMessagesV1.create(ins))
+            .collect::<Vec<_>>();
+        let lcc = self
+            .cursor_store
+            .lowest_common_cursor(&topics.iter().collect::<Vec<_>>())?;
+        let s = SubscribeEnvelopes::builder()
             .envelopes(EnvelopesQuery {
-                topics: installations.iter().map(|id| TopicKind::WelcomeMessagesV1.build(id)).collect(),
+                topics: topics.into_iter().map(Topic::to_bytes).collect(),
                 originator_node_ids: vec![],
-                last_seen: cursor
+                last_seen: Some(lcc.into()),
             })
             .build()?
             .stream(&self.message_client)
             .await?;
-        Ok(stream::try_extractor(_stream))
+        Ok(stream::try_extractor(s))
     }
 }

@@ -7,6 +7,7 @@ pub mod test_utils;
 
 pub mod debug_wrapper;
 pub use debug_wrapper::*;
+use xmtp_proto::api_client::CursorAwareApi;
 
 use std::sync::Arc;
 
@@ -62,6 +63,13 @@ pub struct ApiClientWrapper<ApiClient> {
     pub api_client: ApiClient,
     pub(crate) retry_strategy: Arc<Retry<ExponentialBackoff>>,
     pub(crate) inbox_id: Option<String>,
+}
+
+impl<C: CursorAwareApi> CursorAwareApi for ApiClientWrapper<C> {
+    type CursorStore = <C as CursorAwareApi>::CursorStore;
+    fn set_cursor_store(&mut self, store: Self::CursorStore) {
+        self.api_client.set_cursor_store(store);
+    }
 }
 
 impl<ApiClient> ApiClientWrapper<ApiClient> {

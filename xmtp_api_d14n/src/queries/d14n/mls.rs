@@ -19,7 +19,6 @@ use xmtp_proto::api::Client;
 use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
-use xmtp_proto::types::GlobalCursor;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::TopicKind;
@@ -117,11 +116,12 @@ where
     async fn query_group_messages(
         &self,
         group_id: GroupId,
-        cursor: GlobalCursor,
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
+        let topic = TopicKind::GroupMessagesV1.create(&group_id);
+        let lcc = self.cursor_store.lowest_common_cursor(&[&topic])?;
         let response: QueryEnvelopesResponse = QueryEnvelope::builder()
-            .topic(TopicKind::GroupMessagesV1.build(group_id))
-            .last_seen(cursor)
+            .topic(topic)
+            .last_seen(lcc)
             .limit(MAX_PAGE_SIZE)
             .build()?
             .query(&self.message_client)
@@ -162,13 +162,12 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: GlobalCursor,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
-        let topic = TopicKind::WelcomeMessagesV1.build(installation_key.as_slice());
-
-        let response: QueryEnvelopesResponse = QueryEnvelope::builder()
+        let topic = TopicKind::WelcomeMessagesV1.create(&installation_key);
+        let lcc = self.cursor_store.lowest_common_cursor(&[&topic])?;
+        let response = QueryEnvelope::builder()
             .topic(topic)
-            .last_seen(cursor)
+            .last_seen(lcc)
             .limit(MAX_PAGE_SIZE)
             .build()?
             .query(&self.message_client)
