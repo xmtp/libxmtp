@@ -123,6 +123,14 @@ async fn send_messages_in_thread(
         .await
         .expect("Failed to create DM");
 
+    // Add 3 second delay after creating conversation and before sending messages
+    info!(
+        "Thread {}: Conversation created, waiting 3 seconds before sending messages...",
+        thread_id
+    );
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+    info!("Thread {}: Starting to send messages", thread_id);
+
     let mut sent_count = 0;
 
     for i in 0..messages_to_send {
@@ -136,8 +144,10 @@ async fn send_messages_in_thread(
         // Send message with timeout
         match tokio::time::timeout(
             tokio::time::Duration::from_secs(timeout_seconds),
-            group.send_message(&content_bytes)
-        ).await {
+            group.send_message(&content_bytes),
+        )
+        .await
+        {
             Ok(Ok(message_id)) => {
                 sent_count += 1;
                 let hex_id = hex::encode(&message_id);
@@ -201,7 +211,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rate_progress = Arc::clone(&progress);
     let active_threads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let active_threads_clone = Arc::clone(&active_threads);
-    
+
     // Track min/max rates
     let min_rate = Arc::new(std::sync::Mutex::new(None::<f64>));
     let max_rate = Arc::new(std::sync::Mutex::new(None::<f64>));
@@ -212,17 +222,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1000)); // 1 second intervals
         let mut last_position = 0u64;
         let mut last_update = Instant::now();
-        
+
         loop {
             interval.tick().await;
             let now = Instant::now();
             let current_pos = rate_progress.position();
             let time_window = now.duration_since(last_update).as_secs_f64();
-            
+
             if time_window > 0.0 {
                 let messages_in_window = current_pos - last_position;
                 let current_rate = messages_in_window as f64 / time_window;
-                
+
                 // Update min/max rates
                 if current_rate > 0.0 {
                     if let Ok(mut min) = min_rate_clone.lock() {
@@ -232,10 +242,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         *max = Some(max.map_or(current_rate, |m| m.max(current_rate)));
                     }
                 }
-                
+
                 let active = active_threads_clone.load(std::sync::atomic::Ordering::Relaxed);
-                rate_progress.set_message(format!("{:.1} msg/s ({} active threads)", current_rate, active));
-                
+                rate_progress.set_message(format!(
+                    "{:.1} msg/s ({} active threads)",
+                    current_rate, active
+                ));
+
                 // Reset for next window
                 last_position = current_pos;
                 last_update = now;
@@ -319,7 +332,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Total messages sent: {}", total_sent);
     info!("Total duration: {:.2} seconds", duration_seconds);
     info!("Average messages per second: {:.2}", messages_per_second);
-    
+
     // Log min/max rates if we have them
     if let (Ok(min), Ok(max)) = (min_rate.lock(), max_rate.lock()) {
         if let (Some(min_val), Some(max_val)) = (*min, *max) {
