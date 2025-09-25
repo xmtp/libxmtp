@@ -2,7 +2,7 @@ name: Update XMTP Android Repository
 on:
   push:
     tags:
-      - "kotlinl-bindings-*"
+      - "kotlin-bindings-*"
   workflow_dispatch:
     inputs:
       tag:
