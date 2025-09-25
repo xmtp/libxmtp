@@ -42,24 +42,3 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
-  deploy:
-    name: Deploy new images to infra
-    runs-on: ubuntu-latest
-    needs: push_to_registry
-    strategy:
-      matrix:
-        environment: [dev, production, testnet-staging]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Deploy to ${{ matrix.environment }}
-        uses: xmtp-labs/terraform-deployer@v1
-        with:
-          terraform-token: ${{ secrets.TERRAFORM_TOKEN }}
-          terraform-org: xmtp
-          terraform-workspace: ${{ matrix.environment }}
-          variable-name: validation_service_image
-          variable-value: "ghcr.io/xmtp/mls-validation-service@${{ needs.push_to_registry.outputs.digest }}"
-          variable-value-required-prefix: "ghcr.io/xmtp/mls-validation-service@sha256:"

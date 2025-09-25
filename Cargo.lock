@@ -4146,7 +4146,7 @@ dependencies = [
 
 [[package]]
 name = "mls_validation_service"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "alloy",
  "anyhow",
