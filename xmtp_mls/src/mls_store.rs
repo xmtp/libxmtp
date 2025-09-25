@@ -5,12 +5,11 @@ use std::collections::HashMap;
 
 use xmtp_api::ApiError;
 use xmtp_common::RetryableError;
-use xmtp_configuration::Originators;
 use xmtp_db::{
     Fetch, NotFound, XmtpOpenMlsProvider,
     group::{GroupQueryArgs, StoredGroup},
 };
-use xmtp_proto::types::{GroupMessage, TopicKind, WelcomeMessage};
+use xmtp_proto::types::{GroupMessage, WelcomeMessage};
 
 use crate::{
     context::XmtpSharedContext,
@@ -62,15 +61,13 @@ where
     /// found in the local database
     pub(crate) async fn query_welcome_messages(
         &self,
-        conn: &impl DbQuery,
     ) -> Result<Vec<WelcomeMessage>, MlsStoreError> {
         let installation_id = self.context.installation_id();
-        let cursor = conn.lowest_common_cursor(&[&TopicKind::WelcomeMessagesV1.create(installation_id)])?;
 
         let welcomes = self
             .context
             .api()
-            .query_welcome_messages(installation_id.as_ref(), cursor)
+            .query_welcome_messages(installation_id.as_ref())
             .await?;
 
         Ok(welcomes)
@@ -81,14 +78,11 @@ where
     pub(crate) async fn query_group_messages(
         &self,
         group_id: &[u8],
-        conn: &impl DbQuery,
     ) -> Result<Vec<GroupMessage>, MlsStoreError> {
-        let cursor = conn.lowest_common_cursor(&[&TopicKind::GroupMessagesV1.create(group_id)])?;
-
         let messages = self
             .context
             .sync_api()
-            .query_group_messages(group_id.into(), vec![app_msgs, commits])
+            .query_group_messages(group_id.into())
             .await?;
 
         Ok(messages)

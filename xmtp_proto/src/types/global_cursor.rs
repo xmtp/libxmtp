@@ -9,7 +9,7 @@ use xmtp_configuration::Originators;
 /// a.k.a vector clock
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalCursor {
-    inner: HashMap<super::OriginatorId, super::SequenceId>,
+    pub inner: HashMap<super::OriginatorId, super::SequenceId>,
 }
 
 impl GlobalCursor {
@@ -17,10 +17,14 @@ impl GlobalCursor {
         Self { inner: map }
     }
 
+    pub fn get(&self, originator: &super::OriginatorId) -> super::SequenceId {
+        self.inner.get(originator).copied().unwrap_or_default()
+    }
+
     /// get latest sequence id for the v3 welcome message originator
     pub fn v3_welcome(&self) -> super::SequenceId {
         self.inner
-            .get(&(Originators::WELCOME_MESSAGES as u32))
+            .get(&(Originators::WELCOME_MESSAGES))
             .copied()
             .unwrap_or_default()
     }
@@ -28,7 +32,7 @@ impl GlobalCursor {
     /// get latest sequence id for v3 application message originator
     pub fn v3_message(&self) -> super::SequenceId {
         self.inner
-            .get(&(Originators::APPLICATION_MESSAGES as u32))
+            .get(&(Originators::APPLICATION_MESSAGES))
             .copied()
             .unwrap_or_default()
     }
@@ -36,7 +40,7 @@ impl GlobalCursor {
     /// get the latest sequence id for the mls commit originator (v3/d14n)
     pub fn commit(&self) -> super::SequenceId {
         self.inner
-            .get(&(Originators::MLS_COMMITS as u32))
+            .get(&(Originators::MLS_COMMITS))
             .copied()
             .unwrap_or_default()
     }
@@ -44,7 +48,7 @@ impl GlobalCursor {
     /// get the latest sequence_id for the installation/key package originator
     pub fn v3_installations(&self) -> super::SequenceId {
         self.inner
-            .get(&(Originators::INSTALLATIONS as u32))
+            .get(&(Originators::INSTALLATIONS))
             .copied()
             .unwrap_or_default()
     }
@@ -52,7 +56,7 @@ impl GlobalCursor {
     /// get the latest sequence id for the inbox log originator (v3/d14n)
     pub fn inbox_log(&self) -> super::SequenceId {
         self.inner
-            .get(&(Originators::INBOX_LOG as u32))
+            .get(&(Originators::INBOX_LOG))
             .copied()
             .unwrap_or_default()
     }

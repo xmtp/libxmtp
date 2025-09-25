@@ -1,6 +1,6 @@
 use crate::xmtp::identity::MlsCredential;
 use openmls::{
-    credentials::{errors::BasicCredentialError, BasicCredential},
+    credentials::{BasicCredential, errors::BasicCredentialError},
     prelude::Credential as OpenMlsCredential,
 };
 use prost::Message;

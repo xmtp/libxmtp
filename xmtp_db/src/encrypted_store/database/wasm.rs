@@ -20,6 +20,8 @@ pub enum PlatformStorageError {
     #[error(transparent)]
     DieselResult(#[from] diesel::result::Error),
 }
+unsafe impl Send for PlatformStorageError {}
+unsafe impl Sync for PlatformStorageError {}
 
 impl xmtp_common::RetryableError for PlatformStorageError {
     fn is_retryable(&self) -> bool {

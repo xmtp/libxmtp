@@ -20,7 +20,6 @@ use std::{
     pin::Pin,
     task::{Poll, ready},
 };
-use xmtp_api::GroupFilter;
 use xmtp_common::FutureWrapper;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::api_client::XmtpMlsStreams;
@@ -143,14 +142,16 @@ where
     ) -> Result<Self> {
         tracing::debug!("setting up messages subscription");
         let api = context.api();
-        let groups = GroupList::new(groups, api).await?;
-        let subscription = api.subscribe_group_messages(groups.filters()).await?;
+        let groups_list = GroupList::new(groups.clone(), api).await?;
+        let subscription = api
+            .subscribe_group_messages(&groups.iter().collect::<Vec<_>>())
+            .await?;
 
         Ok(Self {
             inner: subscription,
             context,
             state: Default::default(),
-            groups,
+            groups: groups_list,
             got: Default::default(),
             returned: Default::default(),
             add_queue: Default::default(),
@@ -221,7 +222,7 @@ where
     #[allow(clippy::type_complexity)]
     async fn subscribe(
         context: Cow<'a, C>,
-        filters: Vec<GroupFilter>,
+        filters: Vec<GroupId>,
         new_group: Vec<u8>,
     ) -> Result<(
         MessagesApiSubscription<'a, C::ApiClient>,
@@ -229,7 +230,10 @@ where
         Option<Cursor>,
     )> {
         // get the last synced cursor
-        let stream = context.api().subscribe_group_messages(filters).await?;
+        let stream = context
+            .api()
+            .subscribe_group_messages(&filters.iter().collect::<Vec<_>>())
+            .await?;
         Ok((
             stream,
             new_group,
@@ -418,7 +422,7 @@ where
             &group.group_id,
             MessagePosition::new(Cursor::new(1, 0u32), Cursor::new(1, 0u32)),
         );
-        let future = Self::subscribe(self.context.clone(), self.groups.filters(), group.group_id);
+        let future = Self::subscribe(self.context.clone(), self.groups.ids(), group.group_id);
         let mut this = self.as_mut().project();
         this.state.set(State::Adding {
             future: FutureWrapper::new(future),

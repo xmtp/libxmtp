@@ -11,7 +11,7 @@ use diesel::{
 };
 use itertools::Itertools;
 use xmtp_configuration::Originators;
-use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId, Topic, TopicKind};
+use xmtp_proto::types::{Cursor, GlobalCursor, Topic, TopicKind};
 
 use super::{ConnectionExt, Sqlite, db_connection::DbConnection, schema::refresh_state};
 use crate::{StorageError, StoreOrIgnore, impl_store_or_ignore};
@@ -297,13 +297,17 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         // TODO:d14n
         let entities = topics
             .iter()
-            .map(|t| {
-                let kind = match t.kind {
-                    TopicKind::GroupMessagesV1 => EntityKind::Group,
-                    TopicKind::WelcomeMessagesV1 => EntityKind::Welcome,
-                    _ => panic!("not tracking identity/key packages"),
-                };
-                (t.identifier().to_vec(), kind)
+            .flat_map(|t| match t.kind() {
+                TopicKind::GroupMessagesV1 => {
+                    vec![
+                        (t.identifier().to_vec(), EntityKind::ApplicationMessage),
+                        (t.identifier().to_vec(), EntityKind::CommitMessage),
+                    ]
+                }
+                TopicKind::WelcomeMessagesV1 => {
+                    vec![(t.identifier().to_vec(), EntityKind::Welcome)]
+                }
+                _ => panic!("not tracking identity/key packages"),
             })
             .collect::<Vec<_>>();
 
@@ -313,7 +317,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
             .collect::<Vec<_>>()
             .join(", ");
         let query = format!(
-            "SELECT originator_id, MIN(cursor) AS sequence_id
+            "SELECT originator_id, MIN(sequence_id) AS sequence_id
             FROM refresh_state
             WHERE (entity_id, entity_kind) IN ({})
             GROUP BY originator_id",
@@ -402,7 +406,7 @@ pub(crate) mod tests {
                 entity_id: id.clone(),
                 entity_kind,
                 sequence_id: 123,
-                originator_id: Originators::MLS_COMMITS.into(),
+                originator_id: Originators::MLS_COMMITS as i32,
             };
             entry.store_or_ignore(conn).unwrap();
             assert_eq!(
@@ -491,7 +495,7 @@ pub(crate) mod tests {
                 entity_id: entity_id.clone(),
                 entity_kind: EntityKind::Welcome,
                 sequence_id: 123,
-                originator_id: Originators::MLS_COMMITS.into(),
+                originator_id: Originators::MLS_COMMITS as i32,
             };
             welcome_state.store_or_ignore(conn).unwrap();
 
@@ -499,7 +503,7 @@ pub(crate) mod tests {
                 entity_id: entity_id.clone(),
                 entity_kind: EntityKind::ApplicationMessage,
                 sequence_id: 456,
-                originator_id: Originators::MLS_COMMITS.into(),
+                originator_id: Originators::MLS_COMMITS as i32,
             };
             group_state.store_or_ignore(conn).unwrap();
 

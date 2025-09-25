@@ -133,8 +133,8 @@ mod tests {
     use xmtp_cryptography::XmtpInstallationCredential;
 
     use super::*;
+    use crate::protocol::Envelope;
     use crate::protocol::extractors::test_utils::*;
-    use crate::protocol::{Envelope, TopicKind};
 
     #[xmtp_common::test]
     fn test_extract_group_message_topic() {
@@ -143,7 +143,7 @@ mod tests {
             .build();
         assert_eq!(
             envelope.topic().unwrap(),
-            TopicKind::GroupMessagesV1.build([1, 2, 3])
+            TopicKind::GroupMessagesV1.create([1, 2, 3])
         );
     }
 
@@ -154,7 +154,7 @@ mod tests {
             .build();
         let topic = envelope.topic().unwrap();
 
-        let expected_topic = TopicKind::WelcomeMessagesV1.build([5, 6, 7, 8]);
+        let expected_topic = TopicKind::WelcomeMessagesV1.create([5, 6, 7, 8]);
         assert_eq!(topic, expected_topic);
     }
 
@@ -166,7 +166,7 @@ mod tests {
             .build();
         assert_eq!(
             envelope.topic().unwrap(),
-            TopicKind::KeyPackagesV1.build(installation.public_slice())
+            TopicKind::KeyPackagesV1.create(installation.public_slice())
         );
     }
 
@@ -175,7 +175,7 @@ mod tests {
         let envelope = TestEnvelopeBuilder::new().with_identity_update().build();
 
         let expected_decoded_id = hex::decode("abcd1234").unwrap();
-        let expected_topic = TopicKind::IdentityUpdatesV1.build(&expected_decoded_id);
+        let expected_topic = TopicKind::IdentityUpdatesV1.create(&expected_decoded_id);
         assert_eq!(envelope.topic().unwrap(), expected_topic);
     }
 
@@ -213,7 +213,7 @@ mod tests {
         };
         assert_eq!(
             req.topic().unwrap(),
-            TopicKind::IdentityUpdatesV1.build(b"test_id")
+            TopicKind::IdentityUpdatesV1.create(b"test_id")
         );
     }
 }

@@ -592,7 +592,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
                 sequence_id: update.sequence_id as i64,
                 server_timestamp_ns: update.server_timestamp_ns as i64,
                 payload: update.update.clone().into(),
-                originator_id: Originators::INBOX_LOG.into(),
+                originator_id: Originators::INBOX_LOG as i32,
             })
         })
         .collect::<Vec<StoredIdentityUpdate>>();
@@ -728,7 +728,7 @@ pub(crate) mod tests {
             sequence_id,
             0,
             rand_vec::<24>(),
-            Originators::INBOX_LOG.into(),
+            Originators::INBOX_LOG as i32,
         );
 
         conn.insert_or_ignore_identity_updates(&[identity_update])

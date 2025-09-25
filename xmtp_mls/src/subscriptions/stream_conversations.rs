@@ -5,8 +5,7 @@ use crate::{
     subscriptions::process_welcome::ProcessWelcomeFuture,
 };
 use xmtp_common::task::JoinSet;
-use xmtp_configuration::Originators;
-use xmtp_db::{consent_record::ConsentState, group::ConversationType, refresh_state::EntityKind};
+use xmtp_db::{consent_record::ConsentState, group::ConversationType};
 
 use futures::Stream;
 use pin_project_lite::pin_project;
@@ -247,16 +246,9 @@ where
     ) -> Result<Self> {
         let conn = context.db();
         let installation_key = context.installation_id();
-        let id_cursor = conn.get_last_cursor_for_originator(
-            installation_key,
-            EntityKind::Welcome,
-            Originators::WELCOME_MESSAGES.into(),
-        )?;
         tracing::debug!(
-            cursor = %id_cursor,
             inbox_id = context.inbox_id(),
-            "Setting up conversation stream cursor = {}",
-            id_cursor
+            "Setting up conversation stream cursor",
         );
 
         let events =
@@ -264,7 +256,7 @@ where
 
         let subscription = context
             .api()
-            .subscribe_welcome_messages(installation_key.as_ref(), Some(id_cursor.sequence_id))
+            .subscribe_welcome_messages(&installation_key)
             .await?;
         let subscription = SubscriptionStream::new(subscription);
         let known_welcome_ids = HashSet::from_iter(conn.group_cursors()?.into_iter());

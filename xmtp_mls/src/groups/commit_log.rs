@@ -263,7 +263,7 @@ where
                 .get_last_cursor_for_originator(
                     &conversation.id,
                     xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-                    Originators::REMOTE_COMMIT_LOG as u32,
+                    Originators::REMOTE_COMMIT_LOG,
                 )
                 .unwrap_or_default()
                 .sequence_id;
@@ -669,12 +669,12 @@ where
         let fork_check_local_cursor = conn.get_last_cursor_for_originator(
             conversation_id,
             xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-            Originators::REMOTE_COMMIT_LOG as u32,
+            Originators::REMOTE_COMMIT_LOG,
         )?;
         let fork_check_remote_cursor = conn.get_last_cursor_for_originator(
             conversation_id,
             xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-            Originators::REMOTE_COMMIT_LOG as u32,
+            Originators::REMOTE_COMMIT_LOG,
         )?;
 
         // Get local and remote commit logs

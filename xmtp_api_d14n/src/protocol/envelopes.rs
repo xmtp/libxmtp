@@ -537,6 +537,7 @@ mod tests {
     use rstest::rstest;
     use xmtp_common::Generate;
     use xmtp_cryptography::XmtpInstallationCredential;
+    use xmtp_proto::types::TopicKind;
     use xmtp_proto::xmtp::mls::api::v1::{
         GroupMessage as V3ProtoGroupMessage, WelcomeMessage as V3ProtoWelcomeMessage,
         group_message, group_message_input::V1 as GroupMessageV1, welcome_message,
@@ -722,7 +723,9 @@ mod tests {
     fn envelope_edge_cases() {
         // Test empty payload handling
         let client = ClientEnvelope {
-            aad: Some(AuthenticatedData::with_topic(vec![1, 2, 3])),
+            aad: Some(AuthenticatedData::with_topic(
+                TopicKind::IdentityUpdatesV1.create(&[0, 1, 2]),
+            )),
             payload: None,
         };
         let mut visitor = TestVisitor::default();

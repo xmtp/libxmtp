@@ -7,14 +7,11 @@ use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::identity_v1;
 use xmtp_proto::mls_v1;
-use xmtp_proto::mls_v1::SubscribeGroupMessagesRequest;
-use xmtp_proto::mls_v1::SubscribeWelcomeMessagesRequest;
 use xmtp_proto::prelude::XmtpIdentityClient;
 use xmtp_proto::prelude::XmtpMlsStreams;
-use xmtp_proto::types::GlobalCursor;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::WelcomeMessage;
-use xmtp_proto::types::{Cursor, GroupId, GroupMessage};
+use xmtp_proto::types::{GroupId, GroupMessage};
 
 /// Wraps an ApiClient to allow turning
 /// a concretely-typed client into type-erased a [`BoxableXmtpApi`]
@@ -68,9 +65,8 @@ where
     async fn query_group_messages(
         &self,
         group_id: GroupId,
-        cursor: GlobalCursor,
     ) -> Result<Vec<GroupMessage>, Self::Error> {
-        self.inner.query_group_messages(group_id, cursor).await
+        self.inner.query_group_messages(group_id).await
     }
 
     async fn query_latest_group_message(
@@ -83,11 +79,8 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: GlobalCursor,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
-        self.inner
-            .query_welcome_messages(installation_key, cursor)
-            .await
+        self.inner.query_welcome_messages(installation_key).await
     }
 
     async fn publish_commit_log(
@@ -159,18 +152,16 @@ where
     async fn subscribe_group_messages(
         &self,
         group_ids: &[&GroupId],
-        cursor: GlobalCursor
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        let s = self.inner.subscribe_group_messages(group_ids, cursor).await?;
+        let s = self.inner.subscribe_group_messages(group_ids).await?;
         Ok(Box::pin(s) as Pin<Box<_>>)
     }
 
     async fn subscribe_welcome_messages(
         &self,
         installations: &[&InstallationId],
-        cursor: GlobalCursor
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
-        let s = self.inner.subscribe_welcome_messages(installations, cursor).await?;
+        let s = self.inner.subscribe_welcome_messages(installations).await?;
         Ok(Box::pin(s) as Pin<Box<_>>)
     }
 }

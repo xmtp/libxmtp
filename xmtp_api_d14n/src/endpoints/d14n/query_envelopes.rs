@@ -4,7 +4,6 @@ use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::types::GlobalCursor;
-use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
 use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesRequest;
 use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, QueryEnvelopesResponse};
 
@@ -142,7 +141,7 @@ mod test {
         let client = client.build().unwrap();
 
         let endpoint = QueryEnvelope::builder()
-            .last_seen(vec![])
+            .last_seen(Default::default())
             .topic(vec![])
             .limit(0)
             .build()

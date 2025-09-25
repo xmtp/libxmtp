@@ -1,35 +1,42 @@
-use xmtp_api_d14n::protocol::CursorStore;
-use xmtp_db::{DbQuery, StorageError, prelude::QueryRefreshState, refresh_state::EntityKind};
+use xmtp_api_d14n::protocol::{CursorStore, CursorStoreError};
+use xmtp_db::{prelude::QueryRefreshState, refresh_state::EntityKind};
 use xmtp_proto::types::{Cursor, OriginatorId, Topic, TopicKind};
 
-pub struct V3CursorStore<Db> {
+pub struct SqliteCursorStore<Db> {
     db: Db,
 }
 
-impl<Db> CursorStore for V3CursorStore<Db>
-where
-    Db: QueryRefreshState,
-{
-    type Error = StorageError;
+impl<Db> SqliteCursorStore<Db> {
+    pub fn new(db: Db) -> Self {
+        Self { db }
+    }
+}
 
+impl<Db> CursorStore for SqliteCursorStore<Db>
+where
+    Db: QueryRefreshState + Send + Sync,
+{
     fn lowest_common_cursor(
         &self,
-        topics: &[Topic],
-    ) -> Result<xmtp_proto::types::GlobalCursor, Self::Error> {
-        self.db.lowest_common_cursor(topics)
+        topics: &[&Topic],
+    ) -> Result<xmtp_proto::types::GlobalCursor, CursorStoreError> {
+        self.db
+            .lowest_common_cursor(topics)
+            .map_err(|e| CursorStoreError::Other(Box::new(e) as Box<_>))
     }
 
-    fn latest(&self, originators: Vec<OriginatorId>, topic: &Topic) -> Vec<Cursor> {
-        let entity = match topic.kind {
+    fn latest_for_each(
+        &self,
+        originators: &[OriginatorId],
+        topic: &Topic,
+    ) -> Result<Vec<Cursor>, CursorStoreError> {
+        let entity = match topic.kind() {
             TopicKind::WelcomeMessagesV1 => EntityKind::Welcome,
             TopicKind::GroupMessagesV1 => EntityKind::Group,
             _ => unimplemented!(),
         };
         self.db
-            .get_last_cursor_for_originators(topic.identifier(), entity, originators)
+            .get_last_cursor_for_originators(topic.identifier(), entity, &originators)
+            .map_err(|e| CursorStoreError::Other(Box::new(e) as Box<_>))
     }
-}
-
-pub struct D14nCursorStore<Db> {
-    db: Db,
 }

@@ -10,13 +10,12 @@ use crate::groups::mls_sync::decode_staged_commit;
 use crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent;
 use crate::identity::create_credential;
 use crate::tester;
-use xmtp_configuration::Originators;
 use xmtp_db::XmtpOpenMlsProviderRef;
 use xmtp_db::group::ConversationType;
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_db::prelude::QueryRefreshState;
-use xmtp_db::refresh_state::EntityKind;
 use xmtp_mls_common::group::GroupMetadataOptions;
+use xmtp_proto::types::TopicKind;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_welcome_cursor() {
@@ -32,13 +31,13 @@ async fn test_welcome_cursor() {
     group.update_installations().await?;
 
     alix2.sync_welcomes().await?;
-    let alix2_refresh_state = alix2.context.db().get_refresh_state(
-        &group.group_id,
-        EntityKind::ApplicationMessage,
-        Originators::APPLICATION_MESSAGES.into(),
-    )??;
+    let alix2_refresh_state = alix2
+        .context
+        .db()
+        .lowest_common_cursor(&[&TopicKind::GroupMessagesV1.create(&group.group_id)])?;
 
-    assert!(alix2_refresh_state.sequence_id > 0);
+    assert_eq!(alix2_refresh_state.inner.len(), 1);
+    assert!(*alix2_refresh_state.inner.values().last().unwrap() > 0);
 }
 
 #[xmtp_common::test(unwrap_try = true)]

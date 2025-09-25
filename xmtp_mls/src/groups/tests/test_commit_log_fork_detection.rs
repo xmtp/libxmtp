@@ -194,12 +194,12 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     let initial_local_cursor = alix.context.db().get_last_cursor_for_originator(
         &group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-        Originators::REMOTE_COMMIT_LOG as u32,
+        Originators::REMOTE_COMMIT_LOG,
     )?;
     let initial_remote_cursor = alix.context.db().get_last_cursor_for_originator(
         &group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-        Originators::REMOTE_COMMIT_LOG as u32,
+        Originators::REMOTE_COMMIT_LOG,
     )?;
 
     assert_eq!(initial_local_cursor, Cursor::commit_log(0));
@@ -227,12 +227,12 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     let updated_local_cursor = alix.context.db().get_last_cursor_for_originator(
         &group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-        Originators::REMOTE_COMMIT_LOG as u32,
+        Originators::REMOTE_COMMIT_LOG,
     )?;
     let updated_remote_cursor = alix.context.db().get_last_cursor_for_originator(
         &group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-        Originators::REMOTE_COMMIT_LOG as u32,
+        Originators::REMOTE_COMMIT_LOG,
     )?;
 
     // Cursors should be updated to the rowids of the matching entries
@@ -295,12 +295,12 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     let updated_two_local_cursor = alix.context.db().get_last_cursor_for_originator(
         &group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-        Originators::REMOTE_COMMIT_LOG as u32,
+        Originators::REMOTE_COMMIT_LOG,
     )?;
     let updated_two_remote_cursor = alix.context.db().get_last_cursor_for_originator(
         &group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-        Originators::REMOTE_COMMIT_LOG as u32,
+        Originators::REMOTE_COMMIT_LOG,
     )?;
     let latest_two_local_log = alix.context.db().get_latest_log_for_group(&group_id)?;
     let latest_two_remote_log = alix
