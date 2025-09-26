@@ -294,9 +294,10 @@ impl<'env> ProtocolEnvelope<'env> for SubscribeGroupMessagesRequest {
 
     fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
     where
-        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error> {
+        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
+    {
         for filter in &self.filters {
-            visitor.visit_subscribe_group_messages_request(&filter)?;
+            visitor.visit_subscribe_group_messages_request(filter)?;
         }
         Ok(())
     }
@@ -311,9 +312,10 @@ impl<'env> ProtocolEnvelope<'env> for SubscribeWelcomeMessagesRequest {
 
     fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
     where
-        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error> {
+        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
+    {
         for filter in &self.filters {
-            visitor.visit_subscribe_welcome_messages_request(&filter)?;
+            visitor.visit_subscribe_welcome_messages_request(filter)?;
         }
         Ok(())
     }

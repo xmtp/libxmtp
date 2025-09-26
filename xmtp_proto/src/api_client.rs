@@ -563,7 +563,7 @@ pub trait ApiBuilder {
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error>;
 
     /// set the sdk app version (required)
-    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error>;
+    fn set_app_version(&mut self, version: crate::types::AppVersion) -> Result<(), Self::Error>;
 
     /// Set the libxmtp host (required)
     fn set_host(&mut self, host: String);

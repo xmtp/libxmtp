@@ -130,13 +130,19 @@ pub trait EnvelopeVisitor<'env> {
     }
 
     /// visit_subscribe_group_messages_request
-    fn visit_subscribe_group_messages_request(&mut self, _r: &SubscribeGroupMessagesFilter) -> Result<(), Self::Error> {
+    fn visit_subscribe_group_messages_request(
+        &mut self,
+        _r: &SubscribeGroupMessagesFilter,
+    ) -> Result<(), Self::Error> {
         tracing::debug!("visit_subscribe_group_messages_request");
         Ok(())
     }
 
     /// visit_subscribe_group_messages_request
-    fn visit_subscribe_welcome_messages_request(&mut self, _r: &SubscribeWelcomeMessagesFilter) -> Result<(), Self::Error> {
+    fn visit_subscribe_welcome_messages_request(
+        &mut self,
+        _r: &SubscribeWelcomeMessagesFilter,
+    ) -> Result<(), Self::Error> {
         tracing::debug!("visit_subscribe_group_messages_request");
         Ok(())
     }

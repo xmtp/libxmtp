@@ -7,8 +7,9 @@ use crate::{
         stream_messages::{MessageStreamError, StreamGroupMessages},
     },
 };
-use xmtp_common::{MaybeSend, types::GroupId};
+use xmtp_common::MaybeSend;
 use xmtp_db::group_message::StoredGroupMessage;
+use xmtp_proto::types::GroupId;
 
 use futures::{Stream, StreamExt};
 use prost::Message;

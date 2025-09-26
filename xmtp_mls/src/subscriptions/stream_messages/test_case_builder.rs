@@ -12,8 +12,8 @@ use parking_lot::Mutex;
 use pin_project_lite::pin_project;
 use xmtp_api::test_utils::MockGroupStream;
 use xmtp_common::FutureWrapper;
-use xmtp_common::types::GroupId;
 use xmtp_proto::mls_v1::QueryGroupMessagesResponse;
+use xmtp_proto::types::GroupId;
 
 pin_project! {
     pub struct ReadyAfter<Fut> {

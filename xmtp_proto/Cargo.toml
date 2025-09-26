@@ -25,6 +25,8 @@ xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 tonic-prost = "0.14"
 prost-types = "0.14"
+chrono.workspace = true
+bytes.workspace = true
 
 tokio = { workspace = true, default-features = false, features = [
   "sync",

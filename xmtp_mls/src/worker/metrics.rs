@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::Notify;
-use xmtp_common::types::InstallationId;
+use xmtp_proto::types::InstallationId;
 
 pub struct MetricInterest<Metric> {
     fut: Pin<Box<dyn Future<Output = ()> + Send>>,

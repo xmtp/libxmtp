@@ -25,6 +25,7 @@ use xmtp_proto::{
     api_client::ApiBuilder,
     codec::TransparentCodec,
     traits::{ApiClientError, Client},
+    types::AppVersion,
 };
 
 impl From<GrpcError> for ApiClientError<GrpcError> {
@@ -211,7 +212,7 @@ impl ApiBuilder for ClientBuilder {
         Ok(())
     }
 
-    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
+    fn set_app_version(&mut self, version: AppVersion) -> Result<(), Self::Error> {
         self.app_version = Some(MetadataValue::try_from(&version)?);
         Ok(())
     }

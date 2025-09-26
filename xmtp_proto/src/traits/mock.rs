@@ -1,5 +1,5 @@
 use super::*;
-use crate::{prelude::*, ToxicProxies};
+use crate::{prelude::*, types::AppVersion, ToxicProxies};
 
 pub struct MockClient;
 pub struct MockStream;
@@ -10,7 +10,7 @@ impl ApiBuilder for MockApiBuilder {
     fn set_libxmtp_version(&mut self, _version: String) -> Result<(), Self::Error> {
         Ok(())
     }
-    fn set_app_version(&mut self, _version: String) -> Result<(), Self::Error> {
+    fn set_app_version(&mut self, _version: AppVersion) -> Result<(), Self::Error> {
         Ok(())
     }
     fn set_host(&mut self, _host: String) {}

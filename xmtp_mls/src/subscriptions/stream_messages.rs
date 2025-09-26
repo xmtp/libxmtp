@@ -30,8 +30,8 @@ use futures::Stream;
 use pin_project_lite::pin_project;
 use xmtp_api::GroupFilter;
 use xmtp_common::FutureWrapper;
-use xmtp_common::types::GroupId;
 use xmtp_db::group_message::StoredGroupMessage;
+use xmtp_proto::types::GroupId;
 use xmtp_proto::{
     api_client::XmtpMlsStreams,
     xmtp::mls::api::v1::{GroupMessage, group_message},
