@@ -4,6 +4,9 @@ on:
     branches:
       - release
 
+env:
+  RELEASE_VERSION: "4.5.0-rc3"
+
 jobs:
   library:
     name: Release Library
@@ -22,20 +25,20 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
       - name: Run build with Gradle Wrapper
         run: ./gradlew build
-      - name: Tag version 4.5.0-rc3
+      - name: Tag version ${{ env.RELEASE_VERSION }}
         run: |
-          git tag 4.5.0-rc3
-          git push origin 4.5.0-rc3
-      - name: Create a GitHub release for version 4.5.0-rc3
+          git tag ${{ env.RELEASE_VERSION }}
+          git push origin ${{ env.RELEASE_VERSION }}
+      - name: Create a GitHub release for version ${{ env.RELEASE_VERSION }}
         uses: ncipollo/release-action@v1
         with:
-          tag: "4.5.0-rc3"
-          name: "v4.5.0-rc3"
+          tag: "${{ env.RELEASE_VERSION }}"
+          name: "v${{ env.RELEASE_VERSION }}"
           body: " "
 
       - name: Gradle Publish
         env:
-          RELEASE_VERSION: "4.5.0-rc3"
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
           SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
