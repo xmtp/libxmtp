@@ -3,7 +3,7 @@ use crate::context::XmtpSharedContext;
 use openmls::group::StagedWelcome;
 use xmtp_db::group::ConversationType;
 use xmtp_mls_common::{group::GroupMetadataOptions, group_metadata::GroupMetadata};
-use xmtp_proto::xmtp::mls::message_contents::OneshotMessage;
+use xmtp_proto::{types::Cursor, xmtp::mls::message_contents::OneshotMessage};
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// Creates a oneshot group with the given message and adds the specified inbox IDs to it.
@@ -52,7 +52,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
 
     pub fn process_oneshot_welcome(
         context: Context,
-        id: u64,
+        cursor: Cursor,
         _welcome: StagedWelcome,
         metadata: GroupMetadata,
     ) -> Result<(), GroupError> {
@@ -61,7 +61,10 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             // TODO(rich): Extract welcome sender from StagedWelcome
             Self::process_oneshot_message(context, message)?;
         } else {
-            tracing::warn!("Oneshot group welcome {} does not have oneshot message", id);
+            tracing::warn!(
+                "Oneshot group welcome {} does not have oneshot message",
+                cursor
+            );
         }
         Ok(())
     }

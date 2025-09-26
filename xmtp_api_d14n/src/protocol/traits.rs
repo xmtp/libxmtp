@@ -1,6 +1,8 @@
 //! Traits to implement functionality according to
 //! https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#33-client-to-node-protocol
 
+use crate::protocol::SequencedExtractor;
+
 use super::ExtractionError;
 use super::PayloadExtractor;
 use super::TopicExtractor;
@@ -33,6 +35,8 @@ pub enum EnvelopeError {
     Extraction(#[from] ExtractionError),
     #[error("Each topic must have a payload")]
     TopicMismatch,
+    #[error("Envelope not found")]
+    NotFound(&'static str),
     // for extractors defined outside of this crate or
     // generic implementations like Tuples
     #[error("{0}")]
@@ -46,6 +50,7 @@ impl RetryableError for EnvelopeError {
             Self::Extraction(e) => retryable!(e),
             Self::TopicMismatch => false,
             Self::DynError(d) => retryable!(d),
+            Self::NotFound(_) => false,
         }
     }
 }
@@ -66,18 +71,76 @@ pub trait EnvelopeCollection<'env> {
     fn len(&self) -> usize;
     /// Whether the Collection of Envelopes is empty
     fn is_empty(&self) -> bool;
+    /// run a sequenced extraction on the envelopes in this collection
+    fn consume<E>(self) -> Result<Vec<<E as Extractor>::Output>, EnvelopeError>
+    where
+        for<'a> E: Default + Extractor + EnvelopeVisitor<'a>,
+        for<'a> EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
+        Self: Sized;
 }
+
+/// Extension trait for an envelope collection which handles errors.
+pub trait TryEnvelopeCollectionExt<'env>: EnvelopeCollection<'env> {
+    /// run a sequenced extraction on the envelopes in this collection.
+    /// Flattens and returns errors into one Result<_, E>
+    fn try_consume<E>(self) -> Result<Vec<<E as TryExtractor>::Ok>, EnvelopeError>
+    where
+        for<'a> E: TryExtractor,
+        for<'a> E: Default + EnvelopeVisitor<'a>,
+        for<'a> EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
+        EnvelopeError: From<<E as TryExtractor>::Error>,
+        Self: Sized,
+    {
+        Ok(self
+            .consume::<E>()?
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?)
+    }
+    // TODO: fn like try_consume but that does not fail on only one element failure
+    // i.e keeps processing messages, keeping errors around
+}
+
+impl<'env, T> TryEnvelopeCollectionExt<'env> for T where T: EnvelopeCollection<'env> {}
 
 /// Represents a Single High-Level Envelope
 pub trait Envelope<'env> {
+    /// Extract the topic for this envelope
     fn topic(&self) -> Result<Vec<u8>, EnvelopeError>;
+    /// Extract the payload for this envelope
     fn payload(&self) -> Result<Payload, EnvelopeError>;
+    /// Extract the client envelope (envelope containing message payload & AAD, if any) for this
+    /// envelope.
     fn client_envelope(&self) -> Result<ClientEnvelope, EnvelopeError>;
+    /// consume this envelope by extracting its contents with extractor `E`
+    fn consume<E>(&self, extractor: E) -> Result<E::Output, EnvelopeError>
+    where
+        Self: Sized,
+        for<'a> EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
+        for<'a> E: EnvelopeVisitor<'a> + Extractor;
 }
 
 pub trait Extractor {
     type Output;
     fn get(self) -> Self::Output;
+}
+
+pub trait TryExtractor: Extractor<Output = Result<Self::Ok, Self::Error>> {
+    type Ok;
+    type Error;
+    fn try_get(self) -> Result<Self::Ok, Self::Error>;
+}
+
+impl<T, O, Err> TryExtractor for T
+where
+    T: Extractor<Output = Result<O, Err>>,
+{
+    type Ok = O;
+
+    type Error = Err;
+
+    fn try_get(self) -> Result<Self::Ok, Self::Error> {
+        self.get()
+    }
 }
 
 /// Allows us to call these methods straight on the protobuf types without any
@@ -109,6 +172,16 @@ where
             payload: Some(payload),
         })
     }
+
+    fn consume<E>(&self, mut extractor: E) -> Result<E::Output, EnvelopeError>
+    where
+        Self: Sized,
+        for<'a> E: EnvelopeVisitor<'a> + Extractor,
+        for<'a> EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
+    {
+        self.accept(&mut extractor)?;
+        Ok(extractor.get())
+    }
 }
 
 impl<'env, T> EnvelopeCollection<'env> for Vec<T>
@@ -139,6 +212,18 @@ where
 
     fn is_empty(&self) -> bool {
         Vec::is_empty(self)
+    }
+
+    fn consume<E>(self) -> Result<Vec<<E as Extractor>::Output>, EnvelopeError>
+    where
+        for<'a> E: Default + Extractor + EnvelopeVisitor<'a>,
+        for<'a> EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
+        Self: Sized,
+    {
+        SequencedExtractor::builder()
+            .envelopes(self)
+            .build::<E>()
+            .get()
     }
 }
 

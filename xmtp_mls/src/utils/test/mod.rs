@@ -35,13 +35,7 @@ pub type FullXmtpClient = Client<TestXmtpMlsContext>;
 pub type ClientTester = Tester<PrivateKeySigner, FullXmtpClient>;
 pub type TestMlsGroup = crate::groups::MlsGroup<TestXmtpMlsContext>;
 
-xmtp_common::if_v3! {
-    pub type TestClient = xmtp_api_grpc::v3::Client;
-}
-
-xmtp_common::if_d14n! {
-    pub type TestClient = xmtp_api_d14n::TestD14nClient;
-}
+pub type TestClient = xmtp_api_d14n::TestClient;
 
 use super::VersionInfo;
 

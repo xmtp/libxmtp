@@ -9,8 +9,7 @@ use xmtp_api_grpc::GrpcClient;
 use xxhash_rust::xxh3;
 mod types;
 pub use types::*;
-use xmtp_api_d14n::queries::D14nClient;
-use xmtp_proto::api_client::ApiBuilder;
+use xmtp_api_d14n::queries::{D14nClient, V3Client};
 
 /// Debug & Generate data on the XMTP Network
 #[derive(Parser, Debug)]
@@ -285,22 +284,14 @@ impl BackendOpts {
         if self.d14n {
             let payer_host = self.payer_url()?;
             trace!(url = %network, payer = %payer_host, is_secure, "create grpc");
-
-            let mut payer = GrpcClient::builder();
-            payer.set_host(payer_host.to_string());
-            payer.set_tls(is_secure);
-            let payer = payer.build().await?;
-            let mut message = GrpcClient::builder();
-            message.set_host(network.to_string());
-            message.set_tls(is_secure);
-            let message = message.build().await?;
+            let payer = GrpcClient::create(&payer_host.as_str(), is_secure).await?;
+            let message = GrpcClient::create(&network.as_str(), is_secure).await?;
             Ok(Arc::new(D14nClient::new(message, payer)))
         } else {
             trace!(url = %network, is_secure, "create grpc");
-            Ok(Arc::new(
-                crate::GrpcClient::create(network.as_str().to_string(), is_secure, None::<String>)
-                    .await?,
-            ))
+            let client = GrpcClient::create(network.as_str(), is_secure).await?;
+            let client = V3Client::new(client);
+            Ok(Arc::new(client))
         }
     }
 }

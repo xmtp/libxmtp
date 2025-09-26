@@ -31,8 +31,8 @@ pub(crate) fn generate_message(
         version_minor: 0,
         authority_id: "unknown".to_string(),
         reference_id: None,
-        sequence_id: None,
-        originator_id: None,
+        sequence_id: 0,
+        originator_id: 0,
         expire_at_ns,
     }
 }
@@ -525,8 +525,8 @@ pub(crate) fn generate_message_with_reference<C: ConnectionExt>(
         version_minor: 0,
         authority_id: "unknown".to_string(),
         reference_id,
-        sequence_id: None,
-        originator_id: None,
+        sequence_id: 0,
+        originator_id: 0,
         expire_at_ns: None,
     };
     message.store(conn).unwrap();

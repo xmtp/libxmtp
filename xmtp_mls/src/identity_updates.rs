@@ -9,6 +9,7 @@ use futures::future::try_join_all;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{Retry, RetryableError, retry_async, retryable};
+use xmtp_configuration::Originators;
 use xmtp_cryptography::CredentialSign;
 use xmtp_db::StorageError;
 use xmtp_db::XmtpDb;
@@ -592,6 +593,8 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
                 sequence_id: update.sequence_id as i64,
                 server_timestamp_ns: update.server_timestamp_ns as i64,
                 payload: update.update.clone().into(),
+                // TODO:d14n need an identity updates endpoint
+                originator_id: Originators::INBOX_LOG.into(),
             })
         })
         .collect::<Vec<StoredIdentityUpdate>>();
@@ -679,6 +682,7 @@ pub(crate) mod tests {
     };
     use alloy::signers::Signer;
     use xmtp_api::IdentityUpdate;
+    use xmtp_configuration::Originators;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{
         InboxOwner,
@@ -721,8 +725,13 @@ pub(crate) mod tests {
     where
         C: ConnectionExt,
     {
-        let identity_update =
-            StoredIdentityUpdate::new(inbox_id.to_string(), sequence_id, 0, rand_vec::<24>());
+        let identity_update = StoredIdentityUpdate::new(
+            inbox_id.to_string(),
+            sequence_id,
+            0,
+            rand_vec::<24>(),
+            Originators::INBOX_LOG.into(),
+        );
 
         conn.insert_or_ignore_identity_updates(&[identity_update])
             .expect("insert should succeed");

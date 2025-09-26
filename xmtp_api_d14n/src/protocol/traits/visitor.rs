@@ -6,7 +6,9 @@ use xmtp_proto::xmtp::mls::api::v1::GroupMessageInput;
 use xmtp_proto::xmtp::mls::api::v1::UploadKeyPackageRequest;
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessageInput;
 use xmtp_proto::xmtp::mls::api::v1::{
+    group_message::V1 as V3GroupMessage,
     group_message_input::{V1 as GroupMessageV1, Version as GroupMessageVersion},
+    welcome_message::V1 as V3WelcomeMessage,
     welcome_message_input::{V1 as WelcomeMessageV1, Version as WelcomeMessageVersion},
 };
 use xmtp_proto::xmtp::xmtpv4::envelopes::{
@@ -88,6 +90,17 @@ pub trait EnvelopeVisitor<'env> {
         tracing::debug!("visit_welcome_message_v1");
         Ok(())
     }
+
+    fn visit_v3_group_message(&mut self, _m: &V3GroupMessage) -> Result<(), Self::Error> {
+        tracing::debug!("visit_v3_group_message");
+        Ok(())
+    }
+
+    fn visit_v3_welcome_message(&mut self, _m: &V3WelcomeMessage) -> Result<(), Self::Error> {
+        tracing::debug!("visit_v3_welcome_message");
+        Ok(())
+    }
+
     /// Visit the Upload Key Package
     fn visit_upload_key_package(
         &mut self,

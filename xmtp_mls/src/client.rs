@@ -721,8 +721,8 @@ where
                         version_minor: conversation_item.version_minor?,
                         authority_id: conversation_item.authority_id?,
                         reference_id: None, // conversation_item does not use message reference_id
-                        sequence_id: None,
-                        originator_id: None,
+                        sequence_id: conversation_item.sequence_id?,
+                        originator_id: conversation_item.originator_id?,
                         expire_at_ns: None, //Question: do we need to include this in conversation last message?
                     });
                     if msg.is_none() {
@@ -1114,9 +1114,9 @@ pub(crate) mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test(flavor = "multi_thread")]
-    async fn test_sync_welcomes() {
-        let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    async fn only_test_sync_welcomes() {
+        let alice = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
+        let bob = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
 
         let alice_bob_group = alice.create_group(None, None).unwrap();
         alice_bob_group

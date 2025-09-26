@@ -8,7 +8,8 @@ pub enum TopicKind {
 }
 
 impl TopicKind {
-    pub fn build(&self, bytes: &[u8]) -> Vec<u8> {
+    pub fn build<B: AsRef<[u8]>>(&self, bytes: B) -> Vec<u8> {
+        let bytes = bytes.as_ref();
         let mut topic = Vec::with_capacity(1 + bytes.len());
         topic.push(*self as u8);
         topic.extend_from_slice(bytes);
