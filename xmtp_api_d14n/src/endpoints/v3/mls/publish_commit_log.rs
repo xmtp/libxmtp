@@ -52,7 +52,7 @@ mod test {
     #[xmtp_common::test]
     // TODO: fix test
     async fn test_publish_commit_log() {
-        let client = crate::TestClient::create_local();
+        let client = crate::TestGrpcClient::create_local();
         let client = client.build().await.unwrap();
         let mut endpoint = PublishCommitLog::builder()
             .commit_log_entries(vec![PublishCommitLogRequest::default()])

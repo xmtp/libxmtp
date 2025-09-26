@@ -5,6 +5,7 @@ use rand::{
     distributions::{Distribution, Standard},
     prelude::IteratorRandom,
 };
+use xmtp_proto::types::Cursor;
 
 use crate::{
     DuplicateItem, NotFound, StorageError, refresh_state::EntityKind,
@@ -19,7 +20,7 @@ impl Distribution<StorageError> for Standard {
             0 => StorageError::DieselConnect(rand_diesel_conn_err(rng)),
             1 => StorageError::DieselResult(rand_diesel_result(rng)),
             2 => StorageError::NotFound(rand::random()),
-            3 => StorageError::Duplicate(DuplicateItem::WelcomeId(Some(i64::MAX))),
+            3 => StorageError::Duplicate(DuplicateItem::WelcomeId(Some(Cursor::default()))),
             4 => rand::random(),
             5 => StorageError::IntentionalRollback,
             6 => StorageError::DbSerialize,
@@ -54,7 +55,7 @@ impl Distribution<SqlKeyStoreError> for Standard {
 impl Distribution<NotFound> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> NotFound {
         match rng.gen_range(0..=13) {
-            0 => NotFound::GroupByWelcome(i64::MAX),
+            0 => NotFound::GroupByWelcome(Cursor::default()),
             1 => NotFound::GroupById(Vec::new()),
             2 => NotFound::InstallationTimeForGroup(Vec::new()),
             3 => NotFound::InboxIdForAddress("random test inbox".into()),
@@ -64,7 +65,7 @@ impl Distribution<NotFound> for Standard {
             7 => NotFound::IntentForPublish(i32::MAX),
             8 => NotFound::IntentForCommitted(i32::MIN),
             9 => NotFound::IntentById(i32::MIN),
-            10 => NotFound::RefreshStateByIdAndKind(Vec::new(), EntityKind::Group),
+            10 => NotFound::RefreshStateByIdKindAndOriginator(Vec::new(), EntityKind::Group, 0),
             11 => NotFound::CipherSalt("random salt for testing".into()),
             12 => NotFound::SyncGroup(xmtp_common::rand_array::<32>().into()),
             13 => NotFound::MlsGroup,

@@ -1,4 +1,5 @@
 use crate::tester;
+use xmtp_configuration::Originators;
 use xmtp_db::prelude::QueryRefreshState;
 use xmtp_db::refresh_state::EntityKind;
 
@@ -16,10 +17,11 @@ async fn test_welcome_cursor() {
     group.update_installations().await?;
 
     alix2.sync_welcomes().await?;
-    let alix2_refresh_state = alix2
-        .context
-        .db()
-        .get_refresh_state(&group.group_id, EntityKind::Group)??;
+    let alix2_refresh_state =
+        alix2
+            .context
+            .db()
+            .get_refresh_state(&group.group_id, EntityKind::Group, Originators::APPLICATION_MESSAGES.into())??;
 
     assert!(alix2_refresh_state.cursor > 0);
 }

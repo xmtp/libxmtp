@@ -1,0 +1,86 @@
+use crate::{V3Client, v3::*};
+use xmtp_common::RetryableError;
+use xmtp_proto::api::{ApiClientError, Client, Query};
+use xmtp_proto::api_client::{IdentityStats, XmtpIdentityClient};
+use xmtp_proto::identity_v1;
+use xmtp_proto::xmtp::identity::associations::IdentifierKind;
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<C, E> XmtpIdentityClient for V3Client<C>
+where
+    C: Send + Sync + Client<Error = E>,
+    E: std::error::Error + RetryableError + Send + Sync + 'static,
+{
+    type Error = ApiClientError<E>;
+
+    async fn publish_identity_update(
+        &self,
+        request: identity_v1::PublishIdentityUpdateRequest,
+    ) -> Result<identity_v1::PublishIdentityUpdateResponse, Self::Error> {
+        self.identity_stats.publish_identity_update.count_request();
+        PublishIdentityUpdate::builder()
+            //todo: handle error or tryFrom
+            .identity_update(request.identity_update)
+            .build()?
+            .query(&self.client)
+            .await
+    }
+
+    async fn get_identity_updates_v2(
+        &self,
+        request: identity_v1::GetIdentityUpdatesRequest,
+    ) -> Result<identity_v1::GetIdentityUpdatesResponse, Self::Error> {
+        self.identity_stats.get_identity_updates_v2.count_request();
+        GetIdentityUpdatesV2::builder()
+            .requests(request.requests)
+            .build()?
+            .query(&self.client)
+            .await
+    }
+
+    async fn get_inbox_ids(
+        &self,
+        request: identity_v1::GetInboxIdsRequest,
+    ) -> Result<identity_v1::GetInboxIdsResponse, Self::Error> {
+        self.identity_stats.get_inbox_ids.count_request();
+        GetInboxIds::builder()
+            .addresses(
+                request
+                    .requests
+                    .iter()
+                    .filter(|r| r.identifier_kind == IdentifierKind::Ethereum as i32)
+                    .map(|r| r.identifier.clone())
+                    .collect::<Vec<_>>(),
+            )
+            .passkeys(
+                request
+                    .requests
+                    .iter()
+                    .filter(|r| r.identifier_kind == IdentifierKind::Passkey as i32)
+                    .map(|r| r.identifier.clone())
+                    .collect::<Vec<_>>(),
+            )
+            .build()?
+            .query(&self.client)
+            .await
+    }
+
+    async fn verify_smart_contract_wallet_signatures(
+        &self,
+        request: identity_v1::VerifySmartContractWalletSignaturesRequest,
+    ) -> Result<identity_v1::VerifySmartContractWalletSignaturesResponse, Self::Error> {
+        self.identity_stats
+            .verify_smart_contract_wallet_signature
+            .count_request();
+        VerifySmartContractWalletSignatures::builder()
+            .signatures(request.signatures)
+            .build()?
+            .query(&self.client)
+            .await
+    }
+
+    fn identity_stats(&self) -> IdentityStats {
+        self.identity_stats.clone()
+    }
+}

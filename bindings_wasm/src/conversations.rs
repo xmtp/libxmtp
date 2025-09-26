@@ -19,6 +19,7 @@ use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
 use xmtp_mls::common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_mls::groups::PreconfiguredPolicies;
+use xmtp_proto::types::Cursor;
 
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
@@ -178,6 +179,22 @@ impl MessageDisappearingSettings {
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, serde::Serialize)]
+pub struct XmtpCursor {
+  pub originator_id: u32,
+  pub sequence_id: i64,
+}
+
+impl From<Cursor> for XmtpCursor {
+  fn from(value: Cursor) -> Self {
+    XmtpCursor {
+      originator_id: value.originator_id,
+      sequence_id: value.sequence_id as i64,
+    }
+  }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Clone, serde::Serialize)]
 pub struct ConversationDebugInfo {
   pub epoch: u64,
   #[wasm_bindgen(js_name = maybeForked)]
@@ -197,7 +214,7 @@ pub struct ConversationDebugInfo {
   pub remote_commit_log: String,
   #[wasm_bindgen(js_name = cursor)]
   #[serde(rename = "cursor")]
-  pub cursor: i64,
+  pub cursor: Vec<XmtpCursor>,
 }
 
 #[wasm_bindgen(getter_with_clone)]

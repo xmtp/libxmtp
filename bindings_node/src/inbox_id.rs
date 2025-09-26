@@ -6,7 +6,8 @@ use napi_derive::napi;
 use std::sync::Arc;
 use xmtp_api::ApiIdentifier;
 use xmtp_api::{strategies, ApiClientWrapper};
-use xmtp_api_grpc::v3::Client as TonicApiClient;
+use xmtp_api_d14n::V3Client;
+use xmtp_api_grpc::GrpcClient;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_id::associations::MemberIdentifier;
 
@@ -16,9 +17,10 @@ pub async fn get_inbox_id_for_identifier(
   is_secure: bool,
   identifier: Identifier,
 ) -> Result<Option<String>> {
-  let client = TonicApiClient::create(&host, is_secure, None::<String>)
+  let client = GrpcClient::create(&host, is_secure)
     .await
     .map_err(ErrorWrapper::from)?;
+  let client = V3Client::new(client);
   // api rate limit cooldown period
   let api_client = ApiClientWrapper::new(client, strategies::exponential_cooldown());
 
@@ -73,9 +75,10 @@ async fn is_member_of_association_state(
   inbox_id: &str,
   identifier: &MemberIdentifier,
 ) -> Result<bool> {
-  let api_client = TonicApiClient::create(host, true, None::<String>)
+  let api_client = GrpcClient::create(host, true)
     .await
     .map_err(ErrorWrapper::from)?;
+  let api_client = V3Client::new(api_client);
   let api_client = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
 
   let is_member = xmtp_mls::identity_updates::is_member_of_association_state(

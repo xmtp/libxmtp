@@ -59,7 +59,12 @@ toxiproxy_rust = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
+tokio = { workspace = true, features = ["io-util"] }
+pbjson-types.workspace = true
+tokio-stream.workspace = true
+hyper-util = { version = "0.1" }
+
 [features]
-default = ["v3"]
+default = []
 test-utils = ["xmtp_proto/test-utils", "dep:toxiproxy_rust"]
-v3 = []

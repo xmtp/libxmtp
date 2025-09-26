@@ -24,6 +24,8 @@ pub enum ExtractionError {
     Payload(#[from] PayloadExtractionError),
     #[error(transparent)]
     Topic(#[from] TopicExtractionError),
+    #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
 }
 
 impl RetryableError for ExtractionError {
@@ -31,15 +33,7 @@ impl RetryableError for ExtractionError {
         match self {
             Self::Payload(p) => retryable!(p),
             Self::Topic(t) => retryable!(t),
+            Self::Conversion(c) => retryable!(c),
         }
     }
 }
-
-/*
-pub struct EnvelopeValidator;
-impl EnvelopeVisitor for EnvelopeValidator {
-    fn visit_originator(&mut self, envelope: &OriginatorEnvelope) {
-        todo!()
-    }
-}
-*/

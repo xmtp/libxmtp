@@ -8,8 +8,9 @@ use crate::{FfiReply, FfiSubscribeError, GenericError};
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
-use xmtp_api::{strategies, ApiClientWrapper, ApiDebugWrapper, ApiIdentifier};
-use xmtp_api_grpc::v3::Client as TonicApiClient;
+use xmtp_api::{strategies, ApiClientWrapper, ApiIdentifier};
+use xmtp_api_d14n::queries::V3Client;
+use xmtp_api_grpc::GrpcClient;
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::attachment::Attachment;
@@ -57,7 +58,6 @@ use xmtp_mls::common::group::GroupMetadataOptions;
 use xmtp_mls::common::group_metadata::GroupMetadata;
 use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::common::group_mutable_metadata::MetadataField;
-use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::groups::device_sync::archive::exporter::ArchiveExporter;
 use xmtp_mls::groups::device_sync::archive::insert_importer;
 use xmtp_mls::groups::device_sync::archive::ArchiveImporter;
@@ -85,9 +85,11 @@ use xmtp_mls::{
     identity::IdentityStrategy,
     subscriptions::SubscribeError,
 };
+use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
+use xmtp_proto::types::{AppVersion, Cursor};
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::content_types::{MultiRemoteAttachment, ReactionV2};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
@@ -100,19 +102,11 @@ pub use crate::message::{
 
 #[cfg(test)]
 mod test_utils;
-
-pub type MlsContext = Arc<
-    XmtpMlsLocalContext<
-        ApiDebugWrapper<TonicApiClient>,
-        xmtp_db::DefaultStore,
-        xmtp_db::DefaultMlsStore,
-    >,
->;
-pub type RustXmtpClient = MlsClient<MlsContext>;
-pub type RustMlsGroup = MlsGroup<MlsContext>;
+pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
+pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
 
 #[derive(uniffi::Object, Clone)]
-pub struct XmtpApiClient(TonicApiClient);
+pub struct XmtpApiClient(V3Client<GrpcClient>);
 
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn connect_to_backend(
@@ -129,7 +123,14 @@ pub async fn connect_to_backend(
         host,
         is_secure
     );
-    let api_client = TonicApiClient::create(&host, is_secure, app_version).await?;
+    let api_client = V3Client::new(
+        GrpcClient::create_with_version(
+            &host,
+            is_secure,
+            app_version.map(AppVersion::from).unwrap_or_default(),
+        )
+        .await?,
+    );
     Ok(Arc::new(XmtpApiClient(api_client)))
 }
 
@@ -146,7 +147,7 @@ pub async fn inbox_state_from_inbox_ids(
     api: Arc<XmtpApiClient>,
     inbox_ids: Vec<String>,
 ) -> Result<Vec<FfiInboxState>, GenericError> {
-    let api: ApiClientWrapper<Arc<TonicApiClient>> =
+    let api: ApiClientWrapper<Arc<V3Client<GrpcClient>>> =
         ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
     let scw_verifier = Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
         as Box<dyn SmartContractSignatureVerifier>);
@@ -174,7 +175,7 @@ pub async fn revoke_installations(
     inbox_id: &InboxId,
     installation_ids: Vec<Vec<u8>>,
 ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
-    let api: ApiClientWrapper<Arc<TonicApiClient>> =
+    let api: ApiClientWrapper<Arc<V3Client<GrpcClient>>> =
         ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
     let scw_verifier = Arc::new(
         Box::new(RemoteSignatureVerifier::new(api)) as Box<dyn SmartContractSignatureVerifier>
@@ -1849,6 +1850,12 @@ impl From<MessageDisappearingSettings> for FfiMessageDisappearingSettings {
     }
 }
 
+#[derive(uniffi::Record, Debug, Clone, Copy)]
+pub struct FfiCursor {
+    originator_id: u32,
+    sequence_id: u64,
+}
+
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiConversationDebugInfo {
     pub epoch: u64,
@@ -1857,7 +1864,16 @@ pub struct FfiConversationDebugInfo {
     pub is_commit_log_forked: Option<bool>,
     pub local_commit_log: String,
     pub remote_commit_log: String,
-    pub cursor: i64,
+    pub cursor: Vec<FfiCursor>,
+}
+
+impl From<Cursor> for FfiCursor {
+    fn from(value: Cursor) -> Self {
+        FfiCursor {
+            sequence_id: value.sequence_id,
+            originator_id: value.originator_id,
+        }
+    }
 }
 
 impl FfiConversationDebugInfo {
@@ -1868,7 +1884,7 @@ impl FfiConversationDebugInfo {
         is_commit_log_forked: Option<bool>,
         local_commit_log: String,
         remote_commit_log: String,
-        cursor: i64,
+        cursor: Vec<Cursor>,
     ) -> Self {
         Self {
             epoch,
@@ -1877,7 +1893,7 @@ impl FfiConversationDebugInfo {
             is_commit_log_forked,
             local_commit_log,
             remote_commit_log,
-            cursor,
+            cursor: cursor.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -2834,7 +2850,7 @@ pub struct FfiMessage {
     pub content: Vec<u8>,
     pub kind: FfiConversationMessageKind,
     pub delivery_status: FfiDeliveryStatus,
-    pub sequence_id: Option<u64>,
+    pub sequence_id: u64,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -2847,7 +2863,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
             delivery_status: msg.delivery_status.into(),
-            sequence_id: msg.sequence_id.map(|s| s as u64),
+            sequence_id: msg.sequence_id as u64,
         }
     }
 }
@@ -3781,6 +3797,7 @@ mod tests {
             .list(FfiListConversationsOptions::default());
 
         let api_stats = client.api_statistics();
+        tracing::info!("api_stats.send_group_messages {}", api_stats.send_group_messages);
         assert!(api_stats.send_group_messages == 1);
         assert!(api_stats.send_welcome_messages == 1);
 

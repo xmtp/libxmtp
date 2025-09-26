@@ -1,4 +1,4 @@
-use super::{Result, stream_conversations::ConversationStreamError};
+use super::Result;
 use crate::context::XmtpSharedContext;
 use crate::groups::GroupError;
 use crate::groups::InitialMembershipValidator;
@@ -8,12 +8,12 @@ use crate::{groups::MlsGroup, subscriptions::WelcomeOrGroup};
 use std::collections::HashSet;
 use xmtp_common::{Retry, retry_async};
 use xmtp_db::{group::ConversationType, prelude::*};
-use xmtp_proto::mls_v1::{WelcomeMessage, welcome_message};
+use xmtp_proto::types::{Cursor, WelcomeMessage};
 
 /// Future for processing `WelcomeorGroup`
 pub struct ProcessWelcomeFuture<Context> {
     /// welcome ids in DB and which are already processed
-    known_welcome_ids: HashSet<i64>,
+    known_welcome_ids: HashSet<Cursor>,
     /// The libxmtp client
     context: Context,
     /// the welcome or group being processed in this future
@@ -26,14 +26,18 @@ pub struct ProcessWelcomeFuture<Context> {
 
 pub enum ProcessWelcomeResult<Context> {
     /// New Group and welcome id
-    New { group: MlsGroup<Context>, id: i64 },
+    New {
+        group: MlsGroup<Context>,
+        id: Cursor,
+    },
     /// A group we already have/we created that might not have a welcome id
     NewStored {
         group: MlsGroup<Context>,
-        maybe_id: Option<i64>,
+        maybe_sequence_id: Option<i64>,
+        maybe_originator: Option<i64>,
     },
     /// Skip this welcome but add and id to known welcome ids
-    IgnoreId { id: i64 },
+    IgnoreId { id: Cursor },
     /// Skip this payload
     Ignore,
 }
@@ -63,7 +67,7 @@ where
     ///
     /// # Example
     pub fn new(
-        known_welcome_ids: HashSet<i64>,
+        known_welcome_ids: HashSet<Cursor>,
         context: Context,
         item: WelcomeOrGroup,
         conversation_type: Option<ConversationType>,
@@ -76,13 +80,6 @@ where
             conversation_type,
             include_duplicate_dms,
         })
-    }
-}
-
-fn extract_welcome_message(welcome: &WelcomeMessage) -> Result<&welcome_message::V1> {
-    match welcome.version {
-        Some(welcome_message::Version::V1(ref welcome)) => Ok(welcome),
-        _ => Err(ConversationStreamError::InvalidPayload.into()),
     }
 }
 
@@ -121,29 +118,38 @@ where
     pub async fn process(self) -> Result<ProcessWelcomeResult<Context>> {
         use WelcomeOrGroup::*;
         let process_result = match self.item {
-            Welcome(ref w) => {
-                let welcome = extract_welcome_message(w)?;
-                let id = welcome.id as i64;
-                tracing::debug!("got welcome with id {}", id);
+            Welcome(ref welcome) => {
+                tracing::debug!("got welcome with id {}", welcome.cursor);
                 // try to load it from store first and avoid overhead
                 // of processing a welcome & erroring
                 // for immediate return, this must stay in the top-level future,
                 // to avoid a possible yield on the await in on_welcome.
-                if self.known_welcome_ids.contains(&id) {
+                if self.known_welcome_ids.contains(&welcome.cursor) {
                     tracing::debug!(
                         "Found existing welcome. Returning from db & skipping processing"
                     );
-                    if let Ok(Some(group)) = self.load_from_store(id) {
-                        return self.filter(ProcessWelcomeResult::New { group, id }).await;
+                    if let Ok(Some(group)) = self.load_from_store(welcome.cursor) {
+                        return self
+                            .filter(ProcessWelcomeResult::New {
+                                group,
+                                id: welcome.cursor,
+                            })
+                            .await;
                     }
                 }
-                tracing::info!("could not find group for welcome {}, processing", id);
+                tracing::info!(
+                    "could not find group for welcome {}, processing",
+                    welcome.cursor
+                );
                 // sync welcome from the network
                 if let Some(group) = self.on_welcome(welcome).await? {
-                    ProcessWelcomeResult::New { group, id }
+                    ProcessWelcomeResult::New {
+                        group,
+                        id: welcome.cursor,
+                    }
                 } else {
                     tracing::info!("Oneshot welcome message processed, skipping stream event.");
-                    ProcessWelcomeResult::IgnoreId { id }
+                    ProcessWelcomeResult::IgnoreId { id: welcome.cursor }
                 }
             }
             Group(ref id) => {
@@ -152,7 +158,8 @@ where
 
                 ProcessWelcomeResult::NewStored {
                     group,
-                    maybe_id: stored_group.welcome_id,
+                    maybe_sequence_id: stored_group.sequence_id,
+                    maybe_originator: stored_group.originator_id,
                 }
             }
         };
@@ -211,7 +218,11 @@ where
                     Ok(ProcessWelcomeResult::IgnoreId { id })
                 }
             }
-            NewStored { group, maybe_id } => {
+            NewStored {
+                group,
+                maybe_sequence_id,
+                maybe_originator,
+            } => {
                 let metadata = group.metadata().await?;
                 // If it's a duplicate DM, don’t stream
                 if !self.include_duplicate_dms
@@ -219,8 +230,15 @@ where
                     && self.context.db().has_duplicate_dm(&group.group_id)?
                 {
                     tracing::debug!("Duplicate DM group detected from Group(id). Skipping stream.");
-                    if let Some(id) = maybe_id {
-                        return Ok(ProcessWelcomeResult::IgnoreId { id });
+                    if let Some(id) = maybe_sequence_id
+                        && let Some(originator) = maybe_originator
+                    {
+                        return Ok(ProcessWelcomeResult::IgnoreId {
+                            id: Cursor {
+                                sequence_id: id as u64,
+                                originator_id: originator as u32,
+                            },
+                        });
                     } else {
                         return Ok(ProcessWelcomeResult::Ignore);
                     }
@@ -230,9 +248,20 @@ where
                     .conversation_type
                     .is_none_or(|ct| ct == metadata.conversation_type)
                 {
-                    Ok(ProcessWelcomeResult::NewStored { group, maybe_id })
-                } else if let Some(id) = maybe_id {
-                    Ok(ProcessWelcomeResult::IgnoreId { id })
+                    Ok(ProcessWelcomeResult::NewStored {
+                        group,
+                        maybe_sequence_id,
+                        maybe_originator,
+                    })
+                } else if let Some(id) = maybe_sequence_id
+                    && let Some(originator) = maybe_originator
+                {
+                    Ok(ProcessWelcomeResult::IgnoreId {
+                        id: Cursor {
+                            sequence_id: id as u64,
+                            originator_id: originator as u32,
+                        },
+                    })
                 } else {
                     Ok(ProcessWelcomeResult::Ignore)
                 }
@@ -264,14 +293,14 @@ where
     ///
     /// # Note
     /// This function uses retry logic to handle transient network failures
-    async fn on_welcome(&self, welcome: &welcome_message::V1) -> Result<Option<MlsGroup<Context>>> {
-        let welcome_message::V1 {
-            id,
+    async fn on_welcome(&self, welcome: &WelcomeMessage) -> Result<Option<MlsGroup<Context>>> {
+        let WelcomeMessage {
+            cursor,
             created_ns: _,
             installation_key,
             ..
         } = welcome;
-        let id = *id as i64;
+        let id = cursor.sequence_id as i64;
 
         tracing::info!(
             installation_id = hex::encode(installation_key),
@@ -281,10 +310,7 @@ where
         self.process_welcome(welcome).await
     }
 
-    async fn process_welcome(
-        &self,
-        welcome: &welcome_message::V1,
-    ) -> Result<Option<MlsGroup<Context>>> {
+    async fn process_welcome(&self, welcome: &WelcomeMessage) -> Result<Option<MlsGroup<Context>>> {
         let welcomes = WelcomeService::new(self.context.clone());
         let res = retry_async!(
             Retry::default(),
@@ -296,7 +322,7 @@ where
             })
         );
 
-        let id = welcome.id as i64;
+        let id = welcome.cursor;
         if let Ok(maybe_group) = res {
             Ok(maybe_group)
         } else if let Err(GroupError::ProcessIntent(ProcessIntentError::WelcomeAlreadyProcessed(
@@ -310,23 +336,22 @@ where
     }
 
     /// Load a group from disk by its welcome_id
-    fn load_from_store(&self, id: i64) -> Result<Option<MlsGroup<Context>>> {
-        let maybe_group = self.context.db().find_group_by_welcome_id(id)?;
+    fn load_from_store(&self, cursor: Cursor) -> Result<Option<MlsGroup<Context>>> {
+        let maybe_group = self.context.db().find_group_by_sequence_id(cursor)?;
         let Some(group) = maybe_group else {
             tracing::warn!(
-                welcome_id = id,
+                welcome_id = %cursor,
                 "Already processed welcome not loaded from store (likely pre-existing group or oneshot message)"
             );
             return Ok(None);
         };
-
         tracing::info!(
             inbox_id = self.context.inbox_id(),
             group_id = hex::encode(&group.id),
             dm_id = group.dm_id,
-            welcome_id = ?group.welcome_id,
+            welcome_id = ?group.sequence_id,
             "loading existing group for welcome_id: {:?}",
-            group.welcome_id
+            group.cursor()
         );
         Ok(Some(MlsGroup::new(
             self.context.clone(),
