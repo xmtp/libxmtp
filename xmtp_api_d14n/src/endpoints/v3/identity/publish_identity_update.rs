@@ -2,10 +2,9 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
-use xmtp_proto::xmtp::identity::api::v1::{
-    PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
-};
+use xmtp_proto::api::{BodyError, Endpoint};
+use xmtp_proto::identity_v1::PublishIdentityUpdateResponse;
+use xmtp_proto::xmtp::identity::api::v1::PublishIdentityUpdateRequest;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 
 #[derive(Debug, Builder, Default)]
@@ -23,10 +22,6 @@ impl PublishIdentityUpdate {
 
 impl Endpoint for PublishIdentityUpdate {
     type Output = PublishIdentityUpdateResponse;
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::Borrowed("/identity/v1/publish-identity-update")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<PublishIdentityUpdateRequest>()
     }
@@ -43,12 +38,21 @@ impl Endpoint for PublishIdentityUpdate {
 #[cfg(test)]
 mod test {
     use super::*;
-    use xmtp_proto::prelude::*;
+    use xmtp_proto::{identity_v1::PublishIdentityUpdateResponse, prelude::*};
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::identity::api::v1::PublishIdentityUpdateRequest;
         let _pnq = xmtp_proto::path_and_query::<PublishIdentityUpdateRequest>();
+    }
+
+    #[xmtp_common::test]
+    fn test_grpc_endpoint_returns_correct_path() {
+        let endpoint = PublishIdentityUpdate::default();
+        assert_eq!(
+            endpoint.grpc_endpoint(),
+            "/xmtp.identity.api.v1.IdentityApi/PublishIdentityUpdate"
+        );
     }
 
     #[xmtp_common::test]
@@ -58,7 +62,7 @@ mod test {
 
         let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();
-        let endpoint = PublishIdentityUpdate::builder()
+        let mut endpoint = PublishIdentityUpdate::builder()
             .identity_update(Some(IdentityUpdate {
                 actions: vec![],
                 inbox_id: "".to_string(),

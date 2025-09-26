@@ -6,3 +6,4 @@ ignore:
   - "**/mock.rs"
   - "**/test_utils.rs"
   - "**/test.rs"
+  - "**/tests.rs"

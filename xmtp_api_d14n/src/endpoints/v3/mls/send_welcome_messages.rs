@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::mls::api::v1::{SendWelcomeMessagesRequest, WelcomeMessageInput};
 
 #[derive(Debug, Builder, Default)]
@@ -20,10 +20,6 @@ impl SendWelcomeMessages {
 
 impl Endpoint for SendWelcomeMessages {
     type Output = ();
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::Borrowed("/mls/v1/send-welcome-messages")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<SendWelcomeMessagesRequest>()
     }
@@ -40,15 +36,24 @@ impl Endpoint for SendWelcomeMessages {
 #[cfg(test)]
 mod test {
     use crate::v3::SendWelcomeMessages;
-    use xmtp_proto::prelude::*;
     use xmtp_proto::xmtp::mls::api::v1::{
         SendWelcomeMessagesRequest, WelcomeMessageInput, welcome_message_input,
     };
+    use xmtp_proto::{api, prelude::*};
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
         let pnq = xmtp_proto::path_and_query::<SendWelcomeMessagesRequest>();
         println!("{}", pnq);
+    }
+
+    #[xmtp_common::test]
+    fn test_grpc_endpoint_returns_correct_path() {
+        let endpoint = SendWelcomeMessages::default();
+        assert_eq!(
+            endpoint.grpc_endpoint(),
+            "/xmtp.mls.api.v1.MlsApi/SendWelcomeMessages"
+        );
     }
 
     #[xmtp_common::test]
@@ -63,7 +68,7 @@ mod test {
             .build()
             .unwrap();
 
-        let result = endpoint.query(&client).await;
+        let result = api::ignore(endpoint).query(&client).await;
         assert!(result.is_err())
     }
 }

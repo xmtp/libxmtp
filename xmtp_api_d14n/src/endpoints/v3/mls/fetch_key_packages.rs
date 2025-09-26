@@ -2,8 +2,9 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
-use xmtp_proto::xmtp::mls::api::v1::{FetchKeyPackagesRequest, FetchKeyPackagesResponse};
+use xmtp_proto::api::{BodyError, Endpoint};
+use xmtp_proto::mls_v1::FetchKeyPackagesResponse;
+use xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest;
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
@@ -20,10 +21,6 @@ impl FetchKeyPackages {
 
 impl Endpoint for FetchKeyPackages {
     type Output = FetchKeyPackagesResponse;
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::Borrowed("/mls/v1/fetch-key-packages")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<FetchKeyPackagesRequest>()
     }
@@ -40,7 +37,7 @@ impl Endpoint for FetchKeyPackages {
 #[cfg(test)]
 mod test {
     use super::*;
-    use xmtp_proto::prelude::*;
+    use xmtp_proto::{mls_v1::FetchKeyPackagesResponse, prelude::*};
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
@@ -50,10 +47,19 @@ mod test {
     }
 
     #[xmtp_common::test]
+    fn test_grpc_endpoint_returns_correct_path() {
+        let endpoint = FetchKeyPackages::default();
+        assert_eq!(
+            endpoint.grpc_endpoint(),
+            "/xmtp.mls.api.v1.MlsApi/FetchKeyPackages"
+        );
+    }
+
+    #[xmtp_common::test]
     async fn test_fetch_key_packages() {
         let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();
-        let endpoint = FetchKeyPackages::builder()
+        let mut endpoint = FetchKeyPackages::builder()
             .installation_keys(vec![vec![1, 2, 3]])
             .build()
             .unwrap();

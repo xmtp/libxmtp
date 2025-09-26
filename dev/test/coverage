@@ -1,3 +1,3 @@
 #!/bin/bash
 set -eou pipefail
-cargo llvm-cov --open --ignore-filename-regex "(xmtp_proto/src/gen)|(common/src/test)|(test_utils.rs)|(test_utils/)" nextest --no-fail-fast --profile ci --workspace --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
+cargo llvm-cov --open --ignore-filename-regex "(xmtp_proto/src/gen)|(common/src/test)|(test_utils.rs)|(tests.rs)|(test_utils/)|(mock.rs)" nextest --no-fail-fast --profile ci --workspace --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm

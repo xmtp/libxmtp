@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::message_api::{GetNewestEnvelopeRequest, GetNewestEnvelopeResponse};
 
 /// Query a single thing
@@ -26,11 +26,6 @@ impl GetNewestEnvelopes {
 /// do no unintentially skip nulls when they should preserve length.
 impl Endpoint for GetNewestEnvelopes {
     type Output = GetNewestEnvelopeResponse;
-
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::from("/mls/v2/get-newest-envelope")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<GetNewestEnvelopeRequest>()
     }
@@ -45,13 +40,23 @@ impl Endpoint for GetNewestEnvelopes {
 
 #[cfg(test)]
 mod test {
-    use xmtp_proto::prelude::*;
+    use xmtp_proto::{api, prelude::*};
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeRequest;
         let pnq = xmtp_proto::path_and_query::<GetNewestEnvelopeRequest>();
         println!("{}", pnq);
+    }
+
+    #[xmtp_common::test]
+    fn test_grpc_endpoint_returns_correct_path() {
+        use crate::d14n::GetNewestEnvelopes;
+        let endpoint = GetNewestEnvelopes::default();
+        assert_eq!(
+            endpoint.grpc_endpoint(),
+            "/xmtp.xmtpv4.message_api.ReplicationApi/GetNewestEnvelope"
+        );
     }
 
     #[xmtp_common::test]
@@ -62,6 +67,6 @@ mod test {
         let client = client.build().await.unwrap();
 
         let endpoint = GetNewestEnvelopes::builder().topic(vec![]).build().unwrap();
-        endpoint.query(&client).await.unwrap();
+        api::ignore(endpoint).query(&client).await.unwrap();
     }
 }
