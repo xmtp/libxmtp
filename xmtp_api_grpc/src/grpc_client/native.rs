@@ -113,7 +113,7 @@ pub mod tests {
         client.set_tls(true);
         let app_version = "test/1.0.0".to_string();
         let libxmtp_version = "0.0.1".to_string();
-        client.set_app_version(app_version.clone()).unwrap();
+        client.set_app_version(app_version.clone().into()).unwrap();
         client.set_libxmtp_version(libxmtp_version.clone()).unwrap();
         let client = client.build().await.unwrap();
         let request = client.build_request(PublishRequest { envelopes: vec![] });
