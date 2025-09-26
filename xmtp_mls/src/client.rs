@@ -1721,7 +1721,7 @@ pub(crate) mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     // Set to 40 seconds to safely account for the 16 second keepalive interval and 10 second timeout
     #[timeout(Duration::from_secs(40))]
-    #[cfg_attr(any(target_arch = "wasm32", feature = "http-api"), ignore)]
+    #[cfg_attr(any(target_arch = "wasm32"), ignore)]
     async fn should_reconnect() {
         let alix = Tester::builder().proxy().build().await;
         let bo = Tester::builder().build().await;

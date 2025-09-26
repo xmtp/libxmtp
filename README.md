@@ -171,9 +171,6 @@ sending double ratchet messages on the XMTP `dev` network.
 ├ [`xmtp_api_grpc`](./xmtp_api_grpc): API client for XMTP's gRPC API, using code
 from `xmtp_proto`
 
-├ [`xmtp_api_http`](./xmtp_api_http): API client for XMTP's gRPC Gateway API,
-using code from `xmtp_proto`
-
 ├ [`xmtp_cryptography`](./xmtp_cryptography): Cryptographic operations
 
 ├ [`xmtp_mls`](./xmtp_mls): Version 3 of XMTP which implements

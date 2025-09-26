@@ -6,7 +6,7 @@ use napi_derive::napi;
 use std::sync::Arc;
 use xmtp_api::ApiIdentifier;
 use xmtp_api::{strategies, ApiClientWrapper};
-use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_api_grpc::v3::Client as TonicApiClient;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_id::associations::MemberIdentifier;
 
