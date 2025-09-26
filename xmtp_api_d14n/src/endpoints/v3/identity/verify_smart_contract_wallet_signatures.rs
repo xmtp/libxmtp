@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::identity::api::v1::{
     VerifySmartContractWalletSignatureRequestSignature, VerifySmartContractWalletSignaturesRequest,
     VerifySmartContractWalletSignaturesResponse,
@@ -55,7 +55,7 @@ mod test {
     async fn test_verify_smart_contract_wallet_signatures() {
         let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();
-        let endpoint = VerifySmartContractWalletSignatures::builder()
+        let mut endpoint = VerifySmartContractWalletSignatures::builder()
             .signatures(vec![VerifySmartContractWalletSignatureRequestSignature {
                 account_id: "".into(),
                 block_number: None,

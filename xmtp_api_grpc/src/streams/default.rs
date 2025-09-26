@@ -11,7 +11,7 @@ use crate::error::GrpcError;
 use futures::{Stream, TryStream};
 use pin_project_lite::pin_project;
 use xmtp_proto::{
-    traits::{ApiClientError, Client},
+    api::{ApiClientError, Client},
     ApiEndpoint,
 };
 

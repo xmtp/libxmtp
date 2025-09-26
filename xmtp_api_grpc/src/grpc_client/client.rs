@@ -22,9 +22,9 @@ use tonic::{
 };
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
 use xmtp_proto::{
+    api::{ApiClientError, Client},
     api_client::ApiBuilder,
     codec::TransparentCodec,
-    traits::{ApiClientError, Client},
     types::AppVersion,
 };
 
@@ -257,6 +257,9 @@ impl ApiBuilder for ClientBuilder {
             )?),
         })
     }
+
+    // this client does not do retries
+    fn set_retry(&mut self, _retry: xmtp_common::Retry) {}
 }
 
 #[cfg(any(test, feature = "test-utils"))]

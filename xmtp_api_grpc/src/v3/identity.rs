@@ -1,8 +1,8 @@
 use crate::error::GrpcError;
 use crate::v3::Client;
 use xmtp_proto::{
+    api::ApiClientError,
     api_client::{IdentityStats, XmtpIdentityClient},
-    traits::ApiClientError,
     xmtp::identity::api::v1::{
         GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
         GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,

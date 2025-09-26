@@ -1,11 +1,10 @@
 use super::*;
 use crate::{prelude::*, types::AppVersion, ToxicProxies};
 
-pub struct MockClient;
 pub struct MockStream;
 pub struct MockApiBuilder;
 impl ApiBuilder for MockApiBuilder {
-    type Output = MockClient;
+    type Output = MockNetworkClient;
     type Error = MockError;
     fn set_libxmtp_version(&mut self, _version: String) -> Result<(), Self::Error> {
         Ok(())
@@ -23,12 +22,14 @@ impl ApiBuilder for MockApiBuilder {
     }
 
     async fn build(self) -> Result<Self::Output, Self::Error> {
-        Ok(MockClient)
+        Ok(MockNetworkClient::default())
     }
 
     fn host(&self) -> Option<&str> {
         None
     }
+
+    fn set_retry(&mut self, _retry: xmtp_common::Retry) {}
 }
 
 impl crate::TestApiBuilder for MockApiBuilder {
@@ -40,20 +41,20 @@ impl crate::TestApiBuilder for MockApiBuilder {
 #[derive(thiserror::Error, Debug)]
 pub enum MockError {}
 
-impl RetryableError for MockError {
+impl xmtp_common::RetryableError for MockError {
     fn is_retryable(&self) -> bool {
         false
     }
 }
 
-type Repeat = Box<dyn FnMut() -> Result<prost::bytes::Bytes, MockError>>;
+type Repeat = Box<dyn Send + FnMut() -> Result<prost::bytes::Bytes, MockError>>;
 type MockStreamT = futures::stream::RepeatWith<Repeat>;
 #[cfg(not(target_arch = "wasm32"))]
 mockall::mock! {
-    pub MockClient {}
+    pub NetworkClient {}
 
     #[async_trait::async_trait]
-    impl Client for MockClient {
+    impl Client for NetworkClient {
         type Error = MockError;
         type Stream = MockStreamT;
         async fn request(
@@ -70,22 +71,23 @@ mockall::mock! {
             body: Bytes,
         ) -> Result<http::Response<MockStreamT>, ApiClientError<MockError>>;
     }
-
-    impl XmtpTestClient for MockClient {
+/*
+    impl XmtpTestClient for NetworkClient {
         type Builder = MockApiBuilder;
         fn create_local() -> MockApiBuilder { MockApiBuilder }
         fn create_dev() -> MockApiBuilder { MockApiBuilder }
         fn create_payer() -> MockApiBuilder { MockApiBuilder }
         fn create_d14n() -> MockApiBuilder { MockApiBuilder }
     }
+    */
 }
 
 #[cfg(target_arch = "wasm32")]
 mockall::mock! {
-    pub MockClient {}
+    pub NetworkClient {}
 
     #[async_trait::async_trait(?Send)]
-    impl Client for MockClient {
+    impl Client for NetworkClient {
         type Error = MockError;
         type Stream = MockStreamT;
         async fn request(
@@ -103,7 +105,7 @@ mockall::mock! {
         ) -> Result<http::Response<MockStreamT>, ApiClientError<MockError>>;
     }
 
-    impl XmtpTestClient for MockClient {
+    impl XmtpTestClient for NetworkClient {
         type Builder = MockApiBuilder;
         fn create_local() -> MockApiBuilder { MockApiBuilder }
         fn create_dev() -> MockApiBuilder { MockApiBuilder }
