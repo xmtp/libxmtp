@@ -3,7 +3,7 @@ mod identity;
 mod mls;
 mod streams;
 
-use xmtp_proto::prelude::ApiBuilder;
+use xmtp_proto::{prelude::ApiBuilder, types::AppVersion};
 
 #[derive(Clone)]
 pub struct D14nClient<C, P> {
@@ -50,7 +50,7 @@ where
         <Builder2 as ApiBuilder>::set_libxmtp_version(&mut self.payer_client, version)
     }
 
-    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
+    fn set_app_version(&mut self, version: AppVersion) -> Result<(), Self::Error> {
         <Builder1 as ApiBuilder>::set_app_version(&mut self.message_client, version.clone())?;
         <Builder2 as ApiBuilder>::set_app_version(&mut self.payer_client, version)
     }

@@ -9,3 +9,7 @@ pub mod utils;
 pub use basic_credential::*;
 
 pub type Secret = tls_codec::SecretVLBytes; // Byte array with ZeroizeOnDrop
+
+pub mod openmls {
+    pub use openmls::*;
+}
