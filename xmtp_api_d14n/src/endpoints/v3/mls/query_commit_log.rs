@@ -2,10 +2,9 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
-use xmtp_proto::xmtp::mls::api::v1::{
-    BatchQueryCommitLogRequest, BatchQueryCommitLogResponse, QueryCommitLogRequest,
-};
+use xmtp_proto::api::{BodyError, Endpoint};
+use xmtp_proto::mls_v1::BatchQueryCommitLogResponse;
+use xmtp_proto::xmtp::mls::api::v1::{BatchQueryCommitLogRequest, QueryCommitLogRequest};
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
@@ -22,10 +21,6 @@ impl QueryCommitLog {
 
 impl Endpoint for QueryCommitLog {
     type Output = BatchQueryCommitLogResponse;
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::Borrowed("/mls/v1/batch-query-commit-log")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<BatchQueryCommitLogRequest>()
     }
