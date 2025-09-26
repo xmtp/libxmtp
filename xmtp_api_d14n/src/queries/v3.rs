@@ -8,6 +8,7 @@ use xmtp_proto::identity_v1;
 use xmtp_proto::mls_v1;
 use xmtp_proto::prelude::ApiBuilder;
 use xmtp_proto::traits::{ApiClientError, Client, Query};
+use xmtp_proto::types::AppVersion;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
 #[derive(Clone)]
@@ -44,7 +45,7 @@ where
         <Builder as ApiBuilder>::set_libxmtp_version(&mut self.client, version)
     }
 
-    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
+    fn set_app_version(&mut self, version: AppVersion) -> Result<(), Self::Error> {
         <Builder as ApiBuilder>::set_app_version(&mut self.client, version)
     }
 

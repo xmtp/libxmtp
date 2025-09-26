@@ -18,6 +18,8 @@ mod impls;
 mod proto_cache;
 pub use proto_cache::*;
 
+pub mod types;
+
 pub use error::*;
 
 pub mod api_client;
@@ -29,8 +31,6 @@ pub mod traits;
 
 #[cfg(feature = "convert")]
 pub mod convert;
-#[cfg(feature = "convert")]
-pub mod types;
 #[cfg(feature = "convert")]
 pub mod v4_utils;
 

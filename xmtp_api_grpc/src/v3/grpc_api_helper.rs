@@ -10,6 +10,7 @@ use xmtp_proto::mls_v1::{
 };
 use xmtp_proto::traits::ApiClientError;
 use xmtp_proto::traits::HasStats;
+use xmtp_proto::types::AppVersion;
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
     ApiEndpoint,
@@ -48,7 +49,7 @@ impl Client {
         let mut b = Self::builder();
         b.set_tls(is_secure);
         b.set_host(host.to_string());
-        b.set_app_version(app_version.map_or("0.0.0".to_string(), |v| v.to_string()))?;
+        b.set_app_version(app_version.map_or(Default::default(), |v| v.to_string().into()))?;
         b.build().await
     }
 
@@ -95,7 +96,7 @@ impl ApiBuilder for ClientBuilder {
         self.inner.set_libxmtp_version(version)
     }
 
-    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
+    fn set_app_version(&mut self, version: AppVersion) -> Result<(), Self::Error> {
         self.inner.set_app_version(version)
     }
 
