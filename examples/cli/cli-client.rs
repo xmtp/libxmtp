@@ -31,9 +31,9 @@ use tracing_subscriber::{
 };
 use valuable::Valuable;
 use xmtp_api::ApiIdentifier;
-use xmtp_api_d14n::queries::D14nClient;
+use xmtp_api_d14n::queries::{D14nClient, V3Client};
+use xmtp_api_grpc::error::GrpcError;
 use xmtp_api_grpc::GrpcClient;
-use xmtp_api_grpc::{error::GrpcError, v3::Client as ClientV3};
 use xmtp_common::time::now_ns;
 use xmtp_configuration::DeviceSyncUrls;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
@@ -282,22 +282,26 @@ async fn main() -> color_eyre::eyre::Result<()> {
             Arc::new(D14nClient::new(message, gateway))
         }
         (false, Env::Local) => {
-            Arc::new(ClientV3::create("http://localhost:5556", false, None::<String>).await?)
+            let mut client = GrpcClient::builder();
+            client.set_host("http://localhost:5556".to_string());
+            client.set_tls(false);
+            let client = client.build().await?;
+            Arc::new(V3Client::new(client))
         }
-        (false, Env::Dev) => Arc::new(
-            ClientV3::create("https://grpc.dev.xmtp.network:443", true, None::<String>).await?,
-        ),
-        (false, Env::Staging) => Arc::new(
-            ClientV3::create("https://grpc.dev.xmtp.network:443", true, None::<String>).await?,
-        ),
-        (false, Env::Production) => Arc::new(
-            ClientV3::create(
-                "https://grpc.production.xmtp.network:443",
-                true,
-                None::<String>,
-            )
-            .await?,
-        ),
+        (false, Env::Dev) | (false, Env::Staging) => {
+            let mut client = GrpcClient::builder();
+            client.set_host("https://grpc.dev.xmtp.network:443".to_string());
+            client.set_tls(true);
+            let client = client.build().await?;
+            Arc::new(V3Client::new(client))
+        }
+        (false, Env::Production) => {
+            let mut client = GrpcClient::builder();
+            client.set_host("https://grpc.production.xmtp.network:443".to_string());
+            client.set_tls(true);
+            let client = client.build().await?;
+            Arc::new(V3Client::new(client))
+        }
     };
 
     if let Commands::Register { seed_phrase } = &cli.command {

@@ -15,6 +15,7 @@ use xmtp_db::{
     remote_commit_log::CommitResult,
 };
 
+//TODO:d14n should handle originator id
 /// This trait wraps openmls groups to include commit logs for any mutations to encryption state.
 /// This helps with fork detection.
 pub trait CommitLogStorer: std::marker::Sized {
@@ -53,7 +54,7 @@ pub trait CommitLogStorer: std::marker::Sized {
     fn mark_failed_commit_logged(
         &self,
         provider: &impl MlsProviderExt,
-        commit_sequence_id: u64,
+        commit_cursor: u64,
         commit_epoch: GroupEpoch,
         error: &GroupMessageProcessingError,
     ) -> Result<(), StorageError>;

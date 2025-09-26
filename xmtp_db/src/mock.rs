@@ -5,6 +5,7 @@ use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
 use crate::remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder};
 use std::collections::HashMap;
 use std::sync::Arc;
+use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
 use diesel::prelude::SqliteConnection;
@@ -174,9 +175,9 @@ mock! {
             id: &[u8],
         ) -> Result<Option<crate::group::StoredGroup>, crate::ConnectionError>;
 
-        fn find_group_by_welcome_id(
+        fn find_group_by_sequence_id(
             &self,
-            welcome_id: i64,
+            cursor: Cursor,
         ) -> Result<Option<crate::group::StoredGroup>, crate::ConnectionError>;
 
         fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError>;
@@ -204,7 +205,7 @@ mock! {
             group: crate::group::StoredGroup,
         ) -> Result<crate::group::StoredGroup, StorageError>;
 
-        fn group_welcome_ids(&self) -> Result<Vec<i64>, crate::ConnectionError>;
+        fn group_cursors(&self) -> Result<Vec<Cursor>, crate::ConnectionError>;
 
         fn mark_group_as_maybe_forked(
             &self,
@@ -388,7 +389,7 @@ mock! {
             &self,
             msg_id: &MessageId,
             timestamp: u64,
-            sequence_id: i64,
+            cursor: Cursor,
             message_expire_at_ns: Option<i64>
         ) -> Result<usize, crate::ConnectionError>;
 
@@ -492,28 +493,30 @@ mock! {
             &self,
             entity_id: EntityId,
             entity_kind: crate::refresh_state::EntityKind,
+            originator_id: u32,
         ) -> Result<Option<crate::refresh_state::RefreshState>, StorageError>;
 
         #[mockall::concretize]
-        fn get_last_cursor_for_id<Id: AsRef<[u8]>>(
+        fn get_last_cursor_for_originators<Id: AsRef<[u8]>>(
             &self,
             id: Id,
             entity_kind: crate::refresh_state::EntityKind,
-        ) -> Result<i64, StorageError>;
+            originator_id: &[u32]
+        ) -> Result<Vec<Cursor>, StorageError>;
 
         #[mockall::concretize]
         fn update_cursor<Id: AsRef<[u8]>>(
             &self,
             entity_id: Id,
             entity_kind: crate::refresh_state::EntityKind,
-            cursor: i64,
+            cursor: xmtp_proto::types::Cursor
         ) -> Result<bool, StorageError>;
 
         #[mockall::concretize]
         fn get_remote_log_cursors(
             &self,
             conversation_ids: &[&Vec<u8>],
-        ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError>;
+        ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError>;
     }
 
     impl QueryIdentityUpdates for DbQuery {

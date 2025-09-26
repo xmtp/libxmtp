@@ -60,7 +60,7 @@ mod test {
         use xmtp_common::time::now_ns;
         use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 
-        let client = crate::TestClient::create_local();
+        let client = crate::TestGrpcClient::create_local();
         let client = client.build().await.unwrap();
         let mut endpoint = PublishIdentityUpdate::builder()
             .identity_update(Some(IdentityUpdate {

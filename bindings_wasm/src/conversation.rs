@@ -693,7 +693,7 @@ impl Conversation {
       is_commit_log_forked: debug_info.is_commit_log_forked,
       local_commit_log: debug_info.local_commit_log,
       remote_commit_log: debug_info.remote_commit_log,
-      cursor: debug_info.cursor,
+      cursor: debug_info.cursor.into_iter().map(Into::into).collect(),
     })?)
   }
 
@@ -733,8 +733,8 @@ mod tests {
       version_minor: 123,
       authority_id: String::from("test"),
       reference_id: None,
-      originator_id: None,
-      sequence_id: None,
+      originator_id: 0,
+      sequence_id: 0,
       expire_at_ns: None,
     };
     crate::to_value(&stored_message).unwrap();

@@ -2,8 +2,8 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use xmtp_proto::api::{BodyError, Endpoint};
-use xmtp_proto::mls_v1::PagingInfo;
 use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
 use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesRequest;
 use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, QueryEnvelopesResponse};
@@ -14,8 +14,8 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, QueryEnvelopesRespon
 pub struct QueryEnvelope {
     #[builder(setter(each(name = "topic", into)))]
     topics: Vec<Vec<u8>>,
-    #[builder(default = None)]
-    paging_info: Option<PagingInfo>,
+    last_seen: Vec<xmtp_proto::types::Cursor>,
+    limit: u32,
 }
 
 impl QueryEnvelope {
@@ -31,20 +31,22 @@ impl Endpoint for QueryEnvelope {
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
-        let limit = self.paging_info.map_or(0, |info| info.limit);
-        //todo: replace with returned node_id
-        let node_id = 100;
-        let last_seen = self.paging_info.map(|info| Cursor {
-            node_id_to_sequence_id: [(node_id, info.id_cursor)].into(),
-        });
+        let last_seen = self
+            .last_seen
+            .iter()
+            .map(|info| (info.originator_id, info.sequence_id))
+            .collect::<HashMap<_, _>>();
+        let cursor = Cursor {
+            node_id_to_sequence_id: last_seen,
+        };
 
         let query = QueryEnvelopesRequest {
             query: Some(EnvelopesQuery {
                 topics: self.topics.clone(),
                 originator_node_ids: vec![],
-                last_seen,
+                last_seen: Some(cursor),
             }),
-            limit,
+            limit: self.limit,
         };
         Ok(query.encode_to_vec().into())
     }
@@ -117,7 +119,7 @@ mod test {
     async fn test_query_envelopes() {
         use crate::d14n::QueryEnvelopes;
 
-        let client = crate::TestClient::create_d14n();
+        let client = crate::TestGrpcClient::create_d14n();
         let client = client.build().await.unwrap();
 
         let endpoint = QueryEnvelopes::builder()
@@ -145,10 +147,15 @@ mod test {
     async fn test_query_envelope() {
         use crate::d14n::QueryEnvelope;
 
-        let client = crate::TestClient::create_d14n();
+        let client = crate::TestGrpcClient::create_d14n();
         let client = client.build().await.unwrap();
 
-        let endpoint = QueryEnvelope::builder().topic(vec![]).build().unwrap();
+        let endpoint = QueryEnvelope::builder()
+            .last_seen(vec![])
+            .topic(vec![])
+            .limit(0)
+            .build()
+            .unwrap();
         let err = api::ignore(endpoint).query(&client).await.unwrap_err();
         tracing::info!("{}", err);
         // the request will fail b/c we're using dummy data but

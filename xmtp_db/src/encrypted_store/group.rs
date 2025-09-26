@@ -7,7 +7,7 @@ use super::{
 };
 use crate::NotFound;
 use crate::{DuplicateItem, StorageError, impl_fetch, impl_store, impl_store_or_ignore};
-use derive_builder::Builder;
+use derive_builder::{Builder, UninitializedFieldError};
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -24,15 +24,30 @@ mod version;
 
 pub use dms::QueryDms;
 pub use version::QueryGroupVersion;
+use xmtp_proto::types::Cursor;
 
 pub type ID = Vec<u8>;
 
 #[derive(
-    Debug, Clone, Serialize, Deserialize, PartialEq, Insertable, Identifiable, Queryable, Builder,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Insertable,
+    Identifiable,
+    Queryable,
+    Builder,
+    Selectable,
+    QueryableByName,
 )]
 #[diesel(table_name = groups)]
 #[diesel(primary_key(id))]
-#[builder(setter(into), build_fn(error = "StorageError"))]
+#[diesel(check_for_backend(Sqlite))]
+#[builder(
+    setter(into),
+    build_fn(error = "StorageError", validate = "Self::validate")
+)]
 #[derive(AsChangeset)]
 /// A Unique group chat
 pub struct StoredGroup {
@@ -49,7 +64,7 @@ pub struct StoredGroup {
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
     #[builder(default = None)]
-    pub welcome_id: Option<i64>,
+    pub sequence_id: Option<i64>,
     /// The last time the leaf node encryption key was rotated
     #[builder(default = "0")]
     pub rotated_at_ns: i64,
@@ -75,9 +90,6 @@ pub struct StoredGroup {
     pub maybe_forked: bool,
     #[builder(default = "String::new()")]
     pub fork_details: String,
-    /// The WelcomeMessage SequenceId
-    #[builder(default = None)]
-    pub sequence_id: Option<i64>,
     /// The Originator Node ID of the WelcomeMessage
     #[builder(default = None)]
     pub originator_id: Option<i64>,
@@ -92,6 +104,42 @@ pub struct StoredGroup {
     /// NULL if the remote commit log is not up to date yet
     #[builder(default = None)]
     pub is_commit_log_forked: Option<bool>,
+}
+
+impl StoredGroupBuilder {
+    fn validate(&self) -> Result<(), StorageError> {
+        if self.sequence_id.is_some() && self.originator_id.is_none() {
+            return Err(UninitializedFieldError::new("originator_id").into());
+        }
+        if self.originator_id.is_some() && self.sequence_id.is_none() {
+            return Err(UninitializedFieldError::new("sequence_id").into());
+        }
+        Ok(())
+    }
+}
+impl StoredGroup {
+    pub fn cursor(&self) -> Option<Cursor> {
+        //TODO:d14n migrate groups to make originator non-null
+        // add constraint that if sequencE_id is non-null,
+        // so must originator_id
+        if let Some(sequence_id) = self.sequence_id
+            && let Some(originator) = self.originator_id
+        {
+            return Some(Cursor {
+                sequence_id: sequence_id as u64,
+                originator_id: originator as u32,
+            });
+        }
+        None
+    }
+}
+
+impl StoredGroupBuilder {
+    pub fn cursor(&mut self, cursor: Cursor) -> &mut Self {
+        self.originator_id = Some(Some(cursor.originator_id as i64));
+        self.sequence_id = Some(Some(cursor.sequence_id as i64));
+        self
+    }
 }
 
 /// A subset of the group table for fetching the commit log public key
@@ -200,9 +248,9 @@ pub trait QueryGroup {
     fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, crate::ConnectionError>;
 
     /// Return a single group that matches the given welcome ID
-    fn find_group_by_welcome_id(
+    fn find_group_by_sequence_id(
         &self,
-        welcome_id: i64,
+        cursor: Cursor,
     ) -> Result<Option<StoredGroup>, crate::ConnectionError>;
 
     fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError>;
@@ -230,7 +278,7 @@ pub trait QueryGroup {
     fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError>;
 
     /// Get all the welcome ids turned into groups
-    fn group_welcome_ids(&self) -> Result<Vec<i64>, crate::ConnectionError>;
+    fn group_cursors(&self) -> Result<Vec<Cursor>, crate::ConnectionError>;
 
     fn mark_group_as_maybe_forked(
         &self,
@@ -328,11 +376,11 @@ where
     }
 
     /// Return a single group that matches the given welcome ID
-    fn find_group_by_welcome_id(
+    fn find_group_by_sequence_id(
         &self,
-        welcome_id: i64,
+        cursor: Cursor,
     ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
-        (**self).find_group_by_welcome_id(welcome_id)
+        (**self).find_group_by_sequence_id(cursor)
     }
 
     fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
@@ -374,8 +422,8 @@ where
     }
 
     /// Get all the welcome ids turned into groups
-    fn group_welcome_ids(&self) -> Result<Vec<i64>, crate::ConnectionError> {
-        (**self).group_welcome_ids()
+    fn group_cursors(&self) -> Result<Vec<Cursor>, crate::ConnectionError> {
+        (**self).group_cursors()
     }
 
     fn mark_group_as_maybe_forked(
@@ -673,20 +721,22 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     /// Return a single group that matches the given welcome ID
-    fn find_group_by_welcome_id(
+    fn find_group_by_sequence_id(
         &self,
-        welcome_id: i64,
+        cursor: Cursor,
     ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.asc())
-            .filter(dsl::welcome_id.eq(welcome_id));
+            .filter(dsl::sequence_id.eq(cursor.sequence_id as i64))
+            .filter(dsl::originator_id.eq(cursor.originator_id as i64));
 
         let groups = self.raw_query_read(|conn| query.load(conn))?;
 
         if groups.len() > 1 {
             tracing::warn!(
-                welcome_id,
-                "More than one group found for welcome_id {welcome_id}"
+                cursor.sequence_id,
+                "More than one group found for welcome_id {}",
+                cursor.sequence_id
             );
         }
         Ok(groups.into_iter().next())
@@ -794,26 +844,26 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                 })?;
             }
 
-            if existing_group.welcome_id == group.welcome_id {
+            if existing_group.sequence_id == group.sequence_id {
                 tracing::info!("Group welcome id already exists");
                 // Error so OpenMLS db transaction are rolled back on duplicate welcomes
                 Err(StorageError::Duplicate(DuplicateItem::WelcomeId(
-                    existing_group.welcome_id,
+                    existing_group.cursor(),
                 )))
             } else {
                 tracing::info!("Group already exists");
                 // If the welcome id is greater than the existing group welcome, update the welcome id
                 // on the existing group
-                if group.welcome_id.is_some()
-                    && (existing_group.welcome_id.is_none()
-                        || group.welcome_id > existing_group.welcome_id)
+                if group.sequence_id.is_some()
+                    && (existing_group.sequence_id.is_none()
+                        || group.sequence_id > existing_group.sequence_id)
                 {
                     self.raw_query_write(|c| {
                         diesel::update(dsl::groups.find(&group.id))
-                            .set(dsl::welcome_id.eq(group.welcome_id))
+                            .set(dsl::sequence_id.eq(group.sequence_id))
                             .execute(c)
                     })?;
-                    existing_group.welcome_id = group.welcome_id;
+                    existing_group.sequence_id = group.sequence_id;
                 }
                 Ok(existing_group)
             }
@@ -823,14 +873,18 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     /// Get all the welcome ids turned into groups
-    fn group_welcome_ids(&self) -> Result<Vec<i64>, crate::ConnectionError> {
+    fn group_cursors(&self) -> Result<Vec<Cursor>, crate::ConnectionError> {
         self.raw_query_read(|conn| {
             Ok(dsl::groups
-                .filter(dsl::welcome_id.is_not_null())
-                .select(dsl::welcome_id)
-                .load::<Option<i64>>(conn)?
+                .filter(dsl::sequence_id.is_not_null())
+                .select((dsl::sequence_id, dsl::originator_id))
+                .load::<(Option<i64>, Option<i64>)>(conn)?
                 .into_iter()
-                .map(|id| id.expect("SQL explicity filters for none"))
+                .map(|(seq, orig)| Cursor {
+                    sequence_id: seq.expect("Filtered for not null") as u64,
+                    originator_id: orig.expect("if seq is not null, originator must not be null")
+                        as u32,
+                })
                 .collect())
         })
     }
@@ -1146,6 +1200,7 @@ pub(crate) mod tests {
         test_utils::{with_connection, with_connection_async},
     };
     use xmtp_common::{assert_ok, rand_vec, time::now_ns};
+    use xmtp_configuration::Originators;
 
     /// Generate a test group
     pub fn generate_group(state: Option<GroupMembershipState>) -> StoredGroup {
@@ -1181,7 +1236,8 @@ pub(crate) mod tests {
             .created_at_ns(created_at_ns)
             .membership_state(membership_state)
             .added_by_inbox_id("placeholder_address")
-            .welcome_id(welcome_id.unwrap_or(xmtp_common::rand_i64()))
+            .sequence_id(welcome_id.unwrap_or(xmtp_common::rand_i64()))
+            .originator_id(Originators::WELCOME_MESSAGES as i64)
             .conversation_type(ConversationType::Group)
             .build()
             .unwrap()
@@ -1488,7 +1544,7 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    async fn test_get_group_welcome_ids() {
+    async fn test_get_sequence_ids() {
         with_connection(|conn| {
             let mls_groups = vec![
                 generate_group_with_welcome(None, Some(30)),
@@ -1499,7 +1555,14 @@ pub(crate) mod tests {
             for g in mls_groups.iter() {
                 g.store(conn).unwrap();
             }
-            assert_eq!(vec![30, 10], conn.group_welcome_ids().unwrap());
+            assert_eq!(
+                vec![30, 10],
+                conn.group_cursors()
+                    .unwrap()
+                    .into_iter()
+                    .map(|c| c.sequence_id)
+                    .collect::<Vec<u64>>()
+            );
         })
         .await
     }

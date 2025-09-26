@@ -10,6 +10,7 @@ use crate::groups::mls_sync::decode_staged_commit;
 use crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent;
 use crate::identity::create_credential;
 use crate::tester;
+use xmtp_configuration::Originators;
 use xmtp_db::XmtpOpenMlsProviderRef;
 use xmtp_db::group::ConversationType;
 use xmtp_db::group_message::MsgQueryArgs;
@@ -31,10 +32,11 @@ async fn test_welcome_cursor() {
     group.update_installations().await?;
 
     alix2.sync_welcomes().await?;
-    let alix2_refresh_state = alix2
-        .context
-        .db()
-        .get_refresh_state(&group.group_id, EntityKind::Group)??;
+    let alix2_refresh_state = alix2.context.db().get_refresh_state(
+        &group.group_id,
+        EntityKind::Group,
+        Originators::APPLICATION_MESSAGES.into(),
+    )??;
 
     assert!(alix2_refresh_state.cursor > 0);
 }

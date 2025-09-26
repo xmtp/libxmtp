@@ -1,7 +1,4 @@
-use crate::mls_v1::{
-    BatchPublishCommitLogRequest, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
-    QueryWelcomeMessagesRequest,
-};
+use crate::{mls_v1::QueryGroupMessagesResponse, types::WelcomeMessage};
 
 use super::*;
 
@@ -127,16 +124,27 @@ where
 
     async fn query_group_messages(
         &self,
-        request: QueryGroupMessagesRequest,
-    ) -> Result<QueryGroupMessagesResponse, Self::Error> {
-        (**self).query_group_messages(request).await
+        group_id: crate::types::GroupId,
+        cursor: Vec<Cursor>,
+    ) -> Result<Vec<GroupMessage>, Self::Error> {
+        (**self).query_group_messages(group_id, cursor).await
+    }
+
+    async fn query_latest_group_message(
+        &self,
+        group_id: crate::types::GroupId,
+    ) -> Result<Option<GroupMessage>, Self::Error> {
+        (**self).query_latest_group_message(group_id).await
     }
 
     async fn query_welcome_messages(
         &self,
-        request: QueryWelcomeMessagesRequest,
-    ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
-        (**self).query_welcome_messages(request).await
+        installation_key: InstallationId,
+        cursor: Vec<Cursor>,
+    ) -> Result<Vec<WelcomeMessage>, Self::Error> {
+        (**self)
+            .query_welcome_messages(installation_key, cursor)
+            .await
     }
 
     async fn publish_commit_log(
@@ -196,16 +204,27 @@ where
 
     async fn query_group_messages(
         &self,
-        request: QueryGroupMessagesRequest,
-    ) -> Result<QueryGroupMessagesResponse, Self::Error> {
-        (**self).query_group_messages(request).await
+        group_id: crate::types::GroupId,
+        cursor: Vec<Cursor>,
+    ) -> Result<Vec<GroupMessage>, Self::Error> {
+        (**self).query_group_messages(group_id, cursor).await
+    }
+
+    async fn query_latest_group_message(
+        &self,
+        group_id: crate::types::GroupId,
+    ) -> Result<Option<GroupMessage>, Self::Error> {
+        (**self).query_latest_group_message(group_id).await
     }
 
     async fn query_welcome_messages(
         &self,
-        request: QueryWelcomeMessagesRequest,
-    ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
-        (**self).query_welcome_messages(request).await
+        installation_key: InstallationId,
+        cursor: Vec<Cursor>,
+    ) -> Result<Vec<WelcomeMessage>, Self::Error> {
+        (**self)
+            .query_welcome_messages(installation_key, cursor)
+            .await
     }
 
     async fn publish_commit_log(

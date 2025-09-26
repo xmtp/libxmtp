@@ -86,7 +86,7 @@ impl GroupSaveExt for GroupSave {
             membership_state: membership_state as i32,
             installations_last_checked: group.installations_last_checked,
             added_by_inbox_id: group.added_by_inbox_id,
-            welcome_id: group.welcome_id,
+            welcome_id: group.sequence_id,
             rotated_at_ns: group.rotated_at_ns,
             conversation_type: conversation_type as i32,
             dm_id: group.dm_id,

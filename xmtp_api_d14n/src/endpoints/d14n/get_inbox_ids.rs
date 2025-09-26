@@ -78,7 +78,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_get_inbox_ids() {
-        let client = crate::TestClient::create_d14n();
+        let client = crate::TestGrpcClient::create_d14n();
         let client = client.build().await.unwrap();
 
         let endpoint = GetInboxIds::builder()

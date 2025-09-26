@@ -5,6 +5,7 @@ use crate::{
     subscriptions::process_welcome::ProcessWelcomeFuture,
 };
 use xmtp_common::task::JoinSet;
+use xmtp_configuration::Originators;
 use xmtp_db::{group::ConversationType, refresh_state::EntityKind};
 
 use futures::Stream;
@@ -18,7 +19,8 @@ use std::{
 use tokio_stream::wrappers::BroadcastStream;
 use xmtp_common::FutureWrapper;
 use xmtp_db::prelude::*;
-use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
+use xmtp_proto::api_client::XmtpMlsStreams;
+use xmtp_proto::types::{Cursor, WelcomeMessage};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConversationStreamError {
@@ -39,7 +41,7 @@ impl xmtp_common::RetryableError for ConversationStreamError {
 
 pub enum WelcomeOrGroup {
     Group(Vec<u8>),
-    Welcome(WelcomeMessage),
+    Welcome(xmtp_proto::types::WelcomeMessage),
 }
 
 impl std::fmt::Debug for WelcomeOrGroup {
@@ -160,7 +162,7 @@ pin_project! {
         context: Cow<'a, Context>,
         #[pin] welcome_syncs: JoinSet<Result<ProcessWelcomeResult<Context>>>,
         conversation_type: Option<ConversationType>,
-        known_welcome_ids: HashSet<i64>,
+        known_welcome_ids: HashSet<Cursor>,
         include_duplicated_dms: bool,
     }
 }
@@ -240,9 +242,15 @@ where
     ) -> Result<Self> {
         let conn = context.db();
         let installation_key = context.installation_id();
-        let id_cursor = conn.get_last_cursor_for_id(installation_key, EntityKind::Welcome)?;
+        // TODO:d14n needs cursor store to get last seen
+        // d14n can ignore this cursor id
+        let id_cursor = conn.get_last_cursor_for_originator(
+            installation_key,
+            EntityKind::Welcome,
+            Originators::WELCOME_MESSAGES.into(),
+        )?;
         tracing::debug!(
-            cursor = id_cursor,
+            cursor = %id_cursor,
             inbox_id = context.inbox_id(),
             "Setting up conversation stream cursor = {}",
             id_cursor
@@ -253,10 +261,10 @@ where
 
         let subscription = context
             .api()
-            .subscribe_welcome_messages(installation_key.as_ref(), Some(id_cursor as u64))
+            .subscribe_welcome_messages(installation_key.as_ref(), Some(id_cursor.sequence_id))
             .await?;
         let subscription = SubscriptionStream::new(subscription);
-        let known_welcome_ids = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());
+        let known_welcome_ids = HashSet::from_iter(conn.group_cursors()?.into_iter());
 
         let stream = multiplexed(subscription, events);
 
@@ -376,14 +384,23 @@ where
                 tracing::debug!("ignoring streamed conversation payload");
                 None
             }
-            Ok(ProcessWelcomeResult::NewStored { group, maybe_id }) => {
+            Ok(ProcessWelcomeResult::NewStored {
+                group,
+                maybe_sequence_id,
+                maybe_originator,
+            }) => {
                 tracing::debug!(
                     group_id = hex::encode(&group.group_id),
                     "finished processing with group {}",
                     hex::encode(&group.group_id)
                 );
-                if let Some(id) = maybe_id {
-                    this.known_welcome_ids.insert(id);
+                if let Some(id) = maybe_sequence_id
+                    && let Some(originator) = maybe_originator
+                {
+                    this.known_welcome_ids.insert(Cursor {
+                        originator_id: originator as u32,
+                        sequence_id: id as u64,
+                    });
                 }
                 Some(Ok(group))
             }

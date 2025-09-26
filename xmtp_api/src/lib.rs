@@ -89,6 +89,7 @@ impl<ApiClient> ApiClientWrapper<ApiClient> {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
-    pub type TestClient = xmtp_api_grpc::v3::Client;
+#[ctor::ctor]
+fn _setup() {
+    xmtp_common::logger()
 }
