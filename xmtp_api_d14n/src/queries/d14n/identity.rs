@@ -14,6 +14,7 @@ use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::XmtpIdentityClient;
 use xmtp_proto::identity_v1;
 use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
+use xmtp_proto::types::Topic;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
@@ -68,13 +69,13 @@ where
         let last_seen = Some(Cursor {
             node_id_to_sequence_id: [
                 (node_id, request.requests.first().unwrap().sequence_id),
-                (Originators::INBOX_LOG as u32, 0),
+                (Originators::INBOX_LOG, 0),
             ]
             .into(),
         });
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {
-                topics: topics.clone(),
+                topics: topics.iter().map(Topic::bytes).collect(),
                 originator_node_ids: vec![],
                 last_seen,
             })

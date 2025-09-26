@@ -76,7 +76,7 @@ where
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
         let db = self.context.db();
         let store = MlsStore::new(self.context.clone());
-        let envelopes = store.query_welcome_messages(&db).await?;
+        let envelopes = store.query_welcome_messages().await?;
         let num_envelopes = envelopes.len();
 
         let groups: Vec<MlsGroup<Context>> = stream::iter(envelopes.into_iter())
@@ -587,7 +587,7 @@ mod tests {
                     .returning(|_id, _entity, _| {
                         Ok(vec![Cursor {
                             sequence_id: 0,
-                            originator_id: Originators::WELCOME_MESSAGES as u32,
+                            originator_id: Originators::WELCOME_MESSAGES,
                         }])
                     });
                 db.expect_update_cursor().returning(|_, _, _| Ok(true));
@@ -601,7 +601,7 @@ mod tests {
                             cursor,
                             Cursor {
                                 sequence_id: 50,
-                                originator_id: Originators::WELCOME_MESSAGES as u32
+                                originator_id: Originators::WELCOME_MESSAGES
                             }
                         );
                         assert_eq!(entity, EntityKind::Welcome);
@@ -614,7 +614,7 @@ mod tests {
                             cursor,
                             Cursor {
                                 sequence_id: 10,
-                                originator_id: Originators::APPLICATION_MESSAGES as u32
+                                originator_id: Originators::APPLICATION_MESSAGES
                             }
                         );
                         assert_eq!(entity, EntityKind::Group);
@@ -627,7 +627,7 @@ mod tests {
                     .returning(|_id, _entity, _| {
                         Ok(vec![Cursor {
                             sequence_id: 0,
-                            originator_id: Originators::WELCOME_MESSAGES as u32,
+                            originator_id: Originators::WELCOME_MESSAGES,
                         }])
                     });
                 db.expect_find_group().once().returning(|_id| Ok(None));

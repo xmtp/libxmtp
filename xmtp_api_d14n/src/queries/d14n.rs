@@ -4,19 +4,25 @@ mod misc;
 mod mls;
 mod streams;
 
-use xmtp_proto::{prelude::ApiBuilder, types::AppVersion};
+use std::sync::Arc;
+
+use xmtp_proto::{api_client::CursorAwareApi, prelude::ApiBuilder, types::AppVersion};
+
+use crate::protocol::{CursorStore, InMemoryCursorStore};
 
 #[derive(Clone)]
 pub struct D14nClient<C, P> {
     message_client: C,
     payer_client: P,
+    cursor_store: Arc<dyn CursorStore>,
 }
 
 impl<C, P> D14nClient<C, P> {
-    pub fn new(message_client: C, payer_client: P) -> Self {
+    pub fn new(message_client: C, payer_client: P, cursor_store: Arc<dyn CursorStore>) -> Self {
         Self {
             message_client,
             payer_client,
+            cursor_store,
         }
     }
 }
@@ -24,13 +30,27 @@ impl<C, P> D14nClient<C, P> {
 pub struct D14nClientBuilder<Builder1, Builder2> {
     message_client: Builder1,
     payer_client: Builder2,
+    store: Arc<dyn CursorStore>,
 }
 
 impl<Builder1, Builder2> D14nClientBuilder<Builder1, Builder2> {
-    pub fn new(message_client: Builder1, payer_client: Builder2) -> Self {
+    pub fn new(
+        message_client: Builder1,
+        payer_client: Builder2,
+        store: Arc<dyn CursorStore>,
+    ) -> Self {
         Self {
             message_client,
             payer_client,
+            store,
+        }
+    }
+
+    pub fn new_stateless(message_client: Builder1, payer_client: Builder2) -> Self {
+        Self {
+            message_client,
+            payer_client,
+            store: Arc::new(InMemoryCursorStore::new()) as Arc<_>,
         }
     }
 }
@@ -39,8 +59,6 @@ impl<Builder1, Builder2> ApiBuilder for D14nClientBuilder<Builder1, Builder2>
 where
     Builder1: ApiBuilder<Error = <Builder2 as ApiBuilder>::Error>,
     Builder2: ApiBuilder,
-    <Builder1 as ApiBuilder>::Output: xmtp_proto::api::Client,
-    <Builder2 as ApiBuilder>::Output: xmtp_proto::api::Client,
 {
     type Output = D14nClient<<Builder1 as ApiBuilder>::Output, <Builder2 as ApiBuilder>::Output>;
 
@@ -91,7 +109,23 @@ where
         Ok(D14nClient::new(
             <Builder1 as ApiBuilder>::build(self.message_client).await?,
             <Builder2 as ApiBuilder>::build(self.payer_client).await?,
+            self.store,
         ))
+    }
+}
+
+impl<C1, C2> CursorAwareApi for D14nClient<C1, C2> {
+    type CursorStore = Arc<dyn CursorStore>;
+    fn set_cursor_store(&mut self, store: Self::CursorStore) {
+        self.cursor_store = store;
+    }
+}
+
+impl<B1, B2> CursorAwareApi for D14nClientBuilder<B1, B2> {
+    type CursorStore = Arc<dyn CursorStore>;
+
+    fn set_cursor_store(&mut self, store: Self::CursorStore) {
+        self.store = store;
     }
 }
 

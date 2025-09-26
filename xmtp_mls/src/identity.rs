@@ -914,7 +914,7 @@ mod tests {
         let welcomes = client
             .context
             .api()
-            .query_welcome_messages(client.context.installation_id(), Default::default())
+            .query_welcome_messages(client.context.installation_id())
             .await
             .unwrap();
 

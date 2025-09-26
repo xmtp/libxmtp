@@ -1,5 +1,9 @@
 use std::collections::HashMap;
 
+use futures::{stream, StreamExt, TryStreamExt};
+use xmtp_api::{ApiClientWrapper, XmtpApi};
+use xmtp_proto::types::{Cursor, GroupId};
+
 use crate::subscriptions::SubscribeError;
 use futures::{StreamExt, TryStreamExt, stream};
 use xmtp_api::{ApiClientWrapper, GroupFilter, XmtpApi};
@@ -155,27 +159,8 @@ impl GroupList {
         Ok(Self { list })
     }
 
-    pub(super) fn filters(&self) -> Vec<GroupFilter> {
-        self.list
-            .iter()
-            .map(|(group_id, cursor)| {
-                let map = cursor.last_streamed();
-                let sid = map
-                    .get(&(Originators::MLS_COMMITS as u32))
-                    .copied()
-                    .unwrap_or(0);
-                let sid2 = map
-                    .get(&(Originators::APPLICATION_MESSAGES as u32))
-                    .copied()
-                    .unwrap_or(0);
-                // TODO:d14n this is going to need to change
-                // will not work with cursor from dif originators
-                // i.e mixed commits & app msgs will screw up ordering
-                // the cursor store PR selects the right cursor to start from w/o us
-                // having to choose
-                GroupFilter::new(group_id.to_vec(), Some(std::cmp::max(sid, sid2)))
-            })
-            .collect()
+    pub(super) fn ids(&self) -> Vec<GroupId> {
+        self.list.keys().cloned().collect()
     }
 
     /// get the `MessagePosition` for `group_id`, if any

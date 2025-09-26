@@ -18,7 +18,7 @@ where
     type Builder = D14nClientBuilder<C::Builder, Payer::Builder>;
 
     fn create_local() -> Self::Builder {
-        D14nClientBuilder::new(
+        D14nClientBuilder::new_stateless(
             <C as XmtpTestClient>::create_d14n(),
             <Payer as XmtpTestClient>::create_payer(),
         )
@@ -28,13 +28,13 @@ where
         panic!("no urls for d14n dev yet");
     }
     fn create_payer() -> Self::Builder {
-        D14nClientBuilder::new(
+        D14nClientBuilder::new_stateless(
             <C as XmtpTestClient>::create_payer(),
             <Payer as XmtpTestClient>::create_payer(),
         )
     }
     fn create_d14n() -> Self::Builder {
-        D14nClientBuilder::new(
+        D14nClientBuilder::new_stateless(
             <C as XmtpTestClient>::create_d14n(),
             <Payer as XmtpTestClient>::create_payer(),
         )
@@ -48,15 +48,15 @@ where
 {
     type Builder = V3ClientBuilder<C::Builder>;
     fn create_local() -> Self::Builder {
-        V3ClientBuilder::new(<C as XmtpTestClient>::create_local())
+        V3ClientBuilder::new_stateless(<C as XmtpTestClient>::create_local())
     }
     fn create_dev() -> Self::Builder {
-        V3ClientBuilder::new(<C as XmtpTestClient>::create_dev())
+        V3ClientBuilder::new_stateless(<C as XmtpTestClient>::create_dev())
     }
     fn create_payer() -> Self::Builder {
-        V3ClientBuilder::new(<C as XmtpTestClient>::create_payer())
+        V3ClientBuilder::new_stateless(<C as XmtpTestClient>::create_payer())
     }
     fn create_d14n() -> Self::Builder {
-        V3ClientBuilder::new(<C as XmtpTestClient>::create_d14n())
+        V3ClientBuilder::new_stateless(<C as XmtpTestClient>::create_d14n())
     }
 }

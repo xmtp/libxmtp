@@ -2,9 +2,8 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use std::collections::HashMap;
 use xmtp_proto::api::{BodyError, Endpoint};
-use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
+use xmtp_proto::types::GlobalCursor;
 use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
 use xmtp_proto::xmtp::xmtpv4::message_api::{QueryEnvelopesRequest, QueryEnvelopesResponse};
 
@@ -14,7 +13,7 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{QueryEnvelopesRequest, QueryEnvelope
 pub struct QueryEnvelope {
     #[builder(setter(each(name = "topic", into)))]
     topics: Vec<Vec<u8>>,
-    last_seen: Vec<xmtp_proto::types::Cursor>,
+    last_seen: GlobalCursor,
     limit: u32,
 }
 
@@ -36,20 +35,11 @@ impl Endpoint for QueryEnvelope {
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
-        let last_seen = self
-            .last_seen
-            .iter()
-            .map(|info| (info.originator_id, info.sequence_id))
-            .collect::<HashMap<_, _>>();
-        let cursor = Cursor {
-            node_id_to_sequence_id: last_seen,
-        };
-
         let query = QueryEnvelopesRequest {
             query: Some(EnvelopesQuery {
                 topics: self.topics.clone(),
                 originator_node_ids: vec![],
-                last_seen: Some(cursor),
+                last_seen: Some(self.last_seen.clone().into()),
             }),
             limit: self.limit,
         };

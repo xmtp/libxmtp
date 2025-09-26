@@ -2,6 +2,7 @@ use crate::{
     GroupCommitLock, StorageError, XmtpApi,
     client::{Client, DeviceSync},
     context::XmtpMlsLocalContext,
+    cursor_store::SqliteCursorStore,
     groups::{
         device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
         key_package_cleaner_worker::KeyPackagesCleanerWorker,
@@ -18,7 +19,7 @@ use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::debug;
 use xmtp_api::{ApiClientWrapper, ApiDebugWrapper};
-use xmtp_api_d14n::TrackedStatsClient;
+use xmtp_api_d14n::{TrackedStatsClient, protocol::CursorStore};
 use xmtp_common::Retry;
 use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_cryptography::signature::IdentifierValidationError;
@@ -30,6 +31,7 @@ use xmtp_db::{
 };
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_proto::api_client::CursorAwareApi;
 
 type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
 
@@ -79,6 +81,7 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     disable_commit_log_worker: bool,
     mls_storage: Option<S>,
     sync_api_client: Option<ApiClientWrapper<ApiClient>>,
+    cursor_store: Option<Arc<dyn CursorStore>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -114,6 +117,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_commit_log_worker: false,
             mls_storage: None,
             sync_api_client: None,
+            cursor_store: None,
         }
     }
 }
@@ -147,6 +151,7 @@ where
             disable_commit_log_worker: false,
             mls_storage: Some(client.context.mls_storage.clone()),
             sync_api_client: Some(cloned_sync_api),
+            cursor_store: None,
         }
     }
 }
@@ -154,7 +159,8 @@ where
 impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     pub async fn build(self) -> Result<Client<ContextParts<ApiClient, S, Db>>, ClientBuilderError>
     where
-        ApiClient: XmtpApi + 'static + Send + Sync,
+        ApiClient:
+            XmtpApi + CursorAwareApi<CursorStore = Arc<dyn CursorStore>> + 'static + Send + Sync,
         Db: xmtp_db::XmtpDb + 'static + Send + Sync,
         S: XmtpMlsStorageProvider + 'static + Send + Sync,
     {
@@ -173,15 +179,16 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_commit_log_worker,
             mut mls_storage,
             mut sync_api_client,
+            cursor_store,
         } = self;
 
-        let api_client = api_client
+        let mut api_client = api_client
             .take()
             .ok_or(ClientBuilderError::MissingParameter {
                 parameter: "api_client",
             })?;
 
-        let sync_api_client =
+        let mut sync_api_client =
             sync_api_client
                 .take()
                 .ok_or(ClientBuilderError::MissingParameter {
@@ -204,6 +211,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 parameter: "mls_storage",
             })?;
 
+        let cursor_store =
+            cursor_store.unwrap_or(Arc::new(SqliteCursorStore::new(store.db())) as Arc<_>);
+        api_client.set_cursor_store(cursor_store.clone());
+        sync_api_client.set_cursor_store(cursor_store.clone());
         let conn = store.db();
         let identity = if let Some(identity) = identity {
             identity
@@ -314,6 +325,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
+            cursor_store: self.cursor_store,
         }
     }
 
@@ -348,6 +360,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             )),
             store: self.store,
             sync_api_client: self.sync_api_client,
+            cursor_store: self.cursor_store,
         })
     }
 
@@ -366,6 +379,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: Some(mls_storage),
             sync_api_client: self.sync_api_client,
+            cursor_store: self.cursor_store,
         }
     }
 
@@ -415,6 +429,17 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
             sync_api_client: Some(sync_api_client),
+            cursor_store: self.cursor_store,
+        }
+    }
+
+    pub fn cursor_store(
+        self,
+        cursor_store: Arc<dyn CursorStore>,
+    ) -> ClientBuilder<ApiClient, S, Db> {
+        Self {
+            cursor_store: Some(cursor_store),
+            ..self
         }
     }
 
@@ -535,6 +560,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     .expect("checked for none")
                     .attach_debug_wrapper(),
             ),
+            cursor_store: self.cursor_store,
         })
     }
 
@@ -570,6 +596,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     .expect("checked for none")
                     .map(|a| TrackedStatsClient::new(a)),
             ),
+            cursor_store: self.cursor_store,
         })
     }
 
@@ -592,6 +619,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
+            cursor_store: self.cursor_store,
         }
     }
 
@@ -625,6 +653,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
+            cursor_store: self.cursor_store,
         })
     }
 }
