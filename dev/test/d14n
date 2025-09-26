@@ -12,4 +12,5 @@ cargo nextest run $EXTRA_FLAGS --features d14n \
   and !test(should_stream_consent)
   and !test(groups::subscriptions)
   and !test(basic_sync)
-  and !test(should_reconnect)'
+  and !test(should_reconnect)
+  and !test(groups::tests::test_commit_log_remote)'

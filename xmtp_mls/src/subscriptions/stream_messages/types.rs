@@ -1,12 +1,10 @@
 use std::collections::HashMap;
 
+use crate::subscriptions::SubscribeError;
 use futures::{StreamExt, TryStreamExt, stream};
 use xmtp_api::{ApiClientWrapper, GroupFilter, XmtpApi};
-use xmtp_proto::types::GroupId;
-
-use crate::subscriptions::SubscribeError;
-
-use super::extract_message_cursor;
+use xmtp_configuration::Originators;
+use xmtp_proto::types::{Cursor, GroupId};
 
 #[derive(thiserror::Error, Debug)]
 pub enum MessageStreamError {
@@ -18,14 +16,15 @@ pub enum MessageStreamError {
 
 /// the position of this message in the backend topic
 /// based only upon messages from the stream
-#[derive(Copy, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Clone, PartialEq, Eq)]
 pub struct MessagePosition {
-    started_at: u64,
+    started_at: HashMap<u32, u64>,
     /// last mesasage we got from the network
     /// If we get a message before this cursor, we should
     /// check if we synced after that cursor, and should
     /// prefer retrieving from the database
-    last_streamed: Option<u64>,
+    /// TODO:d14n this is a global cursor (better Display impl)
+    last_streamed: HashMap<u32, u64>,
 }
 
 impl std::fmt::Debug for MessagePosition {
@@ -38,10 +37,14 @@ impl std::fmt::Debug for MessagePosition {
 }
 
 impl MessagePosition {
-    pub fn new(cursor: u64, started_at: u64) -> Self {
+    pub fn new(cursor: Cursor, started_at: Cursor) -> Self {
+        let mut last_map = HashMap::new();
+        last_map.insert(cursor.originator_id, cursor.sequence_id);
+        let mut started_map = HashMap::new();
+        started_map.insert(started_at.originator_id, started_at.sequence_id);
         Self {
-            last_streamed: Some(cursor),
-            started_at,
+            last_streamed: last_map,
+            started_at: started_map,
         }
     }
     /// Updates the cursor position for this message.
@@ -51,8 +54,19 @@ impl MessagePosition {
     ///
     /// # Arguments
     /// * `cursor` - The new cursor position to set
-    pub(super) fn set(&mut self, cursor: u64) {
-        self.last_streamed = Some(cursor);
+    pub(super) fn set(&mut self, cursor: Cursor) {
+        self.last_streamed
+            .insert(cursor.originator_id, cursor.sequence_id);
+    }
+
+    // if our last streamed is greater than this cursor, we have already seen the item
+    pub fn has_seen(&self, cursor: Cursor) -> bool {
+        let sid = self
+            .last_streamed
+            .get(&cursor.originator_id)
+            .copied()
+            .unwrap_or(0);
+        sid > cursor.sequence_id
     }
 
     /// Retrieves the current cursor position.
@@ -61,19 +75,38 @@ impl MessagePosition {
     ///
     /// # Returns
     /// * `u64` - The current cursor position or 0 if unset
-    pub(crate) fn last_streamed(&self) -> u64 {
-        self.last_streamed.unwrap_or(0)
+    pub(crate) fn last_streamed(&self) -> HashMap<u32, u64> {
+        self.last_streamed.clone()
     }
 
-    /// when did the stream start streaming for this group
-    pub(crate) fn started(&self) -> u64 {
-        self.started_at
+    pub(crate) fn started(&self) -> HashMap<u32, u64> {
+        self.started_at.clone()
+    }
+
+    /// stream started after this cursor
+    pub(crate) fn started_after(&self, cursor: Cursor) -> bool {
+        let sid = self
+            .started_at
+            .get(&cursor.originator_id)
+            .copied()
+            .unwrap_or(0);
+        sid > cursor.sequence_id
+    }
+
+    /// stream started before this cursor
+    pub(crate) fn started_before(&self, cursor: Cursor) -> bool {
+        let sid = self
+            .started_at
+            .get(&cursor.originator_id)
+            .copied()
+            .unwrap_or(0);
+        sid < cursor.sequence_id
     }
 }
 
 impl std::fmt::Display for MessagePosition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.last_streamed())
+        write!(f, "{:?}", self.last_streamed())
     }
 }
 
@@ -94,10 +127,9 @@ where
         group: &GroupId,
     ) -> Result<MessagePosition, SubscribeError> {
         if let Some(msg) = self.query_latest_group_message(group).await? {
-            let cursor = extract_message_cursor(&msg).ok_or(MessageStreamError::InvalidPayload)?;
-            Ok(MessagePosition::new(cursor, cursor))
+            Ok(MessagePosition::new(msg.cursor, msg.cursor))
         } else {
-            Ok(MessagePosition::new(0, 0))
+            Ok(MessagePosition::new(Default::default(), Default::default()))
         } // there is no cursor for this group yet
     }
 }
@@ -127,14 +159,28 @@ impl GroupList {
         self.list
             .iter()
             .map(|(group_id, cursor)| {
-                GroupFilter::new(group_id.to_vec(), Some(cursor.last_streamed()))
+                let map = cursor.last_streamed();
+                let sid = map
+                    .get(&(Originators::MLS_COMMITS as u32))
+                    .copied()
+                    .unwrap_or(0);
+                let sid2 = map
+                    .get(&(Originators::APPLICATION_MESSAGES as u32))
+                    .copied()
+                    .unwrap_or(0);
+                // TODO:d14n this is going to need to change
+                // will not work with cursor from dif originators
+                // i.e mixed commits & app msgs will screw up ordering
+                // the cursor store PR selects the right cursor to start from w/o us
+                // having to choose
+                GroupFilter::new(group_id.to_vec(), Some(std::cmp::max(sid, sid2)))
             })
             .collect()
     }
 
     /// get the `MessagePosition` for `group_id`, if any
     pub(super) fn position(&self, group_id: impl AsRef<[u8]>) -> Option<MessagePosition> {
-        self.list.get(group_id.as_ref()).copied()
+        self.list.get(group_id.as_ref()).cloned()
     }
 
     /// Check whether the group is already being tracked
@@ -147,7 +193,7 @@ impl GroupList {
         self.list.insert(group.as_ref().to_vec().into(), position);
     }
 
-    pub(super) fn set(&mut self, group: impl AsRef<[u8]>, cursor: u64) {
+    pub(super) fn set(&mut self, group: impl AsRef<[u8]>, cursor: Cursor) {
         self.list
             .entry(group.as_ref().into())
             .and_modify(|c| c.set(cursor))

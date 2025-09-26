@@ -49,7 +49,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_get_identity_updates_v2() {
-        let client = crate::TestClient::create_local();
+        let client = crate::TestGrpcClient::create_local();
         let client = client.build().await.unwrap();
         let endpoint = UploadKeyPackage::builder()
             .key_package(Some(KeyPackageUpload {

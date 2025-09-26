@@ -31,6 +31,7 @@ tracing-subscriber = { workspace = true, features = [
   "chrono",
 ] }
 xmtp_api.workspace = true
+xmtp_api_d14n.workspace = true
 xmtp_api_grpc.workspace = true
 xmtp_common = { workspace = true, features = ["logging"] }
 xmtp_content_types.workspace = true

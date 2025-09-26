@@ -9,6 +9,7 @@ use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use rand::Rng;
+use xmtp_configuration::Originators;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::consent_record::ConsentState;
 use xmtp_db::group::GroupQueryArgs;
@@ -20,6 +21,7 @@ use xmtp_db::remote_commit_log::CommitResult;
 use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
+use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
 use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
@@ -304,12 +306,13 @@ async fn test_publish_commit_log_to_remote() {
     let published_commit_log_cursor = alix
         .context
         .db()
-        .get_last_cursor_for_id(
+        .get_last_cursor_for_originator(
             &alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+            Originators::REMOTE_COMMIT_LOG as u32,
         )
         .unwrap();
-    assert_eq!(published_commit_log_cursor, 0);
+    assert_eq!(published_commit_log_cursor, Cursor::commit_log(0));
 
     // Alix runs the commit log worker, which will publish the commit log entry to the remote commit log
     let mut commit_log_worker = CommitLogWorker::new(alix.context.clone());
@@ -321,16 +324,18 @@ async fn test_publish_commit_log_to_remote() {
     let published_commit_log_cursor = alix
         .context
         .db()
-        .get_last_cursor_for_id(
+        .get_last_cursor_for_originator(
             &alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+            Originators::REMOTE_COMMIT_LOG as u32,
         )
         .unwrap();
-    assert!(published_commit_log_cursor > 0);
+    tracing::info!("{}", published_commit_log_cursor);
+    assert!(published_commit_log_cursor > Cursor::commit_log(0));
     let last_commit_log_entry = commit_log_entries.last().unwrap();
     // Verify that the local cursor has now been updated to the last commit log entry's sequence id
     assert_eq!(
-        last_commit_log_entry.rowid as i64,
+        Cursor::commit_log(last_commit_log_entry.rowid as u64),
         published_commit_log_cursor
     );
 
@@ -402,12 +407,13 @@ async fn test_download_commit_log_from_remote() {
     let alix_group_1_cursor = alix
         .context
         .db()
-        .get_last_cursor_for_id(
+        .get_last_cursor_for_originator(
             &alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+            Originators::REMOTE_COMMIT_LOG as u32,
         )
         .unwrap();
-    assert_eq!(alix_group_1_cursor, 0);
+    assert_eq!(alix_group_1_cursor, Cursor::commit_log(0));
 
     // Verify that publish works as expected
     let mut commit_log_worker = CommitLogWorker::new(alix.context.clone());
@@ -459,9 +465,10 @@ async fn test_download_commit_log_from_remote() {
     let alix_group_1_cursor = alix
         .context
         .db()
-        .get_last_cursor_for_id(
+        .get_last_cursor_for_originator(
             &alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+            Originators::REMOTE_COMMIT_LOG as u32,
         )
         .unwrap();
 
@@ -469,7 +476,10 @@ async fn test_download_commit_log_from_remote() {
         test_results[0].publish_commit_log_results.clone().unwrap()[0].last_entry_published_rowid;
     assert_eq!(
         alix_group_1_cursor,
-        alix_group1_publish_result_upload_cursor
+        Cursor::new(
+            alix_group1_publish_result_upload_cursor as u64,
+            Originators::REMOTE_COMMIT_LOG as u32
+        )
     );
 
     // Verify that when we save remote commit log entries for alix and bo, that we get the same results

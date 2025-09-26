@@ -1,6 +1,6 @@
 use derive_builder::Builder;
-use prost::Message;
 use prost::bytes::Bytes;
+use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesRequest;
@@ -38,7 +38,7 @@ impl Endpoint for SubscribeEnvelopes {
 mod test {
     use super::*;
     use xmtp_proto::{
-        api::QueryStreamExt as _, prelude::*, xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse,
+        api::QueryStreamExt as _, prelude::*,
     };
 
     #[xmtp_common::test]
@@ -52,7 +52,7 @@ mod test {
     async fn test_subscribe_envelopes() {
         use crate::d14n::SubscribeEnvelopes;
 
-        let client = crate::TestClient::create_d14n();
+        let client = crate::TestGrpcClient::create_d14n();
         let client = client.build().await.unwrap();
 
         let mut endpoint = SubscribeEnvelopes::builder()
@@ -64,7 +64,7 @@ mod test {
             .build()
             .unwrap();
         let rsp = endpoint
-            .subscribe::<SubscribeEnvelopesResponse>(&client)
+            .subscribe(&client)
             .await
             .inspect_err(|e| tracing::info!("{:?}", e));
         assert!(rsp.is_ok());

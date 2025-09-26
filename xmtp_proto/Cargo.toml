@@ -55,8 +55,6 @@ xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 rstest.workspace = true
 
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true

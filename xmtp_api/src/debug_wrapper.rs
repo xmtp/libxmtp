@@ -1,11 +1,17 @@
 use std::future::Future;
 use xmtp_common::RetryableError;
+use xmtp_proto::api::HasStats;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
 };
+use xmtp_proto::types::Cursor;
+use xmtp_proto::types::GroupId;
+use xmtp_proto::types::GroupMessage;
+use xmtp_proto::types::InstallationId;
+use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request;
 use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response;
 use xmtp_proto::xmtp::identity::api::v1::GetInboxIdsRequest;
@@ -16,17 +22,13 @@ use xmtp_proto::xmtp::identity::api::v1::VerifySmartContractWalletSignaturesRequ
 use xmtp_proto::xmtp::identity::api::v1::VerifySmartContractWalletSignaturesResponse;
 use xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest;
 use xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesResponse;
-use xmtp_proto::xmtp::mls::api::v1::QueryGroupMessagesRequest;
-use xmtp_proto::xmtp::mls::api::v1::QueryGroupMessagesResponse;
-use xmtp_proto::xmtp::mls::api::v1::QueryWelcomeMessagesRequest;
-use xmtp_proto::xmtp::mls::api::v1::QueryWelcomeMessagesResponse;
 use xmtp_proto::xmtp::mls::api::v1::SendGroupMessagesRequest;
 use xmtp_proto::xmtp::mls::api::v1::SendWelcomeMessagesRequest;
 use xmtp_proto::xmtp::mls::api::v1::SubscribeGroupMessagesRequest;
 use xmtp_proto::xmtp::mls::api::v1::SubscribeWelcomeMessagesRequest;
 use xmtp_proto::xmtp::mls::api::v1::UploadKeyPackageRequest;
 use xmtp_proto::{
-    api::{ApiClientError, HasStats},
+    api::ApiClientError,
     prelude::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
 };
 
@@ -136,10 +138,22 @@ where
 
     async fn query_group_messages(
         &self,
-        request: QueryGroupMessagesRequest,
-    ) -> Result<QueryGroupMessagesResponse, Self::Error> {
+        group_id: GroupId,
+        cursor: Vec<Cursor>,
+    ) -> Result<Vec<GroupMessage>, Self::Error> {
         wrap_err(
-            || self.inner.query_group_messages(request),
+            || self.inner.query_group_messages(group_id, cursor),
+            || self.inner.aggregate_stats(),
+        )
+        .await
+    }
+
+    async fn query_latest_group_message(
+        &self,
+        group_id: GroupId,
+    ) -> Result<Option<GroupMessage>, Self::Error> {
+        wrap_err(
+            || self.inner.query_latest_group_message(group_id),
             || self.inner.aggregate_stats(),
         )
         .await
@@ -147,10 +161,11 @@ where
 
     async fn query_welcome_messages(
         &self,
-        request: QueryWelcomeMessagesRequest,
-    ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
+        installation_key: InstallationId,
+        cursor: Vec<Cursor>,
+    ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         wrap_err(
-            || self.inner.query_welcome_messages(request),
+            || self.inner.query_welcome_messages(installation_key, cursor),
             || self.inner.aggregate_stats(),
         )
         .await
