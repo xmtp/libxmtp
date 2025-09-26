@@ -101,6 +101,7 @@ openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "d85
 openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "d85aa56bdaf7f3754e425508ee2d3c39f6f37aa0" }
 openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "d85aa56bdaf7f3754e425508ee2d3c39f6f37aa0" }
 openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "d85aa56bdaf7f3754e425508ee2d3c39f6f37aa0" }
+
 owo-colors = { version = "4.1" }
 p256 = { version = "0.13.2", features = ["ecdsa"] }
 parking_lot = "0.12.3"

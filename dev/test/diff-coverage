@@ -1,0 +1,53 @@
+#!/bin/bash
+set -eou pipefail
+
+# Create temporary directory
+TEMP_DIR=$(mktemp -d)
+trap "rm -rf $TEMP_DIR" EXIT
+
+# Generate full coverage in lcov format
+cargo llvm-cov --ignore-filename-regex "(xmtp_proto/src/gen)|(common/src/test)|(xmtp_proto/src/traits/mock.rs)|(test_utils\.rs)|(test_utils\/)" --lcov --output-path "$TEMP_DIR/lcov.info" nextest --no-fail-fast --profile ci --workspace --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
+
+wait
+
+# Determine the parent branch to diff against
+if command -v gt > /dev/null; then
+    PARENT_BRANCH=$(gt parent)
+    if [ -z "$PARENT_BRANCH" ]; then
+        PARENT_BRANCH="main"
+    fi
+else
+    PARENT_BRANCH="main"
+fi
+
+# Get changed .rs files from git diff against parent branch
+git diff --name-only --diff-filter=ACMR "$PARENT_BRANCH" | grep '\.rs$' > "$TEMP_DIR/changed_files.txt"
+
+# Check if there are any changed files
+if [ ! -s "$TEMP_DIR/changed_files.txt" ]; then
+    echo "No Rust files changed in git diff"
+    exit 0
+fi
+
+# Create pattern for lcov extraction
+PATTERNS=$(cat "$TEMP_DIR/changed_files.txt" | sed 's|^|*/|' | tr '\n' ' ')
+echo "EXTRCTING"
+# Filter lcov.info to only include changed files
+lcov --ignore-errors unused --extract "$TEMP_DIR/lcov.info" $PATTERNS --output-file "$TEMP_DIR/filtered_lcov.info"
+
+# Generate HTML report in permanent location
+OUTPUT_DIR="coverage_diff_html"
+genhtml --ignore-errors range "$TEMP_DIR/filtered_lcov.info" --output-directory "$OUTPUT_DIR"
+
+echo "Coverage report generated in: $OUTPUT_DIR"
+
+# Open in default browser (cross-platform)
+if command -v xdg-open > /dev/null; then
+    xdg-open "$OUTPUT_DIR/index.html"
+elif command -v open > /dev/null; then
+    open "$OUTPUT_DIR/index.html"
+else
+    echo "Could not open browser. Coverage report available at: $OUTPUT_DIR/index.html"
+fi
+
+# Temp directory will be automatically cleaned up when script exits
