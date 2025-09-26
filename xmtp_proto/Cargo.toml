@@ -42,6 +42,9 @@ url = { workspace = true, optional = true }
 openmls = { workspace = true }
 tonic = { workspace = true, features = ["codegen", "server", "channel"] }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+openmls = { workspace = true, features = ["js"] }
+
 [dev-dependencies]
 mockall = { workspace = true }
 url = { workspace = true }
@@ -49,9 +52,6 @@ tokio = { workspace = true, default-features = false, features = ["sync"] }
 toxiproxy_rust = { workspace = true }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-openmls = { workspace = true, features = ["js"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true

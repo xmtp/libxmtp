@@ -25,6 +25,7 @@ use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings as Xmt
 use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate as XmtpUserPreferenceUpdate;
 use xmtp_mls::groups::ConversationDebugInfo as XmtpConversationDebugInfo;
 use xmtp_mls::groups::PreconfiguredPolicies;
+use xmtp_proto::types::Cursor;
 
 #[napi]
 #[derive(Debug)]
@@ -168,7 +169,22 @@ pub struct ConversationDebugInfo {
   pub is_commit_log_forked: Option<bool>,
   pub local_commit_log: String,
   pub remote_commit_log: String,
-  pub cursor: i64,
+  pub cursor: Vec<XmtpCursor>,
+}
+
+#[napi(object)]
+pub struct XmtpCursor {
+  pub originator_id: u32,
+  pub sequence_id: i64,
+}
+
+impl From<Cursor> for XmtpCursor {
+  fn from(value: Cursor) -> Self {
+    XmtpCursor {
+      originator_id: value.originator_id,
+      sequence_id: value.sequence_id as i64,
+    }
+  }
 }
 
 impl From<XmtpConversationDebugInfo> for ConversationDebugInfo {
@@ -180,7 +196,7 @@ impl From<XmtpConversationDebugInfo> for ConversationDebugInfo {
       is_commit_log_forked: value.is_commit_log_forked,
       local_commit_log: value.local_commit_log,
       remote_commit_log: value.remote_commit_log,
-      cursor: value.cursor,
+      cursor: value.cursor.into_iter().map(Into::into).collect(),
     }
   }
 }

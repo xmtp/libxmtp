@@ -167,6 +167,7 @@ pub(crate) mod tests {
     use super::GetIdentityUpdatesV2Filter;
     use crate::{identity::ApiIdentifier, ApiClientWrapper};
     use std::collections::HashMap;
+    use xmtp_api_d14n::MockApiClient;
     use xmtp_common::rand_hexstring;
     use xmtp_id::associations::unverified::UnverifiedIdentityUpdate;
     use xmtp_proto::xmtp::identity::{

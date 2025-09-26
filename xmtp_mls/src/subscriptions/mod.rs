@@ -4,6 +4,7 @@ use prost::Message;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
+use xmtp_api_d14n::protocol::{Extractor, ProtocolEnvelope as _};
 
 use tracing::instrument;
 use xmtp_db::prelude::*;
@@ -189,6 +190,10 @@ pub enum SubscribeError {
     BoxError(Box<dyn RetryableError + Send + Sync>),
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
+    #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
+    #[error(transparent)]
+    Envelope(#[from] xmtp_api_d14n::protocol::EnvelopeError),
 }
 
 impl From<GroupError> for SubscribeError {
@@ -218,6 +223,8 @@ impl RetryableError for SubscribeError {
             ApiClient(e) => retryable!(e),
             BoxError(e) => retryable!(e),
             Db(c) => retryable!(c),
+            Conversion(c) => retryable!(c),
+            Envelope(c) => retryable!(c),
         }
     }
 }
@@ -236,11 +243,19 @@ where
         let conn = self.context.db();
         let envelope =
             WelcomeMessage::decode(envelope_bytes.as_slice()).map_err(SubscribeError::from)?;
-        let known_welcomes = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());
+        let known_welcomes = HashSet::from_iter(conn.group_cursors()?.into_iter());
+        // TODO:d14n pair the v3 with the d14n extractor to be able to extract
+        // both message versions. this can be done with a tuple, i.e
+        // let mut extractor = (V3, D14n)
+        // or d14n crate should just create a type alias for such an extractor
+        let mut extractor = xmtp_api_d14n::protocol::V3WelcomeMessageExtractor::default();
+        envelope.accept(&mut extractor)?;
+        let welcome: xmtp_proto::types::WelcomeMessage = extractor.get()?;
+
         let future = ProcessWelcomeFuture::new(
             known_welcomes,
             self.context.clone(),
-            WelcomeOrGroup::Welcome(envelope),
+            WelcomeOrGroup::Welcome(welcome),
             None,
             false,
         )?;
