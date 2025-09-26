@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessageInput, SendGroupMessagesRequest};
 
 #[derive(Debug, Builder, Default)]
@@ -53,7 +53,7 @@ mod test {
     async fn test_send_group_messages() {
         let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();
-        let endpoint = SendGroupMessages::builder()
+        let mut endpoint = SendGroupMessages::builder()
             .messages(vec![GroupMessageInput::default()])
             .build()
             .unwrap();

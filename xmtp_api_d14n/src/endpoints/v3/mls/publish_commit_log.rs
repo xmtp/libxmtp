@@ -2,8 +2,8 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::mls_v1::{BatchPublishCommitLogRequest, PublishCommitLogRequest};
-use xmtp_proto::traits::{BodyError, Endpoint};
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
@@ -54,7 +54,7 @@ mod test {
     async fn test_publish_commit_log() {
         let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();
-        let endpoint = PublishCommitLog::builder()
+        let mut endpoint = PublishCommitLog::builder()
             .commit_log_entries(vec![PublishCommitLogRequest::default()])
             .build()
             .unwrap();

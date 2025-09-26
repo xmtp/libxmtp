@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request::Request;
 use xmtp_proto::xmtp::identity::api::v1::{GetIdentityUpdatesRequest, GetIdentityUpdatesResponse};
 
@@ -53,7 +53,7 @@ mod test {
     async fn test_get_identity_updates_v2() {
         let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();
-        let endpoint = GetIdentityUpdatesV2::builder()
+        let mut endpoint = GetIdentityUpdatesV2::builder()
             .requests(vec![Request {
                 inbox_id: "".to_string(),
                 sequence_id: 0,

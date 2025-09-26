@@ -2,8 +2,8 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::mls_v1::PagingInfo;
-use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
 use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
 use xmtp_proto::xmtp::xmtpv4::message_api::{QueryEnvelopesRequest, QueryEnvelopesResponse};
@@ -112,7 +112,7 @@ mod test {
         let client = crate::TestClient::create_d14n();
         let client = client.build().await.unwrap();
 
-        let endpoint = QueryEnvelopes::builder()
+        let mut endpoint = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {
                 topics: vec![vec![]],
                 originator_node_ids: vec![],

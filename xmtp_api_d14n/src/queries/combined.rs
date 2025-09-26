@@ -18,6 +18,8 @@ use crate::{d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds as GetInboxIdsV4}
 use itertools::Itertools;
 use std::collections::HashMap;
 use xmtp_common::RetryableError;
+use xmtp_proto::api::Client;
+use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::api_client::XmtpMlsClient;
@@ -25,8 +27,6 @@ use xmtp_proto::identity_v1;
 use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::mls_v1;
 use xmtp_proto::prelude::XmtpIdentityClient;
-use xmtp_proto::traits::Client;
-use xmtp_proto::traits::{ApiClientError, Query};
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
@@ -185,7 +185,7 @@ where
     C: Send + Sync + Client<Error = E>,
     D: Send + Sync + Client<Error = E>,
     E: std::error::Error + RetryableError + Send + Sync + 'static,
-    ApiClientError<E>: From<ApiClientError<<D as xmtp_proto::traits::Client>::Error>>,
+    ApiClientError<E>: From<ApiClientError<<D as xmtp_proto::api::Client>::Error>>,
 {
     type Error = ApiClientError<E>;
 

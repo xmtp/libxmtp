@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::mls::api::v1::{SendWelcomeMessagesRequest, WelcomeMessageInput};
 
 #[derive(Debug, Builder, Default)]
@@ -58,7 +58,7 @@ mod test {
         };
         let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();
-        let endpoint = SendWelcomeMessages::builder()
+        let mut endpoint = SendWelcomeMessages::builder()
             .messages(vec![welcome_message])
             .build()
             .unwrap();
