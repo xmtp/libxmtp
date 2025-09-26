@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::mls::api::v1::{KeyPackageUpload, UploadKeyPackageRequest};
 
 #[derive(Debug, Builder, Default)]
@@ -55,7 +55,7 @@ mod test {
     async fn test_get_identity_updates_v2() {
         let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();
-        let endpoint = UploadKeyPackage::builder()
+        let mut endpoint = UploadKeyPackage::builder()
             .key_package(Some(KeyPackageUpload {
                 key_package_tls_serialized: vec![1, 2, 3],
             }))

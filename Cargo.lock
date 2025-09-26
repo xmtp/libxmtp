@@ -8771,6 +8771,7 @@ dependencies = [
  "pbjson",
  "pbjson-build",
  "pbjson-types",
+ "pin-project-lite",
  "prost",
  "prost-types",
  "relative-path 2.0.1",

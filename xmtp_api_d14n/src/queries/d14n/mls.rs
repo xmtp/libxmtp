@@ -12,10 +12,10 @@ use crate::protocol::traits::Envelope;
 use crate::protocol::traits::EnvelopeCollection;
 use crate::protocol::traits::Extractor;
 use xmtp_common::RetryableError;
+use xmtp_proto::api::Client;
+use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::{ApiStats, XmtpMlsClient};
 use xmtp_proto::mls_v1;
-use xmtp_proto::traits::Client;
-use xmtp_proto::traits::{ApiClientError, Query};
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeResponse;
 use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
@@ -27,7 +27,7 @@ where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client,
     C: Send + Sync + Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<P as xmtp_proto::traits::Client>::Error>>,
+    ApiClientError<E>: From<ApiClientError<<P as xmtp_proto::api::Client>::Error>>,
 {
     type Error = ApiClientError<E>;
 

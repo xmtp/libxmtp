@@ -55,8 +55,8 @@ use xmtp_mls::groups::GroupError;
 use xmtp_mls::XmtpApi;
 use xmtp_mls::{builder::ClientBuilderError, client::ClientError};
 use xmtp_mls::{identity::IdentityStrategy, InboxOwner};
+use xmtp_proto::api::ApiClientError;
 use xmtp_proto::api_client::{ApiBuilder, BoxableXmtpApi};
-use xmtp_proto::traits::ApiClientError;
 
 #[macro_use]
 extern crate tracing;

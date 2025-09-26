@@ -27,7 +27,13 @@ pub mod api_client;
 pub use api_client::tests::*;
 
 pub mod codec;
-pub mod traits;
+mod traits;
+
+pub mod api {
+    pub use super::traits::combinators::*;
+    pub use super::traits::stream::*;
+    pub use super::traits::*;
+}
 
 #[cfg(feature = "convert")]
 pub mod convert;
@@ -46,7 +52,7 @@ pub mod prelude {
     pub use super::api_client::{
         ApiBuilder, ArcedXmtpApi, BoxedXmtpApi, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
     };
-    pub use super::traits::{ApiClientError, Client, Endpoint, Query};
+    pub use super::traits::{ApiClientError, Client, Endpoint, Query, QueryStream};
     pub use super::FILE_DESCRIPTOR_SET;
 }
 
