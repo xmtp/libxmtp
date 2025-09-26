@@ -5,8 +5,8 @@ use std::sync::Arc;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError, JsValue};
 use xmtp_api::strategies;
 use xmtp_api::ApiClientWrapper;
-use xmtp_api_d14n::V3Client;
-use xmtp_api_grpc::GrpcClient;
+use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_api_d14n::TrackedStatsClient;
 use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
 use xmtp_id::associations::{ident, AssociationState, MemberIdentifier};
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
@@ -125,15 +125,18 @@ impl From<VerifiedKeyPackageV2> for KeyPackageStatus {
 #[wasm_bindgen(js_name = inboxStateFromInboxIds)]
 pub async fn inbox_state_from_inbox_ids(
   host: String,
+  payer_host: Option<String>,
   inbox_ids: Vec<String>,
 ) -> Result<Vec<InboxState>, JsError> {
-  let api_client = V3Client::new(
-    GrpcClient::create(&host, true)
-      .await
-      .map_err(|e| JsError::new(&e.to_string()))?,
-  );
-
-  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
+  let backend = MessageBackendBuilder::default()
+    .node_host(&host)
+    .maybe_payer_host(payer_host)
+    .is_secure(true)
+    .build()
+    .await
+    .map_err(|e| JsError::new(&e.to_string()))?;
+  let backend = TrackedStatsClient::new(backend);
+  let api = ApiClientWrapper::new(backend, strategies::exponential_cooldown());
   let scw_verifier =
     Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
       as Box<dyn SmartContractSignatureVerifier>);

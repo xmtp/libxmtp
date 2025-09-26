@@ -4,7 +4,7 @@ use crate::protocol::{EnvelopeCollection, GroupMessageExtractor, WelcomeMessageE
 use crate::queries::stream;
 
 use super::D14nClient;
-use xmtp_common::RetryableError;
+use xmtp_common::{MaybeSend, RetryableError};
 use xmtp_proto::api::{ApiClientError, Client, QueryStream, XmtpStream};
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1;
@@ -15,8 +15,8 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, SubscribeEnvelopesRe
 impl<C, P, E> XmtpMlsStreams for D14nClient<C, P>
 where
     C: Send + Sync + Client<Error = E>,
-    <C as Client>::Stream: Send,
-    P: Send + Sync + Client,
+    <C as Client>::Stream: MaybeSend + 'static,
+    P: Send + Sync + Client<Error = E>,
     E: std::error::Error + RetryableError + Send + Sync + 'static,
 {
     type Error = ApiClientError<E>;
