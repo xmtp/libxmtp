@@ -1,6 +1,0 @@
-#!/bin/bash
-set -eou pipefail
-script_dir="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-
-"${script_dir}"/compose-v3 pull
-"${script_dir}"/compose-v3 up -d --build --remove-orphans --wait --timeout 300
