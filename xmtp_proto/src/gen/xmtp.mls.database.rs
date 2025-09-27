@@ -102,7 +102,6 @@ impl ::prost::Name for AddressesOrInstallationIds {
         "/xmtp.mls.database.AddressesOrInstallationIds".into()
     }
 }
-/// DEPRECATED
 /// The data required to add members to a group
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AddMembersData {
@@ -145,7 +144,6 @@ impl ::prost::Name for AddMembersData {
         "/xmtp.mls.database.AddMembersData".into()
     }
 }
-/// DEPRECATED
 /// The data required to remove members from a group
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RemoveMembersData {
@@ -237,49 +235,6 @@ impl ::prost::Name for UpdateGroupMembershipData {
     }
     fn type_url() -> ::prost::alloc::string::String {
         "/xmtp.mls.database.UpdateGroupMembershipData".into()
-    }
-}
-/// The data required to remove and readd existing leaf nodes
-/// on the MLS tree. Does not change or update the members list.
-/// Used for fork recovery
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ReaddInstallationsData {
-    #[prost(oneof = "readd_installations_data::Version", tags = "1")]
-    pub version: ::core::option::Option<readd_installations_data::Version>,
-}
-/// Nested message and enum types in `ReaddInstallationsData`.
-pub mod readd_installations_data {
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct V1 {
-        #[prost(bytes = "vec", repeated, tag = "1")]
-        pub readded_installations: ::prost::alloc::vec::Vec<
-            ::prost::alloc::vec::Vec<u8>,
-        >,
-    }
-    impl ::prost::Name for V1 {
-        const NAME: &'static str = "V1";
-        const PACKAGE: &'static str = "xmtp.mls.database";
-        fn full_name() -> ::prost::alloc::string::String {
-            "xmtp.mls.database.ReaddInstallationsData.V1".into()
-        }
-        fn type_url() -> ::prost::alloc::string::String {
-            "/xmtp.mls.database.ReaddInstallationsData.V1".into()
-        }
-    }
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
-    pub enum Version {
-        #[prost(message, tag = "1")]
-        V1(V1),
-    }
-}
-impl ::prost::Name for ReaddInstallationsData {
-    const NAME: &'static str = "ReaddInstallationsData";
-    const PACKAGE: &'static str = "xmtp.mls.database";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.database.ReaddInstallationsData".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.database.ReaddInstallationsData".into()
     }
 }
 /// The data required to update group metadata
