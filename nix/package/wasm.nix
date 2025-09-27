@@ -1,9 +1,7 @@
 { emscripten
 , stdenv
-, filesets
 , lib
 , fenix
-, wasm-bindgen-cli_0_2_100
 , wasm-pack
 , binaryen
 , zstd
@@ -11,6 +9,8 @@
 , mkShell
 , sqlite
 , llvmPackages
+, wasm-bindgen-cli
+, xmtp
 }:
 let
   # Pinned Rust Version
@@ -23,7 +23,7 @@ let
 
   workspaceFileset = lib.fileset.toSource {
     root = ./../..;
-    fileset = filesets.workspace;
+    fileset = (xmtp.filesets { inherit lib craneLib; }).workspace;
   };
 
   commonArgs = {
@@ -40,7 +40,7 @@ let
       # export EMCC_DEBUG=2
     '';
 
-    nativeBuildInputs = [ wasm-pack emscripten llvmPackages.lld binaryen wasm-bindgen-cli_0_2_100 ];
+    nativeBuildInputs = [ wasm-pack emscripten llvmPackages.lld binaryen wasm-bindgen-cli ];
     buildInputs = [ zstd sqlite ];
     doCheck = false;
     cargoExtraArgs = "--workspace --exclude xmtpv3 --exclude bindings_node --exclude xmtp_cli --exclude xdbg --exclude mls_validation_service --exclude xmtp_api_grpc";
