@@ -1,7 +1,6 @@
 { stdenv
 , darwin
 , lib
-, mkToolchain
 , pkg-config
 , mktemp
 , jdk21
@@ -34,12 +33,13 @@
 , emscripten
 , taplo
 , shellcheck
+, xmtp
 , ...
 }:
 
 let
   inherit (stdenv) isDarwin;
-  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
+  rust-toolchain = xmtp.mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
 in
 mkShell {
   OPENSSL_DIR = "${openssl.dev}";

@@ -1,6 +1,5 @@
 { emscripten
 , stdenv
-, filesets
 , lib
 , fenix
 , wasm-bindgen-cli_0_2_100
@@ -11,6 +10,7 @@
 , mkShell
 , sqlite
 , llvmPackages
+, xmtp
 }:
 let
   # Pinned Rust Version
@@ -21,6 +21,7 @@ let
   ];
   rust = craneLib.overrideToolchain (p: rust-toolchain);
 
+  filesets = xmtp.filesets { inherit lib craneLib; };
   workspaceFileset = lib.fileset.toSource {
     root = ./../..;
     fileset = filesets.workspace;
