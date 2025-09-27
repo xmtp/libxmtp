@@ -494,6 +494,11 @@ impl FfiXmtpClient {
         Ok(message.into())
     }
 
+    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<u32, GenericError> {
+        let deleted_count = self.inner_client.delete_message(message_id)?;
+        Ok(deleted_count as u32)
+    }
+
     pub async fn can_message(
         &self,
         account_identifiers: Vec<FfiIdentifier>,
@@ -2143,6 +2148,24 @@ impl FfiConversation {
             .collect();
 
         Ok(messages)
+    }
+
+    pub fn count_messages(&self, opts: FfiListMessagesOptions) -> Result<i64, GenericError> {
+        let delivery_status = opts.delivery_status.map(|status| status.into());
+
+        let count = self.inner.count_messages(&MsgQueryArgs {
+            sent_before_ns: opts.sent_before_ns,
+            sent_after_ns: opts.sent_after_ns,
+            kind: None,
+            delivery_status,
+            limit: None,
+            direction: None,
+            content_types: opts
+                .content_types
+                .map(|types| types.into_iter().map(Into::into).collect()),
+        })?;
+
+        Ok(count)
     }
 
     pub fn find_messages_with_reactions(
@@ -7126,18 +7149,24 @@ mod tests {
             .stream_all_group_messages(stream_callback.clone(), None)
             .await;
         stream.wait_for_ready().await;
+        // Wait for the initial GroupUpdated message
+        stream_callback.wait_for_delivery(Some(2)).await.unwrap();
 
         alix_group.send("first".as_bytes().to_vec()).await.unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
-        assert_eq!(stream_callback.message_count(), 1);
+        assert_eq!(stream_callback.message_count(), 2);
 
         alix_dm.send("second".as_bytes().to_vec()).await.unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(result.is_err(), "Stream unexpectedly received a DM message");
-        assert_eq!(stream_callback.message_count(), 1);
 
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
+
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
 
         // Stream just dms
         let stream_callback = Arc::new(RustStreamCallback::default());
@@ -7152,11 +7181,7 @@ mod tests {
         assert_eq!(stream_callback.message_count(), 1);
 
         alix_group.send("second".as_bytes().to_vec()).await.unwrap();
-        let result = stream_callback.wait_for_delivery(Some(2)).await;
-        assert!(
-            result.is_err(),
-            "Stream unexpectedly received a Group message"
-        );
+        let _ = stream_callback.wait_for_delivery(Some(2)).await;
         assert_eq!(stream_callback.message_count(), 1);
     }
 
