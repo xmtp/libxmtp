@@ -306,17 +306,17 @@ fn enable_debug_file_inner(
 #[uniffi::export]
 pub fn exit_debug_writer() -> Result<(), GenericError> {
     let handle = LOGGER.lock();
-    if let Some(w) = WORKER.get()
-        && let Some(w) = w.lock().take()
-    {
-        drop(w)
-    }
     handle.modify(|l| {
         *l.inner_mut().writer_mut() = EmptyOrFileWriter::Empty;
         *l.filter_mut() = EnvFilter::builder()
             .with_default_directive(LevelFilter::OFF.into())
             .parse_lossy("off");
     })?;
+    if let Some(w) = WORKER.get()
+        && let Some(w) = w.lock().take()
+    {
+        drop(w)
+    }
     FILE_INITIALIZED.store(false, Ordering::Relaxed);
     Ok(())
 }
