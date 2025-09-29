@@ -1,6 +1,6 @@
 {
   "name": "@xmtp/wasm-bindings",
-  "version": "1.5.2",
+  "version": "1.6.1-dev",
   "type": "module",
   "license": "MIT",
   "description": "WASM bindings for the libXMTP rust library",
