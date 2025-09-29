@@ -359,6 +359,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Update npm to latest
+        run: npm install -g npm@latest
+
       - name: Publish to NPM
         uses: JS-DevTools/npm-publish@v4
         with:
