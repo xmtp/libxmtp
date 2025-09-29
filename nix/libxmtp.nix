@@ -1,7 +1,6 @@
 { stdenv
 , darwin
 , lib
-, mkToolchain
 , pkg-config
 , mktemp
 , jdk21
@@ -28,18 +27,19 @@
 , protobuf
 , protolint
 , mkShell
-, wasm-bindgen-cli_0_2_100
+, wasm-bindgen-cli
 , wasm-pack
 , binaryen
 , emscripten
 , taplo
 , shellcheck
+, xmtp
 , ...
 }:
 
 let
   inherit (stdenv) isDarwin;
-  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
+  rust-toolchain = xmtp.mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
 in
 mkShell {
   OPENSSL_DIR = "${openssl.dev}";
@@ -56,7 +56,7 @@ mkShell {
   AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
   CFLAGS_wasm32_unknown_unknown = "-I ${llvmPackages.clang-unwrapped.lib}/lib/clang/19/include";
 
-  nativeBuildInputs = [ pkg-config zstd sqlite wasm-pack wasm-bindgen-cli_0_2_100 binaryen emscripten ];
+  nativeBuildInputs = [ pkg-config zstd sqlite wasm-pack wasm-bindgen-cli binaryen emscripten ];
   buildInputs =
     [
       rust-toolchain
