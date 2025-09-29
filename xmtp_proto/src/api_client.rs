@@ -18,8 +18,8 @@ use crate::xmtp::mls::api::v1::{
     SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage,
 };
 use futures::Stream;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use xmtp_common::RetryableError;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -199,7 +199,7 @@ impl EndpointStats {
 pub trait XmtpMlsClient {
     type Error: RetryableError + Send + Sync + 'static;
     async fn upload_key_package(&self, request: UploadKeyPackageRequest)
-        -> Result<(), Self::Error>;
+    -> Result<(), Self::Error>;
     async fn fetch_key_packages(
         &self,
         request: FetchKeyPackagesRequest,
@@ -605,14 +605,14 @@ pub trait ApiBuilder {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use futures::stream;
     use futures::StreamExt;
+    use futures::stream;
     use tokio::sync::OnceCell;
     use toxiproxy_rust::proxy::Proxy;
     use toxiproxy_rust::proxy::ProxyPack;
+    use xmtp_configuration::DockerUrls;
     use xmtp_configuration::localhost_to_internal;
     use xmtp_configuration::toxi_port;
-    use xmtp_configuration::DockerUrls;
 
     static TOXIPROXY: OnceCell<toxiproxy_rust::client::Client> = OnceCell::const_new();
 
@@ -656,7 +656,7 @@ pub mod tests {
                 .ports
                 .iter()
                 .enumerate()
-                .find(|(_, &p)| p.eq(&port))
+                .find(|&(_, &p)| p.eq(&port))
                 .map(|(i, _)| i);
             idx.map(|i| &self.inner[i])
         }

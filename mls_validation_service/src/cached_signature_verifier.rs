@@ -70,7 +70,7 @@ mod tests {
         MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier, ValidationResponse,
         VerifierError,
     };
-    use xmtp_id::utils::test::{docker_smart_wallet, SignatureWithNonce, SmartWalletContext};
+    use xmtp_id::utils::test::{SignatureWithNonce, SmartWalletContext, docker_smart_wallet};
 
     #[rstest::rstest]
     #[tokio::test]

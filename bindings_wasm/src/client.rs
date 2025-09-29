@@ -1,22 +1,22 @@
 use js_sys::Uint8Array;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{filter, fmt::format::Pretty};
-use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
+use wasm_bindgen::prelude::{JsError, wasm_bindgen};
 use xmtp_api::ApiDebugWrapper;
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
+use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::SyncWorkerMode;
 use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
-use xmtp_mls::Client as MlsClient;
 use xmtp_proto::api_client::AggregateStats;
 
 use crate::conversations::Conversations;

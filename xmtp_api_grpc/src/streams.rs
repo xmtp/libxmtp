@@ -1,14 +1,14 @@
 use std::{
     io::ErrorKind,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
-use futures::{stream::FusedStream, Stream, TryStream};
+use futures::{Stream, TryStream, stream::FusedStream};
 use pin_project_lite::pin_project;
 use std::error::Error;
 use tonic::Status;
-use xmtp_proto::{traits::ApiClientError, ApiEndpoint};
+use xmtp_proto::{ApiEndpoint, traits::ApiClientError};
 
 pin_project! {
     /// Wraps a tonic stream which exits once it encounters
@@ -29,15 +29,12 @@ pin_project! {
 }
 
 fn maybe_extract_io_err(err: &Status) -> Option<&std::io::Error> {
-    if let Some(source) = err.source() {
-        //try to downcast to hyper error
-        if let Some(hyper_err) = source.downcast_ref::<hyper::Error>() {
-            if let Some(hyper_source) = hyper_err.source() {
-                if let Some(s) = hyper_source.downcast_ref::<h2::Error>() {
-                    return s.get_io();
-                }
-            }
-        }
+    if let Some(source) = err.source()
+        && let Some(hyper_err) = source.downcast_ref::<hyper::Error>()
+        && let Some(hyper_source) = hyper_err.source()
+        && let Some(s) = hyper_source.downcast_ref::<h2::Error>()
+    {
+        return s.get_io();
     }
     None
 }
@@ -60,12 +57,12 @@ impl<T> Stream for EscapableTonicStream<T> {
             Some(Err(e)) => {
                 tracing::error!("error in tonic stream {}", e);
                 // if the error is broken pipe, abort stream
-                if let Some(io) = maybe_extract_io_err(&e) {
-                    if io.kind() == ErrorKind::BrokenPipe {
-                        *this.is_broken = true;
-                        // register the next item (end of stream) with the executor
-                        cx.waker().wake_by_ref();
-                    }
+                if let Some(io) = maybe_extract_io_err(&e)
+                    && io.kind() == ErrorKind::BrokenPipe
+                {
+                    *this.is_broken = true;
+                    // register the next item (end of stream) with the executor
+                    cx.waker().wake_by_ref();
                 }
                 Poll::Ready(Some(Err(e)))
             }

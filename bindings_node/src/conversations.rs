@@ -1,14 +1,14 @@
+use crate::ErrorWrapper;
 use crate::consent_state::{Consent, ConsentState};
 use crate::identity::Identifier;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
-use crate::ErrorWrapper;
 use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
+use napi::JsFunction;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi::threadsafe_function::{
   ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode,
 };
-use napi::JsFunction;
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -22,9 +22,9 @@ use xmtp_db::group::{ConversationType as XmtpConversationType, GroupQueryOrderBy
 use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
 use xmtp_mls::common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
-use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate as XmtpUserPreferenceUpdate;
 use xmtp_mls::groups::ConversationDebugInfo as XmtpConversationDebugInfo;
 use xmtp_mls::groups::PreconfiguredPolicies;
+use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate as XmtpUserPreferenceUpdate;
 
 #[napi]
 #[derive(Debug)]

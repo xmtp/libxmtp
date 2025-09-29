@@ -1,6 +1,6 @@
 use crate::streams::{EscapableTonicStream, XmtpTonicStream};
-use crate::{apply_channel_options, create_tls_channel, GrpcBuilderError, GrpcError};
-use tonic::{metadata::MetadataValue, transport::Channel, Request};
+use crate::{GrpcBuilderError, GrpcError, apply_channel_options, create_tls_channel};
+use tonic::{Request, metadata::MetadataValue, transport::Channel};
 use tower::ServiceExt;
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
 use xmtp_proto::api_client::AggregateStats;
@@ -12,16 +12,16 @@ use xmtp_proto::traits::ApiClientError;
 use xmtp_proto::traits::HasStats;
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
+    ApiEndpoint,
     api_client::XmtpMlsClient,
     xmtp::identity::api::v1::identity_api_client::IdentityApiClient as ProtoIdentityApiClient,
     xmtp::mls::api::v1::{
-        mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
-        FetchKeyPackagesResponse, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
-        QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, SendGroupMessagesRequest,
-        SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-        UploadKeyPackageRequest,
+        FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
+        QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
+        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
+        mls_api_client::MlsApiClient as ProtoMlsApiClient,
     },
-    ApiEndpoint,
 };
 
 #[derive(Debug, Clone)]
@@ -329,7 +329,7 @@ mod test {
     use super::*;
     use xmtp_configuration::GrpcUrls;
     use xmtp_configuration::LOCALHOST;
-    use xmtp_proto::{api_client::XmtpTestClient, TestApiBuilder, ToxicProxies};
+    use xmtp_proto::{TestApiBuilder, ToxicProxies, api_client::XmtpTestClient};
 
     impl XmtpTestClient for Client {
         type Builder = ClientBuilder;

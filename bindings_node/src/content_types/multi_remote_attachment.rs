@@ -1,13 +1,13 @@
 use napi::bindgen_prelude::{Result, Uint8Array};
 use napi_derive::napi;
 use prost::Message;
-use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::ContentCodec;
+use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
+use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use xmtp_proto::xmtp::mls::message_contents::content_types::{
   MultiRemoteAttachment as XmtpMultiRemoteAttachment,
   RemoteAttachmentInfo as XmtpRemoteAttachmentInfo,
 };
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 use crate::ErrorWrapper;
 

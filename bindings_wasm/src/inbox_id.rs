@@ -1,6 +1,6 @@
 use crate::identity::Identifier;
-use wasm_bindgen::{prelude::wasm_bindgen, JsError};
-use xmtp_api::{strategies, ApiClientWrapper, ApiIdentifier};
+use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use xmtp_api::{ApiClientWrapper, ApiIdentifier, strategies};
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 

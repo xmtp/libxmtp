@@ -1,5 +1,5 @@
 use super::{
-    ident,
+    MemberIdentifier, SignatureError, ident,
     member::{Identifier, Member},
     signature::{AccountId, ValidatedLegacySignedPublicKey},
     state::{AssociationState, AssociationStateDiff},
@@ -14,22 +14,19 @@ use super::{
         UnverifiedRevokeAssociation, UnverifiedSignature, UnverifiedSmartContractWalletSignature,
     },
     verified_signature::VerifiedSignature,
-    MemberIdentifier, SignatureError,
 };
 use crate::scw_verifier::ValidationResponse;
 use prost::{DecodeError, Message};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_cryptography::signature::{sanitize_evm_addresses, IdentifierValidationError};
+use xmtp_cryptography::signature::{IdentifierValidationError, sanitize_evm_addresses};
+use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::{
     identity::{
         api::v1::verify_smart_contract_wallet_signatures_response::ValidationResponse as SmartContractWalletValidationResponseProto,
         associations::{
-            identity_action::Kind as IdentityActionKindProto,
-            member_identifier::Kind as MemberIdentifierKindProto,
-            signature::Signature as SignatureKindProto, AddAssociation as AddAssociationProto,
-            AssociationState as AssociationStateProto,
+            AddAssociation as AddAssociationProto, AssociationState as AssociationStateProto,
             AssociationStateDiff as AssociationStateDiffProto,
             ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
             IdentifierKind, IdentityAction as IdentityActionProto,
@@ -41,16 +38,18 @@ use xmtp_proto::xmtp::{
             RecoverablePasskeySignature as RecoverablePasskeySignatureProto,
             RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
             SmartContractWalletSignature as SmartContractWalletSignatureProto,
+            identity_action::Kind as IdentityActionKindProto,
+            member_identifier::Kind as MemberIdentifierKindProto,
+            signature::Signature as SignatureKindProto,
         },
     },
     message_contents::{
+        Signature as SignedPublicKeySignatureProto, SignedPublicKey as LegacySignedPublicKeyProto,
+        SignedPublicKey as SignedPublicKeyProto, UnsignedPublicKey as LegacyUnsignedPublicKeyProto,
         signature::{Union, WalletEcdsaCompact},
-        unsigned_public_key, Signature as SignedPublicKeySignatureProto,
-        SignedPublicKey as LegacySignedPublicKeyProto, SignedPublicKey as SignedPublicKeyProto,
-        UnsignedPublicKey as LegacyUnsignedPublicKeyProto,
+        unsigned_public_key,
     },
 };
-use xmtp_proto::ConversionError;
 
 #[derive(Error, Debug)]
 pub enum DeserializationError {

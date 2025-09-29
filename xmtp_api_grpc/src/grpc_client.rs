@@ -10,7 +10,7 @@ use xmtp_proto::{
     traits::{ApiClientError, Client},
 };
 
-use crate::{create_tls_channel, GrpcBuilderError, GrpcError};
+use crate::{GrpcBuilderError, GrpcError, create_tls_channel};
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
 
 impl From<GrpcError> for ApiClientError<GrpcError> {
@@ -173,7 +173,7 @@ mod test {
     use super::*;
     use xmtp_configuration::GrpcUrls;
     use xmtp_configuration::LOCALHOST;
-    use xmtp_proto::{api_client::XmtpTestClient, TestApiBuilder, ToxicProxies};
+    use xmtp_proto::{TestApiBuilder, ToxicProxies, api_client::XmtpTestClient};
 
     impl XmtpTestClient for GrpcClient {
         type Builder = ClientBuilder;
