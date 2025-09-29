@@ -5,7 +5,7 @@ use http::{request, uri::PathAndQuery};
 use prost::bytes::Bytes;
 use std::borrow::Cow;
 use thiserror::Error;
-use xmtp_common::{retry_async, retryable, BoxedRetry, RetryableError};
+use xmtp_common::{BoxedRetry, RetryableError, retry_async, retryable};
 
 use crate::{ApiEndpoint, ProtoError};
 
@@ -37,9 +37,9 @@ pub enum MockE {}
 use futures::Future;
 pub type BoxedClient = Box<
     dyn Client<
-        Error = ApiClientError<MockE>,
-        Stream = futures::stream::Once<Box<dyn Future<Output = ()>>>,
-    >,
+            Error = ApiClientError<MockE>,
+            Stream = futures::stream::Once<Box<dyn Future<Output = ()>>>,
+        >,
 >;
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -229,7 +229,7 @@ impl RetryableError for BodyError {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod mock {
     use super::*;
-    use crate::{prelude::*, ToxicProxies};
+    use crate::{ToxicProxies, prelude::*};
 
     pub struct MockClient;
     pub struct MockStream;

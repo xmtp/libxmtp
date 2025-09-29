@@ -10,6 +10,7 @@ use thiserror::Error;
 use xmtp_common::time::now_ns;
 
 use super::{
+    MemberIdentifier, MemberKind, SignatureError,
     unsigned_actions::{
         SignatureTextCreator, UnsignedAction, UnsignedAddAssociation,
         UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
@@ -21,7 +22,6 @@ use super::{
         UnverifiedRevokeAssociation, UnverifiedSignature, UnverifiedSmartContractWalletSignature,
     },
     verified_signature::VerifiedSignature,
-    MemberIdentifier, MemberKind, SignatureError,
 };
 
 /// The SignatureField is used to map the signatures from a [SignatureRequest] back to the correct
@@ -411,20 +411,19 @@ fn get_signature_text(
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-    use alloy::signers::{local::PrivateKeySigner, Signer};
+    use alloy::signers::{Signer, local::PrivateKeySigner};
     use xmtp_cryptography::XmtpInstallationCredential;
 
     use crate::{
+        InboxOwner,
         associations::{
-            get_state,
+            IdentityUpdate, get_state,
             test_utils::{
-                add_installation_key_signature, add_wallet_signature,
-                MockSmartContractSignatureVerifier, WalletTestExt,
+                MockSmartContractSignatureVerifier, WalletTestExt, add_installation_key_signature,
+                add_wallet_signature,
             },
             unverified::UnverifiedRecoverableEcdsaSignature,
-            IdentityUpdate,
         },
-        InboxOwner,
     };
 
     use super::*;

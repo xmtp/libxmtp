@@ -1,6 +1,6 @@
 [package]
 build = "build.rs"
-edition = "2021"
+edition = "2024"
 name = "mls_validation_service"
 version.workspace = true
 license.workspace = true

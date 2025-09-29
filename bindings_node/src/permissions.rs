@@ -4,13 +4,13 @@ use std::collections::HashMap;
 use xmtp_mls::{
   common::group_mutable_metadata::MetadataField as XmtpMetadataField,
   groups::{
+    PreconfiguredPolicies,
     group_permissions::{
       BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError, MembershipPolicies,
       MetadataBasePolicies, MetadataPolicies, PermissionsBasePolicies, PermissionsPolicies,
       PolicySet,
     },
     intents::{PermissionPolicyOption, PermissionUpdateType as XmtpPermissionUpdateType},
-    PreconfiguredPolicies,
   },
 };
 

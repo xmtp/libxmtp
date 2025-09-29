@@ -1,7 +1,7 @@
 mod web;
 
 use crate::client::LogLevel;
-use crate::client::{create_client, Client, LogOptions};
+use crate::client::{Client, LogOptions, create_client};
 use crate::inbox_id::generate_inbox_id;
 use alloy::signers::SignerSync;
 use js_sys::Uint8Array;

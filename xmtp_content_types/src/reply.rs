@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{utils::get_param_or_default, CodecError, ContentCodec};
+use crate::{CodecError, ContentCodec, utils::get_param_or_default};
 use prost::Message;
 use serde::{Deserialize, Serialize};
 

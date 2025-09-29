@@ -1,16 +1,17 @@
+use crate::ErrorWrapper;
 use crate::client::Client;
 use crate::identity::{Identifier, IdentifierKind};
-use crate::ErrorWrapper;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::ops::Deref;
 use std::sync::Arc;
-use xmtp_api::{strategies, ApiClientWrapper};
+use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::{
+  AccountId,
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
-  verify_signed_with_public_context, AccountId,
+  verify_signed_with_public_context,
 };
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;

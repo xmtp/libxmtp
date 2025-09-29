@@ -38,13 +38,13 @@ pub mod test {
 }
 
 pub mod prelude {
+    pub use super::FILE_DESCRIPTOR_SET;
     #[cfg(any(test, feature = "test-utils"))]
     pub use super::api_client::XmtpTestClient;
     pub use super::api_client::{
         ApiBuilder, ArcedXmtpApi, BoxedXmtpApi, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
     };
     pub use super::traits::{ApiClientError, Client, Endpoint, Query};
-    pub use super::FILE_DESCRIPTOR_SET;
 }
 
 pub mod identity_v1 {

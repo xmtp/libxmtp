@@ -1,21 +1,21 @@
 use crate::GenericError;
-use log::level_filters::LevelFilter;
 use log::Subscriber;
+use log::level_filters::LevelFilter;
 use parking_lot::Mutex;
 use std::io::Write;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc, LazyLock, OnceLock,
+    atomic::{AtomicBool, Ordering},
 };
 use tracing_appender::non_blocking::NonBlockingBuilder;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::RollingFileAppender;
+use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::fmt::format::DefaultFields;
 use tracing_subscriber::fmt::format::Format;
-use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::{
-    filter::Filtered, fmt, layer::Layered, layer::SubscriberExt, registry::LookupSpan,
-    registry::Registry, reload, util::SubscriberInitExt, EnvFilter, Layer,
+    EnvFilter, Layer, filter::Filtered, fmt, layer::Layered, layer::SubscriberExt,
+    registry::LookupSpan, registry::Registry, reload, util::SubscriberInitExt,
 };
 
 #[cfg(target_os = "android")]
@@ -73,8 +73,8 @@ mod other {
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
         use tracing_subscriber::{
-            fmt::{self, format},
             EnvFilter, Layer,
+            fmt::{self, format},
         };
         let filter = EnvFilter::builder()
             .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
@@ -108,14 +108,14 @@ impl Write for EmptyOrFileWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         match self {
             Self::Empty => Ok(buf.len()),
-            Self::File(ref mut f) => f.write(buf),
+            Self::File(f) => f.write(buf),
         }
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
         match self {
             Self::Empty => Ok(()),
-            Self::File(ref mut f) => f.flush(),
+            Self::File(f) => f.flush(),
         }
     }
 }
@@ -306,10 +306,10 @@ fn enable_debug_file_inner(
 #[uniffi::export]
 pub fn exit_debug_writer() -> Result<(), GenericError> {
     let handle = LOGGER.lock();
-    if let Some(w) = WORKER.get() {
-        if let Some(w) = w.lock().take() {
-            drop(w)
-        }
+    if let Some(w) = WORKER.get()
+        && let Some(w) = w.lock().take()
+    {
+        drop(w)
     }
     handle.modify(|l| {
         *l.inner_mut().writer_mut() = EmptyOrFileWriter::Empty;

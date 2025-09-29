@@ -1,5 +1,6 @@
 use crate::Client;
 use xmtp_proto::{
+    ApiEndpoint,
     api_client::{IdentityStats, XmtpIdentityClient},
     traits::ApiClientError,
     xmtp::identity::api::v1::{
@@ -8,7 +9,6 @@ use xmtp_proto::{
         GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
         VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
     },
-    ApiEndpoint,
 };
 
 #[async_trait::async_trait]

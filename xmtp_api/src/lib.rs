@@ -10,7 +10,7 @@ pub use debug_wrapper::*;
 
 use std::sync::Arc;
 
-use xmtp_common::{retryable, ExponentialBackoff, Retry, RetryableError};
+use xmtp_common::{ExponentialBackoff, Retry, RetryableError, retryable};
 pub use xmtp_proto::api_client::XmtpApi;
 
 pub use identity::*;

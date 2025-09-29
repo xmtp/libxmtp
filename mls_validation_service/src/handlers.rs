@@ -1,13 +1,13 @@
 use futures::future::{join_all, try_join_all};
 use openmls::framing::ContentType;
-use openmls::prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage};
+use openmls::prelude::{MlsMessageIn, ProtocolMessage, tls_codec::Deserialize};
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
 use xmtp_id::{
     associations::{
-        self, try_map_vec, unverified::UnverifiedIdentityUpdate, AssociationError,
-        DeserializationError, SignatureError,
+        self, AssociationError, DeserializationError, SignatureError, try_map_vec,
+        unverified::UnverifiedIdentityUpdate,
     },
     scw_verifier::{SmartContractSignatureVerifier, ValidationResponse},
 };
@@ -18,23 +18,23 @@ use xmtp_mls::{
 use xmtp_proto::xmtp::{
     identity::{
         api::v1::{
-            verify_smart_contract_wallet_signatures_response::ValidationResponse as VerifySmartContractWalletSignaturesValidationResponse,
             VerifySmartContractWalletSignatureRequestSignature,
             VerifySmartContractWalletSignaturesRequest,
             VerifySmartContractWalletSignaturesResponse,
+            verify_smart_contract_wallet_signatures_response::ValidationResponse as VerifySmartContractWalletSignaturesValidationResponse,
         },
         associations::IdentityUpdate as IdentityUpdateProto,
     },
     mls_validation::v1::{
-        validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
-        validate_inbox_id_key_packages_response::Response as ValidateInboxIdKeyPackageResponse,
-        validation_api_server::ValidationApi,
         GetAssociationStateRequest,
         GetAssociationStateResponse,
         ValidateGroupMessagesRequest,
         ValidateGroupMessagesResponse,
         ValidateInboxIdKeyPackagesResponse,
         ValidateKeyPackagesRequest, // VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+        validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
+        validate_inbox_id_key_packages_response::Response as ValidateInboxIdKeyPackageResponse,
+        validation_api_server::ValidationApi,
     },
 };
 
@@ -303,13 +303,13 @@ mod tests {
     use alloy::dyn_abi::SolType;
     use alloy::primitives::{B256, U256};
     use alloy::providers::Provider;
-    use alloy::signers::local::PrivateKeySigner;
     use alloy::signers::Signer;
+    use alloy::signers::local::PrivateKeySigner;
     use associations::AccountId;
     use openmls::{
         extensions::{ApplicationIdExtension, Extension, Extensions},
         key_packages::KeyPackage,
-        prelude::{tls_codec::Serialize, Credential as OpenMlsCredential, CredentialWithKey},
+        prelude::{Credential as OpenMlsCredential, CredentialWithKey, tls_codec::Serialize},
     };
     use openmls_rust_crypto::OpenMlsRustCrypto;
     use xmtp_common::{rand_string, rand_u64};
@@ -317,16 +317,16 @@ mod tests {
     use xmtp_cryptography::XmtpInstallationCredential;
     use xmtp_id::{
         associations::{
+            Identifier,
             test_utils::{MockSmartContractSignatureVerifier, WalletTestExt},
             unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
-            Identifier,
         },
-        utils::test::{docker_smart_wallet, SignatureWithNonce, SmartWalletContext},
+        utils::test::{SignatureWithNonce, SmartWalletContext, docker_smart_wallet},
     };
     use xmtp_proto::xmtp::{
         identity::{
-            associations::IdentityUpdate as IdentityUpdateProto,
             MlsCredential as InboxIdMlsCredential,
+            associations::IdentityUpdate as IdentityUpdateProto,
         },
         mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
     };

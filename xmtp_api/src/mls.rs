@@ -10,12 +10,12 @@ use xmtp_proto::mls_v1::{
     QueryCommitLogRequest, QueryCommitLogResponse,
 };
 use xmtp_proto::xmtp::mls::api::v1::{
+    FetchKeyPackagesRequest, GroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo,
+    QueryGroupMessagesRequest, QueryWelcomeMessagesRequest, SendGroupMessagesRequest,
+    SendWelcomeMessagesRequest, SortDirection, SubscribeGroupMessagesRequest,
+    SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
     subscribe_group_messages_request::Filter as GroupFilterProto,
-    subscribe_welcome_messages_request::Filter as WelcomeFilterProto, FetchKeyPackagesRequest,
-    GroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo, QueryGroupMessagesRequest,
-    QueryWelcomeMessagesRequest, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
-    SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-    UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
+    subscribe_welcome_messages_request::Filter as WelcomeFilterProto,
 };
 
 /// A filter for querying group messages
@@ -420,14 +420,14 @@ pub mod tests {
     use crate::test_utils::MockError;
     use xmtp_common::rand_vec;
     use xmtp_proto::api_client::ApiBuilder;
-    use xmtp_proto::mls_v1::{
-        welcome_message_input::{Version as WelcomeVersion, V1 as WelcomeV1},
-        WelcomeMessageInput,
-    };
     use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
+    use xmtp_proto::mls_v1::{
+        WelcomeMessageInput,
+        welcome_message_input::{V1 as WelcomeV1, Version as WelcomeVersion},
+    };
     use xmtp_proto::xmtp::mls::api::v1::{
-        fetch_key_packages_response::KeyPackage, FetchKeyPackagesResponse, PagingInfo,
-        QueryGroupMessagesResponse,
+        FetchKeyPackagesResponse, PagingInfo, QueryGroupMessagesResponse,
+        fetch_key_packages_response::KeyPackage,
     };
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -725,7 +725,10 @@ pub mod tests {
             Err(e) => {
                 let error_msg = format!("{}", e);
                 if error_msg.contains("cannot exceed 10 inserts in single batch") {
-                    panic!("❌ Received batch size limit error: '{}'. This indicates batching is not working correctly.", error_msg);
+                    panic!(
+                        "❌ Received batch size limit error: '{}'. This indicates batching is not working correctly.",
+                        error_msg
+                    );
                 } else {
                     // Non-batching error - acceptable
                 }

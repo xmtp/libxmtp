@@ -1,5 +1,5 @@
 use crate::ContentCodec;
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use prost::Message;
 use serde_json::Value;
 use std::fs;
@@ -21,14 +21,12 @@ fn verify_json_content_equality(
         serde_json::from_slice(re_encoded_content).unwrap_or_else(|_| Value::Null);
 
     // For transactionReference, normalize networkId to handle number->string conversion
-    if content_type == "transactionReference" {
-        if let Some(obj) = original_json.as_object_mut() {
-            if let Some(network_id) = obj.get("networkId") {
-                if let Some(n) = network_id.as_u64() {
-                    obj.insert("networkId".to_string(), Value::String(n.to_string()));
-                }
-            }
-        }
+    if content_type == "transactionReference"
+        && let Some(obj) = original_json.as_object_mut()
+        && let Some(network_id) = obj.get("networkId")
+        && let Some(n) = network_id.as_u64()
+    {
+        obj.insert("networkId".to_string(), Value::String(n.to_string()));
     }
 
     assert_eq!(
