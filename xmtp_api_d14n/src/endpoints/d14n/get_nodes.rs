@@ -3,9 +3,7 @@ use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
-use xmtp_proto::xmtp::xmtpv4::payer_api::{
-    GetNodesRequest, GetNodesResponse,
-};
+use xmtp_proto::xmtp::xmtpv4::payer_api::{GetNodesRequest, GetNodesResponse};
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
@@ -29,9 +27,7 @@ impl Endpoint for GetNodes {
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
-        Ok(GetNodesRequest {}
-        .encode_to_vec()
-        .into())
+        Ok(GetNodesRequest {}.encode_to_vec().into())
     }
 }
 
@@ -52,9 +48,7 @@ mod test {
         let client = crate::TestClient::create_local_d14n();
         let client = client.build().await.unwrap();
 
-        let endpoint = GetNodes::builder()
-            .build()
-            .unwrap();
+        let endpoint = GetNodes::builder().build().unwrap();
 
         assert!(endpoint.query(&client).await.is_ok());
     }
