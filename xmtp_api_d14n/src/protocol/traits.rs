@@ -1,5 +1,5 @@
 //! Traits to implement functionality according to
-//! https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#33-client-to-node-protocol
+//! <https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#33-client-to-node-protocol>
 
 use super::ExtractionError;
 use super::PayloadExtractor;

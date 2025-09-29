@@ -171,7 +171,7 @@ impl GroupQueryArgs {
 }
 
 pub trait QueryGroup {
-    /// Return regular [`Purpose::Conversation`] groups with additional optional filters
+    /// Return regular `Purpose::Conversation` groups with additional optional filters
     fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
@@ -285,7 +285,7 @@ impl<T> QueryGroup for &T
 where
     T: QueryGroup,
 {
-    /// Return regular [`Purpose::Conversation`] groups with additional optional filters
+    /// Return regular `Purpose::Conversation` groups with additional optional filters
     fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
@@ -443,7 +443,7 @@ where
 }
 
 impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
-    /// Return regular [`Purpose::Conversation`] groups with additional optional filters
+    /// Return regular `Purpose::Conversation` groups with additional optional filters
     fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,

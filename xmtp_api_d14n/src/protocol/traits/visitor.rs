@@ -16,7 +16,7 @@ use super::EnvelopeError;
 
 /// Envelope Visitor type for ergonomic handling of serialized nested envelope types.
 ///
-/// The blanket implementation on Vec<T> enables combining an arbitrary number of visitors into one,
+/// The blanket implementation on `Vec<T>` enables combining an arbitrary number of visitors into one,
 ///
 /// process = vec![ValidateMessage::new(), ExtractMessage::new()];
 /// Each step is ran in sequence, and if one of the steps fail, the entire process is

@@ -572,7 +572,7 @@ where
             .unwrap_or(false) // Default to false if no mutable metadata
     }
 
-    /// Send a message on this users XMTP [`Client`].
+    /// Send a message on this users XMTP [`Client`](crate::client::Client).
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip(self), fields(who = self.context.inbox_id(), message = %String::from_utf8_lossy(message))))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),

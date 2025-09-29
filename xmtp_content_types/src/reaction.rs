@@ -11,7 +11,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 
 pub struct ReactionCodec {}
 
-/// Legacy content type id at https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reaction/src/Reaction.ts
+/// Legacy content type id at <https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reaction/src/Reaction.ts>
 impl ReactionCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
     pub const TYPE_ID: &'static str = "reaction";
@@ -114,7 +114,7 @@ impl LegacyReaction {
 
 pub struct LegacyReactionCodec {}
 
-/// Legacy content type id at https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reaction/src/Reaction.ts
+/// Legacy content type id at <https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reaction/src/Reaction.ts>
 impl LegacyReactionCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
     pub const TYPE_ID: &'static str = "reaction";

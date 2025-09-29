@@ -1,5 +1,5 @@
 //! Builders for creating a [`SignatureRequest`] with a [`PendingIdentityAction`] for an external SDK/Library, which can then be
-//! resolved into an [`IdentityUpdate`]. An [`IdentityUpdate`] may be used for updating the state
+//! resolved into an [`IdentityUpdate`](super::association_log::IdentityUpdate). An [`IdentityUpdate`](super::association_log::IdentityUpdate) may be used for updating the state
 //! of an XMTP ID according to [XIP-46](https://github.com/xmtp/XIPs/pull/53)
 
 use std::collections::HashMap;
