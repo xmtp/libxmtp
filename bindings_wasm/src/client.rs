@@ -17,6 +17,7 @@ use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_proto::api_client::AggregateStats;
 
 use crate::conversations::Conversations;
+use crate::enriched_message::DecodedMessage;
 use crate::identity::{ApiStats, Identifier, IdentityStats};
 use crate::inbox_state::InboxState;
 
@@ -396,5 +397,15 @@ impl Client {
       .delete_message(message_id)
       .map_err(|e| JsError::new(&format!("{e}")))?;
     Ok(deleted_count as u32)
+  }
+
+  #[wasm_bindgen(js_name = messageV2)]
+  pub async fn enriched_message(&self, message_id: Vec<u8>) -> Result<DecodedMessage, JsValue> {
+    let message = self
+      .inner_client
+      .message_v2(message_id)
+      .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(message.into())
   }
 }
