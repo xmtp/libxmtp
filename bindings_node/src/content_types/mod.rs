@@ -1,8 +1,17 @@
 use napi_derive::napi;
 use xmtp_db::group_message::ContentType as XmtpContentType;
 
+pub mod attachment;
+pub mod decoded_message_body;
+pub mod group_updated;
 pub mod multi_remote_attachment;
 pub mod reaction;
+pub mod read_receipt;
+pub mod remote_attachment;
+pub mod reply;
+pub mod text;
+pub mod transaction_reference;
+pub mod wallet_send_calls;
 
 #[napi]
 pub enum ContentType {

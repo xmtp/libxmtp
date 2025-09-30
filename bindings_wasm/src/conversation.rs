@@ -5,7 +5,9 @@ use crate::identity::{Identifier, IdentityExt};
 use crate::messages::{ListMessagesOptions, Message, MessageWithReactions};
 use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
 use crate::streams::{StreamCallback, StreamCloser};
-use crate::{consent_state::ConsentState, permissions::GroupPermissions};
+use crate::{
+  consent_state::ConsentState, enriched_message::DecodedMessage, permissions::GroupPermissions,
+};
 use std::collections::HashMap;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
@@ -742,6 +744,33 @@ impl Conversation {
     let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();
 
     Ok(conversations)
+  }
+
+  #[wasm_bindgen(js_name = findMessagesV2)]
+  pub async fn enriched_messages(
+    &self,
+    opts: Option<ListMessagesOptions>,
+  ) -> Result<Vec<DecodedMessage>, JsError> {
+    let opts = opts.unwrap_or_default();
+    let group = self.to_mls_group();
+    let messages: Vec<DecodedMessage> = group
+      .find_messages_v2(&opts.into())
+      .map_err(|e| JsError::new(&format!("{e}")))?
+      .into_iter()
+      .map(|msg| msg.into())
+      .collect();
+
+    Ok(messages)
+  }
+
+  #[wasm_bindgen(js_name = getLastReadTimes)]
+  pub async fn get_last_read_times(&self) -> Result<JsValue, JsError> {
+    let group = self.to_mls_group();
+    let times = group
+      .get_last_read_times()
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(crate::to_value(&times)?)
   }
 }
 
