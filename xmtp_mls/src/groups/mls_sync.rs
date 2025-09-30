@@ -257,11 +257,24 @@ impl RetryableError for IntentResolutionError {
 }
 
 #[derive(Debug)]
-struct PublishIntentData {
+pub(crate) struct PublishIntentData {
     staged_commit: Option<Vec<u8>>,
     post_commit_action: Option<Vec<u8>>,
     payload_to_publish: Vec<u8>,
     should_send_push_notification: bool,
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl PublishIntentData {
+    #[allow(dead_code)]
+    pub fn post_commit_data(&self) -> Option<Vec<u8>> {
+        self.post_commit_action.clone()
+    }
+
+    #[allow(dead_code)]
+    pub fn staged_commit(&self) -> Option<Vec<u8>> {
+        self.staged_commit.clone()
+    }
 }
 
 impl<Context> MlsGroup<Context>
@@ -2312,7 +2325,7 @@ where
      * Callers may also include a list of added or removed inboxes
      */
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(super) async fn get_membership_update_intent(
+    pub(crate) async fn get_membership_update_intent(
         &self,
         inbox_ids_to_add: &[InboxIdRef<'_>],
         inbox_ids_to_remove: &[InboxIdRef<'_>],
@@ -2714,7 +2727,9 @@ fn get_and_clear_pending_commit(
     Ok(commit)
 }
 
-fn decode_staged_commit(data: &[u8]) -> Result<StagedCommit, GroupMessageProcessingError> {
+pub(crate) fn decode_staged_commit(
+    data: &[u8],
+) -> Result<StagedCommit, GroupMessageProcessingError> {
     Ok(xmtp_db::db_deserialize(data)?)
 }
 
