@@ -14,7 +14,7 @@ pub(crate) enum GrpcResponse<T> {
 }
 
 /// handle JSON response from gRPC, returning either
-/// the expected deserialized response object or a gRPC [`Error`]
+/// the expected deserialized response object or a gRPC [`HttpClientError`]
 pub async fn handle_error_proto<T>(response: reqwest::Response) -> Result<T, HttpClientError>
 where
     T: prost::Message + Default,

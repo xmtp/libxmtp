@@ -416,7 +416,7 @@ impl FfiSignatureRequest {
         Ok(self.inner.lock().await.signature_text())
     }
 
-    /// missing signatures that are from [MemberKind::Address]
+    /// missing signatures that are from `MemberKind::Address`
     pub async fn missing_address_signatures(&self) -> Result<Vec<String>, GenericError> {
         let inner = self.inner.lock().await;
         Ok(inner

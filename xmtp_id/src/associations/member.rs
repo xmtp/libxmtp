@@ -81,7 +81,7 @@ impl MemberIdentifier {
         }
     }
 
-    /// Get the value for [`MemberIdentifier::Address`] variant.
+    /// Get the value for [`MemberIdentifier::Ethereum`] variant.
     /// Returns `None` if the type is not the correct variant.
     pub fn eth_address(&self) -> Option<&str> {
         if let Self::Ethereum(address) = self {
@@ -91,7 +91,7 @@ impl MemberIdentifier {
         }
     }
 
-    /// Get the value for [`MemberIdentifier::Address`], consuming the [`MemberIdentifier`]
+    /// Get the value for [`MemberIdentifier::Ethereum`], consuming the [`MemberIdentifier`]
     /// in the process
     pub fn to_eth_address(self) -> Option<String> {
         if let Self::Ethereum(address) = self {

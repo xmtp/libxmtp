@@ -15,9 +15,9 @@ impl DeviceSyncUrls {
 /// Docker URLS accessible from the Host
 pub struct DockerUrls;
 impl DockerUrls {
-    /// Address to locally-running toxiproxy https://github.com/Shopify/toxiproxy
+    /// Address to locally-running toxiproxy <https://github.com/Shopify/toxiproxy>
     pub const TOXIPROXY: &'static str = "0.0.0.0:8474";
-    /// Address to the locally running Anvil https://getfoundry.sh/anvil/overview/
+    /// Address to the locally running Anvil <https://getfoundry.sh/anvil/overview/>
     pub const ANVIL: &'static str = "http://localhost:8545";
 }
 
@@ -39,7 +39,7 @@ impl InternalDockerUrls {
     pub const PAYER: &'static str = "http://gateway:5052";
 }
 
-/// URLS for the GRPC-Gateway https://grpc-ecosystem.github.io/grpc-gateway/
+/// URLS for the GRPC-Gateway <https://grpc-ecosystem.github.io/grpc-gateway/>
 pub struct HttpGatewayUrls;
 impl HttpGatewayUrls {
     pub const NODE: &'static str = "http://localhost:5555";
@@ -49,7 +49,7 @@ impl HttpGatewayUrls {
     pub const NODE_PRODUCTION: &'static str = "https://production.xmtp.network";
 }
 
-/// Endpoints for the GRPC-Gateway: https://grpc-ecosystem.github.io/grpc-gateway/
+/// Endpoints for the GRPC-Gateway: <https://grpc-ecosystem.github.io/grpc-gateway/>
 pub struct RestApiEndpoints;
 impl RestApiEndpoints {
     pub const FETCH_KEY_PACKAGES: &'static str = "/mls/v1/fetch-key-packages";
