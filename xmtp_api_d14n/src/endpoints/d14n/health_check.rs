@@ -65,12 +65,7 @@ mod test {
     async fn test_health_check() {
         let client = crate::TestClient::create_local_d14n();
         let client = client.build().await.unwrap();
-
         let endpoint = HealthCheck::builder().build().unwrap();
-
-        let response = endpoint.query(&client).await.unwrap();
-        println!("response: {:?}", response);
-
         assert!(endpoint.query(&client).await.is_ok());
     }
 }
