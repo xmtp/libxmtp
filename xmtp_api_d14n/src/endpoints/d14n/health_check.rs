@@ -6,7 +6,7 @@ use xmtp_proto::traits::{BodyError, Endpoint};
 
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct HealthCheckRequest {
-    #[prost(string, tag = "1")] 
+    #[prost(string, tag = "1")]
     pub service: String,
 }
 
@@ -52,7 +52,9 @@ impl Endpoint for HealthCheck {
     fn body(&self) -> Result<Bytes, BodyError> {
         Ok(HealthCheckRequest {
             service: self.service.clone(),
-        }.encode_to_vec().into())
+        }
+        .encode_to_vec()
+        .into())
     }
 }
 
