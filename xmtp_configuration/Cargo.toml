@@ -12,3 +12,4 @@ xmtp_cryptography.workspace = true
 
 [features]
 test-utils = []
+dev = []

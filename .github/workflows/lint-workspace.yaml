@@ -8,7 +8,6 @@ on:
       - ".github/workflows/lint-workspace.yaml"
       - "mls_validation_service/**"
       - "xmtp_api_grpc/**"
-      - "xmtp_api_http/**"
       - "xmtp_cryptography/**"
       - "xmtp_id/**"
       - "xmtp_mls/**"

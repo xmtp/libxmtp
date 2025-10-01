@@ -35,25 +35,15 @@ pub type FullXmtpClient = Client<TestXmtpMlsContext>;
 pub type ClientTester = Tester<PrivateKeySigner, FullXmtpClient>;
 pub type TestMlsGroup = crate::groups::MlsGroup<TestXmtpMlsContext>;
 
-#[cfg(not(any(feature = "http-api", target_arch = "wasm32", feature = "d14n")))]
-pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
+xmtp_common::if_v3! {
+    pub type TestClient = xmtp_api_grpc::v3::Client;
+}
 
-#[cfg(all(
-    any(feature = "http-api", target_arch = "wasm32"),
-    not(feature = "d14n")
-))]
-use xmtp_api_http::XmtpHttpApiClient;
+xmtp_common::if_d14n! {
+    pub type TestClient = xmtp_api_d14n::TestD14nClient;
+}
 
 use super::VersionInfo;
-
-#[cfg(all(
-    any(feature = "http-api", target_arch = "wasm32"),
-    not(feature = "d14n")
-))]
-pub type TestClient = XmtpHttpApiClient;
-
-#[cfg(feature = "d14n")]
-pub type TestClient = xmtp_api_d14n::TestD14nClient;
 
 impl<A, S> ClientBuilder<A, S> {
     pub async fn temp_store(self) -> Self {

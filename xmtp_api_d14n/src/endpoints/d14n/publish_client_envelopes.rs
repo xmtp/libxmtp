@@ -28,7 +28,7 @@ impl Endpoint for PublishClientEnvelopes {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<PublishClientEnvelopesRequest>()
+        xmtp_proto::path_and_query::<PublishClientEnvelopesRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -42,14 +42,21 @@ impl Endpoint for PublishClientEnvelopes {
 
 #[cfg(test)]
 mod test {
+    use crate::protocol::TopicKind;
+
     use super::*;
-    use xmtp_proto::prelude::*;
+    use xmtp_api_grpc::error::GrpcError;
+    use xmtp_common::rand_vec;
+    use xmtp_proto::{
+        prelude::*,
+        xmtp::xmtpv4::envelopes::{AuthenticatedData, client_envelope::Payload},
+    };
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::xmtpv4::payer_api::PublishClientEnvelopesRequest;
 
-        let pnq = crate::path_and_query::<PublishClientEnvelopesRequest>();
+        let pnq = xmtp_proto::path_and_query::<PublishClientEnvelopesRequest>();
         println!("{}", pnq);
     }
 
@@ -57,15 +64,39 @@ mod test {
     async fn test_publish_client_envelopes() {
         use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 
-        let client = crate::TestClient::create_local_d14n();
+        let client = crate::TestClient::create_gateway();
         let client = client.build().await.unwrap();
 
+        let aad = AuthenticatedData {
+            target_topic: TopicKind::GroupMessagesV1.build(&rand_vec::<16>()),
+            depends_on: None,
+        };
+        let e = ClientEnvelope {
+            aad: Some(aad),
+            payload: Some(Payload::GroupMessage(Default::default())),
+        };
         let endpoint = PublishClientEnvelopes::builder()
-            .envelopes(vec![ClientEnvelope::default()])
+            .envelopes(vec![e])
             .build()
             .unwrap();
 
-        let result = endpoint.query(&client).await;
-        assert!(result.is_err());
+        let err = endpoint.query(&client).await.unwrap_err();
+        // tracing::info!("{}", err);
+        // the request will fail b/c we're using dummy data but
+        // we just care if the endpoint is working
+        match err {
+            ApiClientError::<GrpcError>::ClientWithEndpoint {
+                source: GrpcError::Status(ref s),
+                ..
+            } => {
+                assert!(
+                    s.message().contains("invalid payload")
+                        || s.message().contains("invalid topic"),
+                    "{}",
+                    err
+                );
+            }
+            _ => panic!("request failed"),
+        }
     }
 }
