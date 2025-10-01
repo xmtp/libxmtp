@@ -80,4 +80,10 @@ pub mod tests {
             V3ClientBuilder::new(<C as XmtpTestClient>::create_d14n())
         }
     }
+    xmtp_common::if_native! {
+        #[ctor::ctor]
+        fn _setup() {
+            xmtp_common::logger();
+        }
+    }
 }
