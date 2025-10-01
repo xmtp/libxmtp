@@ -87,6 +87,7 @@ impl serde::Serialize for GroupMembershipStateSave {
             Self::Rejected => "GROUP_MEMBERSHIP_STATE_SAVE_REJECTED",
             Self::Pending => "GROUP_MEMBERSHIP_STATE_SAVE_PENDING",
             Self::Restored => "GROUP_MEMBERSHIP_STATE_SAVE_RESTORED",
+            Self::PendingRemove => "GROUP_MEMBERSHIP_STATE_SAVE_PENDING_REMOVE",
         };
         serializer.serialize_str(variant)
     }
@@ -103,6 +104,7 @@ impl<'de> serde::Deserialize<'de> for GroupMembershipStateSave {
             "GROUP_MEMBERSHIP_STATE_SAVE_REJECTED",
             "GROUP_MEMBERSHIP_STATE_SAVE_PENDING",
             "GROUP_MEMBERSHIP_STATE_SAVE_RESTORED",
+            "GROUP_MEMBERSHIP_STATE_SAVE_PENDING_REMOVE",
         ];
 
         struct GeneratedVisitor;
@@ -148,6 +150,7 @@ impl<'de> serde::Deserialize<'de> for GroupMembershipStateSave {
                     "GROUP_MEMBERSHIP_STATE_SAVE_REJECTED" => Ok(GroupMembershipStateSave::Rejected),
                     "GROUP_MEMBERSHIP_STATE_SAVE_PENDING" => Ok(GroupMembershipStateSave::Pending),
                     "GROUP_MEMBERSHIP_STATE_SAVE_RESTORED" => Ok(GroupMembershipStateSave::Restored),
+                    "GROUP_MEMBERSHIP_STATE_SAVE_PENDING_REMOVE" => Ok(GroupMembershipStateSave::PendingRemove),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
