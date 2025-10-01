@@ -1,6 +1,7 @@
 //! Implementions of traits
 use super::traits::{EnvelopeError, EnvelopeVisitor, ProtocolEnvelope};
 use prost::Message;
+use xmtp_proto::mls_v1::{SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest};
 use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
 use xmtp_proto::{
     ConversionError,
@@ -281,6 +282,42 @@ where
             Some(o) => o.accept(visitor),
             None => Ok(visitor.visit_none()?),
         }
+    }
+
+    fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
+        Ok(())
+    }
+}
+
+impl<'env> ProtocolEnvelope<'env> for SubscribeGroupMessagesRequest {
+    type Nested<'a> = ();
+
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    where
+        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
+    {
+        for filter in &self.filters {
+            visitor.visit_subscribe_group_messages_request(filter)?;
+        }
+        Ok(())
+    }
+
+    fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
+        Ok(())
+    }
+}
+
+impl<'env> ProtocolEnvelope<'env> for SubscribeWelcomeMessagesRequest {
+    type Nested<'a> = ();
+
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    where
+        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
+    {
+        for filter in &self.filters {
+            visitor.visit_subscribe_welcome_messages_request(filter)?;
+        }
+        Ok(())
     }
 
     fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {

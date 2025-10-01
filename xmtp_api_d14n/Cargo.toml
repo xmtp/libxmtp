@@ -9,7 +9,6 @@ workspace = true
 
 [dependencies]
 async-trait.workspace = true
-ctor.workspace = true
 derive_builder.workspace = true
 futures.workspace = true
 hex.workspace = true
@@ -28,6 +27,7 @@ xmtp_configuration = { workspace = true }
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Test Utils
+ctor = { workspace = true, optional = true }
 xmtp_api_grpc = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -44,6 +44,9 @@ xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["convert", "test-utils"] }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+ctor.workspace = true
+
 [features]
-test-utils = ["xmtp_api_grpc/test-utils"]
+test-utils = ["xmtp_api_grpc/test-utils", "dep:ctor"]
 dev = ["xmtp_configuration/dev", "xmtp_proto/dev"]

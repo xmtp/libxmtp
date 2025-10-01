@@ -285,10 +285,10 @@ impl BackendOpts {
         if self.d14n {
             let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
             trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
-
+            let gateway_is_secure = xmtpd_gateway_host.scheme() == "https";
             let mut gateway = GrpcClient::builder();
             gateway.set_host(xmtpd_gateway_host.to_string());
-            gateway.set_tls(is_secure);
+            gateway.set_tls(gateway_is_secure);
             let gateway = gateway.build().await?;
             let mut message = GrpcClient::builder();
             message.set_host(network.to_string());
