@@ -20,7 +20,7 @@ Start Docker Desktop.
 
 - To install other dependencies and start background services:
 
-  ```
+  ```bash
   dev/up
   ```
 
@@ -28,28 +28,34 @@ Start Docker Desktop.
 
 - To run tests:
 
-  ```
+  ```bash
   RUST_LOG=off cargo test
   ```
 
   Many team members also install and use `cargo nextest` for better test
   isolation and log output behavior.
 
+- run tests and open coverage in a browser:
+
+```bash
+./dev/test/coverage
+```
+
 - To run WebAssembly tests headless:
 
-  ```
+  ```bash
   dev/test/wasm
   ```
 
 - To run WebAssembly tests interactively for a package, for example, `xmtp_mls`:
 
-  ```
+  ```bash
   dev/test/wasm-interactive xmtp_mls
   ```
 
 - To run browser SDK tests:
 
-  ```
+  ```bash
   dev/test/browser-sdk
   ```
 
@@ -170,9 +176,6 @@ sending double ratchet messages on the XMTP `dev` network.
 
 ├ [`xmtp_api_grpc`](./xmtp_api_grpc): API client for XMTP's gRPC API, using code
 from `xmtp_proto`
-
-├ [`xmtp_api_http`](./xmtp_api_http): API client for XMTP's gRPC Gateway API,
-using code from `xmtp_proto`
 
 ├ [`xmtp_cryptography`](./xmtp_cryptography): Cryptographic operations
 

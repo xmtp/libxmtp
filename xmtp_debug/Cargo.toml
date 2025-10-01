@@ -52,7 +52,7 @@ url.workspace = true
 valuable = { version = "0.1", features = ["derive"] }
 xmtp_api.workspace = true
 xmtp_api_d14n.workspace = true
-xmtp_api_grpc.workspace = true
+xmtp_api_grpc = { workspace = true, features = ["v3"] }
 xmtp_cryptography = { workspace = true, features = ["exposed-keys"] }
 xmtp_db.workspace = true
 xmtp_id.workspace = true

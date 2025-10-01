@@ -10,7 +10,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use xmtp_api::ApiDebugWrapper;
-pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+pub use xmtp_api_grpc::v3::Client as TonicApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb, StorageOption};
 use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;

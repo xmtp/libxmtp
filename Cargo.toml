@@ -4,7 +4,6 @@ members = [
   "mls_validation_service",
   "xmtp_cryptography",
   "xmtp_api_grpc",
-  "xmtp_api_http",
   "xmtp_proto",
   "xmtp_mls",
   "xmtp_api",
@@ -31,7 +30,6 @@ default-members = [
   "mls_validation_service",
   "xmtp_cryptography",
   "xmtp_api_grpc",
-  "xmtp_api_http",
   "xmtp_proto",
   "xmtp_mls",
   "xmtp_api",
@@ -81,6 +79,7 @@ dyn-clone = "1"
 ed25519-dalek = { version = "2.1.1", features = ["zeroize"] }
 fdlimit = "0.3"
 futures = { version = "0.3.30", default-features = false }
+futures-test = { version = "0.3" }
 futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
 getrandom = { version = "0.3", default-features = false }
@@ -131,6 +130,8 @@ tokio-util = { version = "0.7", default-features = false, features = [
   "compat",
 ] }
 tonic = { version = "0.14", default-features = false }
+tonic-web-wasm-client = "0.8"
+tower = { version = "0.5", default-features = false }
 trait-variant = "0.1.2"
 tracing = { version = "0.1", features = ["log"] }
 tracing-logfmt = "0.3"
@@ -152,7 +153,6 @@ bindings-wasm = { path = "bindings_wasm" }
 xmtp_api = { path = "xmtp_api" }
 xmtp_api_d14n = { path = "xmtp_api_d14n" }
 xmtp_api_grpc = { path = "xmtp_api_grpc" }
-xmtp_api_http = { path = "xmtp_api_http" }
 xmtp_archive = { path = "xmtp_archive" }
 xmtp_common = { path = "common" }
 xmtp_configuration = { path = "xmtp_configuration" }

@@ -32,7 +32,7 @@ impl Endpoint for QueryEnvelope {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<QueryEnvelopesRequest>()
+        xmtp_proto::path_and_query::<QueryEnvelopesRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -51,7 +51,6 @@ impl Endpoint for QueryEnvelope {
             }),
             limit,
         };
-        tracing::debug!("{:?}", query);
         Ok(query.encode_to_vec().into())
     }
 }
@@ -80,7 +79,7 @@ impl Endpoint for QueryEnvelopes {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<QueryEnvelopesRequest>()
+        xmtp_proto::path_and_query::<QueryEnvelopesRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -96,12 +95,13 @@ impl Endpoint for QueryEnvelopes {
 #[cfg(test)]
 mod test {
     use super::*;
+    use xmtp_api_grpc::error::GrpcError;
     use xmtp_proto::prelude::*;
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesRequest;
-        let pnq = crate::path_and_query::<QueryEnvelopesRequest>();
+        let pnq = xmtp_proto::path_and_query::<QueryEnvelopesRequest>();
         println!("{}", pnq);
     }
 
@@ -109,7 +109,7 @@ mod test {
     async fn test_query_envelopes() {
         use crate::d14n::QueryEnvelopes;
 
-        let client = crate::TestClient::create_local_d14n();
+        let client = crate::TestClient::create_d14n();
         let client = client.build().await.unwrap();
 
         let endpoint = QueryEnvelopes::builder()
@@ -120,6 +120,16 @@ mod test {
             })
             .build()
             .unwrap();
-        assert!(endpoint.query(&client).await.is_err());
+        let err = endpoint.query(&client).await.unwrap_err();
+        tracing::info!("{}", err);
+        // the request will fail b/c we're using dummy data but
+        // we just care if the endpoint is working
+        match err {
+            ApiClientError::<GrpcError>::ClientWithEndpoint {
+                source: GrpcError::Status(ref s),
+                ..
+            } => assert!(s.message().contains("invalid topic"), "{}", err),
+            _ => panic!("request failed"),
+        }
     }
 }

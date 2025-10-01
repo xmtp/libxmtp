@@ -19,13 +19,13 @@ pub static XMTP_DEV_D14N: LazyLock<Url> =
 pub static XMTP_LOCAL_D14N: LazyLock<Url> =
     LazyLock::new(|| Url::parse("http://localhost:5050").unwrap());
 
-pub static XMTP_PRODUCTION_PAYER: LazyLock<Url> =
+pub static XMTP_PRODUCTION_GATEWAY: LazyLock<Url> =
     LazyLock::new(|| Url::parse("https://payer.testnet.xmtp.network:443").unwrap());
-pub static XMTP_STAGING_PAYER: LazyLock<Url> =
+pub static XMTP_STAGING_GATEWAY: LazyLock<Url> =
     LazyLock::new(|| Url::parse("https://payer.testnet-staging.xmtp.network:443").unwrap());
-pub static XMTP_DEV_PAYER: LazyLock<Url> =
+pub static XMTP_DEV_GATEWAY: LazyLock<Url> =
     LazyLock::new(|| Url::parse("https://payer.testnet-dev.xmtp.network:443").unwrap());
-pub static XMTP_LOCAL_PAYER: LazyLock<Url> =
+pub static XMTP_LOCAL_GATEWAY: LazyLock<Url> =
     LazyLock::new(|| Url::parse("http://localhost:5052").unwrap());
 
 pub static TMPDIR: LazyLock<TempDir> = LazyLock::<TempDir>::new(|| TempDir::new().unwrap());

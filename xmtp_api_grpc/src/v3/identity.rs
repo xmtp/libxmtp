@@ -1,4 +1,5 @@
-use crate::Client;
+use crate::error::GrpcError;
+use crate::v3::Client;
 use xmtp_proto::{
     ApiEndpoint,
     api_client::{IdentityStats, XmtpIdentityClient},
@@ -11,9 +12,10 @@ use xmtp_proto::{
     },
 };
 
-#[async_trait::async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl XmtpIdentityClient for Client {
-    type Error = ApiClientError<crate::GrpcError>;
+    type Error = ApiClientError<GrpcError>;
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn publish_identity_update(

@@ -1,6 +1,6 @@
-use crate::streams::{EscapableTonicStream, XmtpTonicStream};
-use crate::{GrpcBuilderError, GrpcError, apply_channel_options, create_tls_channel};
-use tonic::{Request, metadata::MetadataValue, transport::Channel};
+use crate::error::{GrpcBuilderError, GrpcError};
+use crate::streams::{self, XmtpTonicStream};
+use tonic::{Request, metadata::MetadataValue};
 use tower::ServiceExt;
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
 use xmtp_proto::api_client::AggregateStats;
@@ -26,16 +26,20 @@ use xmtp_proto::{
 
 #[derive(Debug, Clone)]
 pub struct Client {
-    pub(crate) mls_client: ProtoMlsApiClient<Channel>,
-    pub(crate) identity_client: ProtoIdentityApiClient<Channel>,
+    pub(crate) mls_client: ProtoMlsApiClient<crate::GrpcService>,
+    pub(crate) identity_client: ProtoIdentityApiClient<crate::GrpcService>,
     pub(crate) app_version: MetadataValue<tonic::metadata::Ascii>,
     pub(crate) libxmtp_version: MetadataValue<tonic::metadata::Ascii>,
     pub(crate) stats: ApiStats,
     pub(crate) identity_stats: IdentityStats,
-    pub(crate) channel: Channel,
+    pub(crate) channel: crate::GrpcService,
 }
 
 impl Client {
+    /// Create an API Client
+    /// Automatically chooses gRPC service based on target.
+    ///
+    /// _NOTE:_ 'is_secure' is a no-op in web-assembly (browser handles TLS)
     pub async fn create(
         host: impl ToString,
         is_secure: bool,
@@ -54,11 +58,10 @@ impl Client {
             .insert("x-app-version", self.app_version.clone());
         req.metadata_mut()
             .insert("x-libxmtp-version", self.libxmtp_version.clone());
-
         req
     }
 
-    pub fn identity_client(&self) -> &ProtoIdentityApiClient<Channel> {
+    pub fn identity_client(&self) -> &ProtoIdentityApiClient<crate::GrpcService> {
         &self.identity_client
     }
 
@@ -69,67 +72,59 @@ impl Client {
     pub async fn is_connected(&self) -> bool {
         self.channel.clone().ready().await.is_ok()
     }
+
+    fn client(&self) -> crate::GrpcClient {
+        crate::GrpcClient::new(
+            self.channel.clone(),
+            self.app_version.clone(),
+            self.libxmtp_version.clone(),
+        )
+    }
 }
 
 #[derive(Default)]
 pub struct ClientBuilder {
-    host: Option<String>,
-    /// version of the app
-    app_version: Option<MetadataValue<tonic::metadata::Ascii>>,
-    /// Version of the libxmtp core library
-    libxmtp_version: Option<MetadataValue<tonic::metadata::Ascii>>,
-    /// Whether or not the channel should use TLS
-    tls_channel: bool,
-    /// Rate per minute
-    limit: Option<u64>,
+    inner: crate::ClientBuilder,
 }
 
 impl ApiBuilder for ClientBuilder {
     type Output = Client;
-    type Error = crate::GrpcBuilderError;
+    type Error = crate::error::GrpcBuilderError;
 
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
-        self.libxmtp_version = Some(MetadataValue::try_from(&version)?);
-        Ok(())
+        self.inner.set_libxmtp_version(version)
     }
 
     fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
-        self.app_version = Some(MetadataValue::try_from(&version)?);
-        Ok(())
-    }
-
-    fn set_tls(&mut self, tls: bool) {
-        self.tls_channel = tls;
+        self.inner.set_app_version(version)
     }
 
     fn set_host(&mut self, host: String) {
-        self.host = Some(host);
+        self.inner.set_host(host)
+    }
+
+    fn set_tls(&mut self, tls: bool) {
+        self.inner.set_tls(tls)
     }
 
     fn rate_per_minute(&mut self, limit: u32) {
-        self.limit = Some(limit.into());
+        self.inner.rate_per_minute(limit)
     }
 
     fn port(&self) -> Result<Option<String>, Self::Error> {
-        if let Some(h) = &self.host {
-            let u = url::Url::parse(h)?;
-            Ok(u.port().map(|u| u.to_string()))
-        } else {
-            Err(GrpcBuilderError::MissingHostUrl)
-        }
+        self.inner.port()
+    }
+
+    fn host(&self) -> Option<&str> {
+        self.inner.host()
     }
 
     async fn build(self) -> Result<Self::Output, Self::Error> {
-        let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
-        let channel = match self.tls_channel {
-            true => create_tls_channel(host, self.limit.unwrap_or(5000)).await?,
-            false => {
-                apply_channel_options(Channel::from_shared(host)?, self.limit.unwrap_or(5000))
-                    .connect()
-                    .await?
-            }
-        };
-
+        let host = self.inner.host().ok_or(GrpcBuilderError::MissingHostUrl)?;
+        tracing::info!("building api client for {}", host);
+        let channel =
+            crate::GrpcService::new(host.to_string(), self.inner.limit, self.inner.tls_channel)
+                .await?;
         let mls_client = ProtoMlsApiClient::new(channel.clone())
             .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
             .max_encoding_message_size(GRPC_PAYLOAD_LIMIT);
@@ -141,20 +136,17 @@ impl ApiBuilder for ClientBuilder {
             mls_client,
             identity_client,
             app_version: self
+                .inner
                 .app_version
                 .unwrap_or(MetadataValue::try_from("0.0.0")?),
             libxmtp_version: self
+                .inner
                 .libxmtp_version
                 .unwrap_or(MetadataValue::try_from(env!("CARGO_PKG_VERSION"))?),
-
             stats: ApiStats::default(),
             identity_stats: IdentityStats::default(),
             channel,
         })
-    }
-
-    fn host(&self) -> Option<&str> {
-        self.host.as_deref()
     }
 }
 
@@ -167,7 +159,8 @@ impl HasStats for Client {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl XmtpMlsClient for Client {
     type Error = ApiClientError<GrpcError>;
 
@@ -280,28 +273,19 @@ impl XmtpMlsClient for Client {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl XmtpMlsStreams for Client {
-    type Error = ApiClientError<crate::GrpcError>;
-    type GroupMessageStream = XmtpTonicStream<EscapableTonicStream<GroupMessage>>;
-    type WelcomeMessageStream = XmtpTonicStream<EscapableTonicStream<WelcomeMessage>>;
+    type Error = ApiClientError<crate::error::GrpcError>;
+    type GroupMessageStream = streams::XmtpStream<GroupMessage>;
+    type WelcomeMessageStream = streams::XmtpStream<WelcomeMessage>;
 
     async fn subscribe_group_messages(
         &self,
         req: SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         self.stats.subscribe_messages.count_request();
-        let client = &mut self.mls_client.clone();
-        let res = client
-            .subscribe_group_messages(self.build_request(req))
-            .await
-            .map_err(|e| ApiClientError::new(ApiEndpoint::SubscribeGroupMessages, e.into()))?;
-
-        let stream = res.into_inner();
-        Ok(XmtpTonicStream::new(
-            stream.into(),
-            ApiEndpoint::SubscribeGroupMessages,
-        ))
+        XmtpTonicStream::from_body(req, self.client(), ApiEndpoint::SubscribeGroupMessages).await
     }
 
     async fn subscribe_welcome_messages(
@@ -309,17 +293,7 @@ impl XmtpMlsStreams for Client {
         req: SubscribeWelcomeMessagesRequest,
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         self.stats.subscribe_welcomes.count_request();
-        let client = &mut self.mls_client.clone();
-        let res = client
-            .subscribe_welcome_messages(self.build_request(req))
-            .await
-            .map_err(|e| ApiClientError::new(ApiEndpoint::SubscribeWelcomes, e.into()))?;
-
-        let stream = res.into_inner();
-        Ok(XmtpTonicStream::new(
-            stream.into(),
-            ApiEndpoint::SubscribeWelcomes,
-        ))
+        XmtpTonicStream::from_body(req, self.client(), ApiEndpoint::SubscribeWelcomes).await
     }
 }
 
@@ -331,6 +305,8 @@ mod test {
     use xmtp_configuration::LOCALHOST;
     use xmtp_proto::{TestApiBuilder, ToxicProxies, api_client::XmtpTestClient};
 
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
     impl XmtpTestClient for Client {
         type Builder = ClientBuilder;
 
@@ -341,18 +317,18 @@ mod test {
             client
         }
 
-        fn create_local_d14n() -> Self::Builder {
+        fn create_d14n() -> Self::Builder {
             let mut client = Client::builder();
             client.set_host(GrpcUrls::XMTPD.into());
             client.set_tls(false);
             client
         }
 
-        fn create_local_payer() -> Self::Builder {
-            let mut payer = Client::builder();
-            payer.set_host(GrpcUrls::PAYER.into());
-            payer.set_tls(false);
-            payer
+        fn create_gateway() -> Self::Builder {
+            let mut gateway = Client::builder();
+            gateway.set_host(GrpcUrls::GATEWAY.into());
+            gateway.set_tls(false);
+            gateway
         }
 
         fn create_dev() -> Self::Builder {

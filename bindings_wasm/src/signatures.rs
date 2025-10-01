@@ -6,9 +6,8 @@ use futures::lock::Mutex;
 use js_sys::Uint8Array;
 use std::sync::Arc;
 use wasm_bindgen::prelude::{JsError, wasm_bindgen};
-use xmtp_api::ApiClientWrapper;
-use xmtp_api::strategies;
-use xmtp_api_http::XmtpHttpApiClient;
+use xmtp_api::{ApiClientWrapper, strategies};
+use xmtp_api_grpc::v3::Client as TonicApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::{
   AccountId,
@@ -53,7 +52,7 @@ pub async fn revoke_installations_signature_request(
   inbox_id: String,
   installation_ids: Vec<Uint8Array>,
 ) -> Result<SignatureRequestHandle, JsError> {
-  let api_client = XmtpHttpApiClient::new(host, "0.0.0".into())
+  let api_client = TonicApiClient::create(host, true, "0.0.0".into())
     .await
     .map_err(|e| JsError::new(&e.to_string()))?;
 
@@ -80,7 +79,7 @@ pub async fn apply_signature_request(
   host: String,
   signature_request: &SignatureRequestHandle,
 ) -> Result<(), JsError> {
-  let api_client = XmtpHttpApiClient::new(host, "0.0.0".into())
+  let api_client = TonicApiClient::create(host, true, "0.0.0".into())
     .await
     .map_err(|e| JsError::new(&e.to_string()))?;
 
