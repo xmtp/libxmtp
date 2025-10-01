@@ -9,3 +9,6 @@ pub use get_inbox_ids::*;
 
 mod get_newest_envelopes;
 pub use get_newest_envelopes::*;
+
+mod health_check;
+pub use health_check::*;
