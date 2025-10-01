@@ -2155,6 +2155,47 @@ impl FfiConversation {
         Ok(messages)
     }
 
+    pub async fn find_messages_spawn_blocking(
+        &self,
+        opts: FfiListMessagesOptions,
+    ) -> Result<Vec<FfiMessage>, GenericError> {
+        let delivery_status = opts.delivery_status.map(|status| status.into());
+        let direction = opts.direction.map(|dir| dir.into());
+        let kind = match self.conversation_type() {
+            FfiConversationType::Group => None,
+            FfiConversationType::Dm => None,
+            FfiConversationType::Sync => None,
+            FfiConversationType::Oneshot => None,
+        };
+
+        // Clone the inner group to move into the blocking task
+        let inner = self.inner.clone();
+        let query_args = MsgQueryArgs {
+            sent_before_ns: opts.sent_before_ns,
+            sent_after_ns: opts.sent_after_ns,
+            limit: opts.limit,
+            kind,
+            delivery_status,
+            direction,
+            content_types: opts
+                .content_types
+                .map(|types| types.into_iter().map(Into::into).collect()),
+        };
+
+        // Move the blocking database operation to a separate thread
+        let messages = tokio::task::spawn_blocking(move || {
+            inner
+                .find_messages(&query_args)
+                .map(|msgs| msgs.into_iter().map(|msg| msg.into()).collect::<Vec<FfiMessage>>())
+        })
+        .await
+        .map_err(|e| GenericError::Generic {
+            err: format!("Task join error: {}", e),
+        })??;
+
+        Ok(messages)
+    }
+
     pub fn find_messages_with_reactions(
         &self,
         opts: FfiListMessagesOptions,
@@ -2188,6 +2229,38 @@ impl FfiConversation {
     }
 
     pub fn find_messages_v2(
+        &self,
+        opts: FfiListMessagesOptions,
+    ) -> Result<Vec<Arc<FfiDecodedMessage>>, GenericError> {
+        let delivery_status = opts.delivery_status.map(|status| status.into());
+        let direction = opts.direction.map(|dir| dir.into());
+        let kind = match self.conversation_type() {
+            FfiConversationType::Group => None,
+            FfiConversationType::Dm => None,
+            FfiConversationType::Sync => None,
+            FfiConversationType::Oneshot => None,
+        };
+
+        let messages: Vec<Arc<FfiDecodedMessage>> = self
+            .inner
+            .find_messages_v2(&MsgQueryArgs {
+                sent_before_ns: opts.sent_before_ns,
+                sent_after_ns: opts.sent_after_ns,
+                kind,
+                delivery_status,
+                limit: opts.limit,
+                direction,
+                content_types: opts
+                    .content_types
+                    .map(|types| types.into_iter().map(Into::into).collect()),
+            })?
+            .into_iter()
+            .map(|msg| Arc::new(msg.into()))
+            .collect();
+        Ok(messages)
+    }
+
+    pub async fn find_messages_v2_async(
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<Arc<FfiDecodedMessage>>, GenericError> {
