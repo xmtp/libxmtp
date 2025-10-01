@@ -290,15 +290,15 @@ mod test {
             client
         }
 
-        fn create_payer() -> Self::Builder {
-            let mut payer = GrpcClient::builder();
-            let url = url::Url::parse(GrpcUrls::PAYER).unwrap();
+        fn create_gateway() -> Self::Builder {
+            let mut gateway = GrpcClient::builder();
+            let url = url::Url::parse(GrpcUrls::GATEWAY).unwrap();
             match url.scheme() {
-                "https" => payer.set_tls(true),
-                _ => payer.set_tls(false),
+                "https" => gateway.set_tls(true),
+                _ => gateway.set_tls(false),
             }
-            payer.set_host(GrpcUrls::PAYER.into());
-            payer
+            gateway.set_host(GrpcUrls::GATEWAY.into());
+            gateway
         }
 
         fn create_dev() -> Self::Builder {

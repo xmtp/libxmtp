@@ -9,8 +9,8 @@ pub enum GrpcBuilderError {
     MissingLibxmtpVersion,
     #[error("host url required to create client")]
     MissingHostUrl,
-    #[error("payer url required to create client")]
-    MissingPayerUrl,
+    #[error("xmtpd gateway url required to create client")]
+    MissingXmtpdGatewayUrl,
     #[error(transparent)]
     Metadata(#[from] tonic::metadata::errors::InvalidMetadataValue),
     #[error("Invalid URI during channel creation")]

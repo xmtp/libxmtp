@@ -26,37 +26,37 @@ pub mod tests {
     pub type TestV3Client = V3Client<TestClient>;
     pub type TestD14nClient = D14nClient<TestClient, TestClient>;
 
-    impl<C, Payer> XmtpTestClient for D14nClient<C, Payer>
+    impl<C, Gateway> XmtpTestClient for D14nClient<C, Gateway>
     where
         C: XmtpTestClient + Client,
-        Payer: XmtpTestClient + Client,
+        Gateway: XmtpTestClient + Client,
         <<C as XmtpTestClient>::Builder as ApiBuilder>::Output: Client,
-        <<Payer as XmtpTestClient>::Builder as ApiBuilder>::Output: Client,
+        <<Gateway as XmtpTestClient>::Builder as ApiBuilder>::Output: Client,
         <C as XmtpTestClient>::Builder:
-            ApiBuilder<Error = <<Payer as XmtpTestClient>::Builder as ApiBuilder>::Error>,
+            ApiBuilder<Error = <<Gateway as XmtpTestClient>::Builder as ApiBuilder>::Error>,
     {
-        type Builder = D14nClientBuilder<C::Builder, Payer::Builder>;
+        type Builder = D14nClientBuilder<C::Builder, Gateway::Builder>;
 
         fn create_local() -> Self::Builder {
             D14nClientBuilder::new(
                 <C as XmtpTestClient>::create_d14n(),
-                <Payer as XmtpTestClient>::create_payer(),
+                <Gateway as XmtpTestClient>::create_gateway(),
             )
         }
         fn create_dev() -> Self::Builder {
             // TODO: Staging
             panic!("no urls for d14n dev yet");
         }
-        fn create_payer() -> Self::Builder {
+        fn create_gateway() -> Self::Builder {
             D14nClientBuilder::new(
-                <C as XmtpTestClient>::create_payer(),
-                <Payer as XmtpTestClient>::create_payer(),
+                <C as XmtpTestClient>::create_gateway(),
+                <Gateway as XmtpTestClient>::create_gateway(),
             )
         }
         fn create_d14n() -> Self::Builder {
             D14nClientBuilder::new(
                 <C as XmtpTestClient>::create_d14n(),
-                <Payer as XmtpTestClient>::create_payer(),
+                <Gateway as XmtpTestClient>::create_gateway(),
             )
         }
     }
@@ -73,8 +73,8 @@ pub mod tests {
         fn create_dev() -> Self::Builder {
             V3ClientBuilder::new(<C as XmtpTestClient>::create_dev())
         }
-        fn create_payer() -> Self::Builder {
-            V3ClientBuilder::new(<C as XmtpTestClient>::create_payer())
+        fn create_gateway() -> Self::Builder {
+            V3ClientBuilder::new(<C as XmtpTestClient>::create_gateway())
         }
         fn create_d14n() -> Self::Builder {
             V3ClientBuilder::new(<C as XmtpTestClient>::create_d14n())

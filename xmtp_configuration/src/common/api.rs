@@ -29,7 +29,7 @@ xmtp_common::if_wasm! {
         impl GrpcUrls {
             pub const NODE: &'static str = "https://api.dev.xmtp.network:5558";
             pub const XMTPD: &'static str = "https://grpc.testnet-staging.xmtp.network:5558/xmtpd";
-            pub const PAYER: &'static str = "https://payer.testnet-staging.xmtp.network:5558/payer";
+            pub const GATEWAY: &'static str = "https://payer.testnet-staging.xmtp.network:5558/payer";
         }
     }
 
@@ -37,7 +37,7 @@ xmtp_common::if_wasm! {
         impl GrpcUrls {
             pub const NODE: &'static str = "http://localhost:5557";
             pub const XMTPD: &'static str = "http://localhost:5051/xmtpd";
-            pub const PAYER: &'static str = "http://localhost:5051/payer";
+            pub const GATEWAY: &'static str = "http://localhost:5051/gateway";
         }
     }
 }
@@ -49,7 +49,7 @@ xmtp_common::if_native! {
         impl GrpcUrls {
             pub const NODE: &'static str = "https://grpc.dev.xmtp.network:443";
             pub const XMTPD: &'static str = "https://localhost:5050";
-            pub const PAYER: &'static str = "https://localhost:5052";
+            pub const GATEWAY: &'static str = "https://localhost:5052";
         }
     }
 
@@ -57,7 +57,7 @@ xmtp_common::if_native! {
          impl GrpcUrls {
             pub const NODE: &'static str = "http://localhost:5556";
             pub const XMTPD: &'static str = "http://localhost:5050";
-            pub const PAYER: &'static str = "http://localhost:5052";
+            pub const GATEWAY: &'static str = "http://localhost:5052";
         }
     }
 }
@@ -71,5 +71,5 @@ pub struct InternalDockerUrls;
 impl InternalDockerUrls {
     pub const NODE: &'static str = "http://node:5556";
     pub const XMTPD: &'static str = "http://repnode:5050";
-    pub const PAYER: &'static str = "http://gateway:5052";
+    pub const GATEWAY: &'static str = "http://gateway:5052";
 }

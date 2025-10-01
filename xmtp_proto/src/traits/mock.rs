@@ -14,7 +14,7 @@ impl ApiBuilder for MockApiBuilder {
         Ok(())
     }
     fn set_host(&mut self, _host: String) {}
-    fn set_payer(&mut self, _host: String) {}
+    fn set_gateway(&mut self, _host: String) {}
     fn set_tls(&mut self, _tls: bool) {}
     fn rate_per_minute(&mut self, _limit: u32) {}
 
@@ -75,7 +75,7 @@ mockall::mock! {
         type Builder = MockApiBuilder;
         fn create_local() -> MockApiBuilder { MockApiBuilder }
         fn create_dev() -> MockApiBuilder { MockApiBuilder }
-        fn create_payer() -> MockApiBuilder { MockApiBuilder }
+        fn create_gateway() -> MockApiBuilder { MockApiBuilder }
         fn create_d14n() -> MockApiBuilder { MockApiBuilder }
     }
 }
@@ -107,7 +107,7 @@ mockall::mock! {
         type Builder = MockApiBuilder;
         fn create_local() -> MockApiBuilder { MockApiBuilder }
         fn create_dev() -> MockApiBuilder { MockApiBuilder }
-        fn create_payer() -> MockApiBuilder { MockApiBuilder }
+        fn create_gateway() -> MockApiBuilder { MockApiBuilder }
         fn create_d14n() -> MockApiBuilder { MockApiBuilder }
 
     }

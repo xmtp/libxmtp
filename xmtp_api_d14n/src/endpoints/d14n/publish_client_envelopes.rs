@@ -64,7 +64,7 @@ mod test {
     async fn test_publish_client_envelopes() {
         use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 
-        let client = crate::TestClient::create_payer();
+        let client = crate::TestClient::create_gateway();
         let client = client.build().await.unwrap();
 
         let aad = AuthenticatedData {

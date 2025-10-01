@@ -324,11 +324,11 @@ mod test {
             client
         }
 
-        fn create_payer() -> Self::Builder {
-            let mut payer = Client::builder();
-            payer.set_host(GrpcUrls::PAYER.into());
-            payer.set_tls(false);
-            payer
+        fn create_gateway() -> Self::Builder {
+            let mut gateway = Client::builder();
+            gateway.set_host(GrpcUrls::GATEWAY.into());
+            gateway.set_tls(false);
+            gateway
         }
 
         fn create_dev() -> Self::Builder {

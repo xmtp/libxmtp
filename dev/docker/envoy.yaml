@@ -64,13 +64,13 @@ static_resources:
                     - name: local_service
                       domains: ["*"]
                       routes:
-                        - match: {prefix: "/payer"}
+                        - match: {prefix: "/gateway"}
                           route:
                             cluster: gateway
                             regex_rewrite:
                               pattern:
                                 google_re2: {}
-                                regex: "^/payer(.*)$"
+                                regex: "^/gateway(.*)$"
                               substitution: "\\1" # This removes /xmtpd but keeps everything after it
                             timeout: 0s
                             max_stream_duration:
