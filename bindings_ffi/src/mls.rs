@@ -114,6 +114,18 @@ pub type RustMlsGroup = MlsGroup<MlsContext>;
 #[derive(uniffi::Object, Clone)]
 pub struct XmtpApiClient(TonicApiClient);
 
+// Rust (test-only or dev build)
+// Returns immediately from an async context (exercises Tokio's core workers)
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn ffi_ping() -> u64 { 1 }
+
+// Sleeps on Tokio (not blocking pool)
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn ffi_sleep_ms(ms: u64) {
+    use tokio::time::{sleep, Duration};
+    sleep(Duration::from_millis(ms)).await;
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn connect_to_backend(
     host: String,
