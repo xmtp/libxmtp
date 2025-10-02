@@ -15,6 +15,7 @@ where
 {
     gateway_client: C,
     inner: C,
+    timeout: Duration,
 }
 
 impl AggregateClient<GrpcClient> {
@@ -22,23 +23,29 @@ impl AggregateClient<GrpcClient> {
         gateway_client: GrpcClient,
         timeout: Duration,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if timeout.as_millis() == 0 {
+            return Err("Timeout must be greater than 0".into());
+        }
+
         let nodes = get_nodes(&gateway_client).await?;
-        let selected = get_fastest_node(nodes, timeout).await?;
+        let inner = get_fastest_node(nodes, timeout).await?;
 
         Ok(Self {
             gateway_client,
-            inner: selected,
+            inner,
+            timeout,
         })
     }
 
+    /// refresh checks the fastest node and updates the inner client
+    /// should only be called when there are no active requests or streams
     pub async fn refresh(
         &mut self,
-        timeout: Duration,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let nodes = get_nodes(&self.gateway_client).await?;
-        let selected = get_fastest_node(nodes, timeout).await?;
+        let inner = get_fastest_node(nodes, self.timeout).await?;
 
-        self.inner = selected;
+        self.inner = inner;
 
         Ok(())
     }
@@ -85,7 +92,7 @@ async fn get_nodes(
 
     let futures = response.nodes.into_iter().map(|(node_id, url)| async move {
         let mut client_builder = GrpcClient::builder();
-        let is_tls = url.starts_with("https://");
+        let is_tls = url.parse::<url::Url>()?.scheme() == "https";
 
         client_builder.set_tls(is_tls);
         client_builder.set_host(url);
@@ -99,8 +106,18 @@ async fn get_nodes(
 
     let mut clients = HashMap::new();
     for result in results {
-        let (node_id, client) = result?;
-        clients.insert(node_id, client);
+        match result {
+            Ok((node_id, client)) => {
+                clients.insert(node_id, client);
+            }
+            Err(err) => {
+                tracing::warn!("Failed to build client: {}", err);
+            }
+        }
+    }
+
+    if clients.is_empty() {
+        return Err("All node clients failed to build".into());
     }
 
     Ok(clients)

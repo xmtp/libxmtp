@@ -48,8 +48,6 @@ mod test {
         let endpoint = GetNodes::builder().build().unwrap();
         let gateway_client = crate::TestClient::create_gateway();
         let client = gateway_client.build().await.unwrap();
-        let result = endpoint.query(&client).await.unwrap();
-        println!("DEBUG: {:?}", result);
         assert!(endpoint.query(&client).await.is_ok());
     }
 

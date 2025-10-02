@@ -8380,6 +8380,7 @@ dependencies = [
  "thiserror 2.0.16",
  "tokio",
  "tracing",
+ "url",
  "wasm-bindgen-test",
  "xmtp_api_grpc",
  "xmtp_common",
