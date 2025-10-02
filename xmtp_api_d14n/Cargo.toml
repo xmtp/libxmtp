@@ -12,6 +12,7 @@ async-trait.workspace = true
 derive_builder.workspace = true
 futures.workspace = true
 hex.workspace = true
+http = "1.2"
 impl-trait-for-tuples = "0.2"
 itertools.workspace = true
 once_cell.workspace = true

@@ -250,12 +250,14 @@ async fn get_association_state(
             .map(|u| u.to_verified(&scw_verifier)),
     )
     .await?;
+
     let new_updates = try_join_all(
         new_unverified_updates
             .iter()
             .map(|u| u.to_verified(&scw_verifier)),
     )
     .await?;
+
     if old_updates.is_empty() {
         let new_state = associations::get_state(&new_updates)?;
         return Ok(GetAssociationStateResponse {
