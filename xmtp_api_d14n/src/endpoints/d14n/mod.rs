@@ -12,3 +12,6 @@ pub use get_newest_envelopes::*;
 
 mod subscribe_envelopes;
 pub use subscribe_envelopes::*;
+
+mod health_check;
+pub use health_check::*;
