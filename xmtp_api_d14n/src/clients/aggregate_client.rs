@@ -6,18 +6,17 @@ use xmtp_proto::{
     prelude::ApiBuilder,
 };
 use xmtp_api_grpc::{
-    {GrpcClient, GrpcStream},
-    error::GrpcError,
+    {GrpcClient}
 };
 
 
-pub struct AggregateClient<T>
+pub struct AggregateClient<C>
 where
-    T: Client + Sync + Send,
+    C: Client + Sync + Send,
 {
     // Do we want to store node_id : client map?
-    nodes: Vec<T>,
-    selected: T,
+    nodes: Vec<C>,
+    inner: C,
 }
 
 impl AggregateClient<GrpcClient> {
@@ -29,7 +28,7 @@ impl AggregateClient<GrpcClient> {
 
         Self {
             nodes,
-            selected,
+            inner: selected,
         }
     }
 
@@ -55,19 +54,22 @@ impl AggregateClient<GrpcClient> {
     }
 
     pub fn get_inner_client(&self) -> &GrpcClient {
-        &self.selected
+        &self.inner
     }
 
     pub fn set_inner_client(&mut self, client: &GrpcClient) {
-        self.selected = client.clone();
+        self.inner = client.clone();
     }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl Client for AggregateClient<GrpcClient> {
-    type Error = GrpcError;
-    type Stream = GrpcStream;
+impl<C> Client for AggregateClient<C>
+where
+    C: Client + Sync + Send,
+{
+    type Error = C::Error;
+    type Stream = C::Stream;
 
     async fn request(
         &self,
@@ -75,7 +77,7 @@ impl Client for AggregateClient<GrpcClient> {
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
-        self.selected.request(request, path, body).await
+        self.inner.request(request, path, body).await
     }
 
     async fn stream(
@@ -84,6 +86,6 @@ impl Client for AggregateClient<GrpcClient> {
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
-        self.selected.stream(request, path, body).await
+        self.inner.stream(request, path, body).await
     }
 }
