@@ -33,7 +33,9 @@ impl AggregateClient<GrpcClient> {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let nodes = get_nodes(&self.inner).await?;
         let selected = get_fastest_node(nodes, timeout).await?;
+
         self.inner = selected;
+
         Ok(())
     }
 }
@@ -54,6 +56,7 @@ where
         body: Bytes,
     ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
         self.inner.request(request, path, body).await
+        // TODO: Refresh if performance is bad
     }
 
     async fn stream(
@@ -63,6 +66,7 @@ where
         body: Bytes,
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
         self.inner.stream(request, path, body).await
+        // TODO: Refresh if performance is bad
     }
 }
 
@@ -72,14 +76,23 @@ async fn get_nodes(
     let endpoint = GetNodes::builder().build()?;
     let response = endpoint.query(gateway_client).await?;
 
-    let mut clients = HashMap::new();
-    for (node_id, url) in response.nodes {
+    let futures = response.nodes.into_iter().map(|(node_id, url)| async move {
         let mut client_builder = GrpcClient::builder();
+        let is_tls = url.starts_with("https://");
 
-        client_builder.set_tls(url.starts_with("https://"));
+        client_builder.set_tls(is_tls);
         client_builder.set_host(url);
 
         let client = client_builder.build().await?;
+
+        Ok::<_, Box<dyn std::error::Error + Send + Sync>>((node_id, client))
+    });
+
+    let results = join_all(futures).await;
+
+    let mut clients = HashMap::new();
+    for result in results {
+        let (node_id, client) = result?;
         clients.insert(node_id, client);
     }
 
@@ -91,8 +104,8 @@ async fn get_fastest_node(
     timeout: Duration,
 ) -> Result<GrpcClient, Box<dyn std::error::Error + Send + Sync>> {
     let futures = clients.into_iter().map(|(node_id, client)| async move {
-        let start = Instant::now();
         let endpoint = HealthCheck::builder().build().ok()?;
+        let start = Instant::now();
         let result = xmtp_common::time::timeout(timeout, endpoint.query(&client)).await;
 
         match result {
