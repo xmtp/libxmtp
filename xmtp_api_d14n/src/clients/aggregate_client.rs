@@ -13,25 +13,29 @@ pub struct AggregateClient<C>
 where
     C: Client + Sync + Send,
 {
+    gateway_client: C,
     inner: C,
 }
 
 impl AggregateClient<GrpcClient> {
     pub async fn new(
-        gateway_client: &GrpcClient,
+        gateway_client: GrpcClient,
         timeout: Duration,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let nodes = get_nodes(gateway_client).await?;
+        let nodes = get_nodes(&gateway_client).await?;
         let selected = get_fastest_node(nodes, timeout).await?;
 
-        Ok(Self { inner: selected })
+        Ok(Self {
+            gateway_client,
+            inner: selected,
+        })
     }
 
     pub async fn refresh(
         &mut self,
         timeout: Duration,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let nodes = get_nodes(&self.inner).await?;
+        let nodes = get_nodes(&self.gateway_client).await?;
         let selected = get_fastest_node(nodes, timeout).await?;
 
         self.inner = selected;
@@ -73,7 +77,10 @@ where
 async fn get_nodes(
     gateway_client: &GrpcClient,
 ) -> Result<HashMap<u32, GrpcClient>, Box<dyn std::error::Error + Send + Sync>> {
-    let endpoint = GetNodes::builder().build()?;
+    let endpoint = GetNodes::builder()
+        .build()
+        .map_err(|e| format!("get nodes build failed: {e}"))?;
+
     let response = endpoint.query(gateway_client).await?;
 
     let futures = response.nodes.into_iter().map(|(node_id, url)| async move {
@@ -103,14 +110,20 @@ async fn get_fastest_node(
     clients: HashMap<u32, GrpcClient>,
     timeout: Duration,
 ) -> Result<GrpcClient, Box<dyn std::error::Error + Send + Sync>> {
-    let futures = clients.into_iter().map(|(node_id, client)| async move {
-        let endpoint = HealthCheck::builder().build().ok()?;
-        let start = Instant::now();
-        let result = xmtp_common::time::timeout(timeout, endpoint.query(&client)).await;
+    let endpoint = HealthCheck::builder()
+        .build()
+        .map_err(|e| format!("get health check build failed: {e}"))?;
 
-        match result {
-            Ok(Ok(_)) => Some((node_id, client, start.elapsed().as_millis() as u64)),
-            _ => None,
+    let futures = clients.into_iter().map(|(node_id, client)| {
+        let endpoint = endpoint.clone();
+        async move {
+            let start = Instant::now();
+            let result = xmtp_common::time::timeout(timeout, endpoint.query(&client)).await;
+
+            match result {
+                Ok(Ok(_)) => Some((node_id, client, start.elapsed().as_millis() as u64)),
+                _ => None,
+            }
         }
     });
 
