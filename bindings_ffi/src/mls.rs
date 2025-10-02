@@ -494,6 +494,11 @@ impl FfiXmtpClient {
         Ok(message.into())
     }
 
+    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<u32, GenericError> {
+        let deleted_count = self.inner_client.delete_message(message_id)?;
+        Ok(deleted_count as u32)
+    }
+
     pub async fn can_message(
         &self,
         account_identifiers: Vec<FfiIdentifier>,
