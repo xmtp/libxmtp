@@ -4478,7 +4478,6 @@ mod tests {
         );
     }
 
-    // Looks like this test might be a separate issue
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_can_stream_group_messages_for_updates() {
         let alix = Tester::new().await;
@@ -9812,5 +9811,42 @@ mod tests {
                 hex::encode(group.id())
             );
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_overlapping_streams() {
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
+
+        let message_callbacks = Arc::new(RustStreamCallback::default());
+        let conversation_callbacks = Arc::new(RustStreamCallback::default());
+        // Stream all group messages
+        let stream_messages = bo.conversations().stream(message_callbacks.clone()).await;
+        // Stream all groups
+        let stream_conversations = bo
+            .conversations()
+            .stream(conversation_callbacks.clone())
+            .await;
+        stream_messages.wait_for_ready().await;
+        stream_conversations.wait_for_ready().await;
+
+        // Create group and send first message
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        alix_group.send("hi".into()).await.unwrap();
+
+        // The group should be received in both streams without erroring
+        message_callbacks.wait_for_delivery(None).await.unwrap();
+        conversation_callbacks
+            .wait_for_delivery(None)
+            .await
+            .unwrap();
     }
 }

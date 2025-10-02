@@ -780,7 +780,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })?;
 
         if maybe_inserted_group.is_none() {
-            let existing_group: StoredGroup =
+            let mut existing_group: StoredGroup =
                 self.raw_query_read(|conn| dsl::groups.find(&group.id).first(conn))?;
             // A restored group should be overwritten
             if matches!(
@@ -813,6 +813,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                             .set(dsl::welcome_id.eq(group.welcome_id))
                             .execute(c)
                     })?;
+                    existing_group.welcome_id = group.welcome_id;
                 }
                 Ok(existing_group)
             }
