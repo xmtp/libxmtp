@@ -15,3 +15,6 @@ pub use subscribe_envelopes::*;
 
 mod health_check;
 pub use health_check::*;
+
+mod get_nodes;
+pub use get_nodes::*;
