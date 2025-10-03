@@ -27,6 +27,7 @@ use xmtp_proto::api_client::{
 };
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
+    GetNewestGroupMessageRequest, GetNewestGroupMessageResponse,
 };
 use xmtp_proto::traits::{ApiClientError, HasStats};
 use xmtp_proto::xmtp::identity::api::v1::{
@@ -443,6 +444,29 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         handle_error_proto(res)
             .await
             .map_err(|e| ApiClientError::new(ApiEndpoint::QueryCommitLog, e))
+    }
+
+    async fn get_newest_group_message(
+        &self,
+        request: GetNewestGroupMessageRequest,
+    ) -> Result<GetNewestGroupMessageResponse, Self::Error> {
+        self.wait_for_ready().await;
+        self.stats.get_newest_group_message.count_request();
+        let res = self
+            .http_client
+            .post(self.endpoint(RestApiEndpoints::GET_NEWEST_GROUP_MESSAGE))
+            .headers(protobuf_headers()?)
+            .body(request.encode_to_vec())
+            .send()
+            .await
+            .map_err(|e| {
+                ApiClientError::new(ApiEndpoint::GetNewestGroupMessage, HttpClientError::from(e))
+            })?;
+
+        tracing::debug!("get_newest_group_message");
+        handle_error_proto(res)
+            .await
+            .map_err(|e| ApiClientError::new(ApiEndpoint::GetNewestGroupMessage, e))
     }
 
     fn stats(&self) -> ApiStats {

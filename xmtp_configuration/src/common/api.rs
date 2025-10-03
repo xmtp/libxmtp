@@ -68,4 +68,5 @@ impl RestApiEndpoints {
     pub const UPLOAD_KEY_PACKAGE: &'static str = "/mls/v1/upload-key-package";
     pub const VERIFY_SMART_CONTRACT_WALLET_SIGNATURES: &'static str =
         "/identity/v1/verify-smart-contract-wallet-signatures";
+    pub const GET_NEWEST_GROUP_MESSAGE: &'static str = "/mls/v1/get-newest-group-message";
 }

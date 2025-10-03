@@ -4,6 +4,7 @@ pub use super::xmtp::message_api::v1::{
 };
 use crate::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
+    GetNewestGroupMessageRequest, GetNewestGroupMessageResponse,
 };
 use crate::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -67,6 +68,7 @@ pub struct ApiStats {
     pub subscribe_welcomes: Arc<EndpointStats>,
     pub publish_commit_log: Arc<EndpointStats>,
     pub query_commit_log: Arc<EndpointStats>,
+    pub get_newest_group_message: Arc<EndpointStats>,
 }
 
 impl ApiStats {
@@ -81,6 +83,7 @@ impl ApiStats {
         self.subscribe_welcomes.clear();
         self.publish_commit_log.clear();
         self.query_commit_log.clear();
+        self.get_newest_group_message.clear();
     }
 }
 
@@ -229,6 +232,10 @@ pub trait XmtpMlsClient {
         request: BatchQueryCommitLogRequest,
     ) -> Result<BatchQueryCommitLogResponse, Self::Error>;
     fn stats(&self) -> ApiStats;
+    async fn get_newest_group_message(
+        &self,
+        request: GetNewestGroupMessageRequest,
+    ) -> Result<GetNewestGroupMessageResponse, Self::Error>;
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -293,6 +300,13 @@ where
         request: BatchQueryCommitLogRequest,
     ) -> Result<BatchQueryCommitLogResponse, Self::Error> {
         (**self).query_commit_log(request).await
+    }
+
+    async fn get_newest_group_message(
+        &self,
+        request: GetNewestGroupMessageRequest,
+    ) -> Result<GetNewestGroupMessageResponse, Self::Error> {
+        (**self).get_newest_group_message(request).await
     }
 
     fn stats(&self) -> ApiStats {
@@ -362,6 +376,13 @@ where
         request: BatchQueryCommitLogRequest,
     ) -> Result<BatchQueryCommitLogResponse, Self::Error> {
         (**self).query_commit_log(request).await
+    }
+
+    async fn get_newest_group_message(
+        &self,
+        request: GetNewestGroupMessageRequest,
+    ) -> Result<GetNewestGroupMessageResponse, Self::Error> {
+        (**self).get_newest_group_message(request).await
     }
 
     fn stats(&self) -> ApiStats {

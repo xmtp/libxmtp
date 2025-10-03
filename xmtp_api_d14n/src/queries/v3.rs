@@ -170,6 +170,18 @@ where
             .await
     }
 
+    async fn get_newest_group_message(
+        &self,
+        request: mls_v1::GetNewestGroupMessageRequest,
+    ) -> Result<mls_v1::GetNewestGroupMessageResponse, Self::Error> {
+        GetNewestGroupMessage::builder()
+            .group_ids(request.group_ids)
+            .include_content(request.include_content)
+            .build()?
+            .query(&self.client)
+            .await
+    }
+
     fn stats(&self) -> ApiStats {
         Default::default()
     }

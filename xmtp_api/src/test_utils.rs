@@ -98,6 +98,8 @@ mock! {
 // need separate defs for wasm and not wasm, b/c `cfg_attr` not supportd in macro! block
 #[cfg(not(target_arch = "wasm32"))]
 mod not_wasm {
+    use xmtp_proto::mls_v1::{GetNewestGroupMessageRequest, GetNewestGroupMessageResponse};
+
     use super::*;
 
     #[derive(Clone)]
@@ -124,6 +126,7 @@ mod not_wasm {
             async fn query_welcome_messages(&self, request: QueryWelcomeMessagesRequest) -> Result<QueryWelcomeMessagesResponse, MockError>;
             async fn publish_commit_log(&self, request: BatchPublishCommitLogRequest) -> Result<(), MockError>;
             async fn query_commit_log(&self, request: BatchQueryCommitLogRequest) -> Result<BatchQueryCommitLogResponse, MockError>;
+            async fn get_newest_group_message(&self, request: GetNewestGroupMessageRequest) -> Result<GetNewestGroupMessageResponse, MockError>;
             fn stats(&self) -> ApiStats;
         }
 
@@ -184,6 +187,7 @@ mod wasm {
             async fn query_welcome_messages(&self, request: QueryWelcomeMessagesRequest) -> Result<QueryWelcomeMessagesResponse, MockError>;
             async fn publish_commit_log(&self, request: BatchPublishCommitLogRequest) -> Result<(), MockError>;
             async fn query_commit_log(&self, request: BatchQueryCommitLogRequest) -> Result<BatchQueryCommitLogResponse, MockError>;
+            async fn get_newest_group_message(&self, request: GetNewestGroupMessageRequest) -> Result<GetNewestGroupMessageResponse, MockError>;
             fn stats(&self) -> ApiStats;
         }
 
