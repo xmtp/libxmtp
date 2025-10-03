@@ -1,5 +1,7 @@
 //! Generic Builder for the backend API
 
+use std::sync::Arc;
+
 use thiserror::Error;
 use xmtp_api_grpc::error::GrpcBuilderError;
 use xmtp_api_grpc::{GrpcClient, error::GrpcError};
@@ -7,6 +9,7 @@ use xmtp_proto::api_client::ToDynApi;
 use xmtp_proto::api_client::{ApiBuilder, ArcedXmtpApiWithStreams};
 use xmtp_proto::{api::ApiClientError, types::AppVersion};
 
+use crate::protocol::CursorStore;
 use crate::{D14nClient, V3Client};
 
 /// Builder to access the backend XMTP API
@@ -16,6 +19,7 @@ pub struct MessageBackendBuilder {
     node_host: Option<String>,
     payer_host: Option<String>,
     app_version: Option<AppVersion>,
+    cursor_store: Option<Arc<dyn CursorStore>>,
     is_secure: bool,
 }
 
@@ -23,6 +27,8 @@ pub struct MessageBackendBuilder {
 pub enum MessageBackendBuilderError {
     #[error("Node host is always required")]
     MissingNodeHost,
+    #[error("Cursor store is always required")]
+    MissingCursorStore,
     #[error(transparent)]
     GrpcBuilder(#[from] GrpcBuilderError),
 }
@@ -69,6 +75,11 @@ impl MessageBackendBuilder {
         self
     }
 
+    pub fn cursor_store(&mut self, store: impl CursorStore + 'static) -> &mut Self {
+        self.cursor_store = Some(Arc::new(store) as Arc<_>);
+        self
+    }
+
     /// Build the client
     pub async fn build(
         &mut self,
@@ -79,8 +90,10 @@ impl MessageBackendBuilder {
             payer_host,
             app_version,
             is_secure,
+            cursor_store,
         } = self.clone();
         let node_host = node_host.ok_or(MessageBackendBuilderError::MissingNodeHost)?;
+        let cursor_store = cursor_store.ok_or(MessageBackendBuilderError::MissingCursorStore)?;
 
         let mut node_client = GrpcClient::builder();
         node_client.set_host(node_host);
@@ -98,10 +111,10 @@ impl MessageBackendBuilder {
             }
             let node_client = node_client.build().await?;
             let payer_client = payer_client.build().await?;
-            Ok(D14nClient::new(node_client, payer_client).arced())
+            Ok(D14nClient::new(node_client, payer_client, cursor_store).arced())
         } else {
             let node_client = node_client.build().await?;
-            Ok(V3Client::new(node_client).arced())
+            Ok(V3Client::new(node_client, cursor_store).arced())
         }
     }
 }

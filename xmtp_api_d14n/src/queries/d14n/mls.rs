@@ -8,7 +8,6 @@ use crate::protocol::GroupMessageExtractor;
 use crate::protocol::KeyPackagesExtractor;
 use crate::protocol::ProtocolEnvelope;
 use crate::protocol::SequencedExtractor;
-use crate::protocol::TopicKind;
 use crate::protocol::WelcomeMessageExtractor;
 use crate::protocol::traits::Envelope;
 use crate::protocol::traits::EnvelopeCollection;
@@ -22,6 +21,7 @@ use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::types::InstallationId;
+use xmtp_proto::types::TopicKind;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeResponse;
@@ -116,11 +116,12 @@ where
     async fn query_group_messages(
         &self,
         group_id: GroupId,
-        cursor: Vec<xmtp_proto::types::Cursor>,
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
+        let topic = TopicKind::GroupMessagesV1.create(&group_id);
+        let lcc = self.cursor_store.lowest_common_cursor(&[&topic])?;
         let response: QueryEnvelopesResponse = QueryEnvelope::builder()
-            .topic(TopicKind::GroupMessagesV1.build(group_id))
-            .last_seen(cursor)
+            .topic(topic)
+            .last_seen(lcc)
             .limit(MAX_PAGE_SIZE)
             .build()?
             .query(&self.message_client)
@@ -161,13 +162,12 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: Vec<xmtp_proto::types::Cursor>,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
-        let topic = TopicKind::WelcomeMessagesV1.build(installation_key.as_slice());
-
-        let response: QueryEnvelopesResponse = QueryEnvelope::builder()
+        let topic = TopicKind::WelcomeMessagesV1.create(&installation_key);
+        let lcc = self.cursor_store.lowest_common_cursor(&[&topic])?;
+        let response = QueryEnvelope::builder()
             .topic(topic)
-            .last_seen(cursor)
+            .last_seen(lcc)
             .limit(MAX_PAGE_SIZE)
             .build()?
             .query(&self.message_client)
@@ -189,6 +189,7 @@ where
         &self,
         _request: mls_v1::BatchPublishCommitLogRequest,
     ) -> Result<(), Self::Error> {
+        unimplemented!();
         Ok(())
     }
 
@@ -197,6 +198,7 @@ where
         &self,
         _request: mls_v1::BatchQueryCommitLogRequest,
     ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
+        unimplemented!();
         Ok(mls_v1::BatchQueryCommitLogResponse { responses: vec![] })
     }
 }

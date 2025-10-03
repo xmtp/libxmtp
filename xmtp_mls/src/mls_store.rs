@@ -5,11 +5,9 @@ use std::collections::HashMap;
 
 use xmtp_api::ApiError;
 use xmtp_common::RetryableError;
-use xmtp_configuration::Originators;
 use xmtp_db::{
     Fetch, NotFound, XmtpOpenMlsProvider,
     group::{GroupQueryArgs, StoredGroup},
-    refresh_state::EntityKind,
 };
 use xmtp_proto::types::{GroupMessage, WelcomeMessage};
 
@@ -59,28 +57,16 @@ impl<Context> MlsStore<Context>
 where
     Context: XmtpSharedContext,
 {
-    // TODO:d14n
     /// Query for welcome messages that have a `sequence_id` > than the highest cursor
     /// found in the local database
     pub(crate) async fn query_welcome_messages(
         &self,
-        conn: &impl DbQuery,
     ) -> Result<Vec<WelcomeMessage>, MlsStoreError> {
         let installation_id = self.context.installation_id();
-        let cursor = conn.get_last_cursor_for_originators(
-            installation_id,
-            EntityKind::Welcome,
-            &[Originators::WELCOME_MESSAGES.into()],
-        )?;
-
         let welcomes = self
             .context
             .api()
-            .query_welcome_messages(
-                installation_id.as_ref(),
-                // TODO:d14n query with cursor store to include last seen per originator
-                cursor,
-            )
+            .query_welcome_messages(installation_id.as_ref())
             .await?;
 
         Ok(welcomes)
@@ -91,22 +77,11 @@ where
     pub(crate) async fn query_group_messages(
         &self,
         group_id: &[u8],
-        conn: &impl DbQuery,
     ) -> Result<Vec<GroupMessage>, MlsStoreError> {
-        let cursor = conn.get_last_cursor_for_originators(
-            group_id,
-            EntityKind::Group,
-            &[
-                Originators::MLS_COMMITS.into(),
-                Originators::APPLICATION_MESSAGES.into(),
-            ],
-        )?;
-
-        // TODO:d14n query with cursor store to include last seen per originator
         let messages = self
             .context
             .sync_api()
-            .query_group_messages(group_id.into(), cursor)
+            .query_group_messages(group_id.into())
             .await?;
 
         Ok(messages)
