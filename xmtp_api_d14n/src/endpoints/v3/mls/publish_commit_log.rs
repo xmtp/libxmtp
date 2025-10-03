@@ -2,8 +2,8 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::mls_v1::{BatchPublishCommitLogRequest, PublishCommitLogRequest};
-use xmtp_proto::traits::{BodyError, Endpoint};
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
@@ -20,10 +20,6 @@ impl PublishCommitLog {
 
 impl Endpoint for PublishCommitLog {
     type Output = ();
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::Borrowed("/mls/v1/batch-publish-commit-log")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<BatchPublishCommitLogRequest>()
     }
@@ -40,8 +36,8 @@ impl Endpoint for PublishCommitLog {
 #[cfg(test)]
 mod test {
     use crate::v3::PublishCommitLog;
-    use xmtp_proto::prelude::*;
     use xmtp_proto::xmtp::mls::api::v1::*;
+    use xmtp_proto::{api, prelude::*};
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
@@ -50,7 +46,6 @@ mod test {
     }
 
     #[xmtp_common::test]
-    // TODO: fix test
     async fn test_publish_commit_log() {
         let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();
@@ -59,7 +54,7 @@ mod test {
             .build()
             .unwrap();
 
-        let result = endpoint.query(&client).await;
+        let result = api::ignore(endpoint).query(&client).await;
         assert!(result.is_err());
     }
 }

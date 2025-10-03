@@ -6,7 +6,7 @@ TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
 
 # Generate full coverage in lcov format
-cargo llvm-cov --ignore-filename-regex "(xmtp_proto/src/gen)|(common/src/test)|(xmtp_proto/src/traits/mock.rs)|(test_utils\.rs)|(test_utils\/)" --lcov --output-path "$TEMP_DIR/lcov.info" nextest --no-fail-fast --profile ci --workspace --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
+cargo llvm-cov --ignore-filename-regex "(xmtp_proto/src/gen)|(common/src/test)|(mock.rs)|(test_utils\.rs)|(test_utils\/)" --lcov --output-path "$TEMP_DIR/lcov.info" nextest --no-fail-fast --profile ci --workspace --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
 
 wait
 

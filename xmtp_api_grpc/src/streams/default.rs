@@ -12,7 +12,7 @@ use futures::{Stream, TryStream};
 use pin_project_lite::pin_project;
 use xmtp_proto::{
     ApiEndpoint,
-    traits::{ApiClientError, Client},
+    api::{ApiClientError, Client},
 };
 
 pin_project! {

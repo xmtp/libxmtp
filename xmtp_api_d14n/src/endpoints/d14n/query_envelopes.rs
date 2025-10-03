@@ -2,11 +2,11 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::mls_v1::PagingInfo;
-use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
-use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
-use xmtp_proto::xmtp::xmtpv4::message_api::{QueryEnvelopesRequest, QueryEnvelopesResponse};
+use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesRequest;
+use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, QueryEnvelopesResponse};
 
 /// Query a single thing
 #[derive(Debug, Builder, Default, Clone)]
@@ -26,11 +26,6 @@ impl QueryEnvelope {
 
 impl Endpoint for QueryEnvelope {
     type Output = QueryEnvelopesResponse;
-
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::from("/mls/v2/query-envelopes")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<QueryEnvelopesRequest>()
     }
@@ -73,11 +68,6 @@ impl QueryEnvelopes {
 
 impl Endpoint for QueryEnvelopes {
     type Output = QueryEnvelopesResponse;
-
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::Borrowed("/mls/v2/query-envelopes")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<QueryEnvelopesRequest>()
     }
@@ -96,7 +86,7 @@ impl Endpoint for QueryEnvelopes {
 mod test {
     use super::*;
     use xmtp_api_grpc::error::GrpcError;
-    use xmtp_proto::prelude::*;
+    use xmtp_proto::{api, prelude::*};
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
@@ -120,7 +110,7 @@ mod test {
             })
             .build()
             .unwrap();
-        let err = endpoint.query(&client).await.unwrap_err();
+        let err = api::ignore(endpoint).query(&client).await.unwrap_err();
         tracing::info!("{}", err);
         // the request will fail b/c we're using dummy data but
         // we just care if the endpoint is working

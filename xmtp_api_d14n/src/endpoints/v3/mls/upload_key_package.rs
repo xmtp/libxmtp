@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::mls::api::v1::{KeyPackageUpload, UploadKeyPackageRequest};
 
 #[derive(Debug, Builder, Default)]
@@ -21,10 +21,6 @@ impl UploadKeyPackage {
 
 impl Endpoint for UploadKeyPackage {
     type Output = ();
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::Borrowed("/mls/v1/upload-key-package")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<UploadKeyPackageRequest>()
     }
@@ -42,8 +38,8 @@ impl Endpoint for UploadKeyPackage {
 #[cfg(test)]
 mod test {
     use crate::v3::UploadKeyPackage;
-    use xmtp_proto::prelude::*;
     use xmtp_proto::xmtp::mls::api::v1::*;
+    use xmtp_proto::{api, prelude::*};
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
@@ -64,7 +60,7 @@ mod test {
             .unwrap();
 
         //todo: fix later when it was implemented
-        let result = endpoint.query(&client).await;
+        let result = api::ignore(endpoint).query(&client).await;
         assert!(result.is_err());
     }
 }

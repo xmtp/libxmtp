@@ -27,6 +27,7 @@ tonic-prost = "0.14"
 prost-types = "0.14"
 chrono.workspace = true
 bytes.workspace = true
+pin-project-lite.workspace = true
 
 tokio = { workspace = true, default-features = false, features = [
   "sync",
@@ -41,6 +42,10 @@ url = { workspace = true, optional = true }
 openmls = { workspace = true }
 tonic = { workspace = true, features = ["codegen", "server", "channel"] }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+openmls = { workspace = true, features = ["js"] }
+wasm-bindgen-test = { workspace = true }
+
 [dev-dependencies]
 mockall = { workspace = true }
 url = { workspace = true }
@@ -50,12 +55,11 @@ xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 rstest.workspace = true
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-openmls = { workspace = true, features = ["js"] }
-wasm-bindgen-test = { workspace = true }
-
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+ctor.workspace = true
 
 [build-dependencies]
 tonic-prost-build = "0.14"
