@@ -2,6 +2,7 @@ pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PublishRequest, PublishResponse, QueryRequest,
     QueryResponse, SubscribeRequest,
 };
+use crate::api::HasStats;
 use crate::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
     PagingInfo,
@@ -20,6 +21,7 @@ use crate::xmtp::mls::api::v1::{
     WelcomeMessage as ProtoWelcomeMessage,
 };
 use futures::Stream;
+use std::pin::Pin;
 use std::sync::Arc;
 use xmtp_common::MaybeSend;
 use xmtp_common::{Retry, RetryableError};
@@ -42,6 +44,44 @@ pub trait XmtpTestClient {
 
 pub type BoxedXmtpApi<Error> = Box<dyn BoxableXmtpApi<Error>>;
 pub type ArcedXmtpApi<Error> = Arc<dyn BoxableXmtpApi<Error>>;
+pub type BoxedXmtpApiWithStreams<Error> = Box<dyn BoxableXmtpApiWithStreams<Error>>;
+pub type ArcedXmtpApiWithStreams<Error> = Arc<dyn BoxableXmtpApiWithStreams<Error>>;
+
+xmtp_common::if_native! {
+    pub type BoxedGroupS<Err> = Pin<Box<dyn Stream<Item = Result<GroupMessage, Err>> + Send>>;
+    pub type BoxedWelcomeS<Err> = Pin<Box<dyn Stream<Item = Result<WelcomeMessage, Err>> + Send>>;
+}
+
+xmtp_common::if_wasm! {
+    pub type BoxedGroupS<Err> = Pin<Box<dyn Stream<Item = Result<GroupMessage, Err>>>>;
+    pub type BoxedWelcomeS<Err> = Pin<Box<dyn Stream<Item = Result<WelcomeMessage, Err>>>>;
+}
+
+pub trait BoxableXmtpApiWithStreams<Err>
+where
+    Self: XmtpMlsClient<Error = Err>
+        + XmtpIdentityClient<Error = Err>
+        + XmtpMlsStreams<
+            Error = Err,
+            WelcomeMessageStream = BoxedWelcomeS<Err>,
+            GroupMessageStream = BoxedGroupS<Err>,
+        > + Send
+        + Sync,
+{
+}
+
+impl<T, Err> BoxableXmtpApiWithStreams<Err> for T where
+    T: XmtpMlsClient<Error = Err>
+        + XmtpIdentityClient<Error = Err>
+        + XmtpMlsStreams<
+            Error = Err,
+            WelcomeMessageStream = BoxedWelcomeS<Err>,
+            GroupMessageStream = BoxedGroupS<Err>,
+        > + Send
+        + Sync
+        + ?Sized
+{
+}
 
 /// XMTP Api Super Trait
 /// Implements all Trait Network APIs for convenience.
@@ -112,7 +152,6 @@ pub trait XmtpMlsClient {
         &self,
         request: BatchQueryCommitLogRequest,
     ) -> Result<BatchQueryCommitLogResponse, Self::Error>;
-    fn stats(&self) -> ApiStats;
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -157,8 +196,12 @@ pub trait XmtpIdentityClient {
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error>;
+}
 
-    fn identity_stats(&self) -> IdentityStats;
+pub trait ToDynApi {
+    type Error;
+    fn boxed(self) -> BoxedXmtpApiWithStreams<Self::Error>;
+    fn arced(self) -> ArcedXmtpApiWithStreams<Self::Error>;
 }
 
 pub trait ApiBuilder {

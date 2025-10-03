@@ -7,8 +7,7 @@ use js_sys::Uint8Array;
 use std::sync::Arc;
 use wasm_bindgen::prelude::{JsError, wasm_bindgen};
 use xmtp_api::{strategies, ApiClientWrapper};
-use xmtp_api_d14n::queries::V3Client;
-use xmtp_api_grpc::GrpcClient;
+use xmtp_api_d14n::{MessageBackendBuilder, TrackedStatsClient};
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::{
   AccountId,
@@ -49,17 +48,20 @@ pub fn verify_signed_with_public_key(
 #[wasm_bindgen(js_name = revokeInstallationsSignatureRequest)]
 pub async fn revoke_installations_signature_request(
   host: String,
+  payer_host: Option<String>,
   recovery_identifier: Identifier,
   inbox_id: String,
   installation_ids: Vec<Uint8Array>,
 ) -> Result<SignatureRequestHandle, JsError> {
-  let api_client = V3Client::new(
-    GrpcClient::create(&host, true)
-      .await
-      .map_err(|e| JsError::new(&e.to_string()))?,
-  );
-
-  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
+  let backend = MessageBackendBuilder::default()
+    .maybe_payer_host(payer_host)
+    .node_host(&host)
+    .is_secure(true)
+    .build()
+    .await
+    .map_err(|e| JsError::new(&e.to_string()))?;
+  let backend = TrackedStatsClient::new(backend);
+  let api = ApiClientWrapper::new(Arc::new(backend), strategies::exponential_cooldown());
   let scw_verifier =
     Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
       as Box<dyn SmartContractSignatureVerifier>);
@@ -80,15 +82,22 @@ pub async fn revoke_installations_signature_request(
 #[wasm_bindgen(js_name = applySignatureRequest)]
 pub async fn apply_signature_request(
   host: String,
+  payer_host: Option<String>,
   signature_request: &SignatureRequestHandle,
 ) -> Result<(), JsError> {
-  let api_client = V3Client::new(
-    GrpcClient::create(&host, true)
-      .await
-      .map_err(|e| JsError::new(&e.to_string()))?,
-  );
+  let backend = MessageBackendBuilder::default()
+    .node_host(&host)
+    .maybe_payer_host(payer_host)
+    .is_secure(true)
+    .build()
+    .await
+    .map_err(|e| JsError::new(&e.to_string()))?;
+  let backend = TrackedStatsClient::new(backend);
 
-  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
+  let api = ApiClientWrapper::new(
+    TrackedStatsClient::new(backend),
+    strategies::exponential_cooldown(),
+  );
   let scw_verifier = Arc::new(RemoteSignatureVerifier::new(api.clone()));
 
   let inner = signature_request.inner.lock().await;
