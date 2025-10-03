@@ -177,3 +177,4 @@ emsdk/**
 emsdk
 result
 archive.xmtp
+coverage_diff_html/**

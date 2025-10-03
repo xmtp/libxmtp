@@ -31,7 +31,6 @@ use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::retryable;
-use xmtp_common::types::InstallationId;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{
     ConnectionExt, NotFound, StorageError, XmtpDb,
@@ -57,6 +56,7 @@ use xmtp_mls_common::{
     group_mutable_metadata::MessageDisappearingSettings,
 };
 use xmtp_proto::api_client::{ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient};
+use xmtp_proto::types::InstallationId;
 
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]

@@ -1,5 +1,10 @@
 //! Builder to build a mocked `OriginatorEnvelope`
+use openmls::prelude::tls_codec::Serialize;
+use openmls::prelude::{Credential, CredentialType, CredentialWithKey, KeyPackage, MlsMessageOut};
+use openmls::test_utils::frankenstein::FrankenMlsMessageBody;
 use prost::Message;
+use xmtp_common::{FakeMlsApplicationMessage, FakeMlsCommitMessage, Generate};
+use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 use xmtp_proto::xmtp::mls::api::v1::{
     GroupMessageInput, UploadKeyPackageRequest, WelcomeMessageInput, group_message_input,
@@ -10,8 +15,7 @@ use xmtp_proto::xmtp::xmtpv4::envelopes::{
     UnsignedOriginatorEnvelope, client_envelope::Payload,
 };
 
-pub const MOCK_MLS_MESSAGE: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
-pub const MOCK_KEY_PACKAGE: [u8; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+use crate::protocol::extractors::test_utils::MemProvider;
 
 /// Builder for creating test OriginatorEnvelopes with sensible defaults
 #[derive(Clone, Default)]
@@ -48,8 +52,21 @@ impl TestEnvelopeBuilder {
         self
     }
 
-    pub fn with_group_message(self) -> Self {
-        self.with_group_message_custom(MOCK_MLS_MESSAGE.to_vec(), vec![])
+    pub fn with_application_message(self, group_id: Vec<u8>) -> Self {
+        let mut msg = FakeMlsApplicationMessage::generate();
+        if let FrankenMlsMessageBody::PublicMessage(ref mut m) = msg.inner.body {
+            m.content.group_id = group_id.into();
+        }
+        self.with_group_message_custom(MlsMessageOut::from(msg).to_bytes().unwrap(), vec![])
+    }
+
+    #[allow(unused)]
+    pub fn with_commit_message(self, group_id: Vec<u8>) -> Self {
+        let mut msg = FakeMlsCommitMessage::generate();
+        if let FrankenMlsMessageBody::PrivateMessage(ref mut m) = msg.inner.body {
+            m.group_id = group_id.into();
+        }
+        self.with_group_message_custom(MlsMessageOut::from(msg).to_bytes().unwrap(), vec![])
     }
 
     pub fn with_group_message_custom(mut self, data: Vec<u8>, sender_hmac: Vec<u8>) -> Self {
@@ -63,32 +80,8 @@ impl TestEnvelopeBuilder {
         self
     }
 
-    pub fn with_welcome_message(self) -> Self {
-        self.with_welcome_message_custom(vec![5, 6, 7, 8])
-    }
-
-    pub fn with_welcome_message_custom(mut self, installation_key: Vec<u8>) -> Self {
-        self.payload = Some(Payload::WelcomeMessage(WelcomeMessageInput {
-            version: Some(welcome_message_input::Version::V1(
-                welcome_message_input::V1 {
-                    installation_key,
-                    data: vec![],
-                    hpke_public_key: vec![],
-                    wrapper_algorithm: 1,
-                    welcome_metadata: vec![],
-                },
-            )),
-        }));
-        self
-    }
-
-    pub fn with_welcome_message_detailed(
-        self,
-        installation_key: Vec<u8>,
-        data: Vec<u8>,
-        hpke_public_key: Vec<u8>,
-    ) -> Self {
-        self.with_welcome_message_full(installation_key, data, hpke_public_key, 1, vec![])
+    pub fn with_welcome_message(self, installation_key: Vec<u8>) -> Self {
+        self.with_welcome_message_full(installation_key, vec![], vec![], 0, vec![])
     }
 
     pub fn with_welcome_message_full(
@@ -113,8 +106,22 @@ impl TestEnvelopeBuilder {
         self
     }
 
-    pub fn with_key_package(self) -> Self {
-        self.with_key_package_custom(MOCK_KEY_PACKAGE.to_vec())
+    pub fn with_key_package(self, inbox: String, installation: XmtpInstallationCredential) -> Self {
+        let provider = MemProvider::default();
+        let credential = Credential::new(CredentialType::Basic, inbox.into_bytes());
+        let credential = CredentialWithKey {
+            credential,
+            signature_key: installation.public_bytes().to_vec().into(),
+        };
+        let kp = KeyPackage::builder()
+            .build(
+                xmtp_configuration::CIPHERSUITE,
+                &provider,
+                &installation,
+                credential,
+            )
+            .unwrap();
+        self.with_key_package_custom(kp.key_package().tls_serialize_detached().unwrap())
     }
 
     pub fn with_key_package_custom(mut self, key_package_data: Vec<u8>) -> Self {

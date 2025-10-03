@@ -74,6 +74,26 @@ dev/check-swift         # Check Swift bindings
 - Use `TestLogReplace` for human-readable test output
 - Build `TesterBuilder` with `.with_name()` for named test instances
 
+### Writing Tests
+- **ALWAYS use `#[xmtp_common::test]` instead of `#[test]`** - This ensures tests run in both native and WebAssembly environments
+- Use `rstest` for parameterized tests with `#[case]` attributes for concise, case-driven testing
+- Example:
+  ```rust
+  use rstest::rstest;
+
+  #[rstest]
+  #[case("input1", "expected1")]
+  #[case("input2", "expected2")]
+  fn test_function(#[case] input: &str, #[case] expected: &str) {
+      assert_eq!(function_to_test(input), expected);
+  }
+
+  #[xmtp_common::test]
+  fn test_simple() {
+      // Single test case
+  }
+  ```
+
 ## Required Tools
 
 - Rust (via rustup)

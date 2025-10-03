@@ -26,7 +26,6 @@ use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::time::now_ns;
-use xmtp_common::types::InstallationId;
 use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::{
     CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
@@ -55,6 +54,7 @@ use xmtp_id::{
         sign_with_legacy_key,
     },
 };
+use xmtp_proto::types::InstallationId;
 use xmtp_proto::xmtp::identity::MlsCredential;
 
 /**
