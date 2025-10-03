@@ -4,6 +4,7 @@ use crate::groups::InitialMembershipValidator;
 use crate::groups::ValidateGroupMembership;
 use crate::groups::XmtpWelcome;
 use crate::groups::{GroupError, MlsGroup};
+use crate::intents::ProcessIntentError;
 use crate::mls_store::MlsStore;
 use futures::stream::{self, FuturesUnordered, StreamExt};
 use std::sync::{
@@ -54,9 +55,13 @@ where
 
                 if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
                     tracing::warn!(
-                        "failed to create group from welcome due to duplicate welcome ID: {}",
+                        welcome_id = welcome.id,
+                        "Welcome ID already stored: {}",
                         err
                     );
+                    return Err(GroupError::ProcessIntent(
+                        ProcessIntentError::WelcomeAlreadyProcessed(welcome.id),
+                    ));
                 } else {
                     tracing::error!(
                         "failed to create group from welcome created at {}: {}",
