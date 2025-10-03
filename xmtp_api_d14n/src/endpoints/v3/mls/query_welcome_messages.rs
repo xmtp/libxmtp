@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::api::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint, Pageable};
 use xmtp_proto::mls_v1::QueryWelcomeMessagesResponse;
 use xmtp_proto::xmtp::mls::api::v1::{PagingInfo, QueryWelcomeMessagesRequest};
 
@@ -37,6 +37,14 @@ impl Endpoint for QueryWelcomeMessages {
     }
 }
 
+impl Pageable for QueryWelcomeMessages {
+    fn set_cursor(&mut self, cursor: u64) {
+        if let Some(ref mut p) = self.paging_info {
+            p.id_cursor = cursor;
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::v3::QueryWelcomeMessages;
@@ -53,7 +61,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_get_identity_updates_v2() {
-        let client = crate::TestClient::create_local();
+        let client = crate::TestGrpcClient::create_local();
         let client = client.build().await.unwrap();
         let mut endpoint = QueryWelcomeMessages::builder()
             .installation_key(vec![1, 2, 3])

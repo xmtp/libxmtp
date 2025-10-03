@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::StorageError;
 use crate::impl_store;
 
 use super::{
@@ -7,31 +8,40 @@ use super::{
     db_connection::DbConnection,
     schema::identity_updates::{self, dsl},
 };
+use derive_builder::Builder;
 use diesel::{dsl::max, prelude::*};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
-#[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
+#[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq, Builder)]
 #[diesel(table_name = identity_updates)]
 #[diesel(primary_key(inbox_id, sequence_id))]
+#[builder(setter(into), build_fn(error = "StorageError"))]
 pub struct StoredIdentityUpdate {
     pub inbox_id: String,
     pub sequence_id: i64,
     pub server_timestamp_ns: i64,
     pub payload: Vec<u8>,
+    pub originator_id: i32,
 }
 
 impl StoredIdentityUpdate {
+    pub fn build() -> StoredIdentityUpdateBuilder {
+        StoredIdentityUpdateBuilder::default()
+    }
+
     pub fn new(
         inbox_id: String,
         sequence_id: i64,
         server_timestamp_ns: i64,
         payload: Vec<u8>,
+        originator_id: i32,
     ) -> Self {
         Self {
             inbox_id,
             sequence_id,
             server_timestamp_ns,
             payload,
+            originator_id,
         }
     }
 }
@@ -198,6 +208,7 @@ pub(crate) mod tests {
             sequence_id,
             rand_time(),
             rand_vec::<24>(),
+            1,
         )
     }
 

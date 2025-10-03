@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use clap::Subcommand;
+use openmls::prelude::ProtocolMessage;
 use openmls::prelude::{tls_codec::Deserialize, MlsMessageBodyIn, MlsMessageIn, OpenMlsProvider};
 use std::collections::HashMap;
 use xmtp_api::GetIdentityUpdatesV2Filter;
@@ -7,8 +8,6 @@ use xmtp_id::associations::unverified::UnverifiedAction;
 use xmtp_id::InboxUpdate;
 use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::verified_key_package_v2::VerifiedKeyPackageV2;
-use xmtp_proto::xmtp::mls::api::v1::group_message::Version as GroupMessageVersion;
-use xmtp_proto::xmtp::mls::api::v1::welcome_message::Version as WelcomeMessageVersion;
 
 #[derive(Debug, Subcommand)]
 pub enum DebugCommands {
@@ -38,23 +37,16 @@ fn format_timestamp(timestamp_ns: u64) -> String {
 pub async fn debug_group_messages(client: &crate::Client, group_id: Vec<u8>) -> Result<(), String> {
     let api_client = client.context.api();
     let envelopes = api_client
-        .query_group_messages(group_id, None)
+        .query_group_messages(group_id.into(), Default::default())
         .await
         .unwrap();
     for envelope in envelopes {
-        let msgv1 = match &envelope.version {
-            Some(GroupMessageVersion::V1(value)) => value,
-            _ => return Err("Invalid group message version".to_string()),
-        };
-        let body = match MlsMessageIn::tls_deserialize_exact(&msgv1.data)
-            .map_err(|e| e.to_string())?
-            .extract()
-        {
-            MlsMessageBodyIn::PrivateMessage(message) => message,
+        let body = match envelope.message {
+            ProtocolMessage::PrivateMessage(message) => message,
             _ => return Err("Unsupported message type".to_string()),
         };
-        let timestamp = format_timestamp(msgv1.created_ns);
-        let sequence_id = msgv1.id;
+        let timestamp = envelope.created_ns;
+        let sequence_id = envelope.cursor;
         let epoch = body.epoch().as_u64();
         let content_type = body.content_type();
         info!("[{timestamp}] [Epoch {epoch}] [Seq {sequence_id}] {content_type:?}");
@@ -69,23 +61,19 @@ pub async fn debug_welcome_messages(
 ) -> Result<(), String> {
     let api_client = client.context.api();
     let envelopes = api_client
-        .query_welcome_messages(&installation_id, None)
+        .query_welcome_messages(&installation_id, vec![])
         .await
         .unwrap();
     for envelope in envelopes {
-        let msgv1 = match &envelope.version {
-            Some(WelcomeMessageVersion::V1(value)) => value,
-            _ => return Err("Invalid welcome message version".to_string()),
-        };
-        let body = match MlsMessageIn::tls_deserialize_exact(&msgv1.data)
+        let body = match MlsMessageIn::tls_deserialize_exact(&envelope.data)
             .map_err(|e| e.to_string())?
             .extract()
         {
             MlsMessageBodyIn::PrivateMessage(message) => message,
             _ => return Err("Unsupported message type".to_string()),
         };
-        let timestamp = format_timestamp(msgv1.created_ns);
-        let sequence_id = msgv1.id;
+        let timestamp = envelope.created_ns;
+        let sequence_id = envelope.cursor;
         let epoch = body.epoch().as_u64();
         let content_type = body.content_type();
         info!("[{timestamp}] [Epoch {epoch}] [Seq {sequence_id}] {content_type:?}");

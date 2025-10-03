@@ -5,33 +5,25 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter, fmt::format::Pretty};
-use wasm_bindgen::JsValue;
-use wasm_bindgen::prelude::{JsError, wasm_bindgen};
-use xmtp_api::ApiDebugWrapper;
-use xmtp_api_grpc::v3::Client as TonicApiClient;
+use wasm_bindgen::{JsValue, prelude::*};
+use xmtp_api_d14n::queries::V3Client;
+use xmtp_api_grpc::GrpcClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::SyncWorkerMode;
-use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_proto::api_client::AggregateStats;
+use xmtp_proto::types::AppVersion;
 
 use crate::conversations::Conversations;
 use crate::identity::{ApiStats, Identifier, IdentityStats};
 use crate::inbox_state::InboxState;
 
-pub type MlsContext = Arc<
-  XmtpMlsLocalContext<
-    ApiDebugWrapper<TonicApiClient>,
-    xmtp_db::DefaultStore,
-    xmtp_db::DefaultMlsStore,
-  >,
->;
-pub type RustXmtpClient = MlsClient<MlsContext>;
-pub type RustMlsGroup = MlsGroup<MlsContext>;
+pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
+pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
 
 #[wasm_bindgen]
 pub struct Client {
@@ -159,9 +151,29 @@ pub async fn create_client(
   app_version: Option<String>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
-  let api_client = TonicApiClient::create(host.clone(), true, app_version.clone()).await?;
+  let api_client = V3Client::new(
+    GrpcClient::create_with_version(
+      &host,
+      true,
+      app_version
+        .clone()
+        .map(AppVersion::from)
+        .unwrap_or_default(),
+    )
+    .await?,
+  );
 
-  let sync_api_client = TonicApiClient::create(host.clone(), true, app_version.clone()).await?;
+  let sync_api_client = V3Client::new(
+    GrpcClient::create_with_version(
+      &host,
+      true,
+      app_version
+        .clone()
+        .map(AppVersion::from)
+        .unwrap_or_default(),
+    )
+    .await?,
+  );
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
