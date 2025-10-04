@@ -25,7 +25,7 @@ pub enum ServingStatus {
     ServiceUnknown = 3,
 }
 
-#[derive(Debug, Builder, Default)]
+#[derive(Builder, Clone, Debug, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct HealthCheck {
     #[builder(setter(into), default)]

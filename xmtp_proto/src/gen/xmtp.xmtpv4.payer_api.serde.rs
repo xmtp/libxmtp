@@ -150,7 +150,10 @@ impl<'de> serde::Deserialize<'de> for GetNodesResponse {
                             if nodes__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("nodes"));
                             }
-                            nodes__ = Some(map_.next_value()?);
+                            nodes__ = Some(
+                                map_.next_value::<std::collections::HashMap<::pbjson::private::NumberDeserialize<u32>, _>>()?
+                                    .into_iter().map(|(k,v)| (k.0, v)).collect()
+                            );
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
