@@ -727,6 +727,13 @@ where
         Ok(messages)
     }
 
+    /// Count the number of stored messages matching the given criteria
+    pub fn count_messages(&self, args: &MsgQueryArgs) -> Result<i64, GroupError> {
+        let conn = self.context.db();
+        let count = conn.count_group_messages(&self.group_id, args)?;
+        Ok(count)
+    }
+
     /// Query the database for stored messages. Optionally filtered by time, kind, delivery_status
     /// and limit
     pub fn find_messages_with_reactions(
