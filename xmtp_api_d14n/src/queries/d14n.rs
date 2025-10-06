@@ -86,10 +86,10 @@ where
         <Builder1 as ApiBuilder>::host(&self.message_client)
     }
 
-    async fn build(self) -> Result<Self::Output, Self::Error> {
+    fn build(self) -> Result<Self::Output, Self::Error> {
         Ok(D14nClient::new(
-            <Builder1 as ApiBuilder>::build(self.message_client).await?,
-            <Builder2 as ApiBuilder>::build(self.gateway_client).await?,
+            <Builder1 as ApiBuilder>::build(self.message_client)?,
+            <Builder2 as ApiBuilder>::build(self.gateway_client)?,
         ))
     }
 }

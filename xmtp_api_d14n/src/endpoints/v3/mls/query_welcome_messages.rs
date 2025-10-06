@@ -63,7 +63,7 @@ mod test {
     #[xmtp_common::test]
     async fn test_query_welcome_messages() {
         let client = crate::TestClient::create_local();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
         let mut endpoint = QueryWelcomeMessages::builder()
             .installation_key(vec![1, 2, 3])
             .build()

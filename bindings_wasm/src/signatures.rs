@@ -46,15 +46,14 @@ pub fn verify_signed_with_public_key(
 }
 
 #[wasm_bindgen(js_name = revokeInstallationsSignatureRequest)]
-pub async fn revoke_installations_signature_request(
+pub fn revoke_installations_signature_request(
   host: String,
   recovery_identifier: Identifier,
   inbox_id: String,
   installation_ids: Vec<Uint8Array>,
 ) -> Result<SignatureRequestHandle, JsError> {
-  let api_client = TonicApiClient::create(host, true, "0.0.0".into())
-    .await
-    .map_err(|e| JsError::new(&e.to_string()))?;
+  let api_client =
+    TonicApiClient::create(host, true, "0.0.0".into()).map_err(|e| JsError::new(&e.to_string()))?;
 
   let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
   let scw_verifier =
@@ -65,7 +64,6 @@ pub async fn revoke_installations_signature_request(
   let ids: Vec<Vec<u8>> = installation_ids.into_iter().map(|i| i.to_vec()).collect();
 
   let sig_req = revoke_installations_with_verifier(&ident, &inbox_id, ids)
-    .await
     .map_err(|e| JsError::new(&e.to_string()))?;
 
   Ok(SignatureRequestHandle {
@@ -79,9 +77,8 @@ pub async fn apply_signature_request(
   host: String,
   signature_request: &SignatureRequestHandle,
 ) -> Result<(), JsError> {
-  let api_client = TonicApiClient::create(host, true, "0.0.0".into())
-    .await
-    .map_err(|e| JsError::new(&e.to_string()))?;
+  let api_client =
+    TonicApiClient::create(host, true, "0.0.0".into()).map_err(|e| JsError::new(&e.to_string()))?;
 
   let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
   let scw_verifier = Arc::new(RemoteSignatureVerifier::new(api.clone()));

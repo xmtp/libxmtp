@@ -188,5 +188,5 @@ pub trait ApiBuilder {
 
     #[allow(async_fn_in_trait)]
     /// Build the api client
-    async fn build(self) -> Result<Self::Output, Self::Error>;
+    fn build(self) -> Result<Self::Output, Self::Error>;
 }

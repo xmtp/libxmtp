@@ -64,7 +64,7 @@ mod test {
         use crate::d14n::GetNewestEnvelopes;
 
         let client = crate::TestClient::create_d14n();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
 
         let endpoint = GetNewestEnvelopes::builder().topic(vec![]).build().unwrap();
         api::ignore(endpoint).query(&client).await.unwrap();

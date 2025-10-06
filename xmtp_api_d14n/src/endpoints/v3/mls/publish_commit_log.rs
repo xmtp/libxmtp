@@ -59,7 +59,7 @@ mod test {
     #[xmtp_common::test]
     async fn test_publish_commit_log() {
         let client = crate::TestClient::create_local();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
         let endpoint = PublishCommitLog::builder()
             .commit_log_entries(vec![PublishCommitLogRequest {
                 group_id: rand_vec::<16>(),

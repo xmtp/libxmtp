@@ -58,7 +58,7 @@ mod test {
     #[xmtp_common::test]
     async fn test_query_commit_log() {
         let client = crate::TestClient::create_local();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
         let endpoint = QueryCommitLog::builder()
             .query_log_requests(vec![QueryCommitLogRequest {
                 group_id: rand_vec::<16>(),

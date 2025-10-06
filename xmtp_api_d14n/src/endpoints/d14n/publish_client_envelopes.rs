@@ -71,7 +71,7 @@ mod test {
         use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 
         let client = crate::TestClient::create_gateway();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
 
         let aad = AuthenticatedData {
             target_topic: TopicKind::GroupMessagesV1.build(&rand_vec::<16>()),
