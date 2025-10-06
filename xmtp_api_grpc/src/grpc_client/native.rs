@@ -1,19 +1,46 @@
-pub mod error;
-pub mod grpc_api_helper;
-pub mod grpc_client;
-pub use error::*;
-mod identity;
-mod streams;
-
-pub use grpc_api_helper::Client;
+use crate::error::GrpcBuilderError;
+use http::Request;
 use std::time::Duration;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
-use xmtp_proto::mls_v1::{GroupMessage, WelcomeMessage};
+use tonic::{body::Body, client::GrpcService};
+use tower::Service;
 
-use crate::streams::XmtpTonicStream;
+use std::task::{Context, Poll};
 
-pub type GroupMessageStream = XmtpTonicStream<tonic::codec::Streaming<GroupMessage>>;
-pub type WelcomeMessageStream = XmtpTonicStream<tonic::codec::Streaming<WelcomeMessage>>;
+#[derive(Clone, Debug)]
+pub struct NativeGrpcService {
+    inner: Channel,
+}
+
+impl NativeGrpcService {
+    pub fn new(
+        host: String,
+        limit: Option<u64>,
+        is_secure: bool,
+    ) -> Result<Self, GrpcBuilderError> {
+        let channel = match is_secure {
+            true => create_tls_channel(host, limit.unwrap_or(5000))?,
+            false => apply_channel_options(Channel::from_shared(host)?, limit.unwrap_or(5000))
+                .connect_lazy(),
+        };
+
+        Ok(Self { inner: channel })
+    }
+}
+
+impl Service<Request<Body>> for NativeGrpcService {
+    type Response = <Channel as Service<Request<Body>>>::Response;
+    type Error = <Channel as GrpcService<Body>>::Error;
+    type Future = <Channel as GrpcService<Body>>::Future;
+
+    fn poll_ready(&mut self, ctx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        <Channel as Service<Request<Body>>>::poll_ready(&mut self.inner, ctx)
+    }
+
+    fn call(&mut self, request: Request<Body>) -> Self::Future {
+        <Channel as Service<Request<Body>>>::call(&mut self.inner, request)
+    }
+}
 
 pub(crate) fn apply_channel_options(endpoint: Endpoint, limit: u64) -> Endpoint {
     endpoint
@@ -45,18 +72,17 @@ pub(crate) fn apply_channel_options(endpoint: Endpoint, limit: u64) -> Endpoint 
         .rate_limit(limit, Duration::from_secs(60))
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 pub fn create_tls_channel(address: String, limit: u64) -> Result<Channel, GrpcBuilderError> {
     let channel = apply_channel_options(Channel::from_shared(address)?, limit)
         .tls_config(ClientTlsConfig::new().with_enabled_roots())?
         .connect_lazy();
-
     Ok(channel)
 }
 #[cfg(test)]
 pub mod tests {
+    use crate::v3::Client;
     use std::time::{SystemTime, UNIX_EPOCH};
-
-    use super::*;
     use xmtp_configuration::GrpcUrls;
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::xmtp::message_api::v1::{Envelope, PublishRequest};
@@ -79,7 +105,7 @@ pub mod tests {
         client.set_tls(true);
         let app_version = "test/1.0.0".to_string();
         let libxmtp_version = "0.0.1".to_string();
-        client.set_app_version(app_version.clone()).unwrap();
+        client.set_app_version(app_version.clone().into()).unwrap();
         client.set_libxmtp_version(libxmtp_version.clone()).unwrap();
         let client = client.build().unwrap();
         let request = client.build_request(PublishRequest { envelopes: vec![] });

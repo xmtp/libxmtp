@@ -156,11 +156,9 @@ pub async fn create_client(
 
   init_logging(log_options.unwrap_or_default())?;
   let api_client = TonicApiClient::create(&host, is_secure, app_version.as_ref())
-    .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
 
   let sync_api_client = TonicApiClient::create(&host, is_secure, app_version.as_ref())
-    .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
 
   let storage_option = match db_path {

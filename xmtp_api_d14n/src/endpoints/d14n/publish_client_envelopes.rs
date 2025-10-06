@@ -58,7 +58,7 @@ mod test {
         use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 
         let client = crate::TestClient::create_local_d14n();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
 
         let endpoint = PublishClientEnvelopes::builder()
             .envelopes(vec![ClientEnvelope::default()])

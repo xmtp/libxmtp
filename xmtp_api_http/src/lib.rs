@@ -84,7 +84,7 @@ impl XmtpHttpApiClient {
         let mut b = Self::builder();
         b.set_host(host_url);
         b.set_app_version(app_version)?;
-        b.build().await
+        b.build()
     }
 
     /// Wait for any rate limit
@@ -199,7 +199,7 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
         Ok(Url::parse(&self.host_url)?.port().map(|u| u.to_string()))
     }
 
-    async fn build(mut self) -> Result<Self::Output, Self::Error> {
+    fn build(mut self) -> Result<Self::Output, Self::Error> {
         let libxmtp_version = self
             .libxmtp_version
             .unwrap_or(env!("CARGO_PKG_VERSION").to_string());
@@ -626,7 +626,7 @@ pub mod tests {
         client
             .set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
             .unwrap();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
         let result = client
             .upload_key_package(UploadKeyPackageRequest {
                 is_inbox_id_credential: false,
@@ -659,7 +659,7 @@ pub mod tests {
         client
             .set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
             .unwrap();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
         let result = client
             .get_inbox_ids(GetInboxIdsRequest {
                 requests: vec![Request {

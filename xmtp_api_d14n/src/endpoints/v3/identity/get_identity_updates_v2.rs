@@ -52,7 +52,7 @@ mod test {
     #[xmtp_common::test]
     async fn test_get_identity_updates_v2() {
         let client = crate::TestClient::create_local();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
         let endpoint = GetIdentityUpdatesV2::builder()
             .requests(vec![Request {
                 inbox_id: "".to_string(),

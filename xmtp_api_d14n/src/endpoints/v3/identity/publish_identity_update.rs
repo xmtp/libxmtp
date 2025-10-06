@@ -57,7 +57,7 @@ mod test {
         use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 
         let client = crate::TestClient::create_local();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
         let endpoint = PublishIdentityUpdate::builder()
             .identity_update(Some(IdentityUpdate {
                 actions: vec![],
