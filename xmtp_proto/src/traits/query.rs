@@ -75,9 +75,9 @@ where
         let rsp = client
             .stream(request, path, self.body()?)
             .await
-            .map_err(|e| e.endpoint(endpoint.into_owned()))?;
+            .map_err(|e| e.endpoint(endpoint.as_ref().to_owned()))?;
         let stream = rsp.into_body();
-        let stream = XmtpStream::new(stream, ApiEndpoint::SubscribeGroupMessages);
+        let stream = XmtpStream::new(stream, ApiEndpoint::Path(endpoint.into_owned()));
         Ok(stream)
     }
 }

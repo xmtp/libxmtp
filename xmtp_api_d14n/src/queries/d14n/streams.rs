@@ -1,44 +1,65 @@
+use crate::TryExtractorStream;
+use crate::d14n::SubscribeEnvelopes;
+use crate::protocol::{EnvelopeCollection, GroupMessageExtractor, WelcomeMessageExtractor};
+use crate::queries::stream;
+
 use super::D14nClient;
-use futures::stream;
 use xmtp_common::RetryableError;
-use xmtp_proto::api::{ApiClientError, Client};
+use xmtp_proto::api::{ApiClientError, Client, QueryStream, XmtpStream};
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1;
+use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, SubscribeEnvelopesResponse};
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C, P, E> XmtpMlsStreams for D14nClient<C, P>
 where
     C: Send + Sync + Client<Error = E>,
+    <C as Client>::Stream: Send,
     P: Send + Sync + Client,
     E: std::error::Error + RetryableError + Send + Sync + 'static,
 {
     type Error = ApiClientError<E>;
 
-    #[cfg(not(target_arch = "wasm32"))]
-    type GroupMessageStream = stream::BoxStream<'static, Result<mls_v1::GroupMessage, Self::Error>>;
-    #[cfg(not(target_arch = "wasm32"))]
-    type WelcomeMessageStream =
-        stream::BoxStream<'static, Result<mls_v1::WelcomeMessage, Self::Error>>;
+    type GroupMessageStream = TryExtractorStream<
+        XmtpStream<<C as Client>::Stream, SubscribeEnvelopesResponse>,
+        GroupMessageExtractor,
+    >;
 
-    #[cfg(target_arch = "wasm32")]
-    type GroupMessageStream =
-        stream::LocalBoxStream<'static, Result<mls_v1::GroupMessage, Self::Error>>;
-    #[cfg(target_arch = "wasm32")]
-    type WelcomeMessageStream =
-        stream::LocalBoxStream<'static, Result<mls_v1::WelcomeMessage, Self::Error>>;
+    type WelcomeMessageStream = TryExtractorStream<
+        XmtpStream<<C as Client>::Stream, SubscribeEnvelopesResponse>,
+        WelcomeMessageExtractor,
+    >;
 
     async fn subscribe_group_messages(
         &self,
         _request: mls_v1::SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        todo!()
+        let _stream = SubscribeEnvelopes::builder()
+            .envelopes(EnvelopesQuery {
+                topics: _request.topics()?,
+                originator_node_ids: vec![],
+                last_seen: None, // TODO: requires cursor store
+            })
+            .build()?
+            .stream(&self.message_client)
+            .await?;
+        Ok(stream::try_extractor(_stream))
     }
 
     async fn subscribe_welcome_messages(
         &self,
-        _request: mls_v1::SubscribeWelcomeMessagesRequest,
+        request: mls_v1::SubscribeWelcomeMessagesRequest,
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
-        todo!()
+        let _stream = SubscribeEnvelopes::builder()
+            .envelopes(EnvelopesQuery {
+                topics: request.topics()?,
+                originator_node_ids: vec![],
+                last_seen: None, // TODO: requires cursor store
+            })
+            .build()?
+            .stream(&self.message_client)
+            .await?;
+        Ok(stream::try_extractor(_stream))
     }
 }

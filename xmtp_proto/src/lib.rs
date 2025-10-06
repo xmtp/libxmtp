@@ -46,6 +46,7 @@ pub mod test {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     xmtp_common::if_native! {
+        #[cfg(test)]
         #[ctor::ctor]
         fn _setup() {
             xmtp_common::logger()

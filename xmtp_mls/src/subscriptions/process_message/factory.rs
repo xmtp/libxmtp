@@ -14,7 +14,7 @@ use xmtp_common::{Retry, retry_async};
 use xmtp_db::group::ConversationType;
 use xmtp_db::prelude::*;
 use xmtp_db::{StorageError, group_message::StoredGroupMessage, refresh_state::EntityKind};
-use xmtp_proto::mls_v1::group_message;
+use xmtp_proto::types::Cursor;
 
 #[cfg_attr(test, mockall::automock)]
 pub trait GroupDatabase {
@@ -26,7 +26,7 @@ pub trait GroupDatabase {
     fn msg<'a>(
         &self,
         id: Option<&'a MessageIdentifier>,
-        msg: &group_message::V1,
+        msg: &xmtp_proto::types::GroupMessage,
     ) -> Result<Option<StoredGroupMessage>, StorageError>;
 }
 
@@ -52,7 +52,7 @@ where
     fn msg(
         &self,
         id: Option<&MessageIdentifier>,
-        msg: &group_message::V1,
+        msg: &xmtp_proto::types::GroupMessage,
     ) -> Result<Option<StoredGroupMessage>, StorageError> {
         let conn = self.0.db();
         id.and_then(|m| {
@@ -62,7 +62,7 @@ where
             m.internal_id.clone()
         })
         .map(|id| conn.get_group_message(id))
-        .unwrap_or(conn.get_group_message_by_timestamp(&msg.group_id, msg.created_ns as i64))
+        .unwrap_or_else(|| conn.get_group_message_by_timestamp(&msg.group_id, msg.timestamp()))
         .map_err(StorageError::from)
     }
 }
@@ -70,9 +70,12 @@ where
 #[cfg_attr(test, mockall::automock)]
 pub trait Sync {
     /// Try to process a single mesage
-    async fn process(&self, msg: &group_message::V1) -> Result<MessageIdentifier, SubscribeError>;
+    async fn process(
+        &self,
+        msg: &xmtp_proto::types::GroupMessage,
+    ) -> Result<MessageIdentifier, SubscribeError>;
     /// Try to recover from failing to process a message
-    async fn recover(&self, msg: &group_message::V1) -> SyncSummary;
+    async fn recover(&self, msg: &xmtp_proto::types::GroupMessage) -> SyncSummary;
 }
 
 #[derive(Clone)]
@@ -87,13 +90,16 @@ impl<Context> Sync for Syncer<Context>
 where
     Context: XmtpSharedContext,
 {
-    async fn process(&self, msg: &group_message::V1) -> Result<MessageIdentifier, SubscribeError> {
+    async fn process(
+        &self,
+        msg: &xmtp_proto::types::GroupMessage,
+    ) -> Result<MessageIdentifier, SubscribeError> {
         let (group, _) = MlsGroup::new_cached(self.0.clone(), &msg.group_id)?;
         let epoch = group.epoch().await?;
         tracing::debug!(
             "client@[{}] about to process streamed message @cursor=[{}] for group @epoch=[{}]",
             xmtp_common::fmt::truncate_hex(self.0.inbox_id()),
-            msg.id,
+            msg.cursor,
             epoch,
         );
         group
@@ -103,13 +109,13 @@ where
             .map_err(|e| SubscribeError::ReceiveGroup(Box::new(e)))
     }
 
-    async fn recover(&self, msg: &group_message::V1) -> SyncSummary {
+    async fn recover(&self, msg: &xmtp_proto::types::GroupMessage) -> SyncSummary {
         let group = MlsGroup::new(
             self.0.clone(),
-            msg.group_id.clone(),
+            msg.group_id.to_vec(),
             None,
             ConversationType::Group,
-            msg.created_ns as i64,
+            msg.timestamp(),
         );
         match group.sync_with_conn().await {
             Ok(summary) => {
@@ -128,7 +134,7 @@ where
                 tracing::warn!(
                     inbox_id = self.0.inbox_id(),
                     group_id = hex::encode(&msg.group_id),
-                    cursor_id = msg.id,
+                    cursor_id = %msg.cursor,
                     "recovery sync triggered by streamed message failed",
                 );
                 tracing::warn!("{summary}");
@@ -188,42 +194,38 @@ where
     #[tracing::instrument(skip_all, level = "trace")]
     pub(crate) async fn process(
         self,
-        msg: group_message::V1,
+        msg: xmtp_proto::types::GroupMessage,
     ) -> Result<ProcessedMessage, SubscribeError> {
-        let group_message::V1 {
-            // the cursor ID is the position in the monolithic backend topic
-            id: ref cursor_id,
-            ..
-        } = msg;
-
-        let summary = if self.needs_to_sync(&msg, *cursor_id)? {
+        let summary = if self.needs_to_sync(&msg)? {
             self.process_or_recover(&msg).await
         } else {
             // if we dont need to sync, the message should be in the database
             SyncSummary::single(MessageIdentifierBuilder::from(&msg).build()?)
         };
 
-        let new_message = self.group_db.msg(summary.new_message_by_id(msg.id), &msg)?;
+        let new_message = self
+            .group_db
+            .msg(summary.new_message_by_id(msg.cursor), &msg)?;
 
         if let Some(new_msg) = new_message {
             Ok(ProcessedMessage {
                 message: Some(new_msg.clone()),
-                next_message: *cursor_id,
+                next_message: msg.cursor,
                 group_id: new_msg.group_id.clone(),
-                tried_to_process: msg.id,
+                tried_to_process: msg.cursor,
             })
         } else {
-            let next: u64 = summary.process.last_errored().unwrap_or(msg.id);
+            let next: Cursor = summary.process.last_errored().unwrap_or(msg.cursor);
             Ok(ProcessedMessage {
                 message: None,
                 next_message: next,
-                group_id: msg.group_id.clone(),
-                tried_to_process: msg.id,
+                group_id: msg.group_id.to_vec(),
+                tried_to_process: msg.cursor,
             })
         }
     }
 
-    async fn process_or_recover(&self, msg: &group_message::V1) -> SyncSummary {
+    async fn process_or_recover(&self, msg: &xmtp_proto::types::GroupMessage) -> SyncSummary {
         use SubscribeError::*;
         // try to process the message with retries
         let process_result =
@@ -246,7 +248,7 @@ where
                 // But still exists defensively
                 tracing::error!(
                     group_id = hex::encode(&msg.group_id),
-                    cursor_id = msg.id,
+                    cursor_id = %msg.cursor,
                     err = e.to_string(),
                     "process stream entry {:?}",
                     e
@@ -255,7 +257,7 @@ where
             }
             Ok(processed_msg) => {
                 tracing::trace!(
-                    cursor_id = msg.id,
+                    cursor_id = %msg.cursor,
                     group_id = hex::encode(&msg.group_id),
                     "message process in stream success, synced single msg @cursor={},group_id={}",
                     processed_msg.cursor,
@@ -284,25 +286,21 @@ where
     ///
     /// # Errors
     /// Returns an error if the database query for the last cursor fails.
-    fn needs_to_sync(
-        &self,
-        msg: &group_message::V1,
-        current_msg_cursor: u64,
-    ) -> Result<bool, SubscribeError> {
+    fn needs_to_sync(&self, msg: &xmtp_proto::types::GroupMessage) -> Result<bool, SubscribeError> {
         let last_synced_id = self.group_db.last_cursor(&msg.group_id)?;
-        if last_synced_id < current_msg_cursor as i64 {
+        if last_synced_id < msg.sequence_id() as i64 {
             tracing::debug!(
                 "stream does require sync; last_synced@[{}], this message @[{}]",
                 last_synced_id,
-                current_msg_cursor
+                msg.cursor
             );
         } else {
             tracing::debug!(
                 "stream does not require sync; last_synced@[{}], this message @[{}]",
                 last_synced_id,
-                current_msg_cursor
+                msg.cursor
             );
         }
-        Ok(last_synced_id < current_msg_cursor as i64)
+        Ok(last_synced_id < msg.cursor.sequence_id as i64)
     }
 }

@@ -141,7 +141,7 @@ mod tests {
             .build();
         assert_eq!(
             envelope.topic().unwrap(),
-            TopicKind::GroupMessagesV1.build(&[1, 2, 3])
+            TopicKind::GroupMessagesV1.build([1, 2, 3])
         );
     }
 
@@ -152,7 +152,7 @@ mod tests {
             .build();
         let topic = envelope.topic().unwrap();
 
-        let expected_topic = TopicKind::WelcomeMessagesV1.build(&[5, 6, 7, 8]);
+        let expected_topic = TopicKind::WelcomeMessagesV1.build([5, 6, 7, 8]);
         assert_eq!(topic, expected_topic);
     }
 

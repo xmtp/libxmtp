@@ -63,7 +63,7 @@ mod test {
     async fn get_newest_envelopes() {
         use crate::d14n::GetNewestEnvelopes;
 
-        let client = crate::TestClient::create_d14n();
+        let client = crate::TestGrpcClient::create_d14n();
         let client = client.build().unwrap();
 
         let endpoint = GetNewestEnvelopes::builder().topic(vec![]).build().unwrap();

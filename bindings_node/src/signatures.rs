@@ -6,7 +6,8 @@ use napi_derive::napi;
 use std::ops::Deref;
 use std::sync::Arc;
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_grpc::v3::Client as TonicApiClient;
+use xmtp_api_d14n::V3Client;
+use xmtp_api_grpc::GrpcClient;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::{
   AccountId,
@@ -54,8 +55,8 @@ pub fn revoke_installations_signature_request(
   inbox_id: String,
   installation_ids: Vec<Uint8Array>,
 ) -> Result<SignatureRequestHandle> {
-  let api_client =
-    TonicApiClient::create(host, true, None::<String>).map_err(ErrorWrapper::from)?;
+  let api_client = GrpcClient::create(&host, true).map_err(ErrorWrapper::from)?;
+  let api_client = V3Client::new(api_client);
 
   let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
   let scw_verifier =
@@ -80,8 +81,8 @@ pub async fn apply_signature_request(
   host: String,
   signature_request: &SignatureRequestHandle,
 ) -> Result<()> {
-  let api_client =
-    TonicApiClient::create(host, true, None::<String>).map_err(ErrorWrapper::from)?;
+  let api_client = GrpcClient::create(&host, true).map_err(ErrorWrapper::from)?;
+  let api_client = V3Client::new(api_client);
 
   let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
   let scw_verifier =

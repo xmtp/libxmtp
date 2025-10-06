@@ -10,7 +10,7 @@ use xmtp_db::{
     group::{GroupQueryArgs, StoredGroup},
     refresh_state::EntityKind,
 };
-use xmtp_proto::mls_v1::{GroupMessage, WelcomeMessage};
+use xmtp_proto::types::{Cursor, GroupMessage, WelcomeMessage};
 
 use crate::{
     context::XmtpSharedContext,
@@ -70,7 +70,10 @@ where
         let welcomes = self
             .context
             .api()
-            .query_welcome_messages(installation_id.as_ref(), Some(id_cursor as u64))
+            .query_welcome_messages(
+                installation_id.as_ref(),
+                vec![Cursor::welcomes(id_cursor as u64)],
+            )
             .await?;
 
         Ok(welcomes)
@@ -88,7 +91,7 @@ where
         let messages = self
             .context
             .sync_api()
-            .query_group_messages(group_id.to_vec(), Some(id_cursor as u64))
+            .query_group_messages(group_id.into(), vec![Cursor::v3_messages(id_cursor as u64)])
             .await?;
 
         Ok(messages)
