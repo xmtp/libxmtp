@@ -227,6 +227,7 @@ pub struct FfiGroupUpdated {
     pub initiated_by_inbox_id: String,
     pub added_inboxes: Vec<FfiInbox>,
     pub removed_inboxes: Vec<FfiInbox>,
+    pub left_inboxes: Vec<FfiInbox>,
     pub metadata_field_changes: Vec<FfiMetadataFieldChange>,
 }
 
@@ -513,6 +514,13 @@ impl From<GroupUpdated> for FfiGroupUpdated {
                 .collect(),
             removed_inboxes: updated
                 .removed_inboxes
+                .into_iter()
+                .map(|inbox| FfiInbox {
+                    inbox_id: inbox.inbox_id,
+                })
+                .collect(),
+            left_inboxes: updated
+                .left_inboxes
                 .into_iter()
                 .map(|inbox| FfiInbox {
                     inbox_id: inbox.inbox_id,
