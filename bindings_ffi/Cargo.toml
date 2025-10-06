@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = "2024"
 name = "xmtpv3"
 version.workspace = true
 license.workspace = true
@@ -32,7 +32,7 @@ xmtp_cryptography.workspace = true
 xmtp_db.workspace = true
 xmtp_id.workspace = true
 xmtp_mls.workspace = true
-xmtp_proto = { path = "../xmtp_proto" }
+xmtp_proto.workspace = true
 
 # Bench
 criterion = { workspace = true, optional = true }

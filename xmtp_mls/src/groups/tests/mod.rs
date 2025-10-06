@@ -19,7 +19,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 use super::group_permissions::PolicySet;
 use crate::context::XmtpSharedContext;
 use crate::groups::intents::QueueIntent;
-use crate::groups::{DmValidationError, MetadataPermissionsError, UpdatePendingRemoveListType};
+use crate::groups::{DmValidationError, MetadataPermissionsError};
 use crate::groups::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };
@@ -2261,96 +2261,6 @@ async fn test_group_mutable_data_group_permissions() {
 }
 
 #[xmtp_common::test]
-async fn test_group_pending_remove_list_update() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola_wallet = generate_local_wallet();
-    let caro_wallet = generate_local_wallet();
-    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
-    let caro = ClientBuilder::new_test_client(&caro_wallet).await;
-
-    let amal_group = amal.create_group(None, None).unwrap();
-    amal_group.sync().await.unwrap();
-
-    // Add bola to the group
-    amal_group
-        .add_members(&[bola_wallet.identifier(), caro_wallet.identifier()])
-        .await
-        .unwrap();
-    bola.sync_welcomes().await.unwrap();
-    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
-    assert_eq!(bola_groups.len(), 1);
-    let bola_group = bola_groups.first().unwrap();
-    bola_group.sync().await.unwrap();
-
-    // Verify Amal is the only admin and super admin
-    let admin_list = amal_group.admin_list().unwrap();
-    let super_admin_list = amal_group.super_admin_list().unwrap();
-    assert_eq!(admin_list.len(), 0);
-    assert_eq!(super_admin_list.len(), 1);
-    assert!(super_admin_list.contains(&amal.inbox_id().to_string()));
-
-    // Verify that bola can't add caro inboxId, only Caro can do that
-    bola.sync_welcomes().await.unwrap();
-    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
-    assert_eq!(bola_groups.len(), 1);
-    let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
-    bola_group.sync().await.unwrap();
-    bola_group
-        .update_pending_remove_list(
-            UpdatePendingRemoveListType::Add,
-            amal.inbox_id().to_string(),
-        )
-        .await
-        .expect_err("expected err");
-
-    // Verify that Amal can't add others inboxIds to the pending remove list; even they're admin
-    amal_group
-        .update_pending_remove_list(
-            UpdatePendingRemoveListType::Add,
-            bola.inbox_id().to_string(),
-        )
-        .await
-        .expect_err("expected err");
-
-    caro.sync_welcomes().await.unwrap();
-    let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
-    assert_eq!(caro_groups.len(), 1);
-    let caro_group: &TestMlsGroup = caro_groups.first().unwrap();
-    caro_group.sync().await.unwrap();
-
-    // Bola adds their inboxId to the pending remove list
-    bola_group
-        .update_pending_remove_list(
-            UpdatePendingRemoveListType::Add,
-            bola.inbox_id().to_string(),
-        )
-        .await
-        .unwrap();
-    // Amal removes Bola from the group
-    amal_group
-        .remove_members(&[bola_wallet.identifier()])
-        .await
-        .unwrap();
-
-    // Verify that caro can't update the pending remove list since it's not an admin
-    caro_group
-        .update_pending_remove_list(
-            UpdatePendingRemoveListType::Remove,
-            bola.inbox_id().to_string(),
-        )
-        .await
-        .expect_err("expected err");
-
-    // Since Amal removed Bola, now they can remove Bola from the pending remove list
-    let _ = amal_group
-        .update_pending_remove_list(
-            UpdatePendingRemoveListType::Remove,
-            bola.inbox_id().to_string(),
-        )
-        .await;
-}
-
-#[xmtp_common::test]
 async fn test_group_admin_list_update() {
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let bola_wallet = generate_local_wallet();
@@ -3461,7 +3371,8 @@ async fn test_validate_dm_group() {
 
     // Test case 2: Invalid conversation type
     let invalid_protected_metadata =
-        build_protected_metadata_extension(creator_inbox_id, ConversationType::Group).unwrap();
+        build_protected_metadata_extension(creator_inbox_id, ConversationType::Group, None)
+            .unwrap();
     let invalid_type_group = TestMlsGroup::create_test_dm_group(
         client.context.clone(),
         dm_target_inbox_id.clone(),

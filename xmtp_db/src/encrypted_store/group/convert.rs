@@ -1,41 +1,8 @@
 use super::*;
 use xmtp_proto::ConversionError;
-use xmtp_proto::xmtp::device_sync::group_backup::{
-    ConversationTypeSave, GroupMembershipStateSave, GroupSave,
-};
+use xmtp_proto::xmtp::device_sync::group_backup::{ConversationTypeSave, GroupMembershipStateSave};
 
 use xmtp_proto::xmtp::mls::message_contents::ConversationType as ConversationTypeProto;
-
-impl TryFrom<GroupSave> for StoredGroup {
-    type Error = ConversionError;
-    fn try_from(value: GroupSave) -> Result<Self, Self::Error> {
-        let membership_state = value.membership_state().try_into()?;
-        let conversation_type = value.conversation_type().try_into()?;
-
-        Ok(Self {
-            id: value.id,
-            created_at_ns: value.created_at_ns,
-            membership_state,
-            installations_last_checked: value.installations_last_checked,
-            added_by_inbox_id: value.added_by_inbox_id,
-            welcome_id: value.welcome_id,
-            rotated_at_ns: value.rotated_at_ns,
-            conversation_type,
-            dm_id: value.dm_id,
-            last_message_ns: value.last_message_ns,
-            message_disappear_from_ns: value.message_disappear_from_ns,
-            message_disappear_in_ns: value.message_disappear_in_ns,
-            paused_for_version: None, // TODO: Add this to the backup
-            maybe_forked: false,
-            fork_details: String::new(),
-            sequence_id: None,
-            originator_id: None,
-            should_publish_commit_log: false, // TODO(cvoell): verify we update when we receive a welcome
-            commit_log_public_key: None,
-            is_commit_log_forked: None,
-        })
-    }
-}
 
 impl TryFrom<GroupMembershipStateSave> for GroupMembershipState {
     type Error = ConversionError;
@@ -86,6 +53,7 @@ impl From<ConversationType> for ConversationTypeSave {
             ConversationType::Dm => Self::Dm,
             ConversationType::Group => Self::Group,
             ConversationType::Sync => Self::Sync,
+            ConversationType::Oneshot => Self::Unspecified,
         }
     }
 }
@@ -103,6 +71,7 @@ impl From<ConversationType> for ConversationTypeProto {
             ConversationType::Group => Self::Group,
             ConversationType::Dm => Self::Dm,
             ConversationType::Sync => Self::Sync,
+            ConversationType::Oneshot => Self::Oneshot,
         }
     }
 }
@@ -115,10 +84,11 @@ impl TryFrom<i32> for ConversationType {
             1 => Self::Group,
             2 => Self::Dm,
             3 => Self::Sync,
+            4 => Self::Oneshot,
             n => {
                 return Err(ConversionError::InvalidValue {
                     item: "ConversationType",
-                    expected: "number between 1 - 3",
+                    expected: "number between 1 - 4",
                     got: n.to_string(),
                 });
             }

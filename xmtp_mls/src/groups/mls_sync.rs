@@ -1,7 +1,6 @@
 use super::{
     GroupError, HmacKey, MlsGroup, build_extensions_for_admin_lists_update,
-    build_extensions_for_metadata_update, build_extensions_for_pending_remove_lists_update,
-    build_extensions_for_permissions_update,
+    build_extensions_for_metadata_update, build_extensions_for_permissions_update,
     intents::{
         Installation, IntentError, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
@@ -62,7 +61,6 @@ use xmtp_mls_common::group_mutable_metadata::{
     GroupMutableMetadataError, MetadataField, extract_group_mutable_metadata,
 };
 
-use crate::groups::intents::UpdatePendingRemoveListIntentData;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -139,7 +137,9 @@ pub enum GroupMessageProcessingError {
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
-    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
+    OpenMlsProcessMessage(
+        #[from] openmls::prelude::ProcessMessageError<sql_key_store::SqlKeyStoreError>,
+    ),
     #[error("merge staged commit: {0}")]
     MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::SqlKeyStoreError>),
     #[error("TLS Codec error: {0}")]
@@ -260,11 +260,24 @@ impl RetryableError for IntentResolutionError {
 }
 
 #[derive(Debug)]
-struct PublishIntentData {
+pub(crate) struct PublishIntentData {
     staged_commit: Option<Vec<u8>>,
     post_commit_action: Option<Vec<u8>>,
     payload_to_publish: Vec<u8>,
     should_send_push_notification: bool,
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl PublishIntentData {
+    #[allow(dead_code)]
+    pub fn post_commit_data(&self) -> Option<Vec<u8>> {
+        self.post_commit_action.clone()
+    }
+
+    #[allow(dead_code)]
+    pub fn staged_commit(&self) -> Option<Vec<u8>> {
+        self.staged_commit.clone()
+    }
 }
 
 impl<Context> MlsGroup<Context>
@@ -565,7 +578,6 @@ where
             IntentKind::KeyUpdate
             | IntentKind::UpdateGroupMembership
             | IntentKind::UpdateAdminList
-            | IntentKind::UpdatePendingRemoveList
             | IntentKind::MetadataUpdate
             | IntentKind::UpdatePermission => {
                 if let Some(published_in_epoch) = intent.published_in_epoch {
@@ -1068,6 +1080,8 @@ where
                             originator_id: None,
                             expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                         };
+                        // todo: process leave message type here
+
                         message.store_or_ignore(&storage.db())?;
                         // make sure internal id is on return type after its stored successfully
                         identifier.internal_id(message_id);
@@ -1730,39 +1744,24 @@ where
         intent: &StoredGroupIntent,
         storage: &impl XmtpMlsStorageProvider,
     ) -> Result<(), IntentError> {
-        match intent.kind {
-            IntentKind::MetadataUpdate => {
-                let data = UpdateMetadataIntentData::try_from(intent.data.clone())?;
+        if intent.kind == IntentKind::MetadataUpdate {
+            let data = UpdateMetadataIntentData::try_from(intent.data.clone())?;
 
-                match data.field_name.as_str() {
-                    field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
-                        storage.db().update_message_disappearing_from_ns(
-                            self.group_id.clone(),
-                            data.field_value.parse::<i64>().ok(),
-                        )?
-                    }
-                    field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
-                        storage.db().update_message_disappearing_in_ns(
-                            self.group_id.clone(),
-                            data.field_value.parse::<i64>().ok(),
-                        )?
-                    }
-                    _ => {} // handle other metadata updates
+            match data.field_name.as_str() {
+                field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
+                    storage.db().update_message_disappearing_from_ns(
+                        self.group_id.clone(),
+                        data.field_value.parse::<i64>().ok(),
+                    )?
                 }
-            }
-            IntentKind::UpdatePendingRemoveList => {
-                let data = UpdatePendingRemoveListIntentData::try_from(intent.data.clone())?;
-                if data.inbox_id == self.context.inbox_id() {
-                    storage
-                        .db()
-                        .update_group_membership(
-                            &intent.group_id,
-                            GroupMembershipState::PendingRemove,
-                        )
-                        .map_err(|e| IntentError::Storage(e.into()))?
+                field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
+                    storage.db().update_message_disappearing_in_ns(
+                        self.group_id.clone(),
+                        data.field_value.parse::<i64>().ok(),
+                    )?
                 }
+                _ => {} // handle other metadata updates
             }
-            _ => (),
         }
         Ok(())
     }
@@ -2374,43 +2373,43 @@ where
                     should_send_push_notification: intent.should_push,
                 }))
             }
-            IntentKind::UpdatePendingRemoveList => {
-                let pending_remove_list_update_intent =
-                    UpdatePendingRemoveListIntentData::try_from(intent.data.clone())?;
-                let mutable_metadata_extensions = build_extensions_for_pending_remove_lists_update(
-                    openmls_group,
-                    pending_remove_list_update_intent,
-                )?;
-
-                let result = storage.transaction(|conn| {
-                    let storage = conn.key_store();
-                    let provider = XmtpOpenMlsProviderRef::new(&storage);
-                    let (commit, _, _) = openmls_group.update_group_context_extensions(
-                        &provider,
-                        mutable_metadata_extensions,
-                        &self.context.identity().installation_keys,
-                    )?;
-                    let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
-
-                    Ok::<_, GroupError>((commit, staged_commit))
-                });
-                let (commit, staged_commit) = match result {
-                    Ok(res) => res,
-                    Err(e) => {
-                        openmls_group.reload(storage)?;
-                        return Err(e);
-                    }
-                };
-
-                let commit_bytes = commit.tls_serialize_detached()?;
-
-                Ok(Some(PublishIntentData {
-                    payload_to_publish: commit_bytes,
-                    staged_commit,
-                    post_commit_action: None,
-                    should_send_push_notification: intent.should_push,
-                }))
-            }
+            // IntentKind::UpdatePendingRemoveList => {
+            //     let pending_remove_list_update_intent =
+            //         UpdatePendingRemoveListIntentData::try_from(intent.data.clone())?;
+            //     let mutable_metadata_extensions = build_extensions_for_pending_remove_lists_update(
+            //         openmls_group,
+            //         pending_remove_list_update_intent,
+            //     )?;
+            //
+            //     let result = storage.transaction(|conn| {
+            //         let storage = conn.key_store();
+            //         let provider = XmtpOpenMlsProviderRef::new(&storage);
+            //         let (commit, _, _) = openmls_group.update_group_context_extensions(
+            //             &provider,
+            //             mutable_metadata_extensions,
+            //             &self.context.identity().installation_keys,
+            //         )?;
+            //         let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
+            //
+            //         Ok::<_, GroupError>((commit, staged_commit))
+            //     });
+            //     let (commit, staged_commit) = match result {
+            //         Ok(res) => res,
+            //         Err(e) => {
+            //             openmls_group.reload(storage)?;
+            //             return Err(e);
+            //         }
+            //     };
+            //
+            //     let commit_bytes = commit.tls_serialize_detached()?;
+            //
+            //     Ok(Some(PublishIntentData {
+            //         payload_to_publish: commit_bytes,
+            //         staged_commit,
+            //         post_commit_action: None,
+            //         should_send_push_notification: intent.should_push,
+            //     }))
+            // }
             IntentKind::UpdatePermission => {
                 let update_permissions_intent =
                     UpdatePermissionIntentData::try_from(intent.data.clone())?;
@@ -2491,8 +2490,7 @@ where
                 self.group_id.clone(),
             )));
         };
-        if stored_group.conversation_type == ConversationType::Sync {
-            // Sync groups should not add new installations, new installations will create their own.
+        if stored_group.conversation_type.is_virtual() {
             return Ok(());
         }
 
@@ -2553,7 +2551,7 @@ where
      * Callers may also include a list of added or removed inboxes
      */
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(super) async fn get_membership_update_intent(
+    pub(crate) async fn get_membership_update_intent(
         &self,
         inbox_ids_to_add: &[InboxIdRef<'_>],
         inbox_ids_to_remove: &[InboxIdRef<'_>],
@@ -2661,24 +2659,20 @@ where
                     let welcome_metadata = WelcomeMetadata {
                         message_cursor: message_cursor.unwrap_or(0) as u64,
                     };
-                    let wrapped_welcome_metadata = wrap_welcome(
-                        &welcome_metadata.encode_to_vec(),
-                        &installation.hpke_public_key,
-                        &algorithm,
-                    )?;
-
-                    let wrapped_welcome = wrap_welcome(
+                    let welcome_metadata_bytes = welcome_metadata.encode_to_vec();
+                    let (data, welcome_metadata) = wrap_welcome(
                         &action.welcome_message,
+                        &welcome_metadata_bytes,
                         &installation.hpke_public_key,
                         &algorithm,
                     )?;
                     Ok(WelcomeMessageInput {
                         version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
                             installation_key,
-                            data: wrapped_welcome,
+                            data,
                             hpke_public_key: installation.hpke_public_key,
                             wrapper_algorithm: algorithm.into(),
-                            welcome_metadata: wrapped_welcome_metadata,
+                            welcome_metadata,
                         })),
                     })
                 },
@@ -2959,7 +2953,9 @@ fn get_and_clear_pending_commit(
     Ok(commit)
 }
 
-fn decode_staged_commit(data: &[u8]) -> Result<StagedCommit, GroupMessageProcessingError> {
+pub(crate) fn decode_staged_commit(
+    data: &[u8],
+) -> Result<StagedCommit, GroupMessageProcessingError> {
     Ok(xmtp_db::db_deserialize(data)?)
 }
 

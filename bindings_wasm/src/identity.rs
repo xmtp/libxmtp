@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
-use wasm_bindgen::{prelude::wasm_bindgen, JsError};
-use xmtp_id::associations::{ident, Identifier as XmtpIdentifier};
+use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use xmtp_id::associations::{Identifier as XmtpIdentifier, ident};
 
 #[derive(Tsify, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 #[tsify(into_wasm_abi, from_wasm_abi)]

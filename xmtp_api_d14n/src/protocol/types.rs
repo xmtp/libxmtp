@@ -17,7 +17,7 @@ impl TopicKind {
 }
 
 /// A topic where the first byte is the kind
-/// https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#332-envelopes
+/// <https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#332-envelopes>
 pub struct Topic {
     kind: TopicKind,
     bytes: Vec<u8>,

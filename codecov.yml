@@ -1,0 +1,2 @@
+ignore:
+  - "xmtp_proto/src/gen"

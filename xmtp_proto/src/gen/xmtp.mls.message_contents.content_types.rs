@@ -146,6 +146,19 @@ impl ::prost::Name for RemoteAttachmentInfo {
         "/xmtp.mls.message_contents.content_types.RemoteAttachmentInfo".into()
     }
 }
+/// LeaveRequest message type
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct LeaveRequest {}
+impl ::prost::Name for LeaveRequest {
+    const NAME: &'static str = "LeaveRequest";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents.content_types";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.content_types.LeaveRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.content_types.LeaveRequest".into()
+    }
+}
 /// WalletSendCalls represents parameters for sending wallet calls
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WalletSendCalls {

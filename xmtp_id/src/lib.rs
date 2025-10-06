@@ -5,14 +5,14 @@ pub mod constants;
 pub mod scw_verifier;
 pub mod utils;
 
-use alloy::{signers::local::PrivateKeySigner, signers::SignerSync};
+use alloy::{signers::SignerSync, signers::local::PrivateKeySigner};
 use associations::{
-    unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     Identifier,
+    unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
 };
 use openmls_traits::types::CryptoError;
 use thiserror::Error;
-use xmtp_cryptography::signature::{h160addr_to_string, IdentifierValidationError, SignatureError};
+use xmtp_cryptography::signature::{IdentifierValidationError, SignatureError, h160addr_to_string};
 
 #[derive(Debug, Error)]
 pub enum IdentityError {
@@ -37,8 +37,8 @@ pub type InboxId = String;
 pub type WalletAddress = String;
 
 use crate::associations::unverified::UnverifiedIdentityUpdate;
-use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::ConversionError;
+use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
 
 #[derive(Clone)]
 pub struct InboxUpdate {

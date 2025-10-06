@@ -1,3 +1,5 @@
+use xmtp_proto::mls_v1::subscribe_group_messages_request::Filter as SubscribeGroupMessagesFilter;
+use xmtp_proto::mls_v1::subscribe_welcome_messages_request::Filter as SubscribeWelcomeMessagesFilter;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessageInput;
@@ -16,7 +18,7 @@ use super::EnvelopeError;
 
 /// Envelope Visitor type for ergonomic handling of serialized nested envelope types.
 ///
-/// The blanket implementation on Vec<T> enables combining an arbitrary number of visitors into one,
+/// The blanket implementation on `Vec<T>` enables combining an arbitrary number of visitors into one,
 ///
 /// process = vec![ValidateMessage::new(), ExtractMessage::new()];
 /// Each step is ran in sequence, and if one of the steps fail, the entire process is
@@ -124,6 +126,24 @@ pub trait EnvelopeVisitor<'env> {
         _u: &get_newest_envelope_response::Response,
     ) -> Result<(), Self::Error> {
         tracing::debug!("visit_newest_envelope_response");
+        Ok(())
+    }
+
+    /// visit_subscribe_group_messages_request
+    fn visit_subscribe_group_messages_request(
+        &mut self,
+        _r: &SubscribeGroupMessagesFilter,
+    ) -> Result<(), Self::Error> {
+        tracing::debug!("visit_subscribe_group_messages_request");
+        Ok(())
+    }
+
+    /// visit_subscribe_group_messages_request
+    fn visit_subscribe_welcome_messages_request(
+        &mut self,
+        _r: &SubscribeWelcomeMessagesFilter,
+    ) -> Result<(), Self::Error> {
+        tracing::debug!("visit_subscribe_group_messages_request");
         Ok(())
     }
 }

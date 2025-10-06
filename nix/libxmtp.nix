@@ -28,12 +28,12 @@
 , protobuf
 , protolint
 , mkShell
-, wasm-bindgen-cli_0_2_100
 , wasm-pack
 , binaryen
 , emscripten
 , taplo
 , shellcheck
+, cargo-llvm-cov
 , ...
 }:
 
@@ -56,7 +56,7 @@ mkShell {
   AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
   CFLAGS_wasm32_unknown_unknown = "-I ${llvmPackages.clang-unwrapped.lib}/lib/clang/19/include";
 
-  nativeBuildInputs = [ pkg-config zstd sqlite wasm-pack wasm-bindgen-cli_0_2_100 binaryen emscripten ];
+  nativeBuildInputs = [ pkg-config zstd sqlite wasm-pack binaryen emscripten ];
   buildInputs =
     [
       rust-toolchain
@@ -87,6 +87,7 @@ mkShell {
       lnav
       jq
       curl
+      cargo-llvm-cov
 
       # Protobuf
       buf
