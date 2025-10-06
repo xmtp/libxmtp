@@ -159,9 +159,9 @@ pub async fn create_client(
   app_version: Option<String>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
-  let api_client = TonicApiClient::create(host.clone(), true, app_version.clone()).await?;
+  let api_client = TonicApiClient::create(host.clone(), true, app_version.clone())?;
 
-  let sync_api_client = TonicApiClient::create(host.clone(), true, app_version.clone()).await?;
+  let sync_api_client = TonicApiClient::create(host.clone(), true, app_version.clone())?;
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),

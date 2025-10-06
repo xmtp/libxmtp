@@ -72,10 +72,8 @@ where
         <Builder as ApiBuilder>::host(&self.client)
     }
 
-    async fn build(self) -> Result<Self::Output, Self::Error> {
-        Ok(V3Client::new(
-            <Builder as ApiBuilder>::build(self.client).await?,
-        ))
+    fn build(self) -> Result<Self::Output, Self::Error> {
+        Ok(V3Client::new(<Builder as ApiBuilder>::build(self.client)?))
     }
 }
 

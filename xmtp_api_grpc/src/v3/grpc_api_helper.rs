@@ -41,7 +41,7 @@ impl Client {
     /// Automatically chooses gRPC service based on target.
     ///
     /// _NOTE:_ 'is_secure' is a no-op in web-assembly (browser handles TLS)
-    pub async fn create(
+    pub fn create(
         host: impl ToString,
         is_secure: bool,
         app_version: Option<impl ToString>,
@@ -50,7 +50,7 @@ impl Client {
         b.set_tls(is_secure);
         b.set_host(host.to_string());
         b.set_app_version(app_version.map_or(Default::default(), |v| v.to_string().into()))?;
-        b.build().await
+        b.build()
     }
 
     pub fn build_request<RequestType>(&self, request: RequestType) -> Request<RequestType> {
@@ -120,12 +120,11 @@ impl ApiBuilder for ClientBuilder {
         self.inner.host()
     }
 
-    async fn build(self) -> Result<Self::Output, Self::Error> {
+    fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.inner.host().ok_or(GrpcBuilderError::MissingHostUrl)?;
         tracing::info!("building api client for {}", host);
         let channel =
-            crate::GrpcService::new(host.to_string(), self.inner.limit, self.inner.tls_channel)
-                .await?;
+            crate::GrpcService::new(host.to_string(), self.inner.limit, self.inner.tls_channel)?;
         let mls_client = ProtoMlsApiClient::new(channel.clone())
             .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
             .max_encoding_message_size(GRPC_PAYLOAD_LIMIT);

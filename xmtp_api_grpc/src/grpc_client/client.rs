@@ -242,9 +242,9 @@ impl ApiBuilder for ClientBuilder {
         self.host.as_deref()
     }
 
-    async fn build(self) -> Result<Self::Output, Self::Error> {
+    fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
-        let channel = crate::GrpcService::new(host, self.limit, self.tls_channel).await?;
+        let channel = crate::GrpcService::new(host, self.limit, self.tls_channel)?;
         Ok(GrpcClient {
             inner: tonic::client::Grpc::new(channel)
                 .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)

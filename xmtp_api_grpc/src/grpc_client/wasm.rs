@@ -14,7 +14,7 @@ pub struct GrpcWebService {
 }
 
 impl GrpcWebService {
-    pub async fn new(
+    pub fn new(
         host: String,
         _limit: Option<u64>,
         _is_secure: bool,

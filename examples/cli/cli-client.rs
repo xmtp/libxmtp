@@ -241,63 +241,66 @@ async fn main() -> color_eyre::eyre::Result<()> {
             let mut message = GrpcClient::builder();
             message.set_host("http://localhost:5050".into());
             message.set_tls(false);
-            let message = message.build().await?;
+            let message = message.build()?;
             let mut gateway = GrpcClient::builder();
             gateway.set_host("http://localhost:5052".into());
             gateway.set_tls(false);
-            let gateway = gateway.build().await?;
+            let gateway = gateway.build()?;
             Arc::new(D14nClient::new(message, gateway))
         }
         (true, Env::Production) => {
             let mut message = GrpcClient::builder();
             message.set_host("https://grpc.testnet.xmtp.network:443".into());
             message.set_tls(false);
-            let message = message.build().await?;
+            let message = message.build()?;
             let mut gateway = GrpcClient::builder();
             gateway.set_host("https://payer.testnet.xmtp.network:443".into());
             gateway.set_tls(true);
-            let gateway = gateway.build().await?;
+            let gateway = gateway.build()?;
             Arc::new(D14nClient::new(message, gateway))
         }
         (true, Env::Staging) => {
             let mut message = GrpcClient::builder();
             message.set_host("https://grpc.testnet-staging.xmtp.network:443".into());
             message.set_tls(false);
-            let message = message.build().await?;
+            let message = message.build()?;
             let mut gateway = GrpcClient::builder();
             gateway.set_host("https://payer.testnet-staging.xmtp.network:443".into());
             gateway.set_tls(true);
-            let gateway = gateway.build().await?;
+            let gateway = gateway.build()?;
             Arc::new(D14nClient::new(message, gateway))
         }
         (true, Env::Dev) => {
             let mut message = GrpcClient::builder();
             message.set_host("https://grpc.testnet-dev.xmtp.network:443".into());
             message.set_tls(false);
-            let message = message.build().await?;
+            let message = message.build()?;
             let mut gateway = GrpcClient::builder();
             gateway.set_host("https://payer.testnet-dev.xmtp.network:443".into());
             gateway.set_tls(true);
-            let gateway = gateway.build().await?;
+            let gateway = gateway.build()?;
             Arc::new(D14nClient::new(message, gateway))
         }
-        (false, Env::Local) => {
-            Arc::new(ClientV3::create("http://localhost:5556", false, None::<String>).await?)
-        }
-        (false, Env::Dev) => Arc::new(
-            ClientV3::create("https://grpc.dev.xmtp.network:443", true, None::<String>).await?,
-        ),
-        (false, Env::Staging) => Arc::new(
-            ClientV3::create("https://grpc.dev.xmtp.network:443", true, None::<String>).await?,
-        ),
-        (false, Env::Production) => Arc::new(
-            ClientV3::create(
-                "https://grpc.production.xmtp.network:443",
-                true,
-                None::<String>,
-            )
-            .await?,
-        ),
+        (false, Env::Local) => Arc::new(ClientV3::create(
+            "http://localhost:5556",
+            false,
+            None::<String>,
+        )?),
+        (false, Env::Dev) => Arc::new(ClientV3::create(
+            "https://grpc.dev.xmtp.network:443",
+            true,
+            None::<String>,
+        )?),
+        (false, Env::Staging) => Arc::new(ClientV3::create(
+            "https://grpc.dev.xmtp.network:443",
+            true,
+            None::<String>,
+        )?),
+        (false, Env::Production) => Arc::new(ClientV3::create(
+            "https://grpc.production.xmtp.network:443",
+            true,
+            None::<String>,
+        )?),
     };
 
     if let Commands::Register { seed_phrase } = &cli.command {

@@ -53,11 +53,9 @@ impl<A, S> ClientBuilder<A, S> {
     pub async fn dev(self) -> ClientBuilder<TestClient, S> {
         let api_client = <TestClient as XmtpTestClient>::create_dev()
             .build()
-            .await
             .unwrap();
         let sync_api_client = <TestClient as XmtpTestClient>::create_dev()
             .build()
-            .await
             .unwrap();
         self.api_clients(api_client, sync_api_client)
     }
@@ -65,11 +63,9 @@ impl<A, S> ClientBuilder<A, S> {
     pub async fn local(self) -> ClientBuilder<TestClient, S> {
         let api_client = <TestClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap();
         let sync_api_client = <TestClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap();
         self.api_clients(api_client, sync_api_client)
     }
@@ -148,11 +144,9 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
     pub async fn new_test_client_dev(owner: &impl InboxOwner) -> FullXmtpClient {
         let api_client = <TestClient as XmtpTestClient>::create_dev()
             .build()
-            .await
             .unwrap();
         let sync_api_client = <TestClient as XmtpTestClient>::create_dev()
             .build()
-            .await
             .unwrap();
 
         let client = Self::new_test_builder(owner)
@@ -172,12 +166,10 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
     ) -> FullXmtpClient {
         let api_client = <TestClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap();
 
         let sync_api_client = <TestClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap();
 
         let client = Self::new_test_builder(owner)
@@ -198,11 +190,9 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         self.api_clients(
             <TestClient as XmtpTestClient>::create_local()
                 .build()
-                .await
                 .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
-                .await
                 .unwrap(),
         )
     }
@@ -211,11 +201,9 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         self.api_clients(
             <TestClient as XmtpTestClient>::create_dev()
                 .build()
-                .await
                 .unwrap(),
             <TestClient as XmtpTestClient>::create_dev()
                 .build()
-                .await
                 .unwrap(),
         )
     }

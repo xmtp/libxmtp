@@ -64,11 +64,11 @@ mod test {
         let mut endpoint = HealthCheck::builder().build().unwrap();
 
         let xmtpd_client = crate::TestClient::create_d14n();
-        let client = xmtpd_client.build().await.unwrap();
+        let client = xmtpd_client.build().unwrap();
         assert!(endpoint.query(&client).await.is_ok());
 
         let gateway_client = crate::TestClient::create_gateway();
-        let client = gateway_client.build().await.unwrap();
+        let client = gateway_client.build().unwrap();
         assert!(endpoint.query(&client).await.is_ok());
     }
 }

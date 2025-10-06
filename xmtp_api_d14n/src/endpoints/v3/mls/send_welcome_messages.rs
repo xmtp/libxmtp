@@ -62,7 +62,7 @@ mod test {
             version: Some(welcome_message_input::Version::V1(Default::default())),
         };
         let client = crate::TestClient::create_local();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
         let endpoint = SendWelcomeMessages::builder()
             .messages(vec![welcome_message])
             .build()

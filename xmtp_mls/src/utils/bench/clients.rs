@@ -25,13 +25,11 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, Privat
         tracing::info!("Using Dev GRPC");
         <TestApiClient as XmtpTestClient>::create_dev()
             .build()
-            .await
             .unwrap()
     } else {
         tracing::info!("Using Local GRPC");
         <TestApiClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap()
     };
 
@@ -39,13 +37,11 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, Privat
         tracing::info!("Using Dev GRPC");
         <TestApiClient as XmtpTestClient>::create_dev()
             .build()
-            .await
             .unwrap()
     } else {
         tracing::info!("Using Local GRPC");
         <TestApiClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap()
     };
 
@@ -108,13 +104,11 @@ pub async fn create_client_from_identity(
         tracing::info!("Using Dev GRPC");
         <TestApiClient as XmtpTestClient>::create_dev()
             .build()
-            .await
             .unwrap()
     } else {
         tracing::info!("Using Local GRPC");
         <TestApiClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap()
     };
 
@@ -122,13 +116,11 @@ pub async fn create_client_from_identity(
         tracing::info!("Using Dev GRPC");
         <TestApiClient as XmtpTestClient>::create_dev()
             .build()
-            .await
             .unwrap()
     } else {
         tracing::info!("Using Local GRPC");
         <TestApiClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap()
     };
 

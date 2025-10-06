@@ -62,7 +62,7 @@ mod test {
         use crate::d14n::SubscribeEnvelopes;
 
         let client = crate::TestClient::create_d14n();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
 
         let mut endpoint = SubscribeEnvelopes::builder()
             .envelopes(EnvelopesQuery {

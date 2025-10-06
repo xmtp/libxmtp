@@ -34,7 +34,7 @@ impl ApiBuilder for MockApiBuilder {
         Ok(None)
     }
 
-    async fn build(self) -> Result<Self::Output, Self::Error> {
+    fn build(self) -> Result<Self::Output, Self::Error> {
         Ok(MockNetworkClient::default())
     }
 
