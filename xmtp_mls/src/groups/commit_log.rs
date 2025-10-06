@@ -11,6 +11,7 @@ use xmtp_api::ApiError;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_db::group::ConversationType;
 use xmtp_db::group::DmIdExt;
+use xmtp_configuration::Originators;
 use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
 use xmtp_db::{
@@ -22,6 +23,7 @@ use xmtp_db::{
     remote_commit_log::{CommitResult, NewRemoteCommitLog},
 };
 use xmtp_proto::mls_v1::PublishCommitLogRequest;
+use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
 use xmtp_proto::xmtp::mls::message_contents::{CommitLogEntry, CommitResult as ProtoCommitResult};
 use xmtp_proto::{
@@ -224,7 +226,9 @@ where
                     conn.update_cursor(
                         &conversation_cursor_info.conversation_id,
                         xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-                        conversation_cursor_info.last_entry_published_rowid,
+                        Cursor::commit_log(
+                            conversation_cursor_info.last_entry_published_rowid as u64,
+                        ),
                     )?;
                 }
             }
@@ -256,13 +260,15 @@ where
                 .flatten()
                 .unwrap_or(0);
             let published_commit_log_cursor = conn
-                .get_last_cursor_for_id(
+                .get_last_cursor_for_originator(
                     &conversation.id,
                     xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+                    Originators::REMOTE_COMMIT_LOG as u32,
                 )
-                .unwrap_or(0);
+                .unwrap_or_default()
+                .sequence_id;
 
-            if local_commit_log_cursor as i64 <= published_commit_log_cursor {
+            if local_commit_log_cursor <= published_commit_log_cursor as i32 {
                 // We have no new commits to publish for this conversation
                 continue;
             }
@@ -273,7 +279,7 @@ where
             let (plaintext_commit_log_entries, rowids): (Vec<PlaintextCommitLogEntry>, Vec<i32>) =
                 conn.get_local_commit_log_after_cursor(
                     &conversation.id,
-                    published_commit_log_cursor,
+                    published_commit_log_cursor as i64,
                     LocalCommitLogOrder::AscendingByRowid,
                 )?
                 .iter()
@@ -360,7 +366,7 @@ where
                 group_id: conversation_id.clone(),
                 paging_info: Some(PagingInfo {
                     direction: SortDirection::Ascending as i32,
-                    id_cursor: *cursor as u64,
+                    id_cursor: cursor.sequence_id,
                     limit: MAX_PAGE_SIZE,
                 }),
             })
@@ -472,7 +478,7 @@ where
             conn.update_cursor(
                 &group_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogDownload,
-                last_entry.sequence_id as i64,
+                Cursor::commit_log(last_entry.sequence_id),
             )?;
         }
 
@@ -660,24 +666,26 @@ where
         conversation_id: &[u8],
     ) -> Result<Option<bool>, CommitLogError> {
         // Get cursors for this conversation
-        let fork_check_local_cursor = conn.get_last_cursor_for_id(
+        let fork_check_local_cursor = conn.get_last_cursor_for_originator(
             conversation_id,
             xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
+            Originators::REMOTE_COMMIT_LOG as u32,
         )?;
-        let fork_check_remote_cursor = conn.get_last_cursor_for_id(
+        let fork_check_remote_cursor = conn.get_last_cursor_for_originator(
             conversation_id,
             xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
+            Originators::REMOTE_COMMIT_LOG as u32,
         )?;
 
         // Get local and remote commit logs
         let local_logs = conn.get_local_commit_log_after_cursor(
             conversation_id,
-            fork_check_local_cursor,
+            fork_check_local_cursor.sequence_id as i64,
             LocalCommitLogOrder::DescendingByRowid,
         )?;
         let remote_logs = conn.get_remote_commit_log_after_cursor(
             conversation_id,
-            fork_check_remote_cursor,
+            fork_check_remote_cursor.sequence_id as i64,
             RemoteCommitLogOrder::DescendingByRowid,
         )?;
 
@@ -710,16 +718,17 @@ where
                 );
             }
 
+            // TODO: d14n needs correct originator/double check
             // Update cursors regardless of fork status (we found a match)
             conn.update_cursor(
                 conversation_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-                local_log.rowid as i64,
+                Cursor::commit_log(local_log.rowid as u64),
             )?;
             conn.update_cursor(
                 conversation_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-                matching_remote_log.rowid as i64,
+                Cursor::commit_log(matching_remote_log.rowid as u64),
             )?;
 
             if is_mismatched {

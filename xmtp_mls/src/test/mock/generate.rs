@@ -120,8 +120,8 @@ pub fn generate_stored_msg(cursor: Cursor, group_id: Vec<u8>) -> StoredGroupMess
         version_minor: 0,
         authority_id: "testauthority".to_string(),
         reference_id: None,
-        sequence_id: Some(cursor.sequence_id as i64),
-        originator_id: Some(100),
+        sequence_id: cursor.sequence_id as i64,
+        originator_id: cursor.originator_id as i64,
         expire_at_ns: None,
     }
 }

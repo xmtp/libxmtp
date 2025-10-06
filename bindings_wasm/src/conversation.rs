@@ -755,8 +755,8 @@ mod tests {
       version_minor: 123,
       authority_id: String::from("test"),
       reference_id: None,
-      originator_id: None,
-      sequence_id: None,
+      originator_id: 0,
+      sequence_id: 0,
       expire_at_ns: None,
     };
     crate::to_value(&stored_message).unwrap();

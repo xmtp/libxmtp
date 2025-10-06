@@ -44,39 +44,35 @@ use xmtp_configuration::{
     GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
     SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
-use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{
     Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
     events::EventLevel,
     group::{ConversationType, StoredGroup},
     group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-    refresh_state::EntityKind,
     remote_commit_log::CommitResult,
     sql_key_store,
     user_preferences::StoredUserPreferences,
 };
+use xmtp_db::{XmtpMlsStorageProvider, refresh_state::HasEntityKind};
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
+use openmls::group::{ProcessMessageError, ValidationError};
 use openmls::prelude::BasicCredentialError;
 use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
-    framing::{ContentType as MlsContentType, ProtocolMessage},
+    framing::ProtocolMessage,
     group::{GroupEpoch, StagedCommit},
     prelude::{
         LeafNodeIndex, MlsGroup as OpenMlsGroup, ProcessedMessage, ProcessedMessageContent, Sender,
         tls_codec::{Error as TlsCodecError, Serialize},
     },
     treesync::LeafNodeParameters,
-};
-use openmls::{
-    group::{ProcessMessageError, ValidationError},
-    prelude::WireFormat,
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
@@ -826,7 +822,7 @@ where
             .set_delivery_status_to_published(
                 &id,
                 envelope_timestamp_ns as u64,
-                envelope.sequence_id() as i64,
+                envelope.cursor,
                 message_expire_at_ns,
             )
             .map_err(|err| IntentResolutionError {
@@ -905,11 +901,7 @@ where
                         match &e {
                             CommitValidationError::ProtocolVersionTooLow(_) => {}
                             _ => {
-                                self.context.db().update_cursor(
-                                    &envelope.group_id,
-                                    EntityKind::Group,
-                                    cursor.sequence_id as i64,
-                                )?;
+                                self.maybe_update_cursor(&self.context.db(), envelope)?;
                             }
                         };
 
@@ -947,11 +939,7 @@ where
                     hex::encode(envelope.group_id.as_slice()),
                     *cursor
                 );
-                db.update_cursor(
-                    &envelope.group_id,
-                    EntityKind::Group,
-                    cursor.sequence_id as i64,
-                )?
+                self.maybe_update_cursor(&db, envelope)?
             } else {
                 tracing::info!(
                     "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
@@ -959,15 +947,15 @@ where
                     *cursor
                 );
                 let current_cursor = db
-                    .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
-                current_cursor < cursor.sequence_id as i64
+                    .get_last_cursor_for_originator(&envelope.group_id, envelope.entity_kind(), envelope.originator_id())?;
+                current_cursor.sequence_id < envelope.cursor.sequence_id
             };
             if !requires_processing {
                 // early return if the message is already procesed
                 // _NOTE_: Not early returning and re-processing a message that
                 // has already been processed, has the potential to result in forks.
                 tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
-                    envelope.sequence_id(),
+                    envelope.cursor,
                     xmtp_common::fmt::debug_hex(&envelope.group_id),
                     envelope.created_ns
                  );
@@ -1067,8 +1055,8 @@ where
                             version_minor: queryable_content_fields.version_minor,
                             authority_id: queryable_content_fields.authority_id,
                             reference_id: queryable_content_fields.reference_id,
-                            sequence_id: Some(cursor.sequence_id as i64),
-                            originator_id: None,
+                            sequence_id: cursor.sequence_id as i64,
+                            originator_id: cursor.originator_id as i64,
                             expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                         };
                         message.store_or_ignore(&storage.db())?;
@@ -1122,8 +1110,8 @@ where
                                     version_minor: 0,
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
-                                    sequence_id: Some(cursor.sequence_id as i64),
-                                    originator_id: None,
+                                    sequence_id: cursor.sequence_id as i64,
+                                    originator_id: cursor.originator_id as i64,
                                     expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                                 };
                                 message.store_or_ignore(&storage.db())?;
@@ -1159,8 +1147,8 @@ where
                                     version_minor: 0,
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
-                                    sequence_id: Some(cursor.sequence_id as i64),
-                                    originator_id: None,
+                                    sequence_id: cursor.sequence_id as i64,
+                                    originator_id: cursor.originator_id as i64,
                                     expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                                 };
                                 message.store_or_ignore(&storage.db())?;
@@ -1305,24 +1293,19 @@ where
         envelope: &xmtp_proto::types::GroupMessage,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
-        let message_entity_kind = match envelope.message.wire_format() {
-            WireFormat::Welcome => EntityKind::Welcome,
-            _ => EntityKind::Group,
-        };
-
         if trust_message_order {
-            let last_cursor = self
-                .context
-                .db()
-                .get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
-            if last_cursor > envelope.sequence_id() as i64 {
+            let last_cursor = self.context.db().get_last_cursor_for_originator(
+                &envelope.group_id,
+                envelope.entity_kind(),
+                envelope.originator_id(),
+            )?;
+            if last_cursor.sequence_id > envelope.sequence_id() {
                 tracing::info!(
                     inbox_id = self.context.inbox_id(),
                     installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(&self.group_id),
-                    "Message already processed: skipped cursor:[{}] entity kind:[{:?}] last cursor in db: [{}]",
-                    envelope.sequence_id(),
-                    message_entity_kind,
+                    group_id = hex::encode(&envelope.group_id),
+                    "Message already processed: skipped cursor:[{}] last cursor in db: [{}]",
+                    envelope.cursor,
                     last_cursor
                 );
                 // early return if the message is already procesed
@@ -1342,20 +1325,12 @@ where
                     ));
                 }
             };
-            let message_type = envelope.message.content_type();
-            let message_epoch = envelope.message.epoch();
             let mut result = self
                 .process_message_inner(&mut mls_group, envelope, trust_message_order)
                 .await;
             if trust_message_order {
                 result = self
-                    .post_process_message(
-                        &mls_group,
-                        result,
-                        envelope.cursor,
-                        message_type,
-                        message_epoch,
-                    )
+                    .post_process_message(&mls_group, result, envelope)
                     .await;
             }
             result
@@ -1373,7 +1348,7 @@ where
         let db = self.context.db();
         let allow_epoch_increment = trust_message_order;
         let allow_cursor_increment = trust_message_order;
-        let cursor = envelope.sequence_id();
+        let cursor = envelope.cursor;
         if !allow_epoch_increment && envelope.is_commit() {
             return Err(GroupMessageProcessingError::EpochIncrementNotAllowed);
         }
@@ -1382,13 +1357,12 @@ where
             .find_group_intent_by_payload_hash(envelope.payload_hash.as_slice())
             .map_err(GroupMessageProcessingError::Storage)?;
 
-        let group_cursor = db.get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
-        let group_cursor_u64 = u64::try_from(group_cursor).map_err(|e| {
-            GroupMessageProcessingError::Storage(xmtp_db::StorageError::Connection(
-                xmtp_db::ConnectionError::InvalidNegativeCursor(e.to_string()),
-            ))
-        })?;
-        if group_cursor_u64 >= cursor {
+        let group_cursor = db.get_last_cursor_for_originator(
+            &self.group_id,
+            envelope.entity_kind(),
+            envelope.originator_id(),
+        )?;
+        if group_cursor.sequence_id >= envelope.sequence_id() {
             // early return if the message is already processed
             // _NOTE_: Not early returning and re-processing a message that
             // has already been processed, has the potential to result in forks.
@@ -1436,7 +1410,7 @@ where
                     let db = storage.db();
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
                     let requires_processing = if allow_cursor_increment {
-                        self.update_cursor_if_needed(&db, &envelope.group_id, cursor)?
+                        self.maybe_update_cursor(&db, envelope)?
                     } else {
                         tracing::info!(
                             "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
@@ -1444,12 +1418,12 @@ where
                             cursor
                         );
                         let current_cursor = db
-                            .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
-                        current_cursor < cursor as i64
+                            .get_last_cursor_for_originator(&envelope.group_id, envelope.entity_kind(), envelope.originator_id())?;
+                        current_cursor.sequence_id < envelope.sequence_id()
                     };
                     if !requires_processing {
                         tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
-                            envelope.sequence_id(),
+                            envelope.cursor,
                             xmtp_common::fmt::debug_hex(&envelope.group_id),
                             envelope.created_ns
                         );
@@ -1475,7 +1449,7 @@ where
                                 return Err(err.processing_error);
                             }
                             // TODO(rich): Add log_err! macro/trait for swallowing errors
-                            if envelope.is_commit() && let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor, envelope.message.epoch(), &err.processing_error) {
+                            if envelope.is_commit() && let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor.sequence_id, envelope.message.epoch(), &err.processing_error) {
                                 tracing::error!("Error inserting commit entry for failed self commit: {}", accounting_error);
                             }
                             (err.next_intent_state, None)
@@ -1494,7 +1468,7 @@ where
                         }
                         IntentState::Committed => {
                             self.handle_metadata_update_from_intent(&intent, &storage)?;
-                            db.set_group_intent_committed(intent_id, cursor as i64)?;
+                            db.set_group_intent_committed(intent_id, cursor)?;
                         }
                         IntentState::Published => {
                             tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
@@ -1600,17 +1574,15 @@ where
         &self,
         mls_group: &OpenMlsGroup,
         process_result: Result<MessageIdentifier, GroupMessageProcessingError>,
-        message_cursor: Cursor,
-        message_type: MlsContentType,
-        message_epoch: GroupEpoch,
+        envelope: &xmtp_proto::types::GroupMessage,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         track_err!("Process message", &process_result, group: &self.group_id);
         let message = match process_result {
             Ok(m) => {
                 tracing::info!(
                     "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
-                    hex::encode(&self.group_id),
-                    message_cursor
+                    &envelope.group_id,
+                    envelope.cursor
                 );
                 Ok(m)
             }
@@ -1630,8 +1602,8 @@ where
             Err(e) => {
                 tracing::info!(
                     "Transaction failed: process for group [{}] envelope cursor [{}] error:[{}]",
-                    hex::encode(&self.group_id),
-                    message_cursor,
+                    &envelope.group_id,
+                    envelope.cursor,
                     e
                 );
 
@@ -1643,16 +1615,15 @@ where
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
                     // TODO(rich): Add log_err! macro/trait for swallowing errors
                     if let Err(update_cursor_error) =
-                        self.update_cursor_if_needed(&storage.db(), &self.group_id, message_cursor.sequence_id)
+                        self.maybe_update_cursor(&storage.db(), envelope)
                     {
                         // We don't need to propagate the error if the cursor fails to update - the worst case is
                         // that the non-retriable error is processed again
                         tracing::error!("Error updating cursor for non-retriable error: {update_cursor_error:?}");
-                    } else if message_type == MlsContentType::Commit
-                    && let Err(accounting_error) = mls_group.mark_failed_commit_logged(
+                    } else if envelope.is_commit() && let Err(accounting_error) = mls_group.mark_failed_commit_logged(
                             &provider,
-                            message_cursor.sequence_id,
-                            message_epoch,
+                            envelope.sequence_id(),
+                            envelope.message.epoch(),
                             &e,
                         ) {
                             tracing::error!(
@@ -1667,8 +1638,8 @@ where
 
                 if let Err(accounting_error) = self
                     .process_group_message_error_for_fork_detection(
-                        message_cursor.sequence_id,
-                        message_epoch,
+                        envelope.sequence_id(),
+                        envelope.message.epoch(),
                         &e,
                         mls_group,
                     )
@@ -1755,20 +1726,19 @@ where
     }
 
     #[tracing::instrument(skip_all, level = "trace")]
-    fn update_cursor_if_needed(
+    fn maybe_update_cursor(
         &self,
         db: &impl DbQuery,
-        group_id: &[u8],
-        cursor: u64,
+        message: &xmtp_proto::types::GroupMessage,
     ) -> Result<bool, StorageError> {
         tracing::info!(
             "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
-            hex::encode(group_id),
-            cursor
+            message.group_id,
+            message.cursor
         );
-        let updated = db.update_cursor(group_id, EntityKind::Group, cursor as i64)?;
+        let updated = db.update_cursor(&message.group_id, message.entity_kind(), message.cursor)?;
         if updated {
-            tracing::debug!("cursor updated to [{}]", cursor as i64);
+            tracing::debug!("cursor updated to [{}]", message.cursor);
         } else {
             tracing::debug!("no cursor update required");
         }
@@ -1838,8 +1808,8 @@ where
             version_minor: content_type.version_minor as i32,
             authority_id: content_type.authority_id.to_string(),
             reference_id: None,
-            sequence_id: Some(cursor.sequence_id as i64),
-            originator_id: None,
+            sequence_id: cursor.sequence_id as i64,
+            originator_id: cursor.originator_id as i64,
             expire_at_ns: None,
         };
         msg.store_or_ignore(&storage.db())?;

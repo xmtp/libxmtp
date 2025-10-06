@@ -1,4 +1,5 @@
 use super::*;
+use xmtp_configuration::Originators;
 use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::device_sync::message_backup::{
     ContentTypeSave, DeliveryStatusSave, GroupMessageKindSave, GroupMessageSave,
@@ -25,8 +26,10 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             version_minor: value.version_minor,
             authority_id: value.authority_id,
             reference_id: value.reference_id,
-            sequence_id: value.sequence_id,
-            originator_id: value.originator_id,
+            sequence_id: value.sequence_id.unwrap_or(0),
+            originator_id: value
+                .originator_id
+                .unwrap_or(Originators::APPLICATION_MESSAGES.into()),
             expire_at_ns: None,
         })
     }
@@ -103,8 +106,8 @@ impl From<StoredGroupMessage> for GroupMessageSave {
             version_minor: value.version_minor,
             authority_id: value.authority_id,
             reference_id: value.reference_id,
-            sequence_id: value.sequence_id,
-            originator_id: value.originator_id,
+            sequence_id: Some(value.sequence_id),
+            originator_id: Some(value.originator_id),
         }
     }
 }

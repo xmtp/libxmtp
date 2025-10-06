@@ -93,8 +93,6 @@ pub enum ConnectionError {
     DisconnectInTransaction,
     #[error("reconnect not possible in transaction")]
     ReconnectInTransaction,
-    #[error("invalid negative cursor: {0}")]
-    InvalidNegativeCursor(String),
     #[error("invalid query: {0}")]
     InvalidQuery(String),
 }
@@ -107,7 +105,6 @@ impl RetryableError for ConnectionError {
             Self::DecodeError(_) => false,
             Self::DisconnectInTransaction => true,
             Self::ReconnectInTransaction => true,
-            Self::InvalidNegativeCursor(_) => false,
             Self::InvalidQuery(_) => false,
         }
     }

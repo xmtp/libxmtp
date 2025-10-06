@@ -493,7 +493,7 @@ async fn stream_messages_keeps_track_of_cursor(
                 .last_streamed()
                 .get(&(Originators::APPLICATION_MESSAGES.into()))
                 .unwrap_or(&0)
-                > 1
+                > 1,
         );
     }
 
