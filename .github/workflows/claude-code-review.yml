@@ -8,6 +8,11 @@ on:
     #   - "src/**/*.tsx"
     #   - "src/**/*.js"
     #   - "src/**/*.jsx"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   claude-review:
     # Optional: Filter by PR author
@@ -33,7 +38,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           allowed_bots: |
             dependabot[bot]
-          model: "claude-opus-4-1-20250805"
+          model: "claude-sonnet-4-5-20250929"
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |
             Please review this pull request and provide feedback on:
@@ -49,7 +54,6 @@ jobs:
             Keep feedback concise, and limited to the most important points, if any.
           # Optional: Use sticky comments to make Claude reuse the same comment on subsequent pushes to the same PR
           use_sticky_comment: true
-
 # Optional: Customize review based on file types
 # direct_prompt: |
 #   Review this PR focusing on:

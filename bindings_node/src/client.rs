@@ -1,23 +1,23 @@
+use crate::ErrorWrapper;
 use crate::conversations::Conversations;
 use crate::identity::{ApiStats, Identifier, IdentityExt, IdentityStats};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestHandle;
-use crate::ErrorWrapper;
 use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use xmtp_api::ApiDebugWrapper;
-pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+pub use xmtp_api_grpc::v3::Client as TonicApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb, StorageOption};
+use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
 use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
-use xmtp_mls::Client as MlsClient;
 use xmtp_proto::api_client::AggregateStats;
 
 pub type MlsContext = Arc<
@@ -403,5 +403,14 @@ impl Client {
         .await
         .map_err(ErrorWrapper::from)?,
     )
+  }
+
+  #[napi]
+  pub fn delete_message(&self, message_id: Uint8Array) -> Result<u32> {
+    let deleted_count = self
+      .inner_client
+      .delete_message(message_id.to_vec())
+      .map_err(ErrorWrapper::from)?;
+    Ok(deleted_count as u32)
   }
 }

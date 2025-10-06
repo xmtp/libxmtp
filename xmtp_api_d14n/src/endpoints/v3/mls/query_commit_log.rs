@@ -27,7 +27,7 @@ impl Endpoint for QueryCommitLog {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<BatchQueryCommitLogRequest>()
+        xmtp_proto::path_and_query::<BatchQueryCommitLogRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {

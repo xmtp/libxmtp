@@ -1,7 +1,7 @@
 use crate::Secret;
-use alloy::primitives::{eip191_hash_message, Address, B256};
-use alloy::signers::local::PrivateKeySigner;
+use alloy::primitives::{Address, B256, eip191_hash_message};
 use alloy::signers::SignerSync;
+use alloy::signers::local::PrivateKeySigner;
 use thiserror::Error;
 
 // Constants for secp256k1 and Ethereum cryptography
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn test_eip191_hashing_compatibility() {
-        use alloy::signers::{local::PrivateKeySigner, SignerSync};
+        use alloy::signers::{SignerSync, local::PrivateKeySigner};
 
         let private_key = "90b7388a7427358cb7fc7e9042805b1942eae47ee783e627a989719da35e76fb";
         let message = "Hello, Ethereum!";

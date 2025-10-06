@@ -17,13 +17,13 @@ use xmtp_proto::{
             VerifySmartContractWalletSignaturesResponse,
         },
         mls::api::v1::{
-            group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
             BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
             FetchKeyPackagesRequest, FetchKeyPackagesResponse, GroupMessage,
             QueryGroupMessagesRequest, QueryGroupMessagesResponse, QueryWelcomeMessagesRequest,
             QueryWelcomeMessagesResponse, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
             SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
             UploadKeyPackageRequest,
+            group_message::{V1 as GroupMessageV1, Version as GroupMessageVersion},
         },
     },
 };
@@ -151,8 +151,8 @@ mod not_wasm {
             type Builder = MockApiBuilder;
             fn create_local() -> MockApiBuilder { MockApiBuilder }
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
-            fn create_local_d14n() -> MockApiBuilder { MockApiBuilder }
-            fn create_local_payer() -> MockApiBuilder { MockApiBuilder }
+            fn create_d14n() -> MockApiBuilder { MockApiBuilder }
+            fn create_gateway() -> MockApiBuilder { MockApiBuilder }
         }
     }
 }
@@ -213,8 +213,8 @@ mod wasm {
             type Builder = MockApiBuilder;
             fn create_local() -> MockApiBuilder { MockApiBuilder }
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
-            fn create_local_d14n() -> MockApiBuilder { MockApiBuilder }
-            fn create_local_payer() -> MockApiBuilder { MockApiBuilder }
+            fn create_d14n() -> MockApiBuilder { MockApiBuilder }
+            fn create_gateway() -> MockApiBuilder { MockApiBuilder }
         }
     }
 }

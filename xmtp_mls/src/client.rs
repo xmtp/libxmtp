@@ -677,6 +677,14 @@ where
             .ok_or_else(|| ClientError::Generic("Failed to decode message".to_string()))
     }
 
+    /// Delete a message by its ID
+    /// This method is idempotent and will not error if the message is not found
+    /// Returns the number of messages deleted (0 or 1)
+    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<usize, ClientError> {
+        let conn = self.context.db();
+        Ok(conn.delete_message_by_id(&message_id)?)
+    }
+
     /// Query for groups with optional filters
     ///
     /// Filters:
@@ -927,6 +935,7 @@ pub(crate) mod tests {
     use diesel::RunQueryDsl;
     use futures::TryStreamExt;
     use futures::stream::StreamExt;
+    use prost::Message;
     use std::time::Duration;
     use xmtp_common::NS_IN_SEC;
     use xmtp_common::time::now_ns;
@@ -1137,24 +1146,36 @@ pub(crate) mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(flavor = "multi_thread")]
-    async fn test_sync_welcomes_when_kp_life_time_ended() {
+    async fn test_leaf_node_lifetime_validation_disabled() {
         use crate::utils::test_mocks_helpers::set_test_mode_limit_key_package_lifetime;
 
         // Create a client with default KP lifetime
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        // Create a client with a KP that expires in 5 seconds
-        set_test_mode_limit_key_package_lifetime(true, 5);
-        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-
         // Create a client with default KP lifetime
         set_test_mode_limit_key_package_lifetime(false, 0);
         let cat = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        // Alice creates a group and invites Bob with short living KP
         let alice_bob_group = alice.create_group(None, None).unwrap();
         alice_bob_group
-            .add_members_by_inbox_id(&[bob.inbox_id(), cat.inbox_id()])
+            .add_members_by_inbox_id(&[cat.inbox_id()])
+            .await
+            .unwrap();
+
+        let cat_received_groups = cat.sync_welcomes().await.unwrap();
+        assert_eq!(cat_received_groups.len(), 1);
+        assert_eq!(
+            cat_received_groups.first().unwrap().group_id,
+            alice_bob_group.group_id
+        );
+
+        // Create a client with a KP that expires in 5 seconds
+        set_test_mode_limit_key_package_lifetime(true, 5);
+        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Alice invites Bob with short living KP
+        alice_bob_group
+            .add_members_by_inbox_id(&[bob.inbox_id()])
             .await
             .unwrap();
 
@@ -1164,17 +1185,9 @@ pub(crate) mod tests {
         // Wait for Bob's KP and their leafnode's lifetime to expire
         xmtp_common::time::sleep(Duration::from_secs(7)).await;
 
-        //cat receives welcomes after Bob's KP is expired, Cat should be able to process the welcome successfully
-        let cat_received_groups = cat.sync_welcomes().await.unwrap();
-
         assert_eq!(bob_received_groups.len(), 1);
-        assert_eq!(cat_received_groups.len(), 1);
         assert_eq!(
             bob_received_groups.first().unwrap().group_id,
-            alice_bob_group.group_id
-        );
-        assert_eq!(
-            cat_received_groups.first().unwrap().group_id,
             alice_bob_group.group_id
         );
 
@@ -1189,6 +1202,7 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[dave.inbox_id()])
             .await
             .unwrap();
+        // Dave should be okay receiving a welcome where members of the group are expired
         let dave_received_groups = dave.sync_welcomes().await.unwrap();
         assert_eq!(dave_received_groups.len(), 1);
         assert_eq!(
@@ -1197,6 +1211,11 @@ pub(crate) mod tests {
         );
         let dave_duplicate_received_groups = dave.sync_welcomes().await.unwrap();
         assert_eq!(dave_duplicate_received_groups.len(), 0);
+
+        // Cat receives commits to add expired group members, they should pass validation and be added
+        let cat_group = cat_received_groups.first().unwrap();
+        cat_group.sync().await.unwrap();
+        assert_eq!(cat_group.members().await.unwrap().len(), 4);
     }
 
     #[rstest::rstest]
@@ -1711,7 +1730,7 @@ pub(crate) mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     // Set to 40 seconds to safely account for the 16 second keepalive interval and 10 second timeout
     #[timeout(Duration::from_secs(40))]
-    #[cfg_attr(any(target_arch = "wasm32", feature = "http-api"), ignore)]
+    #[cfg_attr(any(target_arch = "wasm32"), ignore)]
     async fn should_reconnect() {
         let alix = Tester::builder().proxy().build().await;
         let bo = Tester::builder().build().await;
@@ -1831,6 +1850,48 @@ pub(crate) mod tests {
             all_conversation_ids.len(),
             15,
             "Should have 15 total conversations after deduping"
+        );
+    }
+
+    #[xmtp_common::test]
+    async fn test_delete_message() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create a group with both users
+        let group = alix
+            .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
+            .await
+            .unwrap();
+
+        // Send a message
+        let message_id = group
+            .send_message(
+                TextCodec::encode("test message".to_string())
+                    .unwrap()
+                    .encode_to_vec()
+                    .as_slice(),
+            )
+            .await
+            .unwrap();
+
+        // Verify the message exists
+        let message = alix.message(message_id.clone()).unwrap();
+        assert_eq!(message.id, message_id);
+
+        // Delete the message
+        let deleted_count = alix.delete_message(message_id.clone()).unwrap();
+        assert_eq!(deleted_count, 1, "Should delete exactly 1 message");
+
+        // Verify the message no longer exists
+        let result = alix.message(message_id.clone());
+        assert!(result.is_err(), "Message should not exist after deletion");
+
+        // Test idempotency - deleting again should not error and return 0
+        let deleted_count = alix.delete_message(message_id).unwrap();
+        assert_eq!(
+            deleted_count, 0,
+            "Deleting non-existent message should return 0"
         );
     }
 }

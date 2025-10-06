@@ -2,7 +2,7 @@ use crate::ErrorWrapper;
 use napi::bindgen_prelude::BigInt;
 use napi_derive::napi;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_id::associations::{ident, Identifier as XmtpIdentifier};
+use xmtp_id::associations::{Identifier as XmtpIdentifier, ident};
 
 #[napi(object)]
 #[derive(Clone, Hash, PartialEq, Eq)]

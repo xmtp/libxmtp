@@ -8,7 +8,7 @@ use crate::streams::{StreamCallback, StreamCloser};
 use crate::{consent_state::ConsentState, permissions::GroupPermissions};
 use std::collections::HashMap;
 use wasm_bindgen::JsValue;
-use wasm_bindgen::{prelude::wasm_bindgen, JsError};
+use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_db::group::{ConversationType, DmIdExt};
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_mls::{
@@ -17,8 +17,8 @@ use xmtp_mls::{
     group_mutable_metadata::MetadataField as XmtpMetadataField,
   },
   groups::{
-    intents::PermissionUpdateType as XmtpPermissionUpdateType,
-    members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
+    MlsGroup, UpdateAdminListType, intents::PermissionUpdateType as XmtpPermissionUpdateType,
+    members::PermissionLevel as XmtpPermissionLevel,
   },
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;

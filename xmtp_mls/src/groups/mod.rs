@@ -107,9 +107,9 @@ const MAX_GROUP_NAME_LENGTH: usize = 100;
 const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
 
 /// An LibXMTP MlsGroup
-/// _NOTE:_ The Eq implementation compares GroupId, so a dm group with the same identity will be
+/// _NOTE:_ The Eq implementation compares [`GroupId`], so a dm group with the same identity will be
 /// different.
-/// the Hash implementation hashes the GroupID
+/// the Hash implementation hashes the [`GroupId`]
 pub struct MlsGroup<Context> {
     pub group_id: Vec<u8>,
     pub dm_id: Option<String>,
@@ -572,7 +572,7 @@ where
             .unwrap_or(false) // Default to false if no mutable metadata
     }
 
-    /// Send a message on this users XMTP [`Client`].
+    /// Send a message on this users XMTP [`Client`](crate::client::Client).
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip(self), fields(who = self.context.inbox_id(), message = %String::from_utf8_lossy(message))))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
