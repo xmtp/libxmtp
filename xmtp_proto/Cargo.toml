@@ -25,6 +25,8 @@ xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 tonic-prost = "0.14"
 prost-types = "0.14"
+chrono.workspace = true
+bytes.workspace = true
 
 tokio = { workspace = true, default-features = false, features = [
   "sync",
@@ -46,9 +48,11 @@ tokio = { workspace = true, default-features = false, features = ["sync"] }
 toxiproxy_rust = { workspace = true }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
+rstest.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 openmls = { workspace = true, features = ["js"] }
+wasm-bindgen-test = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true

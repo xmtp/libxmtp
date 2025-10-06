@@ -24,9 +24,9 @@ use super::{
 use crate::groups::MlsGroup;
 use crate::subscriptions::SyncWorkerEvent;
 use futures::stream::Stream;
-use xmtp_common::types::GroupId;
 use xmtp_db::prelude::*;
 use xmtp_db::{consent_record::ConsentState, group::StoredGroup};
+use xmtp_proto::types::GroupId;
 
 use pin_project_lite::pin_project;
 

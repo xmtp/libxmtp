@@ -21,7 +21,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
 use worker::SyncMetric;
 use xmtp_archive::ArchiveError;
-use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns, types::InstallationId};
+use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
 use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::{
     NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs,
@@ -30,6 +30,7 @@ use xmtp_db::{
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
 use xmtp_id::{InboxIdRef, associations::DeserializationError};
 use xmtp_mls_common::group::GroupMetadataOptions;
+use xmtp_proto::types::InstallationId;
 use xmtp_proto::xmtp::{
     device_sync::{
         BackupElementSelection, BackupOptions,
