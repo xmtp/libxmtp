@@ -144,13 +144,12 @@ impl IdentityAction for AddAssociation {
         // Otherwise the client should use the regular wallet signature to create
         let existing_member_identifier = existing_member_identifier.clone();
         let identifier: Option<Identifier> = existing_member_identifier.clone().into();
-        if let Some(identifier) = identifier {
-            if (is_legacy_signature(&self.new_member_signature)
+        if let Some(identifier) = identifier
+            && (is_legacy_signature(&self.new_member_signature)
                 || is_legacy_signature(&self.existing_member_signature))
-                && existing_state.inbox_id() != identifier.inbox_id(0)?
-            {
-                return Err(AssociationError::LegacySignatureReuse);
-            }
+            && existing_state.inbox_id() != identifier.inbox_id(0)?
+        {
+            return Err(AssociationError::LegacySignatureReuse);
         }
 
         allowed_signature_for_kind(

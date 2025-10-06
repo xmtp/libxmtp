@@ -3,13 +3,13 @@ use crate::conversation::Conversation;
 use crate::messages::Message;
 use crate::user_preferences::UserPreference;
 use futures::Stream;
-use futures::{stream::LocalBoxStream, StreamExt};
+use futures::{StreamExt, stream::LocalBoxStream};
 use pin_project_lite::pin_project;
-use std::task::ready;
 use std::task::Poll;
+use std::task::ready;
 use std::{cell::RefCell, rc::Rc};
-use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsError;
+use wasm_bindgen::prelude::*;
 use xmtp_common::{
   AbortHandle, GenericStreamHandle, StreamHandle as XmtpStreamHandle, StreamHandleError,
 };

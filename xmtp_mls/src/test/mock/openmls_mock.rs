@@ -124,7 +124,7 @@ fn generate_group_config(
         .for_each(|m| membership.add(m.to_string(), 0));
     let _group_membership = build_group_membership_extension(&membership);
     let protected_metadata =
-        build_protected_metadata_extension(creator_inbox, ConversationType::Group)?;
+        build_protected_metadata_extension(creator_inbox, ConversationType::Group, None)?;
     let mutable_metadata =
         build_mutable_metadata_extension_default(creator_inbox, Default::default())?;
     let group_membership = build_starting_group_membership_extension(creator_inbox, 0);

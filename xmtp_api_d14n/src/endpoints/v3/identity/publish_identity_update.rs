@@ -28,7 +28,7 @@ impl Endpoint for PublishIdentityUpdate {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<PublishIdentityUpdateRequest>()
+        xmtp_proto::path_and_query::<PublishIdentityUpdateRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -48,7 +48,7 @@ mod test {
     #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::identity::api::v1::PublishIdentityUpdateRequest;
-        let _pnq = crate::path_and_query::<PublishIdentityUpdateRequest>();
+        let _pnq = xmtp_proto::path_and_query::<PublishIdentityUpdateRequest>();
     }
 
     #[xmtp_common::test]

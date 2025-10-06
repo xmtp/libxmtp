@@ -3403,7 +3403,8 @@ async fn test_validate_dm_group() {
 
     // Test case 2: Invalid conversation type
     let invalid_protected_metadata =
-        build_protected_metadata_extension(creator_inbox_id, ConversationType::Group).unwrap();
+        build_protected_metadata_extension(creator_inbox_id, ConversationType::Group, None)
+            .unwrap();
     let invalid_type_group = TestMlsGroup::create_test_dm_group(
         client.context.clone(),
         dm_target_inbox_id.clone(),

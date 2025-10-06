@@ -3,9 +3,9 @@ use relative_path::PathExt;
 use std::env;
 use std::ffi::OsStr;
 use std::path::PathBuf;
-use tonic_prost_build::{configure, Builder, Config};
+use tonic_prost_build::{Builder, Config, configure};
 use walkdir::WalkDir;
-use xshell::{cmd, Shell};
+use xshell::{Shell, cmd};
 
 fn codegen_configure(builder: Builder) -> Builder {
     builder
@@ -105,11 +105,7 @@ fn main() -> Result<()> {
         })
         .filter_map(|f| {
             let p = f.unwrap().into_path();
-            if p.is_dir() {
-                None
-            } else {
-                Some(p)
-            }
+            if p.is_dir() { None } else { Some(p) }
         })
         .collect::<Vec<_>>();
 

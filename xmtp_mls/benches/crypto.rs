@@ -50,7 +50,7 @@ fn bench_encrypt_welcome_curve25519(c: &mut Criterion) {
                     OsRng.fill_bytes(payload.as_mut_slice());
                     (payload, keypair.public)
                 },
-                |(payload, key)| wrap_welcome(&payload, &key, &WrapperAlgorithm::Curve25519),
+                |(payload, key)| wrap_welcome(&payload, &[], &key, &WrapperAlgorithm::Curve25519),
                 BatchSize::SmallInput,
             )
         });
@@ -80,7 +80,7 @@ fn bench_encrypt_welcome_post_quantum(c: &mut Criterion) {
                     (payload, keypair.public)
                 },
                 |(payload, key)| {
-                    wrap_welcome(&payload, &key, &WrapperAlgorithm::XWingMLKEM768Draft6)
+                    wrap_welcome(&payload, &[], &key, &WrapperAlgorithm::XWingMLKEM768Draft6)
                 },
                 BatchSize::SmallInput,
             )

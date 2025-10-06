@@ -1,5 +1,5 @@
-use super::{member::Identifier, MemberIdentifier};
-use crate::associations::{member::HasMemberKind, MemberKind};
+use super::{MemberIdentifier, member::Identifier};
+use crate::associations::{MemberKind, member::HasMemberKind};
 use chrono::DateTime;
 
 const HEADER: &str = "XMTP : Authenticate to inbox";

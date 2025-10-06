@@ -23,6 +23,11 @@ static_resources:
                         - match: {prefix: "/"}
                           route:
                             cluster: node-go
+                            regex_rewrite:
+                              pattern:
+                                google_re2: {}
+                                regex: "^(.*)$"
+                              substitution: "\\1"
                             timeout: 0s
                             max_stream_duration:
                               grpc_timeout_header_max: 0s
@@ -59,15 +64,25 @@ static_resources:
                     - name: local_service
                       domains: ["*"]
                       routes:
-                        - match: {prefix: "/payer"}
+                        - match: {prefix: "/gateway"}
                           route:
                             cluster: gateway
+                            regex_rewrite:
+                              pattern:
+                                google_re2: {}
+                                regex: "^/gateway(.*)$"
+                              substitution: "\\1" # This removes /xmtpd but keeps everything after it
                             timeout: 0s
                             max_stream_duration:
                               grpc_timeout_header_max: 0s
                         - match: {prefix: "/xmtpd"}
                           route:
                             cluster: repnode
+                            regex_rewrite:
+                              pattern:
+                                google_re2: {}
+                                regex: "^/xmtpd(.*)$"
+                              substitution: "\\1" # This removes /xmtpd but keeps everything after it
                             timeout: 0s
                             max_stream_duration:
                               grpc_timeout_header_max: 0s
@@ -123,7 +138,7 @@ static_resources:
               - endpoint:
                   address:
                     socket_address:
-                      address: node
+                      address: repnode
                       port_value: 5050
     - name: gateway
       connect_timeout: 0.25s

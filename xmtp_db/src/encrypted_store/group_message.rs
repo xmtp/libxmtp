@@ -410,6 +410,11 @@ pub trait QueryGroupMessage {
     ) -> Result<usize, crate::ConnectionError>;
 
     fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError>;
+
+    fn delete_message_by_id<MessageId: AsRef<[u8]>>(
+        &self,
+        message_id: MessageId,
+    ) -> Result<usize, crate::ConnectionError>;
 }
 
 impl<T> QueryGroupMessage for &T
@@ -541,6 +546,13 @@ where
     fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError> {
         (**self).delete_expired_messages()
     }
+
+    fn delete_message_by_id<MessageId: AsRef<[u8]>>(
+        &self,
+        message_id: MessageId,
+    ) -> Result<usize, crate::ConnectionError> {
+        (**self).delete_message_by_id(message_id)
+    }
 }
 
 impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
@@ -652,7 +664,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
 
         let mut query = group_messages::table
             .left_join(groups::table)
-            .filter(groups::conversation_type.ne(ConversationType::Sync))
+            .filter(groups::conversation_type.ne_all(ConversationType::virtual_types()))
             .filter(group_messages::kind.eq(GroupMessageKind::Application))
             .select(group_messages::all_columns)
             .order_by(group_messages::id)
@@ -973,6 +985,17 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
                     .filter(dsl::expire_at_ns.le(now)),
             )
             .execute(conn)
+        })
+    }
+
+    fn delete_message_by_id<MessageId: AsRef<[u8]>>(
+        &self,
+        message_id: MessageId,
+    ) -> Result<usize, crate::ConnectionError> {
+        self.raw_query_write(|conn| {
+            use diesel::prelude::*;
+            diesel::delete(dsl::group_messages.filter(dsl::id.eq(message_id.as_ref())))
+                .execute(conn)
         })
     }
 }

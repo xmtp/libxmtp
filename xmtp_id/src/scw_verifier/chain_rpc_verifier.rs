@@ -101,7 +101,7 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod tests {
     #![allow(clippy::unwrap_used)]
-    use crate::utils::test::{docker_smart_wallet, SignatureWithNonce, SmartWalletContext};
+    use crate::utils::test::{SignatureWithNonce, SmartWalletContext, docker_smart_wallet};
 
     use super::*;
     use alloy::dyn_abi::SolType;
@@ -110,6 +110,7 @@ pub(crate) mod tests {
     use alloy::signers::Signer;
 
     #[rstest::rstest]
+    #[timeout(std::time::Duration::from_secs(30))]
     #[tokio::test]
     async fn test_coinbase_smart_wallet(#[future] docker_smart_wallet: SmartWalletContext) {
         let SmartWalletContext {

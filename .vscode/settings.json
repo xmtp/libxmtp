@@ -23,9 +23,7 @@
     "async-stream": ["stream", "try_stream"]
   },
   "gitlens.blame.ignoreWhitespace": true,
-  "coverage-gutters.coverageFileNames": [
-    "coverage/lcov",
-  ],
+  "coverage-gutters.coverageFileNames": ["coverage/lcov"],
   "coverage-gutters.coverageReportFileName": "coverage/html/index.html",
   "[toml]": {
     "editor.defaultFormatter": "tamasfe.even-better-toml"

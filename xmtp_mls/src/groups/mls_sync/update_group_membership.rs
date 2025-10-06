@@ -13,7 +13,7 @@ use openmls_traits::signatures::Signer;
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
 // returning the commit and post_commit_action
 #[tracing::instrument(level = "trace", skip_all)]
-pub(super) async fn apply_update_group_membership_intent(
+pub(crate) async fn apply_update_group_membership_intent(
     context: &impl XmtpSharedContext,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateGroupMembershipIntentData,
@@ -116,7 +116,7 @@ mod tests {
             .for_each(|m| membership.add(m.to_string(), 0));
         let _group_membership = build_group_membership_extension(&membership);
         let protected_metadata =
-            build_protected_metadata_extension(creator_inbox, ConversationType::Group)?;
+            build_protected_metadata_extension(creator_inbox, ConversationType::Group, None)?;
         let mutable_metadata =
             build_mutable_metadata_extension_default(creator_inbox, Default::default())?;
         let group_membership = build_starting_group_membership_extension(creator_inbox, 0);
