@@ -128,8 +128,8 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
         self.identity.inbox_id()
     }
 
-    /// Integrators should always check the `signature_request` return value of this function before calling [`register_identity`](Self::register_identity).
-    /// If `signature_request` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
+    /// Integrators should always check the `signature_request` return value of this function before calling `register_identity`.
+    /// If `signature_request` returns `None`, then the wallet signature is not required and `register_identity` can be called with None as an argument.
     pub fn signature_request(&self) -> Option<SignatureRequest> {
         self.identity.signature_request()
     }

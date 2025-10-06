@@ -7,11 +7,11 @@ use futures::future::try_join_all;
 use xmtp_common::RetryableError;
 use xmtp_proto::prelude::XmtpIdentityClient;
 use xmtp_proto::xmtp::identity::api::v1::{
+    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
+    PublishIdentityUpdateRequest,
     get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
     get_identity_updates_response::IdentityUpdateLog,
     get_inbox_ids_request::Request as GetInboxIdsRequestProto,
-    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
-    PublishIdentityUpdateRequest,
 };
 
 use xmtp_proto::xmtp::identity::api::v1::{
@@ -165,17 +165,17 @@ pub(crate) mod tests {
 
     use super::super::test_utils::*;
     use super::GetIdentityUpdatesV2Filter;
-    use crate::{identity::ApiIdentifier, ApiClientWrapper};
+    use crate::{ApiClientWrapper, identity::ApiIdentifier};
     use std::collections::HashMap;
     use xmtp_common::rand_hexstring;
     use xmtp_id::associations::unverified::UnverifiedIdentityUpdate;
     use xmtp_proto::xmtp::identity::{
         api::v1::{
+            GetIdentityUpdatesResponse, GetInboxIdsResponse, PublishIdentityUpdateResponse,
             get_identity_updates_response::{
                 IdentityUpdateLog, Response as GetIdentityUpdatesResponseItem,
             },
             get_inbox_ids_response::Response as GetInboxIdsResponseItem,
-            GetIdentityUpdatesResponse, GetInboxIdsResponse, PublishIdentityUpdateResponse,
         },
         associations::IdentifierKind,
     };

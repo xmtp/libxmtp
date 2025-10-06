@@ -55,7 +55,7 @@ pub mod id {
     /// [`PlaintextEnvelope`] elsewhere. The caller should consider combining implementations.
     ///
     /// # Returns
-    /// Returns [`Option::None`] if [`StoredGroupIntent`] is not [`IntentKind::SendMessage`] or if
+    /// Returns [`Option::None`] if `StoredGroupIntent` is not [`IntentKind::SendMessage`] or if
     /// an error occurs during decoding of intent data for [`IntentKind::SendMessage`].
     pub fn calculate_message_id_for_intent(
         intent: &xmtp_db::group_intent::StoredGroupIntent,

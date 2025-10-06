@@ -1,6 +1,6 @@
 use std::fmt::Display;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_id::associations::{ident, Identifier};
+use xmtp_id::associations::{Identifier, ident};
 
 use crate::GenericError;
 

@@ -90,7 +90,7 @@ impl GroupMutablePermissions {
     }
 }
 
-/// Implements conversion from GroupMutablePermissions to Vec<u8>.
+/// Implements conversion from GroupMutablePermissions to `Vec<u8>`.
 impl TryFrom<GroupMutablePermissions> for Vec<u8> {
     type Error = GroupMutablePermissionsError;
 
@@ -103,7 +103,7 @@ impl TryFrom<GroupMutablePermissions> for Vec<u8> {
     }
 }
 
-/// Implements conversion from &Vec<u8> to GroupMutablePermissions.
+/// Implements conversion from `&Vec<u8>` to [`GroupMutablePermissions`].
 impl TryFrom<&Vec<u8>> for GroupMutablePermissions {
     type Error = GroupMutablePermissionsError;
 
@@ -929,8 +929,8 @@ impl PolicySet {
         }
     }
 
-    /// The [evaluate_commit] function is the core function for client side verification
-    /// that [ValidatedCommit](crate::groups::validated_commit::ValidatedCommit)
+    /// The [`evaluate_commit`](Self::evaluate_commit) function is the core function for client side verification
+    /// that [ValidatedCommit]
     /// adheres to the XMTP permission policies set in the PolicySet.
     pub fn evaluate_commit(&self, commit: &ValidatedCommit) -> bool {
         // Verify add member policy was not violated
@@ -1145,7 +1145,7 @@ impl PolicySet {
         ))
     }
 
-    /// Converts the PolicySet to a Vec<u8>.
+    /// Converts the PolicySet to a `Vec<u8>`.
     pub fn to_bytes(&self) -> Result<Vec<u8>, PolicyError> {
         let proto = self.to_proto()?;
         let mut buf = Vec::new();
@@ -1153,7 +1153,7 @@ impl PolicySet {
         Ok(buf)
     }
 
-    /// Creates a PolicySet from a Vec<u8>.
+    /// Creates a PolicySet from a `Vec<u8>`.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, PolicyError> {
         let proto = PolicySetProto::decode(bytes)?;
         Self::from_proto(proto)

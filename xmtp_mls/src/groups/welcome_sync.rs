@@ -4,6 +4,7 @@ use crate::groups::InitialMembershipValidator;
 use crate::groups::ValidateGroupMembership;
 use crate::groups::XmtpWelcome;
 use crate::groups::{GroupError, MlsGroup};
+use crate::intents::ProcessIntentError;
 use crate::mls_store::MlsStore;
 use futures::stream::{self, FuturesUnordered, StreamExt};
 use std::sync::{
@@ -54,9 +55,13 @@ where
 
                 if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
                     tracing::warn!(
-                        "failed to create group from welcome due to duplicate welcome ID: {}",
+                        welcome_id = welcome.id,
+                        "Welcome ID already stored: {}",
                         err
                     );
+                    return Err(GroupError::ProcessIntent(
+                        ProcessIntentError::WelcomeAlreadyProcessed(welcome.id),
+                    ));
                 } else {
                     tracing::error!(
                         "failed to create group from welcome created at {}: {}",
@@ -293,36 +298,25 @@ mod tests {
         welcome: MlsMessageOut,
         message_cursor: Option<u64>,
     ) -> welcome_message::V1 {
-        let w = wrap_welcome(
+        let (data, welcome_metadata) = wrap_welcome(
             &welcome.tls_serialize_detached().unwrap(),
+            &WelcomeMetadata {
+                message_cursor: message_cursor.unwrap_or(0),
+            }
+            .encode_to_vec(),
             &public_key,
             &WrapperAlgorithm::Curve25519,
         )
         .unwrap();
 
-        let wrapped_welcome_metadata: Vec<u8> = if let Some(cursor) = message_cursor {
-            let welcome_metadata = WelcomeMetadata {
-                message_cursor: cursor,
-            }
-            .encode_to_vec();
-            wrap_welcome(
-                &welcome_metadata,
-                &public_key,
-                &WrapperAlgorithm::Curve25519,
-            )
-            .unwrap()
-        } else {
-            Vec::new()
-        };
-
         welcome_message::V1 {
             id,
             created_ns: 0,
             installation_key: vec![0],
-            data: w,
+            data,
             hpke_public_key: public_key,
             wrapper_algorithm: WrapperAlgorithm::Curve25519.into(),
-            welcome_metadata: wrapped_welcome_metadata,
+            welcome_metadata,
         }
     }
 

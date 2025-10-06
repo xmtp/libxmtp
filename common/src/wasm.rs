@@ -8,20 +8,28 @@ mod tokio;
 
 pub use tokio::*;
 
-/// Global Marker trait for WebAssembly
-#[cfg(target_arch = "wasm32")]
-pub trait Wasm {}
-#[cfg(target_arch = "wasm32")]
-impl<T> Wasm for T {}
+crate::if_wasm! {
+    /// Marker trait to determine whether a type implements `Send` or not.
+    pub trait MaybeSend {}
+    impl<T> MaybeSend for T {}
 
-#[cfg(not(target_arch = "wasm32"))]
-pub struct StreamWrapper<'a, I> {
-    inner: Pin<Box<dyn Stream<Item = I> + Send + 'a>>,
+    /// Global Marker trait for WebAssembly
+    pub trait Wasm {}
+    impl<T> Wasm for T {}
+
+    pub struct StreamWrapper<'a, I> {
+        inner: Pin<Box<dyn Stream<Item = I> + 'a>>,
+    }
 }
 
-#[cfg(target_arch = "wasm32")]
-pub struct StreamWrapper<'a, I> {
-    inner: Pin<Box<dyn Stream<Item = I> + 'a>>,
+crate::if_native! {
+    /// Marker trait to determine whether a type implements `Send` or not.
+    pub trait MaybeSend: Send {}
+    impl<T: Send> MaybeSend for T {}
+
+    pub struct StreamWrapper<'a, I> {
+        inner: Pin<Box<dyn Stream<Item = I> + Send + 'a>>,
+    }
 }
 
 impl<I> Stream for StreamWrapper<'_, I> {

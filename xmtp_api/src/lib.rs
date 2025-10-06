@@ -10,7 +10,7 @@ pub use debug_wrapper::*;
 
 use std::sync::Arc;
 
-use xmtp_common::{retryable, ExponentialBackoff, Retry, RetryableError};
+use xmtp_common::{ExponentialBackoff, Retry, RetryableError, retryable};
 pub use xmtp_proto::api_client::XmtpApi;
 
 pub use identity::*;
@@ -90,13 +90,5 @@ impl<ApiClient> ApiClientWrapper<ApiClient> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-
-    #[cfg(all(
-        not(any(target_arch = "wasm32", feature = "http-api")),
-        feature = "grpc-api"
-    ))]
-    pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
-
-    #[cfg(any(feature = "http-api", target_arch = "wasm32",))]
-    pub type TestClient = xmtp_api_http::XmtpHttpApiClient;
+    pub type TestClient = xmtp_api_grpc::v3::Client;
 }
