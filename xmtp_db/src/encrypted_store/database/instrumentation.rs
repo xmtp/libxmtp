@@ -6,6 +6,7 @@ use std::fmt::Write;
 // Test instrumentatiomn
 // prints out query on error
 // panics on database lock
+#[allow(unused)]
 pub struct TestInstrumentation;
 
 impl Instrumentation for TestInstrumentation {

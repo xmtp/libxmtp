@@ -1,11 +1,11 @@
 #![allow(clippy::unwrap_used)]
 use crate::{
-  client::{create_client, Client, LogOptions, SyncWorkerMode},
+  client::{Client, LogOptions, SyncWorkerMode, create_client},
   identity::Identifier,
 };
 use napi::bindgen_prelude::Uint8Array;
 use napi_derive::napi;
-use xmtp_proto::{init_toxi, ToxicProxies};
+use xmtp_proto::{ToxicProxies, init_toxi};
 
 #[napi]
 pub struct TestClient {

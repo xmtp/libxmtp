@@ -181,8 +181,6 @@ pub struct MutableMetadataValidationInfo {
     pub admins_removed: Vec<Inbox>,
     pub super_admins_added: Vec<Inbox>,
     pub super_admins_removed: Vec<Inbox>,
-    pub pending_remove_added: Vec<Inbox>,
-    pub pending_remove_removed: Vec<Inbox>,
     pub num_super_admins: u32,
     pub minimum_supported_protocol_version: Option<String>,
 }
@@ -193,8 +191,6 @@ impl MutableMetadataValidationInfo {
             && self.admins_added.is_empty()
             && self.admins_removed.is_empty()
             && self.super_admins_added.is_empty()
-            && self.pending_remove_added.is_empty()
-            && self.pending_remove_removed.is_empty()
             && self.super_admins_removed.is_empty()
             && self.minimum_supported_protocol_version.is_none()
     }
@@ -302,8 +298,6 @@ pub struct ValidatedCommit {
     pub installations_changed: bool,
     pub permissions_changed: bool,
     pub dm_members: Option<DmMembers<String>>,
-    pub group_members: Vec<String>,
-    pub current_group_metadata: Option<GroupMutableMetadata>,
 }
 
 impl ValidatedCommit {
@@ -437,10 +431,6 @@ impl ValidatedCommit {
                 ));
             }
         }
-        let group_members: Vec<String> = openmls_group
-            .members()
-            .filter_map(|member| inbox_id_from_credential(&member.credential).ok())
-            .collect();
 
         let verified_commit = Self {
             actor,
@@ -451,7 +441,6 @@ impl ValidatedCommit {
             permissions_changed,
             dm_members: immutable_metadata.dm_members,
             group_members,
-            current_group_metadata: Some(mutable_metadata),
         };
 
         let policy_set = extract_group_permissions(openmls_group)?;
@@ -803,7 +792,7 @@ fn extract_commit_participant(
     }
 }
 
-/// Get the [`GroupMembership`] from a [`GroupContext`] struct by iterating through all extensions
+/// Get the [`GroupMembership`] from a `GroupContext` struct by iterating through all extensions
 /// until a match is found
 #[tracing::instrument(level = "trace", skip_all)]
 pub fn extract_group_membership(
@@ -880,18 +869,6 @@ fn extract_metadata_changes(
         super_admins_removed: get_removed_members(
             &old_mutable_metadata.super_admin_list,
             &new_mutable_metadata.super_admin_list,
-            immutable_metadata,
-            old_mutable_metadata,
-        ),
-        pending_remove_added: get_added_members(
-            &old_mutable_metadata.pending_remove_list,
-            &new_mutable_metadata.pending_remove_list,
-            immutable_metadata,
-            old_mutable_metadata,
-        ),
-        pending_remove_removed: get_removed_members(
-            &old_mutable_metadata.pending_remove_list,
-            &new_mutable_metadata.pending_remove_list,
             immutable_metadata,
             old_mutable_metadata,
         ),
@@ -1119,6 +1096,7 @@ impl From<ValidatedCommit> for GroupUpdatedProto {
             added_inboxes: commit.added_inboxes.iter().map(InboxProto::from).collect(),
             removed_inboxes: removed_inboxes.into_iter().map(InboxProto::from).collect(),
             left_inboxes: left_inboxes.into_iter().map(InboxProto::from).collect(),
+            left_inboxes: vec![], //todo: completed in other PR
             metadata_field_changes: commit
                 .metadata_validation_info
                 .metadata_field_changes

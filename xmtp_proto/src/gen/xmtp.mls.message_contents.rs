@@ -70,9 +70,6 @@ pub struct GroupMutableMetadataV1 {
     /// Must match the first entry in the commit log to be valid
     #[prost(bytes = "vec", optional, tag = "4")]
     pub commit_log_signer: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
-    /// List of users want to leave the group
-    #[prost(message, optional, tag = "5")]
-    pub pending_remove_list: ::core::option::Option<Inboxes>,
 }
 impl ::prost::Name for GroupMutableMetadataV1 {
     const NAME: &'static str = "GroupMutableMetadataV1";
@@ -462,7 +459,7 @@ pub struct GroupUpdated {
     pub metadata_field_changes: ::prost::alloc::vec::Vec<
         group_updated::MetadataFieldChange,
     >,
-    /// / The inboxes that were removed from the group in response to pending self-removal requests
+    /// / The inboxes that were removed from the group in response to pending-remove/self-remove requests
     #[prost(message, repeated, tag = "5")]
     pub left_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
 }

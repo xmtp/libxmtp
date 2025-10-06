@@ -1,6 +1,7 @@
 use crate::ConnectionExt;
 use crate::StorageError;
 use crate::association_state::QueryAssociationStateCache;
+use crate::pending_remove::QueryPendingRemove;
 use crate::prelude::*;
 
 /// Get an MLS Key store in the context of a transaction
@@ -78,6 +79,7 @@ pub trait DbQuery:
     + QueryLocalCommitLog
     + QueryRemoteCommitLog
     + QueryAssociationStateCache
+    + QueryPendingRemove
     + Pragmas
     + crate::ConnectionExt
 {
@@ -102,6 +104,7 @@ impl<T: ?Sized> DbQuery for T where
         + QueryLocalCommitLog
         + QueryRemoteCommitLog
         + QueryAssociationStateCache
+        + QueryPendingRemove
         + Pragmas
         + crate::ConnectionExt
 {
