@@ -1,4 +1,4 @@
-impl serde::Serialize for GetNodesRequest {
+impl serde::Serialize for GetReaderNodeRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -6,11 +6,11 @@ impl serde::Serialize for GetNodesRequest {
     {
         use serde::ser::SerializeStruct;
         let len = 0;
-        let struct_ser = serializer.serialize_struct("xmtp.xmtpv4.payer_api.GetNodesRequest", len)?;
+        let struct_ser = serializer.serialize_struct("xmtp.xmtpv4.payer_api.GetReaderNodeRequest", len)?;
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for GetNodesRequest {
+impl<'de> serde::Deserialize<'de> for GetReaderNodeRequest {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -50,27 +50,27 @@ impl<'de> serde::Deserialize<'de> for GetNodesRequest {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = GetNodesRequest;
+            type Value = GetReaderNodeRequest;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.xmtpv4.payer_api.GetNodesRequest")
+                formatter.write_str("struct xmtp.xmtpv4.payer_api.GetReaderNodeRequest")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GetNodesRequest, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GetReaderNodeRequest, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 while map_.next_key::<GeneratedField>()?.is_some() {
                     let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                 }
-                Ok(GetNodesRequest {
+                Ok(GetReaderNodeRequest {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.xmtpv4.payer_api.GetNodesRequest", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.xmtpv4.payer_api.GetReaderNodeRequest", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for GetNodesResponse {
+impl serde::Serialize for GetReaderNodeResponse {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -78,29 +78,39 @@ impl serde::Serialize for GetNodesResponse {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.nodes.is_empty() {
+        if !self.reader_node_url.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.payer_api.GetNodesResponse", len)?;
-        if !self.nodes.is_empty() {
-            struct_ser.serialize_field("nodes", &self.nodes)?;
+        if !self.backup_node_urls.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.payer_api.GetReaderNodeResponse", len)?;
+        if !self.reader_node_url.is_empty() {
+            struct_ser.serialize_field("reader_node_url", &self.reader_node_url)?;
+        }
+        if !self.backup_node_urls.is_empty() {
+            struct_ser.serialize_field("backup_node_urls", &self.backup_node_urls)?;
         }
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for GetNodesResponse {
+impl<'de> serde::Deserialize<'de> for GetReaderNodeResponse {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "nodes",
+            "reader_node_url",
+            "readerNodeUrl",
+            "backup_node_urls",
+            "backupNodeUrls",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Nodes,
+            ReaderNodeUrl,
+            BackupNodeUrls,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -123,7 +133,8 @@ impl<'de> serde::Deserialize<'de> for GetNodesResponse {
                         E: serde::de::Error,
                     {
                         match value {
-                            "nodes" => Ok(GeneratedField::Nodes),
+                            "readerNodeUrl" | "reader_node_url" => Ok(GeneratedField::ReaderNodeUrl),
+                            "backupNodeUrls" | "backup_node_urls" => Ok(GeneratedField::BackupNodeUrls),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -133,36 +144,44 @@ impl<'de> serde::Deserialize<'de> for GetNodesResponse {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = GetNodesResponse;
+            type Value = GetReaderNodeResponse;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.xmtpv4.payer_api.GetNodesResponse")
+                formatter.write_str("struct xmtp.xmtpv4.payer_api.GetReaderNodeResponse")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GetNodesResponse, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GetReaderNodeResponse, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut nodes__ = None;
+                let mut reader_node_url__ = None;
+                let mut backup_node_urls__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Nodes => {
-                            if nodes__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("nodes"));
+                        GeneratedField::ReaderNodeUrl => {
+                            if reader_node_url__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("readerNodeUrl"));
                             }
-                            nodes__ = Some(map_.next_value()?);
+                            reader_node_url__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::BackupNodeUrls => {
+                            if backup_node_urls__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("backupNodeUrls"));
+                            }
+                            backup_node_urls__ = Some(map_.next_value()?);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
-                Ok(GetNodesResponse {
-                    nodes: nodes__.unwrap_or_default(),
+                Ok(GetReaderNodeResponse {
+                    reader_node_url: reader_node_url__.unwrap_or_default(),
+                    backup_node_urls: backup_node_urls__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.xmtpv4.payer_api.GetNodesResponse", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.xmtpv4.payer_api.GetReaderNodeResponse", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for PublishClientEnvelopesRequest {
