@@ -6,7 +6,6 @@ use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
 };
-use xmtp_proto::traits::HasStats;
 use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request;
 use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response;
 use xmtp_proto::xmtp::identity::api::v1::GetInboxIdsRequest;
@@ -27,8 +26,8 @@ use xmtp_proto::xmtp::mls::api::v1::SubscribeGroupMessagesRequest;
 use xmtp_proto::xmtp::mls::api::v1::SubscribeWelcomeMessagesRequest;
 use xmtp_proto::xmtp::mls::api::v1::UploadKeyPackageRequest;
 use xmtp_proto::{
+    api::{ApiClientError, HasStats},
     prelude::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
-    traits::ApiClientError,
 };
 
 #[derive(Clone)]

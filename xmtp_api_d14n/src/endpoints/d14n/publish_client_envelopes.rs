@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::payer_api::{
     PublishClientEnvelopesRequest, PublishClientEnvelopesResponse,
@@ -23,10 +23,6 @@ impl PublishClientEnvelopes {
 
 impl Endpoint for PublishClientEnvelopes {
     type Output = PublishClientEnvelopesResponse;
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::from("/mls/v2/payer/publish-client-envelopes")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<PublishClientEnvelopesRequest>()
     }
@@ -48,6 +44,7 @@ mod test {
     use xmtp_api_grpc::error::GrpcError;
     use xmtp_common::rand_vec;
     use xmtp_proto::{
+        api,
         prelude::*,
         xmtp::xmtpv4::envelopes::{AuthenticatedData, client_envelope::Payload},
     };
@@ -58,6 +55,15 @@ mod test {
 
         let pnq = xmtp_proto::path_and_query::<PublishClientEnvelopesRequest>();
         println!("{}", pnq);
+    }
+
+    #[xmtp_common::test]
+    fn test_grpc_endpoint_returns_correct_path() {
+        let endpoint = PublishClientEnvelopes::default();
+        assert_eq!(
+            endpoint.grpc_endpoint(),
+            "/xmtp.xmtpv4.payer_api.PayerApi/PublishClientEnvelopes"
+        );
     }
 
     #[xmtp_common::test]
@@ -80,7 +86,7 @@ mod test {
             .build()
             .unwrap();
 
-        let err = endpoint.query(&client).await.unwrap_err();
+        let err = api::ignore(endpoint).query(&client).await.unwrap_err();
         // tracing::info!("{}", err);
         // the request will fail b/c we're using dummy data but
         // we just care if the endpoint is working

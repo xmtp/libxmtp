@@ -3,13 +3,13 @@ use crate::streams::{self, XmtpTonicStream};
 use tonic::{Request, metadata::MetadataValue};
 use tower::ServiceExt;
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
+use xmtp_proto::api::ApiClientError;
+use xmtp_proto::api::HasStats;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams};
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
 };
-use xmtp_proto::traits::ApiClientError;
-use xmtp_proto::traits::HasStats;
 use xmtp_proto::types::AppVersion;
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
@@ -148,6 +148,10 @@ impl ApiBuilder for ClientBuilder {
             identity_stats: IdentityStats::default(),
             channel,
         })
+    }
+
+    fn set_retry(&mut self, retry: xmtp_common::Retry) {
+        self.inner.set_retry(retry);
     }
 }
 
