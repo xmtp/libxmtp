@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use alloy::signers::local::PrivateKeySigner;
-use xmtp_common::{tmp_path, TestLogReplace};
+use xmtp_common::{TestLogReplace, tmp_path};
 use xmtp_configuration::GrpcUrls;
 use xmtp_id::InboxOwner;
 use xmtp_mls::utils::test::tester_utils::*;
@@ -50,10 +50,10 @@ impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
 
         let worker = client.inner_client.context.sync_metrics();
 
-        if let Some(worker) = &worker {
-            if self.wait_for_init {
-                worker.wait_for_init().await.unwrap();
-            }
+        if let Some(worker) = &worker
+            && self.wait_for_init
+        {
+            worker.wait_for_init().await.unwrap();
         }
 
         Ok(Tester {
@@ -103,10 +103,10 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
 
         let worker = client.inner_client.context.sync_metrics();
 
-        if let Some(worker) = &worker {
-            if self.wait_for_init {
-                worker.wait_for_init().await.unwrap();
-            }
+        if let Some(worker) = &worker
+            && self.wait_for_init
+        {
+            worker.wait_for_init().await.unwrap();
         }
 
         Ok(Tester {

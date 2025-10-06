@@ -1,4 +1,5 @@
 use crate::{
+    ContentCodec,
     attachment::{Attachment, AttachmentCodec},
     group_updated::GroupUpdatedCodec,
     membership_change::GroupMembershipChangeCodec,
@@ -9,11 +10,10 @@ use crate::{
     reply::{Reply, ReplyCodec},
     text::TextCodec,
     transaction_reference::{TransactionReference, TransactionReferenceCodec},
-    ContentCodec,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
-    content_types::{MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2},
     ContentTypeId, EncodedContent, GroupMembershipChanges, GroupUpdated,
+    content_types::{MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2},
 };
 
 pub struct TestContentGenerator;

@@ -1,8 +1,8 @@
 use crate::identity::FfiIdentifier;
 use xmtp_cryptography::signature::{IdentifierValidationError, SignatureError};
 use xmtp_id::associations::{
-    unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     Identifier,
+    unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
 };
 
 // TODO proper error handling

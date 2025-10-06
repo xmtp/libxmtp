@@ -40,7 +40,7 @@ where
         PublishClientEnvelopes::builder()
             .envelope(envelopes)
             .build()?
-            .query(&self.payer_client)
+            .query(&self.gateway_client)
             .await?;
 
         Ok::<_, Self::Error>(())
@@ -77,7 +77,7 @@ where
         PublishClientEnvelopes::builder()
             .envelopes(envelopes)
             .build()?
-            .query(&self.payer_client)
+            .query(&self.gateway_client)
             .await?;
 
         Ok(())
@@ -93,7 +93,7 @@ where
         PublishClientEnvelopes::builder()
             .envelopes(envelope)
             .build()?
-            .query(&self.payer_client)
+            .query(&self.gateway_client)
             .await?;
 
         Ok(())

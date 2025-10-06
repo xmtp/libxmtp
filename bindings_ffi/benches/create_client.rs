@@ -4,10 +4,10 @@
 // (file descriptor issue)
 
 use crate::tracing::Instrument;
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use tokio::runtime::{Builder, Runtime};
 use xmtp_common::{
-    bench::{bench_async_setup, BENCH_ROOT_SPAN},
+    bench::{BENCH_ROOT_SPAN, bench_async_setup},
     tmp_path,
 };
 use xmtp_id::associations::test_utils::WalletTestExt;

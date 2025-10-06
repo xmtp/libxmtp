@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used)]
 #![cfg_attr(all(target_family = "wasm", target_os = "unknown"), allow(unused))]
+use CoinbaseSmartWallet::CoinbaseSmartWalletInstance;
+use CoinbaseSmartWalletFactory::CoinbaseSmartWalletFactoryInstance;
 use alloy::network::{Ethereum, EthereumWallet};
 use alloy::primitives::{Address, Bytes};
 use alloy::providers::DynProvider;
@@ -11,8 +13,6 @@ use alloy::sol_types::SolValue;
 use alloy::{primitives::U256, providers::ext::AnvilApi};
 use rstest::*;
 use xmtp_configuration::DockerUrls;
-use CoinbaseSmartWallet::CoinbaseSmartWalletInstance;
-use CoinbaseSmartWalletFactory::CoinbaseSmartWalletFactoryInstance;
 
 sol!(
     #[derive(serde::Serialize, serde::Deserialize)]

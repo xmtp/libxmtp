@@ -1,4 +1,4 @@
-use alloy::signers::{local::LocalSigner, SignerSync};
+use alloy::signers::{SignerSync, local::LocalSigner};
 use ed25519_dalek::{DigestSigner, Signature, VerifyingKey};
 use prost::Message;
 use sha2::{Digest as _, Sha512};
@@ -9,7 +9,7 @@ use xmtp_cryptography::{
     XmtpInstallationCredential,
 };
 use xmtp_proto::xmtp::message_contents::{
-    signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto,
+    SignedPrivateKey as LegacySignedPrivateKeyProto, signed_private_key,
 };
 
 use super::{
@@ -294,7 +294,7 @@ mod tests {
     use super::to_lower_s;
     use alloy::signers::k256::ecdsa::Signature as K256Signature;
     use alloy::signers::k256::elliptic_curve::scalar::IsHigh;
-    use alloy::signers::{local::LocalSigner, SignerSync};
+    use alloy::signers::{SignerSync, local::LocalSigner};
     use wasm_bindgen_test::wasm_bindgen_test;
 
     #[xmtp_common::test]

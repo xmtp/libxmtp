@@ -1,9 +1,9 @@
 use std::{collections::HashMap, ops::Deref};
 
 use napi::{
+  JsFunction,
   bindgen_prelude::{Result, Uint8Array},
   threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode},
-  JsFunction,
 };
 use xmtp_db::{
   group::{ConversationType, DmIdExt},
@@ -15,14 +15,15 @@ use xmtp_mls::{
     group_mutable_metadata::MetadataField as XmtpMetadataField,
   },
   groups::{
-    intents::PermissionUpdateType as XmtpPermissionUpdateType,
-    members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
+    MlsGroup, UpdateAdminListType, intents::PermissionUpdateType as XmtpPermissionUpdateType,
+    members::PermissionLevel as XmtpPermissionLevel,
   },
 };
 
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use crate::{
+  ErrorWrapper,
   client::RustMlsGroup,
   consent_state::ConsentState,
   conversations::{HmacKey, MessageDisappearingSettings},
@@ -31,7 +32,6 @@ use crate::{
   message::{ListMessagesOptions, Message, MessageWithReactions},
   permissions::{GroupPermissions, MetadataField, PermissionPolicy, PermissionUpdateType},
   streams::StreamCloser,
-  ErrorWrapper,
 };
 use prost::Message as ProstMessage;
 
@@ -56,6 +56,7 @@ impl GroupMetadata {
       ConversationType::Group => "group".to_string(),
       ConversationType::Dm => "dm".to_string(),
       ConversationType::Sync => "sync".to_string(),
+      ConversationType::Oneshot => "oneshot".to_string(),
     }
   }
 }
@@ -179,6 +180,7 @@ impl Conversation {
       ConversationType::Group => None,
       ConversationType::Dm => None,
       ConversationType::Sync => None,
+      ConversationType::Oneshot => None,
     };
     let opts = MsgQueryArgs {
       kind,
@@ -209,6 +211,7 @@ impl Conversation {
       ConversationType::Group => None,
       ConversationType::Dm => None,
       ConversationType::Sync => None,
+      ConversationType::Oneshot => None,
     };
     let opts = MsgQueryArgs {
       kind,

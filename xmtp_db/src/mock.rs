@@ -11,7 +11,9 @@ use diesel::prelude::SqliteConnection;
 use mockall::mock;
 use parking_lot::Mutex;
 
+use crate::pending_remove::QueryPendingRemove;
 use crate::{ConnectionError, ConnectionExt};
+
 pub type MockDb = MockDbQuery;
 
 #[derive(Clone)]
@@ -242,6 +244,15 @@ mock! {
             &self,
             group_id: &[u8],
         ) -> Result<Option<bool>, StorageError>;
+
+        fn set_group_has_pending_leave_request_status(
+            &self,
+            group_id: &[u8],
+            has_pending_leave_request: Option<bool>,
+        ) -> Result<(), StorageError>;
+            fn get_groups_have_pending_leave_request(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
     }
 
     impl QueryGroupVersion for DbQuery {
@@ -399,6 +410,12 @@ mock! {
         ) -> Result<usize, crate::ConnectionError>;
 
         fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError>;
+
+        #[mockall::concretize]
+        fn delete_message_by_id<MessageId: AsRef<[u8]>>(
+            &self,
+            message_id: MessageId,
+        ) -> Result<usize, crate::ConnectionError>;
 
         #[mockall::concretize]
         fn get_latest_message_times_by_sender<GroupId: AsRef<[u8]>>(
@@ -606,6 +623,23 @@ mock! {
             level: S
         ) -> Result<(), crate::ConnectionError>;
     }
+
+    impl QueryPendingRemove for DbQuery{
+        fn get_pending_remove_users(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Vec<String>, crate::ConnectionError>;
+    fn delete_pending_remove_users(
+    &self,
+        group_id: &[u8],
+        inbox_ids: Vec<String>,
+    ) -> Result<usize, crate::ConnectionError>;
+         fn get_user_pending_remove_status(&self,
+        group_id: &[u8],
+        inbox_id: &str,
+    ) -> Result<bool, crate::ConnectionError>;
+    }
+
 }
 
 impl ConnectionExt for MockDbQuery {

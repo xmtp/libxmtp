@@ -12,6 +12,8 @@ pub mod members;
 pub mod message_list;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;
+pub mod oneshot;
+pub(crate) mod pending_self_remove_worker;
 pub(super) mod subscriptions;
 pub mod summary;
 #[cfg(test)]
@@ -19,6 +21,7 @@ mod tests;
 pub mod validated_commit;
 pub mod welcome_sync;
 mod welcomes;
+
 pub use welcomes::*;
 
 pub use self::group_permissions::PreconfiguredPolicies;
@@ -37,7 +40,6 @@ use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculat
 use crate::{subscriptions::SyncWorkerEvent, track};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
-use futures_util::SinkExt;
 use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
@@ -63,13 +65,13 @@ use xmtp_configuration::{
 };
 use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_content_types::should_push;
-use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
 use xmtp_content_types::{
     reaction::{LegacyReaction, ReactionCodec},
     reply::ReplyCodec,
 };
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
+use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::{Fetch, consent_record::ConsentType};
@@ -98,14 +100,11 @@ use xmtp_mls_common::{
         GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings, MetadataField,
     },
 };
-use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
-use xmtp_proto::xmtp::mls::{
-    api::v1::welcome_message,
-    message_contents::{
-        EncodedContent, PlaintextEnvelope,
-        content_types::ReactionV2,
-        plaintext_envelope::{Content, V1},
-    },
+
+use xmtp_proto::xmtp::mls::message_contents::{
+    EncodedContent, OneshotMessage, PlaintextEnvelope,
+    content_types::ReactionV2,
+    plaintext_envelope::{Content, V1},
 };
 
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
@@ -113,9 +112,9 @@ const MAX_GROUP_NAME_LENGTH: usize = 100;
 const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
 
 /// An LibXMTP MlsGroup
-/// _NOTE:_ The Eq implementation compares GroupId, so a dm group with the same identity will be
+/// _NOTE:_ The Eq implementation compares [`GroupId`], so a dm group with the same identity will be
 /// different.
-/// the Hash implementation hashes the GroupID
+/// the Hash implementation hashes the [`GroupId`]
 pub struct MlsGroup<Context> {
     pub group_id: Vec<u8>,
     pub dm_id: Option<String>,
@@ -403,17 +402,20 @@ where
     // Create a new group and save it to the DB
     pub(crate) fn create_and_insert(
         context: Context,
-        membership_state: GroupMembershipState,
         conversation_type: ConversationType,
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
+        oneshot_message: Option<OneshotMessage>,
     ) -> Result<Self, GroupError> {
+        assert!(conversation_type != ConversationType::Dm);
         let stored_group = Self::insert(
             &context,
             None,
-            membership_state,
+            GroupMembershipState::Allowed,
+            conversation_type,
             permissions_policy_set,
             opts,
+            oneshot_message,
         )?;
         let new_group = Self::new_from_arc(
             context.clone(),
@@ -424,7 +426,9 @@ where
         );
 
         // Consent state defaults to allowed when the user creates the group
-        new_group.update_consent_state(ConsentState::Allowed)?;
+        if !conversation_type.is_virtual() {
+            new_group.update_consent_state(ConsentState::Allowed)?;
+        }
 
         Ok(new_group)
     }
@@ -433,12 +437,18 @@ where
         context: &Context,
         existing_group_id: Option<&[u8]>,
         membership_state: GroupMembershipState,
+        conversation_type: ConversationType,
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
+        oneshot_message: Option<OneshotMessage>,
     ) -> Result<StoredGroup, GroupError> {
+        assert!(conversation_type != ConversationType::Dm);
         let creator_inbox_id = context.inbox_id();
-        let protected_metadata =
-            build_protected_metadata_extension(creator_inbox_id, ConversationType::Group)?;
+        let protected_metadata = build_protected_metadata_extension(
+            creator_inbox_id,
+            conversation_type,
+            oneshot_message,
+        )?;
         let mutable_metadata =
             build_mutable_metadata_extension_default(creator_inbox_id, opts.clone())?;
         let group_membership = build_starting_group_membership_extension(creator_inbox_id, 0);
@@ -455,9 +465,6 @@ where
             // TODO: For groups restored from backup, in order to support queries on metadata such as
             // the group title and description, a stubbed OpenMLS group is created, and later overwritten
             // when a welcome is received.
-            // To avoid potentially operating on this encryption state elsewhere, it may instead be better
-            // to store this metadata on the StoredGroup instead, and modify group metadata queries to also
-            // check the StoredGroup.
             OpenMlsGroup::from_backup_stub_logged(
                 &provider,
                 context.identity(),
@@ -472,10 +479,12 @@ where
         // If not an existing group, the creator is a super admin and should publish the commit log
         // Otherwise, for existing groups, we'll never publish the commit log until we receive a welcome message
         let should_publish_commit_log = existing_group_id.is_none();
+
         let stored_group = StoredGroup::builder()
             .id(group_id.clone())
             .created_at_ns(now_ns())
             .membership_state(membership_state)
+            .conversation_type(conversation_type)
             .added_by_inbox_id(context.inbox_id().to_string())
             .message_disappear_from_ns(
                 opts.message_disappearing_settings
@@ -557,32 +566,6 @@ where
         Ok(new_group)
     }
 
-    /// Create a group from a decrypted and decoded welcome message.
-    /// If the group already exists in the store, overwrite the MLS state and do not update the group entry
-    ///
-    /// # Parameters
-    /// * `client` - The client context to use for group operations
-    /// * `provider` - The OpenMLS provider for database access
-    /// * `welcome` - The encrypted welcome message
-    /// * `allow_cursor_increment` - Controls whether to allow cursor increments during processing.
-    ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
-    ///   processing from potentially out-of-order sources like streams.
-    #[tracing::instrument(skip_all, level = "trace")]
-    pub(super) async fn create_from_welcome(
-        context: Context,
-        welcome: &welcome_message::V1,
-        cursor_increment: bool,
-        validator: impl ValidateGroupMembership,
-    ) -> Result<Self, GroupError> {
-        XmtpWelcome::builder()
-            .context(context)
-            .welcome(welcome)
-            .cursor_increment(cursor_increment)
-            .validator(validator)
-            .process()
-            .await
-    }
-
     // Super admin status is only criteria for whether to publish the commit log for now
     fn check_should_publish_commit_log(
         inbox_id: String,
@@ -594,50 +577,7 @@ where
             .unwrap_or(false) // Default to false if no mutable metadata
     }
 
-    /// Create a sync group and insert it into the database.
-    pub(crate) fn create_and_insert_sync_group(
-        context: Context,
-    ) -> Result<MlsGroup<Context>, GroupError> {
-        let provider = context.mls_provider();
-
-        let protected_metadata =
-            build_protected_metadata_extension(context.inbox_id(), ConversationType::Sync)?;
-        let mutable_metadata = build_mutable_metadata_extension_default(
-            context.inbox_id(),
-            GroupMetadataOptions::default(),
-        )?;
-        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
-        let mutable_permissions =
-            build_mutable_permissions_extension(PreconfiguredPolicies::default().to_policy_set())?;
-        let group_config = build_group_config(
-            protected_metadata,
-            mutable_metadata,
-            group_membership,
-            mutable_permissions,
-        )?;
-        let mls_group =
-            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?;
-
-        let group_id = mls_group.group_id().to_vec();
-        let stored_group = StoredGroup::create_sync_group(
-            &context.db(),
-            group_id,
-            now_ns(),
-            GroupMembershipState::Allowed,
-        )?;
-
-        let group = Self::new_from_arc(
-            context,
-            stored_group.id,
-            None,
-            ConversationType::Sync,
-            stored_group.created_at_ns,
-        );
-
-        Ok(group)
-    }
-
-    /// Send a message on this users XMTP [`Client`].
+    /// Send a message on this users XMTP [`Client`](crate::client::Client).
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip(self), fields(who = self.context.inbox_id(), message = %String::from_utf8_lossy(message))))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
@@ -974,6 +914,180 @@ where
         Ok(())
     }
 
+    /// Removes all members from the group who are currently in the pending removal list.
+    ///
+    /// Only admins and super admins can call this function. Validates permissions, filters
+    /// out invalid removal requests and performs batch removal of valid pending members.
+    ///
+    /// # Returns
+    /// * `Ok(())` - All valid pending members were successfully removed
+    /// * `Err(GroupError)` - Failed to retrieve metadata, validate permissions or execute removals
+    pub async fn remove_members_pending_removal(&self) -> Result<(), GroupError> {
+        let pending_removal_list = self.pending_remove_list()?;
+
+        if pending_removal_list.is_empty() {
+            tracing::debug!(
+                group_id = hex::encode(&self.group_id),
+                inbox_id = %self.context.inbox_id(),
+                "Group has no pending removal members"
+            );
+            return Ok(());
+        }
+
+        //todo: check if is admin, and has the remove access policy
+        let is_admin = self.is_admin(self.context.inbox_id().to_string())?;
+        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
+        if !is_admin && !is_super_admin {
+            tracing::debug!(
+                group_id = hex::encode(&self.group_id),
+                inbox_id = %self.context.inbox_id(),
+                "Current inbox ID is not in admin or super admin list, skipping pending removal processing"
+            );
+            return Ok(());
+        }
+
+        // Get current group members to validate which ones actually exist
+        let members = self.members().await?;
+        let member_inbox_ids: HashSet<String> =
+            members.iter().map(|m| m.inbox_id.clone()).collect();
+
+        // Filter pending removals to only include actual group members
+        let valid_removals: Vec<&str> = pending_removal_list
+            .iter()
+            .filter(|inbox_id| member_inbox_ids.contains(*inbox_id))
+            .map(|s| s.as_str())
+            .collect();
+
+        if valid_removals.is_empty() {
+            tracing::warn!(
+                group_id = hex::encode(&self.group_id),
+                pending_count = pending_removal_list.len(),
+                "No valid members found in pending removal list"
+            );
+            return Ok(());
+        }
+        // Log members that are in pending list but not in group
+        let invalid_removals: Vec<&String> = pending_removal_list
+            .iter()
+            .filter(|inbox_id| !member_inbox_ids.contains(*inbox_id))
+            .collect();
+
+        if !invalid_removals.is_empty() {
+            tracing::warn!(
+                group_id = hex::encode(&self.group_id),
+                invalid_members = ?invalid_removals,
+                "Some members in pending removal list are not in the group"
+            );
+        }
+
+        // Remove all valid members at once
+        tracing::info!(
+            group_id = hex::encode(&self.group_id),
+            removing_count = valid_removals.len(),
+            members_to_remove = ?valid_removals,
+            "Removing pending members from group"
+        );
+
+        match self.remove_members_by_inbox_id(&valid_removals).await {
+            Ok(_) => {
+                tracing::info!(
+                    group_id = hex::encode(&self.group_id),
+                    removed_count = valid_removals.len(),
+                    removed_members = ?valid_removals,
+                    "Successfully removed all pending members from group"
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    group_id = hex::encode(&self.group_id),
+                    members = ?valid_removals,
+                    error = %e,
+                    "Failed to remove pending members from group"
+                );
+                return Err(e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Removes members from the pending removal list who are no longer in the group.
+    ///
+    /// Iterates through all members in the pending removal list, checking each one to see
+    /// if they're still in the group. If a member is no longer in the group, they are
+    /// removed from the pending list. The pending list is refreshed after each removal
+    /// to ensure we're working with the most current data.
+    ///
+    /// # Returns
+    /// * `Ok(())` - Successfully processed all pending removal members
+    /// * `Err(GroupError)` - Failed to retrieve data or update the pending list
+    pub async fn cleanup_pending_removal_list(&self) -> Result<(), GroupError> {
+        tracing::debug!(
+            group_id = hex::encode(&self.group_id),
+            "Starting pending removal list cleanup"
+        );
+
+        // Get both lists upfront
+        let pending_removal_list = self.pending_remove_list()?;
+
+        if pending_removal_list.is_empty() {
+            tracing::debug!(
+                group_id = hex::encode(&self.group_id),
+                "No pending removals to clean up"
+            );
+            // Clear the pending leave request status
+            self.context
+                .db()
+                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))?;
+            return Ok(());
+        }
+
+        // Get current group members
+        let current_members = self.members().await?;
+        let current_member_ids: Vec<String> = current_members
+            .iter()
+            .map(|member| member.inbox_id.clone())
+            .collect();
+
+        // Calculate removed members: users in pending list but not in current group
+        let removed_members: Vec<String> = pending_removal_list
+            .iter()
+            .filter(|pending_user| !current_member_ids.contains(pending_user))
+            .cloned()
+            .collect();
+
+        if !removed_members.is_empty() {
+            tracing::info!(
+                group_id = hex::encode(&self.group_id),
+                removed_count = removed_members.len(),
+                removed_members = ?removed_members,
+                "Removing members from pending removal list - they are no longer in the group"
+            );
+
+            // Remove all users who are no longer in the group from pending list
+            self.context
+                .db()
+                .delete_pending_remove_users(&self.group_id, removed_members)?;
+        }
+
+        // After cleanup, check if there are any pending removals left
+        let remaining_pending_list = self.pending_remove_list()?;
+        if remaining_pending_list.is_empty() {
+            // Clear the pending leave request status if no pending removals remain
+            self.context
+                .db()
+                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))?;
+        }
+
+        tracing::info!(
+            group_id = hex::encode(&self.group_id),
+            remaining_pending = remaining_pending_list.len(),
+            "Finished cleaning up pending removal list"
+        );
+
+        Ok(())
+    }
+
     pub async fn leave_group(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         self.is_member().await?;
@@ -985,27 +1099,24 @@ where
         if members.len() == 1 {
             return Err(GroupLeaveValidationError::SingleMemberLeaveRejected.into());
         }
-
         // check if the conversation is not a DM
         if self.metadata().await?.conversation_type == ConversationType::Dm {
             return Err(GroupLeaveValidationError::DmLeaveForbidden.into());
         }
-
         let is_admin = self.is_admin(self.context.inbox_id().to_string())?;
         let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
         let admin_size = self.admin_list()?.len();
         let super_admin_size = self.super_admin_list()?.len();
-
         // check if the user is the only Admin or SuperAdmin of the group
         if (is_admin && admin_size == 1) || (is_super_admin && super_admin_size == 1) {
             return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
         }
 
-        if !self.is_in_pending_remove(self.context.inbox_id().to_string())? {
+        if !self.is_in_pending_remove(&self.context.inbox_id().to_string())? {
             let content = LeaveRequestCodec::encode(LeaveRequest {})?;
             self.send_message(&encoded_content_to_bytes(content))
                 .await?;
-        }
+        };
         Ok(())
     }
 
@@ -1362,9 +1473,18 @@ where
     }
 
     pub fn pending_remove_list(&self) -> Result<Vec<String>, GroupError> {
-        todo!()
-        // let mutable_metadata = self.mutable_metadata()?;
-        // Ok(mutable_metadata.pending_remove_list)
+        self.context
+            .db()
+            .get_pending_remove_users(&self.group_id)
+            .map_err(Into::into)
+    }
+
+    /// Checks if the given inbox ID is the pending-remove list of the group at the most recently synced epoch.
+    pub fn is_in_pending_remove(&self, inbox_id: &str) -> Result<bool, GroupError> {
+        self.context
+            .db()
+            .get_user_pending_remove_status(&self.group_id, inbox_id)
+            .map_err(Into::into)
     }
 
     /// Retrieves the admin list of the group from the group's mutable metadata extension.
@@ -1393,10 +1513,16 @@ where
 
     /// Checks if the given inbox ID is the pending-remove list of the group at the most recently synced epoch.
     pub fn is_in_pending_remove(&self, inbox_id: String) -> Result<bool, GroupError> {
-        return Ok(false);
-        todo!("check if in pending remove list from db");
-        // let mutable_metadata = self.mutable_metadata()?;
-        // Ok(mutable_metadata.pending_remove_list.contains(&inbox_id))
+        let mutable_metadata = self.mutable_metadata()?;
+        Self::is_in_pending_remove_from_extensions(inbox_id, &mutable_metadata)
+    }
+
+    /// Checks if the given inbox ID is the pending-remove list of the group at the most recently synced epoch.
+    pub fn is_in_pending_remove_from_extensions(
+        inbox_id: String,
+        mutable_metadata: &GroupMutableMetadata,
+    ) -> Result<bool, GroupError> {
+        Ok(mutable_metadata.pending_remove_list.contains(&inbox_id))
     }
 
     /// Retrieves the conversation type of the group from the group's metadata extension.
@@ -1589,7 +1715,7 @@ where
     pub async fn metadata(&self) -> Result<GroupMetadata, GroupError> {
         self.load_mls_group_with_lock_async(|mls_group| {
             futures::future::ready(
-                extract_group_metadata(&mls_group)
+                extract_group_metadata(mls_group.extensions())
                     .map_err(MetadataPermissionsError::from)
                     .map_err(Into::into),
             )
@@ -1721,8 +1847,15 @@ where
 pub(crate) fn build_protected_metadata_extension(
     creator_inbox_id: &str,
     conversation_type: ConversationType,
+    oneshot_message: Option<OneshotMessage>,
 ) -> Result<Extension, MetadataPermissionsError> {
-    let metadata = GroupMetadata::new(conversation_type, creator_inbox_id.to_string(), None);
+    assert!(conversation_type != ConversationType::Dm);
+    let metadata = GroupMetadata::new(
+        conversation_type,
+        creator_inbox_id.to_string(),
+        None,
+        oneshot_message,
+    );
     let protected_metadata = Metadata::new(metadata.try_into()?);
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
@@ -1741,6 +1874,7 @@ fn build_dm_protected_metadata_extension(
         ConversationType::Dm,
         creator_inbox_id.to_string(),
         dm_members,
+        None,
     );
     let protected_metadata = Metadata::new(
         metadata
@@ -2023,7 +2157,7 @@ fn validate_dm_group(
     added_by_inbox: &str,
 ) -> Result<(), MetadataPermissionsError> {
     // Validate dm specific immutable metadata
-    let metadata = extract_group_metadata(mls_group)?;
+    let metadata = extract_group_metadata(mls_group.extensions())?;
 
     // 1) Check if the conversation type is DM
     if metadata.conversation_type != ConversationType::Dm {

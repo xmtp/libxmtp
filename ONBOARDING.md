@@ -24,7 +24,7 @@ A trustless, decentralized replacement is currently under development. More info
 
 This is the core client SDK. It fetches and publishes payloads from the [backend](https://github.com/xmtp/proto/blob/8b46912744d89e29236f21ed81b33facb5384239/proto/identity/api/v1/identity.proto#L19), encrypting and decrypting them using [OpenMLS](https://book.openmls.tech/), and storing them in the [database](https://github.com/xmtp/libxmtp/blob/2ab5529d4bc0ca1aa90e986a78cb23d2c6f227b7/xmtp_db/src/encrypted_store/schema_gen.rs#L1) before exposing results to the native SDK's via [bindings](https://github.com/xmtp/libxmtp/tree/main/bindings_ffi).
 
-It's recommended to start by understanding [envelope types](https://docs.xmtp.org/protocol/envelope-types) and [intents](), before moving onto deeper level concepts in the Core Concepts section below.
+It's recommended to start by understanding [envelope types](https://docs.xmtp.org/protocol/envelope-types) and [intents](https://docs.xmtp.org/protocol/intents), before moving onto deeper level concepts in the Core Concepts section below.
 
 #### Validation Service
 
@@ -56,9 +56,9 @@ The XMTP protocol can be understood via three core concepts:
 - MLS protocol
   - Go through 'libxmtp' section above
   - [Intuition](https://www.loom.com/share/a7450ecb62e84da78b39274eb4069351) and [formal talk](https://www.youtube.com/watch?v=FTPRjVLi8k4): Understand the general goals and mechanisms
-  - [MLS architecture](https://messaginglayersecurity.rocks/mls-architecture/draft-ietf-mls-architecture.html): Understand how the 'authentication service' and 'delivery service' plug into the protocol
+  - [Overview](https://docs.xmtp.org/protocol/overview): Understand how the 'authentication service' and 'delivery service' plug into the protocol, browse through other pages as needed
   - [OpenMLS library](https://book.openmls.tech/): Familiarize yourself with common operations
-  - [MLS spec](https://www.rfc-editor.org/rfc/rfc9420.html): Use as a reference for specifics later
+  - [MLS spec](https://www.rfc-editor.org/rfc/rfc9420.html): Use as a reference for specifics later, read it end-to-end if dedicated (or feed it into an AI and chat about it)
 - Identity protocol (authentication service)
   - [Explainer](https://xmtp.org/docs/concepts/identity) and [XIP](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-46-multi-wallet-identity.md)
 - Message delivery protocol (delivery service)

@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use crate::{utils::get_param_or_default, CodecError, ContentCodec};
+use crate::{CodecError, ContentCodec, utils::get_param_or_default};
 use serde::{Deserialize, Serialize};
 
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 pub struct AttachmentCodec {}
 
-/// Legacy content type id at https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-remote-attachment/src/Attachment.ts
+/// Legacy content type id at <https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-remote-attachment/src/Attachment.ts>
 impl AttachmentCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
     pub const TYPE_ID: &'static str = "attachment";

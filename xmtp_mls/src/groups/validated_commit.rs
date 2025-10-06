@@ -791,7 +791,7 @@ fn extract_commit_participant(
     }
 }
 
-/// Get the [`GroupMembership`] from a [`GroupContext`] struct by iterating through all extensions
+/// Get the [`GroupMembership`] from a `GroupContext` struct by iterating through all extensions
 /// until a match is found
 #[tracing::instrument(level = "trace", skip_all)]
 pub fn extract_group_membership(

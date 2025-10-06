@@ -55,7 +55,7 @@ impl From<u64> for MetaKey {
 
 // pub fn open_table(store: MetadataStore)
 
-/// Mapping of GroupId to a bare-minimum serialized Group
+/// Mapping of [`MetaKey`] to [`Metadata`]
 const TABLE: TableDefinition<MetaKey, Metadata> = TableDefinition::new(NAMESPACE);
 
 #[derive(Debug, Copy, Clone)]

@@ -36,15 +36,11 @@ async fn basic_sync() {
 #[cfg(not(target_arch = "wasm32"))]
 async fn only_one_payload_sent() {
     use std::time::Duration;
+    use tokio::time::sleep;
 
-    use crate::utils::{LocalTesterBuilder, Tester};
+    use crate::utils::LocalTesterBuilder;
 
-    let alix1 = Tester::builder()
-        .sync_server()
-        .sync_worker()
-        .with_name("alix1")
-        .build()
-        .await;
+    tester!(alix1, sync_server, sync_worker, with_name: "alix1");
     let alix2 = alix1.builder.clone().with_name("alix2").build().await;
     let alix3 = alix1.builder.clone().with_name("alix3").build().await;
 
@@ -52,13 +48,55 @@ async fn only_one_payload_sent() {
     alix1.test_has_same_sync_group_as(&alix3).await?;
     alix2.test_has_same_sync_group_as(&alix3).await?;
 
+    // Register interest for next PayloadSent events
     let wait1 = alix1.worker().register_interest(SyncMetric::PayloadSent, 1);
-    let timeout1 = xmtp_common::time::timeout(Duration::from_secs(3), wait1.wait()).await;
     let wait2 = alix2.worker().register_interest(SyncMetric::PayloadSent, 1);
-    let timeout2 = xmtp_common::time::timeout(Duration::from_secs(3), wait2.wait()).await;
 
-    // We want one of them to timeout (only one payload sent)
-    assert_ne!(timeout1.is_ok(), timeout2.is_ok());
+    // Wait for exactly one PayloadSent event using a race
+    let result = tokio::select! {
+        _r1 = wait1.wait() => "alix1",
+        _r2 = wait2.wait() => "alix2",
+        _ = sleep(Duration::from_secs(15)) => "timeout",
+    };
+
+    // Register interest for next PayloadSent events
+    let wait1 = alix1.worker().register_interest(SyncMetric::PayloadSent, 1);
+    let wait2 = alix2.worker().register_interest(SyncMetric::PayloadSent, 1);
+
+    // ensure no other send activity happens
+    let result2 = tokio::select! {
+        _r1 = wait1.wait() => "alix1",
+        _r2 = wait2.wait() => "alix2",
+        _ = sleep(Duration::from_secs(3)) => "timeout",
+    };
+
+    assert_ne!(
+        result, "timeout",
+        "Expected one payload to be sent within timeout"
+    );
+
+    assert_eq!(result2, "timeout", "expected second send to timeout");
+
+    // Check final counts - should be exactly 1 more total
+    let alix1_count = alix1.worker().get(SyncMetric::PayloadSent);
+    let alix2_count = alix2.worker().get(SyncMetric::PayloadSent);
+    let total_new_payloads = alix1_count + alix2_count;
+
+    // The core assertion: exactly 1 payload sent in response to our request
+    assert_eq!(
+        total_new_payloads, 1,
+        "Expected exactly 1 payload to be sent in response to sync request, got {} (alix1: {}, alix2: {})",
+        total_new_payloads, alix1_count, alix2_count
+    );
+
+    // Verify mutual exclusion: exactly one client should have sent
+    let alix1_sent = alix1_count > 0;
+    let alix2_sent = alix2_count > 0;
+    assert_ne!(
+        alix1_sent, alix2_sent,
+        "Expected exactly one client to send payload, but alix1_sent={}, alix2_sent={} (winner was: {})",
+        alix1_sent, alix2_sent, result
+    );
 }
 
 #[rstest::rstest]

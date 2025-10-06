@@ -5,7 +5,10 @@ pub type Address = String;
 pub type InboxId = String;
 pub type WalletAddress = String;
 
-use std::fmt;
+use bytes::Bytes;
+use std::{fmt, str::FromStr};
+
+use hex::FromHexError;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct InstallationId([u8; 32]);
@@ -16,7 +19,7 @@ impl InstallationId {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct GroupId(bytes::Bytes);
 
 impl std::fmt::Debug for GroupId {
@@ -24,6 +27,14 @@ impl std::fmt::Debug for GroupId {
         f.debug_tuple("GroupId")
             .field(&crate::fmt::debug_hex(&self.0))
             .finish()
+    }
+}
+
+impl FromStr for GroupId {
+    type Err = FromHexError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(GroupId(Bytes::from(hex::decode(s)?)))
     }
 }
 
@@ -141,5 +152,17 @@ impl PartialEq<[u8; 32]> for InstallationId {
 impl PartialEq<InstallationId> for [u8; 32] {
     fn eq(&self, other: &InstallationId) -> bool {
         other.0.eq(&self[..])
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[xmtp_macro::test]
+    fn test_fromstr() {
+        let hex = hex::encode(crate::rand_vec::<16>());
+        let id: GroupId = hex.parse().unwrap();
+        assert_eq!(hex::encode(&id.0), hex);
     }
 }

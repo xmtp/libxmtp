@@ -1,7 +1,7 @@
 use futures::FutureExt;
 use std::future::Future;
 use wasm_bindgen::prelude::*;
-use xmtp_db::{init_sqlite, OpfsSAHError, OpfsSAHPoolUtil};
+use xmtp_db::{OpfsSAHError, OpfsSAHPoolUtil, init_sqlite};
 
 #[wasm_bindgen]
 pub struct Opfs;

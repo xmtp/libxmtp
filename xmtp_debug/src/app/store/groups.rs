@@ -11,7 +11,7 @@ pub const MODULE: &str = "groups";
 pub const VERSION: u16 = 1;
 pub const NAMESPACE: &str = const_format::concatcp!(STORAGE_PREFIX, ":", VERSION, "//", MODULE);
 
-/// Mapping of GroupId to a bare-minimum serialized Group
+/// Mapping of [`GroupKey`] to a bare-minimum serialized [`Group`]
 const TABLE: TableDefinition<GroupKey, Group> = TableDefinition::new(NAMESPACE);
 
 impl super::DeriveKey<GroupKey> for Group {

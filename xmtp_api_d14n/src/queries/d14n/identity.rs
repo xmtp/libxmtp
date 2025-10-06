@@ -45,7 +45,7 @@ where
         PublishClientEnvelopes::builder()
             .envelope(envelopes)
             .build()?
-            .query(&self.payer_client)
+            .query(&self.gateway_client)
             .await?;
 
         Ok(identity_v1::PublishIdentityUpdateResponse {})

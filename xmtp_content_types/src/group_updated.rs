@@ -54,7 +54,7 @@ pub(crate) mod tests {
 
     use super::*;
     use xmtp_common::rand_string;
-    use xmtp_proto::xmtp::mls::message_contents::{group_updated::Inbox, GroupUpdated};
+    use xmtp_proto::xmtp::mls::message_contents::{GroupUpdated, group_updated::Inbox};
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]

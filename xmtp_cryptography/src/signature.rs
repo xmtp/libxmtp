@@ -5,7 +5,7 @@ use hex::FromHexError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{configuration::ED25519_KEY_LENGTH, Secret};
+use crate::{Secret, configuration::ED25519_KEY_LENGTH};
 
 pub fn to_public_key(private_key: &Secret) -> Result<[u8; ED25519_KEY_LENGTH], TryFromSliceError> {
     let private_key = private_key.as_slice().try_into()?;
@@ -131,8 +131,8 @@ pub fn sanitize_evm_addresses(
 pub mod tests {
     use super::is_valid_ethereum_address;
 
-    use alloy::signers::local::PrivateKeySigner;
     use alloy::signers::SignerSync;
+    use alloy::signers::local::PrivateKeySigner;
 
     pub fn generate_random_signature(msg: &str) -> (String, Vec<u8>) {
         let signer = PrivateKeySigner::random();

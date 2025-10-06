@@ -1726,3 +1726,39 @@ async fn test_get_latest_message_times_by_sender_mixed_content_types() {
     })
     .await
 }
+
+#[xmtp_common::test]
+async fn it_deletes_message_by_id() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        assert_ok!(group.store(conn));
+
+        // Create a message
+        let message = generate_message(None, Some(&group.id), None, None, None, None);
+        assert_ok!(message.store(conn));
+
+        // Verify the message exists
+        let retrieved_message = conn.get_group_message(&message.id).unwrap();
+        assert!(retrieved_message.is_some());
+        assert_eq!(retrieved_message.unwrap().id, message.id);
+
+        // Delete the message
+        let deleted_count = conn.delete_message_by_id(&message.id).unwrap();
+        assert_eq!(deleted_count, 1, "Should delete exactly 1 message");
+
+        // Verify the message no longer exists
+        let retrieved_message = conn.get_group_message(&message.id).unwrap();
+        assert!(
+            retrieved_message.is_none(),
+            "Message should not exist after deletion"
+        );
+
+        // Test idempotency - deleting again should return 0
+        let deleted_count = conn.delete_message_by_id(&message.id).unwrap();
+        assert_eq!(
+            deleted_count, 0,
+            "Deleting non-existent message should return 0"
+        );
+    })
+    .await
+}
