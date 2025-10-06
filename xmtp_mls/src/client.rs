@@ -1579,8 +1579,16 @@ pub(crate) mod tests {
         //check the rotation value has been set and less than Queue rotation interval
         let bo_fetched_identity: StoredIdentity = bo.context.db().fetch(&()).unwrap().unwrap();
         assert!(bo_fetched_identity.next_key_package_rotation_ns.is_some());
+        let updated_at = bo
+            .context
+            .db()
+            .key_package_rotation_history()
+            .into_iter()
+            .map(|(_, updated_at)| updated_at)
+            .next_back()
+            .unwrap();
         assert!(
-            bo_fetched_identity.next_key_package_rotation_ns.unwrap() - now_ns() < 5 * NS_IN_SEC
+            bo_fetched_identity.next_key_package_rotation_ns.unwrap() - updated_at < 5 * NS_IN_SEC
         );
 
         //check original keys must not be marked to be deleted

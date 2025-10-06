@@ -3,7 +3,7 @@ use std::array::TryFromSliceError;
 use thiserror::Error;
 use xmtp_common::RetryableError;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ApiEndpoint {
     Publish,
     SubscribeGroupMessages,
@@ -24,6 +24,7 @@ pub enum ApiEndpoint {
     QueryCommitLog,
     HealthCheck,
     GetNodes,
+    Path(String),
 }
 
 impl std::fmt::Display for ApiEndpoint {
@@ -49,6 +50,7 @@ impl std::fmt::Display for ApiEndpoint {
             QueryCommitLog => write!(f, "query_commit_log"),
             HealthCheck => write!(f, "health_check"),
             GetNodes => write!(f, "get_nodes"),
+            Path(s) => write!(f, "{}", s),
         }
     }
 }
