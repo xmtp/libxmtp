@@ -2894,6 +2894,7 @@ pub struct FfiMessage {
     pub kind: FfiConversationMessageKind,
     pub delivery_status: FfiDeliveryStatus,
     pub sequence_id: u64,
+    pub originator_id: u32,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -2906,7 +2907,8 @@ impl From<StoredGroupMessage> for FfiMessage {
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
             delivery_status: msg.delivery_status.into(),
-            sequence_id: msg.sequence_id.map(|s| s as u64).unwrap_or(0),
+            sequence_id: msg.sequence_id as u64,
+            originator_id: msg.originator_id as u32,
         }
     }
 }

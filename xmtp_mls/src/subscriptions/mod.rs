@@ -7,7 +7,8 @@ use tokio_stream::wrappers::BroadcastStream;
 use xmtp_api_d14n::protocol::{Extractor, ProtocolEnvelope as _};
 
 use tracing::instrument;
-use xmtp_proto::{api_client::XmtpMlsStreams, types::Cursor, xmtp::mls::api::v1::WelcomeMessage};
+use xmtp_db::prelude::*;
+use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
 use process_welcome::ProcessWelcomeResult;
 use stream_all::StreamAllMessages;
@@ -33,7 +34,7 @@ use xmtp_common::{RetryableError, StreamHandle, retryable};
 use xmtp_db::{
     NotFound, StorageError,
     consent_record::{ConsentState, StoredConsentRecord},
-    group::{ConversationType, QueryGroup},
+    group::ConversationType,
     group_message::StoredGroupMessage,
 };
 
@@ -193,6 +194,8 @@ pub enum SubscribeError {
     Conversion(#[from] xmtp_proto::ConversionError),
     #[error(transparent)]
     Envelope(#[from] xmtp_api_d14n::protocol::EnvelopeError),
+    #[error("the originators of the messages do not match expected: {expected}, got: {got}")]
+    MismatchedOriginators { expected: u32, got: u32 },
 }
 
 impl From<GroupError> for SubscribeError {
@@ -224,6 +227,8 @@ impl RetryableError for SubscribeError {
             Db(c) => retryable!(c),
             Conversion(c) => retryable!(c),
             Envelope(c) => retryable!(c),
+            // this is an error which should never occur
+            MismatchedOriginators { .. } => false,
         }
     }
 }
@@ -242,15 +247,7 @@ where
         let conn = self.context.db();
         let envelope =
             WelcomeMessage::decode(envelope_bytes.as_slice()).map_err(SubscribeError::from)?;
-        let known_welcomes = HashSet::from_iter(
-            conn.group_welcome_ids()?
-                .into_iter()
-                .map(|id| Cursor::welcomes(id as u64)),
-        );
-        // TODO:d14n pair the v3 with the d14n extractor to be able to extract
-        // both message versions. this can be done with a tuple, i.e
-        // let mut extractor = (V3, D14n)
-        // or d14n crate should just create a type alias for such an extractor
+        let known_welcomes = HashSet::from_iter(conn.group_cursors()?.into_iter());
         let mut extractor = xmtp_api_d14n::protocol::V3WelcomeMessageExtractor::default();
         envelope.accept(&mut extractor)?;
         let welcome: xmtp_proto::types::WelcomeMessage = extractor.get()?;

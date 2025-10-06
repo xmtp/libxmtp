@@ -48,6 +48,7 @@ impl GroupMessage {
         self.cursor.sequence_id
     }
 }
+
 #[cfg(any(test, feature = "test-utils"))]
 impl xmtp_common::Generate for GroupMessage {
     fn generate() -> Self {

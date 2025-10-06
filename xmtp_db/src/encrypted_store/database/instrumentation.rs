@@ -14,6 +14,7 @@ impl Instrumentation for TestInstrumentation {
         use InstrumentationEvent::*;
         match event {
             FinishQuery { query, error, .. } => {
+                tracing::debug!("{}", query);
                 if let Some(e) = error {
                     tracing::error!("query {} errored with {:?}", query, error);
                     if let DieselError::DatabaseError(_, info) = e {

@@ -5,12 +5,13 @@ use std::collections::HashMap;
 
 use xmtp_api::ApiError;
 use xmtp_common::RetryableError;
+use xmtp_configuration::Originators;
 use xmtp_db::{
     Fetch, NotFound, XmtpOpenMlsProvider,
     group::{GroupQueryArgs, StoredGroup},
     refresh_state::EntityKind,
 };
-use xmtp_proto::types::{Cursor, GroupMessage, WelcomeMessage};
+use xmtp_proto::types::{GroupMessage, WelcomeMessage};
 
 use crate::{
     context::XmtpSharedContext,
@@ -65,15 +66,16 @@ where
         conn: &impl DbQuery,
     ) -> Result<Vec<WelcomeMessage>, MlsStoreError> {
         let installation_id = self.context.installation_id();
-        let id_cursor = conn.get_last_cursor_for_id(installation_id, EntityKind::Welcome)?;
+        let cursor = conn.get_last_cursor_for_originators(
+            installation_id,
+            EntityKind::Welcome,
+            &[Originators::WELCOME_MESSAGES.into()],
+        )?;
 
         let welcomes = self
             .context
             .api()
-            .query_welcome_messages(
-                installation_id.as_ref(),
-                vec![Cursor::welcomes(id_cursor as u64)],
-            )
+            .query_welcome_messages(installation_id.as_ref(), cursor)
             .await?;
 
         Ok(welcomes)
@@ -86,12 +88,24 @@ where
         group_id: &[u8],
         conn: &impl DbQuery,
     ) -> Result<Vec<GroupMessage>, MlsStoreError> {
-        let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
+        // TODO:d14n this is replaced with an lcc
+        // query in future PRs
+        let app_msgs = conn.get_last_cursor_for_originator(
+            group_id,
+            EntityKind::ApplicationMessage,
+            Originators::APPLICATION_MESSAGES.into(),
+        )?;
+
+        let commits = conn.get_last_cursor_for_originator(
+            group_id,
+            EntityKind::CommitMessage,
+            Originators::MLS_COMMITS.into(),
+        )?;
 
         let messages = self
             .context
             .sync_api()
-            .query_group_messages(group_id.into(), vec![Cursor::v3_messages(id_cursor as u64)])
+            .query_group_messages(group_id.into(), vec![app_msgs, commits])
             .await?;
 
         Ok(messages)
