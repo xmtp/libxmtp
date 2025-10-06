@@ -1,10 +1,10 @@
 use js_sys::Uint8Array;
 use prost::Message;
-use wasm_bindgen::{prelude::wasm_bindgen, JsError};
-use xmtp_content_types::reaction::ReactionCodec;
+use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
-use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
+use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
 
 #[wasm_bindgen(getter_with_clone)]
 pub struct Reaction {

@@ -181,8 +181,6 @@ pub struct MutableMetadataValidationInfo {
     pub admins_removed: Vec<Inbox>,
     pub super_admins_added: Vec<Inbox>,
     pub super_admins_removed: Vec<Inbox>,
-    pub pending_remove_added: Vec<Inbox>,
-    pub pending_remove_removed: Vec<Inbox>,
     pub num_super_admins: u32,
     pub minimum_supported_protocol_version: Option<String>,
 }
@@ -193,8 +191,6 @@ impl MutableMetadataValidationInfo {
             && self.admins_added.is_empty()
             && self.admins_removed.is_empty()
             && self.super_admins_added.is_empty()
-            && self.pending_remove_added.is_empty()
-            && self.pending_remove_removed.is_empty()
             && self.super_admins_removed.is_empty()
             && self.minimum_supported_protocol_version.is_none()
     }
@@ -302,7 +298,6 @@ pub struct ValidatedCommit {
     pub installations_changed: bool,
     pub permissions_changed: bool,
     pub dm_members: Option<DmMembers<String>>,
-    pub group_members: Vec<String>,
 }
 
 impl ValidatedCommit {
@@ -436,10 +431,6 @@ impl ValidatedCommit {
                 ));
             }
         }
-        let group_members: Vec<String> = openmls_group
-            .members()
-            .filter_map(|member| inbox_id_from_credential(&member.credential).ok())
-            .collect();
 
         let verified_commit = Self {
             actor,
@@ -449,7 +440,6 @@ impl ValidatedCommit {
             installations_changed,
             permissions_changed,
             dm_members: immutable_metadata.dm_members,
-            group_members,
         };
 
         let policy_set = extract_group_permissions(openmls_group)?;
@@ -801,7 +791,7 @@ fn extract_commit_participant(
     }
 }
 
-/// Get the [`GroupMembership`] from a [`GroupContext`] struct by iterating through all extensions
+/// Get the [`GroupMembership`] from a `GroupContext` struct by iterating through all extensions
 /// until a match is found
 #[tracing::instrument(level = "trace", skip_all)]
 pub fn extract_group_membership(
@@ -878,18 +868,6 @@ fn extract_metadata_changes(
         super_admins_removed: get_removed_members(
             &old_mutable_metadata.super_admin_list,
             &new_mutable_metadata.super_admin_list,
-            immutable_metadata,
-            old_mutable_metadata,
-        ),
-        pending_remove_added: get_added_members(
-            &old_mutable_metadata.pending_remove_list,
-            &new_mutable_metadata.pending_remove_list,
-            immutable_metadata,
-            old_mutable_metadata,
-        ),
-        pending_remove_removed: get_removed_members(
-            &old_mutable_metadata.pending_remove_list,
-            &new_mutable_metadata.pending_remove_list,
             immutable_metadata,
             old_mutable_metadata,
         ),

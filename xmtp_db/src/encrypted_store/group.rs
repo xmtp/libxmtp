@@ -6,7 +6,7 @@ use super::{
     schema::groups::{self, dsl},
 };
 use crate::NotFound;
-use crate::{DuplicateItem, StorageError, Store, impl_fetch, impl_store, impl_store_or_ignore};
+use crate::{DuplicateItem, StorageError, impl_fetch, impl_store, impl_store_or_ignore};
 use derive_builder::Builder;
 use diesel::{
     backend::Backend,
@@ -121,26 +121,13 @@ impl StoredGroup {
     pub fn builder() -> StoredGroupBuilder {
         StoredGroupBuilder::default()
     }
+}
 
-    pub fn create_sync_group(
-        conn: &impl crate::DbQuery,
-        id: ID,
-        created_at_ns: i64,
-        membership_state: GroupMembershipState,
-    ) -> Result<Self, StorageError> {
-        let stored_group = StoredGroup::builder()
-            .id(id)
-            .conversation_type(ConversationType::Sync)
-            .created_at_ns(created_at_ns)
-            .membership_state(membership_state)
-            .added_by_inbox_id("")
-            .build()
-            .expect("No fields should be uninitialized");
-
-        stored_group.store(conn)?;
-
-        Ok(stored_group)
-    }
+#[derive(Debug, Clone, Default)]
+pub enum GroupQueryOrderBy {
+    #[default]
+    CreatedAt,
+    LastActivity,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -148,13 +135,15 @@ pub struct GroupQueryArgs {
     pub allowed_states: Option<Vec<GroupMembershipState>>,
     pub created_after_ns: Option<i64>,
     pub created_before_ns: Option<i64>,
-    pub activity_after_ns: Option<i64>,
+    pub last_activity_after_ns: Option<i64>,
+    pub last_activity_before_ns: Option<i64>,
     pub limit: Option<i64>,
     pub conversation_type: Option<ConversationType>,
     pub consent_states: Option<Vec<ConsentState>>,
     pub include_sync_groups: bool,
     pub include_duplicate_dms: bool,
     pub should_publish_commit_log: Option<bool>,
+    pub order_by: Option<GroupQueryOrderBy>,
 }
 
 impl AsRef<GroupQueryArgs> for GroupQueryArgs {
@@ -163,8 +152,26 @@ impl AsRef<GroupQueryArgs> for GroupQueryArgs {
     }
 }
 
+impl GroupQueryArgs {
+    pub fn validate(&self) -> Result<(), crate::ConnectionError> {
+        if self.last_activity_after_ns.is_some() && self.created_after_ns.is_some() {
+            return Err(crate::ConnectionError::InvalidQuery(
+                "last_activity_after_ns and created_after_ns cannot be used together".to_string(),
+            ));
+        }
+
+        if self.last_activity_before_ns.is_some() && self.created_before_ns.is_some() {
+            return Err(crate::ConnectionError::InvalidQuery(
+                "last_activity_before_ns and created_before_ns cannot be used together".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+}
+
 pub trait QueryGroup {
-    /// Return regular [`Purpose::Conversation`] groups with additional optional filters
+    /// Return regular `Purpose::Conversation` groups with additional optional filters
     fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
@@ -278,7 +285,7 @@ impl<T> QueryGroup for &T
 where
     T: QueryGroup,
 {
-    /// Return regular [`Purpose::Conversation`] groups with additional optional filters
+    /// Return regular `Purpose::Conversation` groups with additional optional filters
     fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
@@ -436,12 +443,15 @@ where
 }
 
 impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
-    /// Return regular [`Purpose::Conversation`] groups with additional optional filters
+    /// Return regular `Purpose::Conversation` groups with additional optional filters
     fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
     ) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         use crate::schema::consent_records::dsl as consent_dsl;
+
+        args.as_ref().validate()?;
+
         let GroupQueryArgs {
             allowed_states,
             created_after_ns,
@@ -451,25 +461,34 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             consent_states,
             include_sync_groups,
             include_duplicate_dms,
-            activity_after_ns,
+            last_activity_after_ns,
+            last_activity_before_ns,
             should_publish_commit_log,
+            order_by,
         } = args.as_ref();
 
+        let order_expression = match order_by.clone().unwrap_or_default() {
+            GroupQueryOrderBy::CreatedAt => {
+                diesel::dsl::sql::<diesel::sql_types::BigInt>("created_at_ns ASC")
+            }
+            GroupQueryOrderBy::LastActivity => diesel::dsl::sql::<diesel::sql_types::BigInt>(
+                "COALESCE(last_message_ns, created_at_ns) DESC",
+            ),
+        };
+
         let mut query = dsl::groups
-            .filter(dsl::conversation_type.ne(ConversationType::Sync))
-            .order(dsl::created_at_ns.asc())
+            .filter(dsl::conversation_type.ne_all(ConversationType::virtual_types()))
+            .order(order_expression)
             .into_boxed();
 
         if !include_duplicate_dms {
-            // Group by dm_id and grab the latest group (conversation stitching)
+            // Fast DM deduplication using EXISTS - avoids expensive window functions
+            // Keep only the latest group for each dm_id (or regular group if not a DM)
             query = query.filter(sql::<diesel::sql_types::Bool>(
-                "id IN (
-                    SELECT id FROM (
-                        SELECT id,
-                            ROW_NUMBER() OVER (PARTITION BY COALESCE(dm_id, id) ORDER BY last_message_ns DESC) AS row_num
-                        FROM groups
-                    ) AS ranked_groups
-                    WHERE row_num = 1
+                "NOT EXISTS (
+                    SELECT 1 FROM groups g2
+                    WHERE COALESCE(g2.dm_id, g2.id) = COALESCE(groups.dm_id, groups.id)
+                    AND (COALESCE(g2.last_message_ns, 0), g2.id) > (COALESCE(groups.last_message_ns, 0), groups.id)
                 )",
             ));
         }
@@ -482,21 +501,29 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             query = query.filter(dsl::membership_state.eq_any(allowed_states));
         }
 
-        // activity_after_ns takes precedence over created_after_ns
-        if let Some(activity_after_ns) = activity_after_ns {
+        // last_activity_after_ns takes precedence over created_after_ns
+        if let Some(last_activity_after_ns) = last_activity_after_ns {
             // "Activity after" means groups that were either created,
             // or have sent a message after the specified time.
-            if let Some(created_after_ns) = created_after_ns {
-                query = query.filter(
-                    dsl::last_message_ns
-                        .gt(activity_after_ns)
-                        .or(dsl::created_at_ns.gt(created_after_ns)),
-                );
-            } else {
-                query = query.filter(dsl::last_message_ns.gt(activity_after_ns));
-            }
-        } else if let Some(created_after_ns) = created_after_ns {
+            query = query.filter(
+                diesel::dsl::sql::<diesel::sql_types::BigInt>(
+                    "COALESCE(last_message_ns, created_at_ns)",
+                )
+                .gt(last_activity_after_ns),
+            );
+        }
+
+        if let Some(created_after_ns) = created_after_ns {
             query = query.filter(dsl::created_at_ns.gt(created_after_ns));
+        }
+
+        if let Some(last_activity_before_ns) = last_activity_before_ns {
+            query = query.filter(
+                diesel::dsl::sql::<diesel::sql_types::BigInt>(
+                    "COALESCE(last_message_ns, created_at_ns)",
+                )
+                .lt(last_activity_before_ns),
+            );
         }
 
         if let Some(created_before_ns) = created_before_ns {
@@ -540,8 +567,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                         .or(consent_dsl::state.eq(ConsentState::Unknown))
                         .or(consent_dsl::state.eq_any(filtered_states.clone())),
                 )
-                .select(dsl::groups::all_columns())
-                .order(dsl::created_at_ns.asc());
+                .select(dsl::groups::all_columns());
 
             self.raw_query_read(|conn| left_joined_query.load::<StoredGroup>(conn))?
         } else {
@@ -551,8 +577,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                     sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
                 ))
                 .filter(consent_dsl::state.eq_any(filtered_states.clone()))
-                .select(dsl::groups::all_columns())
-                .order(dsl::created_at_ns.asc());
+                .select(dsl::groups::all_columns());
 
             self.raw_query_read(|conn| inner_joined_query.load::<StoredGroup>(conn))?
         };
@@ -581,7 +606,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         } = args.as_ref();
 
         let mut query = groups::table
-            .filter(groups::conversation_type.ne(ConversationType::Sync))
+            .filter(groups::conversation_type.ne_all(ConversationType::virtual_types()))
             .order(groups::id)
             .into_boxed();
 
@@ -755,7 +780,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })?;
 
         if maybe_inserted_group.is_none() {
-            let existing_group: StoredGroup =
+            let mut existing_group: StoredGroup =
                 self.raw_query_read(|conn| dsl::groups.find(&group.id).first(conn))?;
             // A restored group should be overwritten
             if matches!(
@@ -788,6 +813,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                             .set(dsl::welcome_id.eq(group.welcome_id))
                             .execute(c)
                     })?;
+                    existing_group.welcome_id = group.welcome_id;
                 }
                 Ok(existing_group)
             }
@@ -890,7 +916,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         use crate::schema::consent_records::dsl as consent_dsl;
 
         let query = dsl::groups
-            .filter(dsl::conversation_type.ne(ConversationType::Sync))
+            .filter(dsl::conversation_type.ne_all(ConversationType::virtual_types()))
             .inner_join(consent_dsl::consent_records.on(
                 sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
             ))
@@ -904,11 +930,13 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(
-                dsl::conversation_type.ne(ConversationType::Sync).and(
-                    dsl::is_commit_log_forked
-                        .is_null()
-                        .or(dsl::is_commit_log_forked.ne(Some(true))),
-                ),
+                dsl::conversation_type
+                    .ne_all(ConversationType::virtual_types())
+                    .and(
+                        dsl::is_commit_log_forked
+                            .is_null()
+                            .or(dsl::is_commit_log_forked.ne(Some(true))),
+                    ),
             )
             .select(dsl::id);
 
@@ -1029,6 +1057,23 @@ pub enum ConversationType {
     Group = 1,
     Dm = 2,
     Sync = 3,
+    Oneshot = 4,
+}
+
+impl ConversationType {
+    pub fn virtual_types() -> Vec<ConversationType> {
+        vec![ConversationType::Sync, ConversationType::Oneshot]
+    }
+
+    pub fn is_virtual(&self) -> bool {
+        // Use match to force exhaustive pattern matching
+        match self {
+            ConversationType::Group => false,
+            ConversationType::Dm => false,
+            ConversationType::Sync => true,
+            ConversationType::Oneshot => true,
+        }
+    }
 }
 
 impl ToSql<Integer, Sqlite> for ConversationType
@@ -1050,6 +1095,7 @@ where
             1 => Ok(ConversationType::Group),
             2 => Ok(ConversationType::Dm),
             3 => Ok(ConversationType::Sync),
+            4 => Ok(ConversationType::Oneshot),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -1062,6 +1108,7 @@ impl std::fmt::Display for ConversationType {
             Group => write!(f, "group"),
             Dm => write!(f, "dm"),
             Sync => write!(f, "sync"),
+            Oneshot => write!(f, "oneshot"),
         }
     }
 }
@@ -1348,38 +1395,6 @@ pub(crate) mod tests {
             assert_eq!(fetched_group, Some(test_group));
             let conversation_type = fetched_group.unwrap().conversation_type;
             assert_eq!(conversation_type, ConversationType::Group);
-        })
-        .await
-    }
-
-    #[xmtp_common::test]
-    async fn test_new_sync_group() {
-        with_connection(|conn| {
-            let id = rand_vec::<24>();
-            let created_at_ns = now_ns();
-            let membership_state = GroupMembershipState::Allowed;
-
-            let sync_group =
-                StoredGroup::create_sync_group(conn, id, created_at_ns, membership_state).unwrap();
-
-            let conversation_type = sync_group.conversation_type;
-            assert_eq!(conversation_type, ConversationType::Sync);
-
-            let found = conn.primary_sync_group().unwrap();
-            assert!(found.is_some());
-            assert_eq!(found.unwrap().conversation_type, ConversationType::Sync);
-
-            // Load the sync group with a consent filter
-            let allowed_groups = conn
-                .find_groups(&GroupQueryArgs {
-                    consent_states: Some([ConsentState::Allowed].to_vec()),
-                    include_sync_groups: true,
-                    ..Default::default()
-                })
-                .unwrap();
-
-            assert_eq!(allowed_groups.len(), 1);
-            assert_eq!(allowed_groups[0].id, sync_group.id);
         })
         .await
     }

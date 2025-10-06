@@ -1,18 +1,18 @@
 #![allow(dead_code)]
 use super::{
-    ident, to_lower_s, AccountId, InstallationKeyContext, MemberIdentifier, SignatureError,
-    SignatureKind, ValidatedLegacySignedPublicKey,
+    AccountId, InstallationKeyContext, MemberIdentifier, SignatureError, SignatureKind,
+    ValidatedLegacySignedPublicKey, ident, to_lower_s,
 };
 use crate::scw_verifier::SmartContractSignatureVerifier;
 use alloy::primitives::Signature as EtherSignature;
 use alloy::signers::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey;
 use alloy::signers::utils::public_key_to_address;
-use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine;
-use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
+use base64::prelude::BASE64_URL_SAFE_NO_PAD;
+use p256::ecdsa::{Signature, VerifyingKey, signature::Verifier};
+use xmtp_cryptography::CredentialVerify;
 use xmtp_cryptography::hash::sha256_bytes;
 use xmtp_cryptography::signature::h160addr_to_string;
-use xmtp_cryptography::CredentialVerify;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
 #[derive(Debug, Clone)]
@@ -227,12 +227,12 @@ mod tests {
 
     use super::*;
     use crate::associations::{
+        InstallationKeyContext, MemberIdentifier, SignatureKind,
         test_utils::{MockSmartContractSignatureVerifier, WalletTestExt},
         verified_signature::VerifiedSignature,
-        InstallationKeyContext, MemberIdentifier, SignatureKind,
     };
-    use alloy::signers::local::PrivateKeySigner;
     use alloy::signers::Signer;
+    use alloy::signers::local::PrivateKeySigner;
     use prost::Message;
     use xmtp_common::rand_hexstring;
     use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};

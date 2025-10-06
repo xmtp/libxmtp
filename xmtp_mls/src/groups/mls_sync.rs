@@ -1,7 +1,6 @@
 use super::{
     GroupError, HmacKey, MlsGroup, build_extensions_for_admin_lists_update,
-    build_extensions_for_metadata_update, build_extensions_for_pending_remove_lists_update,
-    build_extensions_for_permissions_update,
+    build_extensions_for_metadata_update, build_extensions_for_permissions_update,
     intents::{
         Installation, IntentError, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
@@ -58,9 +57,10 @@ use xmtp_db::{
     user_preferences::StoredUserPreferences,
 };
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
-use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
+use xmtp_mls_common::group_mutable_metadata::{
+    GroupMutableMetadataError, MetadataField, extract_group_mutable_metadata,
+};
 
-use crate::groups::intents::UpdatePendingRemoveListIntentData;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -137,7 +137,9 @@ pub enum GroupMessageProcessingError {
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
-    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
+    OpenMlsProcessMessage(
+        #[from] openmls::prelude::ProcessMessageError<sql_key_store::SqlKeyStoreError>,
+    ),
     #[error("merge staged commit: {0}")]
     MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::SqlKeyStoreError>),
     #[error("TLS Codec error: {0}")]
@@ -258,11 +260,24 @@ impl RetryableError for IntentResolutionError {
 }
 
 #[derive(Debug)]
-struct PublishIntentData {
+pub(crate) struct PublishIntentData {
     staged_commit: Option<Vec<u8>>,
     post_commit_action: Option<Vec<u8>>,
     payload_to_publish: Vec<u8>,
     should_send_push_notification: bool,
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl PublishIntentData {
+    #[allow(dead_code)]
+    pub fn post_commit_data(&self) -> Option<Vec<u8>> {
+        self.post_commit_action.clone()
+    }
+
+    #[allow(dead_code)]
+    pub fn staged_commit(&self) -> Option<Vec<u8>> {
+        self.staged_commit.clone()
+    }
 }
 
 impl<Context> MlsGroup<Context>
@@ -563,7 +578,6 @@ where
             IntentKind::KeyUpdate
             | IntentKind::UpdateGroupMembership
             | IntentKind::UpdateAdminList
-            | IntentKind::UpdatePendingRemoveList
             | IntentKind::MetadataUpdate
             | IntentKind::UpdatePermission => {
                 if let Some(published_in_epoch) = intent.published_in_epoch {
@@ -976,6 +990,7 @@ where
                 &storage,
                 &mut deferred_events
             )?;
+            self.process_pending_remove_list_changes(mls_group, &storage, validated_commit.clone(),);
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
                 tracing::info!(
@@ -1065,6 +1080,8 @@ where
                             originator_id: None,
                             expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                         };
+                        // todo: process leave message type here
+
                         message.store_or_ignore(&storage.db())?;
                         // make sure internal id is on return type after its stored successfully
                         identifier.internal_id(message_id);
@@ -1254,7 +1271,7 @@ where
                 );
 
                 let msg = self.save_transcript_message(
-                    validated_commit,
+                    validated_commit.clone(),
                     envelope_timestamp_ns,
                     *cursor,
                     storage,
@@ -1264,6 +1281,190 @@ where
             }
         }?;
         identifier.build()
+    }
+
+    fn process_pending_remove_list_changes(
+        &self,
+        mls_group: &OpenMlsGroup,
+        storage: &impl XmtpMlsStorageProvider,
+        validated_commit: Option<ValidatedCommit>,
+    ) {
+        let current_inbox_id = self.context.inbox_id().to_string();
+
+        // Process validated commit changes - only if the actor is the current user
+        if let Some(commit) = validated_commit {
+            // Only process changes if they were made by the same user
+            if commit.actor.inbox_id == current_inbox_id {
+                self.process_self_pending_remove_changes(&commit, storage);
+                return; // Early return - we're done if this is our own action
+            }
+        }
+
+        // If we reach here, the action was by another user or no validated commit
+        // Only process admin actions if we're admin/super-admin
+        self.process_admin_pending_remove_actions(mls_group, storage);
+    }
+
+    fn process_self_pending_remove_changes(
+        &self,
+        commit: &ValidatedCommit,
+        storage: &impl XmtpMlsStorageProvider,
+    ) {
+        let current_inbox_id = self.context.inbox_id().to_string();
+        let metadata_info = &commit.metadata_validation_info;
+
+        // Handle removal from pending remove list (restore to Allowed state)
+        if metadata_info
+            .pending_remove_removed
+            .iter()
+            .any(|id| id.inbox_id == current_inbox_id)
+        {
+            if let Err(e) = storage
+                .db()
+                .update_group_membership(&self.group_id, GroupMembershipState::Allowed)
+            {
+                tracing::error!(
+                    operation = "update_group_membership",
+                    target_state = "Allowed",
+                    inbox_id = %current_inbox_id,
+                    group_id = hex::encode(&self.group_id),
+                    context = "self_removed_from_pending_list",
+                    "Failed to restore group membership after self-removal from pending_remove_list {}", e
+                );
+            }
+        }
+
+        // Handle addition to the pending remove list
+        if metadata_info
+            .pending_remove_added
+            .iter()
+            .any(|id| id.inbox_id == current_inbox_id)
+        {
+            if let Err(e) = storage
+                .db()
+                .update_group_membership(&self.group_id, GroupMembershipState::PendingRemove)
+            {
+                tracing::error!(
+                    operation = "update_group_membership",
+                    target_state = "PendingRemove",
+                    inbox_id = %current_inbox_id,
+                    group_id = hex::encode(&self.group_id),
+                    context = "self_added_to_pending_list",
+                    "Failed to update group membership after self-addition to pending_remove_list {}", e
+                );
+            }
+        }
+    }
+
+    fn process_admin_pending_remove_actions(
+        &self,
+        mls_group: &OpenMlsGroup,
+        storage: &impl XmtpMlsStorageProvider,
+    ) {
+        let current_inbox_id = self.context.inbox_id().to_string();
+
+        // Process admin actions based on current group state
+        // If the current user is admin/super-admin and there are pending remove requests, mark the group accordingly
+        // todo: we need to check if other clients and the same time one of the admins wants to leave the group,
+        // in this case, both the admin and other clients are in the pending remove list.
+        // but still, the admin client needs to react to others and remove them from the pending remove list.
+        match extract_group_mutable_metadata(mls_group) {
+            Ok(metadata) => {
+                let is_admin = metadata.admin_list.contains(&current_inbox_id)
+                    || metadata.super_admin_list.contains(&current_inbox_id);
+
+                // Only process if we're an admin/super-admin
+                if !is_admin {
+                    return;
+                }
+
+                let pending_remove = &metadata.pending_remove_list;
+                let has_pending_removes = !pending_remove.is_empty();
+                let current_user_not_pending = !pending_remove.contains(&current_inbox_id);
+
+                // Update group status based on pending remove list state
+                if current_user_not_pending {
+                    self.update_group_pending_status(storage, has_pending_removes);
+                    // Update the group's pending leave request status
+                    // if let Err(e) = storage
+                    //     .db()
+                    //     .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
+                    // {
+                    //     //     //     .map_err(|e| {
+                    //     tracing::error!("Failed to set group pending leave request status: {}", e);
+                    // } else {
+                    //     //     //         IntentError::Storage(e.into())
+                    //     //     //     })?;
+                    //     //
+                    //     tracing::info!("Marked the group as having pending leave requests");
+                    // }
+                }
+            }
+            Err(GroupMutableMetadataError::MissingExtension) => {
+                tracing::warn!(
+                    group_id = hex::encode(&self.group_id),
+                    inbox_id = %current_inbox_id,
+                    "Group has no mutable metadata extension; skipping pending-remove admin processing"
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    group_id = hex::encode(&self.group_id),
+                    inbox_id = %current_inbox_id,
+                    operation = "extract_group_mutable_metadata",
+                    "Failed to extract mutable metadata for pending-remove admin processing {}",e
+                );
+            }
+        }
+    }
+
+    fn update_group_pending_status(
+        &self,
+        storage: &impl XmtpMlsStorageProvider,
+        has_pending_removes: bool,
+    ) {
+        // TODO: Implement the actual database update when the method becomes available
+        // This is where we would mark the group as having/not having pending remove requests
+
+        if has_pending_removes {
+            tracing::info!(
+                group_id = hex::encode(&self.group_id),
+                inbox_id = %self.context.inbox_id(),
+                "Group has pending remove requests requiring admin action"
+            );
+
+            // Placeholder for future implementation:
+            // if let Err(e) = storage
+            //     .db()
+            //     .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
+            // {
+            //     tracing::error!(
+            //         error = %e,
+            //         operation = "set_group_pending_status",
+            //         group_id = hex::encode(&self.group_id),
+            //         "Failed to mark group as having pending leave requests"
+            //     );
+            // }
+        } else {
+            tracing::debug!(
+                group_id = hex::encode(&self.group_id),
+                inbox_id = %self.context.inbox_id(),
+                "Group has no pending remove requests"
+            );
+
+            // Placeholder for future implementation:
+            // if let Err(e) = storage
+            //     .db()
+            //     .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
+            // {
+            //     tracing::error!(
+            //         error = %e,
+            //         operation = "set_group_pending_status",
+            //         group_id = hex::encode(&self.group_id),
+            //         "Failed to mark group as not having pending leave requests"
+            //     );
+            // }
+        }
     }
 
     fn get_message_expire_at_ns(mls_group: &OpenMlsGroup) -> Option<i64> {
@@ -1543,39 +1744,24 @@ where
         intent: &StoredGroupIntent,
         storage: &impl XmtpMlsStorageProvider,
     ) -> Result<(), IntentError> {
-        match intent.kind {
-            IntentKind::MetadataUpdate => {
-                let data = UpdateMetadataIntentData::try_from(intent.data.clone())?;
+        if intent.kind == IntentKind::MetadataUpdate {
+            let data = UpdateMetadataIntentData::try_from(intent.data.clone())?;
 
-                match data.field_name.as_str() {
-                    field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
-                        storage.db().update_message_disappearing_from_ns(
-                            self.group_id.clone(),
-                            data.field_value.parse::<i64>().ok(),
-                        )?
-                    }
-                    field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
-                        storage.db().update_message_disappearing_in_ns(
-                            self.group_id.clone(),
-                            data.field_value.parse::<i64>().ok(),
-                        )?
-                    }
-                    _ => {} // handle other metadata updates
+            match data.field_name.as_str() {
+                field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
+                    storage.db().update_message_disappearing_from_ns(
+                        self.group_id.clone(),
+                        data.field_value.parse::<i64>().ok(),
+                    )?
                 }
-            }
-            IntentKind::UpdatePendingRemoveList => {
-                let data = UpdatePendingRemoveListIntentData::try_from(intent.data.clone())?;
-                if data.inbox_id == self.context.inbox_id() {
-                    storage
-                        .db()
-                        .update_group_membership(
-                            &intent.group_id,
-                            GroupMembershipState::PendingRemove,
-                        )
-                        .map_err(|e| IntentError::Storage(e.into()))?
+                field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
+                    storage.db().update_message_disappearing_in_ns(
+                        self.group_id.clone(),
+                        data.field_value.parse::<i64>().ok(),
+                    )?
                 }
+                _ => {} // handle other metadata updates
             }
-            _ => (),
         }
         Ok(())
     }
@@ -2187,43 +2373,43 @@ where
                     should_send_push_notification: intent.should_push,
                 }))
             }
-            IntentKind::UpdatePendingRemoveList => {
-                let pending_remove_list_update_intent =
-                    UpdatePendingRemoveListIntentData::try_from(intent.data.clone())?;
-                let mutable_metadata_extensions = build_extensions_for_pending_remove_lists_update(
-                    openmls_group,
-                    pending_remove_list_update_intent,
-                )?;
-
-                let result = storage.transaction(|conn| {
-                    let storage = conn.key_store();
-                    let provider = XmtpOpenMlsProviderRef::new(&storage);
-                    let (commit, _, _) = openmls_group.update_group_context_extensions(
-                        &provider,
-                        mutable_metadata_extensions,
-                        &self.context.identity().installation_keys,
-                    )?;
-                    let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
-
-                    Ok::<_, GroupError>((commit, staged_commit))
-                });
-                let (commit, staged_commit) = match result {
-                    Ok(res) => res,
-                    Err(e) => {
-                        openmls_group.reload(storage)?;
-                        return Err(e);
-                    }
-                };
-
-                let commit_bytes = commit.tls_serialize_detached()?;
-
-                Ok(Some(PublishIntentData {
-                    payload_to_publish: commit_bytes,
-                    staged_commit,
-                    post_commit_action: None,
-                    should_send_push_notification: intent.should_push,
-                }))
-            }
+            // IntentKind::UpdatePendingRemoveList => {
+            //     let pending_remove_list_update_intent =
+            //         UpdatePendingRemoveListIntentData::try_from(intent.data.clone())?;
+            //     let mutable_metadata_extensions = build_extensions_for_pending_remove_lists_update(
+            //         openmls_group,
+            //         pending_remove_list_update_intent,
+            //     )?;
+            //
+            //     let result = storage.transaction(|conn| {
+            //         let storage = conn.key_store();
+            //         let provider = XmtpOpenMlsProviderRef::new(&storage);
+            //         let (commit, _, _) = openmls_group.update_group_context_extensions(
+            //             &provider,
+            //             mutable_metadata_extensions,
+            //             &self.context.identity().installation_keys,
+            //         )?;
+            //         let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
+            //
+            //         Ok::<_, GroupError>((commit, staged_commit))
+            //     });
+            //     let (commit, staged_commit) = match result {
+            //         Ok(res) => res,
+            //         Err(e) => {
+            //             openmls_group.reload(storage)?;
+            //             return Err(e);
+            //         }
+            //     };
+            //
+            //     let commit_bytes = commit.tls_serialize_detached()?;
+            //
+            //     Ok(Some(PublishIntentData {
+            //         payload_to_publish: commit_bytes,
+            //         staged_commit,
+            //         post_commit_action: None,
+            //         should_send_push_notification: intent.should_push,
+            //     }))
+            // }
             IntentKind::UpdatePermission => {
                 let update_permissions_intent =
                     UpdatePermissionIntentData::try_from(intent.data.clone())?;
@@ -2304,8 +2490,7 @@ where
                 self.group_id.clone(),
             )));
         };
-        if stored_group.conversation_type == ConversationType::Sync {
-            // Sync groups should not add new installations, new installations will create their own.
+        if stored_group.conversation_type.is_virtual() {
             return Ok(());
         }
 
@@ -2366,7 +2551,7 @@ where
      * Callers may also include a list of added or removed inboxes
      */
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(super) async fn get_membership_update_intent(
+    pub(crate) async fn get_membership_update_intent(
         &self,
         inbox_ids_to_add: &[InboxIdRef<'_>],
         inbox_ids_to_remove: &[InboxIdRef<'_>],
@@ -2474,24 +2659,20 @@ where
                     let welcome_metadata = WelcomeMetadata {
                         message_cursor: message_cursor.unwrap_or(0) as u64,
                     };
-                    let wrapped_welcome_metadata = wrap_welcome(
-                        &welcome_metadata.encode_to_vec(),
-                        &installation.hpke_public_key,
-                        &algorithm,
-                    )?;
-
-                    let wrapped_welcome = wrap_welcome(
+                    let welcome_metadata_bytes = welcome_metadata.encode_to_vec();
+                    let (data, welcome_metadata) = wrap_welcome(
                         &action.welcome_message,
+                        &welcome_metadata_bytes,
                         &installation.hpke_public_key,
                         &algorithm,
                     )?;
                     Ok(WelcomeMessageInput {
                         version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
                             installation_key,
-                            data: wrapped_welcome,
+                            data,
                             hpke_public_key: installation.hpke_public_key,
                             wrapper_algorithm: algorithm.into(),
-                            welcome_metadata: wrapped_welcome_metadata,
+                            welcome_metadata,
                         })),
                     })
                 },
@@ -2772,7 +2953,9 @@ fn get_and_clear_pending_commit(
     Ok(commit)
 }
 
-fn decode_staged_commit(data: &[u8]) -> Result<StagedCommit, GroupMessageProcessingError> {
+pub(crate) fn decode_staged_commit(
+    data: &[u8],
+) -> Result<StagedCommit, GroupMessageProcessingError> {
     Ok(xmtp_db::db_deserialize(data)?)
 }
 

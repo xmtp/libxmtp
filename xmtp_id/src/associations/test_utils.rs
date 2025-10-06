@@ -1,21 +1,21 @@
 #![allow(clippy::unwrap_used)]
 use super::{
+    AccountId, InstallationKeyContext, MemberIdentifier,
     builder::SignatureRequest,
     member::Identifier,
     unsigned_actions::UnsignedCreateInbox,
     unverified::{UnverifiedAction, UnverifiedCreateInbox, UnverifiedSignature},
-    AccountId, InstallationKeyContext, MemberIdentifier,
 };
 use crate::{
-    scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError},
     InboxOwner,
+    scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError},
 };
 use alloy::{
     primitives::{BlockNumber, Bytes},
-    signers::{local::PrivateKeySigner, Signer},
+    signers::{Signer, local::PrivateKeySigner},
 };
-use xmtp_cryptography::basic_credential::XmtpInstallationCredential;
 use xmtp_cryptography::CredentialSign;
+use xmtp_cryptography::basic_credential::XmtpInstallationCredential;
 
 #[derive(Debug, Clone)]
 pub struct MockSmartContractSignatureVerifier {

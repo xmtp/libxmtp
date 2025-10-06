@@ -18,16 +18,19 @@ use crate::xmtp::mls::api::v1::{
     SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage,
 };
 use futures::Stream;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+use xmtp_common::MaybeSend;
 use xmtp_common::RetryableError;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub trait XmtpTestClient {
     type Builder: ApiBuilder;
     fn create_local() -> Self::Builder;
-    fn create_local_d14n() -> Self::Builder;
-    fn create_local_payer() -> Self::Builder;
+    fn create_d14n() -> Self::Builder;
+    fn create_gateway() -> Self::Builder;
     fn create_dev() -> Self::Builder;
 }
 
@@ -199,7 +202,7 @@ impl EndpointStats {
 pub trait XmtpMlsClient {
     type Error: RetryableError + Send + Sync + 'static;
     async fn upload_key_package(&self, request: UploadKeyPackageRequest)
-        -> Result<(), Self::Error>;
+    -> Result<(), Self::Error>;
     async fn fetch_key_packages(
         &self,
         request: FetchKeyPackagesRequest,
@@ -368,29 +371,14 @@ where
         (**self).stats()
     }
 }
-#[cfg(not(target_arch = "wasm32"))]
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-pub trait XmtpMlsStreams {
-    type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>> + Send;
-
-    type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>> + Send;
-    type Error: RetryableError + Send + Sync + 'static;
-
-    async fn subscribe_group_messages(
-        &self,
-        request: SubscribeGroupMessagesRequest,
-    ) -> Result<Self::GroupMessageStream, Self::Error>;
-    async fn subscribe_welcome_messages(
-        &self,
-        request: SubscribeWelcomeMessagesRequest,
-    ) -> Result<Self::WelcomeMessageStream, Self::Error>;
-}
-
-#[cfg(target_arch = "wasm32")]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait XmtpMlsStreams {
-    type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>>;
-    type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>>;
+    type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>> + MaybeSend;
+
+    type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>> + MaybeSend;
+
     type Error: RetryableError + Send + Sync + 'static;
 
     async fn subscribe_group_messages(
@@ -583,7 +571,7 @@ pub trait ApiBuilder {
     fn set_host(&mut self, host: String);
 
     /// Set the payer URL (optional)
-    fn set_payer(&mut self, _host: String) {}
+    fn set_gateway(&mut self, _host: String) {}
 
     /// indicate tls (default: false)
     fn set_tls(&mut self, tls: bool);
@@ -605,14 +593,14 @@ pub trait ApiBuilder {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use futures::stream;
     use futures::StreamExt;
+    use futures::stream;
     use tokio::sync::OnceCell;
     use toxiproxy_rust::proxy::Proxy;
     use toxiproxy_rust::proxy::ProxyPack;
+    use xmtp_configuration::DockerUrls;
     use xmtp_configuration::localhost_to_internal;
     use xmtp_configuration::toxi_port;
-    use xmtp_configuration::DockerUrls;
 
     static TOXIPROXY: OnceCell<toxiproxy_rust::client::Client> = OnceCell::const_new();
 
@@ -656,7 +644,7 @@ pub mod tests {
                 .ports
                 .iter()
                 .enumerate()
-                .find(|(_, &p)| p.eq(&port))
+                .find(|&(_, &p)| p.eq(&port))
                 .map(|(i, _)| i);
             idx.map(|i| &self.inner[i])
         }

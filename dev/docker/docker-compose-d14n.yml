@@ -1,6 +1,6 @@
-x-xmtpd-server-image: &x-xmtpd-server-image ghcr.io/xmtp/xmtpd:sha-56c39d6
-x-xmtpd-gateway-image: &x-xmtpd-gateway-image ghcr.io/xmtp/xmtpd-gateway:sha-56c39d6
-x-xmtpd-cli-image: &x-xmtpd-cli-image ghcr.io/xmtp/xmtpd-cli:sha-56c39d6
+x-xmtpd-server-image: &x-xmtpd-server-image ghcr.io/xmtp/xmtpd:sha-e4c3978
+x-xmtpd-gateway-image: &x-xmtpd-gateway-image ghcr.io/xmtp/xmtpd-gateway:sha-e4c3978
+x-xmtpd-cli-image: &x-xmtpd-cli-image ghcr.io/xmtp/xmtpd-cli:sha-e4c3978
 x-xmtpd-contracts-image: &x-xmtpd-contracts-image ghcr.io/xmtp/contracts:v0.5.5
 x-postgres-image: &x-postgres-image postgres:16
 x-redis-image: &x-redis-image redis:7-alpine
@@ -38,10 +38,11 @@ services:
         "--config-file=/cfg/anvil.json",
         "--private-key=${REGISTER_NODE_ADMIN_KEY}",
         "--rpc-url=${XMTPD_SETTLEMENT_CHAIN_RPC_URL}",
-        "nodes", "register",
+        "nodes",
+        "register",
         "--owner-address=${REGISTER_NODE_OWNER_ADDRESS}",
         "--signing-key-pub=${REGISTER_NODE_PUBKEY}",
-        "--http-address=${REGISTER_NODE_HTTP_ADDRESS}"
+        "--http-address=${REGISTER_NODE_HTTP_ADDRESS}",
       ]
     depends_on:
       chain:
@@ -59,9 +60,10 @@ services:
         "--config-file=/cfg/anvil.json",
         "--private-key=${REGISTER_NODE_ADMIN_KEY}",
         "--rpc-url=${XMTPD_SETTLEMENT_CHAIN_RPC_URL}",
-        "nodes", "canonical-network",
+        "nodes",
+        "canonical-network",
         "--add",
-        "--node-id=100"
+        "--node-id=100",
       ]
     depends_on:
       chain:
@@ -101,4 +103,3 @@ services:
     ports:
       - 5052:5050
       - 5057:5055
-

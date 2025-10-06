@@ -1,22 +1,22 @@
 use js_sys::Uint8Array;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{filter, fmt::format::Pretty};
-use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
+use wasm_bindgen::prelude::{JsError, wasm_bindgen};
 use xmtp_api::ApiDebugWrapper;
-use xmtp_api_http::XmtpHttpApiClient;
+use xmtp_api_grpc::v3::Client as TonicApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
+use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::SyncWorkerMode;
 use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
-use xmtp_mls::Client as MlsClient;
 use xmtp_proto::api_client::AggregateStats;
 
 use crate::conversations::Conversations;
@@ -25,7 +25,7 @@ use crate::inbox_state::InboxState;
 
 pub type MlsContext = Arc<
   XmtpMlsLocalContext<
-    ApiDebugWrapper<XmtpHttpApiClient>,
+    ApiDebugWrapper<TonicApiClient>,
     xmtp_db::DefaultStore,
     xmtp_db::DefaultMlsStore,
   >,
@@ -159,23 +159,9 @@ pub async fn create_client(
   app_version: Option<String>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
-  let api_client = XmtpHttpApiClient::new(
-    host.clone(),
-    app_version
-      .as_ref()
-      .unwrap_or(&"0.0.0".to_string())
-      .to_string(),
-  )
-  .await?;
+  let api_client = TonicApiClient::create(host.clone(), true, app_version.clone()).await?;
 
-  let sync_api_client = XmtpHttpApiClient::new(
-    host.clone(),
-    app_version
-      .as_ref()
-      .unwrap_or(&"0.0.0".to_string())
-      .to_string(),
-  )
-  .await?;
+  let sync_api_client = TonicApiClient::create(host.clone(), true, app_version.clone()).await?;
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
@@ -403,5 +389,14 @@ impl Client {
     upload_debug_archive(db, Some(server_url))
       .await
       .map_err(|e| JsError::new(&format!("{e}")))
+  }
+
+  #[wasm_bindgen(js_name = deleteMessage)]
+  pub fn delete_message(&self, message_id: Vec<u8>) -> Result<u32, JsError> {
+    let deleted_count = self
+      .inner_client
+      .delete_message(message_id)
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    Ok(deleted_count as u32)
   }
 }

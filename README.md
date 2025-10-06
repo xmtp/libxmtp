@@ -20,7 +20,7 @@ Start Docker Desktop.
 
 - To install other dependencies and start background services:
 
-  ```
+  ```bash
   dev/up
   ```
 
@@ -28,28 +28,34 @@ Start Docker Desktop.
 
 - To run tests:
 
-  ```
+  ```bash
   RUST_LOG=off cargo test
   ```
 
   Many team members also install and use `cargo nextest` for better test
   isolation and log output behavior.
 
+- run tests and open coverage in a browser:
+
+```bash
+./dev/test/coverage
+```
+
 - To run WebAssembly tests headless:
 
-  ```
+  ```bash
   dev/test/wasm
   ```
 
 - To run WebAssembly tests interactively for a package, for example, `xmtp_mls`:
 
-  ```
+  ```bash
   dev/test/wasm-interactive xmtp_mls
   ```
 
 - To run browser SDK tests:
 
-  ```
+  ```bash
   dev/test/browser-sdk
   ```
 
@@ -120,6 +126,37 @@ Command line build using docker
 docker build . -t libxmtp:1
 ```
 
+## Quick Start (nix)
+
+This project has an option to use nix as the development environment. Nix sets
+up a reproducible & deterministic environment of the dependency tree libxmtp
+requires. In the future the hope is to cover all SDKs -- currently, Android &
+Wasm are best supported. Flake outputs are cached with
+[determinate nix](https://docs.determinate.systems/). Determinate is a
+distribution of nix catered towards developers & CI with sophisticated caching
+ability.
+
+### Install
+
+use the `./dev/nix-up` script and follow the prompts. this will install
+determinate nix & direnv. Direnv is a useful tool to auto-load default nix
+environments (with your consent, given `direnv allow` && `direnv deny` commands)
+with your already-used shell environment.
+
+### Uninstall
+
+use the `./dev/nix-down` script & follow prompts. this will uninstall nix &
+direnv.
+
+### Using direnv
+
+to configure direnv for a project, run the command
+`echo "use flake" . > .envrc"` in the project root. direnv will prompt you to
+allow the environment which can be done with `direnv allow`. using a non-default
+environment (ex: android) can be done using `nix develop .#environment`. EX:
+`nix develop .#android`. the environment description must be available in nix
+flake `devShells` output.
+
 ## Structure
 
 libxmtp/
@@ -139,9 +176,6 @@ sending double ratchet messages on the XMTP `dev` network.
 
 ├ [`xmtp_api_grpc`](./xmtp_api_grpc): API client for XMTP's gRPC API, using code
 from `xmtp_proto`
-
-├ [`xmtp_api_http`](./xmtp_api_http): API client for XMTP's gRPC Gateway API,
-using code from `xmtp_proto`
 
 ├ [`xmtp_cryptography`](./xmtp_cryptography): Cryptographic operations
 
@@ -172,12 +206,14 @@ buffers
 
 ## Code Coverage
 
-Code coverage is generated using `cargo llvm-cov` and is integrated into ci and reported to [codecov](https://codecov.io).
+Code coverage is generated using `cargo llvm-cov` and is integrated into ci and
+reported to [codecov](https://codecov.io).
 
-To run the tests locally you can run the `dev/llvm-cov` script to run the same workspace tests and generate both an lcov and html
-report.
+To run the tests locally you can run the `dev/llvm-cov` script to run the same
+workspace tests and generate both an lcov and html report.
 
-If you have installed the `Coverage Gutters` extension in vscode (or a derivative) you can get coverage information in your IDE.
+If you have installed the `Coverage Gutters` extension in vscode (or a
+derivative) you can get coverage information in your IDE.
 
 ## Contributing
 

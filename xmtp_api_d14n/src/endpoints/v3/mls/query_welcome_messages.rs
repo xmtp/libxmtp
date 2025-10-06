@@ -30,7 +30,7 @@ impl Endpoint for QueryWelcomeMessages {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<QueryWelcomeMessagesRequest>()
+        xmtp_proto::path_and_query::<QueryWelcomeMessagesRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -53,7 +53,7 @@ mod test {
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
-        let pnq = crate::path_and_query::<QueryWelcomeMessagesRequest>();
+        let pnq = xmtp_proto::path_and_query::<QueryWelcomeMessagesRequest>();
         println!("{}", pnq);
     }
 

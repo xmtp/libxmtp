@@ -1,12 +1,12 @@
-use crate::identity::Identifier;
 use crate::ErrorWrapper;
+use crate::identity::Identifier;
 use napi::bindgen_prelude::Result;
 use napi::bindgen_prelude::Uint8Array;
 use napi_derive::napi;
 use std::sync::Arc;
 use xmtp_api::ApiIdentifier;
-use xmtp_api::{strategies, ApiClientWrapper};
-use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_api::{ApiClientWrapper, strategies};
+use xmtp_api_grpc::v3::Client as TonicApiClient;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_id::associations::MemberIdentifier;
 

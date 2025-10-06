@@ -1,4 +1,4 @@
-use super::{ident, AssociationError, DeserializationError};
+use super::{AssociationError, DeserializationError, ident};
 use ed25519_dalek::VerifyingKey;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -7,14 +7,14 @@ use std::{
     hash::Hash,
 };
 use xmtp_api::identity::ApiIdentifier;
-use xmtp_cryptography::{signature::IdentifierValidationError, XmtpInstallationCredential};
+use xmtp_cryptography::{XmtpInstallationCredential, signature::IdentifierValidationError};
 use xmtp_db::identity_cache::StoredIdentityKind;
 use xmtp_proto::{
+    ConversionError,
     xmtp::identity::{
         api::v1::get_inbox_ids_request::Request as GetInboxIdsRequestProto,
         associations::IdentifierKind,
     },
-    ConversionError,
 };
 
 #[derive(Clone, Eq, PartialEq, Hash)]
@@ -81,7 +81,7 @@ impl MemberIdentifier {
         }
     }
 
-    /// Get the value for [`MemberIdentifier::Address`] variant.
+    /// Get the value for [`MemberIdentifier::Ethereum`] variant.
     /// Returns `None` if the type is not the correct variant.
     pub fn eth_address(&self) -> Option<&str> {
         if let Self::Ethereum(address) = self {
@@ -91,7 +91,7 @@ impl MemberIdentifier {
         }
     }
 
-    /// Get the value for [`MemberIdentifier::Address`], consuming the [`MemberIdentifier`]
+    /// Get the value for [`MemberIdentifier::Ethereum`], consuming the [`MemberIdentifier`]
     /// in the process
     pub fn to_eth_address(self) -> Option<String> {
         if let Self::Ethereum(address) = self {
@@ -353,11 +353,10 @@ pub struct Member {
 
 impl std::fmt::Debug for Member {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Member {{ identifier: {:?}, added_by {:?}, client_timestamp: {:?}, added_on_chain: {:?} }}",
-            self.identifier,
-            self.added_by_entity,
-            self.client_timestamp_ns,
-            self.added_on_chain_id
+        write!(
+            f,
+            "Member {{ identifier: {:?}, added_by {:?}, client_timestamp: {:?}, added_on_chain: {:?} }}",
+            self.identifier, self.added_by_entity, self.client_timestamp_ns, self.added_on_chain_id
         )
     }
 }

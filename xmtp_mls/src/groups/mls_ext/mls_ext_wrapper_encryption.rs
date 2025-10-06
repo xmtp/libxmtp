@@ -22,6 +22,20 @@ impl WrapperAlgorithm {
             WrapperAlgorithm::XWingMLKEM768Draft6 => POST_QUANTUM_CIPHERSUITE,
         }
     }
+    // hardcoded because the functions to do the translations are private
+    // and placed here so that any changes to the this algorithm will have to be handled
+    pub fn to_hpke_config(&self) -> hpke_rs::Hpke<hpke_rs::libcrux::HpkeLibcrux> {
+        let kem = match self {
+            Self::Curve25519 => hpke_rs::hpke_types::KemAlgorithm::DhKem25519,
+            Self::XWingMLKEM768Draft6 => hpke_rs::hpke_types::KemAlgorithm::XWingDraft06,
+        };
+        hpke_rs::Hpke::<hpke_rs::libcrux::HpkeLibcrux>::new(
+            hpke_rs::Mode::Base,
+            kem,
+            hpke_rs::hpke_types::KdfAlgorithm::HkdfSha256,
+            hpke_rs::hpke_types::AeadAlgorithm::ChaCha20Poly1305,
+        )
+    }
 }
 
 impl From<WrapperAlgorithm> for WrapperAlgorithmProto {

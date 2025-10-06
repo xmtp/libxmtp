@@ -7,7 +7,7 @@ use crate::{
         stream_messages::{MessageStreamError, StreamGroupMessages},
     },
 };
-use xmtp_common::types::GroupId;
+use xmtp_common::{MaybeSend, types::GroupId};
 use xmtp_db::group_message::StoredGroupMessage;
 
 use futures::{Stream, StreamExt};
@@ -64,12 +64,8 @@ where
     pub fn stream_with_callback(
         context: Context,
         group_id: Vec<u8>,
-        #[cfg(target_arch = "wasm32")] callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
-        #[cfg(not(target_arch = "wasm32"))] callback: impl FnMut(Result<StoredGroupMessage>)
-        + Send
-        + 'static,
-        #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
-        #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
+        callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>>
     where
         Context: Send + Sync + 'static,
@@ -90,16 +86,9 @@ where
 /// messages along to a callback.
 pub(crate) fn stream_messages_with_callback<Context>(
     context: Context,
-    #[cfg(not(target_arch = "wasm32"))] active_conversations: impl Iterator<Item = GroupId>
-    + Send
-    + 'static,
-    #[cfg(target_arch = "wasm32")] active_conversations: impl Iterator<Item = GroupId> + 'static,
-    #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
-    #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<StoredGroupMessage>)
-    + Send
-    + 'static,
-    #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
-    #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
+    active_conversations: impl Iterator<Item = GroupId> + MaybeSend + 'static,
+    mut callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
+    on_close: impl FnOnce() + MaybeSend + 'static,
 ) -> impl StreamHandle<StreamOutput = Result<()>>
 where
     Context: Sync + Send + XmtpSharedContext + 'static,

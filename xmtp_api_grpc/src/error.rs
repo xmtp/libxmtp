@@ -9,24 +9,23 @@ pub enum GrpcBuilderError {
     MissingLibxmtpVersion,
     #[error("host url required to create client")]
     MissingHostUrl,
-    #[error("payer url required to create client")]
-    MissingPayerUrl,
+    #[error("xmtpd gateway url required to create client")]
+    MissingXmtpdGatewayUrl,
     #[error(transparent)]
     Metadata(#[from] tonic::metadata::errors::InvalidMetadataValue),
-    #[error(transparent)]
-    Transport(#[from] tonic::transport::Error),
     #[error("Invalid URI during channel creation")]
     InvalidUri(#[from] http::uri::InvalidUri),
     #[error(transparent)]
     Url(#[from] url::ParseError),
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    #[error(transparent)]
+    Transport(#[from] tonic::transport::Error),
 }
 
 #[derive(Debug, Error)]
 pub enum GrpcError {
     #[error("Invalid URI during channel creation")]
     InvalidUri(#[from] http::uri::InvalidUri),
-    #[error(transparent)]
-    Transport(#[from] tonic::transport::Error),
     #[error(transparent)]
     Metadata(#[from] tonic::metadata::errors::InvalidMetadataValue),
     #[error(transparent)]
@@ -43,6 +42,9 @@ pub enum GrpcError {
     Decode(#[from] prost::DecodeError),
     #[error("unreachable (Infallible)")]
     Unreachable,
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    #[error(transparent)]
+    Transport(#[from] tonic::transport::Error),
 }
 
 impl From<ConversionError> for GrpcError {

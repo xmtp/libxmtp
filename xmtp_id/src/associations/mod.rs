@@ -13,7 +13,7 @@ pub mod verified_signature;
 
 pub use self::association_log::*;
 pub use self::member::{HasMemberKind, Identifier, Member, MemberIdentifier, MemberKind};
-pub use self::serialization::{map_vec, try_map_vec, DeserializationError};
+pub use self::serialization::{DeserializationError, map_vec, try_map_vec};
 pub use self::signature::*;
 pub use self::state::{AssociationState, AssociationStateDiff};
 

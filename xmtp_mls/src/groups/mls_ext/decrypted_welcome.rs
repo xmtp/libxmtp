@@ -1,5 +1,5 @@
 use openmls::{
-    group::{MlsGroupJoinConfig, ProcessedWelcome, StagedWelcome, WireFormatPolicy},
+    group::{MlsGroupJoinConfig, StagedWelcome, WireFormatPolicy},
     prelude::{
         BasicCredential, KeyPackageBundle, KeyPackageRef, MlsMessageBodyIn, MlsMessageIn, Welcome,
     },
@@ -46,48 +46,36 @@ impl DecryptedWelcome {
         let hash_ref = find_key_package_hash_ref(provider, hpke_public_key)?;
         let private_key = find_private_key(provider, &hash_ref, &wrapper_ciphersuite)?;
 
-        let welcome_bytes = unwrap_welcome(
+        let (welcome_bytes, welcome_metadata_bytes) = unwrap_welcome(
             encrypted_welcome_bytes,
+            encrypted_welcome_metadata_bytes,
             &private_key,
-            wrapper_ciphersuite.clone(),
+            wrapper_ciphersuite,
         )?;
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
-        let welcome_metadata = if encrypted_welcome_metadata_bytes.is_empty() {
+        let welcome_metadata = if welcome_metadata_bytes.is_empty() {
             tracing::debug!("Welcome Metadata is empty; proceeding without metadata.");
             None
         } else {
-            match unwrap_welcome(
-                encrypted_welcome_metadata_bytes,
-                &private_key,
-                wrapper_ciphersuite,
-            ) {
-                Ok(metadata_bytes) => deserialize_welcome_metadata(&metadata_bytes)
-                    .map_err(|e| {
-                        tracing::debug!(?e, "Failed to deserialize welcome metadata; ignoring.")
-                    })
-                    .ok(),
-                Err(e) => {
-                    tracing::debug!(
-                        ?e,
-                        "Could not read welcome metadata; proceeding without it."
-                    );
-                    None
-                }
-            }
+            deserialize_welcome_metadata(&welcome_metadata_bytes)
+                .map_err(|e| {
+                    tracing::debug!(?e, "Failed to deserialize welcome metadata; ignoring.")
+                })
+                .ok()
         };
 
         let join_config = build_group_join_config();
 
-        let processed_welcome =
-            ProcessedWelcome::new_from_welcome(provider, &join_config, welcome.clone())?;
+        let builder = StagedWelcome::build_from_welcome(provider, &join_config, welcome.clone())?;
+        let processed_welcome = builder.processed_welcome();
 
         let psks = processed_welcome.psks();
         if !psks.is_empty() {
             tracing::error!("No PSK support for welcome");
             return Err(GroupError::NoPSKSupport);
         }
-        let staged_welcome = processed_welcome.into_staged_welcome(provider, None)?;
+        let staged_welcome = builder.skip_lifetime_validation().build()?;
 
         let added_by_node = staged_welcome.welcome_sender()?;
 

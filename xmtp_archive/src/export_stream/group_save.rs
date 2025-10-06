@@ -40,6 +40,9 @@ impl BackupRecordProvider for GroupSave {
         let records = batch
             .into_iter()
             .filter_map(|record| {
+                if record.conversation_type.is_virtual() {
+                    return None;
+                }
                 let mls_group =
                     MlsGroup::load(&storage, &GroupId::from_slice(&record.id)).ok()??;
                 let immutable = mls_group.extensions().immutable_metadata()?;
@@ -98,7 +101,6 @@ impl GroupSaveExt for GroupSave {
                 super_admin_list: mutable_metadata.super_admin_list,
                 attributes: mutable_metadata.attributes,
                 admin_list: mutable_metadata.admin_list,
-                pending_remove_list: mutable_metadata.pending_remove_list,
             }),
         }
     }

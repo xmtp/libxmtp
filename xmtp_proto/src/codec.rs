@@ -3,8 +3,8 @@ use std::{io::Write, marker::PhantomData};
 
 use prost::bytes::{Buf, BufMut, Bytes};
 use tonic::{
-    codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder},
     Status,
+    codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder},
 };
 
 #[derive(Debug)]

@@ -401,6 +401,12 @@ mock! {
         fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError>;
 
         #[mockall::concretize]
+        fn delete_message_by_id<MessageId: AsRef<[u8]>>(
+            &self,
+            message_id: MessageId,
+        ) -> Result<usize, crate::ConnectionError>;
+
+        #[mockall::concretize]
         fn get_latest_message_times_by_sender<GroupId: AsRef<[u8]>>(
             &self,
             group_id: GroupId,

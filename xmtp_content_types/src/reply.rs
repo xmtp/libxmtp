@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{utils::get_param_or_default, CodecError, ContentCodec};
+use crate::{CodecError, ContentCodec, utils::get_param_or_default};
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
@@ -8,7 +8,7 @@ use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 pub struct ReplyCodec {}
 
-/// Legacy content type id at https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reply/src/Reply.ts
+/// Legacy content type id at <https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reply/src/Reply.ts>
 impl ReplyCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
     pub const TYPE_ID: &'static str = "reply";

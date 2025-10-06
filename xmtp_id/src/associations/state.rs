@@ -11,13 +11,12 @@ use std::{
 use prost::Message;
 use xmtp_db::association_state::StoredAssociationState;
 use xmtp_proto::{
-    xmtp::identity::associations::AssociationState as AssociationStateProto, ConversionError,
+    ConversionError, xmtp::identity::associations::AssociationState as AssociationStateProto,
 };
 
 use super::{
-    ident,
+    AssociationError, MemberIdentifier, MemberKind, ident,
     member::{Identifier, Member},
-    AssociationError, MemberIdentifier, MemberKind,
 };
 use crate::InboxIdRef;
 
@@ -98,7 +97,7 @@ impl TryFrom<MemberIdentifier> for Identifier {
             MemberIdentifier::Installation(_) => {
                 return Err(AssociationError::NotIdentifier(
                     "Installation Keys".to_string(),
-                ))
+                ));
             }
         };
         Ok(ident)
