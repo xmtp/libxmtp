@@ -60,7 +60,9 @@ tracing-subscriber = { workspace = true, features = [
   "ansi",
   "json",
 ] }
+xmtp_cryptography = { workspace = true, features = ["test-utils"] }
 xmtp_macro.workspace = true
+
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 tokio = { workspace = true, features = ["time", "macros", "rt", "sync"] }
@@ -90,6 +92,7 @@ test-utils = [
   "dep:wasm-bindgen-test",
   "dep:xmtp_macro",
   "dep:owo-colors",
+  "xmtp_cryptography/test-utils",
 
 ]
 bench = [

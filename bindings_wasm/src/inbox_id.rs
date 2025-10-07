@@ -10,7 +10,7 @@ pub async fn get_inbox_id_for_identifier(
   #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
 ) -> Result<Option<String>, JsError> {
   let api_client = ApiClientWrapper::new(
-    TonicApiClient::create(host.clone(), true, "0.0.0".into()).await?,
+    TonicApiClient::create(host.clone(), true, "0.0.0".into())?,
     strategies::exponential_cooldown(),
   );
 

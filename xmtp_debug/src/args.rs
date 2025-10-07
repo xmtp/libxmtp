@@ -289,18 +289,19 @@ impl BackendOpts {
             let mut gateway = GrpcClient::builder();
             gateway.set_host(xmtpd_gateway_host.to_string());
             gateway.set_tls(gateway_is_secure);
-            let gateway = gateway.build().await?;
+            let gateway = gateway.build()?;
             let mut message = GrpcClient::builder();
             message.set_host(network.to_string());
             message.set_tls(is_secure);
-            let message = message.build().await?;
+            let message = message.build()?;
             Ok(Arc::new(D14nClient::new(message, gateway)))
         } else {
             trace!(url = %network, is_secure, "create grpc");
-            Ok(Arc::new(
-                crate::GrpcClient::create(network.as_str().to_string(), is_secure, None::<String>)
-                    .await?,
-            ))
+            Ok(Arc::new(crate::GrpcClient::create(
+                network.as_str().to_string(),
+                is_secure,
+                None::<String>,
+            )?))
         }
     }
 }

@@ -125,9 +125,8 @@ pub async fn inbox_state_from_inbox_ids(
   host: String,
   inbox_ids: Vec<String>,
 ) -> Result<Vec<InboxState>, JsError> {
-  let api_client = TonicApiClient::create(host, true, "0.0.0".into())
-    .await
-    .map_err(|e| JsError::new(&e.to_string()))?;
+  let api_client =
+    TonicApiClient::create(host, true, "0.0.0".into()).map_err(|e| JsError::new(&e.to_string()))?;
 
   let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
   let scw_verifier =

@@ -16,9 +16,8 @@ pub async fn get_inbox_id_for_identifier(
   is_secure: bool,
   identifier: Identifier,
 ) -> Result<Option<String>> {
-  let client = TonicApiClient::create(&host, is_secure, None::<String>)
-    .await
-    .map_err(ErrorWrapper::from)?;
+  let client =
+    TonicApiClient::create(&host, is_secure, None::<String>).map_err(ErrorWrapper::from)?;
   // api rate limit cooldown period
   let api_client = ApiClientWrapper::new(client, strategies::exponential_cooldown());
 
@@ -73,9 +72,8 @@ async fn is_member_of_association_state(
   inbox_id: &str,
   identifier: &MemberIdentifier,
 ) -> Result<bool> {
-  let api_client = TonicApiClient::create(host, true, None::<String>)
-    .await
-    .map_err(ErrorWrapper::from)?;
+  let api_client =
+    TonicApiClient::create(host, true, None::<String>).map_err(ErrorWrapper::from)?;
   let api_client = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
 
   let is_member = xmtp_mls::identity_updates::is_member_of_association_state(

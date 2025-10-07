@@ -34,6 +34,7 @@
 , taplo
 , shellcheck
 , cargo-llvm-cov
+, lcov
 , ...
 }:
 
@@ -88,6 +89,7 @@ mkShell {
       jq
       curl
       cargo-llvm-cov
+      lcov
 
       # Protobuf
       buf

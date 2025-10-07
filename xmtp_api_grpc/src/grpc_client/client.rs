@@ -22,9 +22,10 @@ use tonic::{
 };
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
 use xmtp_proto::{
+    api::{ApiClientError, Client},
     api_client::ApiBuilder,
     codec::TransparentCodec,
-    traits::{ApiClientError, Client},
+    types::AppVersion,
 };
 
 impl From<GrpcError> for ApiClientError<GrpcError> {
@@ -211,7 +212,7 @@ impl ApiBuilder for ClientBuilder {
         Ok(())
     }
 
-    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
+    fn set_app_version(&mut self, version: AppVersion) -> Result<(), Self::Error> {
         self.app_version = Some(MetadataValue::try_from(&version)?);
         Ok(())
     }
@@ -241,9 +242,9 @@ impl ApiBuilder for ClientBuilder {
         self.host.as_deref()
     }
 
-    async fn build(self) -> Result<Self::Output, Self::Error> {
+    fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
-        let channel = crate::GrpcService::new(host, self.limit, self.tls_channel).await?;
+        let channel = crate::GrpcService::new(host, self.limit, self.tls_channel)?;
         Ok(GrpcClient {
             inner: tonic::client::Grpc::new(channel)
                 .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
@@ -256,6 +257,9 @@ impl ApiBuilder for ClientBuilder {
             )?),
         })
     }
+
+    // this client does not do retries
+    fn set_retry(&mut self, _retry: xmtp_common::Retry) {}
 }
 
 #[cfg(any(test, feature = "test-utils"))]

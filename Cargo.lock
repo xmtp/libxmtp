@@ -8383,6 +8383,7 @@ dependencies = [
  "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_configuration",
+ "xmtp_cryptography",
  "xmtp_proto",
 ]
 
@@ -8765,8 +8766,11 @@ name = "xmtp_proto"
 version = "1.6.0-dev"
 dependencies = [
  "async-trait",
+ "bytes",
+ "chrono",
  "color-eyre",
  "const-hex",
+ "ctor 0.5.0",
  "derive_builder",
  "ed25519-dalek",
  "futures",
@@ -8777,9 +8781,11 @@ dependencies = [
  "pbjson",
  "pbjson-build",
  "pbjson-types",
+ "pin-project-lite",
  "prost",
  "prost-types",
  "relative-path 2.0.1",
+ "rstest 0.26.1",
  "serde",
  "thiserror 2.0.16",
  "tokio",
