@@ -35,8 +35,8 @@ pin_project! {
         #[pin] conversations: Conversations,
         #[pin] messages: Messages,
         context: Cow<'a, Context>,
+        sync_groups: Vec<Vec<u8>>,
         conversation_type: Option<ConversationType>,
-        sync_groups: Vec<Vec<u8>>
     }
 }
 
@@ -101,7 +101,7 @@ where
 
             let groups = conn.find_groups(GroupQueryArgs {
                 conversation_type,
-                consent_states,
+                consent_states: consent_states.clone(),
                 include_duplicate_dms: true,
                 include_sync_groups: conversation_type
                     .map(|ct| matches!(ct, ConversationType::Sync))
@@ -133,6 +133,7 @@ where
             context.clone(),
             conversation_type,
             true,
+            consent_states,
         )
         .await?;
         let messages = StreamGroupMessages::from_cow(context.clone(), active_conversations).await?;
@@ -189,8 +190,11 @@ where
         }
 
         if let Some(group) = ready!(this.conversations.poll_next(cx)) {
-            this.messages.as_mut().add(group?);
+            let group_result = group?;
+            this.messages.as_mut().add(group_result);
+
             cx.waker().wake_by_ref();
+
             return Poll::Pending;
         }
         Poll::Pending
