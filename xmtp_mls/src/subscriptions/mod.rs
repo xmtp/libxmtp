@@ -243,6 +243,7 @@ where
             WelcomeOrGroup::Welcome(envelope),
             None,
             false,
+            None,
         )?;
         match future.process().await? {
             ProcessWelcomeResult::New { group, .. } => Ok(group),
@@ -262,7 +263,13 @@ where
     where
         Context::ApiClient: XmtpMlsStreams,
     {
-        StreamConversations::new(&self.context, conversation_type, include_duplicate_dms).await
+        StreamConversations::new(
+            &self.context,
+            conversation_type,
+            include_duplicate_dms,
+            None,
+        )
+        .await
     }
 
     /// Stream conversations but decouple the lifetime of 'self' from the stream.
@@ -279,6 +286,7 @@ where
             self.context.clone(),
             conversation_type,
             include_duplicate_dms,
+            None,
         )
         .await
     }
