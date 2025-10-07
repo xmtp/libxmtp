@@ -5,7 +5,7 @@ use crate::{
     subscriptions::process_welcome::ProcessWelcomeFuture,
 };
 use xmtp_common::task::JoinSet;
-use xmtp_db::{group::ConversationType, refresh_state::EntityKind};
+use xmtp_db::{consent_record::ConsentState, group::ConversationType, refresh_state::EntityKind};
 
 use futures::Stream;
 use pin_project_lite::pin_project;
@@ -162,6 +162,7 @@ pin_project! {
         conversation_type: Option<ConversationType>,
         known_welcome_ids: HashSet<i64>,
         include_duplicated_dms: bool,
+        consent_states: Option<Vec<ConsentState>>,
     }
 }
 
@@ -211,6 +212,7 @@ where
     /// * `client` - Reference to the client used for API communication
     /// * `conversation_type` - Optional filter to only receive specific conversation types
     /// * `include_duplicate_dms` - Optional filter to include duplicate dms in the stream
+    /// * `consent_states` - Optional filter to only receive conversations with specific consent states
     ///
     /// # Returns
     /// * `Result<Self>` - A new conversation stream if successful
@@ -224,11 +226,13 @@ where
         context: &'a C,
         conversation_type: Option<ConversationType>,
         include_duplicate_dms: bool,
+        consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
         Self::from_cow(
             Cow::Borrowed(context),
             conversation_type,
             include_duplicate_dms,
+            consent_states,
         )
         .await
     }
@@ -237,6 +241,7 @@ where
         context: Cow<'a, C>,
         conversation_type: Option<ConversationType>,
         include_duplicated_dms: bool,
+        consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
         let conn = context.db();
         let installation_key = context.installation_id();
@@ -267,6 +272,7 @@ where
             conversation_type,
             welcome_syncs: JoinSet::new(),
             include_duplicated_dms,
+            consent_states,
         })
     }
 }
@@ -281,11 +287,13 @@ where
         context: C,
         conversation_type: Option<ConversationType>,
         include_duplicate_dms: bool,
+        consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
         Self::from_cow(
             Cow::Owned(context),
             conversation_type,
             include_duplicate_dms,
+            consent_states,
         )
         .await
     }
@@ -330,6 +338,7 @@ where
                     welcome_envelope?,
                     *this.conversation_type,
                     *this.include_duplicated_dms,
+                    this.consent_states.clone(),
                 )?;
                 this.welcome_syncs.spawn(future.process());
                 cx.waker().wake_by_ref();
@@ -421,7 +430,7 @@ mod test {
         #[case] group_size: usize,
     ) {
         let mut groups = vec![];
-        let mut stream = StreamConversations::new(&bo.context, None, false)
+        let mut stream = StreamConversations::new(&bo.context, None, false, None)
             .await
             .unwrap();
         for _ in 0..group_size {
