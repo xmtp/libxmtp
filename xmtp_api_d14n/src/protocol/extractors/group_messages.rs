@@ -66,6 +66,8 @@ impl EnvelopeVisitor<'_> for GroupMessageExtractor {
 
 #[cfg(test)]
 mod tests {
+    use xmtp_proto::mls_v1::group_message;
+
     use super::*;
     use crate::protocol::ProtocolEnvelope;
     use crate::protocol::extractors::test_utils::*;
@@ -76,12 +78,12 @@ mod tests {
             .with_originator_node_id(123)
             .with_originator_sequence_id(456)
             .with_originator_ns(789)
-            .with_group_message_custom(MOCK_MLS_MESSAGE.to_vec(), vec![7, 8, 9])
+            .with_application_message(vec![1, 2, 3])
             .build();
         let mut extractor = GroupMessageExtractor::default();
-        // This test will fail because MOCK_MLS_MESSAGE creates mock data
-        // that can't be properly deserialized by OpenMLS. This is expected.
-        let result = envelope.accept(&mut extractor);
-        assert!(result.is_err());
+        envelope.accept(&mut extractor).unwrap();
+        let group_message::Version::V1(group_message::V1 { group_id, .. }) =
+            extractor.get().version.unwrap();
+        assert_eq!(vec![1, 2, 3], group_id);
     }
 }

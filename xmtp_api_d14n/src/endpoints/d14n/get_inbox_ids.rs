@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     GetInboxIdsRequest, GetInboxIdsResponse, get_inbox_ids_request,
@@ -25,11 +25,6 @@ impl GetInboxIds {
 
 impl Endpoint for GetInboxIds {
     type Output = GetInboxIdsResponse;
-
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::from("/mls/v2/get-inbox-ids")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<GetInboxIdsRequest>()
     }
@@ -64,7 +59,7 @@ impl Endpoint for GetInboxIds {
 mod test {
     use super::*;
     use crate::d14n::GetInboxIds;
-    use xmtp_proto::prelude::*;
+    use xmtp_proto::{api, prelude::*};
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
@@ -73,9 +68,18 @@ mod test {
     }
 
     #[xmtp_common::test]
+    fn test_grpc_endpoint_returns_correct_path() {
+        let endpoint = GetInboxIds::default();
+        assert_eq!(
+            endpoint.grpc_endpoint(),
+            "/xmtp.xmtpv4.message_api.ReplicationApi/GetInboxIds"
+        );
+    }
+
+    #[xmtp_common::test]
     async fn test_get_inbox_ids() {
         let client = crate::TestClient::create_d14n();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
 
         let endpoint = GetInboxIds::builder()
             .addresses(vec![
@@ -84,6 +88,6 @@ mod test {
             .build()
             .unwrap();
 
-        endpoint.query(&client).await.unwrap();
+        api::ignore(endpoint).query(&client).await.unwrap();
     }
 }

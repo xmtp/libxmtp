@@ -1,13 +1,14 @@
 use crate::v3::*;
 use futures::stream;
 use xmtp_common::RetryableError;
+use xmtp_proto::api::{ApiClientError, Client, Query};
 use xmtp_proto::api_client::{
     ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
 };
 use xmtp_proto::identity_v1;
 use xmtp_proto::mls_v1;
 use xmtp_proto::prelude::ApiBuilder;
-use xmtp_proto::traits::{ApiClientError, Client, Query};
+use xmtp_proto::types::AppVersion;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
 #[derive(Clone)]
@@ -34,7 +35,7 @@ impl<Builder> V3ClientBuilder<Builder> {
 impl<Builder> ApiBuilder for V3ClientBuilder<Builder>
 where
     Builder: ApiBuilder,
-    <Builder as ApiBuilder>::Output: xmtp_proto::traits::Client,
+    <Builder as ApiBuilder>::Output: xmtp_proto::api::Client,
 {
     type Output = V3Client<<Builder as ApiBuilder>::Output>;
 
@@ -43,8 +44,7 @@ where
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
         <Builder as ApiBuilder>::set_libxmtp_version(&mut self.client, version)
     }
-
-    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
+    fn set_app_version(&mut self, version: AppVersion) -> Result<(), Self::Error> {
         <Builder as ApiBuilder>::set_app_version(&mut self.client, version)
     }
 
@@ -56,6 +56,10 @@ where
         <Builder as ApiBuilder>::set_tls(&mut self.client, tls)
     }
 
+    fn set_retry(&mut self, retry: xmtp_common::Retry) {
+        <Builder as ApiBuilder>::set_retry(&mut self.client, retry)
+    }
+
     fn rate_per_minute(&mut self, limit: u32) {
         <Builder as ApiBuilder>::rate_per_minute(&mut self.client, limit)
     }
@@ -64,14 +68,12 @@ where
         <Builder as ApiBuilder>::port(&self.client)
     }
 
-    async fn build(self) -> Result<Self::Output, Self::Error> {
-        Ok(V3Client::new(
-            <Builder as ApiBuilder>::build(self.client).await?,
-        ))
-    }
-
     fn host(&self) -> Option<&str> {
         <Builder as ApiBuilder>::host(&self.client)
+    }
+
+    fn build(self) -> Result<Self::Output, Self::Error> {
+        Ok(V3Client::new(<Builder as ApiBuilder>::build(self.client)?))
     }
 }
 

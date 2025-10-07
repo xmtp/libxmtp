@@ -644,7 +644,7 @@ pub mod tests {
         client.set_tls(false);
         client.rate_per_minute(1);
         let _ = client.set_app_version("999.999.999".into());
-        let c = client.build().await.unwrap();
+        let c = client.build().unwrap();
         let wrapper = ApiClientWrapper::new(c, Retry::default());
         let _first = wrapper.query_group_messages(vec![0, 0], None).await;
         let now = std::time::Instant::now();
@@ -662,7 +662,7 @@ pub mod tests {
         let installation_key = rand_vec::<32>();
         let hpke_public_key = rand_vec::<32>();
 
-        let c = client.build().await.unwrap();
+        let c = client.build().unwrap();
         let wrapper = ApiClientWrapper::new(c, Retry::default());
 
         let mut very_large_payload = vec![];
@@ -701,7 +701,7 @@ pub mod tests {
         client.set_tls(false);
         client.set_app_version("0.0.0".into()).unwrap();
 
-        let c = client.build().await.unwrap();
+        let c = client.build().unwrap();
         let wrapper = ApiClientWrapper::new(c, Retry::default());
 
         let group_id = rand_vec::<32>();
@@ -746,7 +746,7 @@ pub mod tests {
         client.set_tls(false);
         client.set_app_version("0.0.0".into()).unwrap();
 
-        let c = client.build().await.unwrap();
+        let c = client.build().unwrap();
         let wrapper = ApiClientWrapper::new(c, Retry::default());
 
         let group_id = rand_vec::<32>();

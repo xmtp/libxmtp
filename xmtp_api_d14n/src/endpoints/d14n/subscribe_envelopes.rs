@@ -2,11 +2,9 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
-use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
-use xmtp_proto::xmtp::xmtpv4::message_api::{
-    SubscribeEnvelopesRequest, SubscribeEnvelopesResponse,
-};
+use xmtp_proto::api::{BodyError, Endpoint};
+use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesRequest;
+use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, SubscribeEnvelopesResponse};
 
 /// Query a single thing
 #[derive(Debug, Builder, Default, Clone)]
@@ -23,11 +21,6 @@ impl SubscribeEnvelopes {
 
 impl Endpoint for SubscribeEnvelopes {
     type Output = SubscribeEnvelopesResponse;
-
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::from("/mls/v2/subscribe-envelopes")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<SubscribeEnvelopesRequest>()
     }
@@ -44,7 +37,9 @@ impl Endpoint for SubscribeEnvelopes {
 #[cfg(test)]
 mod test {
     use super::*;
-    use xmtp_proto::prelude::*;
+    use xmtp_proto::{
+        api::QueryStreamExt as _, prelude::*, xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse,
+    };
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
@@ -54,13 +49,22 @@ mod test {
     }
 
     #[xmtp_common::test]
+    fn test_grpc_endpoint_returns_correct_path() {
+        let endpoint = SubscribeEnvelopes::default();
+        assert_eq!(
+            endpoint.grpc_endpoint(),
+            "/xmtp.xmtpv4.message_api.ReplicationApi/SubscribeEnvelopes"
+        );
+    }
+
+    #[xmtp_common::test]
     async fn test_subscribe_envelopes() {
         use crate::d14n::SubscribeEnvelopes;
 
         let client = crate::TestClient::create_d14n();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
 
-        let endpoint = SubscribeEnvelopes::builder()
+        let mut endpoint = SubscribeEnvelopes::builder()
             .envelopes(EnvelopesQuery {
                 topics: vec![vec![]],
                 originator_node_ids: vec![],
@@ -68,10 +72,10 @@ mod test {
             })
             .build()
             .unwrap();
-        let err = endpoint
-            .stream(&client)
+        let rsp = endpoint
+            .subscribe::<SubscribeEnvelopesResponse>(&client)
             .await
             .inspect_err(|e| tracing::info!("{:?}", e));
-        assert!(err.is_ok());
+        assert!(rsp.is_ok());
     }
 }

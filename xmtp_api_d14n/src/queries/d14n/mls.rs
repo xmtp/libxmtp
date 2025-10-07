@@ -12,10 +12,11 @@ use crate::protocol::traits::Envelope;
 use crate::protocol::traits::EnvelopeCollection;
 use crate::protocol::traits::Extractor;
 use xmtp_common::RetryableError;
+use xmtp_proto::api;
+use xmtp_proto::api::Client;
+use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::{ApiStats, XmtpMlsClient};
 use xmtp_proto::mls_v1;
-use xmtp_proto::traits::Client;
-use xmtp_proto::traits::{ApiClientError, Query};
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeResponse;
 use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
@@ -27,7 +28,7 @@ where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client,
     C: Send + Sync + Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<P as xmtp_proto::traits::Client>::Error>>,
+    ApiClientError<E>: From<ApiClientError<<P as xmtp_proto::api::Client>::Error>>,
 {
     type Error = ApiClientError<E>;
 
@@ -37,11 +38,13 @@ where
         request: mls_v1::UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
         let envelopes = request.client_envelope()?;
-        PublishClientEnvelopes::builder()
-            .envelope(envelopes)
-            .build()?
-            .query(&self.gateway_client)
-            .await?;
+        api::ignore(
+            PublishClientEnvelopes::builder()
+                .envelope(envelopes)
+                .build()?,
+        )
+        .query(&self.gateway_client)
+        .await?;
 
         Ok::<_, Self::Error>(())
     }
@@ -74,11 +77,13 @@ where
     ) -> Result<(), Self::Error> {
         let envelopes: Vec<ClientEnvelope> = request.messages.client_envelopes()?;
 
-        PublishClientEnvelopes::builder()
-            .envelopes(envelopes)
-            .build()?
-            .query(&self.gateway_client)
-            .await?;
+        api::ignore(
+            PublishClientEnvelopes::builder()
+                .envelopes(envelopes)
+                .build()?,
+        )
+        .query(&self.gateway_client)
+        .await?;
 
         Ok(())
     }
@@ -90,11 +95,13 @@ where
     ) -> Result<(), Self::Error> {
         let envelope = request.messages.client_envelopes()?;
 
-        PublishClientEnvelopes::builder()
-            .envelopes(envelope)
-            .build()?
-            .query(&self.gateway_client)
-            .await?;
+        api::ignore(
+            PublishClientEnvelopes::builder()
+                .envelopes(envelope)
+                .build()?,
+        )
+        .query(&self.gateway_client)
+        .await?;
 
         Ok(())
     }
@@ -129,7 +136,7 @@ where
     ) -> Result<mls_v1::QueryWelcomeMessagesResponse, Self::Error> {
         let topic = TopicKind::WelcomeMessagesV1.build(request.installation_key.as_slice());
 
-        let response = QueryEnvelope::builder()
+        let response: QueryEnvelopesResponse = QueryEnvelope::builder()
             .topic(topic)
             .paging_info(request.paging_info)
             .build()?

@@ -4,7 +4,6 @@ use std::time::Duration;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tonic::{body::Body, client::GrpcService};
 use tower::Service;
-use tracing::Instrument;
 
 use std::task::{Context, Poll};
 
@@ -14,18 +13,15 @@ pub struct NativeGrpcService {
 }
 
 impl NativeGrpcService {
-    pub async fn new(
+    pub fn new(
         host: String,
         limit: Option<u64>,
         is_secure: bool,
     ) -> Result<Self, GrpcBuilderError> {
         let channel = match is_secure {
-            true => create_tls_channel(host, limit.unwrap_or(5000)).await?,
-            false => {
-                apply_channel_options(Channel::from_shared(host)?, limit.unwrap_or(5000))
-                    .connect()
-                    .await?
-            }
+            true => create_tls_channel(host, limit.unwrap_or(5000))?,
+            false => apply_channel_options(Channel::from_shared(host)?, limit.unwrap_or(5000))
+                .connect_lazy(),
         };
 
         Ok(Self { inner: channel })
@@ -77,14 +73,10 @@ pub(crate) fn apply_channel_options(endpoint: Endpoint, limit: u64) -> Endpoint 
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn create_tls_channel(address: String, limit: u64) -> Result<Channel, GrpcBuilderError> {
-    let span = tracing::debug_span!("grpc_connect", address);
+pub fn create_tls_channel(address: String, limit: u64) -> Result<Channel, GrpcBuilderError> {
     let channel = apply_channel_options(Channel::from_shared(address)?, limit)
         .tls_config(ClientTlsConfig::new().with_enabled_roots())?
-        .connect()
-        .instrument(span)
-        .await?;
-
+        .connect_lazy();
     Ok(channel)
 }
 #[cfg(test)]
@@ -113,9 +105,9 @@ pub mod tests {
         client.set_tls(true);
         let app_version = "test/1.0.0".to_string();
         let libxmtp_version = "0.0.1".to_string();
-        client.set_app_version(app_version.clone()).unwrap();
+        client.set_app_version(app_version.clone().into()).unwrap();
         client.set_libxmtp_version(libxmtp_version.clone()).unwrap();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
         let request = client.build_request(PublishRequest { envelopes: vec![] });
 
         assert_eq!(

@@ -150,8 +150,8 @@ where
             local_client.host(),
             sync_api_client.host()
         );
-        let api_client = local_client.build().await.unwrap();
-        let sync_api_client = sync_api_client.build().await.unwrap();
+        let api_client = local_client.build().unwrap();
+        let sync_api_client = sync_api_client.build().unwrap();
         let client = ClientBuilder::new_test_builder(&self.owner)
             .await
             .api_clients(api_client, sync_api_client)
