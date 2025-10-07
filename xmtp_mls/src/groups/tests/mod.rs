@@ -22,9 +22,9 @@ use crate::groups::{DmValidationError, MetadataPermissionsError};
 use crate::groups::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };
-use crate::tester;
 use crate::utils::fixtures::{alix, bola, caro};
 use crate::utils::{ClientTester, TestMlsGroup, Tester, VersionInfo};
+use crate::{assert_msg, tester};
 use crate::{
     builder::ClientBuilder,
     groups::{
@@ -40,9 +40,11 @@ use crate::{
 };
 use diesel::connection::SimpleConnection;
 use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+use futures::StreamExt;
 use futures::future::join_all;
 use rstest::*;
 use std::sync::Arc;
+use std::time::Duration;
 use wasm_bindgen_test::wasm_bindgen_test;
 use xmtp_common::RetryableError;
 use xmtp_common::StreamHandle as _;
@@ -3168,6 +3170,136 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
     let _ = bo_group.sync().await;
     let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
     assert_eq!(messages.len(), 5);
+}
+
+#[xmtp_common::test]
+async fn test_stream_all_messages_works_with_paused_groups() {
+    // Amal is on a higher version than bo and caro
+    let mut amal_version = VersionInfo::default();
+    amal_version.test_update_version(
+        increment_patch_version(amal_version.pkg_version())
+            .unwrap()
+            .as_str(),
+    );
+    let amal =
+        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), amal_version).await;
+
+    let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+    assert!(caro.version_info().pkg_version() != amal.version_info().pkg_version());
+    assert!(bo.version_info().pkg_version() != amal.version_info().pkg_version());
+    assert!(bo.version_info().pkg_version() == caro.version_info().pkg_version());
+
+    // Caro starts a stream for all messages
+    let stream = caro.stream_all_messages(None, None).await.unwrap();
+    futures::pin_mut!(stream);
+
+    // Amal and Bo each create a group that adds caro as a member
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group
+        .add_members_by_inbox_id(&[caro.context.identity.inbox_id()])
+        .await
+        .unwrap();
+    caro.sync_welcomes().await.unwrap();
+    let binding = caro.list_conversations(GroupQueryArgs::default()).unwrap();
+    let caro_group_with_amal = binding.first().unwrap();
+    let bo_group = bo.create_group(None, None).unwrap();
+    bo_group
+        .add_members_by_inbox_id(&[caro.context.identity.inbox_id()])
+        .await
+        .unwrap();
+
+    // Amal and Bo send messages to the group and both are received
+    amal_group
+    .send_message("Hello from Amal".as_bytes())
+    .await
+    .unwrap();
+    assert_msg!(stream, "Hello from Amal");
+
+    bo_group
+        .send_message("Hello from Bo".as_bytes())
+        .await
+        .unwrap();
+    assert_msg!(stream, "Hello from Bo");
+
+    // Amal sets the min group version to match their own version
+    amal_group
+        .update_group_min_version_to_match_self()
+        .await
+        .unwrap();
+    amal_group.sync().await.unwrap();
+
+    // Amal and Bo each more messages
+    amal_group
+        .send_message("Hello from Amal 1".as_bytes())
+        .await
+        .unwrap();
+    amal_group
+        .send_message("Hello from Amal 2".as_bytes())
+        .await
+        .unwrap();
+    amal_group
+        .send_message("Hello from Amal 3".as_bytes())
+        .await
+        .unwrap();
+    bo_group
+        .send_message("Hello from Bo again".as_bytes())
+        .await
+        .unwrap();
+
+    // Caro should stop receiving messages in the chat with Amal but keep receiving messages in the chat with Bo
+    assert_msg!(stream, "Hello from Bo again");
+
+    // If caro tries to sync the group with Amal, no messages get synced
+    let sync_summary = caro_group_with_amal.group.sync().await.unwrap();
+    assert_eq!(sync_summary.process.total(), 0);
+    let caro_group_epoch = caro_group_with_amal.group.epoch().await.unwrap();
+    let amal_group_epoch = amal_group.epoch().await.unwrap();
+    assert!(caro_group_epoch == amal_group_epoch - 1);
+
+    // Simulate Caro updating their client to the same version as Amal
+    let mut caro_version = caro.version_info().clone();
+    caro_version.test_update_version(
+        increment_patch_version(caro_version.pkg_version())
+            .unwrap()
+            .as_str(),
+    );
+    let caro_2 = ClientBuilder::from_client(caro.clone())
+        .version(caro_version)
+        .build()
+        .await
+        .unwrap();
+
+    let stream2 = caro_2.stream_all_messages(None, None).await.unwrap();
+    futures::pin_mut!(stream2);
+
+    // Caro will now stream messages with Amal
+    amal_group
+        .send_message("Hello from Amal 4".as_bytes())
+        .await
+        .unwrap();
+    bo_group
+        .send_message("Hello from Bo 3".as_bytes())
+        .await
+        .unwrap();
+
+    // Caro should now receive the message from Amal
+    assert_msg!(stream2, "Hello from Amal 4");
+
+    // Get a reference to group with Amal on the new caro client
+    let binding = caro_2.list_conversations(GroupQueryArgs::default()).unwrap();
+    let caro_group_with_amal = binding.get(1).unwrap();
+
+    let messages = caro_group_with_amal.group.find_messages(&MsgQueryArgs::default()).unwrap();
+    assert_eq!(messages.len(), 7);
+    let message_text = String::from_utf8_lossy(&messages[messages.len() - 1].decrypted_message_bytes);
+    assert_eq!(message_text, "Hello from Amal 4");
+
+    // Verify epochs are now correct
+    let caro_group_epoch = caro_group_with_amal.group.epoch().await.unwrap();
+    let amal_group_epoch = amal_group.epoch().await.unwrap();
+    assert!(caro_group_epoch == amal_group_epoch );
 }
 
 #[xmtp_common::test]
