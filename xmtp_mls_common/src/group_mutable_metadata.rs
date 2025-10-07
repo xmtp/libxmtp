@@ -247,6 +247,11 @@ impl GroupMutableMetadata {
         self.super_admin_list.contains(inbox_id)
     }
 
+    /// Checks if the given inbox ID is in the pending remove list.
+    pub fn is_in_pending_remove(&self, inbox_id: &String) -> bool {
+        todo!("check the db is this inbox in the pending remove list");
+    }
+
     /// Retrieves the commit log signer secret from the metadata attributes.
     /// Returns None if the field is not present or if hex decoding fails.
     pub fn commit_log_signer(&self) -> Option<Secret> {
