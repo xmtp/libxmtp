@@ -36,6 +36,7 @@ use self::{
 use crate::groups::{
     intents::{QueueIntent, ReaddInstallationsIntentData},
     mls_ext::CommitLogStorer,
+    validated_commit::LibXMTPVersion,
 };
 use crate::{GroupCommitLock, context::XmtpSharedContext};
 use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
@@ -945,6 +946,21 @@ where
         installations: Vec<Vec<u8>>,
     ) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
+
+        let readd_min_version =
+            LibXMTPVersion::parse(xmtp_configuration::MIN_RECOVERY_REQUEST_VERSION)?;
+        let metadata = self.mutable_metadata()?;
+        let group_version = metadata
+            .attributes
+            .get(MetadataField::MinimumSupportedProtocolVersion.as_str());
+        let group_min_version =
+            LibXMTPVersion::parse(group_version.unwrap_or(&"0.0.0".to_string()))?;
+
+        if readd_min_version > group_min_version {
+            self.update_group_min_version(xmtp_configuration::MIN_RECOVERY_REQUEST_VERSION)
+                .await?;
+        }
+
         let intent_data: Vec<u8> = ReaddInstallationsIntentData::new(installations.clone()).into();
         let intent = QueueIntent::readd_installations()
             .data(intent_data)
@@ -992,14 +1008,37 @@ where
     }
 
     /// Updates min version of the group to match this client's version.
+    /// Not publicly exposed because:
+    /// - Setting the min version to pre-release versions may not behave as expected
+    /// - When the version is not explicitly specified, unexpected behavior may arise,
+    ///   for example if the code is left in across multiple version bumps.
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip(self))
     )]
-    pub async fn update_group_min_version_to_match_self(&self) -> Result<(), GroupError> {
-        self.ensure_not_paused().await?;
+    #[allow(dead_code)]
+    pub(crate) async fn update_group_min_version_to_match_self(&self) -> Result<(), GroupError> {
         let version = self.context.version_info().pkg_version();
+        self.update_group_min_version(version).await
+    }
+
+    /// Updates min version of the group to match the given version.
+    ///
+    /// # Arguments
+    /// * `version` - The libxmtp version to update the group min version to.
+    ///   This is a semver-formatted string matching the Cargo.toml in the
+    ///   libxmtp dependency, and does not match mobile or web release versions.
+    ///   Do NOT include pre-release metadata like "1.0.0-alpha",
+    ///   "1.0.0-beta", etc, as the version comparison may not match what
+    ///   is expected. For historical reasons, "1.0.0-alpha" is considered to be
+    ///   > "1.0.0", so it is better to just specify "1.0.0".
+    ///
+    /// # Returns
+    /// A `Result` indicating success or failure of the operation.
+    pub async fn update_group_min_version(&self, version: &str) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+        tracing::info!("updating group min version to match self: {}", version);
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_min_version_to_match_self(
                 version.to_string(),
