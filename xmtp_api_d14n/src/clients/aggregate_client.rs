@@ -2,9 +2,11 @@ use crate::d14n::{GetNodes, HealthCheck};
 use futures::future::join_all;
 use prost::bytes::Bytes;
 use std::collections::HashMap;
-use xmtp_api_grpc::GrpcClient;
+use thiserror::Error;
+use xmtp_api_grpc::{GrpcClient, error::GrpcError};
 use xmtp_common::time::{Duration, Instant};
 use xmtp_proto::{
+    ApiEndpoint,
     prelude::ApiBuilder,
     traits::{ApiClientError, Client, Query},
 };
@@ -22,13 +24,13 @@ impl AggregateClient<GrpcClient> {
     pub async fn new(
         gateway_client: GrpcClient,
         timeout: Duration,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Self, AggregateClientError> {
         if timeout.as_millis() == 0 {
-            return Err("Timeout must be greater than 0".into());
+            return Err(AggregateClientError::InvalidTimeout);
         }
 
-        let nodes = get_nodes(&gateway_client).await?;
-        let inner = get_fastest_node(nodes, timeout).await?;
+        let nodes = get_nodes(&gateway_client).await.map_err(AggregateClientError::from)?;
+        let inner = get_fastest_node(nodes, timeout).await.map_err(AggregateClientError::from)?;
 
         Ok(Self {
             gateway_client,
@@ -39,14 +41,9 @@ impl AggregateClient<GrpcClient> {
 
     /// refresh checks the fastest node and updates the inner client
     /// should only be called when there are no active requests or streams
-    pub async fn refresh(
-        &mut self,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn refresh(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let nodes = get_nodes(&self.gateway_client).await?;
-        let inner = get_fastest_node(nodes, self.timeout).await?;
-
-        self.inner = inner;
-
+        self.inner = get_fastest_node(nodes, self.timeout).await?;
         Ok(())
     }
 }
@@ -83,12 +80,17 @@ where
 
 async fn get_nodes(
     gateway_client: &GrpcClient,
-) -> Result<HashMap<u32, GrpcClient>, Box<dyn std::error::Error + Send + Sync>> {
-    let endpoint = GetNodes::builder()
-        .build()
-        .map_err(|e| format!("get nodes build failed: {e}"))?;
-
-    let response = endpoint.query(gateway_client).await?;
+) -> Result<HashMap<u32, GrpcClient>, ApiClientError<GrpcError>> {
+    let response = GetNodes::builder()
+        .build()?
+        .query(gateway_client)
+        .await
+        .map_err(|_| {
+            ApiClientError::new(
+                ApiEndpoint::GetNodes,
+                AggregateClientError::NoNodesFound.into(),
+            )
+        })?;
 
     let futures = response.nodes.into_iter().map(|(node_id, url)| async move {
         let mut client_builder = GrpcClient::builder();
@@ -111,13 +113,16 @@ async fn get_nodes(
                 clients.insert(node_id, client);
             }
             Err(err) => {
-                tracing::warn!("Failed to build client: {}", err);
+                tracing::warn!("failed to build client: {}", err);
             }
         }
     }
 
     if clients.is_empty() {
-        return Err("All node clients failed to build".into());
+        return Err(ApiClientError::new(
+            ApiEndpoint::GetNodes,
+            AggregateClientError::AllNodeClientsFailedToBuild.into(),
+        ));
     }
 
     Ok(clients)
@@ -126,10 +131,8 @@ async fn get_nodes(
 async fn get_fastest_node(
     clients: HashMap<u32, GrpcClient>,
     timeout: Duration,
-) -> Result<GrpcClient, Box<dyn std::error::Error + Send + Sync>> {
-    let endpoint = HealthCheck::builder()
-        .build()
-        .map_err(|e| format!("get health check build failed: {e}"))?;
+) -> Result<GrpcClient, ApiClientError<GrpcError>> {
+    let endpoint = HealthCheck::builder().build()?;
 
     let futures = clients.into_iter().map(|(node_id, client)| {
         let endpoint = endpoint.clone();
@@ -150,7 +153,28 @@ async fn get_fastest_node(
         .into_iter()
         .flatten()
         .min_by_key(|(_, _, latency)| *latency)
-        .ok_or("No responsive nodes found")?;
+        .ok_or(ApiClientError::new(
+            ApiEndpoint::HealthCheck,
+            AggregateClientError::NoResponsiveNodesFound.into(),
+        ))?;
 
     Ok(fastest_node.1)
+}
+
+#[derive(Debug, Error)]
+pub enum AggregateClientError {
+    #[error("timeout must be greater than 0")]
+    InvalidTimeout,
+    #[error("no nodes found")]
+    NoNodesFound,
+    #[error("all node clients failed to build")]
+    AllNodeClientsFailedToBuild,
+    #[error("no responsive nodes found")]
+    NoResponsiveNodesFound,
+}
+
+impl From<AggregateClientError> for GrpcError {
+    fn from(error: AggregateClientError) -> Self {
+        GrpcError::NotFound(error.to_string())
+    }
 }
