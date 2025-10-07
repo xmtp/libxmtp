@@ -129,7 +129,7 @@ pub async fn connect_to_backend(
         host,
         is_secure
     );
-    let api_client = TonicApiClient::create(&host, is_secure, app_version).await?;
+    let api_client = TonicApiClient::create(&host, is_secure, app_version)?;
     Ok(Arc::new(XmtpApiClient(api_client)))
 }
 
@@ -181,8 +181,7 @@ pub async fn revoke_installations(
     );
     let ident = recovery_identifier.try_into()?;
 
-    let signature_request =
-        revoke_installations_with_verifier(&ident, inbox_id, installation_ids).await?;
+    let signature_request = revoke_installations_with_verifier(&ident, inbox_id, installation_ids)?;
 
     Ok(Arc::new(FfiSignatureRequest {
         inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
@@ -3129,6 +3128,7 @@ mod tests {
         sync::{futures::OwnedNotified, Notify},
         time::error::Elapsed,
     };
+    use xmtp_api::ApiClientWrapper;
     use xmtp_common::tmp_path;
     use xmtp_common::{time::now_ns, wait_for_ge};
     use xmtp_common::{wait_for_eq, wait_for_ok};
@@ -4472,7 +4472,6 @@ mod tests {
             .is_err());
     }
 
-    // Looks like this test might be a separate issue
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_can_stream_group_messages_for_updates() {
         let alix = Tester::new().await;
@@ -9622,7 +9621,13 @@ mod tests {
 
         assert!(connected, "Expected API client to report as connected");
 
-        let result = connect_to_backend("http://127.0.0.1:59999".to_string(), false, None).await;
+        let api = connect_to_backend("http://127.0.0.1:59999".to_string(), false, None)
+            .await
+            .unwrap();
+        let api = ApiClientWrapper::new(api.0.clone(), Default::default());
+        let result = api
+            .query_group_messages(xmtp_common::rand_vec::<16>(), None)
+            .await;
         assert!(result.is_err(), "Expected connection to fail");
     }
 
@@ -9794,5 +9799,42 @@ mod tests {
                 hex::encode(group.id())
             );
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_overlapping_streams() {
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
+
+        let message_callbacks = Arc::new(RustStreamCallback::default());
+        let conversation_callbacks = Arc::new(RustStreamCallback::default());
+        // Stream all group messages
+        let stream_messages = bo.conversations().stream(message_callbacks.clone()).await;
+        // Stream all groups
+        let stream_conversations = bo
+            .conversations()
+            .stream(conversation_callbacks.clone())
+            .await;
+        stream_messages.wait_for_ready().await;
+        stream_conversations.wait_for_ready().await;
+
+        // Create group and send first message
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        alix_group.send("hi".into()).await.unwrap();
+
+        // The group should be received in both streams without erroring
+        message_callbacks.wait_for_delivery(None).await.unwrap();
+        conversation_callbacks
+            .wait_for_delivery(None)
+            .await
+            .unwrap();
     }
 }

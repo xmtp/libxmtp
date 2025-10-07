@@ -66,7 +66,6 @@ pub async fn revoke_installations_signature_request(
   let ids: Vec<Vec<u8>> = installation_ids.into_iter().map(|i| i.to_vec()).collect();
 
   let sig_req = revoke_installations_with_verifier(&ident, &inbox_id, ids)
-    .await
     .map_err(|e| JsError::new(&e.to_string()))?;
 
   Ok(SignatureRequestHandle {

@@ -64,10 +64,8 @@ where
         <Builder as ApiBuilder>::port(&self.client)
     }
 
-    async fn build(self) -> Result<Self::Output, Self::Error> {
-        Ok(V3Client::new(
-            <Builder as ApiBuilder>::build(self.client).await?,
-        ))
+    fn build(self) -> Result<Self::Output, Self::Error> {
+        Ok(V3Client::new(<Builder as ApiBuilder>::build(self.client)?))
     }
 
     fn host(&self) -> Option<&str> {

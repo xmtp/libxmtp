@@ -137,17 +137,14 @@ impl ApiBuilder for ClientBuilder {
         }
     }
 
-    async fn build(self) -> Result<Self::Output, Self::Error> {
+    fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
         tracing::info!("building GrpcClient with host {}", &host);
         let channel = match self.tls_channel {
-            true => create_tls_channel(host, self.limit.unwrap_or(5000)).await?,
-            false => {
-                Channel::from_shared(host)?
-                    .rate_limit(self.limit.unwrap_or(5000), Duration::from_secs(60))
-                    .connect()
-                    .await?
-            }
+            true => create_tls_channel(host, self.limit.unwrap_or(5000))?,
+            false => Channel::from_shared(host)?
+                .rate_limit(self.limit.unwrap_or(5000), Duration::from_secs(60))
+                .connect_lazy(),
         };
 
         Ok(GrpcClient {

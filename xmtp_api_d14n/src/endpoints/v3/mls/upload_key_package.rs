@@ -54,7 +54,7 @@ mod test {
     #[xmtp_common::test]
     async fn test_get_identity_updates_v2() {
         let client = crate::TestClient::create_local();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
         let endpoint = UploadKeyPackage::builder()
             .key_package(Some(KeyPackageUpload {
                 key_package_tls_serialized: vec![1, 2, 3],

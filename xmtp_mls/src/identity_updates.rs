@@ -116,7 +116,7 @@ pub async fn get_association_state_with_verifier(
 }
 
 /// Revoke the given installations from the association state for the client's inbox
-pub async fn revoke_installations_with_verifier(
+pub fn revoke_installations_with_verifier(
     identifier: &Identifier,
     inbox_id: &str,
     installation_ids: Vec<Vec<u8>>,
@@ -415,8 +415,7 @@ where
             &current_state.recovery_identifier().clone(),
             inbox_id,
             installation_ids,
-        )
-        .await?;
+        )?;
 
         let _ = self
             .context

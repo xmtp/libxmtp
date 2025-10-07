@@ -253,7 +253,7 @@ pub mod mock {
             Ok(None)
         }
 
-        async fn build(self) -> Result<Self::Output, Self::Error> {
+        fn build(self) -> Result<Self::Output, Self::Error> {
             Ok(MockClient)
         }
 

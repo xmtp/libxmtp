@@ -52,7 +52,7 @@ mod test {
     #[xmtp_common::test]
     async fn test_fetch_key_packages() {
         let client = crate::TestClient::create_local();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
         let endpoint = FetchKeyPackages::builder()
             .installation_keys(vec![vec![1, 2, 3]])
             .build()

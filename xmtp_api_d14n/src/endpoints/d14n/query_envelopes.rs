@@ -110,7 +110,7 @@ mod test {
         use crate::d14n::QueryEnvelopes;
 
         let client = crate::TestClient::create_local_d14n();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
 
         let endpoint = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {

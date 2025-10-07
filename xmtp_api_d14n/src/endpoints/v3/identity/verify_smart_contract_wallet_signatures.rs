@@ -54,7 +54,7 @@ mod test {
     #[xmtp_common::test]
     async fn test_verify_smart_contract_wallet_signatures() {
         let client = crate::TestClient::create_local();
-        let client = client.build().await.unwrap();
+        let client = client.build().unwrap();
         let endpoint = VerifySmartContractWalletSignatures::builder()
             .signatures(vec![VerifySmartContractWalletSignatureRequestSignature {
                 account_id: "".into(),
