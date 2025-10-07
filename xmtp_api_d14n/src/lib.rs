@@ -6,8 +6,8 @@ pub use queries::*;
 
 pub mod protocol;
 
-pub mod clients;
-pub use clients::*;
+pub mod middleware;
+pub use middleware::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
