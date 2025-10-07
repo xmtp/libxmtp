@@ -393,6 +393,7 @@ impl ValidatedCommit {
             expected_installation_diff,
             added_inboxes,
             removed_inboxes,
+            old_failed_installations,
         } = expected_diff;
 
         let installations_changed =
@@ -404,7 +405,7 @@ impl ValidatedCommit {
             added_installations,
             removed_installations,
             current_group_members,
-            &new_group_membership.failed_installations,
+            &old_failed_installations,
         )?;
         credentials_to_verify.push(actor.clone());
 
@@ -609,6 +610,7 @@ struct ExpectedDiff {
     expected_installation_diff: InstallationDiff,
     added_inboxes: Vec<Inbox>,
     removed_inboxes: Vec<Inbox>,
+    old_failed_installations: Vec<Vec<u8>>,
 }
 
 impl ExpectedDiff {
@@ -687,6 +689,7 @@ impl ExpectedDiff {
             expected_installation_diff,
             added_inboxes,
             removed_inboxes,
+            old_failed_installations: old_group_membership.failed_installations,
         })
     }
 }
@@ -699,19 +702,34 @@ fn expected_diff_matches_commit(
     added_installations: HashSet<Vec<u8>>,
     removed_installations: HashSet<Vec<u8>>,
     existing_installation_ids: HashSet<Vec<u8>>,
-    failed_installation_ids: &[Vec<u8>],
+    old_failed_installation_ids: &[Vec<u8>],
 ) -> Result<(), CommitValidationError> {
     // Check and make sure that any added installations are either:
     // 1. In the expected diff
     // 2. Already a member of the group (for example, the group creator is already a member on the first commit)
+    // 3. A recovered failed installation that we're re-adding
 
-    let unknown_adds = added_installations
+    // alice [i1, i2], bob [i3] - real members: i1, i3, failed installations: i2
+    // after recovery: current members: i1,i3 - added members: i2, failed_installations: []
+    // recovery: old_failed - add_installations
+    //
+    // recovered_installations = intersection of expected_diff.added_installations and failed_installation_ids
+    let failed_installation_set: HashSet<Vec<u8>> =
+        old_failed_installation_ids.iter().cloned().collect();
+    let recovered_failed_installations: Vec<Vec<u8>> = added_installations
+        .intersection(&failed_installation_set)
+        .cloned()
+        .collect();
+    let unknown_adds: Vec<Vec<u8>> = added_installations
         .into_iter()
         .filter(|installation_id| {
             !expected_diff.added_installations.contains(installation_id)
                 && !existing_installation_ids.contains(installation_id)
+                && !failed_installation_set.contains(installation_id)
+                && !recovered_failed_installations.contains(installation_id)
         })
-        .collect::<Vec<Vec<u8>>>();
+        .collect();
+
     if !unknown_adds.is_empty() {
         return Err(CommitValidationError::UnexpectedInstallationAdded(
             unknown_adds,
@@ -721,7 +739,7 @@ fn expected_diff_matches_commit(
     let filtered_expected: HashSet<_> = expected_diff
         .removed_installations
         .iter()
-        .filter(|id| !failed_installation_ids.contains(*id))
+        .filter(|id| !old_failed_installation_ids.contains(*id))
         .cloned()
         .collect();
 
