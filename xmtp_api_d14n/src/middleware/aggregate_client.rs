@@ -64,7 +64,7 @@ where
 impl AggregateClient<GrpcClient> {
     /// refresh checks the fastest node and updates the inner client
     /// should only be called when there are no active requests or streams
-    pub async fn refresh(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn refresh(&mut self) -> Result<(), ApiClientError<AggregateClientError>> {
         let nodes = get_nodes(&self.gateway_client).await?;
         self.inner = get_fastest_node(nodes, self.timeout).await?;
         Ok(())
