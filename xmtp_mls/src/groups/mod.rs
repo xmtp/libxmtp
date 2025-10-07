@@ -38,6 +38,7 @@ use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculat
 use crate::{subscriptions::SyncWorkerEvent, track};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
+use futures_util::SinkExt;
 use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
@@ -586,6 +587,8 @@ where
             tracing::warn!("Unable to send a message on an inactive group.");
             return Err(GroupError::GroupInactive);
         }
+
+        // todo: check if the group is not in the pending removal state
 
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);

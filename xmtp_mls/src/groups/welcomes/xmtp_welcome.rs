@@ -374,7 +374,6 @@ where
                 None
             }
         });
-
         let mut group = StoredGroup::builder();
         group
             .id(group_id)
@@ -389,6 +388,13 @@ where
                 context.inbox_id().to_string(),
                 mutable_metadata,
             ));
+
+        // todo: revise the logic later
+        // let membership_state = if pending_remove_state.unwrap_or(false) {
+        //     GroupMembershipState::PendingRemove
+        // } else {
+        //     GroupMembershipState::Pending
+        // };
 
         let to_store = match conversation_type {
             ConversationType::Group => group
@@ -408,6 +414,7 @@ where
                 let group_id = mls_group.group_id().to_vec();
                 events.add_worker_event(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
 
+                // Sync groups are always Allowed.
                 group
                     .membership_state(GroupMembershipState::Allowed)
                     .build()?
