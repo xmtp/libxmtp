@@ -4,14 +4,14 @@ use prost::bytes::Bytes;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use thiserror::Error;
-use xmtp_api_grpc::client::GrpcClient;
+use xmtp_api_grpc::{client::GrpcClient, error::GrpcError};
 use xmtp_common::{
     RetryableError,
     time::{Duration, Instant},
 };
 use xmtp_proto::{
     ApiEndpoint,
-    api::{ApiClientError, Client, Query},
+    api::{ApiClientError, BodyError, Client, Query},
     prelude::ApiBuilder,
 };
 
@@ -21,12 +21,18 @@ use xmtp_proto::{
 pub enum AggregateClientError {
     #[error("all node clients failed to build")]
     AllNodeClientsFailedToBuild,
+    #[error(transparent)]
+    BodyError(#[from] BodyError),
+    #[error(transparent)]
+    GrpcError(#[from] ApiClientError<GrpcError>),
     #[error("no nodes found")]
     NoNodesFound,
-    #[error("no responsive nodes found")]
-    NoResponsiveNodesFound,
-    #[error("unresponsive node")]
-    UnresponsiveNode,
+    #[error("no responsive nodes found under {latency}ms latency")]
+    NoResponsiveNodesFound { latency: u64 },
+    #[error("timeout reaching node {}", node_id)]
+    TimeoutNode { node_id: u32 },
+    #[error("unhealthy node {}", node_id)]
+    UnhealthyNode { node_id: u32 },
 }
 
 /// From<AggregateClientError> for ApiClientError<E> is used to convert the AggregateClientError to an ApiClientError.
@@ -47,9 +53,12 @@ impl RetryableError for AggregateClientError {
         use AggregateClientError::*;
         match self {
             AllNodeClientsFailedToBuild => false,
+            BodyError(_) => false,
+            GrpcError(_) => false,
             NoNodesFound => false,
-            NoResponsiveNodesFound => false,
-            UnresponsiveNode => false,
+            NoResponsiveNodesFound { latency: _ } => false,
+            TimeoutNode { node_id: _ } => false,
+            UnhealthyNode { node_id: _ } => false,
         }
     }
 }
@@ -112,8 +121,9 @@ async fn get_nodes(
         .build()?
         .query(gateway_client)
         .await
-        .map_err(|_| {
-            ApiClientError::new(ApiEndpoint::GetNodes, AggregateClientError::NoNodesFound)
+        .map_err(|e| {
+            tracing::error!("failed to get nodes from gateway: {}", e);
+            ApiClientError::new(ApiEndpoint::GetNodes, AggregateClientError::GrpcError(e))
         })?;
 
     tracing::debug!("got nodes from gateway: {:?}", response.nodes);
@@ -124,7 +134,7 @@ async fn get_nodes(
 
     let mut stream =
         futures::stream::iter(response.nodes.into_iter().map(|(node_id, url)| async move {
-            tracing::debug!("building client for node {}", node_id);
+            tracing::debug!("building client for node {}: {}", node_id, url);
             let mut client_builder = GrpcClient::builder();
 
             let is_tls = url
@@ -172,26 +182,33 @@ async fn get_fastest_node(
     clients: HashMap<u32, GrpcClient>,
     timeout: Duration,
 ) -> Result<GrpcClient, ApiClientError<AggregateClientError>> {
-    let endpoint = HealthCheck::builder().build()?;
+    let endpoint = HealthCheck::builder().build().map_err(|e| {
+        tracing::error!("failed to build healthcheck endpoint: {}", e);
+        ApiClientError::new(ApiEndpoint::HealthCheck, AggregateClientError::BodyError(e))
+    })?;
 
     let futures = clients.into_iter().map(|(node_id, client)| {
         let mut endpoint = endpoint.clone();
         async move {
+            tracing::debug!("healthcheck node {}", node_id);
+
             let start = Instant::now();
 
             xmtp_common::time::timeout(timeout, endpoint.query(&client))
                 .await
                 .map_err(|_| {
+                    tracing::error!("node timed out: {}", node_id);
                     ApiClientError::new(
                         ApiEndpoint::HealthCheck,
-                        AggregateClientError::UnresponsiveNode,
+                        AggregateClientError::TimeoutNode { node_id },
                     )
                 })
                 .and_then(|r| {
                     r.map_err(|_| {
+                        tracing::error!("node is unhealthy: {}", node_id);
                         ApiClientError::new(
                             ApiEndpoint::HealthCheck,
-                            AggregateClientError::UnresponsiveNode,
+                            AggregateClientError::UnhealthyNode { node_id },
                         )
                     })
                 })
@@ -212,7 +229,9 @@ async fn get_fastest_node(
         .min_by_key(|(_, _, latency)| *latency)
         .ok_or(ApiClientError::new(
             ApiEndpoint::HealthCheck,
-            AggregateClientError::NoResponsiveNodesFound,
+            AggregateClientError::NoResponsiveNodesFound {
+                latency: timeout.as_millis() as u64,
+            },
         ))?;
 
     Ok(fastest_node.1)
@@ -237,7 +256,7 @@ pub enum AggregateClientBuilderError {
     #[error("gateway client is required")]
     MissingGatewayClient,
     #[error(transparent)]
-    Api(#[from] ApiClientError<AggregateClientError>),
+    Api(#[from] Box<ApiClientError<AggregateClientError>>),
 }
 
 impl MiddlewareBuilder<GrpcClient> for AggregateClientBuilder<GrpcClient> {
@@ -258,18 +277,10 @@ impl MiddlewareBuilder<GrpcClient> for AggregateClientBuilder<GrpcClient> {
         let gateway_client = self
             .gateway_client
             .ok_or(AggregateClientBuilderError::MissingGatewayClient)?;
-        let nodes = get_nodes(&gateway_client)
-            .await
-            .map_err(AggregateClientBuilderError::from)?;
+        let nodes = get_nodes(&gateway_client).await.map_err(Box::new)?;
 
-        let timeout = Duration::from_millis(
-            self.timeout
-                .ok_or(AggregateClientBuilderError::InvalidTimeout)?
-                .get() as u64,
-        );
-        let inner = get_fastest_node(nodes, timeout)
-            .await
-            .map_err(AggregateClientBuilderError::from)?;
+        let timeout = Duration::from_millis(self.timeout.unwrap().get() as u64);
+        let inner = get_fastest_node(nodes, timeout).await.map_err(Box::new)?;
 
         Ok(AggregateClient {
             gateway_client,
