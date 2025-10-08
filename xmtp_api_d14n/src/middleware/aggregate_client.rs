@@ -12,7 +12,7 @@ use xmtp_common::{
 use xmtp_proto::{
     ApiEndpoint,
     prelude::ApiBuilder,
-    traits::{ApiClientError, Client, Query},
+    api::{ApiClientError, Client, Query},
 };
 
 /* AggregateClient struct and impls */
@@ -138,7 +138,6 @@ async fn get_nodes(
 
             let client = client_builder
                 .build()
-                .await
                 .map_err(|e| (node_id, e.into()))?;
 
             Ok::<_, (u32, Box<dyn std::error::Error + Send + Sync>)>((node_id, client))
@@ -178,7 +177,7 @@ async fn get_fastest_node(
     let endpoint = HealthCheck::builder().build()?;
 
     let futures = clients.into_iter().map(|(node_id, client)| {
-        let endpoint = endpoint.clone();
+        let mut endpoint = endpoint.clone();
         async move {
             let start = Instant::now();
 
