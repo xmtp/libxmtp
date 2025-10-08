@@ -14,17 +14,30 @@ pub enum WorkerKind {
     KeyPackageCleaner,
     Event,
     CommitLog,
+    TaskRunner,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct WorkerRunner {
+    // When this is cloned into the Context this is empty, so the Context and Client have different views
     factories: Vec<DynFactory>,
     metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
+    task_channels: crate::tasks::TaskWorkerChannels,
+}
+
+impl Default for WorkerRunner {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl WorkerRunner {
     pub fn new() -> Self {
-        Default::default()
+        Self {
+            factories: Vec::new(),
+            metrics: Arc::new(Mutex::new(HashMap::new())),
+            task_channels: crate::tasks::TaskWorkerChannels::new(),
+        }
     }
 
     pub fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
@@ -32,6 +45,10 @@ impl WorkerRunner {
             .lock()
             .get(&WorkerKind::DeviceSync)?
             .as_sync_metrics()
+    }
+
+    pub fn task_channels(&self) -> &crate::tasks::TaskWorkerChannels {
+        &self.task_channels
     }
 }
 

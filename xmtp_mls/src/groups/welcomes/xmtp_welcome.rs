@@ -158,6 +158,9 @@ where
     /// if the cursor of this welcome is less than the one we have in our local database,
     /// we can safely return the local cached group as if we had processed it.
     fn check_if_processed(&self, db: &impl DbQuery) -> Result<Option<MlsGroup<C>>, GroupError> {
+        if self.welcome.resuming() {
+            return Ok(None);
+        }
         let context = &self.context;
 
         // Check if this welcome was already processed. Return the existing group if so.
@@ -300,10 +303,8 @@ where
         } = decrypted_welcome;
 
         tracing::debug!("calling update cursor for welcome {}", welcome.cursor);
-        let requires_processing = {
-            let current_cursor = self.last_sequence_id(&db)?;
-            welcome.sequence_id() > current_cursor as u64
-        };
+        let requires_processing =
+            welcome.resuming() || welcome.sequence_id() > self.last_sequence_id(&db)? as u64;
         if !requires_processing {
             tracing::error!("Skipping already processed welcome {}", welcome.cursor);
             return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.cursor).into());
