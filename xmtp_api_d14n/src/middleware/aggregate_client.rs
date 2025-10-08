@@ -4,15 +4,15 @@ use prost::bytes::Bytes;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use thiserror::Error;
-use xmtp_api_grpc::GrpcClient;
+use xmtp_api_grpc::client::GrpcClient;
 use xmtp_common::{
     RetryableError,
     time::{Duration, Instant},
 };
 use xmtp_proto::{
     ApiEndpoint,
-    prelude::ApiBuilder,
     api::{ApiClientError, Client, Query},
+    prelude::ApiBuilder,
 };
 
 /* AggregateClient struct and impls */
@@ -136,9 +136,7 @@ async fn get_nodes(
             client_builder.set_tls(is_tls);
             client_builder.set_host(url);
 
-            let client = client_builder
-                .build()
-                .map_err(|e| (node_id, e.into()))?;
+            let client = client_builder.build().map_err(|e| (node_id, e.into()))?;
 
             Ok::<_, (u32, Box<dyn std::error::Error + Send + Sync>)>((node_id, client))
         }))
