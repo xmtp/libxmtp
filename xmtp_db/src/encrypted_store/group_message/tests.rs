@@ -47,6 +47,78 @@ async fn it_does_not_error_on_empty_messages() {
 }
 
 #[xmtp_common::test]
+async fn test_exclude_content_types_filter() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+
+        // Create messages with different content types
+        let messages = vec![
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(1_000),
+                Some(ContentType::Text),
+                None,
+                None,
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(2_000),
+                Some(ContentType::Text),
+                None,
+                None,
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(3_000),
+                Some(ContentType::Reaction),
+                None,
+                None,
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(4_000),
+                Some(ContentType::ReadReceipt),
+                None,
+                None,
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(5_000),
+                Some(ContentType::Attachment),
+                None,
+                None,
+            ),
+        ];
+        assert_ok!(messages.store(conn));
+
+        // Test excluding reactions and read receipts
+        let exclude_args = MsgQueryArgs {
+            exclude_content_types: Some(vec![ContentType::Reaction, ContentType::ReadReceipt]),
+            ..Default::default()
+        };
+
+        let filtered_messages = conn.get_group_messages(&group.id, &exclude_args).unwrap();
+        assert_eq!(filtered_messages.len(), 3); // 2 Text + 1 Attachment
+        assert!(
+            filtered_messages
+                .iter()
+                .all(|m| m.content_type != ContentType::Reaction
+                    && m.content_type != ContentType::ReadReceipt)
+        );
+
+        let count = conn.count_group_messages(&group.id, &exclude_args).unwrap();
+        assert_eq!(count, 3);
+    })
+    .await
+}
+
+#[xmtp_common::test]
 async fn it_gets_messages() {
     with_connection(|conn| {
         let group = generate_group(None);
