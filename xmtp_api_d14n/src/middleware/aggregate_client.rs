@@ -1,5 +1,4 @@
 use crate::d14n::{GetNodes, HealthCheck};
-use crate::traits::MiddlewareBuilder;
 use futures::{StreamExt, future::join_all};
 use prost::bytes::Bytes;
 use std::collections::HashMap;
@@ -16,7 +15,8 @@ use xmtp_proto::{
     traits::{ApiClientError, Client, Query},
 };
 
-/// AggregateClientError is used to wrap the errors from the aggregate client.
+/* AggregateClient struct and impls */
+
 #[derive(Debug, Error)]
 pub enum AggregateClientError {
     #[error("all node clients failed to build")]
@@ -30,6 +30,7 @@ pub enum AggregateClientError {
 }
 
 /// From<AggregateClientError> for ApiClientError<E> is used to convert the AggregateClientError to an ApiClientError.
+/// Required by the Client trait implementation, as request and stream can return AggregateClientError.
 impl<E> From<AggregateClientError> for ApiClientError<E>
 where
     E: std::error::Error + Send + Sync + 'static,
@@ -40,7 +41,7 @@ where
 }
 
 /// RetryableError for AggregateClientError is used to determine if the error is retryable.
-/// Trait needed by the From<AggregateClientError> for ApiClientError<C> implementation.
+/// Trait needed by the From<AggregateClientError> for ApiClientError<E> implementation.
 impl RetryableError for AggregateClientError {
     fn is_retryable(&self) -> bool {
         use AggregateClientError::*;
@@ -119,17 +120,28 @@ async fn get_nodes(
 
     let max_concurrency = response.nodes.len();
 
-    let mut clients = HashMap::new();
+    let mut clients: HashMap<u32, GrpcClient> = HashMap::new();
 
     let mut stream =
         futures::stream::iter(response.nodes.into_iter().map(|(node_id, url)| async move {
+            tracing::debug!("building client for node {}", node_id);
             let mut client_builder = GrpcClient::builder();
-            let is_tls = url.parse::<url::Url>()?.scheme() == "https";
+
+            let is_tls = url
+                .parse::<url::Url>()
+                .map_err(|e| (node_id, e.into()))?
+                .scheme()
+                == "https";
+
             client_builder.set_tls(is_tls);
             client_builder.set_host(url);
-            let client = client_builder.build().await?;
 
-            Ok::<_, Box<dyn std::error::Error + Send + Sync>>((node_id, client))
+            let client = client_builder
+                .build()
+                .await
+                .map_err(|e| (node_id, e.into()))?;
+
+            Ok::<_, (u32, Box<dyn std::error::Error + Send + Sync>)>((node_id, client))
         }))
         .buffer_unordered(max_concurrency);
 
@@ -140,25 +152,20 @@ async fn get_nodes(
                 clients.insert(node_id, client);
             }
             Err(err) => {
-                tracing::error!("failed to build client: {}", err);
+                tracing::error!("failed to build client for node {}: {}", err.0, err.1);
             }
         }
     }
 
-    tracing::debug!(
-        "built clients for nodes: {:?}",
-        clients
-            .iter()
-            .map(|(node_id, _)| *node_id)
-            .collect::<Vec<_>>()
-    );
-
     if clients.is_empty() {
+        tracing::error!("all node clients failed to build");
         return Err(ApiClientError::new(
             ApiEndpoint::GetNodes,
             AggregateClientError::AllNodeClientsFailedToBuild,
         ));
     }
+
+    tracing::debug!("built clients for nodes: {:?}", clients.keys());
 
     Ok(clients)
 }
@@ -213,6 +220,8 @@ async fn get_fastest_node(
 
     Ok(fastest_node.1)
 }
+
+/* MiddlewareBuilder implementation for AggregateClient */
 
 #[derive(Default)]
 pub struct AggregateClientBuilder<C>
@@ -271,4 +280,23 @@ impl MiddlewareBuilder<GrpcClient> for AggregateClientBuilder<GrpcClient> {
             timeout,
         })
     }
+}
+
+/* MiddlewareBuilder */
+
+pub trait MiddlewareBuilder<C>
+where
+    C: Client + Sync + Send,
+{
+    type Output;
+    type Error;
+
+    /// set the gateway client for node discovery
+    fn set_gateway_client(&mut self, gateway_client: C) -> Result<(), Self::Error>;
+
+    /// max timeout allowed for nodes to respond, in milliseconds
+    fn set_timeout(&mut self, timeout: NonZeroUsize) -> Result<(), Self::Error>;
+
+    #[allow(async_fn_in_trait)]
+    async fn build(self) -> Result<Self::Output, Self::Error>;
 }
