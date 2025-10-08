@@ -2,7 +2,7 @@ use super::{Result, stream_conversations::ConversationStreamError};
 use crate::context::XmtpSharedContext;
 use crate::groups::GroupError;
 use crate::groups::InitialMembershipValidator;
-use crate::groups::welcome_sync::WelcomeService;
+use crate::groups::welcome_sync::{ResumableWelcomeMessage, WelcomeService};
 use crate::intents::ProcessIntentError;
 use crate::{groups::MlsGroup, subscriptions::WelcomeOrGroup};
 use std::collections::HashSet;
@@ -305,7 +305,11 @@ where
             (async {
                 let validator = InitialMembershipValidator::new(&self.context);
                 welcomes
-                    .process_new_welcome(welcome, false, validator)
+                    .process_new_welcome(
+                        &ResumableWelcomeMessage::WelcomeMessage(welcome.clone()),
+                        false,
+                        validator,
+                    )
                     .await
             })
         );

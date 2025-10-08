@@ -3,10 +3,11 @@ use xmtp_common::{Retry, retry_async};
 use xmtp_proto::mls_v1::welcome_message::{V1, Version};
 use xmtp_proto::prelude::XmtpMlsClient;
 
+/// Returns none if the welcome pointer is not found
 pub async fn resolve_welcome_pointer<Context: crate::context::XmtpSharedContext>(
     decrypted_welcome_pointer: &xmtp_proto::xmtp::mls::message_contents::WelcomePointer,
     context: &Context,
-) -> Result<V1, GroupError> {
+) -> Result<Option<V1>, GroupError> {
     let retry = Retry::default();
     let mut retries = 0;
     let time_spent = xmtp_common::time::Instant::now();
@@ -58,12 +59,7 @@ pub async fn resolve_welcome_pointer<Context: crate::context::XmtpSharedContext>
         if let Some(d) = retry.backoff(retries, time_spent) {
             xmtp_common::time::sleep(d).await;
         } else {
-            return Err(xmtp_proto::ConversionError::InvalidValue {
-                item: "WelcomeMessage",
-                expected: "WelcomeMessage from Node",
-                got: "None".into(),
-            }
-            .into());
+            return Ok(None);
         }
         tracing::debug!("welcome pointer not found, retrying...");
     };
@@ -87,5 +83,5 @@ pub async fn resolve_welcome_pointer<Context: crate::context::XmtpSharedContext>
             .into());
         }
     };
-    Ok(welcome)
+    Ok(Some(welcome))
 }

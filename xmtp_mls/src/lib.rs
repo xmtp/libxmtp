@@ -12,6 +12,7 @@ pub mod messages;
 pub mod mls_store;
 mod mutex_registry;
 pub mod subscriptions;
+pub mod tasks;
 pub mod types;
 pub mod utils;
 pub mod verified_key_package_v2;

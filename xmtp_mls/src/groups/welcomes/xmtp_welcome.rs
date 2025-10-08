@@ -4,6 +4,7 @@
 use crate::groups::mls_ext::CommitLogStorer;
 use crate::groups::mls_sync::DeferredEvents;
 use crate::groups::oneshot::Oneshot;
+use crate::groups::welcome_sync::ResumableWelcomeMessage;
 use crate::groups::{MetadataPermissionsError, mls_sync};
 use crate::{
     context::XmtpSharedContext,
@@ -34,10 +35,7 @@ use xmtp_db::{
 use xmtp_mls_common::{
     group_metadata::extract_group_metadata, group_mutable_metadata::extract_group_mutable_metadata,
 };
-use xmtp_proto::xmtp::mls::{
-    api::v1::welcome_message,
-    message_contents::{ContentTypeId, GroupUpdated, group_updated::Inbox},
-};
+use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, GroupUpdated, group_updated::Inbox};
 
 /// Create a group from a decrypted and decoded welcome message.
 /// If the group already exists in the store, overwrite the MLS state and do not update the group entry
@@ -57,7 +55,7 @@ use xmtp_proto::xmtp::mls::{
 )]
 pub struct XmtpWelcome<'a, C, V> {
     context: C,
-    welcome: &'a welcome_message::Version,
+    welcome: &'a ResumableWelcomeMessage,
     cursor_increment: bool,
     validator: V,
     /// Worker events collected throughout the welcome process
@@ -453,7 +451,7 @@ where
             decrypted_message_bytes: encoded_added_payload_bytes,
             sent_at_ns: welcome.created_ns() as i64,
             kind: GroupMessageKind::MembershipChange,
-            sender_installation_id: welcome.installation_key().to_vec(),
+            sender_installation_id: added_by_installation_id,
             sender_inbox_id: added_by_inbox_id,
             delivery_status: DeliveryStatus::Published,
             content_type: added_content_type.type_id.into(),
@@ -511,6 +509,7 @@ mod tests {
         groups::test::NoopValidator,
         test::mock::{NewMockContext, context},
     };
+    use xmtp_proto::xmtp::mls::api::v1::welcome_message;
 
     use super::*;
 
@@ -530,7 +529,7 @@ mod tests {
     #[rstest::rstest]
     #[xmtp_common::test]
     async fn welcome_builds_with_default_events(context: NewMockContext) {
-        let w = generate_welcome();
+        let w = generate_welcome().into();
         let builder = XmtpWelcome::builder()
             .context(context)
             .welcome(&w)
