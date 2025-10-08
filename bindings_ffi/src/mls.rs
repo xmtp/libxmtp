@@ -1,3 +1,4 @@
+use crate::fork_recovery::FfiForkRecoveryOpts;
 use crate::identity::{FfiCollectionExt, FfiCollectionTryExt, FfiIdentifier};
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
@@ -242,6 +243,7 @@ pub async fn create_client(
     device_sync_mode: Option<FfiSyncWorkerMode>,
     allow_offline: Option<bool>,
     disable_events: Option<bool>,
+    fork_recovery_opts: Option<FfiForkRecoveryOpts>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -292,6 +294,10 @@ pub async fn create_client(
 
     if let Some(sync_worker_mode) = device_sync_mode {
         builder = builder.device_sync_worker_mode(sync_worker_mode.into());
+    }
+
+    if let Some(fork_recovery_opts) = fork_recovery_opts {
+        builder = builder.fork_recovery_opts(fork_recovery_opts.into());
     }
 
     if let Some(url) = &device_sync_server_url {
@@ -3459,6 +3465,7 @@ mod tests {
             sync_worker_mode,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3494,6 +3501,7 @@ mod tests {
             nonce,
             None,
             sync_server_url,
+            None,
             None,
             None,
             None,
@@ -3568,6 +3576,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3601,6 +3610,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3621,6 +3631,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -3667,6 +3678,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3688,6 +3700,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -3745,6 +3758,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3787,6 +3801,7 @@ mod tests {
             None,
             None,
             Some(true),
+            None,
             None,
         )
         .await
@@ -3955,6 +3970,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -4077,6 +4093,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -4175,6 +4192,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -4207,6 +4225,7 @@ mod tests {
             &amal_inbox_id,
             amal.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -4253,6 +4272,7 @@ mod tests {
             &bola_inbox_id,
             bola.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -7752,6 +7772,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -7794,6 +7815,7 @@ mod tests {
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
             None,
             None,
             None,
@@ -7880,6 +7902,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await;
 
@@ -7921,6 +7944,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -7949,6 +7973,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -7971,6 +7996,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
             None,
             None,
             None,
@@ -8007,6 +8033,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
             None,
             None,
             None,
@@ -9586,6 +9613,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
             None,

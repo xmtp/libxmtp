@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+use crate::builder::ForkRecoveryOpts;
 use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
 use crate::groups::summary::SyncSummary;
@@ -83,6 +84,7 @@ impl Clone for NewMockContext {
             worker_events: self.worker_events.clone(),
             scw_verifier: self.scw_verifier.clone(),
             device_sync: self.device_sync.clone(),
+            fork_recovery_opts: self.fork_recovery_opts.clone(),
             workers: self.workers.clone(),
         }
     }
@@ -114,6 +116,10 @@ impl XmtpSharedContext for NewMockContext {
 
     fn device_sync(&self) -> &DeviceSync {
         &self.device_sync
+    }
+
+    fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {
+        &self.fork_recovery_opts
     }
 
     fn mls_storage(&self) -> &Self::MlsStorage {
