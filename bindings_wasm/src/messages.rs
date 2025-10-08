@@ -125,6 +125,7 @@ impl ListMessagesOptions {
     delivery_status: Option<DeliveryStatus>,
     direction: Option<SortDirection>,
     content_types: Option<Vec<ContentType>>,
+    exclude_content_types: Option<Vec<ContentType>>,
     kind: Option<GroupMessageKind>,
   ) -> Self {
     Self {
@@ -134,6 +135,7 @@ impl ListMessagesOptions {
       delivery_status,
       direction,
       content_types,
+      exclude_content_types,
       kind,
     }
   }
