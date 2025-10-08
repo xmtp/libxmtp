@@ -922,7 +922,9 @@ mod tests {
             .unwrap();
 
         let first_welcome = welcomes.first().unwrap().clone();
-        let WelcomeMessageVersion::V1(inner) = first_welcome.version.unwrap();
+        let WelcomeMessageVersion::V1(inner) = first_welcome.version.unwrap() else {
+            unimplemented!("WelcomePointer not supported");
+        };
 
         inner
     }

@@ -118,7 +118,10 @@ mod tests {
                 let welcome_message_input::Version::V1(welcome_message_input::V1 {
                     installation_key,
                     ..
-                }) = m;
+                }) = m
+                else {
+                    unimplemented!("Expected WelcomeMessageV1 payload, got {:?}", m);
+                };
                 assert_eq!(installation_key, vec![1, 2, 3]);
             }
             _ => panic!("Expected WelcomeMessage payload"),

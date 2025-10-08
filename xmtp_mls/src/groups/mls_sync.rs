@@ -2468,6 +2468,9 @@ where
                     tracing::debug!("total welcome message proto bytes={size}");
                     size
                 }
+                WelcomeMessageInputVersion::WelcomePointer(_) => {
+                    unimplemented!("WelcomePointer not supported");
+                }
             })
             // Fallback if the version is missing
             .unwrap_or(GRPC_PAYLOAD_LIMIT / MAX_GROUP_SIZE);

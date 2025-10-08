@@ -188,6 +188,7 @@ impl<'env> ProtocolEnvelope<'env> for WelcomeMessageVersion {
         visitor.visit_welcome_message_version(self)?;
         match self {
             WelcomeMessageVersion::V1(v1) => visitor.visit_welcome_message_v1(v1),
+            WelcomeMessageVersion::WelcomePointer(_) => todo!("WelcomePointer not supported"),
         }?;
         Ok(())
     }

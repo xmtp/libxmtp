@@ -2,7 +2,7 @@
 /// Full representation of a welcome message
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct WelcomeMessage {
-    #[prost(oneof = "welcome_message::Version", tags = "1")]
+    #[prost(oneof = "welcome_message::Version", tags = "1, 2")]
     pub version: ::core::option::Option<welcome_message::Version>,
 }
 /// Nested message and enum types in `WelcomeMessage`.
@@ -38,10 +38,44 @@ pub mod welcome_message {
             "/xmtp.mls.api.v1.WelcomeMessage.V1".into()
         }
     }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct WelcomePointer {
+        #[prost(uint64, tag = "1")]
+        pub id: u64,
+        #[prost(uint64, tag = "2")]
+        pub created_ns: u64,
+        /// The topic of the welcome message (generally the installation id)
+        #[prost(bytes = "vec", tag = "3")]
+        pub destination: ::prost::alloc::vec::Vec<u8>,
+        /// A WelcomePointer encrypted using the algorithm specified by wrapper_algorithm
+        #[prost(bytes = "vec", tag = "4")]
+        pub welcome_pointer: ::prost::alloc::vec::Vec<u8>,
+        /// The public key used to encrypt the welcome pointer
+        #[prost(bytes = "vec", tag = "5")]
+        pub hpke_public_key: ::prost::alloc::vec::Vec<u8>,
+        /// The algorithm used to encrypt the welcome pointer
+        #[prost(
+            enumeration = "super::super::super::message_contents::WelcomePointerWrapperAlgorithm",
+            tag = "6"
+        )]
+        pub wrapper_algorithm: i32,
+    }
+    impl ::prost::Name for WelcomePointer {
+        const NAME: &'static str = "WelcomePointer";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.WelcomeMessage.WelcomePointer".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.WelcomeMessage.WelcomePointer".into()
+        }
+    }
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
     pub enum Version {
         #[prost(message, tag = "1")]
         V1(V1),
+        #[prost(message, tag = "2")]
+        WelcomePointer(WelcomePointer),
     }
 }
 impl ::prost::Name for WelcomeMessage {
@@ -57,25 +91,31 @@ impl ::prost::Name for WelcomeMessage {
 /// Input type for a welcome message
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct WelcomeMessageInput {
-    #[prost(oneof = "welcome_message_input::Version", tags = "1")]
+    #[prost(oneof = "welcome_message_input::Version", tags = "1, 2")]
     pub version: ::core::option::Option<welcome_message_input::Version>,
 }
 /// Nested message and enum types in `WelcomeMessageInput`.
 pub mod welcome_message_input {
-    /// Version 1 of the WelcomeMessageInput format
+    /// Version 1 of the WelcomeMessageInput format, if used as the pointee of a WelcomePointer then
+    /// the hpke_public_key will be unset, and the wrapper_algorithm will be WELCOME_WRAPPER_ALGORITHM_SYMMETRIC_KEY
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct V1 {
+        /// The topic of the welcome message (generally the installation id)
         #[prost(bytes = "vec", tag = "1")]
         pub installation_key: ::prost::alloc::vec::Vec<u8>,
+        /// An encrypted mls `Welcome` struct
         #[prost(bytes = "vec", tag = "2")]
         pub data: ::prost::alloc::vec::Vec<u8>,
+        /// The public key of the welcome message
         #[prost(bytes = "vec", tag = "3")]
         pub hpke_public_key: ::prost::alloc::vec::Vec<u8>,
+        /// The algorithm used to encrypt the welcome message
         #[prost(
             enumeration = "super::super::super::message_contents::WelcomeWrapperAlgorithm",
             tag = "4"
         )]
         pub wrapper_algorithm: i32,
+        /// The metadata of the welcome message
         #[prost(bytes = "vec", tag = "7")]
         pub welcome_metadata: ::prost::alloc::vec::Vec<u8>,
     }
@@ -89,10 +129,42 @@ pub mod welcome_message_input {
             "/xmtp.mls.api.v1.WelcomeMessageInput.V1".into()
         }
     }
+    /// Version 2 of the WelcomeMessageInput format which uses a WelcomePointer
+    /// to point to the welcome message for several installations at once
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct WelcomePointer {
+        /// The topic of the welcome message (generally the installation id)
+        #[prost(bytes = "vec", tag = "1")]
+        pub destination: ::prost::alloc::vec::Vec<u8>,
+        /// A WelcomePointer encrypted using the wrapper_algorithm
+        #[prost(bytes = "vec", tag = "2")]
+        pub welcome_pointer: ::prost::alloc::vec::Vec<u8>,
+        /// The public key used to encrypt the welcome pointer
+        #[prost(bytes = "vec", tag = "3")]
+        pub hpke_public_key: ::prost::alloc::vec::Vec<u8>,
+        /// The algorithm used to encrypt the welcome pointer
+        #[prost(
+            enumeration = "super::super::super::message_contents::WelcomePointerWrapperAlgorithm",
+            tag = "4"
+        )]
+        pub wrapper_algorithm: i32,
+    }
+    impl ::prost::Name for WelcomePointer {
+        const NAME: &'static str = "WelcomePointer";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.WelcomeMessageInput.WelcomePointer".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.WelcomeMessageInput.WelcomePointer".into()
+        }
+    }
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
     pub enum Version {
         #[prost(message, tag = "1")]
         V1(V1),
+        #[prost(message, tag = "2")]
+        WelcomePointer(WelcomePointer),
     }
 }
 impl ::prost::Name for WelcomeMessageInput {

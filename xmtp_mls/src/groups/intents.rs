@@ -662,6 +662,7 @@ impl From<Installation> for InstallationProto {
             installation_key: installation.installation_key,
             hpke_public_key: installation.hpke_public_key,
             welcome_wrapper_algorithm: installation.welcome_wrapper_algorithm.into(),
+            welcome_pointee_encryption_aead_types: None,
         }
     }
 }
