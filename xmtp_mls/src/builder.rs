@@ -13,7 +13,8 @@ use crate::{
     utils::{VersionInfo, events::EventWorker},
     worker::WorkerRunner,
 };
-use std::sync::{Arc, atomic::Ordering};
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock, atomic::Ordering};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::debug;
@@ -246,6 +247,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             },
             workers: workers.clone(),
             sync_api_client,
+            shared_last_streamed: Arc::new(RwLock::new(HashMap::new())),
         });
 
         // register workers
