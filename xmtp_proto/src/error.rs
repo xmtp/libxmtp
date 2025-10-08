@@ -1,3 +1,5 @@
+use std::array::TryFromSliceError;
+
 use thiserror::Error;
 use xmtp_common::RetryableError;
 
@@ -107,6 +109,10 @@ pub enum ConversionError {
     OpenMls(#[from] openmls::prelude::Error),
     #[error(transparent)]
     Protocol(#[from] openmls::framing::errors::ProtocolMessageError),
+    #[error(transparent)]
+    Builder(#[from] derive_builder::UninitializedFieldError),
+    #[error(transparent)]
+    Slice(#[from] TryFromSliceError),
 }
 
 // Conversion errors themselves not really retryable because the bytes are static,

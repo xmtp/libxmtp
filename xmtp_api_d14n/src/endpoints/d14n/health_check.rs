@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct HealthCheckRequest {
@@ -41,10 +41,6 @@ impl HealthCheck {
 impl Endpoint for HealthCheck {
     type Output = HealthCheckResponse;
 
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::from("/grpc.health.v1.Health/Check")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         Cow::from("/grpc.health.v1.Health/Check")
     }
@@ -65,14 +61,14 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_health_check() {
-        let endpoint = HealthCheck::builder().build().unwrap();
+        let mut endpoint = HealthCheck::builder().build().unwrap();
 
         let xmtpd_client = crate::TestClient::create_d14n();
-        let client = xmtpd_client.build().await.unwrap();
+        let client = xmtpd_client.build().unwrap();
         assert!(endpoint.query(&client).await.is_ok());
 
         let gateway_client = crate::TestClient::create_gateway();
-        let client = gateway_client.build().await.unwrap();
+        let client = gateway_client.build().unwrap();
         assert!(endpoint.query(&client).await.is_ok());
     }
 }

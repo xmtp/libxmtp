@@ -44,6 +44,7 @@ tokio.workspace = true
 wasm-bindgen-test.workspace = true
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["convert", "test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

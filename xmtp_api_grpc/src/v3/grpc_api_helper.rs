@@ -3,13 +3,14 @@ use crate::streams::{self, XmtpTonicStream};
 use tonic::{Request, metadata::MetadataValue};
 use tower::ServiceExt;
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
+use xmtp_proto::api::ApiClientError;
+use xmtp_proto::api::HasStats;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams};
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
 };
-use xmtp_proto::traits::ApiClientError;
-use xmtp_proto::traits::HasStats;
+use xmtp_proto::types::AppVersion;
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
     ApiEndpoint,
@@ -40,7 +41,7 @@ impl Client {
     /// Automatically chooses gRPC service based on target.
     ///
     /// _NOTE:_ 'is_secure' is a no-op in web-assembly (browser handles TLS)
-    pub async fn create(
+    pub fn create(
         host: impl ToString,
         is_secure: bool,
         app_version: Option<impl ToString>,
@@ -48,8 +49,8 @@ impl Client {
         let mut b = Self::builder();
         b.set_tls(is_secure);
         b.set_host(host.to_string());
-        b.set_app_version(app_version.map_or("0.0.0".to_string(), |v| v.to_string()))?;
-        b.build().await
+        b.set_app_version(app_version.map_or(Default::default(), |v| v.to_string().into()))?;
+        b.build()
     }
 
     pub fn build_request<RequestType>(&self, request: RequestType) -> Request<RequestType> {
@@ -95,7 +96,7 @@ impl ApiBuilder for ClientBuilder {
         self.inner.set_libxmtp_version(version)
     }
 
-    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
+    fn set_app_version(&mut self, version: AppVersion) -> Result<(), Self::Error> {
         self.inner.set_app_version(version)
     }
 
@@ -119,12 +120,11 @@ impl ApiBuilder for ClientBuilder {
         self.inner.host()
     }
 
-    async fn build(self) -> Result<Self::Output, Self::Error> {
+    fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.inner.host().ok_or(GrpcBuilderError::MissingHostUrl)?;
         tracing::info!("building api client for {}", host);
         let channel =
-            crate::GrpcService::new(host.to_string(), self.inner.limit, self.inner.tls_channel)
-                .await?;
+            crate::GrpcService::new(host.to_string(), self.inner.limit, self.inner.tls_channel)?;
         let mls_client = ProtoMlsApiClient::new(channel.clone())
             .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
             .max_encoding_message_size(GRPC_PAYLOAD_LIMIT);
@@ -147,6 +147,10 @@ impl ApiBuilder for ClientBuilder {
             identity_stats: IdentityStats::default(),
             channel,
         })
+    }
+
+    fn set_retry(&mut self, retry: xmtp_common::Retry) {
+        self.inner.set_retry(retry);
     }
 }
 

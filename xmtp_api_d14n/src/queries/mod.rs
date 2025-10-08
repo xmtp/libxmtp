@@ -11,7 +11,7 @@ use std::error::Error as StdError;
 use xmtp_common::{RetryableError, retryable};
 use xmtp_proto::{
     ConversionError,
-    traits::{ApiClientError, BodyError},
+    api::{ApiClientError, BodyError},
 };
 
 #[derive(thiserror::Error, Debug)]

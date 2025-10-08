@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use futures::{StreamExt, TryStreamExt, stream};
 use xmtp_api::{ApiClientWrapper, GroupFilter, XmtpApi};
-use xmtp_common::types::GroupId;
+use xmtp_proto::types::GroupId;
 
 use crate::subscriptions::SubscribeError;
 

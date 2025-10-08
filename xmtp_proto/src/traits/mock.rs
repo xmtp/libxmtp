@@ -1,16 +1,28 @@
 use super::*;
-use crate::{ToxicProxies, prelude::*};
+use crate::{ToxicProxies, prelude::*, types::AppVersion};
 
-pub struct MockClient;
+pub struct TestEndpoint;
+impl Endpoint for TestEndpoint {
+    type Output = ();
+
+    fn grpc_endpoint(&self) -> std::borrow::Cow<'static, str> {
+        Cow::Borrowed("")
+    }
+
+    fn body(&self) -> Result<bytes::Bytes, crate::api::BodyError> {
+        Ok(vec![].into())
+    }
+}
+
 pub struct MockStream;
 pub struct MockApiBuilder;
 impl ApiBuilder for MockApiBuilder {
-    type Output = MockClient;
+    type Output = MockNetworkClient;
     type Error = MockError;
     fn set_libxmtp_version(&mut self, _version: String) -> Result<(), Self::Error> {
         Ok(())
     }
-    fn set_app_version(&mut self, _version: String) -> Result<(), Self::Error> {
+    fn set_app_version(&mut self, _version: AppVersion) -> Result<(), Self::Error> {
         Ok(())
     }
     fn set_host(&mut self, _host: String) {}
@@ -22,13 +34,15 @@ impl ApiBuilder for MockApiBuilder {
         Ok(None)
     }
 
-    async fn build(self) -> Result<Self::Output, Self::Error> {
-        Ok(MockClient)
+    fn build(self) -> Result<Self::Output, Self::Error> {
+        Ok(MockNetworkClient::default())
     }
 
     fn host(&self) -> Option<&str> {
         None
     }
+
+    fn set_retry(&mut self, _retry: xmtp_common::Retry) {}
 }
 
 impl crate::TestApiBuilder for MockApiBuilder {
@@ -38,22 +52,30 @@ impl crate::TestApiBuilder for MockApiBuilder {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum MockError {}
+pub enum MockError {
+    #[error("retryable mock error")]
+    ARetryableError,
+    #[error("non retryable mock error")]
+    ANonRetryableError,
+}
 
-impl RetryableError for MockError {
+impl xmtp_common::RetryableError for MockError {
     fn is_retryable(&self) -> bool {
-        false
+        match self {
+            Self::ARetryableError => true,
+            Self::ANonRetryableError => false,
+        }
     }
 }
 
-type Repeat = Box<dyn FnMut() -> Result<prost::bytes::Bytes, MockError>>;
+type Repeat = Box<dyn Send + FnMut() -> Result<prost::bytes::Bytes, MockError>>;
 type MockStreamT = futures::stream::RepeatWith<Repeat>;
 #[cfg(not(target_arch = "wasm32"))]
 mockall::mock! {
-    pub MockClient {}
+    pub NetworkClient {}
 
     #[async_trait::async_trait]
-    impl Client for MockClient {
+    impl Client for NetworkClient {
         type Error = MockError;
         type Stream = MockStreamT;
         async fn request(
@@ -69,23 +91,15 @@ mockall::mock! {
             path: http::uri::PathAndQuery,
             body: Bytes,
         ) -> Result<http::Response<MockStreamT>, ApiClientError<MockError>>;
-    }
-
-    impl XmtpTestClient for MockClient {
-        type Builder = MockApiBuilder;
-        fn create_local() -> MockApiBuilder { MockApiBuilder }
-        fn create_dev() -> MockApiBuilder { MockApiBuilder }
-        fn create_gateway() -> MockApiBuilder { MockApiBuilder }
-        fn create_d14n() -> MockApiBuilder { MockApiBuilder }
     }
 }
 
 #[cfg(target_arch = "wasm32")]
 mockall::mock! {
-    pub MockClient {}
+    pub NetworkClient {}
 
     #[async_trait::async_trait(?Send)]
-    impl Client for MockClient {
+    impl Client for NetworkClient {
         type Error = MockError;
         type Stream = MockStreamT;
         async fn request(
@@ -102,13 +116,15 @@ mockall::mock! {
             body: Bytes,
         ) -> Result<http::Response<MockStreamT>, ApiClientError<MockError>>;
     }
+}
 
-    impl XmtpTestClient for MockClient {
-        type Builder = MockApiBuilder;
-        fn create_local() -> MockApiBuilder { MockApiBuilder }
-        fn create_dev() -> MockApiBuilder { MockApiBuilder }
-        fn create_gateway() -> MockApiBuilder { MockApiBuilder }
-        fn create_d14n() -> MockApiBuilder { MockApiBuilder }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
+    #[xmtp_common::test]
+    fn test_grpc_endpoint_returns_empty_string() {
+        let endpoint = TestEndpoint;
+        assert_eq!(endpoint.grpc_endpoint(), "");
     }
 }

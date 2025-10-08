@@ -128,26 +128,29 @@ impl EnvelopeVisitor<'_> for TopicExtractor {
 
 #[cfg(test)]
 mod tests {
+    use xmtp_cryptography::XmtpInstallationCredential;
+
     use super::*;
     use crate::protocol::extractors::test_utils::*;
-    use crate::protocol::{ProtocolEnvelope, TopicKind};
+    use crate::protocol::{Envelope, TopicKind};
 
     #[xmtp_common::test]
     fn test_extract_group_message_topic() {
-        let envelope = TestEnvelopeBuilder::new().with_group_message().build();
-        let mut extractor = TopicExtractor::new();
-        // This test will fail because MOCK_MLS_MESSAGE creates mock data
-        // that can't be properly deserialized by OpenMLS. This is expected.
-        let result = envelope.accept(&mut extractor);
-        assert!(result.is_err());
+        let envelope = TestEnvelopeBuilder::new()
+            .with_application_message(vec![1, 2, 3])
+            .build();
+        assert_eq!(
+            envelope.topic().unwrap(),
+            TopicKind::GroupMessagesV1.build(&[1, 2, 3])
+        );
     }
 
     #[xmtp_common::test]
     fn test_extract_welcome_message_topic() {
-        let envelope = TestEnvelopeBuilder::new().with_welcome_message().build();
-        let mut extractor = TopicExtractor::new();
-        envelope.accept(&mut extractor).unwrap();
-        let topic = extractor.get().unwrap();
+        let envelope = TestEnvelopeBuilder::new()
+            .with_welcome_message(vec![5, 6, 7, 8])
+            .build();
+        let topic = envelope.topic().unwrap();
 
         let expected_topic = TopicKind::WelcomeMessagesV1.build(&[5, 6, 7, 8]);
         assert_eq!(topic, expected_topic);
@@ -155,24 +158,23 @@ mod tests {
 
     #[xmtp_common::test]
     fn test_extract_key_package_topic() {
-        let envelope = TestEnvelopeBuilder::new().with_key_package().build();
-        let mut extractor = TopicExtractor::new();
-        // This test will fail because MOCK_KEY_PACKAGE creates mock data
-        // that can't be properly deserialized by OpenMLS. This is expected.
-        let result = envelope.accept(&mut extractor);
-        assert!(result.is_err());
+        let installation = XmtpInstallationCredential::default();
+        let envelope = TestEnvelopeBuilder::new()
+            .with_key_package("test".to_string(), installation.clone())
+            .build();
+        assert_eq!(
+            envelope.topic().unwrap(),
+            TopicKind::KeyPackagesV1.build(installation.public_slice())
+        );
     }
 
     #[xmtp_common::test]
     fn test_extract_identity_update_topic() {
         let envelope = TestEnvelopeBuilder::new().with_identity_update().build();
-        let mut extractor = TopicExtractor::new();
-        envelope.accept(&mut extractor).unwrap();
-        let topic = extractor.get().unwrap();
 
         let expected_decoded_id = hex::decode("abcd1234").unwrap();
         let expected_topic = TopicKind::IdentityUpdatesV1.build(&expected_decoded_id);
-        assert_eq!(topic, expected_topic);
+        assert_eq!(envelope.topic().unwrap(), expected_topic);
     }
 
     #[xmtp_common::test]
@@ -180,10 +182,8 @@ mod tests {
         let envelope = TestEnvelopeBuilder::new()
             .with_invalid_key_package()
             .build();
-        let mut extractor = TopicExtractor::new();
-        let result = envelope.accept(&mut extractor);
 
-        assert!(result.is_err());
+        assert!(envelope.topic().is_err());
     }
 
     #[xmtp_common::test]
@@ -191,10 +191,7 @@ mod tests {
         let envelope = TestEnvelopeBuilder::new()
             .with_invalid_identity_update()
             .build();
-        let mut extractor = TopicExtractor::new();
-        let result = envelope.accept(&mut extractor);
-
-        assert!(result.is_err());
+        assert!(envelope.topic().is_err());
     }
 
     #[xmtp_common::test]
@@ -204,5 +201,17 @@ mod tests {
 
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), TopicExtractionError::Failed));
+    }
+
+    #[xmtp_common::test]
+    fn test_extraction_from_identity_update_req() {
+        let req = get_identity_updates_request::Request {
+            inbox_id: hex::encode(b"test_id"),
+            sequence_id: 0,
+        };
+        assert_eq!(
+            req.topic().unwrap(),
+            TopicKind::IdentityUpdatesV1.build(b"test_id")
+        );
     }
 }
