@@ -1,3 +1,4 @@
+use crate::builder::ForkRecoveryPolicy;
 use crate::groups::MlsGroup;
 use crate::groups::commit_log_key::CommitLogKeyCrypto;
 use crate::groups::oneshot::Oneshot;
@@ -11,6 +12,7 @@ use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
 use xmtp_api::ApiError;
 use xmtp_common::RetryableError;
+use xmtp_common::hex::NormalizeHex;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_configuration::Originators;
 use xmtp_db::consent_record::ConsentState;
@@ -48,7 +50,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 /// Interval at which the CommitLogWorker runs to publish commit log entries.
-pub const INTERVAL_DURATION: Duration = Duration::from_secs(60 * 5); // 5 minutes
+pub const DEFAULT_INTERVAL_DURATION: Duration = Duration::from_secs(60 * 5); // 5 minutes
 
 #[derive(Clone)]
 pub struct Factory<Context> {
@@ -212,7 +214,11 @@ where
     Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), CommitLogError> {
-        let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
+        let mut worker_interval = DEFAULT_INTERVAL_DURATION;
+        if let Some(interval) = self.context.fork_recovery_opts().worker_interval_ns {
+            worker_interval = Duration::from_nanos(interval);
+        }
+        let mut intervals = xmtp_common::time::interval_stream(worker_interval);
         while (intervals.next().await).is_some() {
             self.tick().await?;
         }
@@ -223,12 +229,8 @@ where
         self.save_remote_commit_log().await?;
         self.update_forked_state().await?;
         self.publish_commit_logs_to_remote().await?;
-        if xmtp_configuration::ENABLE_RECOVERY_REQUESTS {
-            self.send_outgoing_readd_requests().await?;
-        }
-        if xmtp_configuration::ENABLE_RECOVERY_RESPONSES {
-            self.handle_incoming_pending_readds().await?;
-        }
+        self.send_outgoing_readd_requests().await?;
+        self.handle_incoming_pending_readds().await?;
         Ok(())
     }
 
@@ -250,12 +252,21 @@ where
             return Ok(conversation_cursor_info);
         }
 
+        tracing::info!(
+            "Publishing {} commit log entries to remote commit log",
+            all_entries.len()
+        );
+
         // Step 3 is to publish commit log entries to the API and update cursors
         let api = self.context.api();
         match api.publish_commit_log(all_entries).await {
             Ok(_) => {
                 // Publishing was successful, let's update every group's cursor
                 for conversation_cursor_info in &conversation_cursor_info {
+                    tracing::info!(
+                        "Updating publish cursor for conversation {}",
+                        hex::encode(&conversation_cursor_info.conversation_id)
+                    );
                     conn.update_cursor(
                         &conversation_cursor_info.conversation_id,
                         xmtp_db::refresh_state::EntityKind::CommitLogUpload,
@@ -429,6 +440,10 @@ where
                 consensus_public_key =
                     derive_consensus_public_key(&self.context, &response).await?;
             }
+            tracing::info!(
+                group_id = hex::encode(&response.group_id),
+                "Saving remote commit log entries and updating cursors for group",
+            );
             let num_entries = self.save_remote_commit_log_entries_and_update_cursors(
                 conn,
                 response,
@@ -670,10 +685,36 @@ where
 
     /// Send readd requests for all forked conversations  
     async fn send_outgoing_readd_requests(&mut self) -> Result<(), CommitLogError> {
+        if self.context.fork_recovery_opts().enable_recovery_requests == ForkRecoveryPolicy::None {
+            return Ok(());
+        }
         let conn = self.context.db();
 
         // Fetch all forked groups with their latest epoch
-        let forked_groups = conn.get_conversation_ids_for_requesting_readds()?;
+        let mut forked_groups = conn.get_conversation_ids_for_requesting_readds()?;
+        if self.context.fork_recovery_opts().enable_recovery_requests
+            == ForkRecoveryPolicy::AllowlistedGroups
+        {
+            let groups_to_request_recovery = self
+                .context
+                .fork_recovery_opts()
+                .groups_to_request_recovery
+                .iter()
+                .map(|group_id| group_id.normalize_hex())
+                .collect::<HashSet<String>>();
+            tracing::info!(
+                "Forked groups: {:?}, allowlisted groups for sending recovery requests: {:?}",
+                forked_groups
+                    .iter()
+                    .map(|group_info| hex::encode(&group_info.group_id))
+                    .collect::<Vec<String>>(),
+                groups_to_request_recovery
+            );
+            forked_groups.retain(|group_info| {
+                groups_to_request_recovery
+                    .contains(&hex::encode(&group_info.group_id).normalize_hex())
+            });
+        }
 
         for group_info in forked_groups {
             let group_id = group_info.group_id.clone();
@@ -683,7 +724,7 @@ where
                 tracing::error!(
                     group_id = hex::encode(&group_id),
                     error = ?e,
-                    "Failed to process readd request for group"
+                    "Failed to send readd request for group"
                 );
                 // Continue processing other groups even if one fails
                 continue;
@@ -694,6 +735,9 @@ where
     }
 
     async fn handle_incoming_pending_readds(&self) -> Result<(), CommitLogError> {
+        if self.context.fork_recovery_opts().disable_recovery_responses {
+            return Ok(());
+        }
         let conn = self.context.db();
         let groups_for_readd = conn.get_conversation_ids_for_responding_readds()?;
 

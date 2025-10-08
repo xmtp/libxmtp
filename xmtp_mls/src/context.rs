@@ -1,5 +1,5 @@
 use crate::GroupCommitLock;
-use crate::builder::SyncWorkerMode;
+use crate::builder::{ForkRecoveryOpts, SyncWorkerMode};
 use crate::client::DeviceSync;
 use crate::groups::device_sync::worker::SyncMetric;
 use crate::subscriptions::{LocalEvents, SyncWorkerEvent};
@@ -43,6 +43,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) worker_events: broadcast::Sender<SyncWorkerEvent>,
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync: DeviceSync,
+    pub(crate) fork_recovery_opts: ForkRecoveryOpts,
     pub(crate) workers: WorkerRunner,
 }
 
@@ -111,6 +112,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             worker_events: self.worker_events,
             scw_verifier: self.scw_verifier,
             device_sync: self.device_sync,
+            fork_recovery_opts: self.fork_recovery_opts,
             workers: self.workers,
         }
     }
@@ -178,6 +180,9 @@ where
     fn device_sync_worker_enabled(&self) -> bool {
         !matches!(self.device_sync().mode, SyncWorkerMode::Disabled)
     }
+
+    fn fork_recovery_opts(&self) -> &ForkRecoveryOpts;
+
     /// Creates a new MLS Provider
     fn mls_provider(&'_ self) -> XmtpOpenMlsProviderRef<'_, Self::MlsStorage> {
         XmtpOpenMlsProviderRef::new(self.mls_storage())
@@ -239,6 +244,10 @@ where
 
     fn device_sync(&self) -> &DeviceSync {
         &self.device_sync
+    }
+
+    fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {
+        &self.fork_recovery_opts
     }
 
     /// a reference to the MLS Storage Type
@@ -315,6 +324,10 @@ where
 
     fn device_sync_worker_enabled(&self) -> bool {
         <T as XmtpSharedContext>::device_sync_worker_enabled(self)
+    }
+
+    fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {
+        <T as XmtpSharedContext>::fork_recovery_opts(self)
     }
 
     fn mls_storage(&self) -> &Self::MlsStorage {
