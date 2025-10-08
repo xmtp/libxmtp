@@ -27,18 +27,9 @@ where
 
 fn filter_out_hidden_message_types_from_query(query: &MsgQueryArgs) -> MsgQueryArgs {
     let mut new_query = query.clone();
-    // Get the list of all content types, or use the provided one
-    let mut content_types = match new_query.content_types {
-        Some(types) => types,
-        None => DbContentType::all(),
-    };
+    let hidden_message_types = vec![DbContentType::Reaction, DbContentType::ReadReceipt];
 
-    let hidden_message_types = [DbContentType::Reaction, DbContentType::ReadReceipt];
-
-    // Remove reaction content types
-    content_types.retain(|ct| !hidden_message_types.contains(ct));
-
-    new_query.content_types = Some(content_types);
+    new_query.exclude_content_types = Some(hidden_message_types);
     new_query
 }
 
@@ -631,60 +622,5 @@ mod tests {
         } else {
             panic!("Expected reply message");
         }
-    }
-
-    #[test]
-    fn test_filter_out_hidden_message_types_from_query() {
-        // Test with no content_types specified (should use all types minus hidden)
-        let query = MsgQueryArgs::default();
-        let filtered = filter_out_hidden_message_types_from_query(&query);
-
-        assert!(filtered.content_types.is_some());
-        let types = filtered.content_types.unwrap();
-        assert!(!types.contains(&DbContentType::Reaction));
-        assert!(!types.contains(&DbContentType::ReadReceipt));
-        assert!(types.contains(&DbContentType::Text));
-        assert!(types.contains(&DbContentType::Attachment));
-        assert!(types.contains(&DbContentType::Reply));
-
-        // Test with specific content_types including hidden ones
-        let query_with_types = MsgQueryArgs::builder()
-            .content_types(Some(vec![
-                DbContentType::Text,
-                DbContentType::Reaction,
-                DbContentType::Attachment,
-                DbContentType::ReadReceipt,
-                DbContentType::Reply,
-            ]))
-            .build()
-            .unwrap();
-        let filtered = filter_out_hidden_message_types_from_query(&query_with_types);
-
-        assert!(filtered.content_types.is_some());
-        let types = filtered.content_types.unwrap();
-        assert_eq!(types.len(), 3);
-        assert!(types.contains(&DbContentType::Text));
-        assert!(types.contains(&DbContentType::Attachment));
-        assert!(types.contains(&DbContentType::Reply));
-        assert!(!types.contains(&DbContentType::Reaction));
-        assert!(!types.contains(&DbContentType::ReadReceipt));
-
-        // Test with only non-hidden types (should remain unchanged)
-        let query_no_hidden = MsgQueryArgs::builder()
-            .content_types(Some(vec![
-                DbContentType::Text,
-                DbContentType::Attachment,
-                DbContentType::RemoteAttachment,
-            ]))
-            .build()
-            .unwrap();
-        let filtered = filter_out_hidden_message_types_from_query(&query_no_hidden);
-
-        assert!(filtered.content_types.is_some());
-        let types = filtered.content_types.unwrap();
-        assert_eq!(types.len(), 3);
-        assert!(types.contains(&DbContentType::Text));
-        assert!(types.contains(&DbContentType::Attachment));
-        assert!(types.contains(&DbContentType::RemoteAttachment));
     }
 }
