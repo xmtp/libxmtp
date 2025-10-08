@@ -276,6 +276,8 @@ pub struct MsgQueryArgs {
     pub direction: Option<SortDirection>,
     #[builder(default = None)]
     pub content_types: Option<Vec<ContentType>>,
+    #[builder(default = None)]
+    pub exclude_content_types: Option<Vec<ContentType>>,
 }
 
 impl MsgQueryArgs {
@@ -589,6 +591,10 @@ macro_rules! apply_message_filters {
 
         if let Some(content_types) = &$args.content_types {
             query = query.filter(dsl::content_type.eq_any(content_types));
+        }
+
+        if let Some(exclude_content_types) = &$args.exclude_content_types {
+            query = query.filter(dsl::content_type.ne_all(exclude_content_types));
         }
 
         query
