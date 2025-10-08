@@ -25,12 +25,10 @@ pub enum AggregateClientError {
     BodyError(#[from] BodyError),
     #[error(transparent)]
     GrpcError(#[from] ApiClientError<GrpcError>),
-    #[error("no nodes found")]
-    NoNodesFound,
     #[error("no responsive nodes found under {latency}ms latency")]
     NoResponsiveNodesFound { latency: u64 },
-    #[error("timeout reaching node {}", node_id)]
-    TimeoutNode { node_id: u32 },
+    #[error("timeout reaching node {} under {}ms latency", node_id, latency)]
+    TimeoutNode { node_id: u32, latency: u64 },
     #[error("unhealthy node {}", node_id)]
     UnhealthyNode { node_id: u32 },
 }
@@ -48,18 +46,10 @@ where
 
 /// RetryableError for AggregateClientError is used to determine if the error is retryable.
 /// Trait needed by the From<AggregateClientError> for ApiClientError<E> implementation.
+/// All errors are not retryable.
 impl RetryableError for AggregateClientError {
     fn is_retryable(&self) -> bool {
-        use AggregateClientError::*;
-        match self {
-            AllNodeClientsFailedToBuild => false,
-            BodyError(_) => false,
-            GrpcError(_) => false,
-            NoNodesFound => false,
-            NoResponsiveNodesFound { latency: _ } => false,
-            TimeoutNode { node_id: _ } => false,
-            UnhealthyNode { node_id: _ } => false,
-        }
+        false
     }
 }
 
@@ -109,7 +99,6 @@ where
         body: Bytes,
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
         self.inner.stream(request, path, body).await
-        // TODO: Refresh if performance is bad
     }
 }
 
@@ -200,7 +189,10 @@ async fn get_fastest_node(
                     tracing::error!("node timed out: {}", node_id);
                     ApiClientError::new(
                         ApiEndpoint::HealthCheck,
-                        AggregateClientError::TimeoutNode { node_id },
+                        AggregateClientError::TimeoutNode {
+                            node_id,
+                            latency: timeout.as_millis() as u64,
+                        },
                     )
                 })
                 .and_then(|r| {
