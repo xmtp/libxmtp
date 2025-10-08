@@ -1,5 +1,5 @@
 use crate::d14n::{GetNodes, HealthCheck};
-use futures::{StreamExt, future::join_all};
+use futures::StreamExt;
 use prost::bytes::Bytes;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -25,6 +25,8 @@ pub enum AggregateClientError {
     BodyError(#[from] BodyError),
     #[error(transparent)]
     GrpcError(#[from] ApiClientError<GrpcError>),
+    #[error("no nodes found")]
+    NoNodesFound,
     #[error("no responsive nodes found under {latency}ms latency")]
     NoResponsiveNodesFound { latency: u64 },
     #[error("timeout reaching node {} under {}ms latency", node_id, latency)]
@@ -115,9 +117,17 @@ async fn get_nodes(
             ApiClientError::new(ApiEndpoint::GetNodes, AggregateClientError::GrpcError(e))
         })?;
 
-    tracing::debug!("got nodes from gateway: {:?}", response.nodes);
+    let max_concurrency = if response.nodes.is_empty() {
+        tracing::warn!("no nodes found");
+        Err(ApiClientError::new(
+            ApiEndpoint::GetNodes,
+            AggregateClientError::NoNodesFound,
+        ))
+    } else {
+        Ok(response.nodes.len())
+    }?;
 
-    let max_concurrency = response.nodes.len();
+    tracing::debug!("got nodes from gateway: {:?}", response.nodes);
 
     let mut clients: HashMap<u32, GrpcClient> = HashMap::new();
 
@@ -176,8 +186,20 @@ async fn get_fastest_node(
         ApiClientError::new(ApiEndpoint::HealthCheck, AggregateClientError::BodyError(e))
     })?;
 
-    let futures = clients.into_iter().map(|(node_id, client)| {
+    let max_concurrency = if clients.is_empty() {
+        tracing::warn!("no nodes found");
+        Err(ApiClientError::Other(Box::new(
+            AggregateClientError::NoNodesFound,
+        )))
+    } else {
+        Ok(clients.len())
+    }?;
+
+    let mut fastest_client: Option<(u32, GrpcClient, u64)> = None;
+
+    let mut stream = futures::stream::iter(clients.into_iter().map(|(node_id, client)| {
         let mut endpoint = endpoint.clone();
+
         async move {
             tracing::debug!("healthcheck node {}", node_id);
 
@@ -206,27 +228,34 @@ async fn get_fastest_node(
                 })
                 .map(|_| (node_id, client, start.elapsed().as_millis() as u64))
         }
-    });
+    }))
+    .buffer_unordered(max_concurrency);
 
-    let results = join_all(futures).await;
-
-    let fastest_node = results
-        .into_iter()
-        .inspect(|res| {
-            if let Err(e) = res {
+    while let Some(res) = stream.next().await {
+        match res {
+            Ok((node_id, client, latency)) => {
+                if fastest_client
+                    .as_ref()
+                    .map(|f| latency < f.2)
+                    .unwrap_or(true)
+                {
+                    fastest_client = Some((node_id, client, latency));
+                }
+            }
+            Err(e) => {
                 tracing::warn!("healthcheck failed: {}", e);
             }
-        })
-        .flatten()
-        .min_by_key(|(_, _, latency)| *latency)
-        .ok_or(ApiClientError::new(
-            ApiEndpoint::HealthCheck,
-            AggregateClientError::NoResponsiveNodesFound {
-                latency: timeout.as_millis() as u64,
-            },
-        ))?;
+        }
+    }
 
-    Ok(fastest_node.1)
+    let (_, client, _) = fastest_client.ok_or(ApiClientError::new(
+        ApiEndpoint::HealthCheck,
+        AggregateClientError::NoResponsiveNodesFound {
+            latency: timeout.as_millis() as u64,
+        },
+    ))?;
+
+    Ok(client)
 }
 
 /* MiddlewareBuilder implementation for AggregateClient */
@@ -243,12 +272,12 @@ where
 /// AggregateClientError is used to wrap the errors from the aggregate client.
 #[derive(Debug, Error)]
 pub enum AggregateClientBuilderError {
+    #[error(transparent)]
+    ApiError(#[from] Box<ApiClientError<AggregateClientError>>),
     #[error("timeout must be greater than 0")]
     InvalidTimeout,
     #[error("gateway client is required")]
     MissingGatewayClient,
-    #[error(transparent)]
-    Api(#[from] Box<ApiClientError<AggregateClientError>>),
 }
 
 impl MiddlewareBuilder<GrpcClient> for AggregateClientBuilder<GrpcClient> {
