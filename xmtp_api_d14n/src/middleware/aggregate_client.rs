@@ -1,8 +1,9 @@
 use crate::d14n::{GetNodes, HealthCheck};
 use crate::traits::MiddlewareBuilder;
-use futures::future::join_all;
+use futures::{StreamExt, future::join_all};
 use prost::bytes::Bytes;
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use thiserror::Error;
 use xmtp_api_grpc::GrpcClient;
 use xmtp_common::{
@@ -18,23 +19,23 @@ use xmtp_proto::{
 /// AggregateClientError is used to wrap the errors from the aggregate client.
 #[derive(Debug, Error)]
 pub enum AggregateClientError {
-    #[error("timeout must be greater than 0")]
-    InvalidTimeout,
-    #[error("no nodes found")]
-    NoNodesFound,
     #[error("all node clients failed to build")]
     AllNodeClientsFailedToBuild,
+    #[error("no nodes found")]
+    NoNodesFound,
     #[error("no responsive nodes found")]
     NoResponsiveNodesFound,
+    #[error("unresponsive node")]
+    UnresponsiveNode,
 }
 
-/// From<AggregateClientError> for ApiClientError<C> is used to convert the AggregateClientError to an ApiClientError.
-impl<C> From<AggregateClientError> for ApiClientError<C>
+/// From<AggregateClientError> for ApiClientError<E> is used to convert the AggregateClientError to an ApiClientError.
+impl<E> From<AggregateClientError> for ApiClientError<E>
 where
-    C: std::error::Error + Send + Sync + 'static,
+    E: std::error::Error + Send + Sync + 'static,
 {
-    fn from(value: AggregateClientError) -> ApiClientError<C> {
-        ApiClientError::<C>::Other(Box::new(value))
+    fn from(value: AggregateClientError) -> ApiClientError<E> {
+        ApiClientError::<E>::Other(Box::new(value))
     }
 }
 
@@ -44,10 +45,10 @@ impl RetryableError for AggregateClientError {
     fn is_retryable(&self) -> bool {
         use AggregateClientError::*;
         match self {
-            InvalidTimeout => false,
-            NoNodesFound => false,
             AllNodeClientsFailedToBuild => false,
+            NoNodesFound => false,
             NoResponsiveNodesFound => false,
+            UnresponsiveNode => false,
         }
     }
 }
@@ -89,7 +90,6 @@ where
         body: Bytes,
     ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
         self.inner.request(request, path, body).await
-        // TODO: Refresh if performance is bad
     }
 
     async fn stream(
@@ -115,31 +115,43 @@ async fn get_nodes(
             ApiClientError::new(ApiEndpoint::GetNodes, AggregateClientError::NoNodesFound)
         })?;
 
-    let futures = response.nodes.into_iter().map(|(node_id, url)| async move {
-        let mut client_builder = GrpcClient::builder();
-        let is_tls = url.parse::<url::Url>()?.scheme() == "https";
+    tracing::debug!("got nodes from gateway: {:?}", response.nodes);
 
-        client_builder.set_tls(is_tls);
-        client_builder.set_host(url);
-
-        let client = client_builder.build().await?;
-
-        Ok::<_, Box<dyn std::error::Error + Send + Sync>>((node_id, client))
-    });
-
-    let results = join_all(futures).await;
+    let max_concurrency = response.nodes.len();
 
     let mut clients = HashMap::new();
-    for result in results {
-        match result {
+
+    let mut stream =
+        futures::stream::iter(response.nodes.into_iter().map(|(node_id, url)| async move {
+            let mut client_builder = GrpcClient::builder();
+            let is_tls = url.parse::<url::Url>()?.scheme() == "https";
+            client_builder.set_tls(is_tls);
+            client_builder.set_host(url);
+            let client = client_builder.build().await?;
+
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>((node_id, client))
+        }))
+        .buffer_unordered(max_concurrency);
+
+    while let Some(res) = stream.next().await {
+        match res {
             Ok((node_id, client)) => {
+                tracing::info!("built client for node {}", node_id);
                 clients.insert(node_id, client);
             }
             Err(err) => {
-                tracing::warn!("failed to build client: {}", err);
+                tracing::error!("failed to build client: {}", err);
             }
         }
     }
+
+    tracing::debug!(
+        "built clients for nodes: {:?}",
+        clients
+            .iter()
+            .map(|(node_id, _)| *node_id)
+            .collect::<Vec<_>>()
+    );
 
     if clients.is_empty() {
         return Err(ApiClientError::new(
@@ -162,12 +174,24 @@ async fn get_fastest_node(
         let endpoint = endpoint.clone();
         async move {
             let start = Instant::now();
-            let result = xmtp_common::time::timeout(timeout, endpoint.query(&client)).await;
 
-            match result {
-                Ok(Ok(_)) => Some((node_id, client, start.elapsed().as_millis() as u64)),
-                _ => None,
-            }
+            xmtp_common::time::timeout(timeout, endpoint.query(&client))
+                .await
+                .map_err(|_| {
+                    ApiClientError::new(
+                        ApiEndpoint::HealthCheck,
+                        AggregateClientError::UnresponsiveNode,
+                    )
+                })
+                .and_then(|r| {
+                    r.map_err(|_| {
+                        ApiClientError::new(
+                            ApiEndpoint::HealthCheck,
+                            AggregateClientError::UnresponsiveNode,
+                        )
+                    })
+                })
+                .map(|_| (node_id, client, start.elapsed().as_millis() as u64))
         }
     });
 
@@ -175,6 +199,11 @@ async fn get_fastest_node(
 
     let fastest_node = results
         .into_iter()
+        .inspect(|res| {
+            if let Err(e) = res {
+                tracing::warn!("healthcheck failed: {}", e);
+            }
+        })
         .flatten()
         .min_by_key(|(_, _, latency)| *latency)
         .ok_or(ApiClientError::new(
@@ -191,14 +220,7 @@ where
     C: Client + Sync + Send,
 {
     gateway_client: Option<C>,
-    timeout: Option<Duration>,
-}
-
-/// From<AggregateClientError> for ApiClientError<C> is used to convert the AggregateClientError to an ApiClientError.
-impl From<AggregateClientError> for AggregateClientBuilderError {
-    fn from(value: AggregateClientError) -> AggregateClientBuilderError {
-        AggregateClientBuilderError::Other(Box::new(value))
-    }
+    timeout: Option<NonZeroUsize>,
 }
 
 /// AggregateClientError is used to wrap the errors from the aggregate client.
@@ -209,7 +231,7 @@ pub enum AggregateClientBuilderError {
     #[error("gateway client is required")]
     MissingGatewayClient,
     #[error(transparent)]
-    Other(Box<dyn std::error::Error + Send + Sync>),
+    Api(#[from] ApiClientError<AggregateClientError>),
 }
 
 impl MiddlewareBuilder<GrpcClient> for AggregateClientBuilder<GrpcClient> {
@@ -221,11 +243,8 @@ impl MiddlewareBuilder<GrpcClient> for AggregateClientBuilder<GrpcClient> {
         Ok(())
     }
 
-    fn set_timeout(&mut self, timeout: Duration) -> Result<(), Self::Error> {
-        match timeout {
-            Duration::ZERO => return Err(AggregateClientBuilderError::InvalidTimeout),
-            _ => self.timeout = Some(timeout),
-        }
+    fn set_timeout(&mut self, timeout: NonZeroUsize) -> Result<(), Self::Error> {
+        self.timeout = Some(timeout);
         Ok(())
     }
 
@@ -235,14 +254,16 @@ impl MiddlewareBuilder<GrpcClient> for AggregateClientBuilder<GrpcClient> {
             .ok_or(AggregateClientBuilderError::MissingGatewayClient)?;
         let nodes = get_nodes(&gateway_client)
             .await
-            .map_err(|e| AggregateClientBuilderError::Other(e.into()))?;
+            .map_err(AggregateClientBuilderError::from)?;
 
-        let timeout = self
-            .timeout
-            .ok_or(AggregateClientBuilderError::InvalidTimeout)?;
+        let timeout = Duration::from_millis(
+            self.timeout
+                .ok_or(AggregateClientBuilderError::InvalidTimeout)?
+                .get() as u64,
+        );
         let inner = get_fastest_node(nodes, timeout)
             .await
-            .map_err(|e| AggregateClientBuilderError::Other(e.into()))?;
+            .map_err(AggregateClientBuilderError::from)?;
 
         Ok(AggregateClient {
             gateway_client,
