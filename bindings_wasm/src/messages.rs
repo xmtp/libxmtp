@@ -83,6 +83,8 @@ impl From<SortDirection> for XmtpSortDirection {
 pub struct ListMessagesOptions {
   #[wasm_bindgen(js_name = contentTypes)]
   pub content_types: Option<Vec<ContentType>>,
+  #[wasm_bindgen(js_name = excludeContentTypes)]
+  pub exclude_content_types: Option<Vec<ContentType>>,
   #[wasm_bindgen(js_name = sentBeforeNs)]
   pub sent_before_ns: Option<i64>,
   #[wasm_bindgen(js_name = sentAfterNs)]
@@ -103,6 +105,9 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
       limit: opts.limit,
       direction: opts.direction.map(Into::into),
       kind: opts.kind.map(Into::into),
+      exclude_content_types: opts
+        .exclude_content_types
+        .map(|t| t.into_iter().map(Into::into).collect()),
       content_types: opts
         .content_types
         .map(|t| t.into_iter().map(Into::into).collect()),

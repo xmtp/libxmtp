@@ -2004,6 +2004,26 @@ pub struct FfiListMessagesOptions {
     pub delivery_status: Option<FfiDeliveryStatus>,
     pub direction: Option<FfiDirection>,
     pub content_types: Option<Vec<FfiContentType>>,
+    pub exclude_content_types: Option<Vec<FfiContentType>>,
+}
+
+impl From<FfiListMessagesOptions> for MsgQueryArgs {
+    fn from(opts: FfiListMessagesOptions) -> Self {
+        MsgQueryArgs {
+            kind: None,
+            sent_before_ns: opts.sent_before_ns,
+            sent_after_ns: opts.sent_after_ns,
+            limit: opts.limit,
+            delivery_status: opts.delivery_status.map(Into::into),
+            direction: opts.direction.map(Into::into),
+            content_types: opts
+                .content_types
+                .map(|types| types.into_iter().map(Into::into).collect()),
+            exclude_content_types: opts
+                .exclude_content_types
+                .map(|types| types.into_iter().map(Into::into).collect()),
+        }
+    }
 }
 
 #[derive(uniffi::Enum, Clone)]
@@ -2118,28 +2138,9 @@ impl FfiConversation {
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessage>, GenericError> {
-        let delivery_status = opts.delivery_status.map(|status| status.into());
-        let direction = opts.direction.map(|dir| dir.into());
-        let kind = match self.conversation_type() {
-            FfiConversationType::Group => None,
-            FfiConversationType::Dm => None,
-            FfiConversationType::Sync => None,
-            FfiConversationType::Oneshot => None,
-        };
-
         let messages: Vec<FfiMessage> = self
             .inner
-            .find_messages(&MsgQueryArgs {
-                sent_before_ns: opts.sent_before_ns,
-                sent_after_ns: opts.sent_after_ns,
-                limit: opts.limit,
-                kind,
-                delivery_status,
-                direction,
-                content_types: opts
-                    .content_types
-                    .map(|types| types.into_iter().map(Into::into).collect()),
-            })?
+            .find_messages(&opts.into())?
             .into_iter()
             .map(|msg| msg.into())
             .collect();
@@ -2147,32 +2148,19 @@ impl FfiConversation {
         Ok(messages)
     }
 
+    pub fn count_messages(&self, opts: FfiListMessagesOptions) -> Result<i64, GenericError> {
+        let count = self.inner.count_messages(&opts.into())?;
+
+        Ok(count)
+    }
+
     pub fn find_messages_with_reactions(
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessageWithReactions>, GenericError> {
-        let delivery_status = opts.delivery_status.map(|status| status.into());
-        let direction = opts.direction.map(|dir| dir.into());
-        let kind = match self.conversation_type() {
-            FfiConversationType::Group => None,
-            FfiConversationType::Dm => None,
-            FfiConversationType::Sync => None,
-            FfiConversationType::Oneshot => None,
-        };
-
         let messages: Vec<FfiMessageWithReactions> = self
             .inner
-            .find_messages_with_reactions(&MsgQueryArgs {
-                sent_before_ns: opts.sent_before_ns,
-                sent_after_ns: opts.sent_after_ns,
-                kind,
-                delivery_status,
-                limit: opts.limit,
-                direction,
-                content_types: opts
-                    .content_types
-                    .map(|types| types.into_iter().map(Into::into).collect()),
-            })?
+            .find_messages_with_reactions(&opts.into())?
             .into_iter()
             .map(|msg| msg.into())
             .collect();
@@ -2183,28 +2171,9 @@ impl FfiConversation {
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<Arc<FfiDecodedMessage>>, GenericError> {
-        let delivery_status = opts.delivery_status.map(|status| status.into());
-        let direction = opts.direction.map(|dir| dir.into());
-        let kind = match self.conversation_type() {
-            FfiConversationType::Group => None,
-            FfiConversationType::Dm => None,
-            FfiConversationType::Sync => None,
-            FfiConversationType::Oneshot => None,
-        };
-
         let messages: Vec<Arc<FfiDecodedMessage>> = self
             .inner
-            .find_messages_v2(&MsgQueryArgs {
-                sent_before_ns: opts.sent_before_ns,
-                sent_after_ns: opts.sent_after_ns,
-                kind,
-                delivery_status,
-                limit: opts.limit,
-                direction,
-                content_types: opts
-                    .content_types
-                    .map(|types| types.into_iter().map(Into::into).collect()),
-            })?
+            .find_messages_v2(&opts.into())?
             .into_iter()
             .map(|msg| Arc::new(msg.into()))
             .collect();
