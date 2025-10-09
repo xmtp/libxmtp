@@ -162,9 +162,9 @@ async fn test_detect_scw_vs_eoa_creation(#[future] docker_smart_wallet: SmartWal
         "SCW client should return Erc1271 signature kind"
     );
 
-    // Cross-check: EOA client checking SCW inbox
+    // Cross-check: EOA client checking SCW inbox, set refresh_from_network to true since we don't have the identity update for the other client
     let cross_check = eoa_client
-        .inbox_creation_signature_kind(scw_inbox_id.as_str(), false)
+        .inbox_creation_signature_kind(scw_inbox_id.as_str(), true)
         .await
         .unwrap();
     assert_eq!(
