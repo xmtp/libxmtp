@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 #![warn(clippy::unwrap_used)]
 pub mod crypto;
+pub mod fork_recovery;
 pub mod identity;
 pub mod inbox_owner;
 pub mod logger;
