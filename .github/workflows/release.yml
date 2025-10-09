@@ -5,7 +5,7 @@ on:
       - release
 
 env:
-  RELEASE_VERSION: "4.5.3"
+  RELEASE_VERSION: "4.5.4"
 
 jobs:
   library:
@@ -19,8 +19,8 @@ jobs:
       - name: Configure JDK
         uses: actions/setup-java@v4
         with:
-          distribution: 'adopt'
-          java-version: '17'
+          distribution: "adopt"
+          java-version: "17"
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
       - name: Run build with Gradle Wrapper
