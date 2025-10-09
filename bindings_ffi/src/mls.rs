@@ -560,7 +560,7 @@ impl FfiXmtpClient {
         // Get the creation signature kind
         let creation_signature_kind = self
             .inner_client
-            .inbox_creation_signature_kind(inbox_id)
+            .inbox_creation_signature_kind(inbox_id, refresh_from_network)
             .await?
             .map(Into::into);
 
@@ -587,7 +587,7 @@ impl FfiXmtpClient {
     ) -> Result<Option<FfiSignatureKind>, GenericError> {
         let result = self
             .inner_client
-            .inbox_creation_signature_kind(inbox_id.as_str())
+            .inbox_creation_signature_kind(inbox_id.as_str(), true)
             .await?;
         Ok(result.map(Into::into))
     }

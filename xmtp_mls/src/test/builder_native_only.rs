@@ -142,7 +142,7 @@ async fn test_detect_scw_vs_eoa_creation(#[future] docker_smart_wallet: SmartWal
 
     // Test the new API - check EOA client signature kind
     let eoa_kind = eoa_client
-        .inbox_creation_signature_kind(eoa_inbox_id.as_str())
+        .inbox_creation_signature_kind(eoa_inbox_id.as_str(), false)
         .await
         .unwrap();
     assert_eq!(
@@ -153,7 +153,7 @@ async fn test_detect_scw_vs_eoa_creation(#[future] docker_smart_wallet: SmartWal
 
     // Test the new API - check SCW client signature kind
     let scw_kind = scw_client
-        .inbox_creation_signature_kind(scw_inbox_id.as_str())
+        .inbox_creation_signature_kind(scw_inbox_id.as_str(), false)
         .await
         .unwrap();
     assert_eq!(
@@ -164,7 +164,7 @@ async fn test_detect_scw_vs_eoa_creation(#[future] docker_smart_wallet: SmartWal
 
     // Cross-check: EOA client checking SCW inbox
     let cross_check = eoa_client
-        .inbox_creation_signature_kind(scw_inbox_id.as_str())
+        .inbox_creation_signature_kind(scw_inbox_id.as_str(), false)
         .await
         .unwrap();
     assert_eq!(
