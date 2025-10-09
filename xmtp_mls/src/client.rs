@@ -382,6 +382,54 @@ where
         Ok(state)
     }
 
+    /// Get the signature kind used to create an inbox.
+    ///
+    /// # Arguments
+    /// * `inbox_id` - The inbox ID to check
+    /// * `refresh_from_network` - Whether to fetch updates from the network first
+    ///
+    /// # Returns
+    /// * `Some(SignatureKind)` - The signature kind used to create the inbox
+    /// * `None` - Inbox doesn't exist or creation info is unavailable
+    pub async fn inbox_creation_signature_kind(
+        &self,
+        inbox_id: InboxIdRef<'_>,
+        refresh_from_network: bool,
+    ) -> Result<Option<xmtp_id::associations::SignatureKind>, ClientError> {
+        let conn = self.context.db();
+
+        // Load the first identity update (creation update) for this inbox if requested
+        if refresh_from_network {
+            load_identity_updates(self.context.api(), &conn, &[inbox_id]).await?;
+        }
+
+        // Get all updates and find the first one (creation update)
+        let updates = conn.get_identity_updates(inbox_id, None, None)?;
+
+        if updates.is_empty() {
+            // No identity updates found - inbox likely doesn't exist
+            return Err(ClientError::Identity(
+                IdentityError::RequiredIdentityNotFound,
+            ));
+        }
+
+        let first_update = updates.first().expect("updates is not empty");
+
+        // Convert to UnverifiedIdentityUpdate to access the creation signature kind
+        let unverified_update =
+            xmtp_id::associations::unverified::UnverifiedIdentityUpdate::try_from(
+                first_update.clone(),
+            )?;
+
+        // Verify the update to get the IdentityUpdate with verified signatures
+        let verified_update = unverified_update
+            .to_verified(&self.context.scw_verifier())
+            .await?;
+
+        // Return the creation signature kind
+        Ok(verified_update.creation_signature_kind())
+    }
+
     /// Set a consent record in the local database.
     /// If the consent record is an address set the consent state for both the address and `inbox_id`
     pub async fn set_consent_states(
