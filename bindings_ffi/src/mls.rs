@@ -555,7 +555,43 @@ impl FfiXmtpClient {
         refresh_from_network: bool,
     ) -> Result<FfiInboxState, GenericError> {
         let state = self.inner_client.inbox_state(refresh_from_network).await?;
-        Ok(state.into())
+        let inbox_id = state.inbox_id();
+
+        // Get the creation signature kind
+        let creation_signature_kind = self
+            .inner_client
+            .inbox_creation_signature_kind(inbox_id)
+            .await?
+            .map(Into::into);
+
+        let mut ffi_state: FfiInboxState = state.into();
+        ffi_state.creation_signature_kind = creation_signature_kind;
+        Ok(ffi_state)
+    }
+
+    /// Check if an inbox was created using a Smart Contract Wallet (SCW) signature.
+    ///
+    /// This is useful for determining the correct signature method to use when adding
+    /// subsequent signatures. Returns `true` if the inbox was created with an ERC-1271 (SCW)
+    /// signature, `false` if created with ERC-191 (EOA), and `None` if the inbox doesn't exist
+    /// or the creation signature kind cannot be determined.
+    ///
+    /// # Arguments
+    /// * `inbox_id` - The inbox ID to check
+    ///
+    /// # Returns
+    /// * `Some(true)` - Inbox was created with SCW (ERC-1271) signature
+    /// * `Some(false)` - Inbox was created with EOA (ERC-191) signature
+    /// * `None` - Inbox doesn't exist or creation info unavailable
+    pub async fn is_inbox_created_with_scw(
+        &self,
+        inbox_id: String,
+    ) -> Result<Option<FfiSignatureKind>, GenericError> {
+        let result = self
+            .inner_client
+            .inbox_creation_signature_kind(inbox_id.as_str())
+            .await?;
+        Ok(result.map(Into::into))
     }
 
     // Returns a HashMap of installation_id to FfiKeyPackageStatus
@@ -994,12 +1030,45 @@ impl From<HmacKey> for FfiHmacKey {
     }
 }
 
+/// Signature kind used in identity operations
+#[derive(uniffi::Enum, Clone, Debug)]
+pub enum FfiSignatureKind {
+    /// ERC-191 signature (Externally Owned Account/EOA)
+    Erc191,
+    /// ERC-1271 signature (Smart Contract Wallet/SCW)
+    Erc1271,
+    /// Installation key signature
+    InstallationKey,
+    /// Legacy delegated signature
+    LegacyDelegated,
+    /// P256 passkey signature
+    P256,
+}
+
+impl From<xmtp_id::associations::SignatureKind> for FfiSignatureKind {
+    fn from(kind: xmtp_id::associations::SignatureKind) -> Self {
+        match kind {
+            xmtp_id::associations::SignatureKind::Erc191 => FfiSignatureKind::Erc191,
+            xmtp_id::associations::SignatureKind::Erc1271 => FfiSignatureKind::Erc1271,
+            xmtp_id::associations::SignatureKind::InstallationKey => {
+                FfiSignatureKind::InstallationKey
+            }
+            xmtp_id::associations::SignatureKind::LegacyDelegated => {
+                FfiSignatureKind::LegacyDelegated
+            }
+            xmtp_id::associations::SignatureKind::P256 => FfiSignatureKind::P256,
+        }
+    }
+}
+
 #[derive(uniffi::Record)]
 pub struct FfiInboxState {
     pub inbox_id: String,
     pub recovery_identity: FfiIdentifier,
     pub installations: Vec<FfiInstallation>,
     pub account_identities: Vec<FfiIdentifier>,
+    /// The signature kind used to create this inbox (if available)
+    pub creation_signature_kind: Option<FfiSignatureKind>,
 }
 
 #[derive(uniffi::Record)]
@@ -1064,6 +1133,7 @@ impl From<AssociationState> for FfiInboxState {
                 })
                 .collect(),
             account_identities: state.identifiers().into_iter().map(Into::into).collect(),
+            creation_signature_kind: None, // Will be populated by inbox_state method
         }
     }
 }
