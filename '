@@ -1,0 +1,33 @@
+use diesel::sql_types::Blob;
+
+use crate::XmtpTestDb;
+use diesel::migration::MigrationSource;
+use xmtp_common::{rand_vec, tmp_path};
+
+use super::*;
+
+mod originator_id_refresh_state;
+mod update_dm_trigger;
+
+fn migrate_until(db: impl ConnectionExt, name: &str) {
+    let migrations = MigrationSource::<Sqlite>::migrations(&MIGRATIONS).unwrap();
+    let index = migrations
+        .iter()
+        .inspect(|m| tracing::info!("{}", m.name()))
+        .position(|m| m.name().to_string() == name)
+        .unwrap();
+    db.raw_query_write(|conn| {
+        for _ in 0..(index - 1) {
+            conn.run_next_migration(MIGRATIONS).unwrap();
+        }
+        Ok(())
+    });
+}
+
+fn finish_migrations(db: impl ConnectionExt) {
+    db.raw_query_write(|conn| {
+        conn.run_pending_migrations(MIGRATIONS).unwrap();
+        Ok(())
+    })
+    .unwrap();
+}
