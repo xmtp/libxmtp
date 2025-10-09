@@ -6676,14 +6676,16 @@ public struct FfiInboxState {
     public var recoveryIdentity: FfiIdentifier
     public var installations: [FfiInstallation]
     public var accountIdentities: [FfiIdentifier]
+    public var creationSignatureKind: FfiSignatureKind?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(inboxId: String, recoveryIdentity: FfiIdentifier, installations: [FfiInstallation], accountIdentities: [FfiIdentifier]) {
+    public init(inboxId: String, recoveryIdentity: FfiIdentifier, installations: [FfiInstallation], accountIdentities: [FfiIdentifier], creationSignatureKind: FfiSignatureKind?) {
         self.inboxId = inboxId
         self.recoveryIdentity = recoveryIdentity
         self.installations = installations
         self.accountIdentities = accountIdentities
+        self.creationSignatureKind = creationSignatureKind
     }
 }
 
@@ -6706,6 +6708,9 @@ extension FfiInboxState: Equatable, Hashable {
         if lhs.accountIdentities != rhs.accountIdentities {
             return false
         }
+        if lhs.creationSignatureKind != rhs.creationSignatureKind {
+            return false
+        }
         return true
     }
 
@@ -6714,6 +6719,7 @@ extension FfiInboxState: Equatable, Hashable {
         hasher.combine(recoveryIdentity)
         hasher.combine(installations)
         hasher.combine(accountIdentities)
+        hasher.combine(creationSignatureKind)
     }
 }
 
@@ -6729,7 +6735,8 @@ public struct FfiConverterTypeFfiInboxState: FfiConverterRustBuffer {
                 inboxId: FfiConverterString.read(from: &buf), 
                 recoveryIdentity: FfiConverterTypeFfiIdentifier.read(from: &buf), 
                 installations: FfiConverterSequenceTypeFfiInstallation.read(from: &buf), 
-                accountIdentities: FfiConverterSequenceTypeFfiIdentifier.read(from: &buf)
+                accountIdentities: FfiConverterSequenceTypeFfiIdentifier.read(from: &buf), 
+                creationSignatureKind: FfiConverterOptionTypeFfiSignatureKind.read(from: &buf)
         )
     }
 
@@ -6738,6 +6745,7 @@ public struct FfiConverterTypeFfiInboxState: FfiConverterRustBuffer {
         FfiConverterTypeFfiIdentifier.write(value.recoveryIdentity, into: &buf)
         FfiConverterSequenceTypeFfiInstallation.write(value.installations, into: &buf)
         FfiConverterSequenceTypeFfiIdentifier.write(value.accountIdentities, into: &buf)
+        FfiConverterOptionTypeFfiSignatureKind.write(value.creationSignatureKind, into: &buf)
     }
 }
 
@@ -10969,6 +10977,115 @@ extension FfiReactionSchema: Equatable, Hashable {}
 
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Signature kind used in identity operations
+ */
+
+public enum FfiSignatureKind {
+    
+    /**
+     * ERC-191 signature (Externally Owned Account/EOA)
+     */
+    case erc191
+    /**
+     * ERC-1271 signature (Smart Contract Wallet/SCW)
+     */
+    case erc1271
+    /**
+     * Installation key signature
+     */
+    case installationKey
+    /**
+     * Legacy delegated signature
+     */
+    case legacyDelegated
+    /**
+     * P256 passkey signature
+     */
+    case p256
+}
+
+
+#if compiler(>=6)
+extension FfiSignatureKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSignatureKind: FfiConverterRustBuffer {
+    typealias SwiftType = FfiSignatureKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSignatureKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .erc191
+        
+        case 2: return .erc1271
+        
+        case 3: return .installationKey
+        
+        case 4: return .legacyDelegated
+        
+        case 5: return .p256
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiSignatureKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .erc191:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .erc1271:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .installationKey:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .legacyDelegated:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .p256:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSignatureKind_lift(_ buf: RustBuffer) throws -> FfiSignatureKind {
+    return try FfiConverterTypeFfiSignatureKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSignatureKind_lower(_ value: FfiSignatureKind) -> RustBuffer {
+    return FfiConverterTypeFfiSignatureKind.lower(value)
+}
+
+
+extension FfiSignatureKind: Equatable, Hashable {}
+
+
+
+
+
+
 
 public enum FfiSubscribeError: Swift.Error {
 
@@ -12240,6 +12357,30 @@ fileprivate struct FfiConverterOptionTypeFfiMetadataField: FfiConverterRustBuffe
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeFfiMetadataField.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeFfiSignatureKind: FfiConverterRustBuffer {
+    typealias SwiftType = FfiSignatureKind?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFfiSignatureKind.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFfiSignatureKind.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
