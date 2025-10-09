@@ -406,23 +406,28 @@ where
         // Get all updates and find the first one (creation update)
         let updates = conn.get_identity_updates(inbox_id, None, None)?;
 
-        if let Some(first_update) = updates.first() {
-            // Convert to UnverifiedIdentityUpdate to access the creation signature kind
-            let unverified_update =
-                xmtp_id::associations::unverified::UnverifiedIdentityUpdate::try_from(
-                    first_update.clone(),
-                )?;
-
-            // Verify the update to get the IdentityUpdate with verified signatures
-            let verified_update = unverified_update
-                .to_verified(&self.context.scw_verifier())
-                .await?;
-
-            // Return the creation signature kind
-            Ok(verified_update.creation_signature_kind())
-        } else {
-            Ok(None)
+        if updates.is_empty() {
+            // No identity updates found - inbox likely doesn't exist
+            return Err(ClientError::Identity(
+                IdentityError::RequiredIdentityNotFound,
+            ));
         }
+
+        let first_update = updates.first().expect("updates is not empty");
+
+        // Convert to UnverifiedIdentityUpdate to access the creation signature kind
+        let unverified_update =
+            xmtp_id::associations::unverified::UnverifiedIdentityUpdate::try_from(
+                first_update.clone(),
+            )?;
+
+        // Verify the update to get the IdentityUpdate with verified signatures
+        let verified_update = unverified_update
+            .to_verified(&self.context.scw_verifier())
+            .await?;
+
+        // Return the creation signature kind
+        Ok(verified_update.creation_signature_kind())
     }
 
     /// Set a consent record in the local database.

@@ -162,7 +162,20 @@ async fn test_detect_scw_vs_eoa_creation(#[future] docker_smart_wallet: SmartWal
         "SCW client should return Erc1271 signature kind"
     );
 
-    // Cross-check: EOA client checking SCW inbox, set refresh_from_network to true since we don't have the identity update for the other client
+    // Cross-check: EOA client checking SCW inbox
+    // Since we're using false for refresh_from_network and the EOA client doesn't have
+    // the SCW inbox's identity updates in its local DB, we should get an error
+    let cross_check_result = eoa_client
+        .inbox_creation_signature_kind(scw_inbox_id.as_str(), false)
+        .await;
+
+    // Should fail because EOA client doesn't have SCW inbox's identity updates locally
+    assert!(
+        cross_check_result.is_err(),
+        "Should error when identity updates not found locally"
+    );
+
+    // Now try with refresh_from_network=true, which should succeed
     let cross_check = eoa_client
         .inbox_creation_signature_kind(scw_inbox_id.as_str(), true)
         .await
@@ -170,6 +183,6 @@ async fn test_detect_scw_vs_eoa_creation(#[future] docker_smart_wallet: SmartWal
     assert_eq!(
         cross_check,
         Some(xmtp_id::associations::SignatureKind::Erc1271),
-        "EOA client should correctly identify SCW inbox"
+        "EOA client should correctly identify SCW inbox when fetching from network"
     );
 }
