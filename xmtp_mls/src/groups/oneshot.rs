@@ -4,6 +4,7 @@ use xmtp_common::snippet::Snippet;
 use xmtp_db::{
     MlsProviderExt, XmtpMlsStorageProvider, group::ConversationType, prelude::QueryReaddStatus,
 };
+use xmtp_id::AsIdRef;
 use xmtp_mls_common::{group::GroupMetadataOptions, group_metadata::GroupMetadata};
 use xmtp_proto::xmtp::mls::message_contents::{OneshotMessage, oneshot_message};
 
@@ -23,9 +24,9 @@ impl Oneshot {
     ///
     /// # Returns
     /// An error if sending failed, otherwise nothing
-    pub async fn send_message<C: XmtpSharedContext>(
+    pub async fn send_message<C: XmtpSharedContext, S: AsIdRef>(
         context: C,
-        inbox_ids: Vec<&str>,
+        inbox_ids: impl AsRef<[S]>,
         oneshot_message: OneshotMessage,
     ) -> Result<(), GroupError> {
         // Create a oneshot group with the oneshot message
@@ -38,8 +39,10 @@ impl Oneshot {
         )?;
 
         // Add the specified inbox IDs to the group
-        if !inbox_ids.is_empty() {
+        if !inbox_ids.as_ref().is_empty() {
             group.add_members_by_inbox_id(&inbox_ids).await?;
+        } else {
+            group.add_missing_installations().await?;
         }
 
         // Optional: delete group from DB here
