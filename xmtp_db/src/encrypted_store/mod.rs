@@ -25,17 +25,20 @@ pub mod identity_cache;
 pub mod identity_update;
 pub mod key_package_history;
 pub mod key_store_entry;
+pub mod local_commit_log;
 pub mod pragmas;
 pub mod processed_device_sync_messages;
+pub mod readd_status;
 pub mod refresh_state;
+pub mod remote_commit_log;
 pub mod schema;
 mod schema_gen;
 pub mod store;
 pub mod user_preferences;
 
-pub mod local_commit_log;
-pub mod readd_status;
-pub mod remote_commit_log;
+xmtp_common::if_test! {
+    mod migration_test;
+}
 
 pub use self::db_connection::DbConnection;
 use diesel::result::DatabaseErrorKind;
@@ -389,7 +392,6 @@ pub trait MlsProviderExt: OpenMlsProvider<StorageError = SqlKeyStoreError> {
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-    use diesel::sql_types::Blob;
 
     use super::*;
     use crate::{Fetch, Store, XmtpTestDb, identity::StoredIdentity};
@@ -425,55 +427,6 @@ pub(crate) mod tests {
             assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
         EncryptedMessageStore::<()>::remove_db_files(db_path)
-    }
-
-    #[xmtp_common::test]
-    async fn test_migration_25() {
-        let db_path = tmp_path();
-        let opts = StorageOption::Persistent(db_path.clone());
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let db =
-            native::NativeDb::new(&opts, EncryptedMessageStore::<()>::generate_enc_key()).unwrap();
-        #[cfg(target_arch = "wasm32")]
-        let db = wasm::WasmDb::new(&opts).await.unwrap();
-
-        let store = EncryptedMessageStore { db };
-        store
-            .conn()
-            .raw_query_read(|c| {
-                store.db.validate(c).unwrap();
-                Ok(())
-            })
-            .unwrap();
-
-        store
-            .conn()
-            .raw_query_write(|conn| {
-                for _ in 0..25 {
-                    conn.run_next_migration(MIGRATIONS).unwrap();
-                }
-
-                sql_query(
-                    r#"
-                INSERT INTO user_preferences (
-                    hmac_key
-                ) VALUES ($1)"#,
-                )
-                .bind::<Blob, _>(vec![1, 2, 3, 4, 5])
-                .execute(conn)?;
-
-                Ok(())
-            })
-            .unwrap();
-
-        store
-            .conn()
-            .raw_query_write(|conn| {
-                conn.run_pending_migrations(MIGRATIONS).unwrap();
-                Ok(())
-            })
-            .unwrap();
     }
 
     #[xmtp_common::test]

@@ -186,6 +186,8 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+
     refresh_state (entity_id, entity_kind, originator_id) {
         entity_id -> Binary,
         entity_kind -> Integer,

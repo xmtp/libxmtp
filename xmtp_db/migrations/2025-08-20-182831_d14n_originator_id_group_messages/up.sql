@@ -1,11 +1,15 @@
 DROP VIEW IF EXISTS conversation_list;
 -- DROP TRIGGER IF EXISTS msg_inserted;
 
-UPDATE group_messages SET originator_id = 10 WHERE originator_id IS NULL;
+UPDATE group_messages SET originator_id = CASE
+  WHEN kind = 1 THEN 10 -- ApplicationMessage
+  WHEN kind = 2 THEN 0 -- Commit (MembershipChange)
+END;
+
 UPDATE group_messages SET sequence_id = 0 WHERE sequence_id IS NULL;
 
-ALTER TABLE group_messages ADD COLUMN sequence_id_new BIGINT NOT NULL;
-ALTER TABLE group_messages ADD COLUMN originator_id_new BIGINT NOT NULL;
+ALTER TABLE group_messages ADD COLUMN sequence_id_new BIGINT NOT NULL DEFAULT sequence_id;
+ALTER TABLE group_messages ADD COLUMN originator_id_new BIGINT NOT NULL DEFAULT originator_id;
 
 UPDATE group_messages SET sequence_id_new = sequence_id;
 UPDATE group_messages SET originator_id_new = originator_id;

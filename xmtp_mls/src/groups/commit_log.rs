@@ -9,9 +9,9 @@ use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
 use xmtp_api::ApiError;
 use xmtp_configuration::MAX_PAGE_SIZE;
+use xmtp_configuration::Originators;
 use xmtp_db::group::ConversationType;
 use xmtp_db::group::DmIdExt;
-use xmtp_configuration::Originators;
 use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
 use xmtp_db::{
