@@ -569,29 +569,6 @@ impl FfiXmtpClient {
         Ok(ffi_state)
     }
 
-    /// Check if an inbox was created using a Smart Contract Wallet (SCW) signature.
-    ///
-    /// Returns `true` if the inbox was created with an ERC-1271 (SCW)
-    /// signature, `false` if created with ERC-191 (EOA), and `None` if the inbox doesn't exist
-    /// or the creation signature kind cannot be determined.
-    ///
-    /// # Arguments
-    /// * `inbox_id` - The inbox ID to check
-    ///
-    /// # Returns
-    /// * `Some(FfiSignatureKind)` - The signature kind used to create the inbox
-    /// * `None` - Inbox doesn't exist or creation info is unavailable
-    pub async fn inbox_creation_signature_kind(
-        &self,
-        inbox_id: String,
-    ) -> Result<Option<FfiSignatureKind>, GenericError> {
-        let result = self
-            .inner_client
-            .inbox_creation_signature_kind(inbox_id.as_str(), true)
-            .await?;
-        Ok(result.map(Into::into))
-    }
-
     // Returns a HashMap of installation_id to FfiKeyPackageStatus
     pub async fn get_key_package_statuses_for_installation_ids(
         &self,
