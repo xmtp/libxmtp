@@ -92,6 +92,11 @@ impl Identity {
         EthereumWallet::from_bytes(self.eth_key).address()
     }
 
+    /// Returns the installation private key bytes for this identity
+    pub fn private_key(&self) -> &[u8; 32] {
+        &self.installation_key
+    }
+
     /// SQLite database path for this identity
     pub fn db_path(&self, network: impl Into<u64> + Copy) -> Result<std::path::PathBuf> {
         let dir = crate::app::App::db_directory(network)?;

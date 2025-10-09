@@ -74,6 +74,7 @@ impl Export {
 pub struct IdentityExport {
     inbox_id: String,
     ethereum_address: String,
+    private_key: String,
 }
 
 impl From<Identity> for IdentityExport {
@@ -81,6 +82,7 @@ impl From<Identity> for IdentityExport {
         IdentityExport {
             inbox_id: hex::encode(identity.inbox_id),
             ethereum_address: identity.address(),
+            private_key: hex::encode(identity.private_key()),
         }
     }
 }
