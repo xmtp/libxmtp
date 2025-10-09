@@ -370,6 +370,20 @@ impl IdentityUpdate {
             client_timestamp_ns,
         }
     }
+
+    /// Get the signature kind used to create this inbox if this update contains a CreateInbox action.
+    /// Returns None if there is no CreateInbox action in this update.
+    ///
+    /// This is useful for determining whether an identity was created with a Smart Contract Wallet (Erc1271)
+    /// or an Externally Owned Account/EOA (Erc191) signature
+    pub fn creation_signature_kind(&self) -> Option<SignatureKind> {
+        self.actions.iter().find_map(|action| match action {
+            Action::CreateInbox(create_inbox) => {
+                Some(create_inbox.initial_identifier_signature.kind.clone())
+            }
+            _ => None,
+        })
+    }
 }
 
 impl IdentityAction for IdentityUpdate {
