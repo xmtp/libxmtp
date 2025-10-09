@@ -2,8 +2,13 @@ package org.xmtp.android.library.libxmtp
 
 import org.xmtp.android.library.InboxId
 import uniffi.xmtpv3.FfiInboxState
+import uniffi.xmtpv3.FfiSignatureKind
 
-class InboxState(private val ffiInboxState: FfiInboxState) {
+typealias SignatureKind = FfiSignatureKind
+
+class InboxState(
+    private val ffiInboxState: FfiInboxState,
+) {
     val inboxId: InboxId
         get() = ffiInboxState.inboxId
     val identities: List<PublicIdentity>
@@ -14,4 +19,7 @@ class InboxState(private val ffiInboxState: FfiInboxState) {
 
     val recoveryPublicIdentity: PublicIdentity
         get() = PublicIdentity(ffiInboxState.recoveryIdentity)
+
+    val creationSignatureKind: SignatureKind?
+        get() = ffiInboxState.creationSignatureKind
 }

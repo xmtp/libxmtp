@@ -11170,6 +11170,7 @@ data class FfiInboxState(
     var `recoveryIdentity`: FfiIdentifier,
     var `installations`: List<FfiInstallation>,
     var `accountIdentities`: List<FfiIdentifier>,
+    var `creationSignatureKind`: FfiSignatureKind?,
 ) {
     companion object
 }
@@ -11184,6 +11185,7 @@ public object FfiConverterTypeFfiInboxState : FfiConverterRustBuffer<FfiInboxSta
             FfiConverterTypeFfiIdentifier.read(buf),
             FfiConverterSequenceTypeFfiInstallation.read(buf),
             FfiConverterSequenceTypeFfiIdentifier.read(buf),
+            FfiConverterOptionalTypeFfiSignatureKind.read(buf),
         )
 
     override fun allocationSize(value: FfiInboxState) =
@@ -11191,7 +11193,8 @@ public object FfiConverterTypeFfiInboxState : FfiConverterRustBuffer<FfiInboxSta
             FfiConverterString.allocationSize(value.`inboxId`) +
                 FfiConverterTypeFfiIdentifier.allocationSize(value.`recoveryIdentity`) +
                 FfiConverterSequenceTypeFfiInstallation.allocationSize(value.`installations`) +
-                FfiConverterSequenceTypeFfiIdentifier.allocationSize(value.`accountIdentities`)
+                FfiConverterSequenceTypeFfiIdentifier.allocationSize(value.`accountIdentities`) +
+                FfiConverterOptionalTypeFfiSignatureKind.allocationSize(value.`creationSignatureKind`)
         )
 
     override fun write(
@@ -11202,6 +11205,7 @@ public object FfiConverterTypeFfiInboxState : FfiConverterRustBuffer<FfiInboxSta
         FfiConverterTypeFfiIdentifier.write(value.`recoveryIdentity`, buf)
         FfiConverterSequenceTypeFfiInstallation.write(value.`installations`, buf)
         FfiConverterSequenceTypeFfiIdentifier.write(value.`accountIdentities`, buf)
+        FfiConverterOptionalTypeFfiSignatureKind.write(value.`creationSignatureKind`, buf)
     }
 }
 
@@ -13545,6 +13549,62 @@ public object FfiConverterTypeFfiReactionSchema : FfiConverterRustBuffer<FfiReac
     }
 }
 
+/**
+ * Signature kind used in identity operations
+ */
+
+enum class FfiSignatureKind {
+    /**
+     * ERC-191 signature (Externally Owned Account/EOA)
+     */
+    ERC191,
+
+    /**
+     * ERC-1271 signature (Smart Contract Wallet/SCW)
+     */
+    ERC1271,
+
+    /**
+     * Installation key signature
+     */
+    INSTALLATION_KEY,
+
+    /**
+     * Legacy delegated signature
+     */
+    LEGACY_DELEGATED,
+
+    /**
+     * P256 passkey signature
+     */
+    P256,
+
+    ;
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiSignatureKind : FfiConverterRustBuffer<FfiSignatureKind> {
+    override fun read(buf: ByteBuffer) =
+        try {
+            FfiSignatureKind.values()[buf.getInt() - 1]
+        } catch (e: IndexOutOfBoundsException) {
+            throw RuntimeException("invalid enum value, something is very wrong!!", e)
+        }
+
+    override fun allocationSize(value: FfiSignatureKind) = 4UL
+
+    override fun write(
+        value: FfiSignatureKind,
+        buf: ByteBuffer,
+    ) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
 sealed class FfiSubscribeException(
     message: String,
 ) : kotlin.Exception(message) {
@@ -14738,6 +14798,38 @@ public object FfiConverterOptionalTypeFfiMetadataField : FfiConverterRustBuffer<
         } else {
             buf.put(1)
             FfiConverterTypeFfiMetadataField.write(value, buf)
+        }
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeFfiSignatureKind : FfiConverterRustBuffer<FfiSignatureKind?> {
+    override fun read(buf: ByteBuffer): FfiSignatureKind? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeFfiSignatureKind.read(buf)
+    }
+
+    override fun allocationSize(value: FfiSignatureKind?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeFfiSignatureKind.allocationSize(value)
+        }
+    }
+
+    override fun write(
+        value: FfiSignatureKind?,
+        buf: ByteBuffer,
+    ) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeFfiSignatureKind.write(value, buf)
         }
     }
 }
