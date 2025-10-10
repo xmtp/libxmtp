@@ -23,7 +23,6 @@ pub struct MessagePosition {
     /// If we get a message before this cursor, we should
     /// check if we synced after that cursor, and should
     /// prefer retrieving from the database
-    /// TODO:d14n this is a global cursor (better Display impl)
     last_streamed: HashMap<u32, u64>,
 }
 
@@ -168,11 +167,6 @@ impl GroupList {
                     .get(&(Originators::APPLICATION_MESSAGES as u32))
                     .copied()
                     .unwrap_or(0);
-                // TODO:d14n this is going to need to change
-                // will not work with cursor from dif originators
-                // i.e mixed commits & app msgs will screw up ordering
-                // the cursor store PR selects the right cursor to start from w/o us
-                // having to choose
                 GroupFilter::new(group_id.to_vec(), Some(std::cmp::max(sid, sid2)))
             })
             .collect()

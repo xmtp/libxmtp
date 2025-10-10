@@ -1,5 +1,26 @@
 DROP VIEW IF EXISTS conversation_list;
+-- DROP TRIGGER IF EXISTS msg_inserted;
 
+UPDATE group_messages SET originator_id = CASE
+  WHEN kind = 1 THEN 10 -- ApplicationMessage
+  WHEN kind = 2 THEN 0 -- Commit (MembershipChange)
+END;
+
+UPDATE group_messages SET sequence_id = 0 WHERE sequence_id IS NULL;
+
+ALTER TABLE group_messages ADD COLUMN sequence_id_new BIGINT NOT NULL DEFAULT sequence_id;
+ALTER TABLE group_messages ADD COLUMN originator_id_new BIGINT NOT NULL DEFAULT originator_id;
+
+UPDATE group_messages SET sequence_id_new = sequence_id;
+UPDATE group_messages SET originator_id_new = originator_id;
+
+ALTER TABLE group_messages DROP COLUMN sequence_id;
+ALTER TABLE group_messages DROP COLUMN originator_id;
+
+ALTER TABLE group_messages RENAME COLUMN sequence_id_new TO sequence_id;
+ALTER TABLE group_messages RENAME COLUMN originator_id_new TO originator_id;
+
+--- rebuild views with sequence/originators
 CREATE VIEW conversation_list AS
 WITH ranked_messages AS (
     SELECT
@@ -15,6 +36,8 @@ WITH ranked_messages AS (
         gm.version_major,
         gm.version_minor,
         gm.authority_id,
+        gm.sequence_id,
+        gm.originator_id,
         ROW_NUMBER() OVER (PARTITION BY gm.group_id ORDER BY gm.sent_at_ns DESC) AS row_num
     FROM
         group_messages gm
@@ -22,32 +45,17 @@ WITH ranked_messages AS (
         gm.kind = 1
         AND gm.content_type IN (1, 4, 6, 7, 8, 9)
 )
-/* Filtering for readable content types only or
-content types with a text fallback
-
-Content Types numeric values come from xmtp_mls/src/storage/encrypted_store/group_message.rs
-pub enum ContentType {
-    Unknown = 0,
-    Text = 1,
-    GroupMembershipChange = 2,
-    GroupUpdated = 3,
-    Reaction = 4,
-    ReadReceipt = 5,
-    Reply = 6,
-    Attachment = 7,
-    RemoteAttachment = 8,
-    TransactionReference = 9,
-}*/
 SELECT
     g.id AS id,
     g.created_at_ns,
     g.membership_state,
     g.installations_last_checked,
     g.added_by_inbox_id,
-    g.welcome_id,
+    g.sequence_id as welcome_sequence_id,
     g.dm_id,
     g.rotated_at_ns,
     g.conversation_type,
+    g.is_commit_log_forked,
     rm.message_id,
     rm.decrypted_message_bytes,
     rm.sent_at_ns,
@@ -58,7 +66,9 @@ SELECT
     rm.content_type,
     rm.version_major,
     rm.version_minor,
-    rm.authority_id
+    rm.authority_id,
+    rm.sequence_id,
+    rm.originator_id
 FROM
     groups g
     LEFT JOIN ranked_messages rm

@@ -30,10 +30,6 @@ where
         envelope_bytes: Vec<u8>,
     ) -> Result<StoredGroupMessage> {
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())?;
-        // TODO:d14n pair the v3 with the d14n extractor to be able to extract
-        // both message versions. this can be done with a tuple, i.e
-        // let mut extractor = (V3, D14n);
-        // or d14n crate should just create a type alias for such an extractor
         let mut extractor = xmtp_api_d14n::protocol::V3GroupMessageExtractor::default();
         envelope.accept(&mut extractor)?;
         let msg = extractor.get()?.ok_or(MessageStreamError::InvalidPayload)?;

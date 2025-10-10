@@ -26,7 +26,7 @@ pub struct ConversationListItem {
     /// The inbox_id of who added the user to the group
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
-    pub welcome_id: Option<i64>,
+    pub welcome_sequence_id: Option<i64>,
     /// concatenation of dm participant inbox_ids in alphanumeric order
     pub dm_id: Option<String>,
     /// The last time the leaf node encryption key was rotated
@@ -57,6 +57,10 @@ pub struct ConversationListItem {
     pub version_minor: Option<i32>,
     /// The ID of the authority defining the content type
     pub authority_id: Option<String>,
+    /// sequence id of the message
+    pub sequence_id: Option<i64>,
+    /// originator id of the message null if no messages for a group yet
+    pub originator_id: Option<i64>,
 }
 
 pub trait QueryConversationList {

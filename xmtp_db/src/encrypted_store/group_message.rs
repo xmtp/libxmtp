@@ -26,16 +26,27 @@ use xmtp_content_types::{
     attachment, group_updated, membership_change, reaction, read_receipt, remote_attachment, reply,
     text, transaction_reference, wallet_send_calls,
 };
+use xmtp_proto::types::Cursor;
 
 mod convert;
 #[cfg(test)]
 pub mod tests;
 
 #[derive(
-    Debug, Clone, Serialize, Deserialize, Insertable, Identifiable, Queryable, Eq, PartialEq,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Insertable,
+    Identifiable,
+    Queryable,
+    Eq,
+    PartialEq,
+    QueryableByName,
 )]
 #[diesel(table_name = group_messages)]
 #[diesel(primary_key(id))]
+#[diesel(check_for_backend(Sqlite))]
 /// Successfully processed messages to be returned to the User.
 pub struct StoredGroupMessage {
     /// Id of the message.
@@ -64,12 +75,12 @@ pub struct StoredGroupMessage {
     pub authority_id: String,
     /// The ID of a referenced message
     pub reference_id: Option<Vec<u8>>,
-    /// The Message SequenceId
-    pub sequence_id: Option<i64>,
-    /// The Originator Node ID
-    pub originator_id: Option<i64>,
     /// Timestamp (in NS) after which the message must be deleted
     pub expire_at_ns: Option<i64>,
+    /// The Message SequenceId
+    pub sequence_id: i64,
+    /// The Originator Node ID
+    pub originator_id: i64,
 }
 
 pub struct StoredGroupMessageWithReactions {
@@ -379,10 +390,10 @@ pub trait QueryGroupMessage {
         timestamp: i64,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
 
-    fn get_group_message_by_sequence_id<GroupId: AsRef<[u8]>>(
+    fn get_group_message_by_cursor<GroupId: AsRef<[u8]>>(
         &self,
         group_id: GroupId,
-        sequence_id: i64,
+        sequence_id: Cursor,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
 
     fn get_sync_group_messages(
@@ -395,7 +406,7 @@ pub trait QueryGroupMessage {
         &self,
         msg_id: &MessageId,
         timestamp: u64,
-        sequence_id: i64,
+        cursor: Cursor,
         message_expire_at_ns: Option<i64>,
     ) -> Result<usize, crate::ConnectionError>;
 
@@ -500,12 +511,12 @@ where
         (**self).get_group_message_by_timestamp(group_id, timestamp)
     }
 
-    fn get_group_message_by_sequence_id<GroupId: AsRef<[u8]>>(
+    fn get_group_message_by_cursor<GroupId: AsRef<[u8]>>(
         &self,
         group_id: GroupId,
-        sequence_id: i64,
+        cursor: Cursor,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
-        (**self).get_group_message_by_sequence_id(group_id, sequence_id)
+        (**self).get_group_message_by_cursor(group_id, cursor)
     }
 
     fn get_sync_group_messages(
@@ -520,15 +531,10 @@ where
         &self,
         msg_id: &MessageId,
         timestamp: u64,
-        sequence_id: i64,
+        cursor: Cursor,
         message_expire_at_ns: Option<i64>,
     ) -> Result<usize, crate::ConnectionError> {
-        (**self).set_delivery_status_to_published(
-            msg_id,
-            timestamp,
-            sequence_id,
-            message_expire_at_ns,
-        )
+        (**self).set_delivery_status_to_published(msg_id, timestamp, cursor, message_expire_at_ns)
     }
 
     fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(
@@ -907,15 +913,16 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
-    fn get_group_message_by_sequence_id<GroupId: AsRef<[u8]>>(
+    fn get_group_message_by_cursor<GroupId: AsRef<[u8]>>(
         &self,
         group_id: GroupId,
-        sequence_id: i64,
+        cursor: Cursor,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
         self.raw_query_read(|conn| {
             dsl::group_messages
                 .filter(dsl::group_id.eq(group_id.as_ref()))
-                .filter(dsl::sequence_id.eq(sequence_id))
+                .filter(dsl::sequence_id.eq(cursor.sequence_id as i64))
+                .filter(dsl::originator_id.eq(cursor.originator_id as i64))
                 .first(conn)
                 .optional()
         })
@@ -939,16 +946,22 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         &self,
         msg_id: &MessageId,
         timestamp: u64,
-        sequence_id: i64,
+        cursor: Cursor,
         message_expire_at_ns: Option<i64>,
     ) -> Result<usize, crate::ConnectionError> {
+        tracing::info!(
+            "Message [{}] published with cursor = {}",
+            hex::encode(msg_id),
+            cursor
+        );
         self.raw_query_write(|conn| {
             diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set((
                     dsl::delivery_status.eq(DeliveryStatus::Published),
                     dsl::sent_at_ns.eq(timestamp as i64),
-                    dsl::sequence_id.eq(sequence_id),
+                    dsl::sequence_id.eq(cursor.sequence_id as i64),
+                    dsl::originator_id.eq(cursor.originator_id as i64),
                     dsl::expire_at_ns.eq(message_expire_at_ns),
                 ))
                 .execute(conn)
