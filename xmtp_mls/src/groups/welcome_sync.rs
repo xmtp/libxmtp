@@ -436,6 +436,8 @@ mod tests {
                         }])
                     });
                 db.expect_update_cursor().returning(|_, _, _| Ok(true));
+                db.expect_update_responded_at_sequence_id()
+                    .returning(|_, _, _| Ok(()));
                 db.expect_insert_or_replace_group().returning(Ok);
             })
             .mem(mem)
@@ -611,6 +613,9 @@ mod tests {
                         assert_eq!(entity, EntityKind::Welcome);
                         Ok(true)
                     });
+                db.expect_update_responded_at_sequence_id()
+                    .once()
+                    .returning(|_, _, _| Ok(()));
                 db.expect_update_cursor()
                     .once()
                     .returning(|_id, entity, cursor| {
