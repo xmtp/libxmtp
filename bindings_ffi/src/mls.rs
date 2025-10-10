@@ -65,6 +65,7 @@ use xmtp_mls::groups::device_sync::archive::ArchiveImporter;
 use xmtp_mls::groups::device_sync::archive::BackupMetadata;
 use xmtp_mls::groups::device_sync::DeviceSyncError;
 use xmtp_mls::groups::device_sync_legacy::ENC_KEY_SIZE;
+use xmtp_mls::groups::ConversationDebugInfo;
 use xmtp_mls::identity_updates::revoke_installations_with_verifier;
 use xmtp_mls::identity_updates::{
     apply_signature_request_with_verifier, get_creation_signature_kind,
@@ -3169,7 +3170,7 @@ mod tests {
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
         FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction,
         FfiReactionPayload, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply,
-        FfiSubscribeError, FfiTransactionReference, GenericError,
+        FfiSignatureKind, FfiSubscribeError, FfiTransactionReference, GenericError,
     };
     use alloy::signers::local::PrivateKeySigner;
     use futures::future::join_all;
