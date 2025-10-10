@@ -5,6 +5,7 @@ use crate::message::{FfiDecodedMessage, FfiDeliveryStatus, FfiReactionPayload};
 use crate::worker::FfiSyncWorker;
 use crate::worker::FfiSyncWorkerMode;
 use crate::{FfiReply, FfiSubscribeError, GenericError};
+use futures::future::try_join_all;
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
@@ -65,8 +66,10 @@ use xmtp_mls::groups::device_sync::archive::BackupMetadata;
 use xmtp_mls::groups::device_sync::archive::exporter::ArchiveExporter;
 use xmtp_mls::groups::device_sync::archive::insert_importer;
 use xmtp_mls::groups::device_sync_legacy::ENC_KEY_SIZE;
-use xmtp_mls::identity_updates::apply_signature_request_with_verifier;
 use xmtp_mls::identity_updates::revoke_installations_with_verifier;
+use xmtp_mls::identity_updates::{
+    apply_signature_request_with_verifier, get_creation_signature_kind,
+};
 use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
@@ -154,14 +157,28 @@ pub async fn inbox_state_from_inbox_ids(
     let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral)?;
     let store = EncryptedMessageStore::new(db)?;
 
-    let state = inbox_addresses_with_verifier(
+    let states = inbox_addresses_with_verifier(
         &api.clone(),
         &store.db(),
         inbox_ids.iter().map(String::as_str).collect(),
         &scw_verifier,
     )
     .await?;
-    Ok(state.into_iter().map(Into::into).collect())
+
+    let mapped_futures = states.into_iter().map(|state| async {
+        // TODO: Implement this field as part of the core association state.
+        // https://github.com/xmtp/libxmtp/issues/2583
+        let signature_kind =
+            get_creation_signature_kind(&store.db(), scw_verifier.clone(), state.inbox_id())
+                .await?;
+
+        let mut ffi_state: FfiInboxState = state.into();
+        ffi_state.creation_signature_kind = signature_kind.map(Into::into);
+
+        Ok::<FfiInboxState, GenericError>(ffi_state)
+    });
+
+    try_join_all(mapped_futures).await
 }
 
 /**
@@ -1006,7 +1023,7 @@ impl From<HmacKey> for FfiHmacKey {
 }
 
 /// Signature kind used in identity operations
-#[derive(uniffi::Enum, Clone, Debug)]
+#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
 pub enum FfiSignatureKind {
     /// ERC-191 signature (Externally Owned Account/EOA)
     Erc191,
@@ -3143,10 +3160,11 @@ mod tests {
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
         FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction,
         FfiReactionPayload, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply,
-        FfiSubscribeError, FfiTransactionReference, GenericError, apply_signature_request,
-        connect_to_backend, decode_attachment, decode_multi_remote_attachment, decode_reaction,
-        decode_read_receipt, decode_remote_attachment, decode_reply, decode_transaction_reference,
-        encode_attachment, encode_multi_remote_attachment, encode_reaction, encode_read_receipt,
+        FfiSignatureKind, FfiSubscribeError, FfiTransactionReference, GenericError,
+        apply_signature_request, connect_to_backend, decode_attachment,
+        decode_multi_remote_attachment, decode_reaction, decode_read_receipt,
+        decode_remote_attachment, decode_reply, decode_transaction_reference, encode_attachment,
+        encode_multi_remote_attachment, encode_reaction, encode_read_receipt,
         encode_remote_attachment, encode_reply, encode_transaction_reference,
         get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
@@ -9563,6 +9581,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(state[0].installations.len(), 3);
+        assert_eq!(
+            state[0].creation_signature_kind.clone().unwrap(),
+            FfiSignatureKind::Erc191
+        )
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
