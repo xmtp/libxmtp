@@ -2227,3 +2227,141 @@ async fn it_deletes_message_by_id() {
     })
     .await
 }
+
+#[xmtp_common::test]
+async fn test_exclude_sender_inbox_ids_filter() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+
+        let sender1 = "inbox_id_1".to_string();
+        let sender2 = "inbox_id_2".to_string();
+        let sender3 = "inbox_id_3".to_string();
+
+        // Create messages from different senders
+        let messages = vec![
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(1_000),
+                Some(ContentType::Text),
+                None,
+                Some(sender1.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(2_000),
+                Some(ContentType::Text),
+                None,
+                Some(sender2.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(3_000),
+                Some(ContentType::Text),
+                None,
+                Some(sender3.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(4_000),
+                Some(ContentType::Text),
+                None,
+                Some(sender1.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(5_000),
+                Some(ContentType::Text),
+                None,
+                Some(sender2.clone()),
+            ),
+        ];
+        assert_ok!(messages.store(conn));
+
+        // Test excluding sender1
+        let exclude_sender1_args = MsgQueryArgs {
+            exclude_sender_inbox_ids: Some(vec![sender1.clone()]),
+            ..Default::default()
+        };
+
+        let filtered_messages = conn
+            .get_group_messages(&group.id, &exclude_sender1_args)
+            .unwrap();
+        assert_eq!(filtered_messages.len(), 3); // sender2 (2) + sender3 (1)
+        assert!(
+            filtered_messages
+                .iter()
+                .all(|m| m.sender_inbox_id != sender1)
+        );
+
+        let count = conn
+            .count_group_messages(&group.id, &exclude_sender1_args)
+            .unwrap();
+        assert_eq!(count, 3);
+
+        // Test excluding multiple senders
+        let exclude_multiple_args = MsgQueryArgs {
+            exclude_sender_inbox_ids: Some(vec![sender1.clone(), sender2.clone()]),
+            ..Default::default()
+        };
+
+        let filtered_messages = conn
+            .get_group_messages(&group.id, &exclude_multiple_args)
+            .unwrap();
+        assert_eq!(filtered_messages.len(), 1); // Only sender3
+        assert_eq!(filtered_messages[0].sender_inbox_id, sender3);
+
+        let count = conn
+            .count_group_messages(&group.id, &exclude_multiple_args)
+            .unwrap();
+        assert_eq!(count, 1);
+
+        // Test excluding all senders
+        let exclude_all_args = MsgQueryArgs {
+            exclude_sender_inbox_ids: Some(vec![sender1.clone(), sender2.clone(), sender3.clone()]),
+            ..Default::default()
+        };
+
+        let filtered_messages = conn
+            .get_group_messages(&group.id, &exclude_all_args)
+            .unwrap();
+        assert_eq!(filtered_messages.len(), 0);
+
+        let count = conn
+            .count_group_messages(&group.id, &exclude_all_args)
+            .unwrap();
+        assert_eq!(count, 0);
+
+        // Test excluding non-existent sender (should return all messages)
+        let exclude_nonexistent_args = MsgQueryArgs {
+            exclude_sender_inbox_ids: Some(vec!["nonexistent_sender".to_string()]),
+            ..Default::default()
+        };
+
+        let filtered_messages = conn
+            .get_group_messages(&group.id, &exclude_nonexistent_args)
+            .unwrap();
+        assert_eq!(filtered_messages.len(), 5); // All messages
+
+        // Test combining with other filters
+        let combined_args = MsgQueryArgs {
+            exclude_sender_inbox_ids: Some(vec![sender1.clone()]),
+            sent_after_ns: Some(2_000),
+            ..Default::default()
+        };
+
+        let filtered_messages = conn.get_group_messages(&group.id, &combined_args).unwrap();
+        assert_eq!(filtered_messages.len(), 2); // sender2 at 5000 and sender3 at 3000
+        assert!(
+            filtered_messages
+                .iter()
+                .all(|m| m.sender_inbox_id != sender1 && m.sent_at_ns > 2_000)
+        );
+    })
+    .await
+}

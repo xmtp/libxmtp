@@ -2092,6 +2092,7 @@ pub struct FfiListMessagesOptions {
     pub direction: Option<FfiDirection>,
     pub content_types: Option<Vec<FfiContentType>>,
     pub exclude_content_types: Option<Vec<FfiContentType>>,
+    pub exclude_sender_inbox_ids: Option<Vec<String>>,
 }
 
 impl From<FfiListMessagesOptions> for MsgQueryArgs {
@@ -2109,6 +2110,7 @@ impl From<FfiListMessagesOptions> for MsgQueryArgs {
             exclude_content_types: opts
                 .exclude_content_types
                 .map(|types| types.into_iter().map(Into::into).collect()),
+            exclude_sender_inbox_ids: opts.exclude_sender_inbox_ids,
         }
     }
 }
