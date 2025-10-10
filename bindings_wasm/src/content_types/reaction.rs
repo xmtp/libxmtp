@@ -137,3 +137,52 @@ impl From<ReactionSchema> for i32 {
     }
   }
 }
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Debug, Clone)]
+pub struct ReactionPayload {
+  pub reference: String,
+  #[wasm_bindgen(js_name = "referenceInboxId")]
+  pub reference_inbox_id: String,
+  pub action: ReactionActionPayload,
+  pub content: String,
+  pub schema: ReactionSchemaPayload,
+}
+
+impl From<ReactionV2> for ReactionPayload {
+  fn from(reaction: ReactionV2) -> Self {
+    ReactionPayload {
+      reference: reaction.reference,
+      reference_inbox_id: reaction.reference_inbox_id,
+      action: match reaction.action {
+        1 => ReactionActionPayload::Added,
+        2 => ReactionActionPayload::Removed,
+        _ => ReactionActionPayload::Unknown,
+      },
+      content: reaction.content,
+      schema: match reaction.schema {
+        1 => ReactionSchemaPayload::Unicode,
+        2 => ReactionSchemaPayload::Shortcode,
+        3 => ReactionSchemaPayload::Custom,
+        _ => ReactionSchemaPayload::Unknown,
+      },
+    }
+  }
+}
+
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub enum ReactionActionPayload {
+  Added,
+  Removed,
+  Unknown,
+}
+
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub enum ReactionSchemaPayload {
+  Unicode,
+  Shortcode,
+  Custom,
+  Unknown,
+}
