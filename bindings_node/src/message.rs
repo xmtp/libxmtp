@@ -87,6 +87,7 @@ pub struct ListMessagesOptions {
   pub content_types: Option<Vec<ContentType>>,
   pub exclude_content_types: Option<Vec<ContentType>>,
   pub kind: Option<GroupMessageKind>,
+  pub exclude_sender_inbox_ids: Option<Vec<String>>,
 }
 
 impl From<ListMessagesOptions> for MsgQueryArgs {
@@ -109,6 +110,7 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
       content_types,
       exclude_content_types,
       kind: opts.kind.map(Into::into),
+      exclude_sender_inbox_ids: opts.exclude_sender_inbox_ids,
     }
   }
 }
