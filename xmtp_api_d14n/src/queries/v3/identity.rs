@@ -1,7 +1,7 @@
 use crate::{V3Client, v3::*};
 use xmtp_common::RetryableError;
 use xmtp_proto::api::{ApiClientError, Client, Query};
-use xmtp_proto::api_client::{IdentityStats, XmtpIdentityClient};
+use xmtp_proto::api_client::XmtpIdentityClient;
 use xmtp_proto::identity_v1;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
@@ -18,7 +18,6 @@ where
         &self,
         request: identity_v1::PublishIdentityUpdateRequest,
     ) -> Result<identity_v1::PublishIdentityUpdateResponse, Self::Error> {
-        self.identity_stats.publish_identity_update.count_request();
         PublishIdentityUpdate::builder()
             .identity_update(request.identity_update)
             .build()?
@@ -30,7 +29,6 @@ where
         &self,
         request: identity_v1::GetIdentityUpdatesRequest,
     ) -> Result<identity_v1::GetIdentityUpdatesResponse, Self::Error> {
-        self.identity_stats.get_identity_updates_v2.count_request();
         GetIdentityUpdatesV2::builder()
             .requests(request.requests)
             .build()?
@@ -42,7 +40,6 @@ where
         &self,
         request: identity_v1::GetInboxIdsRequest,
     ) -> Result<identity_v1::GetInboxIdsResponse, Self::Error> {
-        self.identity_stats.get_inbox_ids.count_request();
         GetInboxIds::builder()
             .addresses(
                 request
@@ -69,17 +66,10 @@ where
         &self,
         request: identity_v1::VerifySmartContractWalletSignaturesRequest,
     ) -> Result<identity_v1::VerifySmartContractWalletSignaturesResponse, Self::Error> {
-        self.identity_stats
-            .verify_smart_contract_wallet_signature
-            .count_request();
         VerifySmartContractWalletSignatures::builder()
             .signatures(request.signatures)
             .build()?
             .query(&self.client)
             .await
-    }
-
-    fn identity_stats(&self) -> IdentityStats {
-        self.identity_stats.clone()
     }
 }

@@ -22,6 +22,10 @@ impl DockerUrls {
 }
 
 /// Urls to the Grpc Backends
+/// These URLS are rust-feature-flag aware, and will choose local or dev:
+/// * if no feature is passed, uses local environment
+/// * if `dev` feature is passed, uses dev environment
+/// * if compiling for webassembly, uses the envoy/grpc-web variants of the local/dev urls
 pub struct GrpcUrls;
 
 xmtp_common::if_wasm! {
@@ -47,24 +51,53 @@ xmtp_common::if_wasm! {
 xmtp_common::if_native! {
     xmtp_common::if_dev! {
         impl GrpcUrls {
-            pub const NODE: &'static str = "https://grpc.dev.xmtp.network:443";
-            pub const XMTPD: &'static str = "https://localhost:5050";
-            pub const GATEWAY: &'static str = "https://localhost:5052";
+            pub const NODE: &'static str = GrpcUrlsStaging::NODE;
+            pub const XMTPD: &'static str = GrpcUrlsStaging::XMTPD;
+            pub const GATEWAY: &'static str = GrpcUrlsStaging::GATEWAY;
         }
     }
 
     xmtp_common::if_local! {
          impl GrpcUrls {
-            pub const NODE: &'static str = "http://localhost:5556";
-            pub const XMTPD: &'static str = "http://localhost:5050";
-            pub const GATEWAY: &'static str = "http://localhost:5052";
+            pub const NODE: &'static str = GrpcUrlsLocal::NODE;
+            pub const XMTPD: &'static str = GrpcUrlsLocal::XMTPD;
+            pub const GATEWAY: &'static str = GrpcUrlsLocal::GATEWAY;
         }
     }
 }
 
-impl GrpcUrls {
-    pub const NODE_DEV: &'static str = "https://grpc.dev.xmtp.network:443";
+/// GRPC URLS corresponding to local environments
+pub struct GrpcUrlsLocal;
+impl GrpcUrlsLocal {
+    pub const NODE: &'static str = "http://localhost:5556";
+    pub const XMTPD: &'static str = "http://localhost:5050";
+    pub const GATEWAY: &'static str = "http://localhost:5052";
 }
+
+/// GRPC URLS corresponding to dev environments
+pub struct GrpcUrlsDev;
+impl GrpcUrlsDev {
+    pub const NODE: &'static str = "https://grpc.dev.xmtp.network:443";
+    pub const XMTPD: &'static str = "https://grpc.testnet-dev.xmtp.network:443";
+    pub const GATEWAY: &'static str = "https://payer.testnet-dev.xmtp.network:443";
+}
+
+/// GRPC URLS corresponding to staging environments
+pub struct GrpcUrlsStaging;
+impl GrpcUrlsStaging {
+    pub const NODE: &'static str = "https://grpc.dev.xmtp.network:443";
+    pub const XMTPD: &'static str = "https://grpc.testnet-staging.xmtp.network:443";
+    pub const GATEWAY: &'static str = "https://payer.testnet-staging.xmtp.network:443";
+}
+
+/// GRPC URLS corresponding to production environments
+pub struct GrpcUrlsProduction;
+impl GrpcUrlsProduction {
+    pub const NODE: &'static str = "https://grpc.production.xmtp.network:443";
+    pub const XMTPD: &'static str = "https://grpc.testnet.xmtp.network:443";
+    pub const GATEWAY: &'static str = "https://payer.testnet.xmtp.network:443";
+}
+
 /// Internal Docker URLS Accessible from within docker network
 /// useful for setting up proxies with toxiproxy
 pub struct InternalDockerUrls;

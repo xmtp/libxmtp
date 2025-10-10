@@ -76,6 +76,8 @@ xmtp_proto = { workspace = true, features = ["test-utils"] }
 
 [features]
 bench = ["xmtp_mls/bench", "xmtp_common/bench", "dep:criterion", "dep:fdlimit"]
+d14n = []
+dev = ["xmtp_configuration/dev", "xmtp_mls/dev"]
 
 [[bench]]
 harness = false

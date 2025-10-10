@@ -1,5 +1,3 @@
-use xmtp_proto::api_client::ApiStats;
-use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::identity_v1;
 use xmtp_proto::mls_v1;
@@ -90,10 +88,6 @@ where
     ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
         self.v3_client.query_commit_log(request).await
     }
-
-    fn stats(&self) -> ApiStats {
-        Default::default()
-    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -133,9 +127,5 @@ where
         self.xmtpd_client
             .verify_smart_contract_wallet_signatures(request)
             .await
-    }
-
-    fn identity_stats(&self) -> IdentityStats {
-        Default::default()
     }
 }

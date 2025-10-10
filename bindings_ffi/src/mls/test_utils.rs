@@ -140,6 +140,23 @@ impl LocalTester for Tester<PrivateKeySigner, FfiXmtpClient> {
     }
 }
 
+pub async fn connect_to_backend_test() -> Arc<super::XmtpApiClient> {
+    if cfg!(feature = "d14n") {
+        connect_to_backend(
+            GrpcUrls::NODE.to_string(),
+            false,
+            None,
+            Some(GrpcUrls::GATEWAY.to_string()),
+        )
+        .await
+        .unwrap()
+    } else {
+        connect_to_backend(GrpcUrls::NODE.to_string(), false, None, None)
+            .await
+            .unwrap()
+    }
+}
+
 async fn create_raw_client<Owner>(builder: &TesterBuilder<Owner>) -> FfiXmtpClient
 where
     Owner: InboxOwner,
@@ -149,12 +166,8 @@ where
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
     let client = create_client(
-        connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-            .await
-            .unwrap(),
-        connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-            .await
-            .unwrap(),
+        connect_to_backend_test().await,
+        connect_to_backend_test().await,
         Some(tmp_path()),
         Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
         &inbox_id,
