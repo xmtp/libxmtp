@@ -1,5 +1,5 @@
 use crate::{
-    identity_updates::batch_get_association_state_with_verifier,
+    identity_updates::{batch_get_association_state_with_verifier, get_creation_signature_kind},
     messages::{
         decoded_message::DecodedMessage,
         enrichment::{EnrichMessageError, enrich_messages},
@@ -403,31 +403,11 @@ where
             load_identity_updates(self.context.api(), &conn, &[inbox_id]).await?;
         }
 
-        // Get all updates and find the first one (creation update)
-        let updates = conn.get_identity_updates(inbox_id, None, None)?;
+        let verifier = self.context.scw_verifier();
 
-        if updates.is_empty() {
-            // No identity updates found - inbox likely doesn't exist
-            return Err(ClientError::Identity(
-                IdentityError::RequiredIdentityNotFound,
-            ));
-        }
+        let signature_kind = get_creation_signature_kind(&conn, verifier, inbox_id).await?;
 
-        let first_update = updates.first().expect("updates is not empty");
-
-        // Convert to UnverifiedIdentityUpdate to access the creation signature kind
-        let unverified_update =
-            xmtp_id::associations::unverified::UnverifiedIdentityUpdate::try_from(
-                first_update.clone(),
-            )?;
-
-        // Verify the update to get the IdentityUpdate with verified signatures
-        let verified_update = unverified_update
-            .to_verified(&self.context.scw_verifier())
-            .await?;
-
-        // Return the creation signature kind
-        Ok(verified_update.creation_signature_kind())
+        Ok(signature_kind)
     }
 
     /// Set a consent record in the local database.
