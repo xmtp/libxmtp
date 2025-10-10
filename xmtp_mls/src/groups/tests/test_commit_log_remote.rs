@@ -309,7 +309,7 @@ async fn test_publish_commit_log_to_remote() {
         .get_last_cursor_for_originator(
             &alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-            Originators::REMOTE_COMMIT_LOG as u32,
+            Originators::REMOTE_COMMIT_LOG,
         )
         .unwrap();
     assert_eq!(published_commit_log_cursor, Cursor::commit_log(0));
@@ -327,7 +327,7 @@ async fn test_publish_commit_log_to_remote() {
         .get_last_cursor_for_originator(
             &alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-            Originators::REMOTE_COMMIT_LOG as u32,
+            Originators::REMOTE_COMMIT_LOG,
         )
         .unwrap();
     tracing::info!("{}", published_commit_log_cursor);
@@ -410,7 +410,7 @@ async fn test_download_commit_log_from_remote() {
         .get_last_cursor_for_originator(
             &alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-            Originators::REMOTE_COMMIT_LOG as u32,
+            Originators::REMOTE_COMMIT_LOG,
         )
         .unwrap();
     assert_eq!(alix_group_1_cursor, Cursor::commit_log(0));
@@ -468,7 +468,7 @@ async fn test_download_commit_log_from_remote() {
         .get_last_cursor_for_originator(
             &alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-            Originators::REMOTE_COMMIT_LOG as u32,
+            Originators::REMOTE_COMMIT_LOG,
         )
         .unwrap();
 
@@ -478,7 +478,7 @@ async fn test_download_commit_log_from_remote() {
         alix_group_1_cursor,
         Cursor::new(
             alix_group1_publish_result_upload_cursor as u64,
-            Originators::REMOTE_COMMIT_LOG as u32
+            Originators::REMOTE_COMMIT_LOG
         )
     );
 

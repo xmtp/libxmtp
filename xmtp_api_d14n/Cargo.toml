@@ -69,6 +69,7 @@ test-utils = [
   "dep:mockall",
   "dep:ctor",
   "dep:wasm-bindgen-test",
+  "xmtp_proto/test-utils",
 ]
 v3 = []
 d14n = []

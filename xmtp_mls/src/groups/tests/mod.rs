@@ -30,7 +30,9 @@ use crate::groups::{
 };
 use crate::tester;
 use crate::utils::fixtures::{alix, bola, caro};
-use crate::utils::{ClientTester, TestMlsGroup, Tester, VersionInfo};
+use crate::utils::{
+    ClientTester, LocalTesterBuilder, TestMlsGroup, Tester, TesterBuilder, VersionInfo,
+};
 use crate::{
     builder::ClientBuilder,
     groups::{
@@ -150,7 +152,7 @@ async fn test_send_message() {
     let messages = alix
         .context
         .api()
-        .query_group_messages(group.group_id.clone().into(), Default::default())
+        .query_group_messages(group.group_id.clone().into())
         .await?;
 
     group.sync().await?;
@@ -483,7 +485,7 @@ async fn test_add_inbox() {
     let messages = client
         .context
         .api()
-        .query_group_messages(group_id.into(), Default::default())
+        .query_group_messages(group_id.into())
         .await
         .unwrap();
 
@@ -560,7 +562,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
     let messages_bola_1 = bola_1
         .context
         .api()
-        .query_group_messages(group.clone().group_id.into(), Default::default())
+        .query_group_messages(group.clone().group_id.into())
         .await
         .unwrap();
 
@@ -571,7 +573,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
     let messages_alix = alix
         .context
         .api()
-        .query_group_messages(group.clone().group_id.into(), Default::default())
+        .query_group_messages(group.clone().group_id.into())
         .await
         .unwrap();
 
@@ -1037,9 +1039,9 @@ async fn test_add_unregistered_member() {
 
 #[xmtp_common::test]
 async fn test_remove_inbox() {
-    let client_1 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     // Add another client onto the network
-    let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(client_1, in_memory_cursors);
+    tester!(client_2, in_memory_cursors);
 
     let group = client_1.create_group(None, None).expect("create group");
     group
@@ -1065,7 +1067,7 @@ async fn test_remove_inbox() {
     let messages = client_1
         .context
         .api()
-        .query_group_messages(group_id.into(), Default::default())
+        .query_group_messages(group_id.into())
         .await
         .expect("read topic");
 
@@ -1088,7 +1090,7 @@ async fn test_key_update() {
     let messages = client
         .context
         .api()
-        .query_group_messages(group.group_id.clone().into(), Default::default())
+        .query_group_messages(group.group_id.clone().into())
         .await
         .unwrap();
     assert_eq!(messages.len(), 2);
@@ -1126,7 +1128,7 @@ async fn test_post_commit() {
     let welcome_messages = client
         .context
         .api()
-        .query_welcome_messages(client_2.installation_public_key(), Default::default())
+        .query_welcome_messages(client_2.installation_public_key())
         .await
         .unwrap();
 
@@ -2047,8 +2049,16 @@ async fn test_group_members_permission_level_update() {
 #[xmtp_common::test]
 async fn test_staged_welcome() {
     // Create Clients
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let amal = TesterBuilder::new()
+        .with_commit_log_worker(false)
+        .with_name("amal")
+        .build()
+        .await;
+    let bola = TesterBuilder::new()
+        .with_commit_log_worker(false)
+        .with_name("bola")
+        .build()
+        .await;
 
     // Amal creates a group
     let amal_group = amal.create_group(None, None).unwrap();
@@ -2396,7 +2406,7 @@ async fn process_messages_abort_on_retryable_error() {
     // in the middle of a sync instead of the beginning
     let bo_messages = bo
         .mls_store()
-        .query_group_messages(&bo_group.group_id, &bo.context.db())
+        .query_group_messages(&bo_group.group_id)
         .await
         .unwrap();
 
@@ -2436,7 +2446,7 @@ async fn skip_already_processed_messages() {
 
     let mut bo_messages_from_api = bo
         .mls_store()
-        .query_group_messages(&bo_group.group_id, &bo.context.db())
+        .query_group_messages(&bo_group.group_id)
         .await
         .unwrap();
 
@@ -2486,17 +2496,11 @@ async fn skip_already_processed_intents() {
 
 #[xmtp_common::test(flavor = "multi_thread")]
 async fn test_parallel_syncs() {
-    let wallet = generate_local_wallet();
-    let alix1 = Arc::new(ClientBuilder::new_test_client(&wallet).await);
-    alix1
-        .device_sync_client()
-        .wait_for_sync_worker_init()
-        .await
-        .unwrap();
+    tester!(alix1, in_memory_cursors, sync_server, sync_worker);
 
     let alix1_group = alix1.create_group(None, None).unwrap();
 
-    let alix2 = ClientBuilder::new_test_client(&wallet).await;
+    let alix2 = alix1.new_installation().await;
 
     let sync_tasks: Vec<_> = (0..10)
         .map(|_| {
@@ -2518,7 +2522,7 @@ async fn test_parallel_syncs() {
     let alix2_welcomes = alix1
         .context
         .api()
-        .query_welcome_messages(alix2.installation_public_key(), Default::default())
+        .query_welcome_messages(alix2.installation_public_key())
         .await
         .unwrap();
     assert_eq!(alix2_welcomes.len(), 1);
@@ -2527,7 +2531,7 @@ async fn test_parallel_syncs() {
     let group_messages = alix1
         .context
         .api()
-        .query_group_messages(alix1_group.group_id.clone().into(), Default::default())
+        .query_group_messages(alix1_group.group_id.clone().into())
         .await
         .unwrap();
     assert_eq!(group_messages.len(), 1);
@@ -2620,7 +2624,7 @@ async fn add_missing_installs_reentrancy() {
     let alix2_welcomes = alix1
         .context
         .api()
-        .query_welcome_messages(alix2.installation_public_key(), Default::default())
+        .query_welcome_messages(alix2.installation_public_key())
         .await
         .unwrap();
     assert_eq!(alix2_welcomes.len(), 1);
@@ -2630,7 +2634,7 @@ async fn add_missing_installs_reentrancy() {
     let group_messages = alix1
         .context
         .api()
-        .query_group_messages(alix1_group.group_id.clone().into(), Default::default())
+        .query_group_messages(alix1_group.group_id.clone().into())
         .await
         .unwrap();
     assert_eq!(group_messages.len(), 2);
@@ -2684,7 +2688,7 @@ async fn respect_allow_epoch_increment() {
     let messages = client
         .context
         .api()
-        .query_group_messages(group.group_id.clone().into(), Default::default())
+        .query_group_messages(group.group_id.clone().into())
         .await
         .unwrap();
 
@@ -3682,7 +3686,7 @@ async fn can_stream_out_of_order_without_forking() {
     let messages = client_b
         .context
         .api()
-        .query_group_messages(group_b.group_id.clone().into(), Default::default())
+        .query_group_messages(group_b.group_id.clone().into())
         .await
         .unwrap();
     assert_eq!(messages.len(), 8);

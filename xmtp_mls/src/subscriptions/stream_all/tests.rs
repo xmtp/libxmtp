@@ -152,6 +152,7 @@ async fn test_dm_stream_all_messages() {
             .send_message("second DM msg".as_bytes())
             .await
             .unwrap();
+        assert_msg!(stream, "first DM msg");
         assert_msg!(stream, "second DM msg");
     }
     // Start a stream with all conversations

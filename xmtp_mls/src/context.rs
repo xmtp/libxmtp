@@ -13,11 +13,13 @@ use crate::{
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
+use xmtp_api_d14n::protocol::CursorStore;
 use xmtp_db::XmtpDb;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProviderRef;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{InboxIdRef, associations::builder::SignatureRequest};
+use xmtp_proto::api_client::CursorAwareApi;
 use xmtp_proto::types::InstallationId;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -83,7 +85,10 @@ where
     #[cfg(any(test, feature = "test-utils"))]
     pub fn device_sync_client(
         self: &Arc<XmtpMlsLocalContext<ApiClient, Db, S>>,
-    ) -> DeviceSyncClient<Arc<Self>> {
+    ) -> DeviceSyncClient<Arc<Self>>
+    where
+        ApiClient: CursorAwareApi<CursorStore = Arc<dyn CursorStore>>,
+    {
         let metrics = self.sync_metrics();
         DeviceSyncClient::new(
             Arc::clone(self),
@@ -155,7 +160,7 @@ where
     Self: Send + Sync + Sized + Clone,
 {
     type Db: XmtpDb;
-    type ApiClient: XmtpApi;
+    type ApiClient: XmtpApi + CursorAwareApi<CursorStore = Arc<dyn CursorStore>>;
     type MlsStorage: Send + Sync + XmtpMlsStorageProvider;
     type ContextReference: Clone + Sized;
 
@@ -204,7 +209,7 @@ where
 
 impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
 where
-    XApiClient: XmtpApi,
+    XApiClient: XmtpApi + CursorAwareApi<CursorStore = Arc<dyn CursorStore>>,
     XDb: XmtpDb,
     XMls: Send + Sync + XmtpMlsStorageProvider,
 {

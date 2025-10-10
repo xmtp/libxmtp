@@ -15,6 +15,8 @@ use xmtp_proto::xmtp::xmtpv4::envelopes::{
 };
 use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
 
+mod vector_clock;
+
 // enables combining arbitrary # of visitors into one, ext: process = (ValidateMessage::new(), ExtractMessage::new());
 // Therefore not re-doing deserialization for each processing step.
 // Each step is ran sequentially in order, so if one of the steps (like Validation) fails, the whole process

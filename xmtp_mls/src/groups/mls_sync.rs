@@ -90,7 +90,6 @@ use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_id::{InboxId, InboxIdRef};
-use xmtp_proto::mls_v1::WelcomeMetadata;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
@@ -106,6 +105,7 @@ use xmtp_proto::xmtp::mls::{
         plaintext_envelope::{Content, V1, V2, v2::MessageType},
     },
 };
+use xmtp_proto::{mls_v1::WelcomeMetadata, types::GroupMessage};
 pub mod update_group_membership;
 
 #[derive(Debug, Error)]
@@ -556,9 +556,9 @@ where
         &self,
         mls_group: &openmls::group::MlsGroup,
         intent: &StoredGroupIntent,
-        envelope: &xmtp_proto::types::GroupMessage,
+        envelope: &GroupMessage,
     ) -> Result<Option<(StagedCommit, ValidatedCommit)>, IntentResolutionError> {
-        let xmtp_proto::types::GroupMessage {
+        let GroupMessage {
             message, cursor, ..
         } = &envelope;
         let group_epoch = mls_group.epoch();
@@ -700,7 +700,7 @@ where
         mls_group: &mut OpenMlsGroup,
         commit: Option<(StagedCommit, ValidatedCommit)>,
         intent: &StoredGroupIntent,
-        envelope: &xmtp_proto::types::GroupMessage,
+        envelope: &GroupMessage,
         storage: &impl XmtpMlsStorageProvider,
     ) -> Result<Option<Vec<u8>>, IntentResolutionError> {
         if intent.state == IntentState::Committed
@@ -720,7 +720,7 @@ where
         }
 
         let message_epoch = envelope.message.epoch();
-        let xmtp_proto::types::GroupMessage { cursor, .. } = envelope;
+        let GroupMessage { cursor, .. } = envelope;
         let envelope_timestamp_ns = envelope.timestamp();
 
         tracing::debug!(
@@ -836,7 +836,7 @@ where
     async fn validate_and_process_external_message(
         &self,
         mls_group: &mut OpenMlsGroup,
-        envelope: &xmtp_proto::types::GroupMessage,
+        envelope: &GroupMessage,
         allow_cursor_increment: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         #[cfg(any(test, feature = "test-utils"))]
@@ -847,7 +847,7 @@ where
 
         let provider = self.context.mls_provider();
 
-        let xmtp_proto::types::GroupMessage {
+        let GroupMessage {
             cursor, message, ..
         } = envelope;
         let envelope_timestamp_ns = envelope.timestamp();
@@ -999,12 +999,12 @@ where
         &self,
         mls_group: &mut OpenMlsGroup,
         processed_message: ProcessedMessage,
-        message_envelope: &xmtp_proto::types::GroupMessage,
+        message_envelope: &GroupMessage,
         validated_commit: Option<ValidatedCommit>,
         storage: &impl XmtpMlsStorageProvider,
         deferred_events: &mut DeferredEvents,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
-        let xmtp_proto::types::GroupMessage { cursor, .. } = &message_envelope;
+        let GroupMessage { cursor, .. } = &message_envelope;
         let envelope_timestamp_ns = message_envelope.timestamp();
         let msg_epoch = processed_message.epoch().as_u64();
         let msg_group_id = hex::encode(processed_message.group_id().as_slice());
@@ -1290,7 +1290,7 @@ where
     )]
     pub(crate) async fn process_message(
         &self,
-        envelope: &xmtp_proto::types::GroupMessage,
+        envelope: &GroupMessage,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         if trust_message_order {
@@ -1342,7 +1342,7 @@ where
     async fn process_message_inner(
         &self,
         mls_group: &mut OpenMlsGroup,
-        envelope: &xmtp_proto::types::GroupMessage,
+        envelope: &GroupMessage,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         let db = self.context.db();
@@ -1657,10 +1657,7 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip(self, messages))]
-    pub async fn process_messages(
-        &self,
-        messages: Vec<xmtp_proto::types::GroupMessage>,
-    ) -> ProcessSummary {
+    pub async fn process_messages(&self, messages: Vec<GroupMessage>) -> ProcessSummary {
         let mut summary = ProcessSummary::default();
         for message in messages {
             summary.add_id(message.cursor);
@@ -1705,9 +1702,8 @@ where
     /// cursor ids, so that streams do not unintentially retry O(n^2) messages.
     #[tracing::instrument(skip_all, level = "trace")]
     pub async fn receive(&self) -> Result<ProcessSummary, GroupError> {
-        let db = self.context.db();
         let messages = MlsStore::new(self.context.clone())
-            .query_group_messages(&self.group_id, &db)
+            .query_group_messages(&self.group_id)
             .await?;
 
         let summary = self.process_messages(messages).await;

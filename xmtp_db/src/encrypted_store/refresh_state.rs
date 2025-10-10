@@ -2,14 +2,16 @@ use std::collections::HashMap;
 
 use diesel::{
     backend::Backend,
+    connection::DefaultLoadingMode,
     deserialize::{self, FromSql, FromSqlRow},
     expression::AsExpression,
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
-    sql_types::Integer,
+    sql_types::{BigInt, Binary, Integer},
 };
+use itertools::Itertools;
 use xmtp_configuration::Originators;
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, GlobalCursor, Topic, TopicKind};
 
 use super::{ConnectionExt, Sqlite, db_connection::DbConnection, schema::refresh_state};
 use crate::{StorageError, StoreOrIgnore, impl_store_or_ignore};
@@ -102,6 +104,14 @@ pub struct RefreshState {
 
 impl_store_or_ignore!(RefreshState, refresh_state);
 
+#[derive(QueryableByName)]
+struct SingleCursor {
+    #[diesel(sql_type = Integer)]
+    originator_id: i32,
+    #[diesel(sql_type = BigInt)]
+    sequence_id: i64,
+}
+
 pub trait QueryRefreshState {
     fn get_refresh_state<EntityId: AsRef<[u8]>>(
         &self,
@@ -134,6 +144,8 @@ pub trait QueryRefreshState {
         entity_kind: EntityKind,
         cursor: Cursor,
     ) -> Result<bool, StorageError>;
+
+    fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, StorageError>;
 
     fn get_remote_log_cursors(
         &self,
@@ -174,6 +186,10 @@ impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
         originator_ids: &[u32],
     ) -> Result<Vec<Cursor>, StorageError> {
         (**self).get_last_cursor_for_originators(id, entity_kind, originator_ids)
+    }
+
+    fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, StorageError> {
+        (**self).lowest_common_cursor(topics)
     }
 }
 
@@ -272,6 +288,54 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         }
         Ok(cursor_map)
     }
+
+    fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, StorageError> {
+        // diesel does not support eq_any (IN) on tuple types.
+        // so, something like `.filter((dsl::entity_id, dsl::entity_kind).eq_any(entities))` will not compile. its possible to implement
+        // with a custom QueryFragment, but maybe that's a future
+        // exercise. ref: https://github.com/diesel-rs/diesel/issues/3222#issuecomment-2079474318
+        // TODO:d14n
+        let entities = topics
+            .iter()
+            .flat_map(|t| match t.kind() {
+                TopicKind::GroupMessagesV1 => {
+                    vec![
+                        (t.identifier().to_vec(), EntityKind::ApplicationMessage),
+                        (t.identifier().to_vec(), EntityKind::CommitMessage),
+                    ]
+                }
+                TopicKind::WelcomeMessagesV1 => {
+                    vec![(t.identifier().to_vec(), EntityKind::Welcome)]
+                }
+                _ => panic!("not tracking identity/key packages"),
+            })
+            .collect::<Vec<_>>();
+
+        let placeholders = topics
+            .iter()
+            .map(|_| "(?, ?)")
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!(
+            "SELECT originator_id, MIN(sequence_id) AS sequence_id
+            FROM refresh_state
+            WHERE (entity_id, entity_kind) IN ({})
+            GROUP BY originator_id",
+            placeholders
+        );
+
+        let cursor = self.raw_query_read(|conn| {
+            let mut q = diesel::sql_query(query).into_boxed();
+            for (id, kind) in entities {
+                q = q.bind::<Binary, _>(id);
+                q = q.bind::<Integer, _>(kind);
+            }
+            q.load_iter::<SingleCursor, DefaultLoadingMode>(conn)?
+                .map_ok(|c| (c.originator_id as u32, c.sequence_id as u64))
+                .collect::<QueryResult<HashMap<_, _>>>()
+        })?;
+        Ok(GlobalCursor::new(cursor))
+    }
 }
 
 #[cfg(test)]
@@ -342,7 +406,7 @@ pub(crate) mod tests {
                 entity_id: id.clone(),
                 entity_kind,
                 sequence_id: 123,
-                originator_id: Originators::MLS_COMMITS.into(),
+                originator_id: Originators::MLS_COMMITS as i32,
             };
             entry.store_or_ignore(conn).unwrap();
             assert_eq!(
@@ -431,7 +495,7 @@ pub(crate) mod tests {
                 entity_id: entity_id.clone(),
                 entity_kind: EntityKind::Welcome,
                 sequence_id: 123,
-                originator_id: Originators::MLS_COMMITS.into(),
+                originator_id: Originators::MLS_COMMITS as i32,
             };
             welcome_state.store_or_ignore(conn).unwrap();
 
@@ -439,7 +503,7 @@ pub(crate) mod tests {
                 entity_id: entity_id.clone(),
                 entity_kind: EntityKind::ApplicationMessage,
                 sequence_id: 456,
-                originator_id: Originators::MLS_COMMITS.into(),
+                originator_id: Originators::MLS_COMMITS as i32,
             };
             group_state.store_or_ignore(conn).unwrap();
 
