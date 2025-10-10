@@ -16,10 +16,6 @@ fn migrate_to(db: impl ConnectionExt, name: &str) {
     migrate(db, name, 0)
 }
 
-fn migrate_after(db: impl ConnectionExt, name: &str) {
-    migrate(db, name, 1)
-}
-
 fn migrate(db: impl ConnectionExt, name: &str, index_change: i32) {
     let migrations = MigrationSource::<Sqlite>::migrations(&MIGRATIONS).unwrap();
     let index = migrations

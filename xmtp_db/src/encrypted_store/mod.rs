@@ -36,9 +36,8 @@ mod schema_gen;
 pub mod store;
 pub mod user_preferences;
 
-xmtp_common::if_test! {
-    mod migration_test;
-}
+#[cfg(test)]
+mod migration_test;
 
 pub use self::db_connection::DbConnection;
 use diesel::result::DatabaseErrorKind;

@@ -1,11 +1,8 @@
 -- SQLite requires rebuilding the table to change primary key
--- Step 1: Create temporary table with existing data
 CREATE TABLE refresh_state_temp AS SELECT * FROM refresh_state;
 
--- Step 2: Add originator_id column to temporary data
 ALTER TABLE refresh_state_temp ADD COLUMN originator_id INTEGER NOT NULL DEFAULT 0;
 
--- Step 3: Set originator_id based on entity_kind
 -- For non-Group entries (Welcome, CommitLog, etc.), set originator_id directly
 UPDATE refresh_state_temp
 SET originator_id = CASE
@@ -24,33 +21,20 @@ CREATE TABLE refresh_state (
     PRIMARY KEY (entity_id, entity_kind, originator_id)
 );
 
--- Step 7: Insert Group entries - create both ApplicationMessage and CommitMessage entries
--- IMPORTANT CONSTRAINT: The cursor in refresh_state is only updated during sync operations.
--- - Commit messages (kind=2) are ALWAYS from sync, so their sequence_ids are trustworthy
--- - Application messages (kind=1) in group_messages may be local (not synced)
---
--- Strategy:
--- 1. If the old cursor matches a commit message: use that cursor for BOTH app and commit
---    (we can't trust app messages with higher sequence_ids - they weren't synced)
--- 2. If the old cursor matches an app message OR nothing:
---    - Use the old cursor for ApplicationMessage (this was synced)
---    - Use MAX(commit sequence_ids) for CommitMessage (commits are always synced)
+-- Insert Group entries - create both ApplicationMessage and CommitMessage entries
+-- from previous cursor value of `Group`
+-- ApplicationMessage and CommitMessage entries.
+-- - We won't skip any messages (might re-fetch some that were already synced)
+-- - Migration is O(N)
+-- - After migration, the next sync will update cursors to correct values
+-- may get some duplicate messages in sync that will be rejected
 
 -- Create ApplicationMessage entries
 INSERT INTO refresh_state (entity_id, entity_kind, sequence_id, originator_id)
 SELECT DISTINCT
     rst.entity_id,
     2 as entity_kind,  -- ApplicationMessage
-    -- If old cursor was a commit, use that cursor; otherwise use old cursor as-is
-    CASE
-        WHEN EXISTS (
-            SELECT 1 FROM group_messages gm
-            WHERE gm.group_id = rst.entity_id
-              AND gm.sequence_id = rst.cursor
-              AND gm.kind = 2  -- It was a commit
-        ) THEN rst.cursor
-        ELSE rst.cursor  -- It was an app message or nothing matched
-    END as sequence_id,
+    rst.cursor as sequence_id,
     10 as originator_id
 FROM refresh_state_temp rst
 WHERE rst.entity_kind = 2;
@@ -60,22 +44,7 @@ INSERT INTO refresh_state (entity_id, entity_kind, sequence_id, originator_id)
 SELECT DISTINCT
     rst.entity_id,
     7 as entity_kind,  -- CommitMessage
-    -- If old cursor was a commit, use that cursor
-    -- Otherwise use MAX(commit sequence_ids) since commits are always synced
-    CASE
-        WHEN EXISTS (
-            SELECT 1 FROM group_messages gm
-            WHERE gm.group_id = rst.entity_id
-              AND gm.sequence_id = rst.cursor
-              AND gm.kind = 2  -- It was a commit
-        ) THEN rst.cursor
-        ELSE COALESCE(
-            (SELECT MAX(gm.sequence_id)
-             FROM group_messages gm
-             WHERE gm.group_id = rst.entity_id AND gm.kind = 2),
-            rst.cursor  -- No commits exist, use old cursor
-        )
-    END as sequence_id,
+    rst.cursor as sequence_id,
     0 as originator_id
 FROM refresh_state_temp rst
 WHERE rst.entity_kind = 2;
