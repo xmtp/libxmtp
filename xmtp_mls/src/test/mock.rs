@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, RwLock};
 
 use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
@@ -58,7 +59,6 @@ mock! {
     pub ProcessFutureFactory {}
     impl ProcessFutureFactory<'_> for ProcessFutureFactory {
         fn create(&self, msg: xmtp_proto::mls_v1::group_message::V1) -> xmtp_common::FutureWrapper<'_, Result<ProcessedMessage, SubscribeError>>;
-        fn retrieve(&self, msg: &xmtp_proto::mls_v1::group_message::V1) -> Result<Option<xmtp_db::group_message::StoredGroupMessage>, SubscribeError>;
     }
 }
 
@@ -84,6 +84,7 @@ impl Clone for NewMockContext {
             scw_verifier: self.scw_verifier.clone(),
             device_sync: self.device_sync.clone(),
             workers: self.workers.clone(),
+            shared_last_streamed: self.shared_last_streamed.clone(),
         }
     }
 }
@@ -150,5 +151,32 @@ impl XmtpSharedContext for NewMockContext {
 
     fn sync_api(&self) -> &ApiClientWrapper<Self::ApiClient> {
         &self.sync_api_client
+    }
+
+    fn shared_last_streamed(&self) -> &Arc<RwLock<HashMap<Vec<u8>, u64>>> {
+        &self.shared_last_streamed
+    }
+
+    fn update_shared_last_streamed(&self, group_id: &[u8], cursor: u64) {
+        if let Ok(mut mapping) = self.shared_last_streamed.write() {
+            let group_key = group_id.to_vec();
+
+            // Only update if new cursor is greater than existing
+            if let Some(existing) = mapping.get(&group_key) {
+                if cursor > *existing {
+                    mapping.insert(group_key, cursor);
+                }
+            } else {
+                mapping.insert(group_key, cursor);
+            }
+        }
+    }
+
+    fn get_shared_last_streamed(&self, group_id: &[u8]) -> Option<u64> {
+        if let Ok(mapping) = self.shared_last_streamed.read() {
+            mapping.get(group_id).copied()
+        } else {
+            None
+        }
     }
 }

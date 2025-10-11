@@ -27,18 +27,9 @@ where
 
 fn filter_out_hidden_message_types_from_query(query: &MsgQueryArgs) -> MsgQueryArgs {
     let mut new_query = query.clone();
-    // Get the list of all content types, or use the provided one
-    let mut content_types = match new_query.content_types {
-        Some(types) => types,
-        None => DbContentType::all(),
-    };
+    let hidden_message_types = vec![DbContentType::Reaction, DbContentType::ReadReceipt];
 
-    let hidden_message_types = [DbContentType::Reaction, DbContentType::ReadReceipt];
-
-    // Remove reaction content types
-    content_types.retain(|ct| !hidden_message_types.contains(ct));
-
-    new_query.content_types = Some(content_types);
+    new_query.exclude_content_types = Some(hidden_message_types);
     new_query
 }
 
