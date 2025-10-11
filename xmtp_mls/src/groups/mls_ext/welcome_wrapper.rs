@@ -472,4 +472,36 @@ mod tests {
             assert_eq!(unwrapped, (to_encrypt, vec![]));
         }
     }
+
+    #[xmtp_common::test]
+    async fn round_trip_symmetric_key() {
+        let symmetric_key = xmtp_common::rand_array::<32>();
+        let nonces = [
+            xmtp_common::rand_array::<12>(),
+            xmtp_common::rand_array::<12>(),
+        ];
+        let nonce_slices = nonces.each_ref().map(|nonce| nonce.as_slice());
+        let data = [
+            xmtp_common::rand_vec::<1000>(),
+            xmtp_common::rand_vec::<32>(),
+        ];
+        let available_types = crate::groups::mls_ext::WelcomePointersExtension::available_types();
+        for aead_type in available_types.supported_aead_types {
+            let wrapped = wrap_welcome_symmetric(
+                data.each_ref().map(|data| data.as_slice()),
+                aead_type,
+                &symmetric_key,
+                nonce_slices,
+            )
+            .unwrap();
+            let unwrapped = unwrap_welcome_symmetric(
+                wrapped.each_ref().map(|data| data.as_slice()),
+                aead_type,
+                &symmetric_key,
+                nonce_slices,
+            )
+            .unwrap();
+            assert_eq!(data, unwrapped);
+        }
+    }
 }
