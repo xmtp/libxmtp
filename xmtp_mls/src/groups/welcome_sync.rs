@@ -26,6 +26,37 @@ impl<Context> WelcomeService<Context> {
     }
 }
 
+// This is to enable resumption of welcome message processing from a task
+pub enum ResumableWelcomeMessage {
+    WelcomeMessage(welcome_message::Version),
+    DecryptedWelcomePointer {
+        id: u64,
+        created_ns: u64,
+        decrypted_welcome_pointer: xmtp_proto::xmtp::mls::message_contents::WelcomePointer,
+    },
+}
+
+impl From<welcome_message::Version> for ResumableWelcomeMessage {
+    fn from(welcome: welcome_message::Version) -> Self {
+        ResumableWelcomeMessage::WelcomeMessage(welcome)
+    }
+}
+
+impl ResumableWelcomeMessage {
+    pub fn id(&self) -> u64 {
+        match self {
+            ResumableWelcomeMessage::WelcomeMessage(welcome) => welcome.id(),
+            ResumableWelcomeMessage::DecryptedWelcomePointer { id, .. } => *id,
+        }
+    }
+    pub fn created_ns(&self) -> u64 {
+        match self {
+            ResumableWelcomeMessage::WelcomeMessage(welcome) => welcome.created_ns(),
+            ResumableWelcomeMessage::DecryptedWelcomePointer { created_ns, .. } => *created_ns,
+        }
+    }
+}
+
 impl<Context> WelcomeService<Context>
 where
     Context: XmtpSharedContext,
@@ -35,7 +66,7 @@ where
     /// applies the update after the welcome processed successfully.
     pub(crate) async fn process_new_welcome(
         &self,
-        welcome: &welcome_message::Version,
+        welcome: &ResumableWelcomeMessage,
         cursor_increment: bool,
         validator: impl ValidateGroupMembership,
     ) -> Result<Option<MlsGroup<Context>>, GroupError> {
@@ -94,11 +125,12 @@ where
                         return None;
                     }
                 };
+                let welcome = ResumableWelcomeMessage::from(version);
                 retry_async!(
                     Retry::default(),
                     (async {
                         let validator = InitialMembershipValidator::new(&self.context);
-                        self.process_new_welcome(&version, true, validator).await
+                        self.process_new_welcome(&welcome, true, validator).await
                     })
                 )
                 .ok()?
@@ -296,7 +328,7 @@ mod tests {
         public_key: Vec<u8>,
         welcome: MlsMessageOut,
         message_cursor: Option<u64>,
-    ) -> welcome_message::Version {
+    ) -> ResumableWelcomeMessage {
         let (data, welcome_metadata) = wrap_welcome(
             &welcome.tls_serialize_detached().unwrap(),
             &WelcomeMetadata {
@@ -317,6 +349,7 @@ mod tests {
             wrapper_algorithm: WrapperAlgorithm::Curve25519.into(),
             welcome_metadata,
         })
+        .into()
     }
 
     #[derive(Builder)]

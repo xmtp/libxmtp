@@ -15,6 +15,7 @@ use crate::{
     groups::{
         GroupError,
         mls_ext::{unwrap_welcome, unwrap_welcome_symmetric},
+        welcome_sync::ResumableWelcomeMessage,
     },
     identity::parse_credential,
 };
@@ -71,14 +72,16 @@ impl DecryptedWelcome {
         Ok((welcome, welcome_metadata))
     }
     async fn welcome_from_proto_welcome_pointer(
-        provider: &impl XmtpMlsStorageProvider,
-        proto: &xmtp_proto::mls_v1::welcome_message::WelcomePointer,
+        welcome_pointer: &xmtp_proto::xmtp::mls::message_contents::WelcomePointer,
         context: &impl crate::context::XmtpSharedContext,
-    ) -> Result<(openmls::messages::Welcome, Option<WelcomeMetadata>), GroupError> {
-        let welcome_pointer = decrypt_welcome_pointer(provider, proto)?;
-        let v1 = super::super::welcome_pointer::resolve_welcome_pointer(&welcome_pointer, context)
+    ) -> Result<Option<(openmls::messages::Welcome, Option<WelcomeMetadata>)>, GroupError> {
+        let v1 = super::super::welcome_pointer::resolve_welcome_pointer(welcome_pointer, context)
             .await?;
-        let welcome_pointer_v1 = match welcome_pointer.version {
+        let Some(v1) = v1 else {
+            // Unable to resolve welcome pointer
+            return Ok(None);
+        };
+        let welcome_pointer_v1 = match &welcome_pointer.version {
             Some(xmtp_proto::xmtp::mls::message_contents::welcome_pointer::Version::V1(v1)) => v1,
             None => {
                 return Err(xmtp_proto::ConversionError::InvalidValue {
@@ -146,19 +149,82 @@ impl DecryptedWelcome {
             .map(deserialize_welcome_metadata)
             .transpose()?;
 
-        Ok((welcome, welcome_metadata))
+        Ok(Some((welcome, welcome_metadata)))
     }
     pub(crate) async fn from_welcome_proto(
-        proto: &xmtp_proto::mls_v1::welcome_message::Version,
+        welcome: &ResumableWelcomeMessage,
         provider: &impl XmtpMlsStorageProvider,
         context: &impl crate::context::XmtpSharedContext,
     ) -> Result<Self, GroupError> {
-        let (welcome, welcome_metadata) = match proto {
-            xmtp_proto::mls_v1::welcome_message::Version::V1(v1) => {
-                Self::welcome_from_proto_v1(provider, v1)?
-            }
-            xmtp_proto::mls_v1::welcome_message::Version::WelcomePointer(w) => {
-                Self::welcome_from_proto_welcome_pointer(provider, w, context).await?
+        use xmtp_common::r#const::{NS_IN_DAY, NS_IN_HOUR, NS_IN_MIN};
+        let (welcome, welcome_metadata) = match welcome {
+            ResumableWelcomeMessage::WelcomeMessage(proto) => match proto {
+                xmtp_proto::mls_v1::welcome_message::Version::V1(v1) => {
+                    Self::welcome_from_proto_v1(provider, v1)?
+                }
+                xmtp_proto::mls_v1::welcome_message::Version::WelcomePointer(w) => {
+                    let welcome_pointer = decrypt_welcome_pointer(provider, w)?;
+                    let maybe_welcome =
+                        Self::welcome_from_proto_welcome_pointer(&welcome_pointer, context).await?;
+                    match maybe_welcome {
+                        Some(welcome) => welcome,
+                        None => {
+                            let destination = match &welcome_pointer.version {
+                                Some(xmtp_proto::xmtp::mls::message_contents::welcome_pointer::Version::V1(v1)) => {
+                                    hex::encode(v1.destination.as_slice())
+                                }
+                                None => {
+                                    return Err(xmtp_proto::ConversionError::InvalidValue { item: "WelcomePointer.version", expected: "V1", got: "None".into() }.into());
+                                }
+                            };
+                            let now = xmtp_common::time::now_ns();
+                            #[allow(clippy::unwrap_used)]
+                            let task = xmtp_db::tasks::NewTaskBuilder::default()
+                                .originating_message_id(Some(proto.id() as i64))
+                                // use created_ns from the welcome so we can reuse it when reprocessing
+                                .created_at_ns(proto.created_ns() as i64)
+                                .expires_at_ns(now + NS_IN_DAY * 3)
+                                .attempts(0)
+                                .max_attempts(100)
+                                .last_attempted_at_ns(now)
+                                .backoff_scaling_factor(1.5)
+                                .max_backoff_duration_ns(NS_IN_HOUR * 2)
+                                .initial_backoff_duration_ns(NS_IN_MIN * 5)
+                                .next_attempt_at_ns(now + NS_IN_MIN * 5)
+                                .build(xmtp_proto::xmtp::mls::database::Task{
+                                    task: Some(xmtp_proto::xmtp::mls::database::task::Task::ProcessWelcomePointer(welcome_pointer)),
+                                })
+                                // This will never fail as long as we have provided all the fields,
+                                //so unwrap here to ensure we catch any issues in tests
+                                .unwrap();
+                            context.workers().task_channels().send(task);
+                            return Err(GroupError::WelcomeDataNotFound(destination));
+                        }
+                    }
+                }
+            },
+            ResumableWelcomeMessage::DecryptedWelcomePointer {
+                decrypted_welcome_pointer,
+                ..
+            } => {
+                let maybe_welcome =
+                    Self::welcome_from_proto_welcome_pointer(decrypted_welcome_pointer, context)
+                        .await?;
+                match maybe_welcome {
+                    Some(welcome) => welcome,
+                    None => {
+                        let destination = match &decrypted_welcome_pointer.version {
+                            Some(xmtp_proto::xmtp::mls::message_contents::welcome_pointer::Version::V1(v1)) => {
+                                hex::encode(v1.destination.as_slice())
+                            }
+                            None => {
+                                return Err(xmtp_proto::ConversionError::InvalidValue { item: "WelcomePointer.version", expected: "V1", got: "None".into() }.into());
+                            }
+                        };
+                        // This branch should only be hit if this is from a reprocessing task, so no need to create a new one
+                        return Err(GroupError::WelcomeDataNotFound(destination));
+                    }
+                }
             }
         };
 

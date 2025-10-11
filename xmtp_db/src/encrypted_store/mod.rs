@@ -31,6 +31,7 @@ pub mod refresh_state;
 pub mod schema;
 mod schema_gen;
 pub mod store;
+pub mod tasks;
 pub mod user_preferences;
 
 pub mod local_commit_log;

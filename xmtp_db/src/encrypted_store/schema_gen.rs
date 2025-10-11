@@ -206,6 +206,24 @@ diesel::table! {
 }
 
 diesel::table! {
+    tasks (id) {
+        id -> Integer,
+        originating_message_id -> Nullable<BigInt>,
+        created_at_ns -> BigInt,
+        expires_at_ns -> BigInt,
+        attempts -> Integer,
+        max_attempts -> Integer,
+        last_attempted_at_ns -> BigInt,
+        backoff_scaling_factor -> Float,
+        max_backoff_duration_ns -> BigInt,
+        initial_backoff_duration_ns -> BigInt,
+        next_attempt_at_ns -> BigInt,
+        data_hash -> Binary,
+        data -> Binary,
+    }
+}
+
+diesel::table! {
     user_preferences (id) {
         id -> Integer,
         hmac_key -> Nullable<Binary>,
@@ -235,5 +253,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     readd_status,
     refresh_state,
     remote_commit_log,
+    tasks,
     user_preferences,
 );
