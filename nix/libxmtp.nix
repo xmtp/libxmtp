@@ -33,13 +33,13 @@
 , emscripten
 , taplo
 , shellcheck
-, cargo-llvm-cov
 , lcov
+, cargo-llvm-cov
 , ...
 }:
 
 let
-  inherit (stdenv) isDarwin;
+  inherit (stdenv) isDarwin isLinux;
   rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
 in
 mkShell {
@@ -88,7 +88,6 @@ mkShell {
       lnav
       jq
       curl
-      cargo-llvm-cov
       lcov
 
       # Protobuf
@@ -106,5 +105,5 @@ mkShell {
     ]
     ++ lib.optionals isDarwin [
       darwin.cctools
-    ];
+    ] ++ lib.optionals isLinux [ cargo-llvm-cov ];
 }

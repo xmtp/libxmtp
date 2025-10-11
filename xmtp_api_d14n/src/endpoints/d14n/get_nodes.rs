@@ -42,7 +42,7 @@ mod test {
     #[xmtp_common::test]
     async fn test_get_nodes() {
         let mut endpoint = GetNodes::builder().build().unwrap();
-        let gateway_client = crate::TestClient::create_gateway();
+        let gateway_client = crate::TestGrpcClient::create_gateway();
         let client = gateway_client.build().unwrap();
         assert!(endpoint.query(&client).await.is_ok());
     }
@@ -51,7 +51,7 @@ mod test {
     async fn test_get_nodes_unimplemented() {
         // xmtpd doesn't implement the GetNodes endpoint
         let mut endpoint = GetNodes::builder().build().unwrap();
-        let xmtpd_client = crate::TestClient::create_d14n();
+        let xmtpd_client = crate::TestGrpcClient::create_d14n();
         let client = xmtpd_client.build().unwrap();
         assert!(endpoint.query(&client).await.is_err());
     }

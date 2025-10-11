@@ -340,6 +340,11 @@ mod test_logger {
         xmtp_common::logger_layer()
     }
 
+    // _NOTE:_ this test **fails** if there are rogue loggers
+    // started with `ctor::ctor` in other crates.
+    // crates should ensure their test `ctor`'s are
+    // using `cfg(test)` and cannot be activated
+    // with `test-utils`.
     #[test]
     fn test_file_appender() {
         init_logger();

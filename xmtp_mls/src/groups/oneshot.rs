@@ -6,7 +6,10 @@ use xmtp_db::{
 };
 use xmtp_id::AsIdRef;
 use xmtp_mls_common::{group::GroupMetadataOptions, group_metadata::GroupMetadata};
-use xmtp_proto::xmtp::mls::message_contents::{OneshotMessage, oneshot_message};
+use xmtp_proto::{
+    types::Cursor,
+    xmtp::mls::message_contents::{OneshotMessage, oneshot_message},
+};
 
 pub struct Oneshot {}
 
@@ -81,7 +84,7 @@ impl Oneshot {
 
     pub fn process_welcome(
         provider: &impl MlsProviderExt,
-        id: u64,
+        cursor: Cursor,
         sender_inbox_id: String,
         sender_installation_id: Vec<u8>,
         metadata: GroupMetadata,
@@ -90,7 +93,10 @@ impl Oneshot {
         if let Some(message) = metadata.oneshot_message {
             Self::process_message(provider, sender_inbox_id, sender_installation_id, message)?;
         } else {
-            tracing::warn!("Oneshot group welcome {} does not have oneshot message", id);
+            tracing::warn!(
+                "Oneshot group welcome {} does not have oneshot message",
+                cursor
+            );
         }
         Ok(())
     }
