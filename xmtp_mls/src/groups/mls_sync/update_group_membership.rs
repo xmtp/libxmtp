@@ -50,6 +50,30 @@ pub(crate) async fn apply_update_group_membership_intent(
 
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
+    let publish_intent_data = compute_publish_data_for_group_membership_update(
+        context,
+        openmls_group,
+        changes_with_kps.new_installations,
+        changes_with_kps.new_key_packages,
+        leaf_nodes_to_remove,
+        new_extensions,
+        signer,
+    )
+    .await?;
+
+    Ok(Some(publish_intent_data))
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+async fn compute_publish_data_for_group_membership_update(
+    context: &impl XmtpSharedContext,
+    openmls_group: &mut OpenMlsGroup,
+    installations_to_add: Vec<Installation>,
+    key_packages_to_add: Vec<KeyPackage>,
+    leaf_nodes_to_remove: Vec<LeafNodeIndex>,
+    new_extensions: Extensions,
+    signer: impl Signer,
+) -> Result<PublishIntentData, GroupError> {
     let (commit, post_commit_action, staged_commit) =
         context.mls_storage().transaction(|conn| {
             let storage = conn.key_store();
@@ -58,7 +82,7 @@ pub(crate) async fn apply_update_group_membership_intent(
             let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
                 &provider,
                 &signer,
-                &changes_with_kps.new_key_packages,
+                &key_packages_to_add,
                 &leaf_nodes_to_remove,
                 new_extensions,
             )?;
@@ -66,7 +90,7 @@ pub(crate) async fn apply_update_group_membership_intent(
             let post_commit_action = match maybe_welcome_message {
                 Some(welcome_message) => Some(PostCommitAction::from_welcome(
                     welcome_message,
-                    changes_with_kps.new_installations,
+                    installations_to_add,
                 )?),
                 None => None,
             };
@@ -77,12 +101,78 @@ pub(crate) async fn apply_update_group_membership_intent(
             Ok::<_, GroupError>((commit, post_commit_action, staged_commit))
         })?;
 
-    Ok(Some(PublishIntentData {
+    Ok(PublishIntentData {
         payload_to_publish: commit.tls_serialize_detached()?,
         post_commit_action: post_commit_action.map(|action| action.to_bytes()),
         staged_commit: Some(staged_commit),
         should_send_push_notification: false,
-    }))
+    })
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+pub(crate) async fn apply_readd_installations_intent(
+    context: &impl XmtpSharedContext,
+    openmls_group: &mut OpenMlsGroup,
+    intent_data: ReaddInstallationsIntentData,
+    signer: impl Signer,
+) -> Result<Option<PublishIntentData>, GroupError> {
+    let readded_installations: HashSet<Vec<u8>> =
+        intent_data.readded_installations.into_iter().collect();
+
+    // Filter out installations not in the ratchet tree. Do not readd installations:
+    // 1. That have since been removed
+    // 2. Are in the failed installations list (these should be retried by group members some other way)
+    let mut installations_to_readd = HashSet::new();
+    let mut leaf_indices_to_remove = Vec::new();
+    for member in openmls_group.members() {
+        if readded_installations.contains(&member.signature_key)
+            && member.index != openmls_group.own_leaf_index()
+        {
+            installations_to_readd.insert(member.signature_key);
+            leaf_indices_to_remove.push(member.index);
+        }
+    }
+
+    let mut installations_to_welcome = Vec::new();
+    let mut key_packages_to_welcome = Vec::new();
+    let mut failed_installations = Vec::new();
+    get_keypackages_for_installation_ids(
+        context,
+        installations_to_readd,
+        &mut installations_to_welcome,
+        &mut key_packages_to_welcome,
+        &mut failed_installations,
+    )
+    .await?;
+
+    // Update the group membership extension to reflect any failed installations
+    let extensions: Extensions = openmls_group.extensions().clone();
+    let old_group_membership = extract_group_membership(&extensions)?;
+    let failed_installations: HashSet<Vec<u8>> = old_group_membership
+        .failed_installations
+        .clone()
+        .into_iter()
+        .chain(failed_installations)
+        .collect();
+    let new_group_membership = GroupMembership {
+        members: old_group_membership.members.clone(),
+        failed_installations: failed_installations.into_iter().collect(),
+    };
+    let mut new_extensions = extensions.clone();
+    new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
+
+    let publish_intent_data = compute_publish_data_for_group_membership_update(
+        context,
+        openmls_group,
+        installations_to_welcome,
+        key_packages_to_welcome,
+        leaf_indices_to_remove,
+        new_extensions,
+        signer,
+    )
+    .await?;
+
+    Ok(Some(publish_intent_data))
 }
 
 #[cfg(test)]
