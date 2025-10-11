@@ -92,6 +92,9 @@ mod tests {
                 assert_eq!(v1.wrapper_algorithm, 1);
                 assert_eq!(v1.welcome_metadata, vec![1, 2, 3]);
             }
+            mls_v1::welcome_message::Version::WelcomePointer(_) => {
+                unimplemented!("WelcomePointer not supported");
+            }
         }
     }
 }
