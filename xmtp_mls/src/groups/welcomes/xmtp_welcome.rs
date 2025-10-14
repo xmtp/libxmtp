@@ -1,6 +1,8 @@
 //! XMTP Welcome Processing
 //! Processes a new welcome from the network
 
+use std::collections::HashSet;
+
 use crate::groups::mls_ext::CommitLogStorer;
 use crate::groups::mls_sync::DeferredEvents;
 use crate::groups::oneshot::Oneshot;
@@ -516,6 +518,12 @@ where
             .map(|m| m.message_cursor as i64)
             .unwrap_or_default();
         db.update_cursor(&group.group_id, EntityKind::Group, cursor)?;
+        MlsGroup::<C>::mark_readd_requests_as_responded(
+            &storage,
+            &group.group_id,
+            &HashSet::from([context.installation_id().to_vec()]),
+            cursor,
+        )?;
 
         tracing::info!(
             inbox_id = %current_inbox_id,
