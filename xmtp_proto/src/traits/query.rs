@@ -78,7 +78,6 @@ where
             .map_err(|e| e.endpoint(endpoint.into_owned()))?;
         let stream = rsp.into_body();
         let stream = XmtpStream::new(stream, ApiEndpoint::SubscribeGroupMessages);
-
         Ok(stream)
     }
 }

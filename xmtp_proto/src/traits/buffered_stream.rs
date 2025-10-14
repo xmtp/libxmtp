@@ -79,7 +79,7 @@ where
     S::Error: std::error::Error + 'static,
 {
     type Item = Result<Item, ApiClientError<S::Error>>;
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.as_mut().rx.poll_next_unpin(cx)
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.project().rx.poll_next(cx)
     }
 }
