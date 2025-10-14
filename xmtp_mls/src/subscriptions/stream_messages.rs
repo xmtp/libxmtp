@@ -206,7 +206,7 @@ where
         }
 
         // if we're waiting, resolve it right away
-        if let State::Waiting = self.state {
+        if matches!(self.state, State::Waiting) {
             self.resolve_group_additions(group);
         } else {
             tracing::debug!("stream busy, queuing group add");
