@@ -1,7 +1,7 @@
 //! Api Client Traits
 
 use crate::{
-    api::{RetryQuery, V3Paged, XmtpStream, combinators::Ignore},
+    api::{RetryQuery, V3Paged, XmtpBufferedStream, XmtpStream, combinators::Ignore},
     api_client::AggregateStats,
 };
 use http::{request, uri::PathAndQuery};
@@ -145,6 +145,11 @@ where
         &mut self,
         client: &C,
     ) -> Result<XmtpStream<<C as Client>::Stream, T>, ApiClientError<C::Error>>;
+
+    async fn buffered_stream(
+        &mut self,
+        client: &C,
+    ) -> Result<XmtpBufferedStream<<C as Client>::Stream, T>, ApiClientError<C::Error>>;
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -167,6 +172,7 @@ where
     E: Endpoint + Send + Sync,
     C: Client + Sync + Send,
     C::Error: std::error::Error,
+    <C as Client>::Stream: 'static,
 {
     async fn subscribe<R>(
         &mut self,

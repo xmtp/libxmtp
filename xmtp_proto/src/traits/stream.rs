@@ -28,14 +28,18 @@ pin_project! {
 
 pin_project! {
     /// A buffer that wraps around the stream to ensure
-    pub struct XmtpBufferedStream<S, Item, E> {
+    pub struct XmtpBufferedStream<S, Item>
+    where
+        S: TryStream<Ok = Bytes>,
+        <S as TryStream>::Error: std::error::Error
+    {
         handle: JoinHandle<()>,
-        #[pin] rx: Receiver<Result<Item, E>>,
+        #[pin] rx: Receiver<Result<Item, ApiClientError<S::Error>>>,
         _stream: PhantomData<S>,
     }
 }
 
-impl<S, Item> XmtpBufferedStream<S, Item, ApiClientError<S::Error>>
+impl<S, Item> XmtpBufferedStream<S, Item>
 where
     S: TryStream<Ok = Bytes>,
     Item: prost::Message + Default + 'static,
@@ -72,7 +76,7 @@ impl<S, T> XmtpStream<S, T> {
     }
 }
 
-impl<S, Item> Stream for XmtpBufferedStream<S, Item, ApiClientError<S::Error>>
+impl<S, Item> Stream for XmtpBufferedStream<S, Item>
 where
     S: TryStream<Ok = Bytes>,
     Item: prost::Message + Default,

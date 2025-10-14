@@ -5,7 +5,7 @@ use bytes::Bytes;
 use super::{Client, Endpoint, Query, QueryStream};
 use crate::{
     ApiEndpoint,
-    api::{QueryRaw, XmtpStream},
+    api::{QueryRaw, XmtpBufferedStream, XmtpStream},
     prelude::ApiClientError,
 };
 
@@ -64,6 +64,7 @@ where
     C: Client + Sync + Send,
     C::Error: std::error::Error,
     T: Default + prost::Message + 'static,
+    <C as Client>::Stream: 'static,
 {
     async fn stream(
         &mut self,
@@ -78,6 +79,16 @@ where
             .map_err(|e| e.endpoint(endpoint.into_owned()))?;
         let stream = rsp.into_body();
         let stream = XmtpStream::new(stream, ApiEndpoint::SubscribeGroupMessages);
+
         Ok(stream)
+    }
+
+    async fn buffered_stream(
+        &mut self,
+        client: &C,
+    ) -> Result<XmtpBufferedStream<<C as Client>::Stream, T>, ApiClientError<C::Error>> {
+        let stream = self.stream(client).await?;
+        let buffered_stream = XmtpBufferedStream::new(stream);
+        Ok(buffered_stream)
     }
 }
