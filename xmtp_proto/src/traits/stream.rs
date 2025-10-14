@@ -27,7 +27,8 @@ pin_project! {
 }
 
 pin_project! {
-    /// A buffer that wraps around the stream to ensure
+    /// A buffer that wraps around the stream to avoid backpressure to the server
+    /// which may result in potential lost messages.
     pub struct XmtpBufferedStream<S, Item>
     where
         S: TryStream<Ok = Bytes>,

@@ -162,6 +162,13 @@ pub trait QueryStreamExt<C: Client> {
     ) -> Result<XmtpStream<<C as Client>::Stream, R>, ApiClientError<C::Error>>
     where
         R: Default + prost::Message + 'static;
+
+    async fn subscribe_with_buffer<R>(
+        &mut self,
+        client: &C,
+    ) -> Result<XmtpBufferedStream<<C as Client>::Stream, R>, ApiClientError<C::Error>>
+    where
+        R: Default + prost::Message + 'static;
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -182,6 +189,16 @@ where
         R: Default + prost::Message + 'static,
     {
         self.stream(client).await
+    }
+
+    async fn subscribe_with_buffer<R>(
+        &mut self,
+        client: &C,
+    ) -> Result<XmtpBufferedStream<<C as Client>::Stream, R>, ApiClientError<C::Error>>
+    where
+        R: Default + prost::Message + 'static,
+    {
+        self.buffered_stream(client).await
     }
 }
 
