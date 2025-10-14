@@ -10,10 +10,12 @@ use tokio::task::JoinHandle;
 
 use crate::{ApiEndpoint, api::ApiClientError};
 use futures::{
-    Stream, StreamExt, TryStream,
-    channel::mpsc::{self, UnboundedReceiver},
+    SinkExt, Stream, StreamExt, TryStream,
+    channel::mpsc::{self, Receiver},
 };
 use pin_project_lite::pin_project;
+
+const BUFFER_MAX: usize = 1_000;
 
 pin_project! {
     /// A stream which maps the tonic error to ApiClientError, and attaches endpoint metadata
@@ -24,23 +26,29 @@ pin_project! {
     }
 }
 
-pub struct XmtpBufferedStream<S, T> {
-    handle: JoinHandle<()>,
-    rx: UnboundedReceiver<T>,
-    _stream: PhantomData<S>,
+pin_project! {
+    /// A buffer that wraps around the stream to ensure
+    pub struct XmtpBufferedStream<S, Item, E> {
+        handle: JoinHandle<()>,
+        #[pin] rx: Receiver<Result<Item, E>>,
+        _stream: PhantomData<S>,
+    }
 }
 
-impl<S, T> XmtpBufferedStream<S, T>
+impl<S, Item> XmtpBufferedStream<S, Item, ApiClientError<S::Error>>
 where
-    S: Stream<Item = T> + Send + 'static,
-    T: Send + 'static,
+    S: TryStream<Ok = Bytes>,
+    Item: prost::Message + Default + 'static,
+    S::Error: std::error::Error + Send + 'static,
 {
-    pub fn new(inner: S) -> Self {
-        let (tx, rx) = mpsc::unbounded();
+    pub fn new(
+        inner: impl Stream<Item = Result<Item, ApiClientError<S::Error>>> + Send + 'static,
+    ) -> Self {
+        let (mut tx, rx) = mpsc::channel(BUFFER_MAX);
         let handle = tokio::spawn(async move {
             let mut pinned = pin!(inner);
             while let Some(next) = pinned.as_mut().next().await {
-                if let Err(_) = tx.unbounded_send(next) {
+                if let Err(_) = tx.send(next).await {
                     break;
                 }
             }
@@ -61,6 +69,18 @@ impl<S, T> XmtpStream<S, T> {
             endpoint,
             _marker: PhantomData,
         }
+    }
+}
+
+impl<S, Item> Stream for XmtpBufferedStream<S, Item, ApiClientError<S::Error>>
+where
+    S: TryStream<Ok = Bytes>,
+    Item: prost::Message + Default,
+    S::Error: std::error::Error + 'static,
+{
+    type Item = Result<Item, ApiClientError<S::Error>>;
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.as_mut().rx.poll_next_unpin(cx)
     }
 }
 
