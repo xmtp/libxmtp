@@ -3,12 +3,16 @@
 use prost::bytes::Bytes;
 use std::{
     marker::PhantomData,
-    pin::Pin,
+    pin::{Pin, pin},
     task::{Context, Poll, ready},
 };
+use tokio::task::JoinHandle;
 
 use crate::{ApiEndpoint, api::ApiClientError};
-use futures::{Stream, TryStream};
+use futures::{
+    Stream, StreamExt, TryStream,
+    channel::mpsc::{self, UnboundedReceiver},
+};
 use pin_project_lite::pin_project;
 
 pin_project! {
@@ -17,6 +21,36 @@ pin_project! {
         #[pin] inner: S,
         endpoint: ApiEndpoint,
         _marker: PhantomData<T>,
+    }
+}
+
+pub struct XmtpBufferedStream<S, T> {
+    handle: JoinHandle<()>,
+    rx: UnboundedReceiver<T>,
+    _stream: PhantomData<S>,
+}
+
+impl<S, T> XmtpBufferedStream<S, T>
+where
+    S: Stream<Item = T> + Send + 'static,
+    T: Send + 'static,
+{
+    pub fn new(inner: S) -> Self {
+        let (tx, rx) = mpsc::unbounded();
+        let handle = tokio::spawn(async move {
+            let mut pinned = pin!(inner);
+            while let Some(next) = pinned.as_mut().next().await {
+                if let Err(_) = tx.unbounded_send(next) {
+                    break;
+                }
+            }
+        });
+
+        Self {
+            handle,
+            rx,
+            _stream: PhantomData,
+        }
     }
 }
 
