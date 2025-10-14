@@ -1,7 +1,7 @@
 //! Api Client Traits
 
 use crate::{
-    api::{RetryQuery, V3Paged, XmtpBufferedStream, XmtpStream, combinators::Ignore},
+    api::{RetryQuery, V3Paged, XmtpStream, combinators::Ignore},
     api_client::AggregateStats,
 };
 use http::{request, uri::PathAndQuery};
@@ -12,6 +12,7 @@ use xmtp_common::{MaybeSend, Retry};
 #[cfg(any(test, feature = "test-utils"))]
 pub mod mock;
 
+pub mod buffered_stream;
 pub mod combinators;
 mod error;
 mod query;
@@ -145,11 +146,6 @@ where
         &mut self,
         client: &C,
     ) -> Result<XmtpStream<<C as Client>::Stream, T>, ApiClientError<C::Error>>;
-
-    async fn buffered_stream(
-        &mut self,
-        client: &C,
-    ) -> Result<XmtpBufferedStream<<C as Client>::Stream, T>, ApiClientError<C::Error>>;
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -162,13 +158,6 @@ pub trait QueryStreamExt<C: Client> {
     ) -> Result<XmtpStream<<C as Client>::Stream, R>, ApiClientError<C::Error>>
     where
         R: Default + prost::Message + 'static;
-
-    async fn subscribe_with_buffer<R>(
-        &mut self,
-        client: &C,
-    ) -> Result<XmtpBufferedStream<<C as Client>::Stream, R>, ApiClientError<C::Error>>
-    where
-        R: Default + prost::Message + 'static;
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -179,7 +168,6 @@ where
     E: Endpoint + Send + Sync,
     C: Client + Sync + Send,
     C::Error: std::error::Error,
-    <C as Client>::Stream: 'static,
 {
     async fn subscribe<R>(
         &mut self,
@@ -189,16 +177,6 @@ where
         R: Default + prost::Message + 'static,
     {
         self.stream(client).await
-    }
-
-    async fn subscribe_with_buffer<R>(
-        &mut self,
-        client: &C,
-    ) -> Result<XmtpBufferedStream<<C as Client>::Stream, R>, ApiClientError<C::Error>>
-    where
-        R: Default + prost::Message + 'static,
-    {
-        self.buffered_stream(client).await
     }
 }
 

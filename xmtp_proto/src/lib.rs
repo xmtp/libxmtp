@@ -30,6 +30,7 @@ pub mod codec;
 mod traits;
 
 pub mod api {
+    pub use super::traits::buffered_stream::*;
     pub use super::traits::combinators::*;
     pub use super::traits::stream::*;
     pub use super::traits::*;
