@@ -15,6 +15,7 @@ pub struct ApiStats {
     pub subscribe_welcomes: Arc<EndpointStats>,
     pub publish_commit_log: Arc<EndpointStats>,
     pub query_commit_log: Arc<EndpointStats>,
+    pub get_newest_group_message: Arc<EndpointStats>,
 }
 
 impl ApiStats {
@@ -29,6 +30,7 @@ impl ApiStats {
         self.subscribe_welcomes.clear();
         self.publish_commit_log.clear();
         self.query_commit_log.clear();
+        self.get_newest_group_message.clear();
     }
 }
 

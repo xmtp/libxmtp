@@ -8,7 +8,10 @@ use crate::protocol::SequencedExtractor;
 use crate::protocol::TopicKind;
 use crate::protocol::WelcomeMessageExtractor;
 use crate::protocol::traits::EnvelopeCollection;
+use crate::protocol::traits::EnvelopeError;
+use crate::protocol::traits::EnvelopeVisitor;
 use crate::protocol::traits::Extractor;
+use crate::protocol::traits::ProtocolEnvelope;
 use crate::v3::PublishCommitLog;
 use crate::v3::PublishIdentityUpdate;
 use crate::v3::QueryCommitLog;
@@ -35,6 +38,47 @@ use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4,
 };
+
+/// Extractor for converting GetNewestEnvelopeResponse results to GroupMessage responses
+#[derive(Default, Clone)]
+pub struct GroupMessageResponseExtractor {
+    responses: Vec<mls_v1::get_newest_group_message_response::Response>,
+}
+
+impl GroupMessageResponseExtractor {
+    pub fn new() -> Self {
+        Default::default()
+    }
+}
+
+impl Extractor for GroupMessageResponseExtractor {
+    type Output = Vec<mls_v1::get_newest_group_message_response::Response>;
+
+    fn get(self) -> Self::Output {
+        self.responses
+    }
+}
+
+impl EnvelopeVisitor<'_> for GroupMessageResponseExtractor {
+    type Error = EnvelopeError;
+
+    fn visit_newest_envelope_response(
+        &mut self,
+        response: &xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response::Response,
+    ) -> Result<(), Self::Error> {
+        let group_message = if let Some(envelope) = &response.originator_envelope {
+            let mut extractor = GroupMessageExtractor::default();
+            envelope.accept(&mut extractor)?;
+            Some(extractor.get())
+        } else {
+            None
+        };
+
+        self.responses
+            .push(mls_v1::get_newest_group_message_response::Response { group_message });
+        Ok(())
+    }
+}
 
 #[derive(Clone)]
 pub struct CombinedD14nClient<C, D> {
@@ -173,6 +217,29 @@ where
             .await
     }
 
+    async fn get_newest_group_message(
+        &self,
+        request: mls_v1::GetNewestGroupMessageRequest,
+    ) -> Result<mls_v1::GetNewestGroupMessageResponse, Self::Error> {
+        let topics: Vec<Vec<u8>> = request
+            .group_ids
+            .into_iter()
+            .map(|id| TopicKind::GroupMessagesV1.build(id.as_slice()))
+            .collect();
+
+        let response = GetNewestEnvelopes::builder()
+            .topics(topics)
+            .build()?
+            .query(&self.xmtpd_client)
+            .await?;
+
+        let extractor =
+            CollectionExtractor::new(response.results, GroupMessageResponseExtractor::new());
+        let responses = extractor.get()?;
+
+        Ok(mls_v1::GetNewestGroupMessageResponse { responses })
+    }
+
     fn stats(&self) -> ApiStats {
         Default::default()
     }
@@ -291,5 +358,53 @@ where
 
     fn identity_stats(&self) -> IdentityStats {
         Default::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::traits::{EnvelopeVisitor, Extractor};
+    use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
+
+    #[xmtp_common::test]
+    fn test_combined_group_message_response_extractor_empty() {
+        let response = get_newest_envelope_response::Response {
+            originator_envelope: None,
+        };
+
+        let mut extractor = GroupMessageResponseExtractor::new();
+        let result = extractor.visit_newest_envelope_response(&response);
+        assert!(result.is_ok(), "Should handle empty response gracefully");
+
+        let responses = extractor.get();
+        assert_eq!(responses.len(), 1, "Should create one response");
+        assert!(
+            responses[0].group_message.is_none(),
+            "Should have no group message"
+        );
+    }
+
+    #[xmtp_common::test]
+    fn test_combined_group_message_response_extractor_multiple() {
+        let response1 = get_newest_envelope_response::Response {
+            originator_envelope: None,
+        };
+        let response2 = get_newest_envelope_response::Response {
+            originator_envelope: None,
+        };
+
+        let mut extractor = GroupMessageResponseExtractor::new();
+        extractor
+            .visit_newest_envelope_response(&response1)
+            .unwrap();
+        extractor
+            .visit_newest_envelope_response(&response2)
+            .unwrap();
+
+        let responses = extractor.get();
+        assert_eq!(responses.len(), 2, "Should create two responses");
+        assert!(responses[0].group_message.is_none());
+        assert!(responses[1].group_message.is_none());
     }
 }

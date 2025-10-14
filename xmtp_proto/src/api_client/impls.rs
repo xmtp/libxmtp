@@ -153,6 +153,13 @@ where
         (**self).query_commit_log(request).await
     }
 
+    async fn get_newest_group_message(
+        &self,
+        request: GetNewestGroupMessageRequest,
+    ) -> Result<GetNewestGroupMessageResponse, Self::Error> {
+        (**self).get_newest_group_message(request).await
+    }
+
     fn stats(&self) -> ApiStats {
         (**self).stats()
     }
@@ -220,6 +227,13 @@ where
         request: BatchQueryCommitLogRequest,
     ) -> Result<BatchQueryCommitLogResponse, Self::Error> {
         (**self).query_commit_log(request).await
+    }
+
+    async fn get_newest_group_message(
+        &self,
+        request: GetNewestGroupMessageRequest,
+    ) -> Result<GetNewestGroupMessageResponse, Self::Error> {
+        (**self).get_newest_group_message(request).await
     }
 
     fn stats(&self) -> ApiStats {
