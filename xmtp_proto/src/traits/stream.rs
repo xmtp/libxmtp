@@ -6,6 +6,7 @@ use std::{
     pin::{Pin, pin},
     task::{Context, Poll, ready},
 };
+use xmtp_common::MaybeSend;
 
 use crate::{ApiEndpoint, api::ApiClientError};
 use futures::{
@@ -42,16 +43,16 @@ impl<S, Item> XmtpBufferedStream<S, Item>
 where
     S: TryStream<Ok = Bytes>,
     Item: prost::Message + Default + 'static,
-    S::Error: std::error::Error + Send + 'static,
+    S::Error: std::error::Error + MaybeSend + 'static,
 {
     pub fn new(
-        inner: impl Stream<Item = Result<Item, ApiClientError<S::Error>>> + Send + 'static,
+        inner: impl Stream<Item = Result<Item, ApiClientError<S::Error>>> + MaybeSend + 'static,
     ) -> Self {
         let (mut tx, rx) = mpsc::channel(BUFFER_MAX);
         xmtp_common::spawn(None, async move {
             let mut pinned = pin!(inner);
             while let Some(next) = pinned.as_mut().next().await {
-                if let Err(_) = tx.send(next).await {
+                if tx.send(next).await.is_err() {
                     break;
                 }
             }
