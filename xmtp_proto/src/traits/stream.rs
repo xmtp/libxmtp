@@ -6,7 +6,6 @@ use std::{
     pin::{Pin, pin},
     task::{Context, Poll, ready},
 };
-use tokio::task::JoinHandle;
 
 use crate::{ApiEndpoint, api::ApiClientError};
 use futures::{
@@ -34,7 +33,6 @@ pin_project! {
         S: TryStream<Ok = Bytes>,
         <S as TryStream>::Error: std::error::Error
     {
-        handle: JoinHandle<()>,
         #[pin] rx: Receiver<Result<Item, ApiClientError<S::Error>>>,
         _stream: PhantomData<S>,
     }
@@ -50,7 +48,7 @@ where
         inner: impl Stream<Item = Result<Item, ApiClientError<S::Error>>> + Send + 'static,
     ) -> Self {
         let (mut tx, rx) = mpsc::channel(BUFFER_MAX);
-        let handle = tokio::spawn(async move {
+        xmtp_common::spawn(None, async move {
             let mut pinned = pin!(inner);
             while let Some(next) = pinned.as_mut().next().await {
                 if let Err(_) = tx.send(next).await {
@@ -60,7 +58,6 @@ where
         });
 
         Self {
-            handle,
             rx,
             _stream: PhantomData,
         }
