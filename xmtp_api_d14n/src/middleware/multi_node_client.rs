@@ -157,25 +157,9 @@ async fn get_nodes(
 
             let mut client_builder = template.clone();
 
-            let url_is_tls = url
-                .parse::<url::Url>()
-                .map_err(|e| (node_id, e.into()))?
-                .scheme()
-                == "https";
-
-            // Fail when the builder template tls channel does not match the url tls channel.
-            // Template options takes precedence over the url tls channel.
-            (client_builder.tls_channel == url_is_tls)
-                .then_some(())
-                .ok_or_else(|| {
-                    (
-                        node_id,
-                        Box::new(MultiNodeClientError::TlsChannelMismatch {
-                            url_is_tls,
-                            client_builder_tls_channel: client_builder.tls_channel,
-                        }) as Box<dyn std::error::Error + Send + Sync>,
-                    )
-                })?;
+            // Validate TLS policy against the fully-qualified URL.
+            validate_tls_guard(&client_builder, &url)
+                .map_err(|e| (node_id, e))?;
 
             client_builder.set_host(url);
 
@@ -208,6 +192,29 @@ async fn get_nodes(
     tracing::debug!("built clients for nodes: {:?}", clients.keys());
 
     Ok(clients)
+}
+
+/// Validate that the template's TLS configuration matches the URL scheme.
+/// Returns an error boxed as `dyn Error + Send + Sync` suitable for use in the
+/// `get_nodes` stream error type.
+fn validate_tls_guard(
+    template: &xmtp_api_grpc::client::ClientBuilder,
+    url: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let url_is_tls = url
+        .parse::<url::Url>()
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?
+        .scheme()
+        == "https";
+
+    (template.tls_channel == url_is_tls)
+        .then_some(())
+        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+            Box::new(MultiNodeClientError::TlsChannelMismatch {
+                url_is_tls,
+                client_builder_tls_channel: template.tls_channel,
+            })
+        })
 }
 
 /// Get the fastest node from the list of endpoints.
@@ -384,5 +391,101 @@ pub mod multinode {
 
     pub fn builder() -> MultiNodeClientBuilder {
         MultiNodeClientBuilder::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use xmtp_configuration::GrpcUrls;
+
+    fn make_gateway_client() -> GrpcClient {
+        let mut b = GrpcClient::builder();
+        let url = url::Url::parse(GrpcUrls::GATEWAY).expect("valid gateway url");
+        b.set_host(GrpcUrls::GATEWAY.to_string());
+        b.set_tls(url.scheme() == "https");
+        b.build().expect("gateway client")
+    }
+
+    fn make_template(tls: bool) -> xmtp_api_grpc::client::ClientBuilder {
+        let mut t = GrpcClient::builder();
+        t.set_tls(tls);
+        // host will be overridden per node
+        t.set_host("http://placeholder".to_string());
+        t
+    }
+
+    #[tokio::test]
+    async fn builder_requires_gateway() {
+        let mut b = MultiNodeClientBuilder::default();
+        b.set_timeout(Duration::from_millis(100)).unwrap();
+        b.set_client_builder_template(make_template(true)).unwrap();
+        let err = b.build().err().expect("expected error");
+        match err {
+            MultiNodeClientBuilderError::MissingGatewayClient => {}
+            _ => panic!("unexpected error: {err:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn builder_requires_timeout() {
+        let mut b = MultiNodeClientBuilder::default();
+        b.set_gateway_client(make_gateway_client()).unwrap();
+        b.set_client_builder_template(make_template(true)).unwrap();
+        let err = b.build().err().expect("expected error");
+        match err {
+            MultiNodeClientBuilderError::InvalidTimeout => {}
+            _ => panic!("unexpected error: {err:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn builder_requires_template() {
+        let mut b = MultiNodeClientBuilder::default();
+        b.set_gateway_client(make_gateway_client()).unwrap();
+        b.set_timeout(Duration::from_millis(100)).unwrap();
+        let err = b.build().err().expect("expected error");
+        match err {
+            MultiNodeClientBuilderError::MissingNodeTemplate => {}
+            _ => panic!("unexpected error: {err:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn builder_ok_when_all_set() {
+        let mut b = MultiNodeClientBuilder::default();
+        b.set_gateway_client(make_gateway_client()).unwrap();
+        b.set_timeout(Duration::from_millis(100)).unwrap();
+        b.set_client_builder_template(make_template(true)).unwrap();
+        let client = b.build().expect("build ok");
+        let _ = client; // not used further
+    }
+
+    #[test]
+    fn tls_guard_accepts_matching_https_tls_true() {
+        let t = make_template(true);
+        validate_tls_guard(&t, "https://example.com:443").expect("should accept");
+    }
+
+    #[test]
+    fn tls_guard_accepts_matching_http_tls_false() {
+        let t = make_template(false);
+        validate_tls_guard(&t, "http://example.com:80").expect("should accept");
+    }
+
+    #[test]
+    fn tls_guard_rejects_https_with_plain_template() {
+        let t = make_template(false);
+        let err = validate_tls_guard(&t, "https://example.com:443").err().unwrap();
+        let msg = format!("{err}");
+        assert!(msg.contains("tls channel"));
+    }
+
+    #[test]
+    fn tls_guard_rejects_http_with_tls_template() {
+        let t = make_template(true);
+        let err = validate_tls_guard(&t, "http://example.com:80").err().unwrap();
+        let msg = format!("{err}");
+        assert!(msg.contains("tls channel"));
     }
 }
