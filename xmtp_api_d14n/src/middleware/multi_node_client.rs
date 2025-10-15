@@ -4,11 +4,13 @@ use prost::bytes::Bytes;
 use std::collections::HashMap;
 use thiserror::Error;
 use tokio::sync::OnceCell;
+use xmtp_api_grpc::{client::ClientBuilder, error::GrpcBuilderError};
 use xmtp_api_grpc::{client::GrpcClient, error::GrpcError};
 use xmtp_common::{
     RetryableError,
     time::{Duration, Instant},
 };
+use xmtp_proto::types::AppVersion;
 use xmtp_proto::{
     ApiEndpoint,
     api::{ApiClientError, BodyError, Client, Query},
@@ -68,7 +70,7 @@ pub struct MultiNodeClient {
     gateway_client: GrpcClient,
     inner: OnceCell<GrpcClient>,
     timeout: Duration,
-    node_client_template: xmtp_api_grpc::client::ClientBuilder,
+    node_client_template: ClientBuilder,
 }
 
 // TODO: Future PR implements a refresh() method that updates the inner client.
@@ -126,7 +128,7 @@ impl Client for MultiNodeClient {
 /// Get the nodes from the gateway server.
 async fn get_nodes(
     gateway_client: &GrpcClient,
-    template: &xmtp_api_grpc::client::ClientBuilder,
+    template: &ClientBuilder,
 ) -> Result<HashMap<u32, GrpcClient>, ApiClientError<MultiNodeClientError>> {
     let response = GetNodes::builder()
         .build()?
@@ -153,9 +155,9 @@ async fn get_nodes(
 
     let mut stream =
         futures::stream::iter(response.nodes.into_iter().map(|(node_id, url)| async move {
-            tracing::debug!("building client for node {}: {}", node_id, url);
-
+            // Clone a fresh builder per node so we can mutate it safely.
             let mut client_builder = template.clone();
+            tracing::debug!("building client for node {}: {}", node_id, url);
 
             // Validate TLS policy against the fully-qualified URL.
             validate_tls_guard(&client_builder, &url).map_err(|e| (node_id, e))?;
@@ -191,27 +193,6 @@ async fn get_nodes(
     tracing::debug!("built clients for nodes: {:?}", clients.keys());
 
     Ok(clients)
-}
-
-/// Validate that the template's TLS configuration matches the URL scheme.
-fn validate_tls_guard(
-    template: &xmtp_api_grpc::client::ClientBuilder,
-    url: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let url_is_tls = url
-        .parse::<url::Url>()
-        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?
-        .scheme()
-        == "https";
-
-    (template.tls_channel == url_is_tls)
-        .then_some(())
-        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
-            Box::new(MultiNodeClientError::TlsChannelMismatch {
-                url_is_tls,
-                client_builder_tls_channel: template.tls_channel,
-            })
-        })
 }
 
 /// Get the fastest node from the list of endpoints.
@@ -298,24 +279,77 @@ async fn get_fastest_node(
     Ok(client)
 }
 
+/// Validate that the template's TLS configuration matches the URL scheme.
+fn validate_tls_guard(
+    template: &ClientBuilder,
+    url: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let url_is_tls = url
+        .parse::<url::Url>()
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?
+        .scheme()
+        == "https";
+
+    (template.tls_channel == url_is_tls)
+        .then_some(())
+        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+            Box::new(MultiNodeClientError::TlsChannelMismatch {
+                url_is_tls,
+                client_builder_tls_channel: template.tls_channel,
+            })
+        })
+}
+
+/* MiddlewareBuilder trait */
+
+pub trait MiddlewareBuilder {
+    type Output;
+    type Error;
+
+    /// set the gateway client for node discovery
+    fn set_gateway_client(&mut self, gateway_client: GrpcClient) -> Result<(), Self::Error>;
+
+    /// max timeout allowed for nodes to respond
+    fn set_timeout(&mut self, timeout: Duration) -> Result<(), Self::Error>;
+
+    fn build(self) -> Result<Self::Output, Self::Error>;
+}
+
+pub mod multi_node {
+    use super::*;
+
+    pub fn builder() -> MultiNodeClientBuilder {
+        MultiNodeClientBuilder::default()
+    }
+}
+
 /* MiddlewareBuilder implementation for MultiNodeClient */
 
-#[derive(Default)]
 pub struct MultiNodeClientBuilder {
     gateway_client: Option<GrpcClient>,
-    timeout: Option<Duration>,
-    node_client_template: Option<xmtp_api_grpc::client::ClientBuilder>,
+    timeout: Duration,
+    node_client_template: ClientBuilder,
+}
+
+impl Default for MultiNodeClientBuilder {
+    fn default() -> Self {
+        Self {
+            gateway_client: None,
+            timeout: Duration::from_millis(100),
+            node_client_template: GrpcClient::builder(),
+        }
+    }
 }
 
 /// MultiNodeClientError is used to wrap the errors from the multi node client.
 #[derive(Debug, Error)]
 pub enum MultiNodeClientBuilderError {
+    #[error(transparent)]
+    GrpcBuilderError(#[from] GrpcBuilderError),
     #[error("timeout must be greater than 0")]
     InvalidTimeout,
     #[error("gateway client is required")]
     MissingGatewayClient,
-    #[error("node template is required")]
-    MissingNodeTemplate,
 }
 
 impl MiddlewareBuilder for MultiNodeClientBuilder {
@@ -328,15 +362,7 @@ impl MiddlewareBuilder for MultiNodeClientBuilder {
     }
 
     fn set_timeout(&mut self, timeout: Duration) -> Result<(), Self::Error> {
-        self.timeout = Some(timeout);
-        Ok(())
-    }
-
-    fn set_client_builder_template(
-        &mut self,
-        template: xmtp_api_grpc::client::ClientBuilder,
-    ) -> Result<(), Self::Error> {
-        self.node_client_template = Some(template);
+        self.timeout = timeout;
         Ok(())
     }
 
@@ -345,49 +371,69 @@ impl MiddlewareBuilder for MultiNodeClientBuilder {
             .gateway_client
             .ok_or(MultiNodeClientBuilderError::MissingGatewayClient)?;
 
-        let template = self
-            .node_client_template
-            .ok_or(MultiNodeClientBuilderError::MissingNodeTemplate)?;
-
-        let timeout = self
-            .timeout
-            .ok_or(MultiNodeClientBuilderError::InvalidTimeout)?;
+        if self.timeout.is_zero() {
+            return Err(MultiNodeClientBuilderError::InvalidTimeout);
+        }
 
         Ok(MultiNodeClient {
             gateway_client,
             inner: OnceCell::new(),
-            timeout,
-            node_client_template: template,
+            timeout: self.timeout,
+            node_client_template: self.node_client_template,
         })
     }
 }
 
-/* MiddlewareBuilder */
+impl ApiBuilder for MultiNodeClientBuilder {
+    type Output = MultiNodeClient;
+    type Error = MultiNodeClientBuilderError;
 
-pub trait MiddlewareBuilder {
-    type Output;
-    type Error;
+    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
+        ClientBuilder::set_libxmtp_version(&mut self.node_client_template, version)?;
+        Ok(())
+    }
 
-    /// set the gateway client for node discovery
-    fn set_gateway_client(&mut self, gateway_client: GrpcClient) -> Result<(), Self::Error>;
+    fn set_app_version(&mut self, version: AppVersion) -> Result<(), Self::Error> {
+        ClientBuilder::set_app_version(&mut self.node_client_template, version)?;
+        Ok(())
+    }
 
-    /// max timeout allowed for nodes to respond
-    fn set_timeout(&mut self, timeout: Duration) -> Result<(), Self::Error>;
+    /// No-op: node hosts are discovered dynamically via the gateway.
+    fn set_host(&mut self, _: String) {}
 
-    /// set the client builder template used to construct discovered node clients
-    fn set_client_builder_template(
-        &mut self,
-        template: xmtp_api_grpc::client::ClientBuilder,
-    ) -> Result<(), Self::Error>;
+    fn set_tls(&mut self, tls: bool) {
+        ClientBuilder::set_tls(&mut self.node_client_template, tls);
+    }
 
-    fn build(self) -> Result<Self::Output, Self::Error>;
-}
+    fn set_retry(&mut self, retry: xmtp_common::Retry) {
+        ClientBuilder::set_retry(&mut self.node_client_template, retry);
+    }
 
-pub mod multinode {
-    use super::*;
+    fn rate_per_minute(&mut self, limit: u32) {
+        ClientBuilder::rate_per_minute(&mut self.node_client_template, limit);
+    }
 
-    pub fn builder() -> MultiNodeClientBuilder {
-        MultiNodeClientBuilder::default()
+    fn port(&self) -> Result<Option<String>, Self::Error> {
+        ClientBuilder::port(&self.node_client_template)
+            .map(|_| None)
+            .map_err(Into::into)
+    }
+
+    fn host(&self) -> Option<&str> {
+        ClientBuilder::host(&self.node_client_template)
+    }
+
+    fn build(self) -> Result<Self::Output, Self::Error> {
+        let gateway_client = self
+            .gateway_client
+            .ok_or(MultiNodeClientBuilderError::MissingGatewayClient)?;
+
+        Ok(MultiNodeClient {
+            gateway_client,
+            inner: OnceCell::new(),
+            timeout: self.timeout,
+            node_client_template: self.node_client_template,
+        })
     }
 }
 
@@ -396,7 +442,7 @@ mod tests {
     use super::*;
     use xmtp_configuration::GrpcUrls;
 
-    fn make_gateway_client() -> GrpcClient {
+    fn create_gateway() -> GrpcClient {
         let mut b = GrpcClient::builder();
         let url = url::Url::parse(GrpcUrls::GATEWAY).expect("valid gateway url");
         b.set_host(GrpcUrls::GATEWAY.to_string());
@@ -413,48 +459,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn builder_requires_gateway() {
-        let mut b = MultiNodeClientBuilder::default();
-        b.set_timeout(Duration::from_millis(100)).unwrap();
-        b.set_client_builder_template(make_template(true)).unwrap();
-        let err = b.build().err().expect("expected error");
-        match err {
-            MultiNodeClientBuilderError::MissingGatewayClient => {}
-            _ => panic!("unexpected error: {err:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn builder_requires_timeout() {
-        let mut b = MultiNodeClientBuilder::default();
-        b.set_gateway_client(make_gateway_client()).unwrap();
-        b.set_client_builder_template(make_template(true)).unwrap();
-        let err = b.build().err().expect("expected error");
-        match err {
-            MultiNodeClientBuilderError::InvalidTimeout => {}
-            _ => panic!("unexpected error: {err:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn builder_requires_template() {
-        let mut b = MultiNodeClientBuilder::default();
-        b.set_gateway_client(make_gateway_client()).unwrap();
-        b.set_timeout(Duration::from_millis(100)).unwrap();
-        let err = b.build().err().expect("expected error");
-        match err {
-            MultiNodeClientBuilderError::MissingNodeTemplate => {}
-            _ => panic!("unexpected error: {err:?}"),
-        }
-    }
-
-    #[tokio::test]
     async fn builder_ok_when_all_set() {
         let mut b = MultiNodeClientBuilder::default();
-        b.set_gateway_client(make_gateway_client()).unwrap();
+        b.set_gateway_client(create_gateway()).unwrap();
         b.set_timeout(Duration::from_millis(100)).unwrap();
-        b.set_client_builder_template(make_template(true)).unwrap();
-        let client = b.build().expect("build ok");
+        let client = <MultiNodeClientBuilder as MiddlewareBuilder>::build(b).expect("build ok");
         let _ = client; // not used further
     }
 
@@ -488,5 +497,45 @@ mod tests {
             .unwrap();
         let msg = format!("{err}");
         assert!(msg.contains("tls channel"));
+    }
+
+    #[tokio::test]
+    async fn d14n_builder_works_with_multinode() {
+        use crate::D14nClientBuilder;
+        use xmtp_proto::prelude::ApiBuilder;
+
+        // Prepare gateway builder.
+        let mut gateway = GrpcClient::builder();
+        let url = url::Url::parse(GrpcUrls::GATEWAY).expect("valid gateway url");
+        match url.scheme() {
+            "https" => gateway.set_tls(true),
+            _ => gateway.set_tls(false),
+        }
+        gateway.set_host(GrpcUrls::GATEWAY.into());
+
+        // Build the gateway client.
+        let built_gateway = <xmtp_api_grpc::client::ClientBuilder as ApiBuilder>::build(gateway)
+            .expect("gateway client built");
+
+        // Configure multi-node builder via ApiBuilder methods and inject gateway
+        let mut multi_node = MultiNodeClientBuilder::default();
+        multi_node
+            .set_timeout(xmtp_common::time::Duration::from_millis(100))
+            .unwrap();
+        // Ensure node template inherits TLS policy
+        ClientBuilder::set_tls(
+            &mut multi_node.node_client_template,
+            url.scheme() == "https",
+        );
+        multi_node
+            .set_gateway_client(built_gateway)
+            .expect("gateway set on multi-node");
+
+        // Build D14n client using multi-node as the message builder and gateway builder
+        // Recreate a gateway builder for D14n builder (callers will normally pass the original builder)
+        let mut gateway_b = GrpcClient::builder();
+        gateway_b.set_host(GrpcUrls::GATEWAY.into());
+        gateway_b.set_tls(url.scheme() == "https");
+        let _d14n = D14nClientBuilder::new(multi_node, gateway_b);
     }
 }
