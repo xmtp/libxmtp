@@ -51,6 +51,7 @@ use xmtp_id::associations::{AssociationError, AssociationState, Identifier, Memb
 use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::groups::device_sync_legacy::DeviceSyncContent;
+use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
 use xmtp_mls::groups::GroupError;
 use xmtp_mls::XmtpApi;
 use xmtp_mls::{builder::ClientBuilderError, client::ClientError};
@@ -626,7 +627,15 @@ async fn send(group: RustMlsGroup, msg: String) -> Result<(), CliError> {
         .unwrap()
         .encode(&mut buf)
         .unwrap();
-    group.send_message(buf.as_slice()).await?;
+    group
+        .send_message(
+            buf.as_slice(),
+            SendMessageOptsBuilder::default()
+                .should_push(true)
+                .build()
+                .unwrap(),
+        )
+        .await?;
     Ok(())
 }
 

@@ -1,4 +1,5 @@
 use super::*;
+use crate::groups::send_message_opts::SendMessageOpts;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
@@ -37,17 +38,26 @@ async fn test_stream_all_messages_changing_group_list() {
     let stream = caro.stream_all_messages(None, None).await.unwrap();
     futures::pin_mut!(stream);
 
-    alix_group.send_message(b"first").await.unwrap();
+    alix_group
+        .send_message(b"first", SendMessageOpts::default())
+        .await
+        .unwrap();
     assert_msg!(stream, "first");
     let bo_group = bo
         .find_or_create_dm(caro_wallet.identifier(), None)
         .await
         .unwrap();
 
-    bo_group.send_message(b"second").await.unwrap();
+    bo_group
+        .send_message(b"second", SendMessageOpts::default())
+        .await
+        .unwrap();
     assert_msg!(stream, "second");
 
-    alix_group.send_message(b"third").await.unwrap();
+    alix_group
+        .send_message(b"third", SendMessageOpts::default())
+        .await
+        .unwrap();
     assert_msg!(stream, "third");
 
     let alix_group_2 = alix.create_group(None, None).unwrap();
@@ -56,10 +66,16 @@ async fn test_stream_all_messages_changing_group_list() {
         .await
         .unwrap();
 
-    alix_group.send_message(b"fourth").await.unwrap();
+    alix_group
+        .send_message(b"fourth", SendMessageOpts::default())
+        .await
+        .unwrap();
     assert_msg!(stream, "fourth");
 
-    alix_group_2.send_message(b"fifth").await.unwrap();
+    alix_group_2
+        .send_message(b"fifth", SendMessageOpts::default())
+        .await
+        .unwrap();
     assert_msg!(stream, "fifth");
 }
 
@@ -85,16 +101,28 @@ async fn test_stream_all_messages_unchanging_group_list() {
 
     let stream = caro.stream_all_messages(None, None).await.unwrap();
     futures::pin_mut!(stream);
-    bo_group.send_message(b"first").await.unwrap();
+    bo_group
+        .send_message(b"first", SendMessageOpts::default())
+        .await
+        .unwrap();
     assert_msg!(stream, "first");
 
-    bo_group.send_message(b"second").await.unwrap();
+    bo_group
+        .send_message(b"second", SendMessageOpts::default())
+        .await
+        .unwrap();
     assert_msg!(stream, "second");
 
-    alix_group.send_message(b"third").await.unwrap();
+    alix_group
+        .send_message(b"third", SendMessageOpts::default())
+        .await
+        .unwrap();
     assert_msg!(stream, "third");
 
-    bo_group.send_message(b"fourth").await.unwrap();
+    bo_group
+        .send_message(b"fourth", SendMessageOpts::default())
+        .await
+        .unwrap();
     assert_msg!(stream, "fourth");
 }
 
@@ -127,11 +155,11 @@ async fn test_dm_stream_all_messages() {
             .unwrap();
         futures::pin_mut!(stream);
         alix_dm
-            .send_message("first DM msg".as_bytes())
+            .send_message("first DM msg".as_bytes(), SendMessageOpts::default())
             .await
             .unwrap();
         alix_group
-            .send_message("second GROUP msg".as_bytes())
+            .send_message("second GROUP msg".as_bytes(), SendMessageOpts::default())
             .await
             .unwrap();
         assert_msg!(stream, "second GROUP msg");
@@ -144,11 +172,11 @@ async fn test_dm_stream_all_messages() {
             .unwrap();
         futures::pin_mut!(stream);
         alix_group
-            .send_message("second GROUP msg".as_bytes())
+            .send_message("second GROUP msg".as_bytes(), SendMessageOpts::default())
             .await
             .unwrap();
         alix_dm
-            .send_message("second DM msg".as_bytes())
+            .send_message("second DM msg".as_bytes(), SendMessageOpts::default())
             .await
             .unwrap();
         assert_msg!(stream, "second DM msg");
@@ -157,10 +185,16 @@ async fn test_dm_stream_all_messages() {
     // Wait for 2 seconds for the group creation to be streamed
     let stream = bo.stream_all_messages(None, None).await.unwrap();
     futures::pin_mut!(stream);
-    alix_group.send_message("first".as_bytes()).await.unwrap();
+    alix_group
+        .send_message("first".as_bytes(), SendMessageOpts::default())
+        .await
+        .unwrap();
     assert_msg!(stream, "first");
 
-    alix_dm.send_message("second".as_bytes()).await.unwrap();
+    alix_dm
+        .send_message("second".as_bytes(), SendMessageOpts::default())
+        .await
+        .unwrap();
     assert_msg!(stream, "second");
 }
 
@@ -203,7 +237,7 @@ async fn test_stream_all_messages_does_not_lose_messages() {
         for i in 0..15 {
             let msg = format!("main spam {i}");
             alix_group_pointer
-                .send_message(msg.as_bytes())
+                .send_message(msg.as_bytes(), SendMessageOpts::default())
                 .await
                 .unwrap();
             xmtp_common::time::sleep(Duration::from_micros(100)).await;
@@ -220,7 +254,10 @@ async fn test_stream_all_messages_does_not_lose_messages() {
             let new_group = eve.create_group(None, None).unwrap();
             new_group.add_members_by_inbox_id(&[caro]).await.unwrap();
             let msg = format!("EVE spam {i} from new group");
-            new_group.send_message(msg.as_bytes()).await.unwrap();
+            new_group
+                .send_message(msg.as_bytes(), SendMessageOpts::default())
+                .await
+                .unwrap();
         }
     });
 
@@ -230,7 +267,7 @@ async fn test_stream_all_messages_does_not_lose_messages() {
         let bo_group = &bo_group;
         for i in 0..15 {
             bo_group
-                .send_message(format!("bo msg {i}").as_bytes())
+                .send_message(format!("bo msg {i}").as_bytes(), SendMessageOpts::default())
                 .await
                 .unwrap();
             xmtp_common::time::sleep(Duration::from_millis(50)).await
@@ -289,7 +326,7 @@ async fn test_stream_all_messages_detached_group_changes() {
                 hex::encode(&new_group.group_id)
             );
             new_group
-                .send_message(b"spam from new group")
+                .send_message(b"spam from new group", SendMessageOpts::default())
                 .await
                 .unwrap();
         }
@@ -373,15 +410,15 @@ async fn test_stream_all_messages_filters_by_consent_state(
     futures::pin_mut!(stream);
 
     allowed_group
-        .send_message("msg in allowed".as_bytes())
+        .send_message("msg in allowed".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
     denied_group
-        .send_message("msg in denied".as_bytes())
+        .send_message("msg in denied".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
     unknown_group
-        .send_message("msg in unknown".as_bytes())
+        .send_message("msg in unknown".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
 
@@ -415,7 +452,10 @@ async fn stream_messages_keeps_track_of_cursor(
     }
     for _ in 0..25 {
         eve_group
-            .send_message(format!("message {}", xmtp_common::rand_string::<5>()).as_bytes())
+            .send_message(
+                format!("message {}", xmtp_common::rand_string::<5>()).as_bytes(),
+                SendMessageOpts::default(),
+            )
             .await
             .unwrap();
     }
@@ -451,7 +491,7 @@ async fn stream_messages_keeps_track_of_cursor(
     }
 
     eve_group
-        .send_message(b"decryptable message")
+        .send_message(b"decryptable message", SendMessageOpts::default())
         .await
         .unwrap();
     assert_msg!(s, "decryptable message");
@@ -479,7 +519,10 @@ async fn test_stream_all_messages_filters_conversations_created_after_init() {
         .await
         .unwrap();
 
-    new_group.send_message(b"new message").await.unwrap();
+    new_group
+        .send_message(b"new message", SendMessageOpts::default())
+        .await
+        .unwrap();
     // Verify that no unknown message was received
     let result = xmtp_common::time::timeout(Duration::from_secs(2), stream.next()).await;
     assert!(
@@ -513,7 +556,9 @@ async fn test_stream_all_messages_filters_new_group_when_dm_only() {
     futures::pin_mut!(stream);
 
     // Send message in DM - should appear in stream
-    dm.send_message("msg in dm".as_bytes()).await.unwrap();
+    dm.send_message("msg in dm".as_bytes(), SendMessageOpts::default())
+        .await
+        .unwrap();
     assert_msg!(stream, "msg in dm");
 
     // Create new group that will arrive via conversation stream
@@ -525,7 +570,7 @@ async fn test_stream_all_messages_filters_new_group_when_dm_only() {
 
     // Send message in group - should NOT appear in stream
     new_group
-        .send_message("msg in group".as_bytes())
+        .send_message("msg in group".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
 

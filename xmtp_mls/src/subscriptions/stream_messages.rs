@@ -594,6 +594,7 @@ pub mod tests {
 
     use crate::assert_msg;
     use crate::builder::ClientBuilder;
+    use crate::groups::send_message_opts::SendMessageOpts;
     use rstest::*;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -618,13 +619,19 @@ pub mod tests {
 
         let stream = alice_group.stream().await.unwrap();
         futures::pin_mut!(stream);
-        bob_group.send_message(b"hello").await.unwrap();
+        bob_group
+            .send_message(b"hello", SendMessageOpts::default())
+            .await
+            .unwrap();
 
         // group updated msg/bob is added
         // assert_msg_exists!(stream);
         assert_msg!(stream, "hello");
 
-        bob_group.send_message(b"hello2").await.unwrap();
+        bob_group
+            .send_message(b"hello2", SendMessageOpts::default())
+            .await
+            .unwrap();
         assert_msg!(stream, "hello2");
     }
 }

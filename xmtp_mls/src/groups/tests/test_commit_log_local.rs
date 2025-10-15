@@ -1,3 +1,4 @@
+use crate::groups::send_message_opts::SendMessageOpts;
 use crate::{
     groups::{
         UpdateAdminListType,
@@ -132,7 +133,7 @@ async fn test_failed_application_message_not_added_to_commit_log() {
     b.add_members_by_inbox_id(&[eri.inbox_id()]).await?;
 
     // Message intent should fail with an epoch error, then get retried after syncing
-    a.send_message(b"Hi").await?;
+    a.send_message(b"Hi", SendMessageOpts::default()).await?;
 
     // Three new membership updates, no new commit log entry for the message
     assert_eq!(
@@ -210,7 +211,9 @@ async fn test_commit_log_retriable_error() {
 
     proxy.disable().await?;
     // Queues up a KeyUpdate intent followed by a SendMessage intent
-    b.send_message(b"foo").await.unwrap_err();
+    b.send_message(b"foo", SendMessageOpts::default())
+        .await
+        .unwrap_err();
     a.sync().await?;
     // A doesn't receive anything because the payloads failed to send
     assert_eq!(a.local_commit_log().await?.len(), 2);

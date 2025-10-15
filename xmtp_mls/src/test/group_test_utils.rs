@@ -4,12 +4,13 @@
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
-    groups::{GroupError, MlsGroup},
+    groups::{GroupError, MlsGroup, send_message_opts::SendMessageOpts},
 };
 use thiserror::Error;
 use xmtp_api::XmtpApi;
 use xmtp_common::RetryableError;
 use xmtp_db::{XmtpDb, group_message::MsgQueryArgs};
+use xmtp_proto::mls_v1::GroupMessage;
 
 #[derive(Error, Debug)]
 pub enum TestError {
@@ -19,6 +20,8 @@ pub enum TestError {
     Group(#[from] GroupError),
     #[error(transparent)]
     Client(#[from] ClientError),
+    #[error(transparent)]
+    Api(#[from] xmtp_api::ApiError),
 }
 
 impl RetryableError for TestError {
@@ -35,7 +38,8 @@ where
     pub async fn test_can_talk_with(&self, other: &Self) -> Result<String, TestError> {
         let msg = xmtp_common::rand_string::<20>();
         self.sync().await?;
-        self.send_message(msg.as_bytes()).await?;
+        self.send_message(msg.as_bytes(), SendMessageOpts::default())
+            .await?;
 
         // Sync to pull down the message
         other.sync().await?;
@@ -47,5 +51,19 @@ where
         }
 
         Ok(msg)
+    }
+
+    pub async fn test_get_last_message_from_network(&self) -> Result<GroupMessage, TestError> {
+        let mut messages = self
+            .context
+            .api()
+            .query_group_messages(self.group_id.clone(), None)
+            .await?;
+
+        let last_message = messages
+            .pop()
+            .ok_or(TestError::Generic("No messages found".to_string()))?;
+
+        Ok(last_message)
     }
 }

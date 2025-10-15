@@ -408,6 +408,7 @@ mod test {
 
     use super::*;
     use crate::builder::ClientBuilder;
+    use crate::groups::send_message_opts::SendMessageOpts;
     use crate::tester;
     use crate::utils::fixtures::{alix, bo};
     use xmtp_db::group::GroupQueryArgs;
@@ -676,7 +677,7 @@ mod test {
                 async move {
                     xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
                     let dm = c.find_or_create_dm_by_inbox_id(id.as_ref(), None).await?;
-                    dm.send_message(b"hi").await?;
+                    dm.send_message(b"hi", SendMessageOpts::default()).await?;
                     Ok::<_, crate::client::ClientError>(())
                 }
             });

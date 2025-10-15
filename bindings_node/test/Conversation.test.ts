@@ -211,7 +211,7 @@ describe.concurrent('Conversation', () => {
       },
     ])
 
-    await conversation.send(encodeTextMessage('gm'))
+    await conversation.send(encodeTextMessage('gm'), { shouldPush: true })
 
     const messages = await conversation.findMessages()
     expect(messages.length).toBe(2)
@@ -241,7 +241,7 @@ describe.concurrent('Conversation', () => {
       },
     ])
 
-    conversation.sendOptimistic(encodeTextMessage('gm'))
+    conversation.sendOptimistic(encodeTextMessage('gm'), { shouldPush: true })
 
     const messages = await conversation.findMessages()
     expect(messages.length).toBe(2)
@@ -293,8 +293,12 @@ describe.concurrent('Conversation', () => {
       }
     )
     await new Promise((resolve) => setTimeout(resolve, 10000))
-    const message1 = await conversation.send(encodeTextMessage('gm'))
-    const message2 = await conversation.send(encodeTextMessage('gm2'))
+    const message1 = await conversation.send(encodeTextMessage('gm'), {
+      shouldPush: true,
+    })
+    const message2 = await conversation.send(encodeTextMessage('gm2'), {
+      shouldPush: true,
+    })
 
     // Add sleep to allow messages to be processed
     await new Promise((resolve) => setTimeout(resolve, 1000))
@@ -385,14 +389,14 @@ describe.concurrent('Conversation', () => {
     const group2 = client2.conversations().findGroupById(group.id())
     expect(group2).toBeDefined()
     expect(group2!.consentState()).toBe(ConsentState.Unknown)
-    await group2!.send(encodeTextMessage('gm!'))
+    await group2!.send(encodeTextMessage('gm!'), { shouldPush: true })
     expect(group2!.consentState()).toBe(ConsentState.Allowed)
 
     await client3.conversations().sync()
     const dmGroup2 = client3.conversations().findGroupById(dmGroup.id())
     expect(dmGroup2).toBeDefined()
     expect(dmGroup2!.consentState()).toBe(ConsentState.Unknown)
-    await dmGroup2!.send(encodeTextMessage('gm!'))
+    await dmGroup2!.send(encodeTextMessage('gm!'), { shouldPush: true })
     expect(dmGroup2!.consentState()).toBe(ConsentState.Allowed)
   })
 

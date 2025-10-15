@@ -1,6 +1,6 @@
 //! Group benchmark utilities
 
-use crate::groups::MlsGroup;
+use crate::groups::{MlsGroup, send_message_opts::SendMessageOpts};
 use crate::utils::TestXmtpMlsContext;
 use indicatif::{ProgressBar, ProgressStyle};
 use prost::Message;
@@ -39,7 +39,10 @@ pub async fn setup_groups_with_messages(
         // Send a message to the group using optimistic send with proper EncodedContent
         let content = TestContentGenerator::text_content(&format!("Test message {}", i));
         group
-            .send_message_optimistic(&content.encode_to_vec())
+            .send_message_optimistic(
+                content.encode_to_vec().as_slice(),
+                SendMessageOpts::default(),
+            )
             .unwrap();
 
         // Keep track of the first `target_groups` groups as our targets
@@ -101,7 +104,7 @@ pub async fn setup_group_with_messages(
     for i in 0..total_messages {
         let content = TestContentGenerator::text_content(&format!("Test message {}", i));
         group
-            .send_message_optimistic(&content.encode_to_vec())
+            .send_message_optimistic(&content.encode_to_vec(), SendMessageOpts::default())
             .unwrap();
         bar.inc(1);
     }

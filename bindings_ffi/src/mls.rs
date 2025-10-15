@@ -1144,6 +1144,19 @@ impl From<FfiGroupQueryOrderBy> for GroupQueryOrderBy {
     }
 }
 
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiSendMessageOpts {
+    pub should_push: bool,
+}
+
+impl From<FfiSendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
+    fn from(opts: FfiSendMessageOpts) -> Self {
+        xmtp_mls::groups::send_message_opts::SendMessageOpts {
+            should_push: opts.should_push,
+        }
+    }
+}
+
 #[derive(uniffi::Record, Default)]
 pub struct FfiListConversationsOptions {
     pub created_after_ns: Option<i64>,
@@ -2143,22 +2156,37 @@ impl FfiCreateDMOptions {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiConversation {
-    pub async fn send(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
-        let message_id = self.inner.send_message(content_bytes.as_slice()).await?;
+    pub async fn send(
+        &self,
+        content_bytes: Vec<u8>,
+        opts: FfiSendMessageOpts,
+    ) -> Result<Vec<u8>, GenericError> {
+        let message_id = self
+            .inner
+            .send_message(content_bytes.as_slice(), opts.into())
+            .await?;
         Ok(message_id)
     }
 
     pub(crate) async fn send_text(&self, text: &str) -> Result<Vec<u8>, GenericError> {
         let content = TextCodec::encode(text.to_string())
             .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-        self.send(encoded_content_to_bytes(content)).await
+        self.send(
+            encoded_content_to_bytes(content),
+            FfiSendMessageOpts { should_push: true },
+        )
+        .await
     }
 
     /// send a message without immediately publishing to the delivery service.
-    pub fn send_optimistic(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
+    pub fn send_optimistic(
+        &self,
+        content_bytes: Vec<u8>,
+        opts: FfiSendMessageOpts,
+    ) -> Result<Vec<u8>, GenericError> {
         let id = self
             .inner
-            .send_message_optimistic(content_bytes.as_slice())?;
+            .send_message_optimistic(content_bytes.as_slice(), opts.into())?;
 
         Ok(id)
     }
@@ -3160,8 +3188,8 @@ mod tests {
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
         FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction,
         FfiReactionPayload, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply,
-        FfiSignatureKind, FfiSubscribeError, FfiTransactionReference, GenericError,
-        apply_signature_request, connect_to_backend, decode_attachment,
+        FfiSendMessageOpts, FfiSignatureKind, FfiSubscribeError, FfiTransactionReference,
+        GenericError, apply_signature_request, connect_to_backend, decode_attachment,
         decode_multi_remote_attachment, decode_reaction, decode_read_receipt,
         decode_remote_attachment, decode_reply, decode_transaction_reference, encode_attachment,
         encode_multi_remote_attachment, encode_reaction, encode_read_receipt,
@@ -3923,7 +3951,10 @@ mod tests {
             )
             .await
             .unwrap();
-        conversation.send(b"Hello there".to_vec()).await.unwrap();
+        conversation
+            .send(b"Hello there".to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         worker
             .register_interest(SyncMetric::ConsentSent, 1)
             .wait()
@@ -4588,7 +4619,10 @@ mod tests {
         message_callbacks.wait_for_delivery(None).await.unwrap();
         assert_eq!(bo.client.inner_client.context.db().intents_published(), 1);
 
-        alix_group.send(b"Hello there".to_vec()).await.unwrap();
+        alix_group
+            .send(b"Hello there".to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
         assert_eq!(alix.client.inner_client.context.db().intents_published(), 3);
 
@@ -4601,7 +4635,9 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        dm.send(b"Hello again".to_vec()).await.unwrap();
+        dm.send(b"Hello again".to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         assert_eq!(bo.client.inner_client.context.db().intents_published(), 3);
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
@@ -4671,12 +4707,18 @@ mod tests {
         // Add messages to the group
         let text_message_1 = TextCodec::encode("Text message for Group 1".to_string()).unwrap();
         group
-            .send(encoded_content_to_bytes(text_message_1))
+            .send(
+                encoded_content_to_bytes(text_message_1),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
         let text_message_2 = TextCodec::encode("Text message for Group 2".to_string()).unwrap();
         group
-            .send(encoded_content_to_bytes(text_message_2))
+            .send(
+                encoded_content_to_bytes(text_message_2),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -4770,7 +4812,10 @@ mod tests {
         // group[0] sends TextCodec message
         let text_message = TextCodec::encode("Text message for Group 1".to_string()).unwrap();
         groups[0]
-            .send(encoded_content_to_bytes(text_message))
+            .send(
+                encoded_content_to_bytes(text_message),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -4789,7 +4834,10 @@ mod tests {
             compression: None,
         };
         groups[1]
-            .send(encoded_content_to_bytes(reaction_encoded_content))
+            .send(
+                encoded_content_to_bytes(reaction_encoded_content),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -4808,7 +4856,10 @@ mod tests {
             compression: None,
         };
         groups[2]
-            .send(encoded_content_to_bytes(attachment_encoded_content))
+            .send(
+                encoded_content_to_bytes(attachment_encoded_content),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -4827,7 +4878,10 @@ mod tests {
             compression: None,
         };
         groups[3]
-            .send(encoded_content_to_bytes(remote_attachment_encoded_content))
+            .send(
+                encoded_content_to_bytes(remote_attachment_encoded_content),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -4846,7 +4900,10 @@ mod tests {
             compression: None,
         };
         groups[4]
-            .send(encoded_content_to_bytes(reply_encoded_content))
+            .send(
+                encoded_content_to_bytes(reply_encoded_content),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -4865,9 +4922,10 @@ mod tests {
             compression: None,
         };
         groups[5]
-            .send(encoded_content_to_bytes(
-                transaction_reference_encoded_content,
-            ))
+            .send(
+                encoded_content_to_bytes(transaction_reference_encoded_content),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -4886,7 +4944,10 @@ mod tests {
             compression: None,
         };
         groups[6]
-            .send(encoded_content_to_bytes(group_updated_encoded_content))
+            .send(
+                encoded_content_to_bytes(group_updated_encoded_content),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -4905,9 +4966,10 @@ mod tests {
             compression: None,
         };
         groups[7]
-            .send(encoded_content_to_bytes(
-                group_membership_updated_encoded_content,
-            ))
+            .send(
+                encoded_content_to_bytes(group_membership_updated_encoded_content),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -4926,7 +4988,10 @@ mod tests {
             compression: None,
         };
         groups[8]
-            .send(encoded_content_to_bytes(read_receipt_encoded_content))
+            .send(
+                encoded_content_to_bytes(read_receipt_encoded_content),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -5038,12 +5103,12 @@ mod tests {
 
         alix_group1
             .conversation
-            .send("alix1".as_bytes().to_vec())
+            .send("alix1".as_bytes().to_vec(), FfiSendMessageOpts::default())
             .await
             .unwrap();
         alix_group5
             .conversation
-            .send("alix1".as_bytes().to_vec())
+            .send("alix1".as_bytes().to_vec(), FfiSendMessageOpts::default())
             .await
             .unwrap();
 
@@ -5149,11 +5214,17 @@ mod tests {
         bo.conversations().sync().await.unwrap();
         let bo_group = bo.conversation(alix_group.id()).unwrap();
 
-        bo_group.send("bo1".as_bytes().to_vec()).await.unwrap();
+        bo_group
+            .send("bo1".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         // Temporary workaround for OpenMLS issue - make sure Alix's epoch is up-to-date
         // https://github.com/xmtp/libxmtp/issues/1116
         alix_group.sync().await.unwrap();
-        alix_group.send("alix1".as_bytes().to_vec()).await.unwrap();
+        alix_group
+            .send("alix1".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
 
         // Move the group forward by 3 epochs (as Alix's max_past_epochs is
         // configured to 3) without Bo syncing
@@ -5180,10 +5251,22 @@ mod tests {
             .unwrap();
 
         // Bo sends messages to Alix while 3 epochs behind
-        bo_group.send("bo3".as_bytes().to_vec()).await.unwrap();
-        alix_group.send("alix3".as_bytes().to_vec()).await.unwrap();
-        bo_group.send("bo4".as_bytes().to_vec()).await.unwrap();
-        bo_group.send("bo5".as_bytes().to_vec()).await.unwrap();
+        bo_group
+            .send("bo3".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
+        alix_group
+            .send("alix3".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
+        bo_group
+            .send("bo4".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
+        bo_group
+            .send("bo5".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
 
         alix_group.sync().await.unwrap();
         let alix_messages = alix_group
@@ -5253,7 +5336,10 @@ mod tests {
 
         // Send a message that will break the group
         client1_group
-            .send("This message will break the group".as_bytes().to_vec())
+            .send(
+                "This message will break the group".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -5321,7 +5407,10 @@ mod tests {
 
         // Send message from client1 to client2
         dm_group
-            .send("Hello from client1".as_bytes().to_vec())
+            .send(
+                "Hello from client1".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -5396,7 +5485,10 @@ mod tests {
         log::info!("Alix sending first message");
         // Alix sends a message in the group
         alix_group
-            .send("First message".as_bytes().to_vec())
+            .send(
+                "First message".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -5404,7 +5496,10 @@ mod tests {
         caro_group.update_installations().await.unwrap();
         // Caro sends a message in the group
         caro_group
-            .send("Second message".as_bytes().to_vec())
+            .send(
+                "Second message".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -5427,7 +5522,10 @@ mod tests {
         log::info!("Alix sending third message after Bo's second installation added");
         // Alix sends a message to the group
         alix_group
-            .send("Third message".as_bytes().to_vec())
+            .send(
+                "Third message".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -5439,7 +5537,10 @@ mod tests {
         // Bo sends a message to the group
         bo2_group.update_installations().await.unwrap();
         bo2_group
-            .send("Fourth message".as_bytes().to_vec())
+            .send(
+                "Fourth message".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -5450,7 +5551,10 @@ mod tests {
         // https://github.com/xmtp/libxmtp/issues/1116
         caro_group.sync().await.unwrap();
         caro_group
-            .send("Fifth message".as_bytes().to_vec())
+            .send(
+                "Fifth message".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -5525,7 +5629,10 @@ mod tests {
             .unwrap();
 
         bo_group
-            .send("bo message 1".as_bytes().to_vec())
+            .send(
+                "bo message 1".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -5579,8 +5686,14 @@ mod tests {
         bo.conversations().sync().await.unwrap();
         let bo_group = bo.conversation(alix_group.id()).unwrap();
 
-        bo_group.send("bo1".as_bytes().to_vec()).await.unwrap();
-        alix_group.send("alix1".as_bytes().to_vec()).await.unwrap();
+        bo_group
+            .send("bo1".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
+        alix_group
+            .send("alix1".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
 
         // Move the group forward by 3 epochs (as Alix's max_past_epochs is
         // configured to 3) without Bo syncing
@@ -5654,7 +5767,10 @@ mod tests {
             .await
             .unwrap();
 
-        alix_group.send("hello".as_bytes().to_vec()).await.unwrap();
+        alix_group
+            .send("hello".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
 
         bo_group.sync().await.unwrap();
         assert!(!bo_group.is_active().unwrap());
@@ -5708,7 +5824,10 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
+        alix_group
+            .send("hello1".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
         let bo_groups = bo
@@ -5728,13 +5847,13 @@ mod tests {
 
         bo_group
             .conversation
-            .send("hello2".as_bytes().to_vec())
+            .send("hello2".as_bytes().to_vec(), FfiSendMessageOpts::default())
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
         bo_group
             .conversation
-            .send("hello3".as_bytes().to_vec())
+            .send("hello3".as_bytes().to_vec(), FfiSendMessageOpts::default())
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
@@ -5747,7 +5866,10 @@ mod tests {
             .unwrap();
         assert_eq!(alix_messages.len(), second_msg_check);
 
-        alix_group.send("hello4".as_bytes().to_vec()).await.unwrap();
+        alix_group
+            .send("hello4".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
         bo_group.conversation.sync().await.unwrap();
 
@@ -5822,7 +5944,10 @@ mod tests {
             .await;
         stream.wait_for_ready().await;
 
-        alix_group.send("first".as_bytes().to_vec()).await.unwrap();
+        alix_group
+            .send("first".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
 
         let bo_group = bo
@@ -5835,11 +5960,20 @@ mod tests {
             .unwrap();
         let _ = caro.inner_client.sync_welcomes().await.unwrap();
 
-        bo_group.send("second".as_bytes().to_vec()).await.unwrap();
+        bo_group
+            .send("second".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
-        alix_group.send("third".as_bytes().to_vec()).await.unwrap();
+        alix_group
+            .send("third".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
-        bo_group.send("fourth".as_bytes().to_vec()).await.unwrap();
+        bo_group
+            .send("fourth".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
 
         assert_eq!(stream_callback.message_count(), 4);
@@ -5869,11 +6003,14 @@ mod tests {
 
         stream_closer.wait_for_ready().await;
 
-        amal_group.send("hello".as_bytes().to_vec()).await.unwrap();
+        amal_group
+            .send("hello".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
 
         amal_group
-            .send("goodbye".as_bytes().to_vec())
+            .send("goodbye".as_bytes().to_vec(), FfiSendMessageOpts::default())
             .await
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -5908,9 +6045,15 @@ mod tests {
             .await;
         stream_closer.wait_for_ready().await;
 
-        amal_group.send(b"hello1".to_vec()).await.unwrap();
+        amal_group
+            .send(b"hello1".to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
-        amal_group.send(b"hello2".to_vec()).await.unwrap();
+        amal_group
+            .send(b"hello2".to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
 
         assert_eq!(stream_callback.message_count(), 2);
@@ -5923,7 +6066,10 @@ mod tests {
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 3); // Member removal transcript message
         //
-        amal_group.send(b"hello3".to_vec()).await.unwrap();
+        amal_group
+            .send(b"hello3".to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         //TODO: could verify with a log message
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         assert_eq!(stream_callback.message_count(), 3); // Don't receive messages while removed
@@ -5938,7 +6084,10 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         assert_eq!(stream_callback.message_count(), 3); // Don't receive transcript messages while removed
 
-        amal_group.send("hello4".as_bytes().to_vec()).await.unwrap();
+        amal_group
+            .send("hello4".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 4); // Receiving messages again
         assert!(!stream_closer.is_closed());
@@ -6014,7 +6163,10 @@ mod tests {
             .unwrap();
         group_callback.wait_for_delivery(None).await.unwrap();
 
-        alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
+        alix_group
+            .send("hello1".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         message_callback.wait_for_delivery(None).await.unwrap();
 
         assert_eq!(group_callback.message_count(), 1);
@@ -6263,7 +6415,10 @@ mod tests {
 
         // Step 2: Send a message and sync
         alix_group
-            .send("Msg 1 from group".as_bytes().to_vec())
+            .send(
+                "Msg 1 from group".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
         alix_group.sync().await.unwrap();
@@ -6340,7 +6495,10 @@ mod tests {
 
         // Step 5: Send additional messages
         for msg in &["Msg 2 from group", "Msg 3 from group", "Msg 4 from group"] {
-            alix_group.send(msg.as_bytes().to_vec()).await.unwrap();
+            alix_group
+                .send(msg.as_bytes().to_vec(), FfiSendMessageOpts::default())
+                .await
+                .unwrap();
         }
         alix_group.sync().await.unwrap();
 
@@ -6385,7 +6543,10 @@ mod tests {
 
         // Step 9: Send another message
         alix_group
-            .send("Msg 5 from group".as_bytes().to_vec())
+            .send(
+                "Msg 5 from group".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -6417,7 +6578,10 @@ mod tests {
 
         // Step 2: Send a message and sync
         alix_group
-            .send("Msg 1 from group".as_bytes().to_vec())
+            .send(
+                "Msg 1 from group".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
         alix_group.sync().await.unwrap();
@@ -6492,7 +6656,10 @@ mod tests {
 
         // Step 5: Send additional messages
         for msg in &["Msg 2 from group", "Msg 3 from group", "Msg 4 from group"] {
-            alix_group.send(msg.as_bytes().to_vec()).await.unwrap();
+            alix_group
+                .send(msg.as_bytes().to_vec(), FfiSendMessageOpts::default())
+                .await
+                .unwrap();
         }
         alix_group.sync().await.unwrap();
 
@@ -6537,7 +6704,10 @@ mod tests {
 
         // Step 9: Send another message
         alix_group
-            .send("Msg 5 from group".as_bytes().to_vec())
+            .send(
+                "Msg 5 from group".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -6576,7 +6746,10 @@ mod tests {
 
         // Step 2: Send a message and sync
         alix_group
-            .send("Msg 1 from group".as_bytes().to_vec())
+            .send(
+                "Msg 1 from group".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
         alix_group.sync().await.unwrap();
@@ -6630,7 +6803,10 @@ mod tests {
 
         // Step 2: Send a message and sync
         alix_group
-            .send("Msg 1 from group".as_bytes().to_vec())
+            .send(
+                "Msg 1 from group".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
         alix_group.sync().await.unwrap();
@@ -7191,11 +7367,17 @@ mod tests {
             .await;
         stream.wait_for_ready().await;
 
-        alix_group.send("first".as_bytes().to_vec()).await.unwrap();
+        alix_group
+            .send("first".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
 
-        alix_dm.send("second".as_bytes().to_vec()).await.unwrap();
+        alix_dm
+            .send("second".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 2);
 
@@ -7210,11 +7392,17 @@ mod tests {
             .await;
         stream.wait_for_ready().await;
 
-        alix_group.send("first".as_bytes().to_vec()).await.unwrap();
+        alix_group
+            .send("first".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
 
-        alix_dm.send("second".as_bytes().to_vec()).await.unwrap();
+        alix_dm
+            .send("second".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(result.is_err(), "Stream unexpectedly received a DM message");
         assert_eq!(stream_callback.message_count(), 1);
@@ -7230,11 +7418,17 @@ mod tests {
             .await;
         stream.wait_for_ready().await;
 
-        alix_dm.send("first".as_bytes().to_vec()).await.unwrap();
+        alix_dm
+            .send("first".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
 
-        alix_group.send("second".as_bytes().to_vec()).await.unwrap();
+        alix_group
+            .send("second".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(
             result.is_err(),
@@ -7260,7 +7454,9 @@ mod tests {
             .unwrap();
 
         let data = xmtp_common::rand_vec::<100000>();
-        dm.send(data.clone()).await.unwrap();
+        dm.send(data.clone(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
 
         let bo_dm = bo
             .conversations()
@@ -7689,11 +7885,17 @@ mod tests {
 
         // Alix sends messages in both conversations
         alix_dm
-            .send("Hello in DM".as_bytes().to_vec())
+            .send(
+                "Hello in DM".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
         alix_group
-            .send("Hello in group".as_bytes().to_vec())
+            .send(
+                "Hello in group".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -7833,7 +8035,13 @@ mod tests {
             .await
             .unwrap();
 
-        bo_dm.send("Hello in DM".as_bytes().to_vec()).await.unwrap();
+        bo_dm
+            .send(
+                "Hello in DM".as_bytes().to_vec(),
+                FfiSendMessageOpts::default(),
+            )
+            .await
+            .unwrap();
 
         // Verify that client_a and client_b received the dm message to wallet a address
         client_a
@@ -8066,14 +8274,20 @@ mod tests {
         let bo_group = bo.conversation(alix_group.id()).unwrap();
 
         // Alix sends first message
-        alix_group.send("hey".as_bytes().to_vec()).await.unwrap();
+        alix_group
+            .send("hey".as_bytes().to_vec(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
 
         // Bo syncs and responds
         bo_group.sync().await.unwrap();
         let bo_message_response = TextCodec::encode("hey alix".to_string()).unwrap();
         let mut buf = Vec::new();
         bo_message_response.encode(&mut buf).unwrap();
-        bo_group.send(buf).await.unwrap();
+        bo_group
+            .send(buf, FfiSendMessageOpts::default())
+            .await
+            .unwrap();
 
         // Bo sends read receipt
         let read_receipt_content_id = ContentTypeId {
@@ -8092,7 +8306,10 @@ mod tests {
 
         let mut buf = Vec::new();
         read_receipt_encoded_content.encode(&mut buf).unwrap();
-        bo_group.send(buf).await.unwrap();
+        bo_group
+            .send(buf, FfiSendMessageOpts::default())
+            .await
+            .unwrap();
 
         // Alix syncs and gets all messages
         alix_group.sync().await.unwrap();
@@ -8157,7 +8374,10 @@ mod tests {
             .unwrap()
             .encode(&mut buf)
             .unwrap();
-        alix_conversation.send(buf).await.unwrap();
+        alix_conversation
+            .send(buf, FfiSendMessageOpts::default())
+            .await
+            .unwrap();
 
         // Have Bo sync to get the conversation and message
         bo.conversations().sync().await.unwrap();
@@ -8180,7 +8400,10 @@ mod tests {
             schema: FfiReactionSchema::Unicode,
         };
         let bytes_to_send = encode_reaction(ffi_reaction).unwrap();
-        bo_conversation.send(bytes_to_send).await.unwrap();
+        bo_conversation
+            .send(bytes_to_send, FfiSendMessageOpts::default())
+            .await
+            .unwrap();
 
         // Have Alix sync to get the reaction
         alix_conversation.sync().await.unwrap();
@@ -8416,7 +8639,10 @@ mod tests {
             .unwrap()
             .encode(&mut buf)
             .unwrap();
-        alix_group.send(buf).await.unwrap();
+        alix_group
+            .send(buf, FfiSendMessageOpts::default())
+            .await
+            .unwrap();
 
         // Update group name
         alix_group
@@ -8430,7 +8656,10 @@ mod tests {
             .unwrap()
             .encode(&mut buf)
             .unwrap();
-        alix_group.send(buf).await.unwrap();
+        alix_group
+            .send(buf, FfiSendMessageOpts::default())
+            .await
+            .unwrap();
 
         // Sync Bo's client
         bo.conversations().sync().await.unwrap();
@@ -8617,19 +8846,28 @@ mod tests {
         // Send a few initial messages using proper text encoding
         let text1 = TextCodec::encode("Message 1".to_string()).unwrap();
         alix_group
-            .send(encoded_content_to_bytes(text1))
+            .send(
+                encoded_content_to_bytes(text1),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
         let text2 = TextCodec::encode("Message 2".to_string()).unwrap();
         alix_group
-            .send(encoded_content_to_bytes(text2))
+            .send(
+                encoded_content_to_bytes(text2),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
         let text3 = TextCodec::encode("Message 3".to_string()).unwrap();
         bo_group
-            .send(encoded_content_to_bytes(text3))
+            .send(
+                encoded_content_to_bytes(text3),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -8663,7 +8901,10 @@ mod tests {
             schema: FfiReactionSchema::Unicode,
         };
         bo_group
-            .send(encode_reaction(reaction1).unwrap())
+            .send(
+                encode_reaction(reaction1).unwrap(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -8675,7 +8916,10 @@ mod tests {
             schema: FfiReactionSchema::Unicode,
         };
         alix_group
-            .send(encode_reaction(reaction2).unwrap())
+            .send(
+                encode_reaction(reaction2).unwrap(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -8688,7 +8932,10 @@ mod tests {
             schema: FfiReactionSchema::Unicode,
         };
         bo_group
-            .send(encode_reaction(reaction3).unwrap())
+            .send(
+                encode_reaction(reaction3).unwrap(),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -8741,13 +8988,31 @@ mod tests {
 
         // Send initial messages using proper text encoding
         let text1 = TextCodec::encode("Hello!".to_string()).unwrap();
-        let msg1_id = alix_dm.send(encoded_content_to_bytes(text1)).await.unwrap();
+        let msg1_id = alix_dm
+            .send(
+                encoded_content_to_bytes(text1),
+                FfiSendMessageOpts::default(),
+            )
+            .await
+            .unwrap();
 
         let text2 = TextCodec::encode("Hi there!".to_string()).unwrap();
-        let msg2_id = bo_dm.send(encoded_content_to_bytes(text2)).await.unwrap();
+        let msg2_id = bo_dm
+            .send(
+                encoded_content_to_bytes(text2),
+                FfiSendMessageOpts::default(),
+            )
+            .await
+            .unwrap();
 
         let text3 = TextCodec::encode("How are you?".to_string()).unwrap();
-        alix_dm.send(encoded_content_to_bytes(text3)).await.unwrap();
+        alix_dm
+            .send(
+                encoded_content_to_bytes(text3),
+                FfiSendMessageOpts::default(),
+            )
+            .await
+            .unwrap();
 
         // Sync both clients
         alix_dm.sync().await.unwrap();
@@ -8768,7 +9033,10 @@ mod tests {
                 .unwrap()
                 .into(),
         };
-        bo_dm.send(encode_reply(reply1).unwrap()).await.unwrap();
+        bo_dm
+            .send(encode_reply(reply1).unwrap(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
 
         let reply2 = FfiReply {
             reference: hex::encode(msg2_id),
@@ -8777,7 +9045,10 @@ mod tests {
                 .unwrap()
                 .into(),
         };
-        alix_dm.send(encode_reply(reply2).unwrap()).await.unwrap();
+        alix_dm
+            .send(encode_reply(reply2).unwrap(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
 
         // Add a reaction to a reply
         alix_dm.sync().await.unwrap();
@@ -8966,12 +9237,18 @@ mod tests {
         // Send additional messages
         let text_message_bo2 = TextCodec::encode("Bo hey2".to_string()).unwrap();
         convo_alix_2
-            .send(encoded_content_to_bytes(text_message_bo2))
+            .send(
+                encoded_content_to_bytes(text_message_bo2),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
         let text_message_alix2 = TextCodec::encode("Alix hey2".to_string()).unwrap();
         convo_bo_2
-            .send(encoded_content_to_bytes(text_message_alix2))
+            .send(
+                encoded_content_to_bytes(text_message_alix2),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
         convo_bo_2.sync().await.unwrap();
@@ -9318,7 +9595,10 @@ mod tests {
 
         let text_message_alix = TextCodec::encode("hello from alix".to_string()).unwrap();
         group
-            .send(encoded_content_to_bytes(text_message_alix.clone()))
+            .send(
+                encoded_content_to_bytes(text_message_alix.clone()),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -9328,7 +9608,10 @@ mod tests {
         let bo_group = bo.conversation(group.id()).unwrap();
         let text_message_bo = TextCodec::encode("hello from bo".to_string()).unwrap();
         bo_group
-            .send(encoded_content_to_bytes(text_message_bo.clone()))
+            .send(
+                encoded_content_to_bytes(text_message_bo.clone()),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
         alix.conversations()
@@ -9360,7 +9643,10 @@ mod tests {
 
         let text_message_alix2 = TextCodec::encode("hi from alix2".to_string()).unwrap();
         let msg_from_alix2 = group2
-            .send(encoded_content_to_bytes(text_message_alix2.clone()))
+            .send(
+                encoded_content_to_bytes(text_message_alix2.clone()),
+                FfiSendMessageOpts::default(),
+            )
             .await
             .unwrap();
 
@@ -9747,7 +10033,10 @@ mod tests {
         // Bo sends a read receipt
         let read_receipt = FfiReadReceipt {};
         let read_receipt_encoded = encode_read_receipt(read_receipt).unwrap();
-        bo_dm.send(read_receipt_encoded).await.unwrap();
+        bo_dm
+            .send(read_receipt_encoded, FfiSendMessageOpts::default())
+            .await
+            .unwrap();
 
         alix_client
             .conversations()
@@ -9910,7 +10199,10 @@ mod tests {
             .await
             .unwrap();
 
-        alix_group.send("hi".into()).await.unwrap();
+        alix_group
+            .send("hi".into(), FfiSendMessageOpts::default())
+            .await
+            .unwrap();
 
         // The group should be received in both streams without erroring
         message_callbacks.wait_for_delivery(None).await.unwrap();

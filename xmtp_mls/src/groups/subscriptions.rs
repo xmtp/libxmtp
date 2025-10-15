@@ -121,6 +121,7 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use crate::groups::send_message_opts::SendMessageOpts;
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
@@ -149,7 +150,10 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        amal_group.send_message("hello".as_bytes()).await.unwrap();
+        amal_group
+            .send_message("hello".as_bytes(), SendMessageOpts::default())
+            .await
+            .unwrap();
         let messages = amal
             .context
             .api_client
@@ -191,11 +195,17 @@ pub(crate) mod tests {
         let stream = bola_group.stream().await.unwrap();
         futures::pin_mut!(stream);
 
-        amal_group.send_message("hello".as_bytes()).await.unwrap();
+        amal_group
+            .send_message("hello".as_bytes(), SendMessageOpts::default())
+            .await
+            .unwrap();
         let first_val = stream.next().await.unwrap().unwrap();
         assert_eq!(first_val.decrypted_message_bytes, "hello".as_bytes());
 
-        amal_group.send_message("goodbye".as_bytes()).await.unwrap();
+        amal_group
+            .send_message("goodbye".as_bytes(), SendMessageOpts::default())
+            .await
+            .unwrap();
         let second_val = stream.next().await.unwrap().unwrap();
         assert_eq!(second_val.decrypted_message_bytes, "goodbye".as_bytes());
     }
@@ -214,7 +224,10 @@ pub(crate) mod tests {
 
         for i in 0..10 {
             group
-                .send_message(format!("hello {}", i).as_bytes())
+                .send_message(
+                    format!("hello {}", i).as_bytes(),
+                    SendMessageOpts::default(),
+                )
                 .await
                 .unwrap();
         }
@@ -253,7 +266,10 @@ pub(crate) mod tests {
         let first_val = stream.next().await.unwrap().unwrap();
         assert_eq!(first_val.kind, GroupMessageKind::MembershipChange);
 
-        amal_group.send_message("hello".as_bytes()).await.unwrap();
+        amal_group
+            .send_message("hello".as_bytes(), SendMessageOpts::default())
+            .await
+            .unwrap();
         let second_val = stream.next().await.unwrap().unwrap();
         assert_eq!(second_val.decrypted_message_bytes, "hello".as_bytes());
     }
