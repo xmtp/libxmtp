@@ -190,7 +190,7 @@ impl GrpcClient {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ClientBuilder {
     pub host: Option<String>,
     /// version of the app

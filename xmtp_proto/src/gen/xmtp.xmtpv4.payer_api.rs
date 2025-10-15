@@ -43,10 +43,10 @@ impl ::prost::Name for GetNodesRequest {
         "/xmtp.xmtpv4.payer_api.GetNodesRequest".into()
     }
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetNodesResponse {
-    #[prost(string, repeated, tag = "1")]
-    pub nodes: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(map = "uint32, string", tag = "1")]
+    pub nodes: ::std::collections::HashMap<u32, ::prost::alloc::string::String>,
 }
 impl ::prost::Name for GetNodesResponse {
     const NAME: &'static str = "GetNodesResponse";
