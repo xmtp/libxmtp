@@ -51,7 +51,11 @@ where
 /// All errors are not retryable.
 impl RetryableError for AggregateClientError {
     fn is_retryable(&self) -> bool {
-        false
+        match self {
+            Self::GrpcError(e) => e.is_retryable(),
+            Self::BodyError(e) => e.is_retryable(),
+            _ => false,
+        }
     }
 }
 
