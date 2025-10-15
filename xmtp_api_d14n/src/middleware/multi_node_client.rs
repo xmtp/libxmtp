@@ -2,7 +2,6 @@ use crate::d14n::{GetNodes, HealthCheck};
 use futures::StreamExt;
 use prost::bytes::Bytes;
 use std::collections::HashMap;
-use std::num::NonZeroUsize;
 use thiserror::Error;
 use tokio::sync::OnceCell;
 use xmtp_api_grpc::{client::GrpcClient, error::GrpcError};
@@ -26,12 +25,12 @@ pub enum MultiNodeClientError {
     BodyError(#[from] BodyError),
     #[error(transparent)]
     GrpcError(#[from] ApiClientError<GrpcError>),
+    #[error("node {} timed out under {}ms latency", node_id, latency)]
+    NodeTimedOut { node_id: u32, latency: u64 },
     #[error("no nodes found")]
     NoNodesFound,
     #[error("no responsive nodes found under {latency}ms latency")]
     NoResponsiveNodesFound { latency: u64 },
-    #[error("timeout reaching node {} under {}ms latency", node_id, latency)]
-    TimeoutNode { node_id: u32, latency: u64 },
     #[error("client builder tls channel does not match url tls channel")]
     TlsChannelMismatch {
         url_is_tls: bool,
@@ -69,7 +68,7 @@ pub struct MultiNodeClient {
     gateway_client: GrpcClient,
     inner: OnceCell<GrpcClient>,
     timeout: Duration,
-    client_builder_template: xmtp_api_grpc::client::ClientBuilder,
+    node_client_template: xmtp_api_grpc::client::ClientBuilder,
 }
 
 // TODO: Future PR implements a refresh() method that updates the inner client.
@@ -79,8 +78,9 @@ impl MultiNodeClient {
     async fn init_inner(&self) -> Result<&GrpcClient, ApiClientError<MultiNodeClientError>> {
         self.inner
             .get_or_try_init(|| async {
-                let nodes = get_nodes(&self.gateway_client, &self.client_builder_template).await?;
-                get_fastest_node(nodes, self.timeout).await
+                let nodes = get_nodes(&self.gateway_client, &self.node_client_template).await?;
+                let fastest_node = get_fastest_node(nodes, self.timeout).await?;
+                Ok(fastest_node)
             })
             .await
     }
@@ -245,7 +245,7 @@ async fn get_fastest_node(
                     tracing::error!("node timed out: {}", node_id);
                     ApiClientError::new(
                         ApiEndpoint::HealthCheck,
-                        MultiNodeClientError::TimeoutNode {
+                        MultiNodeClientError::NodeTimedOut {
                             node_id,
                             latency: timeout.as_millis() as u64,
                         },
@@ -282,12 +282,14 @@ async fn get_fastest_node(
         }
     }
 
-    let (_, client, _) = fastest_client.ok_or(ApiClientError::new(
+    let (node_id, client, latency) = fastest_client.ok_or(ApiClientError::new(
         ApiEndpoint::HealthCheck,
         MultiNodeClientError::NoResponsiveNodesFound {
             latency: timeout.as_millis() as u64,
         },
     ))?;
+
+    tracing::info!("chosen node is {} with latency {}", node_id, latency);
 
     Ok(client)
 }
@@ -297,15 +299,13 @@ async fn get_fastest_node(
 #[derive(Default)]
 pub struct MultiNodeClientBuilder {
     gateway_client: Option<GrpcClient>,
-    timeout: Option<NonZeroUsize>,
-    client_builder_template: Option<xmtp_api_grpc::client::ClientBuilder>,
+    timeout: Option<Duration>,
+    node_client_template: Option<xmtp_api_grpc::client::ClientBuilder>,
 }
 
 /// MultiNodeClientError is used to wrap the errors from the multi node client.
 #[derive(Debug, Error)]
 pub enum MultiNodeClientBuilderError {
-    #[error(transparent)]
-    ApiError(#[from] Box<ApiClientError<MultiNodeClientError>>),
     #[error("timeout must be greater than 0")]
     InvalidTimeout,
     #[error("gateway client is required")]
@@ -323,7 +323,7 @@ impl MiddlewareBuilder for MultiNodeClientBuilder {
         Ok(())
     }
 
-    fn set_timeout(&mut self, timeout: NonZeroUsize) -> Result<(), Self::Error> {
+    fn set_timeout(&mut self, timeout: Duration) -> Result<(), Self::Error> {
         self.timeout = Some(timeout);
         Ok(())
     }
@@ -332,7 +332,7 @@ impl MiddlewareBuilder for MultiNodeClientBuilder {
         &mut self,
         template: xmtp_api_grpc::client::ClientBuilder,
     ) -> Result<(), Self::Error> {
-        self.client_builder_template = Some(template);
+        self.node_client_template = Some(template);
         Ok(())
     }
 
@@ -342,16 +342,18 @@ impl MiddlewareBuilder for MultiNodeClientBuilder {
             .ok_or(MultiNodeClientBuilderError::MissingGatewayClient)?;
 
         let template = self
-            .client_builder_template
+            .node_client_template
             .ok_or(MultiNodeClientBuilderError::MissingNodeTemplate)?;
 
-        let timeout = Duration::from_millis(self.timeout.unwrap().get() as u64);
+        let timeout = self
+            .timeout
+            .ok_or(MultiNodeClientBuilderError::InvalidTimeout)?;
 
         Ok(MultiNodeClient {
             gateway_client,
             inner: OnceCell::new(),
             timeout,
-            client_builder_template: template,
+            node_client_template: template,
         })
     }
 }
@@ -365,8 +367,8 @@ pub trait MiddlewareBuilder {
     /// set the gateway client for node discovery
     fn set_gateway_client(&mut self, gateway_client: GrpcClient) -> Result<(), Self::Error>;
 
-    /// max timeout allowed for nodes to respond, in milliseconds
-    fn set_timeout(&mut self, timeout: NonZeroUsize) -> Result<(), Self::Error>;
+    /// max timeout allowed for nodes to respond
+    fn set_timeout(&mut self, timeout: Duration) -> Result<(), Self::Error>;
 
     /// set the client builder template used to construct discovered node clients
     fn set_client_builder_template(
