@@ -1,33 +1,27 @@
 use crate::api::{ApiClientError, XmtpStream};
+use bytes::Bytes;
 use futures::{
     SinkExt, Stream, StreamExt, TryStream,
     channel::mpsc::{self, Receiver},
 };
 use pin_project_lite::pin_project;
-use prost::bytes::Bytes;
 use std::{
-    marker::PhantomData,
     pin::{Pin, pin},
     task::{Context, Poll},
 };
 use xmtp_common::MaybeSend;
 
-pub trait StreamBufferExt<S, Item>
-where
-    S: TryStream<Ok = Bytes> + MaybeSend,
-    Item: prost::Message + Default + 'static,
-    <S as TryStream>::Error: std::error::Error + MaybeSend,
-{
-    fn buffered(self) -> XmtpBufferedStream<S, Item>;
+pub trait StreamBufferExt<Item> {
+    fn buffered(self) -> XmtpBufferedStream<Item>;
 }
 
-impl<S, Item> StreamBufferExt<S, Item> for XmtpStream<S, Item>
+impl<S, T> StreamBufferExt<Result<T, ApiClientError<<S as TryStream>::Error>>> for XmtpStream<S, T>
 where
     S: TryStream<Ok = Bytes> + MaybeSend + 'static,
-    Item: prost::Message + Default + 'static,
-    <S as TryStream>::Error: std::error::Error + MaybeSend + 'static,
+    <S as TryStream>::Error: std::error::Error + MaybeSend,
+    T: prost::Message + Default + 'static,
 {
-    fn buffered(self) -> XmtpBufferedStream<S, Item> {
+    fn buffered(self) -> XmtpBufferedStream<Result<T, ApiClientError<<S as TryStream>::Error>>> {
         XmtpBufferedStream::new(self)
     }
 }
@@ -36,25 +30,16 @@ const BUFFER_MAX: usize = 1_000;
 pin_project! {
     /// A buffer that wraps around the stream to avoid backpressure to the server
     /// which may result in potential lost messages.
-    pub struct XmtpBufferedStream<S, Item>
-    where
-        S: TryStream<Ok = Bytes>,
-        <S as TryStream>::Error: std::error::Error
-    {
-        #[pin] rx: Receiver<Result<Item, ApiClientError<S::Error>>>,
-        _stream: PhantomData<S>,
+    pub struct XmtpBufferedStream<Item> {
+        #[pin] rx: Receiver<Item>,
     }
 }
 
-impl<S, Item> XmtpBufferedStream<S, Item>
+impl<Item> XmtpBufferedStream<Item>
 where
-    S: TryStream<Ok = Bytes>,
-    Item: prost::Message + Default + 'static,
-    S::Error: std::error::Error + MaybeSend + 'static,
+    Item: MaybeSend + 'static,
 {
-    pub fn new(
-        inner: impl Stream<Item = Result<Item, ApiClientError<S::Error>>> + MaybeSend + 'static,
-    ) -> Self {
+    pub fn new(inner: impl Stream<Item = Item> + MaybeSend + 'static) -> Self {
         let (mut tx, rx) = mpsc::channel(BUFFER_MAX);
         xmtp_common::spawn(None, async move {
             let mut pinned = pin!(inner);
@@ -65,20 +50,12 @@ where
             }
         });
 
-        Self {
-            rx,
-            _stream: PhantomData,
-        }
+        Self { rx }
     }
 }
 
-impl<S, Item> Stream for XmtpBufferedStream<S, Item>
-where
-    S: TryStream<Ok = Bytes>,
-    Item: prost::Message + Default,
-    S::Error: std::error::Error + 'static,
-{
-    type Item = Result<Item, ApiClientError<S::Error>>;
+impl<T> Stream for XmtpBufferedStream<T> {
+    type Item = T;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.project().rx.poll_next(cx)
     }

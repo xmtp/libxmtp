@@ -6,6 +6,9 @@ pub use escapable::*;
 mod default;
 pub use default::*;
 
+mod buffered;
+pub use buffered::*;
+
 mod non_blocking_request;
 pub use non_blocking_request::*;
 
