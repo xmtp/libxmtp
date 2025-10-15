@@ -7,9 +7,8 @@ use futures::{
 use pin_project_lite::pin_project;
 use std::{
     pin::{Pin, pin},
-    task::{Context, Poll, ready},
+    task::{Context, Poll},
 };
-use tonic::async_trait;
 use xmtp_common::MaybeSend;
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]

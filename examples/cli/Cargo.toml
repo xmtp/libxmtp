@@ -12,6 +12,14 @@ version.workspace = true
 name = "xmtp_cli"
 path = "cli-client.rs"
 
+[[bin]]
+name = "stream-monitor"
+path = "stream-monitor.rs"
+
+[[bin]]
+name = "message-sender"
+path = "message-sender.rs"
+
 [dependencies]
 alloy = { workspace = true, features = ["signer-mnemonic"] }
 chrono.workspace = true
@@ -19,6 +27,7 @@ clap = { version = "4.4.6", features = ["derive"] }
 color-eyre = "0.6"
 futures.workspace = true
 hex.workspace = true
+indicatif = "0.18.0"
 openmls = { workspace = true }
 owo-colors.workspace = true
 prost.workspace = true
@@ -28,6 +37,7 @@ thiserror.workspace = true
 timeago = "0.4.1"
 tokio.workspace = true
 tracing = { workspace = true, features = ["valuable"] }
+tracing-flame = "0.2.0"
 tracing-subscriber = { workspace = true, features = [
   "json",
   "valuable",
