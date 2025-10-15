@@ -158,8 +158,7 @@ async fn get_nodes(
             let mut client_builder = template.clone();
 
             // Validate TLS policy against the fully-qualified URL.
-            validate_tls_guard(&client_builder, &url)
-                .map_err(|e| (node_id, e))?;
+            validate_tls_guard(&client_builder, &url).map_err(|e| (node_id, e))?;
 
             client_builder.set_host(url);
 
@@ -195,8 +194,6 @@ async fn get_nodes(
 }
 
 /// Validate that the template's TLS configuration matches the URL scheme.
-/// Returns an error boxed as `dyn Error + Send + Sync` suitable for use in the
-/// `get_nodes` stream error type.
 fn validate_tls_guard(
     template: &xmtp_api_grpc::client::ClientBuilder,
     url: &str,
@@ -476,7 +473,9 @@ mod tests {
     #[test]
     fn tls_guard_rejects_https_with_plain_template() {
         let t = make_template(false);
-        let err = validate_tls_guard(&t, "https://example.com:443").err().unwrap();
+        let err = validate_tls_guard(&t, "https://example.com:443")
+            .err()
+            .unwrap();
         let msg = format!("{err}");
         assert!(msg.contains("tls channel"));
     }
@@ -484,7 +483,9 @@ mod tests {
     #[test]
     fn tls_guard_rejects_http_with_tls_template() {
         let t = make_template(true);
-        let err = validate_tls_guard(&t, "http://example.com:80").err().unwrap();
+        let err = validate_tls_guard(&t, "http://example.com:80")
+            .err()
+            .unwrap();
         let msg = format!("{err}");
         assert!(msg.contains("tls channel"));
     }
