@@ -4,6 +4,7 @@ use prost::bytes::Bytes;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use thiserror::Error;
+use tokio::sync::OnceCell;
 use xmtp_api_grpc::{client::GrpcClient, error::GrpcError};
 use xmtp_common::{
     RetryableError,
@@ -15,10 +16,10 @@ use xmtp_proto::{
     prelude::ApiBuilder,
 };
 
-/* AggregateClient struct and impls */
+/* MultiNodeClient struct and impls */
 
 #[derive(Debug, Error)]
-pub enum AggregateClientError {
+pub enum MultiNodeClientError {
     #[error("all node clients failed to build")]
     AllNodeClientsFailedToBuild,
     #[error(transparent)]
@@ -31,25 +32,30 @@ pub enum AggregateClientError {
     NoResponsiveNodesFound { latency: u64 },
     #[error("timeout reaching node {} under {}ms latency", node_id, latency)]
     TimeoutNode { node_id: u32, latency: u64 },
+    #[error("client builder tls channel does not match url tls channel")]
+    TlsChannelMismatch {
+        url_is_tls: bool,
+        client_builder_tls_channel: bool,
+    },
     #[error("unhealthy node {}", node_id)]
     UnhealthyNode { node_id: u32 },
 }
 
-/// From<AggregateClientError> for ApiClientError<E> is used to convert the AggregateClientError to an ApiClientError.
-/// Required by the Client trait implementation, as request and stream can return AggregateClientError.
-impl<E> From<AggregateClientError> for ApiClientError<E>
+/// From<MultiNodeClientError> for ApiClientError<E> is used to convert the MultiNodeClientError to an ApiClientError.
+/// Required by the Client trait implementation, as request and stream can return MultiNodeClientError.
+impl<E> From<MultiNodeClientError> for ApiClientError<E>
 where
     E: std::error::Error + Send + Sync + 'static,
 {
-    fn from(value: AggregateClientError) -> ApiClientError<E> {
+    fn from(value: MultiNodeClientError) -> ApiClientError<E> {
         ApiClientError::<E>::Other(Box::new(value))
     }
 }
 
-/// RetryableError for AggregateClientError is used to determine if the error is retryable.
-/// Trait needed by the From<AggregateClientError> for ApiClientError<E> implementation.
+/// RetryableError for MultiNodeClientError is used to determine if the error is retryable.
+/// Trait needed by the From<MultiNodeClientError> for ApiClientError<E> implementation.
 /// All errors are not retryable.
-impl RetryableError for AggregateClientError {
+impl RetryableError for MultiNodeClientError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::GrpcError(e) => e.is_retryable(),
@@ -59,35 +65,34 @@ impl RetryableError for AggregateClientError {
     }
 }
 
-pub struct AggregateClient<C>
-where
-    C: Client + Sync + Send,
-{
-    gateway_client: C,
-    inner: C,
+pub struct MultiNodeClient {
+    gateway_client: GrpcClient,
+    inner: OnceCell<GrpcClient>,
     timeout: Duration,
+    client_builder_template: xmtp_api_grpc::client::ClientBuilder,
 }
 
-impl AggregateClient<GrpcClient> {
-    /// refresh checks the fastest node and updates the inner client
-    /// should only be called when there are no active requests or streams
-    pub async fn refresh(&mut self) -> Result<(), ApiClientError<AggregateClientError>> {
-        let nodes = get_nodes(&self.gateway_client).await?;
-        self.inner = get_fastest_node(nodes, self.timeout).await?;
-        Ok(())
+// TODO: Future PR implements a refresh() method that updates the inner client.
+// In order to do so we need to use an OnceCell<ArcSwap<GrpcClient>>, so that
+// we can update swap the inner client inside an OnceCell.
+impl MultiNodeClient {
+    async fn init_inner(&self) -> Result<&GrpcClient, ApiClientError<MultiNodeClientError>> {
+        self.inner
+            .get_or_try_init(|| async {
+                let nodes = get_nodes(&self.gateway_client, &self.client_builder_template).await?;
+                get_fastest_node(nodes, self.timeout).await
+            })
+            .await
     }
 }
 
-/// Implement the Client trait for the AggregateClient.
-/// This allows the AggregateClient to be used as a Client for any endpoint.
+/// Implement the Client trait for the MultiNodeClient.
+/// This allows the MultiNodeClient to be used as a Client for any endpoint.
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C> Client for AggregateClient<C>
-where
-    C: Client + Sync + Send,
-{
-    type Error = C::Error;
-    type Stream = C::Stream;
+impl Client for MultiNodeClient {
+    type Error = GrpcError;
+    type Stream = <GrpcClient as Client>::Stream;
 
     async fn request(
         &self,
@@ -95,7 +100,12 @@ where
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
-        self.inner.request(request, path, body).await
+        let inner = self
+            .init_inner()
+            .await
+            .map_err(|e| ApiClientError::<GrpcError>::Other(Box::new(e)))?;
+
+        inner.request(request, path, body).await
     }
 
     async fn stream(
@@ -104,28 +114,34 @@ where
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
-        self.inner.stream(request, path, body).await
+        let inner = self
+            .init_inner()
+            .await
+            .map_err(|e| ApiClientError::<GrpcError>::Other(Box::new(e)))?;
+
+        inner.stream(request, path, body).await
     }
 }
 
 /// Get the nodes from the gateway server.
 async fn get_nodes(
     gateway_client: &GrpcClient,
-) -> Result<HashMap<u32, GrpcClient>, ApiClientError<AggregateClientError>> {
+    template: &xmtp_api_grpc::client::ClientBuilder,
+) -> Result<HashMap<u32, GrpcClient>, ApiClientError<MultiNodeClientError>> {
     let response = GetNodes::builder()
         .build()?
         .query(gateway_client)
         .await
         .map_err(|e| {
             tracing::error!("failed to get nodes from gateway: {}", e);
-            ApiClientError::new(ApiEndpoint::GetNodes, AggregateClientError::GrpcError(e))
+            ApiClientError::new(ApiEndpoint::GetNodes, MultiNodeClientError::GrpcError(e))
         })?;
 
     let max_concurrency = if response.nodes.is_empty() {
         tracing::warn!("no nodes found");
         Err(ApiClientError::new(
             ApiEndpoint::GetNodes,
-            AggregateClientError::NoNodesFound,
+            MultiNodeClientError::NoNodesFound,
         ))
     } else {
         Ok(response.nodes.len())
@@ -138,15 +154,29 @@ async fn get_nodes(
     let mut stream =
         futures::stream::iter(response.nodes.into_iter().map(|(node_id, url)| async move {
             tracing::debug!("building client for node {}: {}", node_id, url);
-            let mut client_builder = GrpcClient::builder();
 
-            let is_tls = url
+            let mut client_builder = template.clone();
+
+            let url_is_tls = url
                 .parse::<url::Url>()
                 .map_err(|e| (node_id, e.into()))?
                 .scheme()
                 == "https";
 
-            client_builder.set_tls(is_tls);
+            // Fail when the builder template tls channel does not match the url tls channel.
+            // Template options takes precedence over the url tls channel.
+            (client_builder.tls_channel == url_is_tls)
+                .then_some(())
+                .ok_or_else(|| {
+                    (
+                        node_id,
+                        Box::new(MultiNodeClientError::TlsChannelMismatch {
+                            url_is_tls,
+                            client_builder_tls_channel: client_builder.tls_channel,
+                        }) as Box<dyn std::error::Error + Send + Sync>,
+                    )
+                })?;
+
             client_builder.set_host(url);
 
             let client = client_builder.build().map_err(|e| (node_id, e.into()))?;
@@ -171,7 +201,7 @@ async fn get_nodes(
         tracing::error!("all node clients failed to build");
         return Err(ApiClientError::new(
             ApiEndpoint::GetNodes,
-            AggregateClientError::AllNodeClientsFailedToBuild,
+            MultiNodeClientError::AllNodeClientsFailedToBuild,
         ));
     }
 
@@ -184,16 +214,16 @@ async fn get_nodes(
 async fn get_fastest_node(
     clients: HashMap<u32, GrpcClient>,
     timeout: Duration,
-) -> Result<GrpcClient, ApiClientError<AggregateClientError>> {
+) -> Result<GrpcClient, ApiClientError<MultiNodeClientError>> {
     let endpoint = HealthCheck::builder().build().map_err(|e| {
         tracing::error!("failed to build healthcheck endpoint: {}", e);
-        ApiClientError::new(ApiEndpoint::HealthCheck, AggregateClientError::BodyError(e))
+        ApiClientError::new(ApiEndpoint::HealthCheck, MultiNodeClientError::BodyError(e))
     })?;
 
     let max_concurrency = if clients.is_empty() {
         tracing::warn!("no nodes found");
         Err(ApiClientError::Other(Box::new(
-            AggregateClientError::NoNodesFound,
+            MultiNodeClientError::NoNodesFound,
         )))
     } else {
         Ok(clients.len())
@@ -215,7 +245,7 @@ async fn get_fastest_node(
                     tracing::error!("node timed out: {}", node_id);
                     ApiClientError::new(
                         ApiEndpoint::HealthCheck,
-                        AggregateClientError::TimeoutNode {
+                        MultiNodeClientError::TimeoutNode {
                             node_id,
                             latency: timeout.as_millis() as u64,
                         },
@@ -226,7 +256,7 @@ async fn get_fastest_node(
                         tracing::error!("node is unhealthy: {}", node_id);
                         ApiClientError::new(
                             ApiEndpoint::HealthCheck,
-                            AggregateClientError::UnhealthyNode { node_id },
+                            MultiNodeClientError::UnhealthyNode { node_id },
                         )
                     })
                 })
@@ -254,7 +284,7 @@ async fn get_fastest_node(
 
     let (_, client, _) = fastest_client.ok_or(ApiClientError::new(
         ApiEndpoint::HealthCheck,
-        AggregateClientError::NoResponsiveNodesFound {
+        MultiNodeClientError::NoResponsiveNodesFound {
             latency: timeout.as_millis() as u64,
         },
     ))?;
@@ -262,31 +292,31 @@ async fn get_fastest_node(
     Ok(client)
 }
 
-/* MiddlewareBuilder implementation for AggregateClient */
+/* MiddlewareBuilder implementation for MultiNodeClient */
 
 #[derive(Default)]
-pub struct AggregateClientBuilder<C>
-where
-    C: Client + Sync + Send,
-{
-    gateway_client: Option<C>,
+pub struct MultiNodeClientBuilder {
+    gateway_client: Option<GrpcClient>,
     timeout: Option<NonZeroUsize>,
+    client_builder_template: Option<xmtp_api_grpc::client::ClientBuilder>,
 }
 
-/// AggregateClientError is used to wrap the errors from the aggregate client.
+/// MultiNodeClientError is used to wrap the errors from the multi node client.
 #[derive(Debug, Error)]
-pub enum AggregateClientBuilderError {
+pub enum MultiNodeClientBuilderError {
     #[error(transparent)]
-    ApiError(#[from] Box<ApiClientError<AggregateClientError>>),
+    ApiError(#[from] Box<ApiClientError<MultiNodeClientError>>),
     #[error("timeout must be greater than 0")]
     InvalidTimeout,
     #[error("gateway client is required")]
     MissingGatewayClient,
+    #[error("node template is required")]
+    MissingNodeTemplate,
 }
 
-impl MiddlewareBuilder<GrpcClient> for AggregateClientBuilder<GrpcClient> {
-    type Output = AggregateClient<GrpcClient>;
-    type Error = AggregateClientBuilderError;
+impl MiddlewareBuilder for MultiNodeClientBuilder {
+    type Output = MultiNodeClient;
+    type Error = MultiNodeClientBuilderError;
 
     fn set_gateway_client(&mut self, gateway_client: GrpcClient) -> Result<(), Self::Error> {
         self.gateway_client = Some(gateway_client);
@@ -298,38 +328,59 @@ impl MiddlewareBuilder<GrpcClient> for AggregateClientBuilder<GrpcClient> {
         Ok(())
     }
 
-    async fn build(self) -> Result<Self::Output, Self::Error> {
+    fn set_client_builder_template(
+        &mut self,
+        template: xmtp_api_grpc::client::ClientBuilder,
+    ) -> Result<(), Self::Error> {
+        self.client_builder_template = Some(template);
+        Ok(())
+    }
+
+    fn build(self) -> Result<Self::Output, Self::Error> {
         let gateway_client = self
             .gateway_client
-            .ok_or(AggregateClientBuilderError::MissingGatewayClient)?;
-        let nodes = get_nodes(&gateway_client).await.map_err(Box::new)?;
+            .ok_or(MultiNodeClientBuilderError::MissingGatewayClient)?;
+
+        let template = self
+            .client_builder_template
+            .ok_or(MultiNodeClientBuilderError::MissingNodeTemplate)?;
 
         let timeout = Duration::from_millis(self.timeout.unwrap().get() as u64);
-        let inner = get_fastest_node(nodes, timeout).await.map_err(Box::new)?;
 
-        Ok(AggregateClient {
+        Ok(MultiNodeClient {
             gateway_client,
-            inner,
+            inner: OnceCell::new(),
             timeout,
+            client_builder_template: template,
         })
     }
 }
 
 /* MiddlewareBuilder */
 
-pub trait MiddlewareBuilder<C>
-where
-    C: Client + Sync + Send,
-{
+pub trait MiddlewareBuilder {
     type Output;
     type Error;
 
     /// set the gateway client for node discovery
-    fn set_gateway_client(&mut self, gateway_client: C) -> Result<(), Self::Error>;
+    fn set_gateway_client(&mut self, gateway_client: GrpcClient) -> Result<(), Self::Error>;
 
     /// max timeout allowed for nodes to respond, in milliseconds
     fn set_timeout(&mut self, timeout: NonZeroUsize) -> Result<(), Self::Error>;
 
-    #[allow(async_fn_in_trait)]
-    async fn build(self) -> Result<Self::Output, Self::Error>;
+    /// set the client builder template used to construct discovered node clients
+    fn set_client_builder_template(
+        &mut self,
+        template: xmtp_api_grpc::client::ClientBuilder,
+    ) -> Result<(), Self::Error>;
+
+    fn build(self) -> Result<Self::Output, Self::Error>;
+}
+
+pub mod multinode {
+    use super::*;
+
+    pub fn builder() -> MultiNodeClientBuilder {
+        MultiNodeClientBuilder::default()
+    }
 }

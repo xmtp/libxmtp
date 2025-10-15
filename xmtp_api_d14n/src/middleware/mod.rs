@@ -1,2 +1,2 @@
-pub mod aggregate_client;
-pub use aggregate_client::*;
+pub mod multi_node_client;
+pub use multi_node_client::*;
