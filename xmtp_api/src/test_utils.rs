@@ -193,7 +193,7 @@ mod wasm {
             type GroupMessageStream = MockGroupStream;
             type WelcomeMessageStream = MockWelcomeStream;
 
-            async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<MockGroupStream, MockError>;
+            async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest, buffer_size: usize) -> Result<MockGroupStream, MockError>;
             async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<MockWelcomeStream, MockError>;
         }
 
