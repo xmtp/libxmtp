@@ -214,6 +214,15 @@ harness = false
 name = "groups"
 required-features = ["bench"]
 
+[[bench]]
+harness = false
+name = "messages"
+required-features = ["bench"]
+[[bench]]
+harness = false
+name = "sync_conversations"
+required-features = ["bench"]
+
 [[test]]
 harness = true
 name = "chaos"
