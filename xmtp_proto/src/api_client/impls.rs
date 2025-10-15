@@ -242,8 +242,11 @@ where
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
+        buffer_size: usize,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        (**self).subscribe_group_messages(request).await
+        (**self)
+            .subscribe_group_messages(request, buffer_size)
+            .await
     }
 
     async fn subscribe_welcome_messages(
@@ -269,8 +272,11 @@ where
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
+        buffer_size: usize,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        (**self).subscribe_group_messages(request).await
+        (**self)
+            .subscribe_group_messages(request, buffer_size)
+            .await
     }
 
     async fn subscribe_welcome_messages(

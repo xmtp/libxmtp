@@ -287,14 +287,14 @@ impl XmtpMlsStreams for Client {
     async fn subscribe_group_messages(
         &self,
         req: SubscribeGroupMessagesRequest,
+        buffer_size: usize,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         self.stats.subscribe_messages.count_request();
         let stream =
             XmtpTonicStream::from_body(req, self.client(), ApiEndpoint::SubscribeGroupMessages)
-                .await?
-                .buffered(1000);
+                .await?;
 
-        Ok(stream)
+        Ok(stream.buffered(buffer_size))
     }
 
     async fn subscribe_welcome_messages(

@@ -168,7 +168,7 @@ where
         tracing::debug!("setting up messages subscription");
         let api = context.api();
         let groups = GroupList::new(groups, api).await?;
-        let subscription = api.subscribe_group_messages(groups.filters()).await?;
+        let subscription = api.subscribe_group_messages(groups.filters(), 10).await?;
         tracing::info!("stream_messages ready");
 
         Ok(Self {
@@ -254,7 +254,7 @@ where
         Option<u64>,
     )> {
         // get the last synced cursor
-        let stream = context.api().subscribe_group_messages(filters).await?;
+        let stream = context.api().subscribe_group_messages(filters, 10).await?;
         Ok((stream, new_group, Some(1)))
     }
 }

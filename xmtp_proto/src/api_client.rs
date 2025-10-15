@@ -121,6 +121,7 @@ pub trait XmtpMlsStreams {
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
+        buffer_size: usize,
     ) -> Result<Self::GroupMessageStream, Self::Error>;
     async fn subscribe_welcome_messages(
         &self,

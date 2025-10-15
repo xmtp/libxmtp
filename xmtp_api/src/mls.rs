@@ -328,15 +328,19 @@ where
     pub async fn subscribe_group_messages(
         &self,
         filters: Vec<GroupFilter>,
+        buffer_size: usize,
     ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream>
     where
         ApiClient: XmtpMlsStreams,
     {
         tracing::debug!(inbox_id = self.inbox_id, "subscribing to group messages");
         self.api_client
-            .subscribe_group_messages(SubscribeGroupMessagesRequest {
-                filters: filters.into_iter().map(|f| f.into()).collect(),
-            })
+            .subscribe_group_messages(
+                SubscribeGroupMessagesRequest {
+                    filters: filters.into_iter().map(|f| f.into()).collect(),
+                },
+                buffer_size,
+            )
             .await
             .map_err(crate::dyn_err)
     }

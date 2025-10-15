@@ -200,9 +200,10 @@ where
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
+        buffer_size: usize,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         wrap_err(
-            || self.inner.subscribe_group_messages(request),
+            || self.inner.subscribe_group_messages(request, buffer_size),
             || self.inner.aggregate_stats(),
         )
         .await

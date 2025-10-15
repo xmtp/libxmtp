@@ -31,6 +31,7 @@ where
     async fn subscribe_group_messages(
         &self,
         _request: mls_v1::SubscribeGroupMessagesRequest,
+        _buffer_size: usize,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         todo!()
     }

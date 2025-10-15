@@ -317,7 +317,7 @@ impl StreamSequenceBuilder {
             .api_client
             .expect_subscribe_group_messages()
             .once()
-            .returning(move |_req| {
+            .returning(move |_req, _buffer_size| {
                 let mut state = state.lock();
                 let session = state.sessions.get(&state.current_session).unwrap();
                 let mut mock = MockGroupStream::new();
@@ -334,14 +334,14 @@ impl StreamSequenceBuilder {
             .api_client
             .expect_subscribe_group_messages()
             .times(times - 1)
-            .returning(|_req| Ok(MockGroupStream::new()));
+            .returning(|_req, _buffer_size| Ok(MockGroupStream::new()));
         let state = self.case_state.clone();
         self.context
             .api_client
             .api_client
             .expect_subscribe_group_messages()
             .once()
-            .returning(move |_req| {
+            .returning(move |_req, _buffer_size| {
                 let mut state = state.lock();
                 let session = state.sessions.get(&state.current_session).unwrap();
                 let mut mock = MockGroupStream::new();
