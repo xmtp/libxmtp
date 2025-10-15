@@ -3,6 +3,7 @@
 
 use crate::groups::mls_ext::CommitLogStorer;
 use crate::groups::mls_sync::DeferredEvents;
+use crate::groups::oneshot::Oneshot;
 use crate::groups::{MetadataPermissionsError, mls_sync};
 use crate::{
     context::XmtpSharedContext,
@@ -332,7 +333,13 @@ where
             extract_group_metadata(staged_welcome.public_group().group_context().extensions())
                 .map_err(MetadataPermissionsError::from)?;
         if metadata.conversation_type == ConversationType::Oneshot {
-            MlsGroup::process_oneshot_welcome(context, welcome.id, staged_welcome, metadata)?;
+            Oneshot::process_welcome(
+                &provider,
+                welcome.id,
+                added_by_inbox_id,
+                added_by_installation_id,
+                metadata,
+            )?;
             return Ok(None);
         }
         let mls_group = OpenMlsGroup::from_welcome_logged(

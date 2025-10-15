@@ -34,6 +34,7 @@ pub mod store;
 pub mod user_preferences;
 
 pub mod local_commit_log;
+pub mod readd_status;
 pub mod remote_commit_log;
 
 pub use self::db_connection::DbConnection;

@@ -1,5 +1,5 @@
 use crate::{
-    identity_updates::batch_get_association_state_with_verifier,
+    identity_updates::{batch_get_association_state_with_verifier, get_creation_signature_kind},
     messages::{
         decoded_message::DecodedMessage,
         enrichment::{EnrichMessageError, enrich_messages},
@@ -380,6 +380,34 @@ where
             )
             .await?;
         Ok(state)
+    }
+
+    /// Get the signature kind used to create an inbox.
+    ///
+    /// # Arguments
+    /// * `inbox_id` - The inbox ID to check
+    /// * `refresh_from_network` - Whether to fetch updates from the network first
+    ///
+    /// # Returns
+    /// * `Some(SignatureKind)` - The signature kind used to create the inbox
+    /// * `None` - Inbox doesn't exist or creation info is unavailable
+    pub async fn inbox_creation_signature_kind(
+        &self,
+        inbox_id: InboxIdRef<'_>,
+        refresh_from_network: bool,
+    ) -> Result<Option<xmtp_id::associations::SignatureKind>, ClientError> {
+        let conn = self.context.db();
+
+        // Load the first identity update (creation update) for this inbox if requested
+        if refresh_from_network {
+            load_identity_updates(self.context.api(), &conn, &[inbox_id]).await?;
+        }
+
+        let verifier = self.context.scw_verifier();
+
+        let signature_kind = get_creation_signature_kind(&conn, verifier, inbox_id).await?;
+
+        Ok(signature_kind)
     }
 
     /// Set a consent record in the local database.
