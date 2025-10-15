@@ -294,7 +294,7 @@ impl XmtpMlsStreams for Client {
             XmtpTonicStream::from_body(req, self.client(), ApiEndpoint::SubscribeGroupMessages)
                 .await?;
 
-        Ok(stream.buffered(buffer_size))
+        Ok(stream.buffered(buffer_size).await)
     }
 
     async fn subscribe_welcome_messages(

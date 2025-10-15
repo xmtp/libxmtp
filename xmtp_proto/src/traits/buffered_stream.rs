@@ -7,25 +7,30 @@ use futures::{
 use pin_project_lite::pin_project;
 use std::{
     pin::{Pin, pin},
-    task::{Context, Poll},
+    task::{Context, Poll, ready},
 };
+use tonic::async_trait;
 use xmtp_common::MaybeSend;
 
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait StreamBufferExt<Item> {
-    fn buffered(self, size: usize) -> XmtpBufferedStream<Item>;
+    async fn buffered(self, size: usize) -> XmtpBufferedStream<Item>;
 }
 
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<S, T> StreamBufferExt<Result<T, ApiClientError<<S as TryStream>::Error>>> for XmtpStream<S, T>
 where
     S: TryStream<Ok = Bytes> + MaybeSend + 'static,
     <S as TryStream>::Error: std::error::Error + MaybeSend,
     T: prost::Message + Default + 'static,
 {
-    fn buffered(
+    async fn buffered(
         self,
         size: usize,
     ) -> XmtpBufferedStream<Result<T, ApiClientError<<S as TryStream>::Error>>> {
-        XmtpBufferedStream::new(self, size)
+        XmtpBufferedStream::new(self, size).await
     }
 }
 
@@ -41,7 +46,7 @@ impl<Item> XmtpBufferedStream<Item>
 where
     Item: MaybeSend + 'static,
 {
-    pub fn new(inner: impl Stream<Item = Item> + MaybeSend + 'static, size: usize) -> Self {
+    pub async fn new(inner: impl Stream<Item = Item> + MaybeSend + 'static, size: usize) -> Self {
         let (mut tx, rx) = mpsc::channel(size);
         xmtp_common::spawn(None, async move {
             let mut pinned = pin!(inner);
@@ -58,7 +63,8 @@ where
 
 impl<T> Stream for XmtpBufferedStream<T> {
     type Item = T;
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.project().rx.poll_next(cx)
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.as_mut().project();
+        this.rx.poll_next(cx)
     }
 }
