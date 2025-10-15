@@ -35,25 +35,15 @@ pub type FullXmtpClient = Client<TestXmtpMlsContext>;
 pub type ClientTester = Tester<PrivateKeySigner, FullXmtpClient>;
 pub type TestMlsGroup = crate::groups::MlsGroup<TestXmtpMlsContext>;
 
-#[cfg(not(any(feature = "http-api", target_arch = "wasm32", feature = "d14n")))]
-pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
+xmtp_common::if_v3! {
+    pub type TestClient = xmtp_api_grpc::v3::Client;
+}
 
-#[cfg(all(
-    any(feature = "http-api", target_arch = "wasm32"),
-    not(feature = "d14n")
-))]
-use xmtp_api_http::XmtpHttpApiClient;
+xmtp_common::if_d14n! {
+    pub type TestClient = xmtp_api_d14n::TestD14nClient;
+}
 
 use super::VersionInfo;
-
-#[cfg(all(
-    any(feature = "http-api", target_arch = "wasm32"),
-    not(feature = "d14n")
-))]
-pub type TestClient = XmtpHttpApiClient;
-
-#[cfg(feature = "d14n")]
-pub type TestClient = xmtp_api_d14n::TestD14nClient;
 
 impl<A, S> ClientBuilder<A, S> {
     pub async fn temp_store(self) -> Self {
@@ -63,11 +53,9 @@ impl<A, S> ClientBuilder<A, S> {
     pub async fn dev(self) -> ClientBuilder<TestClient, S> {
         let api_client = <TestClient as XmtpTestClient>::create_dev()
             .build()
-            .await
             .unwrap();
         let sync_api_client = <TestClient as XmtpTestClient>::create_dev()
             .build()
-            .await
             .unwrap();
         self.api_clients(api_client, sync_api_client)
     }
@@ -75,11 +63,9 @@ impl<A, S> ClientBuilder<A, S> {
     pub async fn local(self) -> ClientBuilder<TestClient, S> {
         let api_client = <TestClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap();
         let sync_api_client = <TestClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap();
         self.api_clients(api_client, sync_api_client)
     }
@@ -158,11 +144,9 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
     pub async fn new_test_client_dev(owner: &impl InboxOwner) -> FullXmtpClient {
         let api_client = <TestClient as XmtpTestClient>::create_dev()
             .build()
-            .await
             .unwrap();
         let sync_api_client = <TestClient as XmtpTestClient>::create_dev()
             .build()
-            .await
             .unwrap();
 
         let client = Self::new_test_builder(owner)
@@ -182,12 +166,10 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
     ) -> FullXmtpClient {
         let api_client = <TestClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap();
 
         let sync_api_client = <TestClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap();
 
         let client = Self::new_test_builder(owner)
@@ -208,11 +190,9 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         self.api_clients(
             <TestClient as XmtpTestClient>::create_local()
                 .build()
-                .await
                 .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
-                .await
                 .unwrap(),
         )
     }
@@ -221,11 +201,9 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         self.api_clients(
             <TestClient as XmtpTestClient>::create_dev()
                 .build()
-                .await
                 .unwrap(),
             <TestClient as XmtpTestClient>::create_dev()
                 .build()
-                .await
                 .unwrap(),
         )
     }

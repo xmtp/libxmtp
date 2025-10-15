@@ -23,10 +23,10 @@ test-utils = [
   "xmtp_db/test-utils",
   "xmtp_proto/test-utils",
   "xmtp_api/test-utils",
-  "xmtp_api_http/test-utils",
   "xmtp_api_grpc/test-utils",
   "xmtp_configuration/test-utils",
   "xmtp_common/test-utils",
+  "xmtp_content_types/test-utils",
   "dep:alloy",
   "dep:passkey",
   "dep:coset",
@@ -47,10 +47,10 @@ bench = [
   "dep:alloy",
   "xmtp_common/bench",
 ]
-default = ["grpc-api"]
-grpc-api = ["dep:xmtp_api_grpc", "xmtp_api_d14n?/grpc-api"]
-http-api = ["dep:xmtp_api_http", "xmtp_api_d14n?/http-api"]
+default = []
 d14n = ["dep:xmtp_api_d14n"]
+# test against the dev network
+dev = ["xmtp_configuration/dev", "xmtp_proto/dev", "xmtp_api_d14n/dev"]
 
 [dependencies]
 aes-gcm.workspace = true
@@ -62,6 +62,7 @@ futures = { workspace = true, features = ["alloc", "std"] }
 futures-util.workspace = true
 hex.workspace = true
 hkdf.workspace = true
+hpke-rs.workspace = true
 itertools.workspace = true
 json-patch = "4"
 openmls_libcrux_crypto = { workspace = true }
@@ -90,11 +91,11 @@ xmtp_configuration.workspace = true
 xmtp_mls_common.workspace = true
 
 # XMTP/Local
-xmtp_api = { workspace = true }
-xmtp_content_types = { path = "../xmtp_content_types" }
+xmtp_api.workspace = true
+xmtp_content_types.workspace = true
 xmtp_cryptography = { workspace = true }
-xmtp_db = { workspace = true }
-xmtp_id = { path = "../xmtp_id" }
+xmtp_db.workspace = true
+xmtp_id.workspace = true
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Optional/Features
@@ -108,12 +109,12 @@ public-suffix = { version = "0.1.2", optional = true }
 rstest = { workspace = true, features = ["async-timeout"], optional = true }
 url = { workspace = true, optional = true }
 xmtp_api_d14n = { workspace = true, optional = true }
-xmtp_api_http = { path = "../xmtp_api_http", optional = true }
+xmtp_api_grpc = { workspace = true, optional = true }
 
 # Test/Bench Utils
 criterion = { workspace = true, optional = true }
 hmac = "0.12.1"
-indicatif = { version = "0.17", optional = true }
+indicatif = { version = "0.18", optional = true }
 toxiproxy_rust = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, features = [
   "env-filter",
@@ -133,7 +134,6 @@ tokio = { workspace = true, features = [
 chrono = { workspace = true, features = ["clock"] }
 dyn-clone.workspace = true
 openmls.workspace = true
-xmtp_api_grpc = { workspace = true, optional = true }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }
@@ -170,12 +170,16 @@ xmtp_api = { workspace = true, features = ["test-utils"] }
 xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
+xmtp_content_types = { path = "../xmtp_content_types", features = [
+  "test-utils",
+] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_db_test.workspace = true
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 # Required for traced_test! macro
 tracing-subscriber = { workspace = true }
+xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 
 
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
@@ -183,15 +187,11 @@ ctor.workspace = true
 mockito = "1.6.1"
 openmls = { workspace = true }
 tempfile = "3.15.0"
-xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
-xmtp_api_http = { workspace = true, features = ["test-utils"] }
-
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 openmls = { workspace = true, features = ["js"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 wasm-bindgen-test.workspace = true
-xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }
 futures-timer = { version = "3.0.3", features = ["wasm-bindgen"] }
 
 [[bench]]
@@ -207,6 +207,20 @@ required-features = ["bench"]
 [[bench]]
 harness = false
 name = "identity"
+required-features = ["bench"]
+
+[[bench]]
+harness = false
+name = "groups"
+required-features = ["bench"]
+
+[[bench]]
+harness = false
+name = "messages"
+required-features = ["bench"]
+[[bench]]
+harness = false
+name = "sync_conversations"
 required-features = ["bench"]
 
 [[test]]

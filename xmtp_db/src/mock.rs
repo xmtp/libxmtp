@@ -62,6 +62,7 @@ impl ConnectionExt for MockConnection {
 
 use crate::StorageError;
 use crate::prelude::*;
+
 mock! {
     pub DbQuery {
 
@@ -223,6 +224,10 @@ mock! {
             &self,
         ) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
 
+        fn get_conversation_ids_for_requesting_readds(
+            &self,
+        ) -> Result<Vec<crate::encrypted_store::group::StoredGroupForReaddRequest>, crate::ConnectionError>;
+
         fn get_conversation_type(&self, group_id: &[u8]) -> Result<ConversationType, crate::ConnectionError>;
 
         fn set_group_commit_log_public_key(
@@ -276,6 +281,7 @@ mock! {
         fn set_group_intent_committed(
             &self,
             intent_id: crate::group_intent::ID,
+            sequence_id: i64,
         ) -> Result<(), StorageError>;
 
         fn set_group_intent_processed(
@@ -310,6 +316,34 @@ mock! {
         ) -> Result<(), StorageError>;
     }
 
+    impl QueryReaddStatus for DbQuery {
+        fn get_readd_status(
+            &self,
+            group_id: &[u8],
+            installation_id: &[u8],
+        ) -> Result<Option<crate::readd_status::ReaddStatus>, crate::ConnectionError>;
+
+        fn is_awaiting_readd(
+            &self,
+            group_id: &[u8],
+            installation_id: &[u8],
+        ) -> Result<bool, crate::ConnectionError>;
+
+        fn update_requested_at_sequence_id(
+            &self,
+            group_id: &[u8],
+            installation_id: &[u8],
+            sequence_id: i64,
+        ) -> Result<(), crate::ConnectionError>;
+
+        fn update_responded_at_sequence_id(
+            &self,
+            group_id: &[u8],
+            installation_id: &[u8],
+            sequence_id: i64,
+        ) -> Result<(), crate::ConnectionError>;
+    }
+
     impl QueryGroupMessage for DbQuery {
         fn get_group_messages(
             &self,
@@ -328,6 +362,26 @@ mock! {
             group_id: &[u8],
             args: &crate::group_message::MsgQueryArgs,
         ) -> Result<Vec<crate::group_message::StoredGroupMessageWithReactions>, crate::ConnectionError>;
+
+        fn get_inbound_relations<'a>(
+            &self,
+            group_id: &'a [u8],
+            message_ids: &'a [&'a [u8]],
+            relation_query: crate::group_message::RelationQuery,
+        ) -> Result<crate::group_message::InboundRelations, crate::ConnectionError>;
+
+        fn get_outbound_relations<'a>(
+            &self,
+            group_id: &'a [u8],
+            message_ids: &'a [&'a [u8]],
+        ) -> Result<crate::group_message::OutboundRelations, crate::ConnectionError>;
+
+        fn get_inbound_relation_counts<'a>(
+            &self,
+            group_id: &'a [u8],
+            message_ids: &'a [&'a [u8]],
+            relation_query: crate::group_message::RelationQuery,
+        ) -> Result<crate::group_message::RelationCounts, crate::ConnectionError>;
 
         #[mockall::concretize]
         fn get_group_message<MessageId: AsRef<[u8]>>(
@@ -377,6 +431,19 @@ mock! {
         ) -> Result<usize, crate::ConnectionError>;
 
         fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError>;
+
+        #[mockall::concretize]
+        fn delete_message_by_id<MessageId: AsRef<[u8]>>(
+            &self,
+            message_id: MessageId,
+        ) -> Result<usize, crate::ConnectionError>;
+
+        #[mockall::concretize]
+        fn get_latest_message_times_by_sender<GroupId: AsRef<[u8]>>(
+            &self,
+            group_id: GroupId,
+            allowed_content_types: &[crate::group_message::ContentType],
+        ) -> Result<crate::group_message::LatestMessageTimeBySender, crate::ConnectionError>;
     }
 
     impl QueryIdentity for DbQuery {

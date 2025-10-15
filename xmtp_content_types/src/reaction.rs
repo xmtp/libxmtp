@@ -5,15 +5,18 @@ use prost::Message;
 
 use serde::{Deserialize, Serialize};
 use xmtp_proto::xmtp::mls::message_contents::{
-    content_types::ReactionV2, ContentTypeId, EncodedContent,
+    ContentTypeId, EncodedContent,
+    content_types::{ReactionAction, ReactionSchema, ReactionV2},
 };
 
 pub struct ReactionCodec {}
 
-/// Legacy content type id at https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reaction/src/Reaction.ts
+/// Legacy content type id at <https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reaction/src/Reaction.ts>
 impl ReactionCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
     pub const TYPE_ID: &'static str = "reaction";
+    pub const MAJOR_VERSION: u32 = 2;
+    pub const MINOR_VERSION: u32 = 0;
 }
 
 impl ContentCodec<ReactionV2> for ReactionCodec {
@@ -51,17 +54,42 @@ impl ContentCodec<ReactionV2> for ReactionCodec {
 // JSON format for legacy reaction is defined here: https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reaction/src/Reaction.ts
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LegacyReaction {
+    /// The action of the reaction ("added" or "removed")
+    pub action: String,
     /// The message ID for the message that is being reacted to
     pub reference: String,
     /// The inbox ID of the user who sent the message that is being reacted to
     #[serde(rename = "referenceInboxId", skip_serializing_if = "Option::is_none")]
     pub reference_inbox_id: Option<String>,
-    /// The action of the reaction ("added" or "removed")
-    pub action: String,
-    /// The content of the reaction
-    pub content: String,
     /// The schema of the content ("unicode", "shortcode", or "custom")
     pub schema: String,
+    /// The content of the reaction
+    pub content: String,
+}
+
+impl From<LegacyReaction> for ReactionV2 {
+    fn from(legacy: LegacyReaction) -> Self {
+        let action = match legacy.action.as_str() {
+            "added" => ReactionAction::Added as i32,
+            "removed" => ReactionAction::Removed as i32,
+            _ => ReactionAction::Unspecified as i32,
+        };
+
+        let schema = match legacy.schema.as_str() {
+            "unicode" => ReactionSchema::Unicode as i32,
+            "shortcode" => ReactionSchema::Shortcode as i32,
+            "custom" => ReactionSchema::Custom as i32,
+            _ => ReactionSchema::Unspecified as i32,
+        };
+
+        ReactionV2 {
+            reference: legacy.reference,
+            reference_inbox_id: legacy.reference_inbox_id.unwrap_or_default(),
+            action,
+            content: legacy.content,
+            schema,
+        }
+    }
 }
 
 impl LegacyReaction {
@@ -81,6 +109,45 @@ impl LegacyReaction {
             tracing::error!("utf-8 deserialization failed");
         }
         None
+    }
+}
+
+pub struct LegacyReactionCodec {}
+
+/// Legacy content type id at <https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reaction/src/Reaction.ts>
+impl LegacyReactionCodec {
+    const AUTHORITY_ID: &'static str = "xmtp.org";
+    pub const TYPE_ID: &'static str = "reaction";
+    pub const MAJOR_VERSION: u32 = 1;
+    pub const MINOR_VERSION: u32 = 0;
+}
+
+impl ContentCodec<LegacyReaction> for LegacyReactionCodec {
+    fn content_type() -> ContentTypeId {
+        ContentTypeId {
+            authority_id: LegacyReactionCodec::AUTHORITY_ID.to_string(),
+            type_id: LegacyReactionCodec::TYPE_ID.to_string(),
+            version_major: LegacyReactionCodec::MAJOR_VERSION,
+            version_minor: LegacyReactionCodec::MINOR_VERSION,
+        }
+    }
+
+    fn encode(data: LegacyReaction) -> Result<EncodedContent, CodecError> {
+        let json = serde_json::to_string(&data).map_err(|e| CodecError::Encode(e.to_string()))?;
+        Ok(EncodedContent {
+            r#type: Some(LegacyReactionCodec::content_type()),
+            parameters: std::collections::HashMap::new(),
+            fallback: None,
+            compression: None,
+            content: json.into_bytes(),
+        })
+    }
+
+    fn decode(content: EncodedContent) -> Result<LegacyReaction, CodecError> {
+        let decoded = serde_json::from_slice::<LegacyReaction>(&content.content)
+            .map_err(|e| CodecError::Decode(e.to_string()))?;
+
+        Ok(decoded)
     }
 }
 

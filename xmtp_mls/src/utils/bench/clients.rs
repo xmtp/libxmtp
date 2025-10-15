@@ -25,13 +25,11 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, Privat
         tracing::info!("Using Dev GRPC");
         <TestApiClient as XmtpTestClient>::create_dev()
             .build()
-            .await
             .unwrap()
     } else {
         tracing::info!("Using Local GRPC");
         <TestApiClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap()
     };
 
@@ -39,13 +37,11 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, Privat
         tracing::info!("Using Dev GRPC");
         <TestApiClient as XmtpTestClient>::create_dev()
             .build()
-            .await
             .unwrap()
     } else {
         tracing::info!("Using Local GRPC");
         <TestApiClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap()
     };
 
@@ -92,4 +88,58 @@ pub async fn new_client(history_sync: bool) -> BenchClient {
     let signature_request = ecdsa_signature(&client, wallet).await;
     client.register_identity(signature_request).await.unwrap();
     client
+}
+
+/// Create a client from a pre-generated identity
+pub async fn create_client_from_identity(
+    identity: &super::Identity,
+    is_dev_network: bool,
+) -> BenchClient {
+    let _ = fdlimit::raise_fd_limit();
+
+    let nonce = 1;
+    let inbox_id = identity.inbox_id.clone();
+
+    let api_client = if is_dev_network {
+        tracing::info!("Using Dev GRPC");
+        <TestApiClient as XmtpTestClient>::create_dev()
+            .build()
+            .unwrap()
+    } else {
+        tracing::info!("Using Local GRPC");
+        <TestApiClient as XmtpTestClient>::create_local()
+            .build()
+            .unwrap()
+    };
+
+    let sync_api_client = if is_dev_network {
+        tracing::info!("Using Dev GRPC");
+        <TestApiClient as XmtpTestClient>::create_dev()
+            .build()
+            .unwrap()
+    } else {
+        tracing::info!("Using Local GRPC");
+        <TestApiClient as XmtpTestClient>::create_local()
+            .build()
+            .unwrap()
+    };
+
+    let client = crate::Client::builder(IdentityStrategy::new(
+        inbox_id,
+        identity.identifier.clone(),
+        nonce,
+        None,
+    ));
+
+    client
+        .temp_store()
+        .await
+        .api_clients(api_client, sync_api_client)
+        .with_remote_verifier()
+        .unwrap()
+        .default_mls_store()
+        .unwrap()
+        .build()
+        .await
+        .unwrap()
 }

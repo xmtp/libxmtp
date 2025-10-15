@@ -1,26 +1,26 @@
+use crate::ConversionError;
 use crate::mls_v1::{self, GroupMessage, WelcomeMessage};
 use crate::v4_utils::{
-    build_identity_topic_from_hex_encoded, build_welcome_message_topic, get_group_message_topic,
-    get_key_package_topic, Extract,
+    Extract, build_identity_topic_from_hex_encoded, build_welcome_message_topic,
+    get_group_message_topic, get_key_package_topic,
 };
-use crate::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
 use crate::xmtp::identity::api::v1::PublishIdentityUpdateRequest;
+use crate::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
 use crate::xmtp::mls::api::v1::fetch_key_packages_response::KeyPackage;
 use crate::xmtp::mls::api::v1::{
+    GroupMessageInput, UploadKeyPackageRequest, WelcomeMessageInput,
     group_message_input::Version as GroupMessageInputVersion,
-    welcome_message_input::Version as WelcomeMessageVersion, GroupMessageInput,
-    UploadKeyPackageRequest, WelcomeMessageInput,
+    welcome_message_input::Version as WelcomeMessageVersion,
 };
 use crate::xmtp::xmtpv4::envelopes::client_envelope::Payload;
 use crate::xmtp::xmtpv4::envelopes::{AuthenticatedData, ClientEnvelope, OriginatorEnvelope};
-use crate::ConversionError;
 use openmls::prelude::tls_codec::Deserialize;
 use openmls::{framing::MlsMessageIn, prelude::ProtocolMessage};
 
 mod inbox_id {
     use crate::xmtp::identity::MlsCredential;
     use openmls::{
-        credentials::{errors::BasicCredentialError, BasicCredential},
+        credentials::{BasicCredential, errors::BasicCredentialError},
         prelude::Credential as OpenMlsCredential,
     };
     use prost::Message;
@@ -277,7 +277,7 @@ impl TryFrom<OriginatorEnvelope> for WelcomeMessage {
             data: welcome_in.data,
             hpke_public_key: welcome_in.hpke_public_key,
             wrapper_algorithm: welcome_in.wrapper_algorithm,
-            welcome_metadata: Vec::new(),
+            welcome_metadata: welcome_in.welcome_metadata,
         });
 
         Ok(mls_v1::WelcomeMessage {

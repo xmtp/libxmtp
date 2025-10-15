@@ -10,9 +10,7 @@ use diesel::{
 };
 
 use super::{ConnectionExt, Sqlite, db_connection::DbConnection, schema::refresh_state};
-use crate::{
-    StoreOrIgnore, impl_store, impl_store_or_ignore, {NotFound, StorageError},
-};
+use crate::{StorageError, StoreOrIgnore, impl_store_or_ignore};
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, Hash, FromSqlRow)]
@@ -76,7 +74,6 @@ pub struct RefreshState {
     pub cursor: i64,
 }
 
-impl_store!(RefreshState, refresh_state);
 impl_store_or_ignore!(RefreshState, refresh_state);
 
 pub trait QueryRefreshState {
@@ -183,17 +180,25 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         cursor: i64,
     ) -> Result<bool, StorageError> {
         use super::schema::refresh_state::dsl;
-        let state: RefreshState = self.get_refresh_state(&entity_id, entity_kind)?.ok_or(
-            NotFound::RefreshStateByIdAndKind(entity_id.as_ref().to_vec(), entity_kind),
-        )?;
+        use crate::diesel::upsert::excluded;
+        use diesel::query_dsl::methods::FilterDsl;
 
         let num_updated = self.raw_query_write(|conn| {
-            diesel::update(&state)
-                .filter(dsl::cursor.lt(cursor))
-                .set(dsl::cursor.eq(cursor))
+            diesel::insert_into(dsl::refresh_state)
+                .values(RefreshState {
+                    entity_id: entity_id.as_ref().to_vec(),
+                    entity_kind,
+                    cursor,
+                })
+                .on_conflict((dsl::entity_id, dsl::entity_kind))
+                .do_update()
+                // Only update if the existing cursor is lower than the incoming one:
+                .set(dsl::cursor.eq(excluded(dsl::cursor)))
+                .filter(dsl::cursor.lt(excluded(dsl::cursor)))
                 .execute(conn)
         })?;
-        Ok(num_updated == 1)
+
+        Ok(num_updated >= 1)
     }
 
     fn get_remote_log_cursors(
@@ -217,7 +222,8 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
-    use crate::{Store, test_utils::with_connection};
+    use crate::StoreOrIgnore;
+    use crate::test_utils::with_connection;
 
     #[xmtp_common::test]
     async fn get_cursor_with_no_existing_state() {
@@ -243,7 +249,7 @@ pub(crate) mod tests {
                 entity_kind,
                 cursor: 123,
             };
-            entry.store(conn).unwrap();
+            entry.store_or_ignore(conn).unwrap();
             assert_eq!(conn.get_last_cursor_for_id(&id, entity_kind).unwrap(), 123);
         })
         .await
@@ -259,7 +265,7 @@ pub(crate) mod tests {
                 entity_kind,
                 cursor: 123,
             };
-            entry.store(conn).unwrap();
+            entry.store_or_ignore(conn).unwrap();
             assert!(conn.update_cursor(&id, entity_kind, 124).unwrap());
             let entry: Option<RefreshState> = conn.get_refresh_state(&id, entity_kind).unwrap();
             assert_eq!(entry.unwrap().cursor, 124);
@@ -278,7 +284,7 @@ pub(crate) mod tests {
                 entity_kind,
                 cursor: 123,
             };
-            entry.store(conn).unwrap();
+            entry.store_or_ignore(conn).unwrap();
             assert!(!conn.update_cursor(&entity_id, entity_kind, 122).unwrap());
             let entry: Option<RefreshState> =
                 conn.get_refresh_state(&entity_id, entity_kind).unwrap();
@@ -296,14 +302,14 @@ pub(crate) mod tests {
                 entity_kind: EntityKind::Welcome,
                 cursor: 123,
             };
-            welcome_state.store(conn).unwrap();
+            welcome_state.store_or_ignore(conn).unwrap();
 
             let group_state = RefreshState {
                 entity_id: entity_id.clone(),
                 entity_kind: EntityKind::Group,
                 cursor: 456,
             };
-            group_state.store(conn).unwrap();
+            group_state.store_or_ignore(conn).unwrap();
 
             let welcome_state_retrieved = conn
                 .get_refresh_state(&entity_id, EntityKind::Welcome)

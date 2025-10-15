@@ -243,6 +243,7 @@ where
             WelcomeOrGroup::Welcome(envelope),
             None,
             false,
+            None,
         )?;
         match future.process().await? {
             ProcessWelcomeResult::New { group, .. } => Ok(group),
@@ -262,7 +263,13 @@ where
     where
         Context::ApiClient: XmtpMlsStreams,
     {
-        StreamConversations::new(&self.context, conversation_type, include_duplicate_dms).await
+        StreamConversations::new(
+            &self.context,
+            conversation_type,
+            include_duplicate_dms,
+            None,
+        )
+        .await
     }
 
     /// Stream conversations but decouple the lifetime of 'self' from the stream.
@@ -279,6 +286,7 @@ where
             self.context.clone(),
             conversation_type,
             include_duplicate_dms,
+            None,
         )
         .await
     }
@@ -305,9 +313,17 @@ where
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
-            let stream = client
+            let stream = match client
                 .stream_conversations(conversation_type, include_duplicate_dms)
-                .await?;
+                .await
+            {
+                Ok(stream) => stream,
+                Err(e) => {
+                    tracing::warn!("Failed to create conversation stream, closing: {}", e);
+                    on_close();
+                    return Ok::<_, SubscribeError>(());
+                }
+            };
             futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(convo) = stream.next().await {
@@ -366,7 +382,15 @@ where
 
         xmtp_common::spawn(Some(rx), async move {
             tracing::debug!("stream all messages with callback");
-            let stream = StreamAllMessages::new(&context, conversation_type, consent_state).await?;
+            let stream =
+                match StreamAllMessages::new(&context, conversation_type, consent_state).await {
+                    Ok(stream) => stream,
+                    Err(e) => {
+                        tracing::warn!("Failed to create message stream, closing: {}", e);
+                        on_close();
+                        return Ok::<_, SubscribeError>(());
+                    }
+                };
 
             futures::pin_mut!(stream);
             let _ = tx.send(());
@@ -427,7 +451,7 @@ where
             while let Some(message) = stream.next().await {
                 callback(message)
             }
-            tracing::debug!("`stream_consent` stream ended, dropping stream");
+            tracing::debug!("`stream_preferences` stream ended, dropping stream");
             on_close();
             Ok::<_, SubscribeError>(())
         })

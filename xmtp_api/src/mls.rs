@@ -3,21 +3,20 @@ use std::collections::HashMap;
 use super::ApiClientWrapper;
 use crate::{Result, XmtpApi};
 use xmtp_common::retry_async;
+use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, PublishCommitLogRequest,
     QueryCommitLogRequest, QueryCommitLogResponse,
 };
 use xmtp_proto::xmtp::mls::api::v1::{
+    FetchKeyPackagesRequest, GroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo,
+    QueryGroupMessagesRequest, QueryWelcomeMessagesRequest, SendGroupMessagesRequest,
+    SendWelcomeMessagesRequest, SortDirection, SubscribeGroupMessagesRequest,
+    SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
     subscribe_group_messages_request::Filter as GroupFilterProto,
-    subscribe_welcome_messages_request::Filter as WelcomeFilterProto, FetchKeyPackagesRequest,
-    GroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo, QueryGroupMessagesRequest,
-    QueryWelcomeMessagesRequest, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
-    SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-    UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
+    subscribe_welcome_messages_request::Filter as WelcomeFilterProto,
 };
-// the max page size for queries
-const MAX_PAGE_SIZE: u32 = 100;
 
 /// A filter for querying group messages
 #[derive(Clone)]
@@ -421,14 +420,14 @@ pub mod tests {
     use crate::test_utils::MockError;
     use xmtp_common::rand_vec;
     use xmtp_proto::api_client::ApiBuilder;
-    use xmtp_proto::mls_v1::{
-        welcome_message_input::{Version as WelcomeVersion, V1 as WelcomeV1},
-        WelcomeMessageInput,
-    };
     use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
+    use xmtp_proto::mls_v1::{
+        WelcomeMessageInput,
+        welcome_message_input::{V1 as WelcomeV1, Version as WelcomeVersion},
+    };
     use xmtp_proto::xmtp::mls::api::v1::{
-        fetch_key_packages_response::KeyPackage, FetchKeyPackagesResponse, PagingInfo,
-        QueryGroupMessagesResponse,
+        FetchKeyPackagesResponse, PagingInfo, QueryGroupMessagesResponse,
+        fetch_key_packages_response::KeyPackage,
     };
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -645,7 +644,7 @@ pub mod tests {
         client.set_tls(false);
         client.rate_per_minute(1);
         let _ = client.set_app_version("999.999.999".into());
-        let c = client.build().await.unwrap();
+        let c = client.build().unwrap();
         let wrapper = ApiClientWrapper::new(c, Retry::default());
         let _first = wrapper.query_group_messages(vec![0, 0], None).await;
         let now = std::time::Instant::now();
@@ -654,7 +653,7 @@ pub mod tests {
     }
 
     #[xmtp_common::test]
-    #[cfg_attr(any(feature = "http-api", target_arch = "wasm32"), ignore)]
+    #[cfg_attr(any(target_arch = "wasm32"), ignore)]
     async fn it_should_allow_large_payloads() {
         let mut client = crate::tests::TestClient::builder();
         client.set_host("http://localhost:5556".into());
@@ -663,7 +662,7 @@ pub mod tests {
         let installation_key = rand_vec::<32>();
         let hpke_public_key = rand_vec::<32>();
 
-        let c = client.build().await.unwrap();
+        let c = client.build().unwrap();
         let wrapper = ApiClientWrapper::new(c, Retry::default());
 
         let mut very_large_payload = vec![];
@@ -693,7 +692,7 @@ pub mod tests {
     }
 
     #[xmtp_common::test]
-    #[cfg_attr(any(feature = "http-api", target_arch = "wasm32"), ignore)]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_publish_commit_log_batching_with_local_server() {
         // This test verifies that publish batching works correctly with a local server
         // It should handle 11 publish requests without hitting API limits
@@ -702,7 +701,7 @@ pub mod tests {
         client.set_tls(false);
         client.set_app_version("0.0.0".into()).unwrap();
 
-        let c = client.build().await.unwrap();
+        let c = client.build().unwrap();
         let wrapper = ApiClientWrapper::new(c, Retry::default());
 
         let group_id = rand_vec::<32>();
@@ -726,7 +725,10 @@ pub mod tests {
             Err(e) => {
                 let error_msg = format!("{}", e);
                 if error_msg.contains("cannot exceed 10 inserts in single batch") {
-                    panic!("❌ Received batch size limit error: '{}'. This indicates batching is not working correctly.", error_msg);
+                    panic!(
+                        "❌ Received batch size limit error: '{}'. This indicates batching is not working correctly.",
+                        error_msg
+                    );
                 } else {
                     // Non-batching error - acceptable
                 }
@@ -735,7 +737,7 @@ pub mod tests {
     }
 
     #[xmtp_common::test]
-    #[cfg_attr(any(feature = "http-api", target_arch = "wasm32"), ignore)]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_query_commit_log_batching_with_local_server() {
         // This test verifies that query batching works correctly with a local server
         // It should handle 21 query requests without hitting API limits
@@ -744,7 +746,7 @@ pub mod tests {
         client.set_tls(false);
         client.set_app_version("0.0.0".into()).unwrap();
 
-        let c = client.build().await.unwrap();
+        let c = client.build().unwrap();
         let wrapper = ApiClientWrapper::new(c, Retry::default());
 
         let group_id = rand_vec::<32>();

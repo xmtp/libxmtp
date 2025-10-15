@@ -1,14 +1,16 @@
 use openmls::{
-    group::{MlsGroupJoinConfig, ProcessedWelcome, StagedWelcome, WireFormatPolicy},
+    group::{MlsGroupJoinConfig, StagedWelcome, WireFormatPolicy},
     prelude::{
         BasicCredential, KeyPackageBundle, KeyPackageRef, MlsMessageBodyIn, MlsMessageIn, Welcome,
     },
 };
 use openmls_traits::storage::StorageProvider;
+use prost::Message;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_db::MlsProviderExt;
 use xmtp_db::XmtpMlsStorageProvider;
 
+use super::WrapperAlgorithm;
 use crate::{
     client::ClientError,
     groups::{GroupError, mls_ext::unwrap_welcome},
@@ -19,13 +21,13 @@ use xmtp_db::{
     NotFound,
     sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
 };
-
-use super::WrapperAlgorithm;
+use xmtp_proto::mls_v1::WelcomeMetadata;
 
 pub(crate) struct DecryptedWelcome {
     pub(crate) staged_welcome: StagedWelcome,
     pub(crate) added_by_inbox_id: String,
     pub(crate) added_by_installation_id: Vec<u8>,
+    pub(crate) welcome_metadata: Option<WelcomeMetadata>,
 }
 
 impl DecryptedWelcome {
@@ -37,27 +39,43 @@ impl DecryptedWelcome {
         provider: &P,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: &[u8],
+        encrypted_welcome_metadata_bytes: &[u8],
         wrapper_ciphersuite: WrapperAlgorithm,
     ) -> Result<DecryptedWelcome, GroupError> {
         tracing::info!("Trying to decrypt welcome");
         let hash_ref = find_key_package_hash_ref(provider, hpke_public_key)?;
         let private_key = find_private_key(provider, &hash_ref, &wrapper_ciphersuite)?;
-        let welcome_bytes =
-            unwrap_welcome(encrypted_welcome_bytes, &private_key, wrapper_ciphersuite)?;
 
+        let (welcome_bytes, welcome_metadata_bytes) = unwrap_welcome(
+            encrypted_welcome_bytes,
+            encrypted_welcome_metadata_bytes,
+            &private_key,
+            wrapper_ciphersuite,
+        )?;
         let welcome = deserialize_welcome(&welcome_bytes)?;
+
+        let welcome_metadata = if welcome_metadata_bytes.is_empty() {
+            tracing::debug!("Welcome Metadata is empty; proceeding without metadata.");
+            None
+        } else {
+            deserialize_welcome_metadata(&welcome_metadata_bytes)
+                .map_err(|e| {
+                    tracing::debug!(?e, "Failed to deserialize welcome metadata; ignoring.")
+                })
+                .ok()
+        };
 
         let join_config = build_group_join_config();
 
-        let processed_welcome =
-            ProcessedWelcome::new_from_welcome(provider, &join_config, welcome.clone())?;
+        let builder = StagedWelcome::build_from_welcome(provider, &join_config, welcome.clone())?;
+        let processed_welcome = builder.processed_welcome();
 
         let psks = processed_welcome.psks();
         if !psks.is_empty() {
             tracing::error!("No PSK support for welcome");
             return Err(GroupError::NoPSKSupport);
         }
-        let staged_welcome = processed_welcome.into_staged_welcome(provider, None)?;
+        let staged_welcome = builder.skip_lifetime_validation().build()?;
 
         let added_by_node = staged_welcome.welcome_sender()?;
 
@@ -69,6 +87,7 @@ impl DecryptedWelcome {
             staged_welcome,
             added_by_inbox_id,
             added_by_installation_id,
+            welcome_metadata,
         })
     }
 }
@@ -129,4 +148,10 @@ fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> 
             "unexpected message type in welcome".to_string(),
         )),
     }
+}
+
+fn deserialize_welcome_metadata(metadata_bytes: &[u8]) -> Result<WelcomeMetadata, ClientError> {
+    let metadata = WelcomeMetadata::decode(metadata_bytes)
+        .map_err(|_| ClientError::Generic("unexpected message type in welcome".to_string()))?;
+    Ok(metadata)
 }

@@ -103,10 +103,10 @@ pub struct GroupMutableMetadata {
     /// Allows libxmtp to receive attributes from updated versions not yet captured in MetadataField.
     pub attributes: HashMap<String, String>,
     /// List of admin inbox IDs for this group.
-    /// See [GroupMutablePermissions](crate::groups::GroupMutablePermissions) for more details on admin permissions.
+    /// See `GroupMutablePermissions` for more details on admin permissions.
     pub admin_list: Vec<String>,
     /// List of super admin inbox IDs for this group.
-    /// See [GroupMutablePermissions](crate::groups::GroupMutablePermissions) for more details on super admin permissions.
+    /// See `GroupMutablePermissions` for more details on super admin permissions.
     pub super_admin_list: Vec<String>,
 }
 
@@ -126,7 +126,7 @@ impl GroupMutableMetadata {
 
     /// Creates a new GroupMutableMetadata instance with default values.
     /// The creator is automatically added as a super admin.
-    /// See [GroupMutablePermissions](crate::groups::GroupMutablePermissions) for more details on super admin permissions.
+    /// See `GroupMutablePermissions` for more details on super admin permissions.
     pub fn new_default(
         creator_inbox_id: String,
         commit_log_signer: Option<Secret>,
@@ -271,8 +271,6 @@ impl TryFrom<GroupMutableMetadata> for Vec<u8> {
             super_admin_list: Some(InboxesProto {
                 inbox_ids: value.super_admin_list,
             }),
-            // Deprecated field - use attributes instead
-            commit_log_signer: None,
         };
         proto_val.encode(&mut buf)?;
 
@@ -338,7 +336,7 @@ impl TryFrom<&OpenMlsGroup> for GroupMutableMetadata {
 /// Finds the mutable metadata extension in the given MLS Extensions.
 ///
 /// This function searches for an Unknown Extension with the
-/// [MUTABLE_METADATA_EXTENSION_ID](xmtp_configuration::MUTABLE_METADATA_EXTENSION_ID).
+/// [MUTABLE_METADATA_EXTENSION_ID].
 pub fn find_mutable_metadata_extension(extensions: &Extensions) -> Option<&Vec<u8>> {
     extensions.iter().find_map(|extension| {
         if let Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, UnknownExtension(metadata)) =

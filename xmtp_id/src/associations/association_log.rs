@@ -144,13 +144,12 @@ impl IdentityAction for AddAssociation {
         // Otherwise the client should use the regular wallet signature to create
         let existing_member_identifier = existing_member_identifier.clone();
         let identifier: Option<Identifier> = existing_member_identifier.clone().into();
-        if let Some(identifier) = identifier {
-            if (is_legacy_signature(&self.new_member_signature)
+        if let Some(identifier) = identifier
+            && (is_legacy_signature(&self.new_member_signature)
                 || is_legacy_signature(&self.existing_member_signature))
-                && existing_state.inbox_id() != identifier.inbox_id(0)?
-            {
-                return Err(AssociationError::LegacySignatureReuse);
-            }
+            && existing_state.inbox_id() != identifier.inbox_id(0)?
+        {
+            return Err(AssociationError::LegacySignatureReuse);
         }
 
         allowed_signature_for_kind(
@@ -369,6 +368,20 @@ impl IdentityUpdate {
             actions,
             client_timestamp_ns,
         }
+    }
+
+    /// Get the signature kind used to create this inbox if this update contains a CreateInbox action.
+    /// Returns None if there is no CreateInbox action in this update.
+    ///
+    /// This is useful for determining whether an identity was created with a Smart Contract Wallet (Erc1271)
+    /// or an Externally Owned Account/EOA (Erc191) signature
+    pub fn creation_signature_kind(&self) -> Option<SignatureKind> {
+        self.actions.iter().find_map(|action| match action {
+            Action::CreateInbox(create_inbox) => {
+                Some(create_inbox.initial_identifier_signature.kind.clone())
+            }
+            _ => None,
+        })
     }
 }
 

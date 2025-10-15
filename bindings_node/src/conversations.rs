@@ -1,14 +1,14 @@
+use crate::ErrorWrapper;
 use crate::consent_state::{Consent, ConsentState};
 use crate::identity::Identifier;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
-use crate::ErrorWrapper;
 use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
+use napi::JsFunction;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi::threadsafe_function::{
   ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode,
 };
-use napi::JsFunction;
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -16,15 +16,15 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::vec;
 use xmtp_db::consent_record::ConsentState as XmtpConsentState;
-use xmtp_db::group::ConversationType as XmtpConversationType;
 use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
+use xmtp_db::group::{ConversationType as XmtpConversationType, GroupQueryOrderBy};
 use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
 use xmtp_mls::common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
-use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate as XmtpUserPreferenceUpdate;
 use xmtp_mls::groups::ConversationDebugInfo as XmtpConversationDebugInfo;
 use xmtp_mls::groups::PreconfiguredPolicies;
+use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate as XmtpUserPreferenceUpdate;
 
 #[napi]
 #[derive(Debug)]
@@ -32,6 +32,7 @@ pub enum ConversationType {
   Dm = 0,
   Group = 1,
   Sync = 2,
+  Oneshot = 3,
 }
 
 impl From<XmtpConversationType> for ConversationType {
@@ -40,6 +41,7 @@ impl From<XmtpConversationType> for ConversationType {
       XmtpConversationType::Dm => ConversationType::Dm,
       XmtpConversationType::Group => ConversationType::Group,
       XmtpConversationType::Sync => ConversationType::Sync,
+      XmtpConversationType::Oneshot => ConversationType::Oneshot,
     }
   }
 }
@@ -50,6 +52,7 @@ impl From<ConversationType> for XmtpConversationType {
       ConversationType::Dm => XmtpConversationType::Dm,
       ConversationType::Group => XmtpConversationType::Group,
       ConversationType::Sync => XmtpConversationType::Sync,
+      ConversationType::Oneshot => XmtpConversationType::Oneshot,
     }
   }
 }
@@ -109,8 +112,10 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       allowed_states: None,
       conversation_type: opts.conversation_type.map(Into::into),
       include_sync_groups: false,
-      activity_after_ns: None,
+      last_activity_before_ns: None,
+      last_activity_after_ns: None,
       should_publish_commit_log: None,
+      order_by: Some(GroupQueryOrderBy::LastActivity),
     }
   }
 }

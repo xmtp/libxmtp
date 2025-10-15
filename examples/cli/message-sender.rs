@@ -8,15 +8,15 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{Mutex, Semaphore};
 use tracing::{error, info};
-use xmtp_api_grpc::Client as GrpcApiClient;
-use xmtp_api_grpc::GrpcError;
+use xmtp_api_grpc::error::GrpcError;
+use xmtp_api_grpc::v3::Client as GrpcApiClient;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_db::{EncryptedMessageStore, NativeDb, StorageOption};
 use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::Client;
 use xmtp_mls::InboxOwner;
-use xmtp_proto::traits::ApiClientError;
+use xmtp_proto::prelude::ApiClientError;
 
 #[derive(Parser)]
 #[command(name = "message-sender")]
@@ -72,7 +72,6 @@ async fn create_client_with_wallet() -> Result<ClientType, Box<dyn std::error::E
     let api_client: Arc<dyn xmtp_proto::api_client::BoxableXmtpApi<ApiClientError<GrpcError>>> =
         Arc::new(
             GrpcApiClient::create("http://localhost:5556", false, None::<String>)
-                .await
                 .expect("Failed to create GRPC client"),
         );
 

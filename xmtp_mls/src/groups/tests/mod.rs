@@ -1,11 +1,13 @@
 mod test_commit_log_fork_detection;
 mod test_commit_log_local;
+mod test_commit_log_readd_requests;
 mod test_commit_log_remote;
 mod test_consent;
 mod test_dm;
 mod test_key_updates;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_network;
+mod test_welcomes;
 
 use prost::Message;
 use xmtp_db::refresh_state::EntityKind;
@@ -132,7 +134,7 @@ async fn force_add_member(
         .await
         .unwrap();
     sender_group
-        .send_welcomes(send_welcomes_action)
+        .send_welcomes(send_welcomes_action, None)
         .await
         .unwrap();
 }
@@ -157,22 +159,22 @@ async fn test_send_message() {
     assert_eq!(messages.len(), 2);
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_receive_self_message() {
-    let wallet = generate_local_wallet();
-    let client = ClientBuilder::new_test_client(&wallet).await;
-    let group = client.create_group(None, None).expect("create group");
+    tester!(alix);
+    let group = alix.create_group(None, None).expect("create group");
     let msg = b"hello";
+
     group.send_message(msg).await.expect("send message");
 
-    group.receive().await.unwrap();
+    group.receive().await?;
     // Check for messages
-    let messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = group.find_messages(&MsgQueryArgs::default())?;
     assert_eq!(messages.len(), 1);
     assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_receive_message_from_other() {
     let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2441,14 +2443,11 @@ async fn skip_already_processed_messages() {
             v1.id = 0;
         }
     }
-    let mut process_result = bo_group.process_messages(bo_messages_from_api).await;
+    let process_result = bo_group.process_messages(bo_messages_from_api).await;
 
-    assert_eq!(process_result.new_messages.len(), 2);
+    assert_eq!(process_result.new_messages.len(), 1);
     // We no longer error when the message is previously processed
     assert_eq!(process_result.errored.len(), 0);
-
-    let new = process_result.new_messages.pop().unwrap();
-    assert!(new.previously_processed);
 }
 
 #[xmtp_common::test]
@@ -2854,7 +2853,8 @@ async fn test_validate_dm_group() {
 
     // Test case 2: Invalid conversation type
     let invalid_protected_metadata =
-        build_protected_metadata_extension(creator_inbox_id, ConversationType::Group).unwrap();
+        build_protected_metadata_extension(creator_inbox_id, ConversationType::Group, None)
+            .unwrap();
     let invalid_type_group = TestMlsGroup::create_test_dm_group(
         client.context.clone(),
         dm_target_inbox_id.clone(),

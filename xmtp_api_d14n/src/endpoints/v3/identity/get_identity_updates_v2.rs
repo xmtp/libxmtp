@@ -2,9 +2,10 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
+use xmtp_proto::identity_v1::GetIdentityUpdatesResponse;
+use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesRequest;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request::Request;
-use xmtp_proto::xmtp::identity::api::v1::{GetIdentityUpdatesRequest, GetIdentityUpdatesResponse};
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
@@ -21,12 +22,8 @@ impl GetIdentityUpdatesV2 {
 
 impl Endpoint for GetIdentityUpdatesV2 {
     type Output = GetIdentityUpdatesResponse;
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::Borrowed("/identity/v1/get-identity-updates")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<GetIdentityUpdatesRequest>()
+        xmtp_proto::path_and_query::<GetIdentityUpdatesRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -41,19 +38,28 @@ impl Endpoint for GetIdentityUpdatesV2 {
 #[cfg(test)]
 mod test {
     use super::*;
-    use xmtp_proto::prelude::*;
+    use xmtp_proto::{identity_v1::GetIdentityUpdatesResponse, prelude::*};
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
-        let pnq = crate::path_and_query::<GetIdentityUpdatesRequest>();
+        let pnq = xmtp_proto::path_and_query::<GetIdentityUpdatesRequest>();
         println!("{}", pnq);
+    }
+
+    #[xmtp_common::test]
+    fn test_grpc_endpoint_returns_correct_path() {
+        let endpoint = GetIdentityUpdatesV2::default();
+        assert_eq!(
+            endpoint.grpc_endpoint(),
+            "/xmtp.identity.api.v1.IdentityApi/GetIdentityUpdates"
+        );
     }
 
     #[xmtp_common::test]
     async fn test_get_identity_updates_v2() {
         let client = crate::TestClient::create_local();
-        let client = client.build().await.unwrap();
-        let endpoint = GetIdentityUpdatesV2::builder()
+        let client = client.build().unwrap();
+        let mut endpoint = GetIdentityUpdatesV2::builder()
             .requests(vec![Request {
                 inbox_id: "".to_string(),
                 sequence_id: 0,

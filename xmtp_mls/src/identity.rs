@@ -26,7 +26,6 @@ use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::time::now_ns;
-use xmtp_common::types::InstallationId;
 use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::{
     CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
@@ -55,10 +54,11 @@ use xmtp_id::{
         sign_with_legacy_key,
     },
 };
+use xmtp_proto::types::InstallationId;
 use xmtp_proto::xmtp::identity::MlsCredential;
 
 /**
- * The identity strategy determines how the [`ClientBuilder`] constructs an identity on startup.
+ * The identity strategy determines how the [`ClientBuilder`](crate::builder::ClientBuilder) constructs an identity on startup.
  *
  * [`IdentityStrategy::CreateIfNotFound`] will attempt to create a new identity if one isn't found in the store.
  * This is the default behavior.
@@ -67,7 +67,7 @@ use xmtp_proto::xmtp::identity::MlsCredential;
  * return an error. This is useful if you don't want to create a new identity on startup because the caller
  * does not have access to a signer.
  *
- * [`IdentityStrategy::ExternalIdentity`] allows you to provide an already-constructed identity to the
+ * `IdentityStrategy::ExternalIdentity` allows you to provide an already-constructed identity to the
  * client. This is useful for testing and not expected to be used in production.
  */
 #[derive(Debug, Clone)]

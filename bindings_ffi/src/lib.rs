@@ -1,13 +1,16 @@
 #![recursion_limit = "256"]
 #![warn(clippy::unwrap_used)]
+pub mod crypto;
 pub mod identity;
 pub mod inbox_owner;
 pub mod logger;
+pub mod message;
 pub mod mls;
 pub mod worker;
 
 pub use crate::inbox_owner::SigningError;
 pub use logger::{enter_debug_writer, exit_debug_writer};
+pub use message::*;
 pub use mls::*;
 use std::error::Error;
 use xmtp_common::time::Expired;
@@ -60,9 +63,9 @@ pub enum GenericError {
     #[error(transparent)]
     Subscription(#[from] xmtp_mls::subscriptions::SubscribeError),
     #[error(transparent)]
-    ApiClientBuild(#[from] xmtp_api_grpc::GrpcBuilderError),
+    ApiClientBuild(#[from] xmtp_api_grpc::error::GrpcBuilderError),
     #[error(transparent)]
-    Grpc(#[from] Box<xmtp_api_grpc::GrpcError>),
+    Grpc(#[from] Box<xmtp_api_grpc::error::GrpcError>),
     #[error(transparent)]
     AddressValidation(#[from] IdentifierValidationError),
     #[error("Error initializing rolling log file")]

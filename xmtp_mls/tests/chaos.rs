@@ -26,8 +26,8 @@ async fn chaos_demo() {
     let alix = Client::builder(new_identity(&owner))
         .store(store)
         .api_clients(
-            TestClient::create_local().build().await.unwrap(),
-            TestClient::create_local().build().await.unwrap(),
+            TestClient::create_local().build().unwrap(),
+            TestClient::create_local().build().unwrap(),
         )
         .default_mls_store()
         .unwrap()

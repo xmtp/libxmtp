@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 
 use crate::client::TonicApiClient;
-use crate::{client::Client, identity::Identifier, ErrorWrapper};
+use crate::{ErrorWrapper, client::Client, identity::Identifier};
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::sync::Arc;
-use xmtp_api::strategies;
 use xmtp_api::ApiClientWrapper;
+use xmtp_api::strategies;
 use xmtp_db::EncryptedMessageStore;
 use xmtp_db::NativeDb;
 use xmtp_db::StorageOption;
-use xmtp_id::associations::{ident, AssociationState, MemberIdentifier};
+use xmtp_id::associations::{AssociationState, MemberIdentifier, ident};
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_mls::client::inbox_addresses_with_verifier;
@@ -91,9 +91,8 @@ pub async fn inbox_state_from_inbox_ids(
   host: String,
   inbox_ids: Vec<String>,
 ) -> Result<Vec<InboxState>> {
-  let api_client = TonicApiClient::create(&host, true, None::<String>)
-    .await
-    .map_err(ErrorWrapper::from)?;
+  let api_client =
+    TonicApiClient::create(&host, true, None::<String>).map_err(ErrorWrapper::from)?;
 
   let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
   let scw_verifier =

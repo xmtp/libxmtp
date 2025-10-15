@@ -1,4 +1,10 @@
-use crate::identity_updates::batch_get_association_state_with_verifier;
+use crate::{
+    identity_updates::{batch_get_association_state_with_verifier, get_creation_signature_kind},
+    messages::{
+        decoded_message::DecodedMessage,
+        enrichment::{EnrichMessageError, enrich_messages},
+    },
+};
 use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
 
 use crate::{
@@ -25,9 +31,7 @@ use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::retryable;
-use xmtp_common::types::InstallationId;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::prelude::*;
 use xmtp_db::{
     ConnectionExt, NotFound, StorageError, XmtpDb,
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
@@ -37,6 +41,7 @@ use xmtp_db::{
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
 };
+use xmtp_db::{group::GroupQueryOrderBy, prelude::*};
 use xmtp_id::{
     AsIdRef, InboxId, InboxIdRef,
     associations::{
@@ -51,6 +56,7 @@ use xmtp_mls_common::{
     group_mutable_metadata::MessageDisappearingSettings,
 };
 use xmtp_proto::api_client::{ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient};
+use xmtp_proto::types::InstallationId;
 
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
@@ -98,6 +104,8 @@ pub enum ClientError {
     Generic(String),
     #[error(transparent)]
     MlsStore(#[from] MlsStoreError),
+    #[error(transparent)]
+    EnrichMessage(#[from] EnrichMessageError),
 }
 
 impl ClientError {
@@ -374,6 +382,34 @@ where
         Ok(state)
     }
 
+    /// Get the signature kind used to create an inbox.
+    ///
+    /// # Arguments
+    /// * `inbox_id` - The inbox ID to check
+    /// * `refresh_from_network` - Whether to fetch updates from the network first
+    ///
+    /// # Returns
+    /// * `Some(SignatureKind)` - The signature kind used to create the inbox
+    /// * `None` - Inbox doesn't exist or creation info is unavailable
+    pub async fn inbox_creation_signature_kind(
+        &self,
+        inbox_id: InboxIdRef<'_>,
+        refresh_from_network: bool,
+    ) -> Result<Option<xmtp_id::associations::SignatureKind>, ClientError> {
+        let conn = self.context.db();
+
+        // Load the first identity update (creation update) for this inbox if requested
+        if refresh_from_network {
+            load_identity_updates(self.context.api(), &conn, &[inbox_id]).await?;
+        }
+
+        let verifier = self.context.scw_verifier();
+
+        let signature_kind = get_creation_signature_kind(&conn, verifier, inbox_id).await?;
+
+        Ok(signature_kind)
+    }
+
     /// Set a consent record in the local database.
     /// If the consent record is an address set the consent state for both the address and `inbox_id`
     pub async fn set_consent_states(
@@ -442,10 +478,10 @@ where
 
         let group: MlsGroup<Context> = MlsGroup::create_and_insert(
             self.context.clone(),
-            GroupMembershipState::Allowed,
             ConversationType::Group,
             permissions_policy_set.unwrap_or_default(),
             opts.unwrap_or_default(),
+            None,
         )?;
 
         // notify streams of our new group
@@ -649,6 +685,34 @@ where
         Ok(message.ok_or(NotFound::MessageById(message_id))?)
     }
 
+    /// Look up and enrich a message by its ID, returning a [`DecodedMessage`]
+    /// Returns an error if the message is not found or if it cannot be decoded/enriched
+    pub fn message_v2(&self, message_id: Vec<u8>) -> Result<DecodedMessage, ClientError> {
+        let conn = self.context.db();
+        let message = conn
+            .get_group_message(&message_id)?
+            .ok_or_else(|| NotFound::MessageById(message_id.clone()))?;
+
+        let group_id = message.group_id.clone();
+
+        let enriched = enrich_messages(conn, &group_id, vec![message])?;
+
+        // Since enrich_messages returns a Vec<DecodedMessage>, we can use .into_iter().next().ok_or(...) to take ownership without cloning.
+        enriched
+            .into_iter()
+            .next()
+            // In practice `enrich_messages` should always return an array of the same length as the input
+            .ok_or_else(|| ClientError::Generic("Failed to decode message".to_string()))
+    }
+
+    /// Delete a message by its ID
+    /// This method is idempotent and will not error if the message is not found
+    /// Returns the number of messages deleted (0 or 1)
+    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<usize, ClientError> {
+        let conn = self.context.db();
+        Ok(conn.delete_message_by_id(&message_id)?)
+    }
+
     /// Query for groups with optional filters
     ///
     /// Filters:
@@ -666,6 +730,11 @@ where
         &self,
         args: GroupQueryArgs,
     ) -> Result<Vec<ConversationListItem<Context>>, ClientError> {
+        let mut args = args.clone();
+        // Default to last activity order by for this endpoint
+        if args.order_by.is_none() {
+            args.order_by = Some(GroupQueryOrderBy::LastActivity);
+        }
         Ok(self
             .context
             .db()
@@ -894,9 +963,12 @@ pub(crate) mod tests {
     use diesel::RunQueryDsl;
     use futures::TryStreamExt;
     use futures::stream::StreamExt;
+    use prost::Message;
     use std::time::Duration;
     use xmtp_common::NS_IN_SEC;
     use xmtp_common::time::now_ns;
+    use xmtp_content_types::ContentCodec;
+    use xmtp_content_types::text::TextCodec;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
     use xmtp_db::identity::StoredIdentity;
@@ -1102,24 +1174,36 @@ pub(crate) mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(flavor = "multi_thread")]
-    async fn test_sync_welcomes_when_kp_life_time_ended() {
+    async fn test_leaf_node_lifetime_validation_disabled() {
         use crate::utils::test_mocks_helpers::set_test_mode_limit_key_package_lifetime;
 
         // Create a client with default KP lifetime
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        // Create a client with a KP that expires in 5 seconds
-        set_test_mode_limit_key_package_lifetime(true, 5);
-        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-
         // Create a client with default KP lifetime
         set_test_mode_limit_key_package_lifetime(false, 0);
         let cat = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        // Alice creates a group and invites Bob with short living KP
         let alice_bob_group = alice.create_group(None, None).unwrap();
         alice_bob_group
-            .add_members_by_inbox_id(&[bob.inbox_id(), cat.inbox_id()])
+            .add_members_by_inbox_id(&[cat.inbox_id()])
+            .await
+            .unwrap();
+
+        let cat_received_groups = cat.sync_welcomes().await.unwrap();
+        assert_eq!(cat_received_groups.len(), 1);
+        assert_eq!(
+            cat_received_groups.first().unwrap().group_id,
+            alice_bob_group.group_id
+        );
+
+        // Create a client with a KP that expires in 5 seconds
+        set_test_mode_limit_key_package_lifetime(true, 5);
+        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Alice invites Bob with short living KP
+        alice_bob_group
+            .add_members_by_inbox_id(&[bob.inbox_id()])
             .await
             .unwrap();
 
@@ -1129,17 +1213,9 @@ pub(crate) mod tests {
         // Wait for Bob's KP and their leafnode's lifetime to expire
         xmtp_common::time::sleep(Duration::from_secs(7)).await;
 
-        //cat receives welcomes after Bob's KP is expired, Cat should be able to process the welcome successfully
-        let cat_received_groups = cat.sync_welcomes().await.unwrap();
-
         assert_eq!(bob_received_groups.len(), 1);
-        assert_eq!(cat_received_groups.len(), 1);
         assert_eq!(
             bob_received_groups.first().unwrap().group_id,
-            alice_bob_group.group_id
-        );
-        assert_eq!(
-            cat_received_groups.first().unwrap().group_id,
             alice_bob_group.group_id
         );
 
@@ -1154,6 +1230,7 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[dave.inbox_id()])
             .await
             .unwrap();
+        // Dave should be okay receiving a welcome where members of the group are expired
         let dave_received_groups = dave.sync_welcomes().await.unwrap();
         assert_eq!(dave_received_groups.len(), 1);
         assert_eq!(
@@ -1162,6 +1239,11 @@ pub(crate) mod tests {
         );
         let dave_duplicate_received_groups = dave.sync_welcomes().await.unwrap();
         assert_eq!(dave_duplicate_received_groups.len(), 0);
+
+        // Cat receives commits to add expired group members, they should pass validation and be added
+        let cat_group = cat_received_groups.first().unwrap();
+        cat_group.sync().await.unwrap();
+        assert_eq!(cat_group.members().await.unwrap().len(), 4);
     }
 
     #[rstest::rstest]
@@ -1676,7 +1758,7 @@ pub(crate) mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     // Set to 40 seconds to safely account for the 16 second keepalive interval and 10 second timeout
     #[timeout(Duration::from_secs(40))]
-    #[cfg_attr(any(target_arch = "wasm32", feature = "http-api"), ignore)]
+    #[cfg_attr(any(target_arch = "wasm32"), ignore)]
     async fn should_reconnect() {
         let alix = Tester::builder().proxy().build().await;
         let bo = Tester::builder().build().await;
@@ -1716,5 +1798,128 @@ pub(crate) mod tests {
         let new_res = new_stream.try_next().await;
         assert!(new_res.is_ok());
         assert!(new_res.unwrap().is_some());
+    }
+
+    #[rstest::rstest]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_list_conversations_pagination() {
+        use prost::Message;
+        use xmtp_mls_common::group::GroupMetadataOptions;
+
+        let alix = Tester::builder().build().await;
+        let bo = Tester::builder().build().await;
+
+        // Create 15 groups with small delays to ensure different created_at_ns values
+        let mut all_group_ids = Vec::new();
+        for i in 0..15 {
+            let group = alix
+                .create_group_with_inbox_ids(
+                    &[bo.inbox_id().to_string()],
+                    None,
+                    Some(GroupMetadataOptions {
+                        name: Some(format!("Group {}", i + 1)),
+                        ..Default::default()
+                    }),
+                )
+                .await
+                .unwrap();
+            all_group_ids.push(group.group_id.clone());
+            group
+                .send_message(
+                    TextCodec::encode("hello".to_string())
+                        .unwrap()
+                        .encode_to_vec()
+                        .as_slice(),
+                )
+                .await
+                .unwrap();
+            // Small delay to ensure different timestamps
+            xmtp_common::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        let mut before_ns = None;
+        let mut all_conversation_ids = Vec::new();
+        loop {
+            let results = alix
+                .list_conversations(GroupQueryArgs {
+                    limit: Some(5),
+                    last_activity_before_ns: before_ns,
+                    ..Default::default()
+                })
+                .unwrap();
+
+            if results.is_empty() {
+                break;
+            }
+            assert_eq!(results.len(), 5);
+
+            all_conversation_ids.extend(results.iter().map(|item| item.group.group_id.clone()));
+
+            before_ns = Some(
+                results
+                    .last()
+                    .unwrap()
+                    .last_message
+                    .as_ref()
+                    .unwrap()
+                    .sent_at_ns,
+            );
+        }
+
+        assert_eq!(
+            all_conversation_ids.len(),
+            15,
+            "Should have 15 total conversations"
+        );
+        all_conversation_ids.dedup();
+
+        // Check that we got all 15 unique groups
+        assert_eq!(
+            all_conversation_ids.len(),
+            15,
+            "Should have 15 total conversations after deduping"
+        );
+    }
+
+    #[xmtp_common::test]
+    async fn test_delete_message() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create a group with both users
+        let group = alix
+            .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
+            .await
+            .unwrap();
+
+        // Send a message
+        let message_id = group
+            .send_message(
+                TextCodec::encode("test message".to_string())
+                    .unwrap()
+                    .encode_to_vec()
+                    .as_slice(),
+            )
+            .await
+            .unwrap();
+
+        // Verify the message exists
+        let message = alix.message(message_id.clone()).unwrap();
+        assert_eq!(message.id, message_id);
+
+        // Delete the message
+        let deleted_count = alix.delete_message(message_id.clone()).unwrap();
+        assert_eq!(deleted_count, 1, "Should delete exactly 1 message");
+
+        // Verify the message no longer exists
+        let result = alix.message(message_id.clone());
+        assert!(result.is_err(), "Message should not exist after deletion");
+
+        // Test idempotency - deleting again should not error and return 0
+        let deleted_count = alix.delete_message(message_id).unwrap();
+        assert_eq!(
+            deleted_count, 0,
+            "Deleting non-existent message should return 0"
+        );
     }
 }

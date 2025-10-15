@@ -11,8 +11,8 @@ use prost::Message;
 use rand::Rng;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::consent_record::ConsentState;
-use xmtp_db::group::GroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
+use xmtp_db::group::{ConversationType, GroupMembershipState};
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_db::local_commit_log::{CommitType, LocalCommitLog};
 use xmtp_db::prelude::*;
@@ -111,10 +111,12 @@ async fn test_device_sync_mutable_metadata_is_overwritten() {
         &bo.context,
         Some(&a.group_id),
         GroupMembershipState::Restored,
+        ConversationType::Group,
         PolicySet::default(),
         GroupMetadataOptions {
             ..Default::default()
         },
+        None,
     )?;
     let b = bo.group(&a.group_id)?;
     let a_metadata = a.mutable_metadata()?;
@@ -707,7 +709,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(!commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(!commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log.clone()),
         &signed_entry,
@@ -734,7 +736,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -761,7 +763,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -789,7 +791,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -817,7 +819,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -845,7 +847,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -873,7 +875,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -900,7 +902,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log.clone()),
         &signed_entry,
@@ -916,7 +918,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,

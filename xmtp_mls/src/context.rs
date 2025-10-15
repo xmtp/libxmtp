@@ -13,12 +13,12 @@ use crate::{
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
-use xmtp_common::types::InstallationId;
 use xmtp_db::XmtpDb;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProviderRef;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{InboxIdRef, associations::builder::SignatureRequest};
+use xmtp_proto::types::InstallationId;
 
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::DeviceSyncClient;
@@ -128,8 +128,8 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
         self.identity.inbox_id()
     }
 
-    /// Integrators should always check the `signature_request` return value of this function before calling [`register_identity`](Self::register_identity).
-    /// If `signature_request` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
+    /// Integrators should always check the `signature_request` return value of this function before calling `register_identity`.
+    /// If `signature_request` returns `None`, then the wallet signature is not required and `register_identity` can be called with None as an argument.
     pub fn signature_request(&self) -> Option<SignatureRequest> {
         self.identity.signature_request()
     }

@@ -9,7 +9,6 @@ workspace = true
 
 [dependencies]
 async-trait.workspace = true
-ctor.workspace = true
 derive_builder.workspace = true
 futures.workspace = true
 hex.workspace = true
@@ -24,13 +23,14 @@ thiserror.workspace = true
 tracing.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration = { workspace = true }
+
 xmtp_proto = { workspace = true, features = ["convert"] }
 
-# only for tests
-xmtp_api_http = { workspace = true, optional = true, features = ["test-utils"] }
+# Test Utils
+ctor = { workspace = true, optional = true }
+xmtp_api_grpc = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-xmtp_api_grpc = { workspace = true, optional = true, features = ["test-utils"] }
 openmls = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -38,21 +38,16 @@ openmls = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
 hex.workspace = true
+tokio.workspace = true
 wasm-bindgen-test.workspace = true
+xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["convert", "test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-tokio.workspace = true
-xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
-xmtp_api_http = { workspace = true, features = ["test-utils"] }
-
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-xmtp_api_http = { workspace = true, features = ["test-utils"] }
-tokio.workspace = true
+ctor.workspace = true
 
 [features]
-default = ["grpc-api"]
-http-api = ["dep:xmtp_api_http", "xmtp_proto/http-api"]
-grpc-api = ["dep:xmtp_api_grpc", "xmtp_proto/grpc-api"]
-test-utils = ["xmtp_api_http/test-utils", "xmtp_api_grpc/test-utils"]
+test-utils = ["xmtp_api_grpc/test-utils", "dep:ctor"]
+dev = ["xmtp_configuration/dev", "xmtp_proto/dev"]

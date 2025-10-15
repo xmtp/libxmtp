@@ -2,11 +2,11 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::mls_v1::PagingInfo;
-use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
-use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
-use xmtp_proto::xmtp::xmtpv4::message_api::{QueryEnvelopesRequest, QueryEnvelopesResponse};
+use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesRequest;
+use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, QueryEnvelopesResponse};
 
 /// Query a single thing
 #[derive(Debug, Builder, Default, Clone)]
@@ -26,13 +26,8 @@ impl QueryEnvelope {
 
 impl Endpoint for QueryEnvelope {
     type Output = QueryEnvelopesResponse;
-
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::from("/mls/v2/query-envelopes")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<QueryEnvelopesRequest>()
+        xmtp_proto::path_and_query::<QueryEnvelopesRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -51,7 +46,6 @@ impl Endpoint for QueryEnvelope {
             }),
             limit,
         };
-        tracing::debug!("{:?}", query);
         Ok(query.encode_to_vec().into())
     }
 }
@@ -74,13 +68,8 @@ impl QueryEnvelopes {
 
 impl Endpoint for QueryEnvelopes {
     type Output = QueryEnvelopesResponse;
-
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::Borrowed("/mls/v2/query-envelopes")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<QueryEnvelopesRequest>()
+        xmtp_proto::path_and_query::<QueryEnvelopesRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -96,21 +85,40 @@ impl Endpoint for QueryEnvelopes {
 #[cfg(test)]
 mod test {
     use super::*;
-    use xmtp_proto::prelude::*;
+    use xmtp_api_grpc::error::GrpcError;
+    use xmtp_proto::{api, prelude::*};
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesRequest;
-        let pnq = crate::path_and_query::<QueryEnvelopesRequest>();
+        let pnq = xmtp_proto::path_and_query::<QueryEnvelopesRequest>();
         println!("{}", pnq);
+    }
+
+    #[xmtp_common::test]
+    fn test_grpc_endpoint_returns_correct_path() {
+        let endpoint = QueryEnvelopes::default();
+        assert_eq!(
+            endpoint.grpc_endpoint(),
+            "/xmtp.xmtpv4.message_api.ReplicationApi/QueryEnvelopes"
+        );
+    }
+
+    #[xmtp_common::test]
+    fn test_query_envelope_grpc_endpoint_returns_correct_path() {
+        let endpoint = QueryEnvelope::default();
+        assert_eq!(
+            endpoint.grpc_endpoint(),
+            "/xmtp.xmtpv4.message_api.ReplicationApi/QueryEnvelopes"
+        );
     }
 
     #[xmtp_common::test]
     async fn test_query_envelopes() {
         use crate::d14n::QueryEnvelopes;
 
-        let client = crate::TestClient::create_local_d14n();
-        let client = client.build().await.unwrap();
+        let client = crate::TestClient::create_d14n();
+        let client = client.build().unwrap();
 
         let endpoint = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {
@@ -120,6 +128,37 @@ mod test {
             })
             .build()
             .unwrap();
-        assert!(endpoint.query(&client).await.is_err());
+        let err = api::ignore(endpoint).query(&client).await.unwrap_err();
+        tracing::info!("{}", err);
+        // the request will fail b/c we're using dummy data but
+        // we just care if the endpoint is working
+        match err {
+            ApiClientError::<GrpcError>::ClientWithEndpoint {
+                source: GrpcError::Status(ref s),
+                ..
+            } => assert!(s.message().contains("invalid topic"), "{}", err),
+            _ => panic!("request failed"),
+        }
+    }
+
+    #[xmtp_common::test]
+    async fn test_query_envelope() {
+        use crate::d14n::QueryEnvelope;
+
+        let client = crate::TestClient::create_d14n();
+        let client = client.build().unwrap();
+
+        let endpoint = QueryEnvelope::builder().topic(vec![]).build().unwrap();
+        let err = api::ignore(endpoint).query(&client).await.unwrap_err();
+        tracing::info!("{}", err);
+        // the request will fail b/c we're using dummy data but
+        // we just care if the endpoint is working
+        match err {
+            ApiClientError::<GrpcError>::ClientWithEndpoint {
+                source: GrpcError::Status(ref s),
+                ..
+            } => assert!(s.message().contains("invalid topic"), "{}", err),
+            _ => panic!("request failed"),
+        }
     }
 }

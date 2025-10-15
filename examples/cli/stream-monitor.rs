@@ -10,7 +10,7 @@ use tokio::time::{timeout, Duration};
 use tracing::{error, info_span, Instrument};
 use tracing_flame::FlameLayer;
 use tracing_subscriber::{prelude::*, registry::Registry};
-use xmtp_api_grpc::Client as GrpcApiClient;
+use xmtp_api_grpc::v3::Client as GrpcApiClient;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_db::{EncryptedMessageStore, NativeDb, StorageOption};
@@ -101,7 +101,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create GRPC client for local node
     let api_client = Arc::new(
         GrpcApiClient::create("http://localhost:5556", false, None::<String>)
-            .await
             .expect("Failed to create GRPC client"),
     );
 
