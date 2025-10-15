@@ -5,7 +5,7 @@ use xmtp_common::MaybeSend;
 use xmtp_proto::api::{ApiClientError, XmtpBufferedStream};
 
 pub trait TonicBufferExt<Item> {
-    fn buffered(self) -> XmtpBufferedStream<Item>;
+    fn buffered(self, size: usize) -> XmtpBufferedStream<Item>;
 }
 
 impl<S, T> TonicBufferExt<Result<T, ApiClientError<<S as TryStream>::Error>>>
@@ -16,7 +16,10 @@ where
     GrpcError: From<<S as TryStream>::Error>,
     T: prost::Message + Default + 'static,
 {
-    fn buffered(self) -> XmtpBufferedStream<Result<T, ApiClientError<<S as TryStream>::Error>>> {
-        XmtpBufferedStream::new(self)
+    fn buffered(
+        self,
+        size: usize,
+    ) -> XmtpBufferedStream<Result<T, ApiClientError<<S as TryStream>::Error>>> {
+        XmtpBufferedStream::new(self, size)
     }
 }

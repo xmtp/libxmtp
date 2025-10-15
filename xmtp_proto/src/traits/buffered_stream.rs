@@ -12,7 +12,7 @@ use std::{
 use xmtp_common::MaybeSend;
 
 pub trait StreamBufferExt<Item> {
-    fn buffered(self) -> XmtpBufferedStream<Item>;
+    fn buffered(self, size: usize) -> XmtpBufferedStream<Item>;
 }
 
 impl<S, T> StreamBufferExt<Result<T, ApiClientError<<S as TryStream>::Error>>> for XmtpStream<S, T>
@@ -21,12 +21,14 @@ where
     <S as TryStream>::Error: std::error::Error + MaybeSend,
     T: prost::Message + Default + 'static,
 {
-    fn buffered(self) -> XmtpBufferedStream<Result<T, ApiClientError<<S as TryStream>::Error>>> {
-        XmtpBufferedStream::new(self)
+    fn buffered(
+        self,
+        size: usize,
+    ) -> XmtpBufferedStream<Result<T, ApiClientError<<S as TryStream>::Error>>> {
+        XmtpBufferedStream::new(self, size)
     }
 }
 
-const BUFFER_MAX: usize = 1_000;
 pin_project! {
     /// A buffer that wraps around the stream to avoid backpressure to the server
     /// which may result in potential lost messages.
@@ -39,8 +41,8 @@ impl<Item> XmtpBufferedStream<Item>
 where
     Item: MaybeSend + 'static,
 {
-    pub fn new(inner: impl Stream<Item = Item> + MaybeSend + 'static) -> Self {
-        let (mut tx, rx) = mpsc::channel(BUFFER_MAX);
+    pub fn new(inner: impl Stream<Item = Item> + MaybeSend + 'static, size: usize) -> Self {
+        let (mut tx, rx) = mpsc::channel(size);
         xmtp_common::spawn(None, async move {
             let mut pinned = pin!(inner);
             while let Some(next) = pinned.as_mut().next().await {

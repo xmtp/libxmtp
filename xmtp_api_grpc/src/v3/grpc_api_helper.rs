@@ -1,10 +1,10 @@
 use crate::error::{GrpcBuilderError, GrpcError};
-use crate::streams::{self, XmtpTonicStream};
+use crate::streams::{self, TonicBufferExt, XmtpTonicStream};
 use tonic::{Request, metadata::MetadataValue};
 use tower::ServiceExt;
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
-use xmtp_proto::api::ApiClientError;
 use xmtp_proto::api::HasStats;
+use xmtp_proto::api::{ApiClientError, XmtpBufferedStream};
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams};
 use xmtp_proto::mls_v1::{
@@ -281,7 +281,7 @@ impl XmtpMlsClient for Client {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl XmtpMlsStreams for Client {
     type Error = ApiClientError<crate::error::GrpcError>;
-    type GroupMessageStream = streams::XmtpStream<GroupMessage>;
+    type GroupMessageStream = XmtpBufferedStream<Result<GroupMessage, ApiClientError<GrpcError>>>;
     type WelcomeMessageStream = streams::XmtpStream<WelcomeMessage>;
 
     async fn subscribe_group_messages(
@@ -289,7 +289,12 @@ impl XmtpMlsStreams for Client {
         req: SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         self.stats.subscribe_messages.count_request();
-        XmtpTonicStream::from_body(req, self.client(), ApiEndpoint::SubscribeGroupMessages).await
+        let stream =
+            XmtpTonicStream::from_body(req, self.client(), ApiEndpoint::SubscribeGroupMessages)
+                .await?
+                .buffered(1000);
+
+        Ok(stream)
     }
 
     async fn subscribe_welcome_messages(
