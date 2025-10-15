@@ -955,6 +955,7 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::context::XmtpSharedContext;
+    use crate::groups::send_message_opts::SendMessageOpts;
     use crate::identity::IdentityError;
     use crate::subscriptions::StreamMessages;
     use crate::tester;
@@ -1105,7 +1106,9 @@ pub(crate) mod tests {
         let alice_dm = alice
             .create_dm_by_inbox_id(bob.inbox_id().to_string(), None)
             .await?;
-        alice_dm.send_message(b"Welcome 1").await?;
+        alice_dm
+            .send_message(b"Welcome 1", SendMessageOpts::default())
+            .await?;
 
         let bob_dm = bob
             .create_dm_by_inbox_id(alice.inbox_id().to_string(), None)
@@ -1115,16 +1118,22 @@ pub(crate) mod tests {
         let alice_dm2 = alice
             .create_dm_by_inbox_id(bob.inbox_id().to_string(), None)
             .await?;
-        alice_dm2.send_message(b"Welcome 2").await?;
+        alice_dm2
+            .send_message(b"Welcome 2", SendMessageOpts::default())
+            .await?;
 
         alice_dm.update_installations().await?;
         alice.sync_welcomes().await?;
         bob.sync_welcomes().await?;
 
-        alice_dm.send_message(b"Welcome from 1").await?;
+        alice_dm
+            .send_message(b"Welcome from 1", SendMessageOpts::default())
+            .await?;
 
         // This message will set bob's dm as the primary DM for all clients
-        bob_dm.send_message(b"Bob says hi 1").await?;
+        bob_dm
+            .send_message(b"Bob says hi 1", SendMessageOpts::default())
+            .await?;
         // Alice will sync, pulling in Bob's DM message, which will cause
         // a database trigger to update `last_message_ns`, putting bob's DM to the top.
         alice_dm.sync().await?;
@@ -1274,11 +1283,11 @@ pub(crate) mod tests {
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 1);
         alix_bo_group1
-            .send_message(vec![1, 2, 3].as_slice())
+            .send_message(vec![1, 2, 3].as_slice(), SendMessageOpts::default())
             .await
             .unwrap();
         alix_bo_group2
-            .send_message(vec![1, 2, 3].as_slice())
+            .send_message(vec![1, 2, 3].as_slice(), SendMessageOpts::default())
             .await
             .unwrap();
 
@@ -1335,11 +1344,11 @@ pub(crate) mod tests {
 
         // Alix sends a message to both groups
         alix_bo_group1
-            .send_message(vec![1, 2, 3].as_slice())
+            .send_message(vec![1, 2, 3].as_slice(), SendMessageOpts::default())
             .await
             .unwrap();
         alix_bo_group2
-            .send_message(vec![4, 5, 6].as_slice())
+            .send_message(vec![4, 5, 6].as_slice(), SendMessageOpts::default())
             .await
             .unwrap();
 
@@ -1368,11 +1377,11 @@ pub(crate) mod tests {
 
         // Alix sends another message to both groups
         alix_bo_group1
-            .send_message(vec![7, 8, 9].as_slice())
+            .send_message(vec![7, 8, 9].as_slice(), SendMessageOpts::default())
             .await
             .unwrap();
         alix_bo_group2
-            .send_message(vec![10, 11, 12].as_slice())
+            .send_message(vec![10, 11, 12].as_slice(), SendMessageOpts::default())
             .await
             .unwrap();
 
@@ -1494,7 +1503,7 @@ pub(crate) mod tests {
 
         // Send a message from Amal, now that Bola is back in the group
         amal_group
-            .send_message(vec![1, 2, 3].as_slice())
+            .send_message(vec![1, 2, 3].as_slice(), SendMessageOpts::default())
             .await
             .unwrap();
 
@@ -1830,6 +1839,7 @@ pub(crate) mod tests {
                         .unwrap()
                         .encode_to_vec()
                         .as_slice(),
+                    SendMessageOpts::default(),
                 )
                 .await
                 .unwrap();
@@ -1899,6 +1909,7 @@ pub(crate) mod tests {
                     .unwrap()
                     .encode_to_vec()
                     .as_slice(),
+                SendMessageOpts::default(),
             )
             .await
             .unwrap();

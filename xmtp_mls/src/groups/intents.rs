@@ -749,6 +749,7 @@ impl TryFrom<Vec<u8>> for PostCommitAction {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use crate::groups::send_message_opts::SendMessageOpts;
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use crate::context::XmtpSharedContext;
@@ -823,7 +824,10 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[client_b.inbox_id()])
             .await
             .unwrap();
-        group_a.send_message(b"First message from A").await.unwrap();
+        group_a
+            .send_message(b"First message from A", SendMessageOpts::default())
+            .await
+            .unwrap();
 
         // No key rotation needed, because A's commit to add B already performs a rotation.
         // Group should have a commit to add client B, followed by A's message.
@@ -834,7 +838,7 @@ pub(crate) mod tests {
         assert_eq!(groups_b.len(), 1);
         let group_b = groups_b[0].clone();
         group_b
-            .send_message(b"First message from B")
+            .send_message(b"First message from B", SendMessageOpts::default())
             .await
             .expect("send message");
 
@@ -851,11 +855,11 @@ pub(crate) mod tests {
 
         // Client B sends another message to Client A, and Client A sends another message to Client B.
         group_b
-            .send_message(b"Second message from B")
+            .send_message(b"Second message from B", SendMessageOpts::default())
             .await
             .expect("send message");
         group_a
-            .send_message(b"Second message from A")
+            .send_message(b"Second message from A", SendMessageOpts::default())
             .await
             .expect("send message");
 

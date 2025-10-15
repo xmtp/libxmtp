@@ -2763,8 +2763,12 @@ pub(crate) mod tests {
         assert_eq!(db.intents_processed(), 1);
 
         for _ in 0..100 {
+            use crate::groups::send_message_opts::SendMessageOpts;
+
             let s = xmtp_common::rand_string::<100>();
-            amal_group_a.send_message_optimistic(s.as_bytes()).unwrap();
+            amal_group_a
+                .send_message_optimistic(s.as_bytes(), SendMessageOpts::default())
+                .unwrap();
         }
 
         let mut set = tokio::task::JoinSet::new();

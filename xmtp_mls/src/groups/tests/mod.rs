@@ -7,8 +7,10 @@ mod test_dm;
 mod test_key_updates;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_network;
+mod test_send_message_opts;
 mod test_welcomes;
 
+use crate::groups::send_message_opts::SendMessageOpts;
 use prost::Message;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextEnvelope;
@@ -143,7 +145,9 @@ async fn force_add_member(
 async fn test_send_message() {
     tester!(alix);
     let group = alix.create_group(None, None)?;
-    group.send_message(b"hello").await?;
+    group
+        .send_message(b"hello", SendMessageOpts::default())
+        .await?;
     let messages = alix
         .context
         .api()
@@ -165,7 +169,10 @@ async fn test_receive_self_message() {
     let group = alix.create_group(None, None).expect("create group");
     let msg = b"hello";
 
-    group.send_message(msg).await.expect("send message");
+    group
+        .send_message(msg, SendMessageOpts::default())
+        .await
+        .expect("send message");
 
     group.receive().await?;
     // Check for messages
@@ -185,7 +192,7 @@ async fn test_receive_message_from_other() {
         .unwrap();
     let alix_message = b"hello from alix";
     alix_group
-        .send_message(alix_message)
+        .send_message(alix_message, SendMessageOpts::default())
         .await
         .expect("send message");
 
@@ -195,7 +202,7 @@ async fn test_receive_message_from_other() {
 
     let bo_message = b"hello from bo";
     bo_group
-        .send_message(bo_message)
+        .send_message(bo_message, SendMessageOpts::default())
         .await
         .expect("send message");
 
@@ -331,11 +338,11 @@ async fn test_add_member_conflict() {
 
     // Make sure sending and receiving both worked
     amal_group
-        .send_message("hello from amal".as_bytes())
+        .send_message("hello from amal".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
     bola_group
-        .send_message("hello from bola".as_bytes())
+        .send_message("hello from bola".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
 
@@ -406,9 +413,12 @@ async fn test_dm_stitching() {
         .await
         .unwrap();
 
-    bo_dm.send_message(b"Hello there").await.unwrap();
+    bo_dm
+        .send_message(b"Hello there", SendMessageOpts::default())
+        .await
+        .unwrap();
     alix_dm
-        .send_message(b"No, let's use this dm")
+        .send_message(b"No, let's use this dm", SendMessageOpts::default())
         .await
         .unwrap();
 
@@ -546,8 +556,14 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
 
     // 7) Send a message from Alix and confirm Bola_1 receives it
     let message = b"Hello";
-    group.send_message(message).await.unwrap();
-    bola_1_group.send_message(message).await.unwrap();
+    group
+        .send_message(message, SendMessageOpts::default())
+        .await
+        .unwrap();
+    bola_1_group
+        .send_message(message, SendMessageOpts::default())
+        .await
+        .unwrap();
 
     // Sync both sides again
     group.sync().await.unwrap();
@@ -696,7 +712,10 @@ async fn test_dm_creation_with_user_two_installations_one_malformed() {
 
     // 7) Send a message from Amal to Bola_1
     let message_text = b"Hello from Amal";
-    amal_dm.send_message(message_text).await.unwrap();
+    amal_dm
+        .send_message(message_text, SendMessageOpts::default())
+        .await
+        .unwrap();
 
     // 8) Sync both sides and check message delivery
     amal_dm.sync().await.unwrap();
@@ -718,7 +737,10 @@ async fn test_dm_creation_with_user_two_installations_one_malformed() {
 
     // 9) Bola_1 replies, and Amal confirms receipt
     let reply_text = b"Hey Amal!";
-    bola_1_dm.send_message(reply_text).await.unwrap();
+    bola_1_dm
+        .send_message(reply_text, SendMessageOpts::default())
+        .await
+        .unwrap();
 
     amal_dm.sync().await.unwrap();
     let messages_amal = amal_dm.find_messages(&MsgQueryArgs::default()).unwrap();
@@ -935,7 +957,10 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
     group.sync().await.unwrap();
 
     let message_from_alix = b"Hello from Alix";
-    group.send_message(message_from_alix).await.unwrap();
+    group
+        .send_message(message_from_alix, SendMessageOpts::default())
+        .await
+        .unwrap();
 
     bo_2.sync_welcomes().await.unwrap();
     caro.sync_welcomes().await.unwrap();
@@ -957,7 +982,10 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
 
     // Bo replies before removal
     let bo_reply = b"Hey Alix!";
-    bo_group.send_message(bo_reply).await.unwrap();
+    bo_group
+        .send_message(bo_reply, SendMessageOpts::default())
+        .await
+        .unwrap();
 
     group.sync().await.unwrap();
     let group_msgs = group.find_messages(&MsgQueryArgs::default()).unwrap();
@@ -979,10 +1007,13 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
     assert!(!bo_group.is_active().unwrap());
 
     let post_removal_msg = b"Caro, just us now!";
-    group.send_message(post_removal_msg).await.unwrap();
+    group
+        .send_message(post_removal_msg, SendMessageOpts::default())
+        .await
+        .unwrap();
     let caro_post_removal_msg = b"Nice!";
     caro_group
-        .send_message(caro_post_removal_msg)
+        .send_message(caro_post_removal_msg, SendMessageOpts::default())
         .await
         .unwrap();
 
@@ -1098,7 +1129,10 @@ async fn test_key_update() {
 
     assert!(pending_commit_is_none);
 
-    group.send_message(b"hello").await.expect("send message");
+    group
+        .send_message(b"hello", SendMessageOpts::default())
+        .await
+        .expect("send message");
 
     bola_client.sync_welcomes().await.unwrap();
     let bola_groups = bola_client.find_groups(GroupQueryArgs::default()).unwrap();
@@ -1223,7 +1257,7 @@ async fn test_removed_members_cannot_send_message_to_others() {
         amal_group.created_at_ns,
     );
     bola_group
-        .send_message(message_text)
+        .send_message(message_text, SendMessageOpts::default())
         .await
         .expect_err("expected send_message to fail");
 
@@ -1304,7 +1338,10 @@ async fn test_self_resolve_epoch_mismatch() {
 
     // Send a message to the group, now that everyone is invited
     amal_group.sync().await.unwrap();
-    amal_group.send_message(b"hello").await.unwrap();
+    amal_group
+        .send_message(b"hello", SendMessageOpts::default())
+        .await
+        .unwrap();
 
     let charlie_group = receive_group_invite(&charlie).await;
     let dave_group = receive_group_invite(&dave).await;
@@ -1480,7 +1517,10 @@ async fn test_group_mutable_data() {
         .await
         .unwrap();
 
-    amal_group.send_message("hello".as_bytes()).await.unwrap();
+    amal_group
+        .send_message("hello".as_bytes(), SendMessageOpts::default())
+        .await
+        .unwrap();
 
     // Verify amal group sees update
     amal_group.sync().await.unwrap();
@@ -2233,10 +2273,18 @@ async fn test_optimistic_send() {
     let bola_group = receive_group_invite(&bola).await;
 
     let ids = vec![
-        amal_group.send_message_optimistic(b"test one").unwrap(),
-        amal_group.send_message_optimistic(b"test two").unwrap(),
-        amal_group.send_message_optimistic(b"test three").unwrap(),
-        amal_group.send_message_optimistic(b"test four").unwrap(),
+        amal_group
+            .send_message_optimistic(b"test one", SendMessageOpts::default())
+            .unwrap(),
+        amal_group
+            .send_message_optimistic(b"test two", SendMessageOpts::default())
+            .unwrap(),
+        amal_group
+            .send_message_optimistic(b"test three", SendMessageOpts::default())
+            .unwrap(),
+        amal_group
+            .send_message_optimistic(b"test four", SendMessageOpts::default())
+            .unwrap(),
     ];
 
     let messages = amal_group
@@ -2337,7 +2385,10 @@ async fn test_dm_creation() {
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
 
     let bola_dm: &TestMlsGroup = bola_groups.first().unwrap();
-    bola_dm.send_message(b"test one").await.unwrap();
+    bola_dm
+        .send_message(b"test one", SendMessageOpts::default())
+        .await
+        .unwrap();
 
     // Amal sync and reads message
     amal_dm.sync().await.unwrap();
@@ -2426,7 +2477,10 @@ async fn skip_already_processed_messages() {
         .unwrap();
 
     let alix_message = vec![1];
-    alix_group.send_message(&alix_message).await.unwrap();
+    alix_group
+        .send_message(&alix_message, SendMessageOpts::default())
+        .await
+        .unwrap();
     bo.sync_welcomes().await.unwrap();
     let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
     let bo_group = bo_groups.first().unwrap();
@@ -2467,7 +2521,10 @@ async fn skip_already_processed_intents() {
     bo_client.sync_welcomes().await.unwrap();
     let bo_groups = bo_client.find_groups(GroupQueryArgs::default()).unwrap();
     let bo_group = bo_groups.first().unwrap();
-    bo_group.send_message(&[2]).await.unwrap();
+    bo_group
+        .send_message(&[2], SendMessageOpts::default())
+        .await
+        .unwrap();
     let intent = bo_client
         .context
         .db()
@@ -2535,12 +2592,12 @@ async fn test_parallel_syncs() {
 
     // Send a message from alix1
     alix1_group
-        .send_message("hi from alix1".as_bytes())
+        .send_message("hi from alix1".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
     // Send a message from alix2
     alix2_group
-        .send_message("hi from alix2".as_bytes())
+        .send_message("hi from alix2".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
 
@@ -2638,12 +2695,12 @@ async fn add_missing_installs_reentrancy() {
 
     // Send a message from alix1
     alix1_group
-        .send_message("hi from alix1".as_bytes())
+        .send_message("hi from alix1".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
     // Send a message from alix2
     alix2_group
-        .send_message("hi from alix2".as_bytes())
+        .send_message("hi from alix2".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
 
@@ -2732,7 +2789,7 @@ async fn test_get_and_set_consent(
     assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Unknown);
 
     bola_group
-        .send_message("hi from bola".as_bytes())
+        .send_message("hi from bola".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
 
@@ -2749,7 +2806,7 @@ async fn test_get_and_set_consent(
     let caro_group = caro_groups.first().unwrap();
 
     caro_group
-        .send_message_optimistic("hi from caro".as_bytes())
+        .send_message_optimistic("hi from caro".as_bytes(), SendMessageOpts::default())
         .unwrap();
 
     caro_group.publish_messages().await.unwrap();
@@ -2775,8 +2832,14 @@ async fn test_max_past_epochs() {
     let bo_group = bo_groups.first().unwrap();
 
     // Both members see the same amount of messages to start
-    alix_group.send_message("alix 1".as_bytes()).await.unwrap();
-    bo_group.send_message("bo 1".as_bytes()).await.unwrap();
+    alix_group
+        .send_message("alix 1".as_bytes(), SendMessageOpts::default())
+        .await
+        .unwrap();
+    bo_group
+        .send_message("bo 1".as_bytes(), SendMessageOpts::default())
+        .await
+        .unwrap();
     alix_group.sync().await.unwrap();
     bo_group.sync().await.unwrap();
 
@@ -2803,7 +2866,10 @@ async fn test_max_past_epochs() {
         .unwrap();
 
     // Bo sends a message while 1 epoch behind
-    bo_group.send_message("bo 2".as_bytes()).await.unwrap();
+    bo_group
+        .send_message("bo 2".as_bytes(), SendMessageOpts::default())
+        .await
+        .unwrap();
 
     // If max_past_epochs is working, Alix should be able to decrypt Bo's message
     alix_group.sync().await.unwrap();
@@ -3115,7 +3181,7 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
         .await
         .unwrap();
     amal_group
-        .send_message("Hello, world!".as_bytes())
+        .send_message("Hello, world!".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
 
@@ -3137,7 +3203,7 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
         .unwrap();
     amal_group.sync().await.unwrap();
     amal_group
-        .send_message("new version only!".as_bytes())
+        .send_message("new version only!".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
 
@@ -3207,7 +3273,7 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
 
     // Step 3: Amal sends a message to the group
     amal_group
-        .send_message("Hello, world!".as_bytes())
+        .send_message("Hello, world!".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
 
@@ -3229,7 +3295,7 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
         .unwrap();
     amal_group.sync().await.unwrap();
     amal_group
-        .send_message("new version only!".as_bytes())
+        .send_message("new version only!".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
 
@@ -3253,7 +3319,9 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
     // Caro group is paused immediately after joining
     let is_paused = caro_group.paused_for_version().unwrap().is_some();
     assert!(is_paused);
-    let result = caro_group.send_message("Hello from Caro".as_bytes()).await;
+    let result = caro_group
+        .send_message("Hello from Caro".as_bytes(), SendMessageOpts::default())
+        .await;
     assert!(matches!(result, Err(GroupError::GroupPausedUntilUpdate(_))));
 
     // Caro updates their client to the same version as amal and syncs to unpause the group
@@ -3276,7 +3344,7 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
 
     // Caro should now be able to send a message
     caro_group
-        .send_message("Hello from Caro".as_bytes())
+        .send_message("Hello from Caro".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
     amal_group.sync().await.unwrap();
@@ -3383,7 +3451,9 @@ async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
     let bo_group = binding.first().unwrap();
 
     // If bo tries to send a message before syncing the group, we get a SyncFailedToWait error
-    let result = bo_group.send_message("Hello from Bo".as_bytes()).await;
+    let result = bo_group
+        .send_message("Hello from Bo".as_bytes(), SendMessageOpts::default())
+        .await;
     assert!(
         matches!(result, Err(GroupError::SyncFailedToWait(_))),
         "Expected SyncFailedToWait error, got {:?}",
@@ -3393,7 +3463,9 @@ async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
     bo_group.sync().await.unwrap();
 
     // After syncing if we attempt to send message - should fail with GroupPausedUntilUpdate error
-    let result = bo_group.send_message("Hello from Bo".as_bytes()).await;
+    let result = bo_group
+        .send_message("Hello from Bo".as_bytes(), SendMessageOpts::default())
+        .await;
     if let Err(GroupError::GroupPausedUntilUpdate(version)) = result {
         assert_eq!(version, amal.version_info().pkg_version());
     } else {
@@ -3431,7 +3503,7 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
     bo_group.sync().await.unwrap();
 
     bo_group
-        .send_message("Hello from Bo".as_bytes())
+        .send_message("Hello from Bo".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
 
@@ -3444,7 +3516,10 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
 
     // Bo's attempt to send message before syncing should now fail with SyncFailedToWait error
     let result = bo_group
-        .send_message("Second message from Bo".as_bytes())
+        .send_message(
+            "Second message from Bo".as_bytes(),
+            SendMessageOpts::default(),
+        )
         .await;
     assert!(
         matches!(result, Err(GroupError::SyncFailedToWait(_))),
@@ -3456,7 +3531,9 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
     bo_group.sync().await.unwrap();
 
     // After syncing if we attempt to send message - should fail with GroupPausedUntilUpdate error
-    let result = bo_group.send_message("Hello from Bo".as_bytes()).await;
+    let result = bo_group
+        .send_message("Hello from Bo".as_bytes(), SendMessageOpts::default())
+        .await;
     if let Err(GroupError::GroupPausedUntilUpdate(version)) = result {
         assert_eq!(version, amal.version_info().pkg_version());
     } else {
@@ -3483,7 +3560,10 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
 
     // Should now succeed
     let result = bo_group
-        .send_message("Message after update".as_bytes())
+        .send_message(
+            "Message after update".as_bytes(),
+            SendMessageOpts::default(),
+        )
         .await;
     assert!(result.is_ok());
 }
@@ -3590,7 +3670,10 @@ async fn test_when_processing_message_return_future_wrong_epoch_group_marked_pro
     let binding = client_b.find_groups(GroupQueryArgs::default()).unwrap();
     let group_b = binding.first().unwrap();
 
-    group_a.send_message(&[1]).await.unwrap();
+    group_a
+        .send_message(&[1], SendMessageOpts::default())
+        .await
+        .unwrap();
     set_test_mode_future_wrong_epoch(true);
     group_b.sync().await.unwrap();
     set_test_mode_future_wrong_epoch(false);
@@ -3636,7 +3719,7 @@ async fn can_stream_out_of_order_without_forking() {
 
     // Each client sends a message and syncs (ensures any key update commits are sent)
     group_a
-        .send_message_optimistic("Message a1".as_bytes())
+        .send_message_optimistic("Message a1".as_bytes(), SendMessageOpts::default())
         .unwrap();
     group_a.publish_intents().await.unwrap();
 
@@ -3645,7 +3728,7 @@ async fn can_stream_out_of_order_without_forking() {
     group_c.sync().await.unwrap();
 
     group_b
-        .send_message_optimistic("Message b1".as_bytes())
+        .send_message_optimistic("Message b1".as_bytes(), SendMessageOpts::default())
         .unwrap();
     group_b.publish_intents().await.unwrap();
 
@@ -3654,7 +3737,7 @@ async fn can_stream_out_of_order_without_forking() {
     group_c.sync().await.unwrap();
 
     group_c
-        .send_message_optimistic("Message c1".as_bytes())
+        .send_message_optimistic("Message c1".as_bytes(), SendMessageOpts::default())
         .unwrap();
     group_c.publish_intents().await.unwrap();
 
@@ -3677,7 +3760,7 @@ async fn can_stream_out_of_order_without_forking() {
 
     // Client c sends two text messages before incrementing the epoch
     group_c
-        .send_message_optimistic("Message c2".as_bytes())
+        .send_message_optimistic("Message c2".as_bytes(), SendMessageOpts::default())
         .unwrap();
     group_c.publish_intents().await.unwrap();
     group_b.sync().await.unwrap();
