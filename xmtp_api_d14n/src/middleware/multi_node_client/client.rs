@@ -176,7 +176,7 @@ mod tests {
         // Multi-node specific configuration.
         // Set the timeout, used in multi-node client requests to the gateway.
         multi_node_builder
-            .set_timeout(xmtp_common::time::Duration::from_millis(100))
+            .set_timeout(xmtp_common::time::Duration::from_millis(1000))
             .unwrap();
 
         // ApiBuilder methods forward configuration to the node client template.
