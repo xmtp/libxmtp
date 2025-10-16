@@ -1,37 +1,29 @@
 use js_sys::Uint8Array;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{filter, fmt::format::Pretty};
-use wasm_bindgen::prelude::{wasm_bindgen, JsError};
-use wasm_bindgen::JsValue;
-use xmtp_api::ApiDebugWrapper;
-use xmtp_api_http::XmtpHttpApiClient;
+use wasm_bindgen::{JsValue, prelude::*};
+use xmtp_api_d14n::queries::V3Client;
+use xmtp_api_grpc::GrpcClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
+use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::SyncWorkerMode;
-use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
-use xmtp_mls::Client as MlsClient;
 use xmtp_proto::api_client::AggregateStats;
+use xmtp_proto::types::AppVersion;
 
 use crate::conversations::Conversations;
 use crate::identity::{ApiStats, Identifier, IdentityStats};
 use crate::inbox_state::InboxState;
 
-pub type MlsContext = Arc<
-  XmtpMlsLocalContext<
-    ApiDebugWrapper<XmtpHttpApiClient>,
-    xmtp_db::DefaultStore,
-    xmtp_db::DefaultMlsStore,
-  >,
->;
-pub type RustXmtpClient = MlsClient<MlsContext>;
-pub type RustMlsGroup = MlsGroup<MlsContext>;
+pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
+pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
 
 #[wasm_bindgen]
 pub struct Client {
@@ -159,23 +151,23 @@ pub async fn create_client(
   app_version: Option<String>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
-  let api_client = XmtpHttpApiClient::new(
-    host.clone(),
+  let api_client = V3Client::new(GrpcClient::create_with_version(
+    &host,
+    true,
     app_version
-      .as_ref()
-      .unwrap_or(&"0.0.0".to_string())
-      .to_string(),
-  )
-  .await?;
+      .clone()
+      .map(AppVersion::from)
+      .unwrap_or_default(),
+  )?);
 
-  let sync_api_client = XmtpHttpApiClient::new(
-    host.clone(),
+  let sync_api_client = V3Client::new(GrpcClient::create_with_version(
+    &host,
+    true,
     app_version
-      .as_ref()
-      .unwrap_or(&"0.0.0".to_string())
-      .to_string(),
-  )
-  .await?;
+      .clone()
+      .map(AppVersion::from)
+      .unwrap_or_default(),
+  )?);
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
@@ -403,5 +395,14 @@ impl Client {
     upload_debug_archive(db, Some(server_url))
       .await
       .map_err(|e| JsError::new(&format!("{e}")))
+  }
+
+  #[wasm_bindgen(js_name = deleteMessage)]
+  pub fn delete_message(&self, message_id: Vec<u8>) -> Result<u32, JsError> {
+    let deleted_count = self
+      .inner_client
+      .delete_message(message_id)
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    Ok(deleted_count as u32)
   }
 }

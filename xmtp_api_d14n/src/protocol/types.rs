@@ -8,7 +8,8 @@ pub enum TopicKind {
 }
 
 impl TopicKind {
-    pub fn build(&self, bytes: &[u8]) -> Vec<u8> {
+    pub fn build<B: AsRef<[u8]>>(&self, bytes: B) -> Vec<u8> {
+        let bytes = bytes.as_ref();
         let mut topic = Vec::with_capacity(1 + bytes.len());
         topic.push(*self as u8);
         topic.extend_from_slice(bytes);
@@ -17,7 +18,7 @@ impl TopicKind {
 }
 
 /// A topic where the first byte is the kind
-/// https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#332-envelopes
+/// <https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#332-envelopes>
 pub struct Topic {
     kind: TopicKind,
     bytes: Vec<u8>,

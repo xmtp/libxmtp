@@ -5,7 +5,8 @@ use super::{
     refresh_state::EntityKind,
     sql_key_store::{self, SqlKeyStoreError},
 };
-use xmtp_common::{RetryableError, retryable, types::InstallationId};
+use xmtp_common::{RetryableError, retryable};
+use xmtp_proto::types::InstallationId;
 
 pub struct Mls;
 
@@ -321,7 +322,9 @@ impl RetryableError<Mls>
     }
 }
 
-impl RetryableError<Mls> for openmls::prelude::ProcessMessageError {
+impl RetryableError<Mls>
+    for openmls::prelude::ProcessMessageError<sql_key_store::SqlKeyStoreError>
+{
     fn is_retryable(&self) -> bool {
         match self {
             Self::GroupStateError(err) => retryable!(err),

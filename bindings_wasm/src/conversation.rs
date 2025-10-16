@@ -8,7 +8,7 @@ use crate::streams::{StreamCallback, StreamCloser};
 use crate::{consent_state::ConsentState, permissions::GroupPermissions};
 use std::collections::HashMap;
 use wasm_bindgen::JsValue;
-use wasm_bindgen::{prelude::wasm_bindgen, JsError};
+use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_db::group::{ConversationType, DmIdExt};
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_mls::{
@@ -17,13 +17,27 @@ use xmtp_mls::{
     group_mutable_metadata::MetadataField as XmtpMetadataField,
   },
   groups::{
-    intents::PermissionUpdateType as XmtpPermissionUpdateType,
-    members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
+    MlsGroup, UpdateAdminListType, intents::PermissionUpdateType as XmtpPermissionUpdateType,
+    members::PermissionLevel as XmtpPermissionLevel,
   },
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use prost::Message as ProstMessage;
+
+#[wasm_bindgen]
+pub struct SendMessageOpts {
+  #[wasm_bindgen(js_name = shouldPush)]
+  pub should_push: bool,
+}
+
+impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
+  fn from(opts: SendMessageOpts) -> Self {
+    xmtp_mls::groups::send_message_opts::SendMessageOpts {
+      should_push: opts.should_push,
+    }
+  }
+}
 
 #[wasm_bindgen]
 pub struct GroupMetadata {
@@ -43,6 +57,7 @@ impl GroupMetadata {
       ConversationType::Group => "group".to_string(),
       ConversationType::Dm => "dm".to_string(),
       ConversationType::Sync => "sync".to_string(),
+      ConversationType::Oneshot => "oneshot".to_string(),
     }
   }
 }
@@ -149,12 +164,16 @@ impl Conversation {
   }
 
   #[wasm_bindgen]
-  pub async fn send(&self, encoded_content: EncodedContent) -> Result<String, JsError> {
+  pub async fn send(
+    &self,
+    encoded_content: EncodedContent,
+    opts: SendMessageOpts,
+  ) -> Result<String, JsError> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.to_mls_group();
 
     let message_id = group
-      .send_message(encoded_content.encode_to_vec().as_slice())
+      .send_message(encoded_content.encode_to_vec().as_slice(), opts.into())
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -163,12 +182,16 @@ impl Conversation {
 
   /// send a message without immediately publishing to the delivery service.
   #[wasm_bindgen(js_name = sendOptimistic)]
-  pub fn send_optimistic(&self, encoded_content: EncodedContent) -> Result<String, JsError> {
+  pub fn send_optimistic(
+    &self,
+    encoded_content: EncodedContent,
+    opts: SendMessageOpts,
+  ) -> Result<String, JsError> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.to_mls_group();
 
     let id = group
-      .send_message_optimistic(encoded_content.encode_to_vec().as_slice())
+      .send_message_optimistic(encoded_content.encode_to_vec().as_slice(), opts.into())
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
     Ok(hex::encode(id.clone()))
@@ -213,6 +236,7 @@ impl Conversation {
       ConversationType::Group => None,
       ConversationType::Dm => None,
       ConversationType::Sync => None,
+      ConversationType::Oneshot => None,
     };
 
     let opts = MsgQueryArgs {
@@ -244,6 +268,7 @@ impl Conversation {
       ConversationType::Group => None,
       ConversationType::Dm => None,
       ConversationType::Sync => None,
+      ConversationType::Oneshot => None,
     };
 
     let opts = MsgQueryArgs {
@@ -690,7 +715,7 @@ impl Conversation {
       is_commit_log_forked: debug_info.is_commit_log_forked,
       local_commit_log: debug_info.local_commit_log,
       remote_commit_log: debug_info.remote_commit_log,
-      cursor: debug_info.cursor,
+      cursor: debug_info.cursor.into_iter().map(Into::into).collect(),
     })?)
   }
 

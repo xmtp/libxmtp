@@ -2,10 +2,9 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
-use xmtp_proto::xmtp::mls::api::v1::{
-    PagingInfo, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
-};
+use xmtp_proto::api::{BodyError, Endpoint, Pageable};
+use xmtp_proto::mls_v1::QueryWelcomeMessagesResponse;
+use xmtp_proto::xmtp::mls::api::v1::{PagingInfo, QueryWelcomeMessagesRequest};
 
 #[derive(Debug, Builder, Default)]
 #[builder(build_fn(error = "BodyError"))]
@@ -24,13 +23,8 @@ impl QueryWelcomeMessages {
 
 impl Endpoint for QueryWelcomeMessages {
     type Output = QueryWelcomeMessagesResponse;
-
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::Borrowed("/mls/v1/query-welcome-messages")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<QueryWelcomeMessagesRequest>()
+        xmtp_proto::path_and_query::<QueryWelcomeMessagesRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -40,6 +34,14 @@ impl Endpoint for QueryWelcomeMessages {
         }
         .encode_to_vec()
         .into())
+    }
+}
+
+impl Pageable for QueryWelcomeMessages {
+    fn set_cursor(&mut self, cursor: u64) {
+        if let Some(ref mut p) = self.paging_info {
+            p.id_cursor = cursor;
+        }
     }
 }
 
@@ -53,15 +55,24 @@ mod test {
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
-        let pnq = crate::path_and_query::<QueryWelcomeMessagesRequest>();
+        let pnq = xmtp_proto::path_and_query::<QueryWelcomeMessagesRequest>();
         println!("{}", pnq);
     }
 
     #[xmtp_common::test]
-    async fn test_get_identity_updates_v2() {
-        let client = crate::TestClient::create_local();
-        let client = client.build().await.unwrap();
-        let endpoint = QueryWelcomeMessages::builder()
+    fn test_grpc_endpoint_returns_correct_path() {
+        let endpoint = QueryWelcomeMessages::default();
+        assert_eq!(
+            endpoint.grpc_endpoint(),
+            "/xmtp.mls.api.v1.MlsApi/QueryWelcomeMessages"
+        );
+    }
+
+    #[xmtp_common::test]
+    async fn test_query_welcome_messages() {
+        let client = crate::TestGrpcClient::create_local();
+        let client = client.build().unwrap();
+        let mut endpoint = QueryWelcomeMessages::builder()
             .installation_key(vec![1, 2, 3])
             .build()
             .unwrap();

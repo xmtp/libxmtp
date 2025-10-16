@@ -1,4 +1,8 @@
-use super::{GroupError, MlsGroup, summary::SyncSummary, welcome_sync::WelcomeService};
+use super::{
+    GroupError, MlsGroup, PreconfiguredPolicies, send_message_opts, summary::SyncSummary,
+    welcome_sync::WelcomeService,
+};
+
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
@@ -19,14 +23,16 @@ use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
 use worker::SyncMetric;
 use xmtp_archive::ArchiveError;
-use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns, types::InstallationId};
+use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
 use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::{
     NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs,
     group_message::StoredGroupMessage,
 };
-use xmtp_db::{XmtpDb, prelude::*};
+use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
 use xmtp_id::{InboxIdRef, associations::DeserializationError};
+use xmtp_mls_common::group::GroupMetadataOptions;
+use xmtp_proto::types::InstallationId;
 use xmtp_proto::xmtp::{
     device_sync::{
         BackupElementSelection, BackupOptions,
@@ -217,12 +223,16 @@ where
         };
         let content_bytes = encoded_content_to_bytes(encoded_content);
 
-        let message_id = sync_group.prepare_message(&content_bytes, |now| PlaintextEnvelope {
-            content: Some(Content::V1(V1 {
-                content: content_bytes.clone(),
-                idempotency_key: now.to_string(),
-            })),
-        })?;
+        let message_id = sync_group.prepare_message(
+            &content_bytes,
+            send_message_opts::SendMessageOpts { should_push: false },
+            |now| PlaintextEnvelope {
+                content: Some(Content::V1(V1 {
+                    content: content_bytes.clone(),
+                    idempotency_key: now.to_string(),
+                })),
+            },
+        )?;
 
         sync_group.sync_until_last_intent_resolved().await?;
 
@@ -241,7 +251,13 @@ where
         let sync_group = match db.primary_sync_group()? {
             Some(sync_group) => self.mls_store.group(&sync_group.id)?,
             None => {
-                let sync_group = MlsGroup::create_and_insert_sync_group(self.context.clone())?;
+                let sync_group = MlsGroup::create_and_insert(
+                    self.context.clone(),
+                    ConversationType::Sync,
+                    PreconfiguredPolicies::default().to_policy_set(),
+                    GroupMetadataOptions::default(),
+                    None,
+                )?;
                 tracing::info!(
                     "[{}] Creating sync group: {}",
                     hex::encode(self.context.installation_id()),
@@ -267,7 +283,7 @@ where
     )]
     pub async fn add_new_installation_to_groups(&self) -> Result<(), DeviceSyncError> {
         let groups = self.mls_store.find_groups(GroupQueryArgs {
-            activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
+            last_activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
             consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
             ..Default::default()
         })?;

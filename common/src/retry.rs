@@ -31,7 +31,7 @@ impl From<Box<dyn RetryableError>> for Box<dyn Error> {
 
 // NOTE: From<> implementation is not possible here b/c of rust orphan rules (relaxed for Box
 // types)
-/// Convert an Arc<RetryableError> to a Standard Library Arc<Error>
+/// Convert an `Arc<[RetryableError]>` to a Standard Library `Arc<Error>`
 pub fn arc_retryable_to_error(retryable: Arc<dyn RetryableError>) -> Arc<dyn Error> {
     retryable
 }

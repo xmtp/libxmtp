@@ -147,8 +147,12 @@ impl ::prost::Name for RemoteAttachmentInfo {
     }
 }
 /// LeaveRequest message type
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct LeaveRequest {}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct LeaveRequest {
+    /// A serialized AuthenticatedNote containing the sender's signed, member-only verifiable statement
+    #[prost(bytes = "vec", tag = "1")]
+    pub authenticated_note: ::prost::alloc::vec::Vec<u8>,
+}
 impl ::prost::Name for LeaveRequest {
     const NAME: &'static str = "LeaveRequest";
     const PACKAGE: &'static str = "xmtp.mls.message_contents.content_types";

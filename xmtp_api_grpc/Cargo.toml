@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = "2024"
 license.workspace = true
 name = "xmtp_api_grpc"
 version.workspace = true
@@ -9,24 +9,23 @@ async-trait.workspace = true
 futures = { workspace = true, features = ["alloc"] }
 h2 = "0.4"
 http = "1.2"
-hyper = "1.6"
+http-body = "1.0"
 pin-project-lite = "0.2.15"
 prost = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
-tower = "0.5.2"
 tracing.workspace = true
 url.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
-xmtp_proto = { path = "../xmtp_proto", features = ["convert"] }
+xmtp_proto = { workspace = true, features = ["convert"] }
 
 toxiproxy_rust = { workspace = true, optional = true }
 
 
-# Anything but iOS and Android will use either webpki or native.
+# Anything but iOS, Android & WASM will use either webpki or native.
 # If native certs are not found, it will fallback to webpki
-[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+[target.'cfg(not(any(target_os = "android", target_os = "ios", target_family = "wasm", target_os = "unknown")))'.dependencies]
 tonic = { workspace = true, features = [
   "default",
   "tls-native-roots",
@@ -42,10 +41,32 @@ tonic = { workspace = true, features = [
   "tls-ring",
 ] }
 
+
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
+hyper = "1.6"
+tower = { workspace = true, default-features = true }
+
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+tonic-web-wasm-client.workspace = true
+tonic = { workspace = true, features = ["codegen"] }
+hyper = { version = "1.6", default-features = false }
+tower = { workspace = true }
+
+
 [dev-dependencies]
+futures-test.workspace = true
+rstest.workspace = true
 toxiproxy_rust = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-xmtp_proto = { path = "../xmtp_proto", features = ["test-utils"] }
+xmtp_proto = { workspace = true, features = ["test-utils"] }
+
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
+tokio = { workspace = true, features = ["io-util"] }
+pbjson-types.workspace = true
+tokio-stream.workspace = true
+hyper-util = { version = "0.1" }
 
 [features]
+default = []
 test-utils = ["xmtp_proto/test-utils", "dep:toxiproxy_rust"]

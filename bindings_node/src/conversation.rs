@@ -1,9 +1,9 @@
 use std::{collections::HashMap, ops::Deref};
 
 use napi::{
+  JsFunction,
   bindgen_prelude::{Result, Uint8Array},
   threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode},
-  JsFunction,
 };
 use xmtp_db::{
   group::{ConversationType, DmIdExt},
@@ -15,14 +15,15 @@ use xmtp_mls::{
     group_mutable_metadata::MetadataField as XmtpMetadataField,
   },
   groups::{
-    intents::PermissionUpdateType as XmtpPermissionUpdateType,
-    members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
+    MlsGroup, UpdateAdminListType, intents::PermissionUpdateType as XmtpPermissionUpdateType,
+    members::PermissionLevel as XmtpPermissionLevel,
   },
 };
 
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use crate::{
+  ErrorWrapper,
   client::RustMlsGroup,
   consent_state::ConsentState,
   conversations::{HmacKey, MessageDisappearingSettings},
@@ -31,12 +32,24 @@ use crate::{
   message::{ListMessagesOptions, Message, MessageWithReactions},
   permissions::{GroupPermissions, MetadataField, PermissionPolicy, PermissionUpdateType},
   streams::StreamCloser,
-  ErrorWrapper,
 };
 use prost::Message as ProstMessage;
 
 use crate::conversations::ConversationDebugInfo;
 use napi_derive::napi;
+
+#[napi(object)]
+pub struct SendMessageOpts {
+  pub should_push: bool,
+}
+
+impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
+  fn from(opts: SendMessageOpts) -> Self {
+    xmtp_mls::groups::send_message_opts::SendMessageOpts {
+      should_push: opts.should_push,
+    }
+  }
+}
 
 #[napi]
 pub struct GroupMetadata {
@@ -56,6 +69,7 @@ impl GroupMetadata {
       ConversationType::Group => "group".to_string(),
       ConversationType::Dm => "dm".to_string(),
       ConversationType::Sync => "sync".to_string(),
+      ConversationType::Oneshot => "oneshot".to_string(),
     }
   }
 }
@@ -129,24 +143,32 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn send(&self, encoded_content: EncodedContent) -> Result<String> {
+  pub async fn send(
+    &self,
+    encoded_content: EncodedContent,
+    opts: SendMessageOpts,
+  ) -> Result<String> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.create_mls_group();
 
     let message_id = group
-      .send_message(encoded_content.encode_to_vec().as_slice())
+      .send_message(encoded_content.encode_to_vec().as_slice(), opts.into())
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(hex::encode(message_id.clone()))
   }
 
   #[napi]
-  pub fn send_optimistic(&self, encoded_content: EncodedContent) -> Result<String> {
+  pub fn send_optimistic(
+    &self,
+    encoded_content: EncodedContent,
+    opts: SendMessageOpts,
+  ) -> Result<String> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.create_mls_group();
 
     let id = group
-      .send_message_optimistic(encoded_content.encode_to_vec().as_slice())
+      .send_message_optimistic(encoded_content.encode_to_vec().as_slice(), opts.into())
       .map_err(ErrorWrapper::from)?;
 
     Ok(hex::encode(id.clone()))
@@ -179,6 +201,7 @@ impl Conversation {
       ConversationType::Group => None,
       ConversationType::Dm => None,
       ConversationType::Sync => None,
+      ConversationType::Oneshot => None,
     };
     let opts = MsgQueryArgs {
       kind,
@@ -209,6 +232,7 @@ impl Conversation {
       ConversationType::Group => None,
       ConversationType::Dm => None,
       ConversationType::Sync => None,
+      ConversationType::Oneshot => None,
     };
     let opts = MsgQueryArgs {
       kind,

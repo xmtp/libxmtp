@@ -1,34 +1,27 @@
+use crate::ErrorWrapper;
 use crate::conversations::Conversations;
 use crate::identity::{ApiStats, Identifier, IdentityExt, IdentityStats};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestHandle;
-use crate::ErrorWrapper;
 use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-use xmtp_api::ApiDebugWrapper;
-pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+pub use xmtp_api_d14n::queries::V3Client;
+use xmtp_api_grpc::GrpcClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb, StorageOption};
+use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
-use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
-use xmtp_mls::Client as MlsClient;
 use xmtp_proto::api_client::AggregateStats;
+use xmtp_proto::types::AppVersion;
 
-pub type MlsContext = Arc<
-  XmtpMlsLocalContext<
-    ApiDebugWrapper<TonicApiClient>,
-    xmtp_db::DefaultStore,
-    xmtp_db::DefaultMlsStore,
-  >,
->;
-pub type RustXmtpClient = MlsClient<MlsContext>;
-pub type RustMlsGroup = MlsGroup<MlsContext>;
+pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
+pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
 static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
 
 #[napi]
@@ -155,13 +148,27 @@ pub async fn create_client(
   let root_identifier = account_identifier.clone();
 
   init_logging(log_options.unwrap_or_default())?;
-  let api_client = TonicApiClient::create(&host, is_secure, app_version.as_ref())
-    .await
-    .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
+  let api_client = GrpcClient::create_with_version(
+    &host,
+    is_secure,
+    app_version
+      .as_ref()
+      .map(AppVersion::from)
+      .unwrap_or_default(),
+  )
+  .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
 
-  let sync_api_client = TonicApiClient::create(&host, is_secure, app_version.as_ref())
-    .await
-    .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
+  let sync_api_client = GrpcClient::create_with_version(
+    &host,
+    is_secure,
+    app_version
+      .as_ref()
+      .map(AppVersion::from)
+      .unwrap_or_default(),
+  )
+  .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
+  let api_client = V3Client::new(api_client);
+  let sync_api_client = V3Client::new(sync_api_client);
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
@@ -403,5 +410,14 @@ impl Client {
         .await
         .map_err(ErrorWrapper::from)?,
     )
+  }
+
+  #[napi]
+  pub fn delete_message(&self, message_id: Uint8Array) -> Result<u32> {
+    let deleted_count = self
+      .inner_client
+      .delete_message(message_id.to_vec())
+      .map_err(ErrorWrapper::from)?;
+    Ok(deleted_count as u32)
   }
 }

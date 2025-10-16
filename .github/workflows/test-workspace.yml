@@ -60,8 +60,6 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: test workspace with grpc
         run: cargo llvm-cov nextest --no-fail-fast --no-report --profile ci --workspace --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
-      - name: test workspace with http
-        run: cargo llvm-cov nextest --no-fail-fast --no-report --profile ci --workspace --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --exclude xmtp_api_grpc --exclude xmtp_api_d14n --features http-api
       - name: generate coverage
         run: cargo llvm-cov report --output-path lcov.info --lcov
       - name: upload coverage

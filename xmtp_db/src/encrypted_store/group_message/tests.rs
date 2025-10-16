@@ -7,7 +7,6 @@ use crate::{
     test_utils::with_connection,
 };
 use xmtp_common::{assert_err, assert_ok, rand_time, rand_vec};
-use xmtp_content_types::should_push;
 
 pub(crate) fn generate_message(
     kind: Option<GroupMessageKind>,
@@ -385,7 +384,6 @@ async fn it_gets_messages_by_content_type() {
             .unwrap();
         assert_eq!(text_messages.len(), 1);
         assert_eq!(text_messages[0].content_type, ContentType::Text);
-        assert!(should_push(text_messages[0].content_type.to_string()));
 
         assert_eq!(text_messages[0].sent_at_ns, 1_000);
 
@@ -418,7 +416,6 @@ async fn it_gets_messages_by_content_type() {
             .unwrap();
         assert_eq!(updated_messages.len(), 1);
         assert_eq!(updated_messages[0].content_type, ContentType::GroupUpdated);
-        assert!(!should_push(updated_messages[0].content_type.to_string()));
         assert_eq!(updated_messages[0].sent_at_ns, 3_000);
     })
     .await
@@ -1723,6 +1720,42 @@ async fn test_get_latest_message_times_by_sender_mixed_content_types() {
         assert_eq!(latest_times_both.len(), 2);
         assert_eq!(latest_times_both.get(&sender1_id).unwrap(), &8000); // Latest overall
         assert_eq!(latest_times_both.get(&sender2_id).unwrap(), &6000); // Latest text
+    })
+    .await
+}
+
+#[xmtp_common::test]
+async fn it_deletes_message_by_id() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        assert_ok!(group.store(conn));
+
+        // Create a message
+        let message = generate_message(None, Some(&group.id), None, None, None, None);
+        assert_ok!(message.store(conn));
+
+        // Verify the message exists
+        let retrieved_message = conn.get_group_message(&message.id).unwrap();
+        assert!(retrieved_message.is_some());
+        assert_eq!(retrieved_message.unwrap().id, message.id);
+
+        // Delete the message
+        let deleted_count = conn.delete_message_by_id(&message.id).unwrap();
+        assert_eq!(deleted_count, 1, "Should delete exactly 1 message");
+
+        // Verify the message no longer exists
+        let retrieved_message = conn.get_group_message(&message.id).unwrap();
+        assert!(
+            retrieved_message.is_none(),
+            "Message should not exist after deletion"
+        );
+
+        // Test idempotency - deleting again should return 0
+        let deleted_count = conn.delete_message_by_id(&message.id).unwrap();
+        assert_eq!(
+            deleted_count, 0,
+            "Deleting non-existent message should return 0"
+        );
     })
     .await
 }

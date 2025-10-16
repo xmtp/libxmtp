@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = "2024"
 name = "xmtpv3"
 version.workspace = true
 license.workspace = true
@@ -24,6 +24,7 @@ tracing-subscriber = { workspace = true, features = [
 ] }
 uniffi = { version = "0.29.0", default-features = false, features = ["tokio"] }
 xmtp_api.workspace = true
+xmtp_api_d14n.workspace = true
 xmtp_api_grpc.workspace = true
 xmtp_common = { workspace = true, features = ["logging"] }
 xmtp_configuration.workspace = true
@@ -32,7 +33,7 @@ xmtp_cryptography.workspace = true
 xmtp_db.workspace = true
 xmtp_id.workspace = true
 xmtp_mls.workspace = true
-xmtp_proto = { path = "../xmtp_proto" }
+xmtp_proto.workspace = true
 
 # Bench
 criterion = { workspace = true, optional = true }

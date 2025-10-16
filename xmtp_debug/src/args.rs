@@ -5,12 +5,11 @@ use std::sync::Arc;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use color_eyre::eyre;
-use xmtp_api_grpc::grpc_client::GrpcClient;
+use xmtp_api_grpc::GrpcClient;
 use xxhash_rust::xxh3;
 mod types;
 pub use types::*;
-use xmtp_api_d14n::queries::D14nClient;
-use xmtp_proto::api_client::ApiBuilder;
+use xmtp_api_d14n::queries::{D14nClient, V3Client};
 
 /// Debug & Generate data on the XMTP Network
 #[derive(Parser, Debug)]
@@ -225,7 +224,7 @@ pub struct BackendOpts {
         value_enum,
         short,
         long,
-        conflicts_with_all = &["url", "payer_url"],
+        conflicts_with_all = &["url", "xmtpd_gateway_url"],
         default_value_t = BackendKind::Local
     )]
     pub backend: BackendKind,
@@ -233,29 +232,29 @@ pub struct BackendOpts {
     #[arg(short, long)]
     pub url: Option<url::Url>,
     #[arg(short, long)]
-    pub payer_url: Option<url::Url>,
+    pub xmtpd_gateway_url: Option<url::Url>,
     /// Enable the decentralization backend
     #[arg(short, long)]
     pub d14n: bool,
 }
 
 impl BackendOpts {
-    pub fn payer_url(&self) -> eyre::Result<url::Url> {
+    pub fn xmtpd_gateway_url(&self) -> eyre::Result<url::Url> {
         use BackendKind::*;
 
-        if let Some(p) = &self.payer_url {
+        if let Some(p) = &self.xmtpd_gateway_url {
             return Ok(p.clone());
         }
 
         match (self.backend, self.d14n) {
-            (Dev, false) => eyre::bail!("No payer for V3"),
-            (Staging, false) => eyre::bail!("No payer for V3"),
-            (Production, false) => eyre::bail!("No payer for V3"),
-            (Local, false) => eyre::bail!("No payer for V3"),
-            (Dev, true) => Ok((*crate::constants::XMTP_DEV_PAYER).clone()),
-            (Staging, true) => Ok((*crate::constants::XMTP_STAGING_PAYER).clone()),
-            (Production, true) => Ok((*crate::constants::XMTP_PRODUCTION_PAYER).clone()),
-            (Local, true) => Ok((*crate::constants::XMTP_LOCAL_PAYER).clone()),
+            (Dev, false) => eyre::bail!("No gateway for V3"),
+            (Staging, false) => eyre::bail!("No gateway for V3"),
+            (Production, false) => eyre::bail!("No gateway for V3"),
+            (Local, false) => eyre::bail!("No gateway for V3"),
+            (Dev, true) => Ok((*crate::constants::XMTP_DEV_GATEWAY).clone()),
+            (Staging, true) => Ok((*crate::constants::XMTP_STAGING_GATEWAY).clone()),
+            (Production, true) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
+            (Local, true) => Ok((*crate::constants::XMTP_LOCAL_GATEWAY).clone()),
         }
     }
 
@@ -283,24 +282,17 @@ impl BackendOpts {
         let is_secure = network.scheme() == "https";
 
         if self.d14n {
-            let payer_host = self.payer_url()?;
-            trace!(url = %network, payer = %payer_host, is_secure, "create grpc");
-
-            let mut payer = GrpcClient::builder();
-            payer.set_host(payer_host.to_string());
-            payer.set_tls(is_secure);
-            let payer = payer.build().await?;
-            let mut message = GrpcClient::builder();
-            message.set_host(network.to_string());
-            message.set_tls(is_secure);
-            let message = message.build().await?;
-            Ok(Arc::new(D14nClient::new(message, payer)))
+            let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
+            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
+            let gateway_is_secure = xmtpd_gateway_host.scheme() == "https";
+            let gateway = GrpcClient::create(xmtpd_gateway_host.as_str(), gateway_is_secure)?;
+            let message = GrpcClient::create(network.as_str(), is_secure)?;
+            Ok(Arc::new(D14nClient::new(message, gateway)))
         } else {
             trace!(url = %network, is_secure, "create grpc");
-            Ok(Arc::new(
-                crate::GrpcClient::create(network.as_str().to_string(), is_secure, None::<String>)
-                    .await?,
-            ))
+            let client = GrpcClient::create(network.as_str(), is_secure)?;
+            let client = V3Client::new(client);
+            Ok(Arc::new(client))
         }
     }
 }
@@ -395,11 +387,11 @@ mod tests {
     }
 
     #[test]
-    fn url_and_payer_url_is_valid() {
+    fn url_and_gateway_url_is_valid() {
         let opts = parse_backend_args(&[
             "--url",
             "http://localhost:5050",
-            "--payer-url",
+            "--xmtpd-gateway-url",
             "http://localhost:5052",
         ]);
         assert!(opts.is_ok());
@@ -412,9 +404,13 @@ mod tests {
     }
 
     #[test]
-    fn backend_and_payer_url_is_invalid() {
-        let opts =
-            parse_backend_args(&["--backend", "local", "--payer-url", "http://localhost:5052"]);
+    fn backend_and_gateway_url_is_invalid() {
+        let opts = parse_backend_args(&[
+            "--backend",
+            "local",
+            "--xmtpd-gateway-url",
+            "http://localhost:5052",
+        ]);
         assert!(opts.is_err());
     }
 
@@ -425,8 +421,8 @@ mod tests {
     }
 
     #[test]
-    fn payer_url_only_is_valid_but_maybe_warning() {
-        let opts = parse_backend_args(&["--payer-url", "http://localhost:5052"]);
+    fn gateway_url_only_is_valid_but_maybe_warning() {
+        let opts = parse_backend_args(&["--xmtpd-gateway-url", "http://localhost:5052"]);
         assert!(opts.is_ok());
     }
 
@@ -437,7 +433,7 @@ mod tests {
             "local",
             "--url",
             "http://localhost:5050",
-            "--payer-url",
+            "--xmtpd-gateway-url",
             "http://localhost:5052",
         ]);
         assert!(opts.is_err());

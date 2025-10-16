@@ -1,7 +1,9 @@
+use std::array::TryFromSliceError;
+
 use thiserror::Error;
 use xmtp_common::RetryableError;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ApiEndpoint {
     Publish,
     SubscribeGroupMessages,
@@ -20,6 +22,9 @@ pub enum ApiEndpoint {
     PublishEnvelopes,
     PublishCommitLog,
     QueryCommitLog,
+    HealthCheck,
+    GetNodes,
+    Path(String),
 }
 
 impl std::fmt::Display for ApiEndpoint {
@@ -43,6 +48,9 @@ impl std::fmt::Display for ApiEndpoint {
             PublishEnvelopes => write!(f, "publish_envelopes"),
             PublishCommitLog => write!(f, "publish_commit_log"),
             QueryCommitLog => write!(f, "query_commit_log"),
+            HealthCheck => write!(f, "health_check"),
+            GetNodes => write!(f, "get_nodes"),
+            Path(s) => write!(f, "{}", s),
         }
     }
 }
@@ -103,6 +111,10 @@ pub enum ConversionError {
     OpenMls(#[from] openmls::prelude::Error),
     #[error(transparent)]
     Protocol(#[from] openmls::framing::errors::ProtocolMessageError),
+    #[error(transparent)]
+    Builder(#[from] derive_builder::UninitializedFieldError),
+    #[error(transparent)]
+    Slice(#[from] TryFromSliceError),
 }
 
 // Conversion errors themselves not really retryable because the bytes are static,

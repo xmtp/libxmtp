@@ -1,9 +1,9 @@
+use crate::ConversionError;
 use crate::types::TopicKind;
 use crate::xmtp::mls::api::v1::KeyPackageUpload;
 use crate::xmtp::xmtpv4::envelopes::{
     ClientEnvelope, OriginatorEnvelope, PayerEnvelope, UnsignedOriginatorEnvelope,
 };
-use crate::ConversionError;
 use openmls::key_packages::KeyPackageIn;
 use openmls::prelude::tls_codec::Deserialize;
 use openmls::prelude::{MlsMessageIn, ProtocolMessage, ProtocolVersion};
@@ -89,7 +89,11 @@ pub fn get_key_package_topic(key_package: &KeyPackageUpload) -> Result<Vec<u8>, 
     let kp_in: KeyPackageIn =
         KeyPackageIn::tls_deserialize_exact(key_package.key_package_tls_serialized.as_slice())?;
     let rust_crypto = RustCrypto::default();
-    let kp = kp_in.validate(&rust_crypto, MLS_PROTOCOL_VERSION)?;
+    let kp = kp_in.validate(
+        &rust_crypto,
+        MLS_PROTOCOL_VERSION,
+        openmls::prelude::LeafNodeLifetimePolicy::Verify,
+    )?;
     let installation_key = kp.leaf_node().signature_key().as_slice();
     Ok(build_key_package_topic(installation_key))
 }

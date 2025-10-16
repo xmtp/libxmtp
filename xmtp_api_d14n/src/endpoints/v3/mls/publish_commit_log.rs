@@ -2,8 +2,8 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::mls_v1::{BatchPublishCommitLogRequest, PublishCommitLogRequest};
-use xmtp_proto::traits::{BodyError, Endpoint};
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
@@ -20,12 +20,8 @@ impl PublishCommitLog {
 
 impl Endpoint for PublishCommitLog {
     type Output = ();
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::Borrowed("/mls/v1/batch-publish-commit-log")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<BatchPublishCommitLogRequest>()
+        xmtp_proto::path_and_query::<BatchPublishCommitLogRequest>()
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -40,26 +36,50 @@ impl Endpoint for PublishCommitLog {
 #[cfg(test)]
 mod test {
     use crate::v3::PublishCommitLog;
-    use xmtp_proto::prelude::*;
+    use xmtp_api_grpc::error::GrpcError;
+    use xmtp_common::rand_vec;
     use xmtp_proto::xmtp::mls::api::v1::*;
+    use xmtp_proto::{api, prelude::*};
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
-        let pnq = crate::path_and_query::<BatchPublishCommitLogRequest>();
+        let pnq = xmtp_proto::path_and_query::<BatchPublishCommitLogRequest>();
         println!("{}", pnq);
     }
 
     #[xmtp_common::test]
-    // TODO: fix test
+    fn test_grpc_endpoint_returns_correct_path() {
+        let endpoint = PublishCommitLog::default();
+        assert_eq!(
+            endpoint.grpc_endpoint(),
+            "/xmtp.mls.api.v1.MlsApi/BatchPublishCommitLog"
+        );
+    }
+
+    #[xmtp_common::test]
     async fn test_publish_commit_log() {
-        let client = crate::TestClient::create_local();
-        let client = client.build().await.unwrap();
+        let client = crate::TestGrpcClient::create_local();
+        let client = client.build().unwrap();
         let endpoint = PublishCommitLog::builder()
-            .commit_log_entries(vec![PublishCommitLogRequest::default()])
+            .commit_log_entries(vec![PublishCommitLogRequest {
+                group_id: rand_vec::<16>(),
+                serialized_commit_log_entry: rand_vec::<32>(),
+                signature: None,
+            }])
             .build()
             .unwrap();
 
-        let result = endpoint.query(&client).await;
-        assert!(result.is_err());
+        let err = api::ignore(endpoint).query(&client).await.unwrap_err();
+        // the request will fail b/c we're using dummy data but
+        // we just care if the endpoint is working
+        match err {
+            ApiClientError::<GrpcError>::ClientWithEndpoint {
+                source: GrpcError::Status(ref s),
+                ..
+            } => {
+                assert!(s.message().contains("invalid commit log entry"), "{}", err);
+            }
+            _ => panic!("request failed"),
+        }
     }
 }

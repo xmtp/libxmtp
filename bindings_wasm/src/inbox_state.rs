@@ -2,12 +2,12 @@ use crate::{client::Client, identity::Identifier};
 use js_sys::Uint8Array;
 use std::collections::HashMap;
 use std::sync::Arc;
-use wasm_bindgen::{prelude::wasm_bindgen, JsError, JsValue};
-use xmtp_api::strategies;
-use xmtp_api::ApiClientWrapper;
-use xmtp_api_http::XmtpHttpApiClient;
+use wasm_bindgen::{JsError, JsValue, prelude::wasm_bindgen};
+use xmtp_api::{ApiClientWrapper, strategies};
+use xmtp_api_d14n::V3Client;
+use xmtp_api_grpc::GrpcClient;
 use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
-use xmtp_id::associations::{ident, AssociationState, MemberIdentifier};
+use xmtp_id::associations::{AssociationState, MemberIdentifier, ident};
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_mls::client::inbox_addresses_with_verifier;
@@ -126,9 +126,8 @@ pub async fn inbox_state_from_inbox_ids(
   host: String,
   inbox_ids: Vec<String>,
 ) -> Result<Vec<InboxState>, JsError> {
-  let api_client = XmtpHttpApiClient::new(host, "0.0.0".into())
-    .await
-    .map_err(|e| JsError::new(&e.to_string()))?;
+  let api_client =
+    V3Client::new(GrpcClient::create(&host, true).map_err(|e| JsError::new(&e.to_string()))?);
 
   let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
   let scw_verifier =

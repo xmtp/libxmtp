@@ -7,18 +7,19 @@ use crate::user_preferences::UserPreference;
 use crate::{client::RustXmtpClient, conversation::Conversation};
 use std::collections::HashMap;
 use std::sync::Arc;
-use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::UnwrapThrowExt;
+use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
 use wasm_streams::ReadableStream;
 use xmtp_db::consent_record::ConsentState as XmtpConsentState;
-use xmtp_db::group::ConversationType as XmtpConversationType;
 use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
+use xmtp_db::group::{ConversationType as XmtpConversationType, GroupQueryOrderBy};
 use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
 use xmtp_mls::common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_mls::groups::PreconfiguredPolicies;
+use xmtp_proto::types::Cursor;
 
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
@@ -26,6 +27,7 @@ pub enum ConversationType {
   Dm = 0,
   Group = 1,
   Sync = 2,
+  Oneshot = 3,
 }
 
 impl From<XmtpConversationType> for ConversationType {
@@ -34,6 +36,7 @@ impl From<XmtpConversationType> for ConversationType {
       XmtpConversationType::Dm => ConversationType::Dm,
       XmtpConversationType::Group => ConversationType::Group,
       XmtpConversationType::Sync => ConversationType::Sync,
+      XmtpConversationType::Oneshot => ConversationType::Oneshot,
     }
   }
 }
@@ -44,6 +47,7 @@ impl From<ConversationType> for XmtpConversationType {
       ConversationType::Dm => XmtpConversationType::Dm,
       ConversationType::Group => XmtpConversationType::Group,
       ConversationType::Sync => XmtpConversationType::Sync,
+      ConversationType::Oneshot => XmtpConversationType::Oneshot,
     }
   }
 }
@@ -111,8 +115,10 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       allowed_states: None,
       conversation_type: opts.conversation_type.map(Into::into),
       include_sync_groups: false,
-      activity_after_ns: None,
+      last_activity_before_ns: None,
+      last_activity_after_ns: None,
       should_publish_commit_log: None,
+      order_by: Some(GroupQueryOrderBy::LastActivity),
     }
   }
 }
@@ -176,6 +182,23 @@ impl MessageDisappearingSettings {
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, serde::Serialize)]
+pub struct XmtpCursor {
+  pub originator_id: u32,
+  // wasm doesn't suppor u64
+  pub sequence_id: i64,
+}
+
+impl From<Cursor> for XmtpCursor {
+  fn from(value: Cursor) -> Self {
+    XmtpCursor {
+      originator_id: value.originator_id,
+      sequence_id: value.sequence_id as i64,
+    }
+  }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Clone, serde::Serialize)]
 pub struct ConversationDebugInfo {
   pub epoch: u64,
   #[wasm_bindgen(js_name = maybeForked)]
@@ -195,7 +218,7 @@ pub struct ConversationDebugInfo {
   pub remote_commit_log: String,
   #[wasm_bindgen(js_name = cursor)]
   #[serde(rename = "cursor")]
-  pub cursor: i64,
+  pub cursor: Vec<XmtpCursor>,
 }
 
 #[wasm_bindgen(getter_with_clone)]
