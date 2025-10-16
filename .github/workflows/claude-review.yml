@@ -9,7 +9,9 @@ on:
     #   - "library/**/*.java"
     #   - "example/**/*.kt"
     #   - "example/**/*.java"
-
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   claude-review:
     # Optional: Filter by PR author
@@ -38,7 +40,8 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
-          model: "claude-opus-4-1-20250805"
+          model: "claude-sonnet-4-5-20250929"
+          use_sticky_comment: true
 
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |
