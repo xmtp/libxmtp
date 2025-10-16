@@ -1,10 +1,15 @@
+//! Aggregate extractors extract data from collections of envelopes.
+
 use super::{EnvelopeCollection, EnvelopeError, Extractor, ProtocolEnvelope};
 use crate::protocol::traits::EnvelopeVisitor;
 use std::marker::PhantomData;
+
 /// Extract Data from a collection of envelopes
 /// Does not preserve sequenced data, use [`SequencedExtractor`]
 /// to preserve SequenceID/OriginatorID
 /// runs with one extractor.
+/// Does not preserve per-envelope data, since sometimes we
+/// may only care about the payload of a series of envelopes.
 pub struct CollectionExtractor<Envelopes, Extractor> {
     envelopes: Envelopes,
     extractor: Extractor,

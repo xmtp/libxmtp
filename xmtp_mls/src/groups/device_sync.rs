@@ -1,6 +1,8 @@
 use super::{
-    GroupError, MlsGroup, PreconfiguredPolicies, summary::SyncSummary, welcome_sync::WelcomeService,
+    GroupError, MlsGroup, PreconfiguredPolicies, send_message_opts, summary::SyncSummary,
+    welcome_sync::WelcomeService,
 };
+
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
@@ -21,7 +23,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
 use worker::SyncMetric;
 use xmtp_archive::ArchiveError;
-use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns, types::InstallationId};
+use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
 use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::{
     NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs,
@@ -30,6 +32,7 @@ use xmtp_db::{
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
 use xmtp_id::{InboxIdRef, associations::DeserializationError};
 use xmtp_mls_common::group::GroupMetadataOptions;
+use xmtp_proto::types::InstallationId;
 use xmtp_proto::xmtp::{
     device_sync::{
         BackupElementSelection, BackupOptions,
@@ -220,12 +223,16 @@ where
         };
         let content_bytes = encoded_content_to_bytes(encoded_content);
 
-        let message_id = sync_group.prepare_message(&content_bytes, |now| PlaintextEnvelope {
-            content: Some(Content::V1(V1 {
-                content: content_bytes.clone(),
-                idempotency_key: now.to_string(),
-            })),
-        })?;
+        let message_id = sync_group.prepare_message(
+            &content_bytes,
+            send_message_opts::SendMessageOpts { should_push: false },
+            |now| PlaintextEnvelope {
+                content: Some(Content::V1(V1 {
+                    content: content_bytes.clone(),
+                    idempotency_key: now.to_string(),
+                })),
+            },
+        )?;
 
         sync_group.sync_until_last_intent_resolved().await?;
 

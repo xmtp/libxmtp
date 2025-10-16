@@ -170,8 +170,16 @@ impl serde::Serialize for LeaveRequest {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let len = 0;
-        let struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.content_types.LeaveRequest", len)?;
+        let mut len = 0;
+        if !self.authenticated_note.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.content_types.LeaveRequest", len)?;
+        if !self.authenticated_note.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("authenticated_note", pbjson::private::base64::encode(&self.authenticated_note).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -182,10 +190,13 @@ impl<'de> serde::Deserialize<'de> for LeaveRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "authenticated_note",
+            "authenticatedNote",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            AuthenticatedNote,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -207,7 +218,10 @@ impl<'de> serde::Deserialize<'de> for LeaveRequest {
                     where
                         E: serde::de::Error,
                     {
-                            Ok(GeneratedField::__SkipField__)
+                        match value {
+                            "authenticatedNote" | "authenticated_note" => Ok(GeneratedField::AuthenticatedNote),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
                     }
                 }
                 deserializer.deserialize_identifier(GeneratedVisitor)
@@ -225,10 +239,24 @@ impl<'de> serde::Deserialize<'de> for LeaveRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                while map_.next_key::<GeneratedField>()?.is_some() {
-                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                let mut authenticated_note__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::AuthenticatedNote => {
+                            if authenticated_note__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("authenticatedNote"));
+                            }
+                            authenticated_note__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
                 }
                 Ok(LeaveRequest {
+                    authenticated_note: authenticated_note__.unwrap_or_default(),
                 })
             }
         }

@@ -6,7 +6,8 @@ use napi_derive::napi;
 use std::ops::Deref;
 use std::sync::Arc;
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_grpc::v3::Client as TonicApiClient;
+use xmtp_api_d14n::V3Client;
+use xmtp_api_grpc::GrpcClient;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::{
   AccountId,
@@ -48,15 +49,14 @@ pub fn verify_signed_with_public_key(
 
 #[allow(dead_code)]
 #[napi]
-pub async fn revoke_installations_signature_request(
+pub fn revoke_installations_signature_request(
   host: String,
   recovery_identifier: Identifier,
   inbox_id: String,
   installation_ids: Vec<Uint8Array>,
 ) -> Result<SignatureRequestHandle> {
-  let api_client = TonicApiClient::create(host, true, None::<String>)
-    .await
-    .map_err(ErrorWrapper::from)?;
+  let api_client = GrpcClient::create(&host, true).map_err(ErrorWrapper::from)?;
+  let api_client = V3Client::new(api_client);
 
   let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
   let scw_verifier =
@@ -66,9 +66,8 @@ pub async fn revoke_installations_signature_request(
   let ident = recovery_identifier.try_into()?;
   let ids: Vec<Vec<u8>> = installation_ids.into_iter().map(|i| i.to_vec()).collect();
 
-  let signature_request = revoke_installations_with_verifier(&ident, &inbox_id, ids)
-    .await
-    .map_err(ErrorWrapper::from)?;
+  let signature_request =
+    revoke_installations_with_verifier(&ident, &inbox_id, ids).map_err(ErrorWrapper::from)?;
 
   Ok(SignatureRequestHandle {
     inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
@@ -82,9 +81,8 @@ pub async fn apply_signature_request(
   host: String,
   signature_request: &SignatureRequestHandle,
 ) -> Result<()> {
-  let api_client = TonicApiClient::create(host, true, None::<String>)
-    .await
-    .map_err(ErrorWrapper::from)?;
+  let api_client = GrpcClient::create(&host, true).map_err(ErrorWrapper::from)?;
+  let api_client = V3Client::new(api_client);
 
   let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
   let scw_verifier =

@@ -8,7 +8,7 @@ use crate::identity::Identity;
 use crate::identity::IdentityError;
 use crate::utils::test::TestClient;
 use xmtp_api::ApiClientWrapper;
-use xmtp_api::test_utils::*;
+use xmtp_api_d14n::MockApiClient;
 use xmtp_common::{ExponentialBackoff, Retry, rand_vec, tmp_path};
 use xmtp_db::XmtpTestDb;
 use xmtp_db::events::Events;
@@ -213,11 +213,9 @@ async fn test_client_creation() {
             .api_clients(
                 <TestClient as XmtpTestClient>::create_local()
                     .build()
-                    .await
                     .unwrap(),
                 <TestClient as XmtpTestClient>::create_local()
                     .build()
-                    .await
                     .unwrap(),
             )
             .default_mls_store()
@@ -259,11 +257,9 @@ async fn test_turn_local_telemetry_off() {
         .api_clients(
             <TestClient as XmtpTestClient>::create_local()
                 .build()
-                .await
                 .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
-                .await
                 .unwrap(),
         )
         .default_mls_store()
@@ -302,11 +298,9 @@ async fn test_2nd_time_client_creation() {
         .api_clients(
             <TestClient as XmtpTestClient>::create_local()
                 .build()
-                .await
                 .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
-                .await
                 .unwrap(),
         )
         .default_mls_store()
@@ -322,11 +316,9 @@ async fn test_2nd_time_client_creation() {
         .api_clients(
             <TestClient as XmtpTestClient>::create_local()
                 .build()
-                .await
                 .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
-                .await
                 .unwrap(),
         )
         .default_mls_store()
@@ -349,11 +341,9 @@ async fn test_2nd_time_client_creation() {
     .api_clients(
         <TestClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap(),
         <TestClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap(),
     )
     .default_mls_store()
@@ -372,11 +362,9 @@ async fn test_2nd_time_client_creation() {
         .api_clients(
             <TestClient as XmtpTestClient>::create_local()
                 .build()
-                .await
                 .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
-                .await
                 .unwrap(),
         )
         .default_mls_store()
@@ -614,11 +602,9 @@ async fn identity_persistence_test() {
     .api_clients(
         <TestClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap(),
         <TestClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap(),
     )
     .store(store_a)
@@ -645,11 +631,9 @@ async fn identity_persistence_test() {
     .api_clients(
         <TestClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap(),
         <TestClient as XmtpTestClient>::create_local()
             .build()
-            .await
             .unwrap(),
     )
     .store(store_b)
@@ -687,11 +671,9 @@ async fn identity_persistence_test() {
         .api_clients(
             <TestClient as XmtpTestClient>::create_local()
                 .build()
-                .await
                 .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
-                .await
                 .unwrap(),
         )
         .store(store_d)

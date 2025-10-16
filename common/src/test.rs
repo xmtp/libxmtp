@@ -1,7 +1,5 @@
 //! Common Test Utilites
 use crate::time::Expired;
-use once_cell::sync::Lazy;
-use parking_lot::Mutex;
 use rand::distributions::DistString;
 use rand::{Rng, distributions::Alphanumeric, seq::IteratorRandom};
 use std::collections::HashMap;
@@ -12,12 +10,25 @@ pub mod traced_test;
 #[cfg(not(target_arch = "wasm32"))]
 pub use traced_test::TestWriter;
 
-mod logger;
 mod macros;
+
+mod openmls;
+pub use openmls::*;
 
 static INIT: OnceLock<()> = OnceLock::new();
 
-static REPLACE_IDS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+crate::if_native! {
+    use once_cell::sync::Lazy;
+    use parking_lot::Mutex;
+
+    static REPLACE_IDS: once_cell::sync::Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+    mod logger;
+}
+
+pub trait Generate {
+    /// generate a struct containing random data
+    fn generate() -> Self;
+}
 
 /// Replace inbox id in Contextual output with a name (i.e Alix, Bo, etc.)
 #[derive(Default)]
@@ -63,9 +74,11 @@ where
 {
     let structured = std::env::var("STRUCTURED");
     let contextual = std::env::var("CONTEXTUAL");
+    let show_spans = std::env::var("SHOW_SPAN_FIELDS");
 
     let is_structured = matches!(structured, Ok(s) if s == "true" || s == "1");
     let is_contextual = matches!(contextual, Ok(c) if c == "true" || c == "1");
+    let show_spans = matches!(show_spans, Ok(c) if c == "true" || c == "1");
     let filter = || {
         EnvFilter::builder()
             .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
@@ -100,14 +113,15 @@ where
                     .with_test_writer()
                     .fmt_fields({
                         format::debug_fn(move |writer, field, value| {
-                            if field.name() == "message" {
+                            if show_spans && (field.name() != "message") {
+                                write!(writer, ", {}={:?}", field.name(), value)?;
+                            } else if field.name() == "message" {
                                 let mut message = format!("{value:?}");
                                 let ids = REPLACE_IDS.lock();
                                 for (id, name) in ids.iter() {
                                     message = message.replace(id, name);
                                     message = message.replace(&crate::fmt::truncate_hex(id), name);
                                 }
-
                                 write!(writer, "{message}")?;
                             }
                             Ok(())
