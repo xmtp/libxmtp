@@ -155,7 +155,9 @@ impl GroupList {
         self.list
             .iter()
             .map(|(group_id, cursor)| {
-                let map = cursor.synced();
+                // This will be the higher of the DB cursor or the last streamed message
+                // to handle resuming streams
+                let map = cursor.last_streamed();
                 let sid = map
                     .get(&(Originators::MLS_COMMITS as u32))
                     .copied()

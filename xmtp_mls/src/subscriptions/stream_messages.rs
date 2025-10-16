@@ -232,7 +232,7 @@ where
     )> {
         // get the last synced cursor
         let stream = context.api().subscribe_group_messages(filters).await?;
-        Ok((stream, new_group, Some(1)))
+        Ok((stream, new_group, Some(0)))
     }
 }
 
@@ -295,13 +295,8 @@ where
                 let (stream, group, cursor) = ready!(future.poll(cx))?;
                 let this = self.as_mut();
                 if let Some(c) = cursor {
-                    this.set_cursor(
-                        group.as_slice(),
-                        Cursor {
-                            sequence_id: c,
-                            originator_id: 0,
-                        },
-                    );
+                    // TODO:(nm) Currently hardcoding to a v3 cursor
+                    this.set_cursor(group.as_slice(), Cursor::v3_messages(c));
                 };
                 let mut this = self.as_mut().project();
                 this.inner.set(stream);
