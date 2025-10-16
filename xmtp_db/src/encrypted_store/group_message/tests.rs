@@ -46,6 +46,78 @@ async fn it_does_not_error_on_empty_messages() {
 }
 
 #[xmtp_common::test]
+async fn test_exclude_content_types_filter() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+
+        // Create messages with different content types
+        let messages = vec![
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(1_000),
+                Some(ContentType::Text),
+                None,
+                None,
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(2_000),
+                Some(ContentType::Text),
+                None,
+                None,
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(3_000),
+                Some(ContentType::Reaction),
+                None,
+                None,
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(4_000),
+                Some(ContentType::ReadReceipt),
+                None,
+                None,
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(5_000),
+                Some(ContentType::Attachment),
+                None,
+                None,
+            ),
+        ];
+        assert_ok!(messages.store(conn));
+
+        // Test excluding reactions and read receipts
+        let exclude_args = MsgQueryArgs {
+            exclude_content_types: Some(vec![ContentType::Reaction, ContentType::ReadReceipt]),
+            ..Default::default()
+        };
+
+        let filtered_messages = conn.get_group_messages(&group.id, &exclude_args).unwrap();
+        assert_eq!(filtered_messages.len(), 3); // 2 Text + 1 Attachment
+        assert!(
+            filtered_messages
+                .iter()
+                .all(|m| m.content_type != ContentType::Reaction
+                    && m.content_type != ContentType::ReadReceipt)
+        );
+
+        let count = conn.count_group_messages(&group.id, &exclude_args).unwrap();
+        assert_eq!(count, 3);
+    })
+    .await
+}
+
+#[xmtp_common::test]
 async fn it_gets_messages() {
     with_connection(|conn| {
         let group = generate_group(None);
@@ -422,7 +494,7 @@ async fn it_gets_messages_by_content_type() {
 }
 
 #[xmtp_common::test]
-async fn it_places_group_updated_message_correctly_based_on_sort_order() {
+async fn it_dedupes_group_updated_messages_from_dm_by_default() {
     with_connection(|conn| {
         // Create a DM group
         let mut group = generate_group(None);
@@ -434,6 +506,15 @@ async fn it_places_group_updated_message_correctly_based_on_sort_order() {
             Some(GroupMessageKind::Application),
             Some(&group.id),
             Some(5_000),
+            Some(ContentType::GroupUpdated),
+            None,
+            None,
+        );
+
+        let group_updated_msg_2 = generate_message(
+            Some(GroupMessageKind::Application),
+            Some(&group.id),
+            Some(7_000),
             Some(ContentType::GroupUpdated),
             None,
             None,
@@ -460,43 +541,44 @@ async fn it_places_group_updated_message_correctly_based_on_sort_order() {
         assert_ok!(
             vec![
                 group_updated_msg.clone(),
+                group_updated_msg_2.clone(),
                 earlier_msg.clone(),
                 later_msg.clone()
             ]
             .store(conn)
         );
 
-        // Ascending order: GroupUpdated should be at position 0
-        let messages_asc = conn
+        // Default query: GroupUpdated messages are deduplicated for DMs
+        let messages_default = conn
+            .get_group_messages(&group.id, &MsgQueryArgs::default())
+            .unwrap();
+
+        assert_eq!(messages_default.len(), 3);
+        assert_eq!(
+            messages_default
+                .iter()
+                .filter(|m| m.content_type == ContentType::GroupUpdated)
+                .count(),
+            1
+        );
+
+        // Explicitly request GroupUpdated messages - should get them
+        let messages_with_group_updated = conn
             .get_group_messages(
                 &group.id,
                 &MsgQueryArgs {
-                    direction: Some(SortDirection::Ascending),
+                    content_types: Some(vec![ContentType::GroupUpdated]),
                     ..Default::default()
                 },
             )
             .unwrap();
 
-        assert_eq!(messages_asc.len(), 3);
-        assert_eq!(messages_asc[0].content_type, ContentType::GroupUpdated);
-        assert_eq!(messages_asc[1].sent_at_ns, 1_000);
-        assert_eq!(messages_asc[2].sent_at_ns, 10_000);
-
-        // Descending order: GroupUpdated should be at the end
-        let messages_desc = conn
-            .get_group_messages(
-                &group.id,
-                &MsgQueryArgs {
-                    direction: Some(SortDirection::Descending),
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-
-        assert_eq!(messages_desc.len(), 3);
-        assert_eq!(messages_desc[0].sent_at_ns, 10_000);
-        assert_eq!(messages_desc[1].sent_at_ns, 1_000);
-        assert_eq!(messages_desc[2].content_type, ContentType::GroupUpdated);
+        assert_eq!(messages_with_group_updated.len(), 2);
+        assert_eq!(
+            messages_with_group_updated[0].content_type,
+            ContentType::GroupUpdated
+        );
+        assert_eq!(messages_with_group_updated[0].sent_at_ns, 5_000);
     })
     .await
 }
@@ -1627,6 +1709,392 @@ async fn test_get_latest_message_times_by_sender_dm_group() {
 }
 
 #[xmtp_common::test]
+async fn test_count_group_messages() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+
+        // Setup test data with various message types
+        let messages = vec![
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(1_000),
+                Some(ContentType::Text),
+                None,
+                None,
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(2_000),
+                Some(ContentType::Text),
+                None,
+                None,
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(3_000),
+                Some(ContentType::Reaction),
+                None,
+                None,
+            ),
+            generate_message(
+                Some(GroupMessageKind::MembershipChange),
+                Some(&group.id),
+                Some(4_000),
+                None,
+                None,
+                None,
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(5_000),
+                Some(ContentType::GroupUpdated),
+                None,
+                None,
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(10_000),
+                Some(ContentType::Text),
+                None,
+                None,
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(15_000),
+                Some(ContentType::Reaction),
+                None,
+                None,
+            ),
+        ];
+
+        // Add messages with different delivery statuses
+        let mut msg_published = generate_message(
+            None,
+            Some(&group.id),
+            Some(20_000),
+            Some(ContentType::Text),
+            None,
+            None,
+        );
+        msg_published.delivery_status = DeliveryStatus::Published;
+        let mut msg_unpublished = generate_message(
+            None,
+            Some(&group.id),
+            Some(21_000),
+            Some(ContentType::Text),
+            None,
+            None,
+        );
+        msg_unpublished.delivery_status = DeliveryStatus::Unpublished;
+        let mut msg_failed = generate_message(
+            None,
+            Some(&group.id),
+            Some(22_000),
+            Some(ContentType::Text),
+            None,
+            None,
+        );
+        msg_failed.delivery_status = DeliveryStatus::Failed;
+
+        let all_messages = [messages, vec![msg_published, msg_unpublished, msg_failed]].concat();
+        assert_ok!(all_messages.store(conn));
+
+        // Test basic counts
+        assert_eq!(
+            conn.count_group_messages(&group.id, &MsgQueryArgs::default())
+                .unwrap(),
+            10
+        );
+
+        // Test count by content type
+        assert_eq!(
+            conn.count_group_messages(
+                &group.id,
+                &MsgQueryArgs {
+                    content_types: Some(vec![ContentType::Text]),
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            6
+        );
+
+        assert_eq!(
+            conn.count_group_messages(
+                &group.id,
+                &MsgQueryArgs {
+                    content_types: Some(vec![ContentType::Reaction]),
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            2
+        );
+
+        // Test count by kind
+        assert_eq!(
+            conn.count_group_messages(
+                &group.id,
+                &MsgQueryArgs {
+                    kind: Some(GroupMessageKind::Application),
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            9
+        );
+
+        assert_eq!(
+            conn.count_group_messages(
+                &group.id,
+                &MsgQueryArgs {
+                    kind: Some(GroupMessageKind::MembershipChange),
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            1
+        );
+
+        // Test time filters
+        assert_eq!(
+            conn.count_group_messages(
+                &group.id,
+                &MsgQueryArgs {
+                    sent_after_ns: Some(5_000),
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            5 // Messages at 10_000, 15_000, 20_000, 21_000, 22_000
+        );
+
+        assert_eq!(
+            conn.count_group_messages(
+                &group.id,
+                &MsgQueryArgs {
+                    sent_before_ns: Some(10_000),
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            5 // Messages at 1_000, 2_000, 3_000, 4_000, 5_000 (before is exclusive)
+        );
+
+        assert_eq!(
+            conn.count_group_messages(
+                &group.id,
+                &MsgQueryArgs {
+                    sent_after_ns: Some(3_000),
+                    sent_before_ns: Some(12_000),
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            3 // Messages at 4_000, 5_000, 10_000
+        );
+
+        // Test delivery status filters (note: generate_message defaults to Published)
+        assert_eq!(
+            conn.count_group_messages(
+                &group.id,
+                &MsgQueryArgs {
+                    delivery_status: Some(DeliveryStatus::Published),
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            8 // 7 default Published + 1 explicitly set to Published
+        );
+
+        assert_eq!(
+            conn.count_group_messages(
+                &group.id,
+                &MsgQueryArgs {
+                    delivery_status: Some(DeliveryStatus::Unpublished),
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            1
+        );
+
+        assert_eq!(
+            conn.count_group_messages(
+                &group.id,
+                &MsgQueryArgs {
+                    delivery_status: Some(DeliveryStatus::Failed),
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            1
+        );
+    })
+    .await
+}
+
+#[xmtp_common::test]
+async fn test_count_group_messages_dm_vs_regular_groups() {
+    with_connection(|conn| {
+        // Test DM group behavior
+        let mut dm_group = generate_group(None);
+        dm_group.conversation_type = ConversationType::Dm;
+        dm_group.store(conn).unwrap();
+
+        // Test regular group behavior
+        let regular_group = generate_group(None);
+        regular_group.store(conn).unwrap();
+
+        // Create identical message sets for both groups
+        let create_messages = |group_id: &Vec<u8>| {
+            vec![
+                generate_message(
+                    Some(GroupMessageKind::Application),
+                    Some(group_id),
+                    Some(1_000),
+                    Some(ContentType::GroupUpdated),
+                    None,
+                    None,
+                ),
+                generate_message(
+                    Some(GroupMessageKind::Application),
+                    Some(group_id),
+                    Some(2_000),
+                    Some(ContentType::GroupUpdated),
+                    None,
+                    None,
+                ),
+                generate_message(
+                    Some(GroupMessageKind::Application),
+                    Some(group_id),
+                    Some(3_000),
+                    Some(ContentType::GroupUpdated),
+                    None,
+                    None,
+                ),
+                generate_message(
+                    Some(GroupMessageKind::Application),
+                    Some(group_id),
+                    Some(4_000),
+                    Some(ContentType::Text),
+                    None,
+                    None,
+                ),
+                generate_message(
+                    Some(GroupMessageKind::Application),
+                    Some(group_id),
+                    Some(5_000),
+                    Some(ContentType::Text),
+                    None,
+                    None,
+                ),
+            ]
+        };
+
+        let dm_messages = create_messages(&dm_group.id);
+        let regular_messages = create_messages(&regular_group.id);
+
+        assert_ok!(dm_messages.store(conn));
+        assert_ok!(regular_messages.store(conn));
+
+        // DM groups exclude GroupUpdated messages by default (should get 2 Text messages)
+        assert_eq!(
+            conn.count_group_messages(&dm_group.id, &MsgQueryArgs::default())
+                .unwrap(),
+            2
+        );
+
+        // Regular groups count all messages (should get all 5)
+        assert_eq!(
+            conn.count_group_messages(&regular_group.id, &MsgQueryArgs::default())
+                .unwrap(),
+            5
+        );
+
+        // When explicitly requesting GroupUpdated messages, both should return 3
+        let group_updated_args = MsgQueryArgs {
+            content_types: Some(vec![ContentType::GroupUpdated]),
+            ..Default::default()
+        };
+        assert_eq!(
+            conn.count_group_messages(&dm_group.id, &group_updated_args)
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            conn.count_group_messages(&regular_group.id, &group_updated_args)
+                .unwrap(),
+            3
+        );
+
+        // Text messages should be the same for both
+        let text_args = MsgQueryArgs {
+            content_types: Some(vec![ContentType::Text]),
+            ..Default::default()
+        };
+        assert_eq!(
+            conn.count_group_messages(&dm_group.id, &text_args).unwrap(),
+            2
+        );
+        assert_eq!(
+            conn.count_group_messages(&regular_group.id, &text_args)
+                .unwrap(),
+            2
+        );
+    })
+    .await
+}
+
+#[xmtp_common::test]
+async fn test_count_group_messages_empty_groups() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+
+        // Test count with no messages
+        assert_eq!(
+            conn.count_group_messages(&group.id, &MsgQueryArgs::default())
+                .unwrap(),
+            0
+        );
+
+        // Test count with filters that would match nothing
+        assert_eq!(
+            conn.count_group_messages(
+                &group.id,
+                &MsgQueryArgs {
+                    content_types: Some(vec![ContentType::Text]),
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            0
+        );
+
+        assert_eq!(
+            conn.count_group_messages(
+                &group.id,
+                &MsgQueryArgs {
+                    sent_after_ns: Some(1000),
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            0
+        );
+    })
+    .await
+}
+
+#[xmtp_common::test]
 async fn test_get_latest_message_times_by_sender_mixed_content_types() {
     with_connection(|conn| {
         let group = generate_group(None);
@@ -1755,6 +2223,144 @@ async fn it_deletes_message_by_id() {
         assert_eq!(
             deleted_count, 0,
             "Deleting non-existent message should return 0"
+        );
+    })
+    .await
+}
+
+#[xmtp_common::test]
+async fn test_exclude_sender_inbox_ids_filter() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+
+        let sender1 = "inbox_id_1".to_string();
+        let sender2 = "inbox_id_2".to_string();
+        let sender3 = "inbox_id_3".to_string();
+
+        // Create messages from different senders
+        let messages = vec![
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(1_000),
+                Some(ContentType::Text),
+                None,
+                Some(sender1.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(2_000),
+                Some(ContentType::Text),
+                None,
+                Some(sender2.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(3_000),
+                Some(ContentType::Text),
+                None,
+                Some(sender3.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(4_000),
+                Some(ContentType::Text),
+                None,
+                Some(sender1.clone()),
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(5_000),
+                Some(ContentType::Text),
+                None,
+                Some(sender2.clone()),
+            ),
+        ];
+        assert_ok!(messages.store(conn));
+
+        // Test excluding sender1
+        let exclude_sender1_args = MsgQueryArgs {
+            exclude_sender_inbox_ids: Some(vec![sender1.clone()]),
+            ..Default::default()
+        };
+
+        let filtered_messages = conn
+            .get_group_messages(&group.id, &exclude_sender1_args)
+            .unwrap();
+        assert_eq!(filtered_messages.len(), 3); // sender2 (2) + sender3 (1)
+        assert!(
+            filtered_messages
+                .iter()
+                .all(|m| m.sender_inbox_id != sender1)
+        );
+
+        let count = conn
+            .count_group_messages(&group.id, &exclude_sender1_args)
+            .unwrap();
+        assert_eq!(count, 3);
+
+        // Test excluding multiple senders
+        let exclude_multiple_args = MsgQueryArgs {
+            exclude_sender_inbox_ids: Some(vec![sender1.clone(), sender2.clone()]),
+            ..Default::default()
+        };
+
+        let filtered_messages = conn
+            .get_group_messages(&group.id, &exclude_multiple_args)
+            .unwrap();
+        assert_eq!(filtered_messages.len(), 1); // Only sender3
+        assert_eq!(filtered_messages[0].sender_inbox_id, sender3);
+
+        let count = conn
+            .count_group_messages(&group.id, &exclude_multiple_args)
+            .unwrap();
+        assert_eq!(count, 1);
+
+        // Test excluding all senders
+        let exclude_all_args = MsgQueryArgs {
+            exclude_sender_inbox_ids: Some(vec![sender1.clone(), sender2.clone(), sender3.clone()]),
+            ..Default::default()
+        };
+
+        let filtered_messages = conn
+            .get_group_messages(&group.id, &exclude_all_args)
+            .unwrap();
+        assert_eq!(filtered_messages.len(), 0);
+
+        let count = conn
+            .count_group_messages(&group.id, &exclude_all_args)
+            .unwrap();
+        assert_eq!(count, 0);
+
+        // Test excluding non-existent sender (should return all messages)
+        let exclude_nonexistent_args = MsgQueryArgs {
+            exclude_sender_inbox_ids: Some(vec!["nonexistent_sender".to_string()]),
+            ..Default::default()
+        };
+
+        let filtered_messages = conn
+            .get_group_messages(&group.id, &exclude_nonexistent_args)
+            .unwrap();
+        assert_eq!(filtered_messages.len(), 5); // All messages
+
+        // Test combining with other filters
+        let combined_args = MsgQueryArgs {
+            exclude_sender_inbox_ids: Some(vec![sender1.clone()]),
+            sent_after_ns: Some(2_000),
+            ..Default::default()
+        };
+
+        let filtered_messages = conn.get_group_messages(&group.id, &combined_args).unwrap();
+        assert_eq!(filtered_messages.len(), 2); // sender2 at 5000 and sender3 at 3000
+        assert!(
+            filtered_messages
+                .iter()
+                .all(|m| m.sender_inbox_id != sender1 && m.sent_at_ns > 2_000)
         );
     })
     .await

@@ -351,6 +351,12 @@ mock! {
             args: &crate::group_message::MsgQueryArgs,
         ) -> Result<Vec<crate::group_message::StoredGroupMessage>, crate::ConnectionError>;
 
+        fn count_group_messages(
+            &self,
+            group_id: &[u8],
+            args: &crate::group_message::MsgQueryArgs,
+        ) -> Result<i64, crate::ConnectionError>;
+
         fn group_messages_paged(
             &self,
             args: &crate::group_message::MsgQueryArgs,
@@ -532,6 +538,13 @@ mock! {
             id: Id,
             entity_kind: crate::refresh_state::EntityKind,
         ) -> Result<i64, StorageError>;
+
+        #[mockall::concretize]
+        fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+            &self,
+            ids: &[Id],
+            entity_kind: crate::refresh_state::EntityKind,
+        ) -> Result<std::collections::HashMap<Vec<u8>, i64>, StorageError>;
 
         #[mockall::concretize]
         fn update_cursor<Id: AsRef<[u8]>>(

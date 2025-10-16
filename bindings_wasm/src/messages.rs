@@ -83,6 +83,8 @@ impl From<SortDirection> for XmtpSortDirection {
 pub struct ListMessagesOptions {
   #[wasm_bindgen(js_name = contentTypes)]
   pub content_types: Option<Vec<ContentType>>,
+  #[wasm_bindgen(js_name = excludeContentTypes)]
+  pub exclude_content_types: Option<Vec<ContentType>>,
   #[wasm_bindgen(js_name = sentBeforeNs)]
   pub sent_before_ns: Option<i64>,
   #[wasm_bindgen(js_name = sentAfterNs)]
@@ -92,6 +94,8 @@ pub struct ListMessagesOptions {
   pub delivery_status: Option<DeliveryStatus>,
   pub direction: Option<SortDirection>,
   pub kind: Option<GroupMessageKind>,
+  #[wasm_bindgen(js_name = excludeSenderInboxIds)]
+  pub exclude_sender_inbox_ids: Option<Vec<String>>,
 }
 
 impl From<ListMessagesOptions> for MsgQueryArgs {
@@ -103,15 +107,20 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
       limit: opts.limit,
       direction: opts.direction.map(Into::into),
       kind: opts.kind.map(Into::into),
+      exclude_content_types: opts
+        .exclude_content_types
+        .map(|t| t.into_iter().map(Into::into).collect()),
       content_types: opts
         .content_types
         .map(|t| t.into_iter().map(Into::into).collect()),
+      exclude_sender_inbox_ids: opts.exclude_sender_inbox_ids,
     }
   }
 }
 
 #[wasm_bindgen]
 impl ListMessagesOptions {
+  #[allow(clippy::too_many_arguments)]
   #[wasm_bindgen(constructor)]
   pub fn new(
     sent_before_ns: Option<i64>,
@@ -120,7 +129,9 @@ impl ListMessagesOptions {
     delivery_status: Option<DeliveryStatus>,
     direction: Option<SortDirection>,
     content_types: Option<Vec<ContentType>>,
+    exclude_content_types: Option<Vec<ContentType>>,
     kind: Option<GroupMessageKind>,
+    exclude_sender_inbox_ids: Option<Vec<String>>,
   ) -> Self {
     Self {
       sent_before_ns,
@@ -129,7 +140,9 @@ impl ListMessagesOptions {
       delivery_status,
       direction,
       content_types,
+      exclude_content_types,
       kind,
+      exclude_sender_inbox_ids,
     }
   }
 }
