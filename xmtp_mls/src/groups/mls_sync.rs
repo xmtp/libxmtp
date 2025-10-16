@@ -57,7 +57,9 @@ use xmtp_db::{
     user_preferences::StoredUserPreferences,
 };
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
-use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata, GroupMutableMetadataError};
+use xmtp_mls_common::group_mutable_metadata::{
+    GroupMutableMetadataError, MetadataField, extract_group_mutable_metadata,
+};
 
 use futures::future::try_join_all;
 use hkdf::Hkdf;
@@ -92,6 +94,7 @@ use tracing::debug;
 use xmtp_common::time::now_ns;
 use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
+use xmtp_db::pending_remove::{PendingRemove, QueryPendingRemove};
 use xmtp_db::{NotFound, group::GroupMembershipState, group_intent::IntentKind::MetadataUpdate};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::mls_v1::WelcomeMetadata;
@@ -833,6 +836,7 @@ where
                 processing_error: GroupMessageProcessingError::Db(err),
                 next_intent_state: IntentState::Error,
             })?;
+        self.process_leave_request_message_by_message_id(mls_group, storage, &id);
         Ok(Some(id))
     }
 
@@ -983,7 +987,7 @@ where
                 envelope,
                 validated_commit.clone(),
                 &storage,
-                &mut deferred_events
+                &mut deferred_events,
             )?;
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
@@ -1278,6 +1282,21 @@ where
         identifier.build()
     }
 
+    fn process_leave_request_message_by_message_id(
+        &self,
+        mls_group: &OpenMlsGroup,
+        storage: &impl XmtpMlsStorageProvider,
+        message_id: &[u8],
+    ) {
+        tracing::info!("### started processing send leave request");
+        if let Ok(Some(message)) = self.context.db().get_group_message(message_id)
+            && message.content_type == ContentType::LeaveRequest
+        {
+            tracing::info!("### content is LeaveRequest");
+            self.process_leave_request_message(mls_group, storage, &message);
+        }
+    }
+
     fn process_leave_request_message(
         &self,
         mls_group: &OpenMlsGroup,
@@ -1302,7 +1321,22 @@ where
                     "Failed to update group membership after self-addition to pending_remove_list {}", e
                 );
             }
+            let x = PendingRemove {
+                inbox_id: current_inbox_id,
+                group_id: self.group_id.clone(),
+                message_id: message.id.clone(),
+            }
+            .store_or_ignore(&storage.db());
             return; // Early return - we're done if this is our own action
+        } else {
+            // put the user leave request in the db
+            PendingRemove {
+                group_id: message.group_id.clone(),
+                inbox_id: message.sender_inbox_id.clone(),
+                message_id: message.id.clone(),
+            }
+            .store_or_ignore(&storage.db())
+            .expect("Failed to store pending remove");
         }
 
         // If we reach here, the action was by another user or no validated commit
@@ -1326,33 +1360,36 @@ where
             Ok(metadata) => {
                 let is_admin = metadata.admin_list.contains(&current_inbox_id)
                     || metadata.super_admin_list.contains(&current_inbox_id);
-
                 // Only process if we're an admin/super-admin
                 if !is_admin {
                     return;
                 }
+                match storage
+                    .db()
+                    .get_pending_remove_users(&mls_group.group_id().to_vec())
+                {
+                    Ok(users) => {
+                        let current_user_not_pending = !users.contains(&current_inbox_id);
+                        if is_admin && current_user_not_pending && !users.is_empty() {
+                            let _ = storage
+                                .db()
+                                .set_group_has_pending_leave_request_status(
+                                    &self.group_id,
+                                    Some(true),
+                                )
+                                .map_err(|e| {
+                                    tracing::error!(
+                                        "Failed to set group pending leave request status: {}",
+                                        e
+                                    );
+                                    IntentError::Storage(e.into())
+                                });
 
-                // let pending_remove = &metadata.pending_remove_list;
-                // let has_pending_removes = !pending_remove.is_empty();
-                // let current_user_not_pending = !pending_remove.contains(&current_inbox_id);
-                // add user to the pending remove db table
-                // Update group status based on pending remove list state
-                // if current_user_not_pending {
-                //     self.update_group_pending_status(storage, has_pending_removes);
-                //     // Update the group's pending leave request status
-                //     // if let Err(e) = storage
-                //     //     .db()
-                //     //     .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
-                //     // {
-                //     //     //     //     .map_err(|e| {
-                //     //     tracing::error!("Failed to set group pending leave request status: {}", e);
-                //     // } else {
-                //     //     //     //         IntentError::Storage(e.into())
-                //     //     //     //     })?;
-                //     //     //
-                //     //     tracing::info!("Marked the group as having pending leave requests");
-                //     // }
-                // }
+                            tracing::info!("Marked the group as having pending leave requests");
+                        }
+                    }
+                    Err(_) => {}
+                };
             }
             Err(GroupMutableMetadataError::MissingExtension) => {
                 tracing::warn!(
@@ -1387,18 +1424,17 @@ where
                 "Group has pending remove requests requiring admin action"
             );
 
-            // Placeholder for future implementation:
-            // if let Err(e) = storage
-            //     .db()
-            //     .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
-            // {
-            //     tracing::error!(
-            //         error = %e,
-            //         operation = "set_group_pending_status",
-            //         group_id = hex::encode(&self.group_id),
-            //         "Failed to mark group as having pending leave requests"
-            //     );
-            // }
+            if let Err(e) = storage
+                .db()
+                .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
+            {
+                tracing::error!(
+                    error = %e,
+                    operation = "set_group_pending_status",
+                    group_id = hex::encode(&self.group_id),
+                    "Failed to mark group as having pending leave requests"
+                );
+            }
         } else {
             tracing::debug!(
                 group_id = hex::encode(&self.group_id),
@@ -1406,18 +1442,17 @@ where
                 "Group has no pending remove requests"
             );
 
-            // Placeholder for future implementation:
-            // if let Err(e) = storage
-            //     .db()
-            //     .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
-            // {
-            //     tracing::error!(
-            //         error = %e,
-            //         operation = "set_group_pending_status",
-            //         group_id = hex::encode(&self.group_id),
-            //         "Failed to mark group as not having pending leave requests"
-            //     );
-            // }
+            if let Err(e) = storage
+                .db()
+                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
+            {
+                tracing::error!(
+                    operation = "set_group_pending_status",
+                    group_id = hex::encode(&self.group_id),
+                    "Failed to mark group as not having pending leave requests {}",
+                    e,
+                );
+            }
         }
     }
 
@@ -1787,7 +1822,7 @@ where
                 // Do not update the cursor if you have been removed from the group - you may be readded
                 // later
                 if !e.is_retryable() && mls_group.is_active()
-                && let Err(transaction_error) = self.context.mls_storage().transaction(|conn| {
+                    && let Err(transaction_error) = self.context.mls_storage().transaction(|conn| {
                     let storage = conn.key_store();
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
                     // TODO(rich): Add log_err! macro/trait for swallowing errors
@@ -1798,13 +1833,13 @@ where
                         // that the non-retriable error is processed again
                         tracing::error!("Error updating cursor for non-retriable error: {update_cursor_error:?}");
                     } else if message_type == MlsContentType::Commit
-                    && let Err(accounting_error) = mls_group.mark_failed_commit_logged(
-                            &provider,
-                            message_cursor.sequence_id,
-                            message_epoch,
-                            &e,
-                        ) {
-                            tracing::error!(
+                        && let Err(accounting_error) = mls_group.mark_failed_commit_logged(
+                        &provider,
+                        message_cursor.sequence_id,
+                        message_epoch,
+                        &e,
+                    ) {
+                        tracing::error!(
                                 "Error inserting commit entry for failed commit: {}",
                                 accounting_error
                         );
@@ -2082,7 +2117,7 @@ where
                             let id = utils::id::calculate_message_id_for_intent(&intent)?;
                             db.set_group_intent_error_and_fail_msg(&intent, id)?;
                         } else {
-                           db.increment_intent_publish_attempt_count(intent.id)?;
+                            db.increment_intent_publish_attempt_count(intent.id)?;
                         }
 
                         return Err(err);
@@ -2097,7 +2132,7 @@ where
                         let has_staged_commit = staged_commit.is_some();
                         let intent_hash = sha256(payload_slice);
                         // removing this transaction causes missed messages
-                       self.context.mls_storage().transaction(|conn| {
+                        self.context.mls_storage().transaction(|conn| {
                             let storage = conn.key_store();
                             let db = storage.db();
                             db.set_group_intent_published(
@@ -2298,6 +2333,43 @@ where
                     should_send_push_notification: intent.should_push,
                 }))
             }
+            // IntentKind::UpdatePendingRemoveList => {
+            //     let pending_remove_list_update_intent =
+            //         UpdatePendingRemoveListIntentData::try_from(intent.data.clone())?;
+            //     let mutable_metadata_extensions = build_extensions_for_pending_remove_lists_update(
+            //         openmls_group,
+            //         pending_remove_list_update_intent,
+            //     )?;
+            //
+            //     let result = storage.transaction(|conn| {
+            //         let storage = conn.key_store();
+            //         let provider = XmtpOpenMlsProviderRef::new(&storage);
+            //         let (commit, _, _) = openmls_group.update_group_context_extensions(
+            //             &provider,
+            //             mutable_metadata_extensions,
+            //             &self.context.identity().installation_keys,
+            //         )?;
+            //         let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
+            //
+            //         Ok::<_, GroupError>((commit, staged_commit))
+            //     });
+            //     let (commit, staged_commit) = match result {
+            //         Ok(res) => res,
+            //         Err(e) => {
+            //             openmls_group.reload(storage)?;
+            //             return Err(e);
+            //         }
+            //     };
+            //
+            //     let commit_bytes = commit.tls_serialize_detached()?;
+            //
+            //     Ok(Some(PublishIntentData {
+            //         payload_to_publish: commit_bytes,
+            //         staged_commit,
+            //         post_commit_action: None,
+            //         should_send_push_notification: intent.should_push,
+            //     }))
+            // }
             IntentKind::UpdatePermission => {
                 let update_permissions_intent =
                     UpdatePermissionIntentData::try_from(intent.data.clone())?;
