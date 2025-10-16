@@ -1060,6 +1060,8 @@ pub enum GroupMembershipState {
     Pending = 3,
     /// Group has been restored from an archive, but is not active yet.
     Restored = 4,
+    /// User is Pending to get removed of the Group
+    PendingRemove = 5,
 }
 
 impl ToSql<Integer, Sqlite> for GroupMembershipState
@@ -1082,6 +1084,7 @@ where
             2 => Ok(GroupMembershipState::Rejected),
             3 => Ok(GroupMembershipState::Pending),
             4 => Ok(GroupMembershipState::Restored),
+            5 => Ok(GroupMembershipState::PendingRemove),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

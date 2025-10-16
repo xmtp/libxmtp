@@ -62,11 +62,12 @@ use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
     MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
-use xmtp_content_types::ContentCodec;
+use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
 use xmtp_content_types::{
     reaction::{LegacyReaction, ReactionCodec},
     reply::ReplyCodec,
 };
+use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
@@ -104,6 +105,8 @@ use xmtp_proto::{
         plaintext_envelope::{Content, V1},
     },
 };
+use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
+use crate::groups::send_message_opts::SendMessageOpts;
 
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
@@ -918,6 +921,57 @@ where
         Ok(())
     }
 
+    pub async fn leave_group(&self) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+        self.is_member().await?;
+
+        //check member size
+        let members = self.members().await?;
+
+        // check if the group has other members
+        if members.len() == 1 {
+            return Err(GroupLeaveValidationError::SingleMemberLeaveRejected.into());
+        }
+
+        // check if the conversation is not a DM
+        if self.metadata().await?.conversation_type == ConversationType::Dm {
+            return Err(GroupLeaveValidationError::DmLeaveForbidden.into());
+        }
+
+        let is_admin = self.is_admin(self.context.inbox_id().to_string())?;
+        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
+        let admin_size = self.admin_list()?.len();
+        let super_admin_size = self.super_admin_list()?.len();
+
+        // check if the user is the only Admin or SuperAdmin of the group
+        if (is_admin && admin_size == 1) || (is_super_admin && super_admin_size == 1) {
+            return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
+        }
+
+        if !self.is_in_pending_remove(self.context.inbox_id().to_string())? {
+            let content = LeaveRequestCodec::encode(LeaveRequest {
+                authenticated_note: None
+            })?;
+            self.send_message(&encoded_content_to_bytes(content), SendMessageOpts::default())
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Checks if the current user is a member of the group.
+    /// Returns Ok(()) if the user is a member, otherwise returns NotAGroupMember error.
+    #[tracing::instrument(level = "debug", skip(self))]
+    async fn is_member(&self) -> Result<(), GroupError> {
+        let members = self.members().await?;
+        if !members
+            .iter()
+            .any(|m| m.inbox_id == self.context.inbox_id())
+        {
+            return Err(GroupLeaveValidationError::NotAGroupMember.into());
+        }
+        Ok(())
+    }
+
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
     /// to perform these updates.
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
@@ -1256,6 +1310,12 @@ where
         }
     }
 
+    pub fn pending_remove_list(&self) -> Result<Vec<String>, GroupError> {
+        todo!()
+        // let mutable_metadata = self.mutable_metadata()?;
+        // Ok(mutable_metadata.pending_remove_list)
+    }
+
     /// Retrieves the admin list of the group from the group's mutable metadata extension.
     pub fn admin_list(&self) -> Result<Vec<String>, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
@@ -1278,6 +1338,14 @@ where
     pub fn is_super_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
         Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
+    }
+
+    /// Checks if the given inbox ID is the pending-remove list of the group at the most recently synced epoch.
+    pub fn is_in_pending_remove(&self, inbox_id: String) -> Result<bool, GroupError> {
+        return Ok(false);
+        todo!("check if in pending remove list from db");
+        // let mutable_metadata = self.mutable_metadata()?;
+        // Ok(mutable_metadata.pending_remove_list.contains(&inbox_id))
     }
 
     /// Retrieves the conversation type of the group from the group's metadata extension.
