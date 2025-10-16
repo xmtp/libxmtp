@@ -1400,7 +1400,7 @@ where
             EntityKind::CommitMessage,
             Originators::MLS_COMMITS.into(),
         )?;
-        Ok(vec![msgs, commits])
+        Ok([msgs, commits])
     }
 
     pub async fn local_commit_log(&self) -> Result<Vec<LocalCommitLog>, GroupError> {
