@@ -14,5 +14,5 @@ pub trait MiddlewareBuilder {
     fn set_timeout(&mut self, timeout: Duration) -> Result<(), Self::Error>;
 
     /// Build the middleware.
-    fn build(self) -> Result<Self::Output, Self::Error>;
+    fn into_client(self) -> Result<Self::Output, Self::Error>;
 }

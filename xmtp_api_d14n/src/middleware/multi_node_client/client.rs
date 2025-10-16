@@ -105,14 +105,13 @@ mod tests {
 
     fn create_multinode_client() -> MultiNodeClient {
         let multi_node_builder = create_multinode_client_builder();
-        <MultiNodeClientBuilder as MiddlewareBuilder>::build(multi_node_builder).unwrap()
+        multi_node_builder.into_client().unwrap()
     }
 
     fn create_d14n_client() -> D14nClient<MultiNodeClient, GrpcClient> {
         D14nClient::new(
-            <MultiNodeClientBuilder as MiddlewareBuilder>::build(create_multinode_client_builder())
-                .unwrap(),
-            <ClientBuilder as ApiBuilder>::build(create_gateway_builder()).unwrap(),
+            create_multinode_client_builder().into_client().unwrap(),
+            create_gateway_builder().build().unwrap(),
         )
     }
 
@@ -207,7 +206,9 @@ mod tests {
             .unwrap();
         multi_node_builder.set_tls(is_tls_enabled());
 
-        let _ = <MultiNodeClientBuilder as MiddlewareBuilder>::build(multi_node_builder);
+        let _ = multi_node_builder
+            .into_client()
+            .expect("failed to build multi-node client");
     }
 
     #[xmtp_common::test]
