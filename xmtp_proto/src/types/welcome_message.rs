@@ -1,5 +1,5 @@
 use crate::ConversionError;
-use chrono::Local;
+use chrono::Utc;
 use derive_builder::Builder;
 
 use crate::types::{Cursor, InstallationId};
@@ -11,7 +11,7 @@ pub struct WelcomeMessage {
     /// cursor of this message
     pub cursor: Cursor,
     /// server timestamp indicating when this message was created
-    pub created_ns: chrono::DateTime<Local>,
+    pub created_ns: chrono::DateTime<Utc>,
     /// Installation key of user sending the welcome
     pub installation_key: InstallationId,
     /// welcome message payload
@@ -51,7 +51,7 @@ impl xmtp_common::Generate for WelcomeMessage {
     fn generate() -> Self {
         Self {
             cursor: Cursor::generate(),
-            created_ns: chrono::DateTime::from_timestamp_nanos(xmtp_common::rand_i64()).into(),
+            created_ns: chrono::DateTime::from_timestamp_nanos(xmtp_common::rand_i64()),
             installation_key: xmtp_common::rand_array::<32>().into(),
             data: xmtp_common::rand_vec::<16>(),
             hpke_public_key: xmtp_common::rand_vec::<16>(),
@@ -89,7 +89,7 @@ mod test {
 
     #[xmtp_common::test]
     fn test_timestamp() {
-        let test_time = chrono::Local::now();
+        let test_time = chrono::Utc::now();
         let mut welcome_message = WelcomeMessage::generate();
         welcome_message.created_ns = test_time;
         assert_eq!(
