@@ -1,5 +1,6 @@
 pub mod attachment;
 pub mod group_updated;
+pub mod leave_request;
 pub mod membership_change;
 pub mod multi_remote_attachment;
 pub mod reaction;
@@ -45,6 +46,7 @@ pub enum ContentType {
     TransactionReference,
     WalletSendCalls,
     DeviceSyncMessage,
+    LeaveRequest,
 }
 
 impl TryFrom<&str> for ContentType {
