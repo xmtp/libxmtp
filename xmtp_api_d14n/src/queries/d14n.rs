@@ -2,17 +2,18 @@
 mod identity;
 mod mls;
 mod streams;
+mod to_dyn_api;
 
-use xmtp_proto::{prelude::ApiBuilder, types::AppVersion};
+use xmtp_proto::{api::IsConnectedCheck, prelude::ApiBuilder, types::AppVersion};
 
 #[derive(Clone)]
-pub struct D14nClient<C, P> {
+pub struct D14nClient<C, G> {
     message_client: C,
-    gateway_client: P,
+    gateway_client: G,
 }
 
-impl<C, P> D14nClient<C, P> {
-    pub fn new(message_client: C, gateway_client: P) -> Self {
+impl<C, G> D14nClient<C, G> {
+    pub fn new(message_client: C, gateway_client: G) -> Self {
         Self {
             message_client,
             gateway_client,
@@ -91,6 +92,18 @@ where
             <Builder1 as ApiBuilder>::build(self.message_client)?,
             <Builder2 as ApiBuilder>::build(self.gateway_client)?,
         ))
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<C, G> IsConnectedCheck for D14nClient<C, G>
+where
+    G: IsConnectedCheck + Send + Sync,
+    C: IsConnectedCheck + Send + Sync,
+{
+    async fn is_connected(&self) -> bool {
+        self.message_client.is_connected().await && self.gateway_client.is_connected().await
     }
 }
 

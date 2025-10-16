@@ -31,11 +31,11 @@ use tracing_subscriber::{
 };
 use valuable::Valuable;
 use xmtp_api::ApiIdentifier;
-use xmtp_api_d14n::queries::{D14nClient, V3Client};
-use xmtp_api_grpc::error::GrpcError;
-use xmtp_api_grpc::GrpcClient;
+use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_common::time::now_ns;
-use xmtp_configuration::DeviceSyncUrls;
+use xmtp_configuration::{
+    DeviceSyncUrls, GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsProduction, GrpcUrlsStaging,
+};
 use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::signature::SignatureError;
@@ -54,10 +54,9 @@ use xmtp_mls::groups::device_sync_legacy::DeviceSyncContent;
 use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
 use xmtp_mls::groups::GroupError;
 use xmtp_mls::XmtpApi;
+use xmtp_mls::XmtpApiClient;
 use xmtp_mls::{builder::ClientBuilderError, client::ClientError};
 use xmtp_mls::{identity::IdentityStrategy, InboxOwner};
-use xmtp_proto::api::ApiClientError;
-use xmtp_proto::api_client::{ApiBuilder, BoxableXmtpApi};
 
 #[macro_use]
 extern crate tracing;
@@ -65,7 +64,6 @@ extern crate tracing;
 pub type MlsContext =
     Arc<XmtpMlsLocalContext<XmtpApiClient, xmtp_db::DefaultStore, xmtp_db::DefaultMlsStore>>;
 type Client = xmtp_mls::client::Client<MlsContext>;
-type XmtpApiClient = std::sync::Arc<dyn BoxableXmtpApi<ApiClientError<GrpcError>>>;
 type RustMlsGroup = xmtp_mls::groups::MlsGroup<MlsContext>;
 
 #[derive(clap::ValueEnum, Clone, Default, Debug, serde::Serialize, PartialEq)]
@@ -238,71 +236,38 @@ async fn main() -> color_eyre::eyre::Result<()> {
     info!("Starting CLI Client....");
 
     let grpc: XmtpApiClient = match (cli.testnet, &cli.env) {
-        (true, Env::Local) => {
-            let mut message = GrpcClient::builder();
-            message.set_host("http://localhost:5050".into());
-            message.set_tls(false);
-            let message = message.build()?;
-            let mut gateway = GrpcClient::builder();
-            gateway.set_host("http://localhost:5052".into());
-            gateway.set_tls(false);
-            let gateway = gateway.build()?;
-            Arc::new(D14nClient::new(message, gateway))
-        }
-        (true, Env::Production) => {
-            let mut message = GrpcClient::builder();
-            message.set_host("https://grpc.testnet.xmtp.network:443".into());
-            message.set_tls(false);
-            let message = message.build()?;
-            let mut gateway = GrpcClient::builder();
-            gateway.set_host("https://payer.testnet.xmtp.network:443".into());
-            gateway.set_tls(true);
-            let gateway = gateway.build()?;
-            Arc::new(D14nClient::new(message, gateway))
-        }
-        (true, Env::Staging) => {
-            let mut message = GrpcClient::builder();
-            message.set_host("https://grpc.testnet-staging.xmtp.network:443".into());
-            message.set_tls(false);
-            let message = message.build()?;
-            let mut gateway = GrpcClient::builder();
-            gateway.set_host("https://payer.testnet-staging.xmtp.network:443".into());
-            gateway.set_tls(true);
-            let gateway = gateway.build()?;
-            Arc::new(D14nClient::new(message, gateway))
-        }
-        (true, Env::Dev) => {
-            let mut message = GrpcClient::builder();
-            message.set_host("https://grpc.testnet-dev.xmtp.network:443".into());
-            message.set_tls(false);
-            let message = message.build()?;
-            let mut gateway = GrpcClient::builder();
-            gateway.set_host("https://payer.testnet-dev.xmtp.network:443".into());
-            gateway.set_tls(true);
-            let gateway = gateway.build()?;
-            Arc::new(D14nClient::new(message, gateway))
-        }
-        (false, Env::Local) => {
-            let mut client = GrpcClient::builder();
-            client.set_host("http://localhost:5556".to_string());
-            client.set_tls(false);
-            let client = client.build()?;
-            Arc::new(V3Client::new(client))
-        }
-        (false, Env::Dev) | (false, Env::Staging) => {
-            let mut client = GrpcClient::builder();
-            client.set_host("https://grpc.dev.xmtp.network:443".to_string());
-            client.set_tls(true);
-            let client = client.build()?;
-            Arc::new(V3Client::new(client))
-        }
-        (false, Env::Production) => {
-            let mut client = GrpcClient::builder();
-            client.set_host("https://grpc.production.xmtp.network:443".to_string());
-            client.set_tls(true);
-            let client = client.build()?;
-            Arc::new(V3Client::new(client))
-        }
+        (true, Env::Local) => MessageBackendBuilder::default()
+            .v3_host(GrpcUrlsLocal::NODE)
+            .gateway_host(GrpcUrlsLocal::GATEWAY)
+            .is_secure(false)
+            .build()?,
+        (true, Env::Production) => MessageBackendBuilder::default()
+            .v3_host(GrpcUrlsProduction::NODE)
+            .gateway_host(GrpcUrlsProduction::GATEWAY)
+            .is_secure(true)
+            .build()?,
+        (true, Env::Staging) => MessageBackendBuilder::default()
+            .v3_host(GrpcUrlsStaging::NODE)
+            .gateway_host(GrpcUrlsStaging::GATEWAY)
+            .is_secure(true)
+            .build()?,
+        (true, Env::Dev) => MessageBackendBuilder::default()
+            .v3_host(GrpcUrlsDev::NODE)
+            .gateway_host(GrpcUrlsDev::GATEWAY)
+            .is_secure(true)
+            .build()?,
+        (false, Env::Local) => MessageBackendBuilder::default()
+            .v3_host(GrpcUrlsLocal::NODE)
+            .is_secure(false)
+            .build()?,
+        (false, Env::Dev) | (false, Env::Staging) => MessageBackendBuilder::default()
+            .v3_host(GrpcUrlsDev::NODE)
+            .is_secure(true)
+            .build()?,
+        (false, Env::Production) => MessageBackendBuilder::default()
+            .v3_host(GrpcUrlsProduction::NODE)
+            .is_secure(true)
+            .build()?,
     };
 
     if let Commands::Register { seed_phrase } = &cli.command {

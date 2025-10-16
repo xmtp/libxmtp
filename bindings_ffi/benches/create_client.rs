@@ -27,17 +27,6 @@ fn setup() -> Runtime {
         .unwrap()
 }
 
-fn network_url() -> (String, bool) {
-    let dev = std::env::var("DEV_GRPC");
-    let is_dev_network = matches!(dev, Ok(d) if d == "true" || d == "1");
-
-    if is_dev_network {
-        (xmtp_configuration::GrpcUrls::NODE_DEV.to_string(), true)
-    } else {
-        (xmtp_configuration::GrpcUrls::NODE.to_string(), false)
-    }
-}
-
 fn create_ffi_client(c: &mut Criterion) {
     xmtp_common::bench::logger();
 
@@ -57,13 +46,8 @@ fn create_ffi_client(c: &mut Criterion) {
                     let nonce = 1;
                     let inbox_id = ident.inbox_id(nonce).unwrap();
                     let path = tmp_path();
-                    let (url, is_secure) = network_url();
-                    let api = xmtpv3::mls::connect_to_backend(url.clone(), is_secure, None)
-                        .await
-                        .unwrap();
-                    let sync_api = xmtpv3::mls::connect_to_backend(url, is_secure, None)
-                        .await
-                        .unwrap();
+                    let api = xmtpv3::test_utils::connect_to_backend_test().await;
+                    let sync_api = xmtpv3::test_utils::connect_to_backend_test().await;
                     (
                         api,
                         sync_api,
@@ -116,11 +100,8 @@ fn cached_create_ffi_client(c: &mut Criterion) {
     let ffi_ident: FfiIdentifier = ident.into();
     let address = wallet.identifier();
     let path = tmp_path();
-    let (url, is_secure) = network_url();
     let api = runtime.block_on(async {
-        let api = xmtpv3::mls::connect_to_backend(url.clone(), is_secure, None)
-            .await
-            .unwrap();
+        let api = xmtpv3::test_utils::connect_to_backend_test().await;
         xmtpv3::mls::create_client(
             api.clone(),
             api.clone(),

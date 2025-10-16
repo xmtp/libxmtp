@@ -12,12 +12,12 @@ use xmtp_common::{
     RetryableError,
     time::{Duration, Instant},
 };
-use xmtp_proto::types::AppVersion;
 use xmtp_proto::{
     ApiEndpoint,
     api::{ApiClientError, BodyError, Client, Query},
     prelude::ApiBuilder,
 };
+use xmtp_proto::{api::IsConnectedCheck, types::AppVersion};
 
 /* MultiNodeClient struct and impls */
 
@@ -124,6 +124,14 @@ impl Client for MultiNodeClient {
             .map_err(|e| ApiClientError::<GrpcError>::Other(Box::new(e)))?;
 
         inner.stream(request, path, body).await
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl IsConnectedCheck for MultiNodeClient {
+    async fn is_connected(&self) -> bool {
+        self.gateway_client.is_connected().await
     }
 }
 

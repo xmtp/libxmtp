@@ -7,11 +7,12 @@ use crate::protocol::traits::{Envelope, EnvelopeCollection, Extractor};
 use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
 use itertools::Itertools;
 use xmtp_common::RetryableError;
+use xmtp_configuration::Originators;
 use xmtp_proto::ConversionError;
 use xmtp_proto::api;
 use xmtp_proto::api::Client;
 use xmtp_proto::api::{ApiClientError, Query};
-use xmtp_proto::api_client::{IdentityStats, XmtpIdentityClient};
+use xmtp_proto::api_client::XmtpIdentityClient;
 use xmtp_proto::identity_v1;
 use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
@@ -23,12 +24,12 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, P, E> XmtpIdentityClient for D14nClient<C, P>
+impl<C, G, E> XmtpIdentityClient for D14nClient<C, G>
 where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
-    P: Send + Sync + Client<Error = E>,
+    G: Send + Sync + Client<Error = E>,
     C: Send + Sync + Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<P as xmtp_proto::api::Client>::Error>>,
+    ApiClientError<E>: From<ApiClientError<<G as xmtp_proto::api::Client>::Error>> + 'static,
 {
     type Error = ApiClientError<E>;
 
@@ -65,10 +66,14 @@ where
 
         let topics = request.requests.topics()?;
         //todo: replace with returned node_id
+        //todo:d14n need to get the lcc for identity updates
         let node_id = 100;
         let last_seen = Some(Cursor {
-            node_id_to_sequence_id: [(node_id, request.requests.first().unwrap().sequence_id)]
-                .into(),
+            node_id_to_sequence_id: [
+                (node_id, request.requests.first().unwrap().sequence_id),
+                (Originators::INBOX_LOG as u32, 0),
+            ]
+            .into(),
         });
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {
@@ -139,9 +144,5 @@ where
         _request: identity_v1::VerifySmartContractWalletSignaturesRequest,
     ) -> Result<identity_v1::VerifySmartContractWalletSignaturesResponse, Self::Error> {
         unimplemented!()
-    }
-
-    fn identity_stats(&self) -> IdentityStats {
-        Default::default()
     }
 }

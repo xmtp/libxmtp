@@ -1,0 +1,9 @@
+#!/bin/bash
+set -eou pipefail
+
+cargo fmt --check &
+
+wait
+
+echo "Format Good ✅"
+
