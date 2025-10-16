@@ -1,4 +1,5 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, RwLock};
 
 use xmtp_common::{Generate, rand_vec};
 use xmtp_db::{MemoryStorage, group_message::StoredGroupMessage, sql_key_store::SqlKeyStore};
@@ -33,6 +34,7 @@ pub fn context() -> NewMockContext {
         workers: WorkerRunner::new(),
         mls_storage: SqlKeyStore::new(MemoryStorage::new()),
         sync_api_client: ApiClientWrapper::new(MockApiClient::new(), Default::default()),
+        shared_last_streamed: Arc::new(RwLock::new(HashMap::new())),
     }
 }
 

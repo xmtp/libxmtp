@@ -143,6 +143,7 @@ async fn test_dm_stream_all_messages() {
         .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
         .await
         .unwrap();
+
     // TODO: This test does not work on web
     // unless these streams are in their own scope.
     // there's probably an issue with the old stream
@@ -163,7 +164,7 @@ async fn test_dm_stream_all_messages() {
             .send_message("second GROUP msg".as_bytes(), SendMessageOpts::default())
             .await
             .unwrap();
-        assert_msg!(stream, "second GROUP msg");
+        assert_msg!(stream, "first GROUP msg");
     }
     {
         // Start a stream with only dms
@@ -180,6 +181,8 @@ async fn test_dm_stream_all_messages() {
             .send_message("second DM msg".as_bytes(), SendMessageOpts::default())
             .await
             .unwrap();
+        futures::pin_mut!(stream);
+        assert_msg!(stream, "first DM msg");
         assert_msg!(stream, "second DM msg");
     }
     // Start a stream with all conversations
