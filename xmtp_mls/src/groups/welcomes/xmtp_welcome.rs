@@ -447,6 +447,7 @@ where
             }],
             removed_inboxes: vec![],
             metadata_field_changes: vec![],
+            left_inboxes: vec![],
         };
 
         let encoded_added_payload = GroupUpdatedCodec::encode(added_payload)?;
