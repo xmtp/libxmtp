@@ -2,17 +2,15 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
-use xmtp_proto::xmtp::mls::api::v1::{
-    PagingInfo, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
-};
+use xmtp_proto::api::{BodyError, Endpoint, Pageable};
+use xmtp_proto::mls_v1::QueryGroupMessagesResponse;
+use xmtp_proto::xmtp::mls::api::v1::{PagingInfo, QueryGroupMessagesRequest};
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct QueryGroupMessages {
     #[builder(setter(into))]
     group_id: Vec<u8>,
-    #[builder(setter(skip))]
     paging_info: Option<PagingInfo>,
 }
 
@@ -24,10 +22,6 @@ impl QueryGroupMessages {
 
 impl Endpoint for QueryGroupMessages {
     type Output = QueryGroupMessagesResponse;
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::Borrowed("/mls/v1/query-group-messages")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<QueryGroupMessagesRequest>()
     }
@@ -39,6 +33,14 @@ impl Endpoint for QueryGroupMessages {
         }
         .encode_to_vec()
         .into())
+    }
+}
+
+impl Pageable for QueryGroupMessages {
+    fn set_cursor(&mut self, cursor: u64) {
+        if let Some(ref mut p) = self.paging_info {
+            p.id_cursor = cursor;
+        }
     }
 }
 
@@ -55,11 +57,21 @@ mod test {
     }
 
     #[xmtp_common::test]
-    async fn test_get_identity_updates_v2() {
-        let client = crate::TestClient::create_local();
-        let client = client.build().await.unwrap();
-        let endpoint = QueryGroupMessages::builder()
+    fn test_grpc_endpoint_returns_correct_path() {
+        let endpoint = QueryGroupMessages::default();
+        assert_eq!(
+            endpoint.grpc_endpoint(),
+            "/xmtp.mls.api.v1.MlsApi/QueryGroupMessages"
+        );
+    }
+
+    #[xmtp_common::test]
+    async fn test_query_group_messages() {
+        let client = crate::TestGrpcClient::create_local();
+        let client = client.build().unwrap();
+        let mut endpoint = QueryGroupMessages::builder()
             .group_id(vec![1, 2, 3])
+            .paging_info(PagingInfo::default())
             .build()
             .unwrap();
 

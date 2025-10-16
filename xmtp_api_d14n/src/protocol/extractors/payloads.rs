@@ -81,8 +81,9 @@ impl EnvelopeVisitor<'_> for PayloadExtractor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::ProtocolEnvelope;
+    use crate::protocol::Envelope;
     use crate::protocol::extractors::test_utils::*;
+    use xmtp_proto::mls_v1::{group_message_input, welcome_message_input};
     use xmtp_proto::xmtp::xmtpv4::envelopes::client_envelope::Payload;
 
     #[xmtp_common::test]
@@ -90,13 +91,14 @@ mod tests {
         let envelope = TestEnvelopeBuilder::new()
             .with_group_message_custom(vec![1, 2, 3], vec![4, 5, 6])
             .build();
-        let mut extractor = PayloadExtractor::new();
-        envelope.accept(&mut extractor).unwrap();
-        let payload = extractor.get().unwrap();
+        let payload = envelope.payload().unwrap();
 
         match payload {
             Payload::GroupMessage(msg) => {
                 assert!(msg.version.is_some());
+                let m = msg.version.unwrap();
+                let group_message_input::Version::V1(group_message_input::V1 { data, .. }) = m;
+                assert_eq!(data, vec![1, 2, 3]);
             }
             _ => panic!("Expected GroupMessage payload"),
         }
@@ -105,15 +107,19 @@ mod tests {
     #[xmtp_common::test]
     fn test_extract_welcome_message_payload() {
         let envelope = TestEnvelopeBuilder::new()
-            .with_welcome_message_detailed(vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 9])
+            .with_welcome_message(vec![1, 2, 3])
             .build();
-        let mut extractor = PayloadExtractor::new();
-        envelope.accept(&mut extractor).unwrap();
-        let payload = extractor.get().unwrap();
+        let payload = envelope.payload().unwrap();
 
         match payload {
             Payload::WelcomeMessage(msg) => {
                 assert!(msg.version.is_some());
+                let m = msg.version.unwrap();
+                let welcome_message_input::Version::V1(welcome_message_input::V1 {
+                    installation_key,
+                    ..
+                }) = m;
+                assert_eq!(installation_key, vec![1, 2, 3]);
             }
             _ => panic!("Expected WelcomeMessage payload"),
         }
@@ -124,9 +130,7 @@ mod tests {
         let envelope = TestEnvelopeBuilder::new()
             .with_key_package_custom(vec![1, 2, 3])
             .build();
-        let mut extractor = PayloadExtractor::new();
-        envelope.accept(&mut extractor).unwrap();
-        let payload = extractor.get().unwrap();
+        let payload = envelope.payload().unwrap();
 
         match payload {
             Payload::UploadKeyPackage(kp) => {
@@ -142,9 +146,7 @@ mod tests {
         let envelope = TestEnvelopeBuilder::new()
             .with_identity_update_custom("test_inbox".to_string())
             .build();
-        let mut extractor = PayloadExtractor::new();
-        envelope.accept(&mut extractor).unwrap();
-        let payload = extractor.get().unwrap();
+        let payload = envelope.payload().unwrap();
 
         match payload {
             Payload::IdentityUpdate(update) => {
@@ -157,11 +159,11 @@ mod tests {
     #[xmtp_common::test]
     fn test_extract_no_payload_fails() {
         let envelope = TestEnvelopeBuilder::new().with_empty_payload().build();
-        let mut extractor = PayloadExtractor::new();
-        envelope.accept(&mut extractor).unwrap();
-        let result = extractor.get();
-
+        let result = envelope.payload();
         assert!(result.is_err());
-        matches!(result.unwrap_err(), PayloadExtractionError::Failed);
+        matches!(
+            result.unwrap_err(),
+            EnvelopeError::Extraction(ExtractionError::Payload(PayloadExtractionError::Failed))
+        );
     }
 }

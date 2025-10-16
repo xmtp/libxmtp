@@ -1,3 +1,4 @@
+use crate::groups::send_message_opts::SendMessageOpts;
 use std::sync::Arc;
 
 use crate::context::XmtpMlsLocalContext;
@@ -121,7 +122,10 @@ async fn test_spoofed_inbox_id() {
 
         // Alix sends a message using their spoofed inbox ID
         group
-            .send_message("Message from spoofed inbox id".as_bytes())
+            .send_message(
+                "Message from spoofed inbox id".as_bytes(),
+                SendMessageOpts::default(),
+            )
             .await?;
         bo_group.sync().await?;
         let bo_msgs = bo_group.find_messages(&MsgQueryArgs::default())?;
@@ -131,12 +135,16 @@ async fn test_spoofed_inbox_id() {
         );
 
         // Bo and other members can continue to interact with this group as if nothing is wrong
-        bo_group.send_message("hi".as_bytes()).await?;
+        bo_group
+            .send_message("hi".as_bytes(), SendMessageOpts::default())
+            .await?;
         bo_group.add_members_by_inbox_id(&[caro.inbox_id()]).await?;
         let caro_groups = caro.sync_welcomes().await?;
         let caro_group = caro_groups.first().unwrap();
         caro_group.sync().await?;
-        caro_group.send_message("hi".as_bytes()).await?;
+        caro_group
+            .send_message("hi".as_bytes(), SendMessageOpts::default())
+            .await?;
         bo_group.sync().await?;
 
         panic!("Test failed");

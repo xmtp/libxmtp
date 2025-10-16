@@ -1,7 +1,7 @@
 use rstest::*;
 
 pub mod cases {
-    use xmtp_common::types::GroupId;
+    use xmtp_proto::types::GroupId;
 
     use super::*;
 

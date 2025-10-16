@@ -1,2 +1,17 @@
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
 ignore:
   - "xmtp_proto/src/gen"
+  - "xmtp_mls/src/subscriptions/stream_messages/test_case_builder.rs"
+  - "test/**"
+  - "test_utils/**"
+  - "**/mock.rs"
+  - "**/test_utils.rs"
+  - "**/test.rs"
+  - "**/tests.rs"

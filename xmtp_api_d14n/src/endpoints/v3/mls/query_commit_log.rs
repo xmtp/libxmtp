@@ -2,10 +2,9 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
-use xmtp_proto::xmtp::mls::api::v1::{
-    BatchQueryCommitLogRequest, BatchQueryCommitLogResponse, QueryCommitLogRequest,
-};
+use xmtp_proto::api::{BodyError, Endpoint};
+use xmtp_proto::mls_v1::BatchQueryCommitLogResponse;
+use xmtp_proto::xmtp::mls::api::v1::{BatchQueryCommitLogRequest, QueryCommitLogRequest};
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
@@ -22,10 +21,6 @@ impl QueryCommitLog {
 
 impl Endpoint for QueryCommitLog {
     type Output = BatchQueryCommitLogResponse;
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::Borrowed("/mls/v1/batch-query-commit-log")
-    }
-
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<BatchQueryCommitLogRequest>()
     }
@@ -41,16 +36,38 @@ impl Endpoint for QueryCommitLog {
 
 #[cfg(test)]
 mod test {
+    use super::*;
+    use xmtp_common::rand_vec;
+    use xmtp_proto::prelude::*;
 
-    // TODO(cvoell): implement test
     #[xmtp_common::test]
     fn test_file_descriptor() {
-        // stub for now
+        let pnq = xmtp_proto::path_and_query::<BatchQueryCommitLogRequest>();
+        println!("{}", pnq);
     }
 
-    // TODO(cvoell): implement test
+    #[xmtp_common::test]
+    fn test_grpc_endpoint_returns_correct_path() {
+        let endpoint = QueryCommitLog::default();
+        assert_eq!(
+            endpoint.grpc_endpoint(),
+            "/xmtp.mls.api.v1.MlsApi/BatchQueryCommitLog"
+        );
+    }
+
     #[xmtp_common::test]
     async fn test_query_commit_log() {
-        // stub for now
+        let client = crate::TestGrpcClient::create_local();
+        let client = client.build().unwrap();
+        let endpoint = QueryCommitLog::builder()
+            .query_log_requests(vec![QueryCommitLogRequest {
+                group_id: rand_vec::<16>(),
+                paging_info: None,
+            }])
+            .build()
+            .unwrap();
+
+        let result = xmtp_proto::api::ignore(endpoint).query(&client).await;
+        assert!(result.is_ok(), "{:?}", result);
     }
 }

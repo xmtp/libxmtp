@@ -10,6 +10,7 @@ use color_eyre::eyre::{self, Result, eyre};
 use indicatif::{ProgressBar, ProgressStyle};
 use rand::{Rng, SeedableRng, rngs::SmallRng, seq::SliceRandom};
 use std::sync::Arc;
+use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
 use xmtp_mls::groups::summary::SyncSummary;
 
 mod content_type;
@@ -156,7 +157,15 @@ impl GenerateMessages {
             let words = rng.gen_range(0..*max_message_size);
             let words = lipsum::lipsum_words_with_rng(&mut *rng, words as usize);
             let message = content_type::new_message(words);
-            group.send_message(&message).await?;
+            group
+                .send_message(
+                    &message,
+                    SendMessageOptsBuilder::default()
+                        .should_push(true)
+                        .build()
+                        .unwrap(),
+                )
+                .await?;
             Ok(())
         } else {
             Err(MessageSendError::NoGroup)

@@ -26,7 +26,6 @@ use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::time::now_ns;
-use xmtp_common::types::InstallationId;
 use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::{
     CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
@@ -55,6 +54,7 @@ use xmtp_id::{
         sign_with_legacy_key,
     },
 };
+use xmtp_proto::types::InstallationId;
 use xmtp_proto::xmtp::identity::MlsCredential;
 
 /**
@@ -898,9 +898,6 @@ mod tests {
         sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
     };
     use xmtp_mls_common::group::DMMetadataOptions;
-    use xmtp_proto::mls_v1::welcome_message::{
-        V1 as WelcomeMessageV1, Version as WelcomeMessageVersion,
-    };
 
     async fn get_key_package_from_network(client: &FullXmtpClient) -> VerifiedKeyPackageV2 {
         let kp_mapping = client
@@ -913,18 +910,15 @@ mod tests {
             .unwrap()
     }
 
-    async fn get_latest_welcome(client: &FullXmtpClient) -> WelcomeMessageV1 {
+    async fn get_latest_welcome(client: &FullXmtpClient) -> xmtp_proto::types::WelcomeMessage {
         let welcomes = client
             .context
             .api()
-            .query_welcome_messages(client.context.installation_id(), None)
+            .query_welcome_messages(client.context.installation_id(), Default::default())
             .await
             .unwrap();
 
-        let first_welcome = welcomes.first().unwrap().clone();
-        let WelcomeMessageVersion::V1(inner) = first_welcome.version.unwrap();
-
-        inner
+        welcomes[0].clone()
     }
 
     /// Look up the key package hash ref by public init key

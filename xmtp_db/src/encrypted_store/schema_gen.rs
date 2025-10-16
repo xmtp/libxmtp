@@ -186,6 +186,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    readd_status (group_id, installation_id) {
+        group_id -> Binary,
+        installation_id -> Binary,
+        requested_at_sequence_id -> Nullable<BigInt>,
+        responded_at_sequence_id -> Nullable<BigInt>,
+    }
+}
+
+diesel::table! {
     refresh_state (entity_id, entity_kind) {
         entity_id -> Binary,
         entity_kind -> Integer,
@@ -233,6 +242,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     openmls_key_value,
     pending_remove,
     processed_device_sync_messages,
+    readd_status,
     refresh_state,
     remote_commit_log,
     user_preferences,

@@ -2,7 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::payer_api::{GetNodesRequest, GetNodesResponse};
 
 #[derive(Debug, Builder, Default)]
@@ -17,10 +17,6 @@ impl GetNodes {
 
 impl Endpoint for GetNodes {
     type Output = GetNodesResponse;
-
-    fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::from("/mls/v2/payer/get-nodes")
-    }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<GetNodesRequest>()
@@ -45,18 +41,18 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_get_nodes() {
-        let endpoint = GetNodes::builder().build().unwrap();
-        let gateway_client = crate::TestClient::create_gateway();
-        let client = gateway_client.build().await.unwrap();
+        let mut endpoint = GetNodes::builder().build().unwrap();
+        let gateway_client = crate::TestGrpcClient::create_gateway();
+        let client = gateway_client.build().unwrap();
         assert!(endpoint.query(&client).await.is_ok());
     }
 
     #[xmtp_common::test]
     async fn test_get_nodes_unimplemented() {
         // xmtpd doesn't implement the GetNodes endpoint
-        let endpoint = GetNodes::builder().build().unwrap();
-        let xmtpd_client = crate::TestClient::create_d14n();
-        let client = xmtpd_client.build().await.unwrap();
+        let mut endpoint = GetNodes::builder().build().unwrap();
+        let xmtpd_client = crate::TestGrpcClient::create_d14n();
+        let client = xmtpd_client.build().unwrap();
         assert!(endpoint.query(&client).await.is_err());
     }
 }
