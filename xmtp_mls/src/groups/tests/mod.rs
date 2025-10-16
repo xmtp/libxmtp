@@ -1339,24 +1339,75 @@ async fn test_self_removal() {
     assert!(bola_i2_group_pending_remove_list.contains(&bola_i1.inbox_id().to_string()));
     // The pending-remove list should only contain one item
     assert_eq!(bola_i2_group_pending_remove_list.len(), 1);
-    // let bola_i2_group_state_in_db = bola_i2.db().find_group(&bola_i2_group.group_id).unwrap();
+    let bola_i2_group_state_in_db = bola_i2.db().find_group(&bola_i2_group.group_id).unwrap();
 
-    // todo for later: check that the state is PendingRemove for other installations
-    // assert_eq!(
-    //     bola_i2_group_state_in_db.unwrap().membership_state,
-    //     GroupMembershipState::PendingRemove
-    // );
-    // xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
+    // group's state should be set to PendingRemove on Bola's other installation
+    assert_eq!(
+        bola_i2_group_state_in_db.unwrap().membership_state,
+        GroupMembershipState::PendingRemove
+    );
+
+    // Bola introduces another installation, after processing the welcome the group state should be set to PendingRemove
+    let bola_i3 = ClientBuilder::new_test_client(&bola_wallet).await;
+    xmtp_common::time::sleep(std::time::Duration::from_secs(5)).await;
+    bola_i1_group.send_message(b"test one").await.unwrap();
+    // xmtp_common::time::sleep(std::time::Duration::from_secs(5)).await;
+    bola_i3.sync_welcomes().await.unwrap();
+    let bola_i3_groups = bola_i3.find_groups(GroupQueryArgs::default()).unwrap();
+    assert_eq!(bola_i3_groups.len(), 1);
+    let bola_i3_group = bola_i3_groups.first().unwrap();
+    assert_eq!(bola_i3_group.members().await.unwrap().len(), 2);
+    bola_i3_group.sync().await.unwrap();
+    let bola_i3_group_pending_remove_list = bola_i3_group
+        .mutable_metadata()
+        .unwrap()
+        .pending_remove_list;
+    // Bola's inboxId should be in the pending-remove list
+    assert!(bola_i3_group_pending_remove_list.contains(&bola_i1.inbox_id().to_string()));
+    // The pending-remove list should only contain one item
+    assert_eq!(bola_i3_group_pending_remove_list.len(), 1);
+    let bola_i3_group_state_in_db = bola_i3.db().find_group(&bola_i1_group.group_id).unwrap();
+
+    // group's state should be set to PendingRemove on Bola's other installation
+    assert_eq!(
+        bola_i3_group_state_in_db.unwrap().membership_state,
+        GroupMembershipState::PendingRemove
+    );
+
+    // Amal introduces another installation, after processing the welcome the group state should not be affected
+    let amal_i2 = ClientBuilder::new_test_client(&amal_wallet).await;
+    xmtp_common::time::sleep(std::time::Duration::from_secs(5)).await;
+    amal_group.send_message(b"test one").await.unwrap();
+    amal_i2.sync_welcomes().await.unwrap();
+    let amal_i2_groups = amal_i2.find_groups(GroupQueryArgs::default()).unwrap();
+    assert_eq!(amal_i2_groups.len(), 1);
+    let amal_i2_group = amal_i2_groups.first().unwrap();
+    assert_eq!(amal_i2_group.members().await.unwrap().len(), 2);
+    amal_i2_group.sync().await.unwrap();
+    let amal_i2_group_pending_remove_list = amal_i2_group
+        .mutable_metadata()
+        .unwrap()
+        .pending_remove_list;
+    // Amal's inboxId should be in the pending-remove list
+    assert!(!amal_i2_group_pending_remove_list.contains(&amal_i2.inbox_id().to_string()));
+    // The pending-remove list should only contain one item
+    assert_eq!(amal_i2_group_pending_remove_list.len(), 1);
+    let amal_i2_group_state_in_db = amal_i2.db().find_group(&amal_i2_group.group_id).unwrap();
+
+    // group's state should be set to PendingRemove on Bola's other installation
+    assert_ne!(
+        amal_i2_group_state_in_db.unwrap().membership_state,
+        GroupMembershipState::PendingRemove
+    );
 }
 
 #[xmtp_common::test(flavor = "current_thread")]
-async fn test_self_removal_handled_on_other_installations() {
+async fn test_self_removal_single_installations() {
     let amal_wallet = generate_local_wallet();
+    let bola_wallet = generate_local_wallet();
     let amal = ClientBuilder::new_test_client(&amal_wallet).await;
-    let amal_second_client = ClientBuilder::new_test_client(&amal_wallet).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
 
-    // Create a group and verify it has the default group name
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
         .add_members_by_inbox_id(&[bola.inbox_id()])
@@ -1392,81 +1443,182 @@ async fn test_self_removal_handled_on_other_installations() {
             .is_empty()
     );
 
-    // Verify Amal's inboxId is added to the PendingRemovalList
-    amal_group.leave_group().await.unwrap();
-    amal_group.sync().await.unwrap();
-
+    // Verify Amal as the super admin/admin can't leave the group and their inboxId is not added to the pendingRemoveList
+    amal_group
+        .leave_group()
+        .await
+        .expect_err("Amal should not be able to leave the group");
     let amal_group_pending_remove_list = amal_group.mutable_metadata().unwrap().pending_remove_list;
 
-    // Amal's inboxId should be in the pending-remove list
-    assert!(amal_group_pending_remove_list.contains(&amal.inbox_id().to_string()));
+    // Amal's inboxId shouldn't be in the pending-remove list
+    assert!(!amal_group_pending_remove_list.contains(&amal.inbox_id().to_string()));
+    // The pending-remove list should be empty
+    assert_eq!(amal_group_pending_remove_list.len(), 0);
 
-    // The pending-remove list should only contain one item
-    assert_eq!(amal_group_pending_remove_list.len(), 1);
+    // Bola should be able to leave the group
+    bola_group.sync().await.unwrap();
+    bola_group.leave_group().await.unwrap();
+    let bola_group_pending_remove_list = bola_group.mutable_metadata().unwrap().pending_remove_list;
 
-    // Amal's state for the group should be set to PendingRemove
-    let amal_group_from_db = amal.db().find_group(&amal_group.group_id).unwrap();
+    // Bola's inboxId should be in the pending-remove list on Bola's group
+    assert!(bola_group_pending_remove_list.contains(&bola.inbox_id().to_string()));
+
+    // Bola's state for the group should be set to PendingRemove
+    let bola_group_from_db = bola.db().find_group(&bola_group.group_id).unwrap();
     assert_eq!(
-        amal_group_from_db.unwrap().membership_state,
+        bola_group_from_db.unwrap().membership_state,
         GroupMembershipState::PendingRemove
     );
 
-    //check Amal's other installations
-    amal_second_client.sync_welcomes().await.unwrap();
-    let amal_second_client_groups = amal_second_client
-        .find_groups(GroupQueryArgs::default())
+    // Amal's state for the group should not change
+    amal_group.sync().await.unwrap();
+    let amal_group_member_state = amal
+        .db()
+        .find_group(&amal_group.group_id)
+        .unwrap()
+        .unwrap()
+        .membership_state;
+
+    assert_eq!(amal_group_member_state, GroupMembershipState::Allowed);
+}
+
+#[xmtp_common::test(flavor = "current_thread")]
+async fn test_self_removal_with_multiple_initial_installations() {
+    let amal_wallet = generate_local_wallet();
+    let bola_wallet = generate_local_wallet();
+    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
+    let bola_i1 = ClientBuilder::new_test_client(&bola_wallet).await;
+    let bola_i2 = ClientBuilder::new_test_client(&bola_wallet).await;
+
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group
+        .add_members_by_inbox_id(&[bola_i1.inbox_id()])
+        .await
         .unwrap();
-    assert_eq!(amal_second_client_groups.len(), 1);
-    let amal_second_client_group = amal_second_client_groups.first().unwrap();
-    assert_eq!(amal_second_client_group.members().await.unwrap().len(), 2);
-    amal_second_client_group.sync().await.unwrap();
-    let amal_second_installation_pending_remove_list = amal_second_client_group
+
+    amal_group.sync().await.unwrap();
+    bola_i1.sync_welcomes().await.unwrap();
+    bola_i2.sync_welcomes().await.unwrap();
+
+    assert_eq!(amal_group.members().await.unwrap().len(), 2);
+
+    let bola_i1_groups = bola_i1.find_groups(GroupQueryArgs::default()).unwrap();
+    assert_eq!(bola_i1_groups.len(), 1);
+    let bola_i1_group = bola_i1_groups.first().unwrap();
+
+    let bola_i2_groups = bola_i2.find_groups(GroupQueryArgs::default()).unwrap();
+    assert_eq!(bola_i2_groups.len(), 1);
+    let bola_i2_group = bola_i2_groups.first().unwrap();
+
+    bola_i1_group.sync().await.unwrap();
+    bola_i2_group.sync().await.unwrap();
+
+    // Bola_i1 leaves the group
+    bola_i1_group.leave_group().await.unwrap();
+    let bola_i1_group_pending_remove_list = bola_i1_group
         .mutable_metadata()
         .unwrap()
         .pending_remove_list;
-    // Amal's inboxId should be in the pending-remove list
-    tracing::info!(
-        "remove list: {:?}",
-        amal_second_installation_pending_remove_list
-    );
-    assert!(amal_second_installation_pending_remove_list.contains(&amal.inbox_id().to_string()));
-    // The pending-remove list should only contain one item
-    assert_eq!(amal_second_installation_pending_remove_list.len(), 1);
-    let amal_second_installation_group_state_in_db = amal_second_client
-        .db()
-        .find_group(&amal_second_client_group.group_id)
-        .unwrap();
+
+    // Bola's inboxId should be in the pending-remove list on Bola_i1's group
+    assert!(bola_i1_group_pending_remove_list.contains(&bola_i1.inbox_id().to_string()));
+
+    // Bola_i1's state for the group should be set to PendingRemove
+    let bola_i1_group_from_db = bola_i1.db().find_group(&bola_i1_group.group_id).unwrap();
     assert_eq!(
-        amal_second_installation_group_state_in_db
-            .unwrap()
-            .membership_state,
+        bola_i1_group_from_db.unwrap().membership_state,
         GroupMembershipState::PendingRemove
     );
-    bola_group.sync().await.unwrap();
-    xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    // let bola_group_pending_remove_list = bola_group.mutable_metadata().unwrap().pending_remove_list;
-    //
-    // // Amal's inboxId should be in the pending-remove list on Bola's group
-    // assert!(bola_group_pending_remove_list.contains(&amal.inbox_id().to_string()));
-    //
-    // // Bola's state for the group should not change
-    // let bola_group_member_state = bola
-    //     .db()
-    //     .find_group(&amal_group.group_id)
-    //     .unwrap()
-    //     .unwrap()
-    //     .membership_state;
-    // assert_ne!(bola_group_member_state, GroupMembershipState::PendingRemove);
-    // assert_ne!(bola_group_member_state, GroupMembershipState::Allowed);
+    // Check Bola's other installation (i2)
+    bola_i2_group.sync().await.unwrap();
+    let bola_i2_group_pending_remove_list = bola_i2_group
+        .mutable_metadata()
+        .unwrap()
+        .pending_remove_list;
 
-    //todo for later: check that the state is PendingRemove for other installations
-    // assert_eq!(
-    //     amal_second_installation_group_state_in_db
-    //         .unwrap()
-    //         .membership_state,
-    //     GroupMembershipState::PendingRemove
-    // );
+    // Bola's inboxId should be in the pending-remove list on i2 as well
+    assert!(bola_i2_group_pending_remove_list.contains(&bola_i1.inbox_id().to_string()));
+    // The pending-remove list should only contain one item
+    assert_eq!(bola_i2_group_pending_remove_list.len(), 1);
+
+    let bola_i2_group_state_in_db = bola_i2.db().find_group(&bola_i2_group.group_id).unwrap();
+    // Group's state should be set to PendingRemove on Bola's other installation
+    assert_eq!(
+        bola_i2_group_state_in_db.unwrap().membership_state,
+        GroupMembershipState::PendingRemove
+    );
+}
+
+#[xmtp_common::test(flavor = "current_thread")]
+async fn test_self_removal_with_late_installation() {
+    let amal_wallet = generate_local_wallet();
+    let bola_wallet = generate_local_wallet();
+    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
+    let bola_i1 = ClientBuilder::new_test_client(&bola_wallet).await;
+
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group
+        .add_members_by_inbox_id(&[bola_i1.inbox_id()])
+        .await
+        .unwrap();
+
+    amal_group.sync().await.unwrap();
+    bola_i1.sync_welcomes().await.unwrap();
+
+    let bola_i1_groups = bola_i1.find_groups(GroupQueryArgs::default()).unwrap();
+    assert_eq!(bola_i1_groups.len(), 1);
+    let bola_i1_group = bola_i1_groups.first().unwrap();
+
+    bola_i1_group.sync().await.unwrap();
+
+    // Bola_i1 leaves the group
+    bola_i1_group.leave_group().await.unwrap();
+    let bola_i1_group_pending_remove_list = bola_i1_group
+        .mutable_metadata()
+        .unwrap()
+        .pending_remove_list;
+
+    // Bola's inboxId should be in the pending-remove list on Bola_i1's group
+    assert!(bola_i1_group_pending_remove_list.contains(&bola_i1.inbox_id().to_string()));
+
+    // Bola_i1's state for the group should be set to PendingRemove
+    let bola_i1_group_from_db = bola_i1.db().find_group(&bola_i1_group.group_id).unwrap();
+    assert_eq!(
+        bola_i1_group_from_db.unwrap().membership_state,
+        GroupMembershipState::PendingRemove
+    );
+
+    // Introduce another installation for Bola after the self-removal
+    let bola_i3 = ClientBuilder::new_test_client(&bola_wallet).await;
+    xmtp_common::time::sleep(std::time::Duration::from_secs(5)).await;
+    bola_i1_group.send_message(b"test one").await.unwrap();
+    xmtp_common::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    // New installation processes the welcome
+    bola_i3.sync_welcomes().await.unwrap();
+    let bola_i3_groups = bola_i3.find_groups(GroupQueryArgs::default()).unwrap();
+    assert_eq!(bola_i3_groups.len(), 1);
+    let bola_i3_group = bola_i3_groups.first().unwrap();
+    assert_eq!(bola_i3_group.members().await.unwrap().len(), 2);
+
+    bola_i3_group.sync().await.unwrap();
+    let bola_i3_group_pending_remove_list = bola_i3_group
+        .mutable_metadata()
+        .unwrap()
+        .pending_remove_list;
+
+    // Bola's inboxId should be in the pending-remove list on the new installation
+    assert!(bola_i3_group_pending_remove_list.contains(&bola_i1.inbox_id().to_string()));
+    // The pending-remove list should only contain one item
+    assert_eq!(bola_i3_group_pending_remove_list.len(), 1);
+
+    let bola_i3_group_state_in_db = bola_i3.db().find_group(&bola_i1_group.group_id).unwrap();
+    // Group's state should be set to PendingRemove on the new installation
+    assert_eq!(
+        bola_i3_group_state_in_db.unwrap().membership_state,
+        GroupMembershipState::PendingRemove
+    );
 }
 
 #[xmtp_common::test]
