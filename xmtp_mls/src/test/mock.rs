@@ -17,7 +17,7 @@ use alloy::signers::local::PrivateKeySigner;
 use mockall::mock;
 use tokio::sync::broadcast;
 use xmtp_api::ApiClientWrapper;
-use xmtp_api::test_utils::MockApiClient;
+use xmtp_api_d14n::MockApiClient;
 use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_db::XmtpDb;
 use xmtp_db::sql_key_store::mock::MockSqlKeyStore;
@@ -57,8 +57,8 @@ impl Identity {
 mock! {
     pub ProcessFutureFactory {}
     impl ProcessFutureFactory<'_> for ProcessFutureFactory {
-        fn create(&self, msg: xmtp_proto::mls_v1::group_message::V1) -> xmtp_common::FutureWrapper<'_, Result<ProcessedMessage, SubscribeError>>;
-        fn retrieve(&self, msg: &xmtp_proto::mls_v1::group_message::V1) -> Result<Option<xmtp_db::group_message::StoredGroupMessage>, SubscribeError>;
+        fn create(&self, msg: xmtp_proto::types::GroupMessage) -> xmtp_common::FutureWrapper<'_, Result<ProcessedMessage, SubscribeError>>;
+        fn retrieve(&self, msg: &xmtp_proto::types::GroupMessage) -> Result<Option<xmtp_db::group_message::StoredGroupMessage>, SubscribeError>;
     }
 }
 

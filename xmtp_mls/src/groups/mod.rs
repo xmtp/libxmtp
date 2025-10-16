@@ -13,6 +13,7 @@ pub mod message_list;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;
 pub mod oneshot;
+pub mod send_message_opts;
 pub(super) mod subscriptions;
 pub mod summary;
 #[cfg(test)]
@@ -62,7 +63,6 @@ use xmtp_configuration::{
     MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_content_types::ContentCodec;
-use xmtp_content_types::should_push;
 use xmtp_content_types::{
     reaction::{LegacyReaction, ReactionCodec},
     reply::ReplyCodec,
@@ -96,10 +96,13 @@ use xmtp_mls_common::{
         GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings, MetadataField,
     },
 };
-use xmtp_proto::xmtp::mls::message_contents::{
-    EncodedContent, OneshotMessage, PlaintextEnvelope,
-    content_types::ReactionV2,
-    plaintext_envelope::{Content, V1},
+use xmtp_proto::{
+    types::Cursor,
+    xmtp::mls::message_contents::{
+        EncodedContent, OneshotMessage, PlaintextEnvelope,
+        content_types::ReactionV2,
+        plaintext_envelope::{Content, V1},
+    },
 };
 
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
@@ -182,7 +185,7 @@ pub struct ConversationDebugInfo {
     pub is_commit_log_forked: Option<bool>,
     pub local_commit_log: String,
     pub remote_commit_log: String,
-    pub cursor: i64,
+    pub cursor: Vec<Cursor>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -200,7 +203,6 @@ pub struct QueryableContentFields {
     pub version_minor: i32,
     pub authority_id: String,
     pub reference_id: Option<Vec<u8>>,
-    pub should_push: bool,
 }
 
 impl Default for QueryableContentFields {
@@ -211,7 +213,6 @@ impl Default for QueryableContentFields {
             version_minor: 0,
             authority_id: String::new(),
             reference_id: None,
-            should_push: false,
         }
     }
 }
@@ -244,7 +245,6 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
             version_minor: content_type_id.version_minor as i32,
             authority_id: content_type_id.authority_id.to_string(),
             reference_id,
-            should_push: should_push(type_id_str),
         })
     }
 }
@@ -578,7 +578,11 @@ where
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip(self))
     )]
-    pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
+    pub async fn send_message(
+        &self,
+        message: &[u8],
+        opts: send_message_opts::SendMessageOpts,
+    ) -> Result<Vec<u8>, GroupError> {
         if !self.is_active()? {
             tracing::warn!("Unable to send a message on an inactive group.");
             return Err(GroupError::GroupInactive);
@@ -588,7 +592,8 @@ where
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(update_interval_ns).await?;
 
-        let message_id = self.prepare_message(message, |now| Self::into_envelope(message, now))?;
+        let message_id =
+            self.prepare_message(message, opts, |now| Self::into_envelope(message, now))?;
 
         self.sync_until_last_intent_resolved().await?;
 
@@ -628,8 +633,13 @@ where
     }
 
     /// Send a message, optimistically returning the ID of the message before the result of a message publish.
-    pub fn send_message_optimistic(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
-        let message_id = self.prepare_message(message, |now| Self::into_envelope(message, now))?;
+    pub fn send_message_optimistic(
+        &self,
+        message: &[u8],
+        opts: send_message_opts::SendMessageOpts,
+    ) -> Result<Vec<u8>, GroupError> {
+        let message_id =
+            self.prepare_message(message, opts, |now| Self::into_envelope(message, now))?;
         Ok(message_id)
     }
 
@@ -655,13 +665,14 @@ where
     ///
     /// # Arguments
     /// * message: UTF-8 or encoded message bytes
-    /// * conn: Connection to SQLite database
+    /// * opts: Options for sending the message
     /// * envelope: closure that returns context-specific [`PlaintextEnvelope`]. Closure accepts
     ///   timestamp attached to intent & stored message.
     #[tracing::instrument(skip_all, level = "trace")]
     pub(crate) fn prepare_message<F>(
         &self,
         message: &[u8],
+        opts: send_message_opts::SendMessageOpts,
         envelope: F,
     ) -> Result<Vec<u8>, GroupError>
     where
@@ -679,7 +690,7 @@ where
             Self::extract_queryable_content_fields(message);
         QueueIntent::send_message()
             .data(intent_data)
-            .should_push(queryable_content_fields.should_push)
+            .should_push(opts.should_push)
             .queue(self)?;
 
         // store this unpublished message locally before sending
@@ -1416,7 +1427,7 @@ where
             is_commit_log_forked: stored_group.is_commit_log_forked,
             local_commit_log: format!("{:?}", commit_log),
             remote_commit_log: format!("{:?}", remote_commit_log),
-            cursor,
+            cursor: vec![Cursor::v3_messages(cursor as u64)],
         })
     }
 
@@ -1669,7 +1680,6 @@ pub fn build_dm_mutable_metadata_extension_default(
 ) -> Result<Extension, MetadataPermissionsError> {
     let mut commit_log_signer = None;
     if xmtp_configuration::ENABLE_COMMIT_LOG {
-        // Optional TODO(rich): Plumb in provider and use traits in commit_log_key.rs to generate and store secret
         commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
     }
     let mutable_metadata: Vec<u8> = GroupMutableMetadata::new_dm_default(

@@ -102,10 +102,10 @@ mod test {
     use super::*;
     impl<Builder1, Builder2> TestApiBuilder for D14nClientBuilder<Builder1, Builder2>
     where
-        Builder1: ApiBuilder<Error = <Builder2 as ApiBuilder>::Error>,
-        Builder2: ApiBuilder,
-        <Builder1 as ApiBuilder>::Output: xmtp_proto::api::Client,
-        <Builder2 as ApiBuilder>::Output: xmtp_proto::api::Client,
+        Builder1: ApiBuilder<Error = <Builder2 as ApiBuilder>::Error> + 'static,
+        Builder2: ApiBuilder + 'static,
+        <Builder1 as ApiBuilder>::Output: xmtp_proto::api::Client + 'static,
+        <Builder2 as ApiBuilder>::Output: xmtp_proto::api::Client + 'static,
     {
         async fn with_toxiproxy(&mut self) -> ToxicProxies {
             let xmtpd_host = <Builder1 as ApiBuilder>::host(&self.message_client).unwrap();

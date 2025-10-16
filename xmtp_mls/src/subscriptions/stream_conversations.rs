@@ -18,7 +18,8 @@ use std::{
 use tokio_stream::wrappers::BroadcastStream;
 use xmtp_common::FutureWrapper;
 use xmtp_db::prelude::*;
-use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
+use xmtp_proto::api_client::XmtpMlsStreams;
+use xmtp_proto::types::{Cursor, WelcomeMessage};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConversationStreamError {
@@ -39,7 +40,7 @@ impl xmtp_common::RetryableError for ConversationStreamError {
 
 pub enum WelcomeOrGroup {
     Group(Vec<u8>),
-    Welcome(WelcomeMessage),
+    Welcome(xmtp_proto::types::WelcomeMessage),
 }
 
 impl std::fmt::Debug for WelcomeOrGroup {
@@ -160,7 +161,7 @@ pin_project! {
         context: Cow<'a, Context>,
         #[pin] welcome_syncs: JoinSet<Result<ProcessWelcomeResult<Context>>>,
         conversation_type: Option<ConversationType>,
-        known_welcome_ids: HashSet<i64>,
+        known_welcome_ids: HashSet<Cursor>,
         include_duplicated_dms: bool,
         consent_states: Option<Vec<ConsentState>>,
     }
@@ -261,7 +262,11 @@ where
             .subscribe_welcome_messages(installation_key.as_ref(), Some(id_cursor as u64))
             .await?;
         let subscription = SubscriptionStream::new(subscription);
-        let known_welcome_ids = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());
+        let known_welcome_ids = HashSet::from_iter(
+            conn.group_welcome_ids()?
+                .into_iter()
+                .map(|id| Cursor::welcomes(id as u64)),
+        );
 
         let stream = multiplexed(subscription, events);
 
@@ -385,14 +390,23 @@ where
                 tracing::debug!("ignoring streamed conversation payload");
                 None
             }
-            Ok(ProcessWelcomeResult::NewStored { group, maybe_id }) => {
+            Ok(ProcessWelcomeResult::NewStored {
+                group,
+                maybe_sequence_id,
+                maybe_originator,
+            }) => {
                 tracing::debug!(
                     group_id = hex::encode(&group.group_id),
                     "finished processing with group {}",
                     hex::encode(&group.group_id)
                 );
-                if let Some(id) = maybe_id {
-                    this.known_welcome_ids.insert(id);
+                if let Some(id) = maybe_sequence_id
+                    && let Some(originator) = maybe_originator
+                {
+                    this.known_welcome_ids.insert(Cursor {
+                        originator_id: originator as u32,
+                        sequence_id: id as u64,
+                    });
                 }
                 Some(Ok(group))
             }
@@ -408,6 +422,7 @@ mod test {
 
     use super::*;
     use crate::builder::ClientBuilder;
+    use crate::groups::send_message_opts::SendMessageOpts;
     use crate::tester;
     use crate::utils::fixtures::{alix, bo};
     use xmtp_db::group::GroupQueryArgs;
@@ -676,7 +691,7 @@ mod test {
                 async move {
                     xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
                     let dm = c.find_or_create_dm_by_inbox_id(id.as_ref(), None).await?;
-                    dm.send_message(b"hi").await?;
+                    dm.send_message(b"hi", SendMessageOpts::default()).await?;
                     Ok::<_, crate::client::ClientError>(())
                 }
             });

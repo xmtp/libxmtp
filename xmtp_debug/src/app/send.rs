@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::args;
 use color_eyre::eyre::{Result, eyre};
 use rand::prelude::*;
+use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
 
 use super::store::{Database, GroupStore, IdentityStore};
 
@@ -49,7 +50,15 @@ impl Send {
         let client = crate::app::client_from_identity(&identity, network).await?;
         client.sync_welcomes().await?;
         let xmtp_group = client.group(&group.id.to_vec())?;
-        xmtp_group.send_message(data.as_bytes()).await?;
+        xmtp_group
+            .send_message(
+                data.as_bytes(),
+                SendMessageOptsBuilder::default()
+                    .should_push(true)
+                    .build()
+                    .unwrap(),
+            )
+            .await?;
         Ok(())
     }
 }

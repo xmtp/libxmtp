@@ -31,9 +31,9 @@ use tracing_subscriber::{
 };
 use valuable::Valuable;
 use xmtp_api::ApiIdentifier;
-use xmtp_api_d14n::queries::D14nClient;
+use xmtp_api_d14n::queries::{D14nClient, V3Client};
+use xmtp_api_grpc::error::GrpcError;
 use xmtp_api_grpc::GrpcClient;
-use xmtp_api_grpc::{error::GrpcError, v3::Client as ClientV3};
 use xmtp_common::time::now_ns;
 use xmtp_configuration::DeviceSyncUrls;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
@@ -51,6 +51,7 @@ use xmtp_id::associations::{AssociationError, AssociationState, Identifier, Memb
 use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::groups::device_sync_legacy::DeviceSyncContent;
+use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
 use xmtp_mls::groups::GroupError;
 use xmtp_mls::XmtpApi;
 use xmtp_mls::{builder::ClientBuilderError, client::ClientError};
@@ -281,26 +282,27 @@ async fn main() -> color_eyre::eyre::Result<()> {
             let gateway = gateway.build()?;
             Arc::new(D14nClient::new(message, gateway))
         }
-        (false, Env::Local) => Arc::new(ClientV3::create(
-            "http://localhost:5556",
-            false,
-            None::<String>,
-        )?),
-        (false, Env::Dev) => Arc::new(ClientV3::create(
-            "https://grpc.dev.xmtp.network:443",
-            true,
-            None::<String>,
-        )?),
-        (false, Env::Staging) => Arc::new(ClientV3::create(
-            "https://grpc.dev.xmtp.network:443",
-            true,
-            None::<String>,
-        )?),
-        (false, Env::Production) => Arc::new(ClientV3::create(
-            "https://grpc.production.xmtp.network:443",
-            true,
-            None::<String>,
-        )?),
+        (false, Env::Local) => {
+            let mut client = GrpcClient::builder();
+            client.set_host("http://localhost:5556".to_string());
+            client.set_tls(false);
+            let client = client.build()?;
+            Arc::new(V3Client::new(client))
+        }
+        (false, Env::Dev) | (false, Env::Staging) => {
+            let mut client = GrpcClient::builder();
+            client.set_host("https://grpc.dev.xmtp.network:443".to_string());
+            client.set_tls(true);
+            let client = client.build()?;
+            Arc::new(V3Client::new(client))
+        }
+        (false, Env::Production) => {
+            let mut client = GrpcClient::builder();
+            client.set_host("https://grpc.production.xmtp.network:443".to_string());
+            client.set_tls(true);
+            let client = client.build()?;
+            Arc::new(V3Client::new(client))
+        }
     };
 
     if let Commands::Register { seed_phrase } = &cli.command {
@@ -626,7 +628,15 @@ async fn send(group: RustMlsGroup, msg: String) -> Result<(), CliError> {
         .unwrap()
         .encode(&mut buf)
         .unwrap();
-    group.send_message(buf.as_slice()).await?;
+    group
+        .send_message(
+            buf.as_slice(),
+            SendMessageOptsBuilder::default()
+                .should_push(true)
+                .build()
+                .unwrap(),
+        )
+        .await?;
     Ok(())
 }
 

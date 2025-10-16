@@ -1,24 +1,34 @@
-use crate::v3::*;
-use futures::stream;
-use xmtp_common::RetryableError;
-use xmtp_proto::api::{ApiClientError, Client, Query};
-use xmtp_proto::api_client::{
-    ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
-};
-use xmtp_proto::identity_v1;
-use xmtp_proto::mls_v1;
+use xmtp_proto::api::{HasStats, IsConnectedCheck};
+use xmtp_proto::api_client::{AggregateStats, ApiStats, IdentityStats};
 use xmtp_proto::prelude::ApiBuilder;
 use xmtp_proto::types::AppVersion;
-use xmtp_proto::xmtp::identity::associations::IdentifierKind;
+
+mod identity;
+mod mls;
+mod streams;
 
 #[derive(Clone)]
 pub struct V3Client<C> {
     client: C,
+    stats: ApiStats,
+    identity_stats: IdentityStats,
 }
 
 impl<C> V3Client<C> {
     pub fn new(client: C) -> Self {
-        Self { client }
+        Self {
+            client,
+            stats: Default::default(),
+            identity_stats: Default::default(),
+        }
+    }
+
+    pub fn builder<T: Default>() -> V3ClientBuilder<T> {
+        V3ClientBuilder::new(T::default())
+    }
+
+    pub fn client_mut(&mut self) -> &mut C {
+        &mut self.client
     }
 }
 
@@ -44,6 +54,7 @@ where
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
         <Builder as ApiBuilder>::set_libxmtp_version(&mut self.client, version)
     }
+
     fn set_app_version(&mut self, version: AppVersion) -> Result<(), Self::Error> {
         <Builder as ApiBuilder>::set_app_version(&mut self.client, version)
     }
@@ -54,10 +65,6 @@ where
 
     fn set_tls(&mut self, tls: bool) {
         <Builder as ApiBuilder>::set_tls(&mut self.client, tls)
-    }
-
-    fn set_retry(&mut self, retry: xmtp_common::Retry) {
-        <Builder as ApiBuilder>::set_retry(&mut self.client, retry)
     }
 
     fn rate_per_minute(&mut self, limit: u32) {
@@ -75,215 +82,51 @@ where
     fn build(self) -> Result<Self::Output, Self::Error> {
         Ok(V3Client::new(<Builder as ApiBuilder>::build(self.client)?))
     }
+
+    fn set_retry(&mut self, retry: xmtp_common::Retry) {
+        <Builder as ApiBuilder>::set_retry(&mut self.client, retry)
+    }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, E> XmtpMlsClient for V3Client<C>
-where
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
-    C: Send + Sync + Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<C as Client>::Error>> + Send + Sync + 'static,
-{
-    type Error = ApiClientError<E>;
-
-    async fn upload_key_package(
-        &self,
-        request: mls_v1::UploadKeyPackageRequest,
-    ) -> Result<(), Self::Error> {
-        UploadKeyPackage::builder()
-            .key_package(request.key_package)
-            .is_inbox_id_credential(request.is_inbox_id_credential)
-            .build()?
-            .query(&self.client)
-            .await
-    }
-    async fn fetch_key_packages(
-        &self,
-        request: mls_v1::FetchKeyPackagesRequest,
-    ) -> Result<mls_v1::FetchKeyPackagesResponse, Self::Error> {
-        FetchKeyPackages::builder()
-            .installation_keys(request.installation_keys)
-            .build()?
-            .query(&self.client)
-            .await
-    }
-    async fn send_group_messages(
-        &self,
-        request: mls_v1::SendGroupMessagesRequest,
-    ) -> Result<(), Self::Error> {
-        SendGroupMessages::builder()
-            .messages(request.messages)
-            .build()?
-            .query(&self.client)
-            .await
-    }
-    async fn send_welcome_messages(
-        &self,
-        request: mls_v1::SendWelcomeMessagesRequest,
-    ) -> Result<(), Self::Error> {
-        SendWelcomeMessages::builder()
-            .messages(request.messages)
-            .build()?
-            .query(&self.client)
-            .await
-    }
-    async fn query_group_messages(
-        &self,
-        request: mls_v1::QueryGroupMessagesRequest,
-    ) -> Result<mls_v1::QueryGroupMessagesResponse, Self::Error> {
-        QueryGroupMessages::builder()
-            .group_id(request.group_id)
-            .build()?
-            .query(&self.client)
-            .await
-    }
-    async fn query_welcome_messages(
-        &self,
-        request: mls_v1::QueryWelcomeMessagesRequest,
-    ) -> Result<mls_v1::QueryWelcomeMessagesResponse, Self::Error> {
-        QueryWelcomeMessages::builder()
-            .installation_key(request.installation_key)
-            .paging_info(request.paging_info)
-            .build()?
-            .query(&self.client)
-            .await
-    }
-
-    async fn publish_commit_log(
-        &self,
-        request: mls_v1::BatchPublishCommitLogRequest,
-    ) -> Result<(), Self::Error> {
-        PublishCommitLog::builder()
-            .commit_log_entries(request.requests)
-            .build()?
-            .query(&self.client)
-            .await
-    }
-
-    async fn query_commit_log(
-        &self,
-        request: mls_v1::BatchQueryCommitLogRequest,
-    ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
-        QueryCommitLog::builder()
-            .query_log_requests(request.requests)
-            .build()?
-            .query(&self.client)
-            .await
-    }
-
-    fn stats(&self) -> ApiStats {
-        Default::default()
+impl<C> HasStats for V3Client<C> {
+    fn aggregate_stats(&self) -> AggregateStats {
+        AggregateStats {
+            mls: self.stats.clone(),
+            identity: self.identity_stats.clone(),
+        }
     }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, E> XmtpIdentityClient for V3Client<C>
+impl<C> IsConnectedCheck for V3Client<C>
 where
-    C: Send + Sync + Client<Error = E>,
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    C: IsConnectedCheck + Send + Sync,
 {
-    type Error = ApiClientError<E>;
-
-    async fn publish_identity_update(
-        &self,
-        request: identity_v1::PublishIdentityUpdateRequest,
-    ) -> Result<identity_v1::PublishIdentityUpdateResponse, Self::Error> {
-        PublishIdentityUpdate::builder()
-            //todo: handle error or tryFrom
-            .identity_update(request.identity_update)
-            .build()?
-            .query(&self.client)
-            .await
-    }
-
-    async fn get_identity_updates_v2(
-        &self,
-        request: identity_v1::GetIdentityUpdatesRequest,
-    ) -> Result<identity_v1::GetIdentityUpdatesResponse, Self::Error> {
-        GetIdentityUpdatesV2::builder()
-            .requests(request.requests)
-            .build()?
-            .query(&self.client)
-            .await
-    }
-
-    async fn get_inbox_ids(
-        &self,
-        request: identity_v1::GetInboxIdsRequest,
-    ) -> Result<identity_v1::GetInboxIdsResponse, Self::Error> {
-        GetInboxIds::builder()
-            .addresses(
-                request
-                    .requests
-                    .iter()
-                    .filter(|r| r.identifier_kind == IdentifierKind::Ethereum as i32)
-                    .map(|r| r.identifier.clone())
-                    .collect::<Vec<_>>(),
-            )
-            .passkeys(
-                request
-                    .requests
-                    .iter()
-                    .filter(|r| r.identifier_kind == IdentifierKind::Passkey as i32)
-                    .map(|r| r.identifier.clone())
-                    .collect::<Vec<_>>(),
-            )
-            .build()?
-            .query(&self.client)
-            .await
-    }
-
-    async fn verify_smart_contract_wallet_signatures(
-        &self,
-        request: identity_v1::VerifySmartContractWalletSignaturesRequest,
-    ) -> Result<identity_v1::VerifySmartContractWalletSignaturesResponse, Self::Error> {
-        VerifySmartContractWalletSignatures::builder()
-            .signatures(request.signatures)
-            .build()?
-            .query(&self.client)
-            .await
-    }
-
-    fn identity_stats(&self) -> IdentityStats {
-        Default::default()
+    async fn is_connected(&self) -> bool {
+        self.client.is_connected().await
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, E> XmtpMlsStreams for V3Client<C>
-where
-    C: Send + Sync + Client<Error = E>,
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
-{
-    type Error = ApiClientError<E>;
+#[cfg(any(test, feature = "test-utils"))]
+mod test {
+    use xmtp_configuration::LOCALHOST;
+    use xmtp_proto::{TestApiBuilder, ToxicProxies};
 
-    #[cfg(not(target_arch = "wasm32"))]
-    type GroupMessageStream = stream::BoxStream<'static, Result<mls_v1::GroupMessage, Self::Error>>;
-    #[cfg(not(target_arch = "wasm32"))]
-    type WelcomeMessageStream =
-        stream::BoxStream<'static, Result<mls_v1::WelcomeMessage, Self::Error>>;
-
-    #[cfg(target_arch = "wasm32")]
-    type GroupMessageStream =
-        stream::LocalBoxStream<'static, Result<mls_v1::GroupMessage, Self::Error>>;
-    #[cfg(target_arch = "wasm32")]
-    type WelcomeMessageStream =
-        stream::LocalBoxStream<'static, Result<mls_v1::WelcomeMessage, Self::Error>>;
-
-    async fn subscribe_group_messages(
-        &self,
-        _request: mls_v1::SubscribeGroupMessagesRequest,
-    ) -> Result<Self::GroupMessageStream, Self::Error> {
-        todo!()
-    }
-
-    async fn subscribe_welcome_messages(
-        &self,
-        _request: mls_v1::SubscribeWelcomeMessagesRequest,
-    ) -> Result<Self::WelcomeMessageStream, Self::Error> {
-        todo!()
+    use super::*;
+    impl<Builder> TestApiBuilder for V3ClientBuilder<Builder>
+    where
+        Builder: ApiBuilder,
+        <Builder as ApiBuilder>::Output: xmtp_proto::api::Client,
+    {
+        async fn with_toxiproxy(&mut self) -> ToxicProxies {
+            let host = <Builder as ApiBuilder>::host(&self.client).unwrap();
+            let proxies = xmtp_proto::init_toxi(&[host]).await;
+            <Builder as ApiBuilder>::set_host(
+                &mut self.client,
+                format!("{LOCALHOST}:{}", proxies.ports()[0]),
+            );
+            proxies
+        }
     }
 }

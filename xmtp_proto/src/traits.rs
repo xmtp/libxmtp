@@ -63,6 +63,11 @@ pub trait EndpointExt<S>: Endpoint<S> {
 
 impl<S, E> EndpointExt<S> for E where E: Endpoint<S> {}
 
+/// Trait indicating an [`Endpoint`] can be paged
+/// paging will return a limited number of results
+/// per request. a cursor is present indicating
+/// the position in the total list of results
+/// on the backend.
 pub trait Pageable {
     /// set the cursor for this pageable endpoint
     fn set_cursor(&mut self, cursor: u64);
@@ -149,31 +154,31 @@ where
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait QueryStreamExt<C: Client> {
+pub trait QueryStreamExt<T, C: Client> {
     /// Subscribe to the endpoint, indicating the type of stream item with `R`
-    async fn subscribe<R>(
+    async fn subscribe(
         &mut self,
         client: &C,
-    ) -> Result<XmtpStream<<C as Client>::Stream, R>, ApiClientError<C::Error>>
+    ) -> Result<XmtpStream<<C as Client>::Stream, T>, ApiClientError<C::Error>>
     where
-        R: Default + prost::Message + 'static;
+        T: Default + prost::Message + 'static;
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, E> QueryStreamExt<C> for E
+impl<T, C, E> QueryStreamExt<T, C> for E
 where
     C: Client + Send + Sync,
-    E: Endpoint + Send + Sync,
+    E: Endpoint<Output = T> + Send + Sync,
     C: Client + Sync + Send,
     C::Error: std::error::Error,
 {
-    async fn subscribe<R>(
+    async fn subscribe(
         &mut self,
         client: &C,
-    ) -> Result<XmtpStream<<C as Client>::Stream, R>, ApiClientError<C::Error>>
+    ) -> Result<XmtpStream<<C as Client>::Stream, T>, ApiClientError<C::Error>>
     where
-        R: Default + prost::Message + 'static,
+        T: Default + prost::Message + 'static,
     {
         self.stream(client).await
     }

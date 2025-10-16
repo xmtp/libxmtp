@@ -749,15 +749,13 @@ impl TryFrom<Vec<u8>> for PostCommitAction {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use crate::groups::send_message_opts::SendMessageOpts;
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use crate::context::XmtpSharedContext;
-    use openmls::prelude::{MlsMessageBodyIn, MlsMessageIn, ProcessedMessageContent};
-    use tls_codec::Deserialize;
+    use openmls::prelude::{ProcessedMessageContent, ProtocolMessage};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::XmtpOpenMlsProviderRef;
-
-    use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, group_message};
 
     use crate::{builder::ClientBuilder, utils::TestMlsGroup};
 
@@ -823,7 +821,10 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[client_b.inbox_id()])
             .await
             .unwrap();
-        group_a.send_message(b"First message from A").await.unwrap();
+        group_a
+            .send_message(b"First message from A", SendMessageOpts::default())
+            .await
+            .unwrap();
 
         // No key rotation needed, because A's commit to add B already performs a rotation.
         // Group should have a commit to add client B, followed by A's message.
@@ -834,7 +835,7 @@ pub(crate) mod tests {
         assert_eq!(groups_b.len(), 1);
         let group_b = groups_b[0].clone();
         group_b
-            .send_message(b"First message from B")
+            .send_message(b"First message from B", SendMessageOpts::default())
             .await
             .expect("send message");
 
@@ -845,17 +846,17 @@ pub(crate) mod tests {
 
         // Verify key rotation payload
         for i in 0..payloads_a.len() {
-            assert_eq!(payloads_a[i].encode_to_vec(), payloads_b[i].encode_to_vec());
+            assert_eq!(payloads_a[i].payload_hash, payloads_b[i].payload_hash);
         }
         verify_commit_updates_leaf_node(&group_a, &payloads_a[2]);
 
         // Client B sends another message to Client A, and Client A sends another message to Client B.
         group_b
-            .send_message(b"Second message from B")
+            .send_message(b"Second message from B", SendMessageOpts::default())
             .await
             .expect("send message");
         group_a
-            .send_message(b"Second message from A")
+            .send_message(b"Second message from A", SendMessageOpts::default())
             .await
             .expect("send message");
 
@@ -867,26 +868,24 @@ pub(crate) mod tests {
     async fn verify_num_payloads_in_group(
         group: &TestMlsGroup,
         num_messages: usize,
-    ) -> Vec<GroupMessage> {
+    ) -> Vec<xmtp_proto::types::GroupMessage> {
         let messages = group
             .context
             .api()
-            .query_group_messages(group.group_id.clone(), None)
+            .query_group_messages(group.group_id.clone().into(), Default::default())
             .await
             .unwrap();
         assert_eq!(messages.len(), num_messages);
         messages
     }
 
-    fn verify_commit_updates_leaf_node(group: &TestMlsGroup, payload: &GroupMessage) {
-        let msgv1 = match &payload.version {
-            Some(group_message::Version::V1(value)) => value,
-            _ => panic!("error msgv1"),
-        };
-
-        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&msgv1.data).unwrap();
-        let mls_message = match mls_message_in.extract() {
-            MlsMessageBodyIn::PrivateMessage(mls_message) => mls_message,
+    fn verify_commit_updates_leaf_node(
+        group: &TestMlsGroup,
+        message: &xmtp_proto::types::GroupMessage,
+    ) {
+        let mls_message = message.message.clone();
+        let mls_message = match mls_message {
+            ProtocolMessage::PrivateMessage(mls_message) => mls_message,
             _ => panic!("error mls_message"),
         };
 

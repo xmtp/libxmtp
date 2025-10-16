@@ -25,7 +25,7 @@ pub enum ServingStatus {
     ServiceUnknown = 3,
 }
 
-#[derive(Debug, Builder, Default)]
+#[derive(Builder, Clone, Debug, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct HealthCheck {
     #[builder(setter(into), default)]
@@ -63,11 +63,11 @@ mod test {
     async fn test_health_check() {
         let mut endpoint = HealthCheck::builder().build().unwrap();
 
-        let xmtpd_client = crate::TestClient::create_d14n();
+        let xmtpd_client = crate::TestGrpcClient::create_d14n();
         let client = xmtpd_client.build().unwrap();
         assert!(endpoint.query(&client).await.is_ok());
 
-        let gateway_client = crate::TestClient::create_gateway();
+        let gateway_client = crate::TestGrpcClient::create_gateway();
         let client = gateway_client.build().unwrap();
         assert!(endpoint.query(&client).await.is_ok());
     }

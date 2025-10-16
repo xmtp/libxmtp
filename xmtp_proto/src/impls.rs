@@ -13,3 +13,35 @@ impl std::fmt::Display for Payload {
         }
     }
 }
+
+xmtp_common::if_test! {
+    use crate::mls_v1::{group_message, welcome_message};
+    use xmtp_common::Generate;
+
+    impl Generate for welcome_message::V1 {
+        fn generate() -> Self {
+            welcome_message::V1 {
+                id: xmtp_common::rand_u64(),
+                created_ns: xmtp_common::rand_u64(),
+                installation_key: xmtp_common::rand_vec::<32>(),
+                data: xmtp_common::rand_vec::<6>(),
+                hpke_public_key: xmtp_common::rand_vec::<6>(),
+                wrapper_algorithm: 1,
+                welcome_metadata: xmtp_common::rand_vec::<12>(),
+            }
+        }
+    }
+
+    impl Generate for group_message::V1 {
+        fn generate() -> Self {
+            group_message::V1 {
+                id: xmtp_common::rand_u64(),
+                created_ns: xmtp_common::rand_u64(),
+                group_id: xmtp_common::rand_vec::<16>(),
+                data: xmtp_common::rand_vec::<6>(),
+                sender_hmac: xmtp_common::rand_vec::<6>(),
+                should_push: false,
+            }
+        }
+    }
+}
