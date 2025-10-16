@@ -3849,8 +3849,12 @@ async fn non_retryable_error_increments_cursor() {
     let last_cursor = alice
         .context
         .db()
-        .get_last_cursor_for_id(&group.group_id, EntityKind::Group)
+        .get_last_cursor_for_originator(
+            &group.group_id,
+            EntityKind::ApplicationMessage,
+            Originators::MLS_COMMITS.into(),
+        )
         .unwrap();
 
-    assert_eq!(new_cursor, Cursor::mls_commits(last_cursor as u64));
+    assert_eq!(new_cursor, last_cursor);
 }

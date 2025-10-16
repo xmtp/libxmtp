@@ -812,8 +812,8 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn test_key_rotation_before_first_message() {
-        let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let client_a = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
+        let client_b = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
 
         // client A makes a group with client B, and then sends a message to client B.
         let group_a = client_a.create_group(None, None).expect("create group");

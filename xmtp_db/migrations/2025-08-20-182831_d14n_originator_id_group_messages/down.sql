@@ -1,5 +1,19 @@
 DROP VIEW IF EXISTS conversation_list;
 
+-- Make sequence_id and originator_id nullable again
+ALTER TABLE group_messages ADD COLUMN sequence_id_temp BIGINT;
+ALTER TABLE group_messages ADD COLUMN originator_id_temp BIGINT;
+
+UPDATE group_messages SET sequence_id_temp = sequence_id;
+UPDATE group_messages SET originator_id_temp = originator_id;
+
+ALTER TABLE group_messages DROP COLUMN sequence_id;
+ALTER TABLE group_messages DROP COLUMN originator_id;
+
+ALTER TABLE group_messages RENAME COLUMN sequence_id_temp TO sequence_id;
+ALTER TABLE group_messages RENAME COLUMN originator_id_temp TO originator_id;
+
+-- Rebuild conversation_list view without sequence_id/originator_id
 CREATE VIEW conversation_list AS
 WITH ranked_messages AS (
     SELECT
@@ -22,32 +36,17 @@ WITH ranked_messages AS (
         gm.kind = 1
         AND gm.content_type IN (1, 4, 6, 7, 8, 9)
 )
-/* Filtering for readable content types only or
-content types with a text fallback
-
-Content Types numeric values come from xmtp_mls/src/storage/encrypted_store/group_message.rs
-pub enum ContentType {
-    Unknown = 0,
-    Text = 1,
-    GroupMembershipChange = 2,
-    GroupUpdated = 3,
-    Reaction = 4,
-    ReadReceipt = 5,
-    Reply = 6,
-    Attachment = 7,
-    RemoteAttachment = 8,
-    TransactionReference = 9,
-}*/
 SELECT
     g.id AS id,
     g.created_at_ns,
     g.membership_state,
     g.installations_last_checked,
     g.added_by_inbox_id,
-    g.welcome_id,
+    g.sequence_id as welcome_sequence_id,
     g.dm_id,
     g.rotated_at_ns,
     g.conversation_type,
+    g.is_commit_log_forked,
     rm.message_id,
     rm.decrypted_message_bytes,
     rm.sent_at_ns,

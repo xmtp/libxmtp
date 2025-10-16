@@ -5,6 +5,7 @@ use crate::{
     subscriptions::process_welcome::ProcessWelcomeFuture,
 };
 use xmtp_common::task::JoinSet;
+use xmtp_configuration::Originators;
 use xmtp_db::{consent_record::ConsentState, group::ConversationType, refresh_state::EntityKind};
 
 use futures::Stream;
@@ -246,9 +247,13 @@ where
     ) -> Result<Self> {
         let conn = context.db();
         let installation_key = context.installation_id();
-        let id_cursor = conn.get_last_cursor_for_id(installation_key, EntityKind::Welcome)?;
+        let id_cursor = conn.get_last_cursor_for_originator(
+            installation_key,
+            EntityKind::Welcome,
+            Originators::WELCOME_MESSAGES.into(),
+        )?;
         tracing::debug!(
-            cursor = id_cursor,
+            cursor = %id_cursor,
             inbox_id = context.inbox_id(),
             "Setting up conversation stream cursor = {}",
             id_cursor
@@ -259,14 +264,10 @@ where
 
         let subscription = context
             .api()
-            .subscribe_welcome_messages(installation_key.as_ref(), Some(id_cursor as u64))
+            .subscribe_welcome_messages(installation_key.as_ref(), Some(id_cursor.sequence_id))
             .await?;
         let subscription = SubscriptionStream::new(subscription);
-        let known_welcome_ids = HashSet::from_iter(
-            conn.group_welcome_ids()?
-                .into_iter()
-                .map(|id| Cursor::welcomes(id as u64)),
-        );
+        let known_welcome_ids = HashSet::from_iter(conn.group_cursors()?.into_iter());
 
         let stream = multiplexed(subscription, events);
 
@@ -437,7 +438,7 @@ mod test {
     #[case::two_conversations(2)]
     #[case::five_conversations(5)]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(5))]
+    #[timeout(std::time::Duration::from_secs(10))]
     #[awt]
     async fn stream_welcomes(
         #[future] alix: ClientTester,

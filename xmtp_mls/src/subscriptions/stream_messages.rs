@@ -63,7 +63,7 @@ pin_project! {
             message: Cursor
         },
         Adding {
-            #[pin] future: FutureWrapper<'a, Result<(Out, Vec<u8>, Option<u64>)>>
+            #[pin] future: FutureWrapper<'a, Result<(Out, Vec<u8>, Option<Cursor>)>>
         }
     }
 }
@@ -226,11 +226,18 @@ where
     ) -> Result<(
         MessagesApiSubscription<'a, C::ApiClient>,
         Vec<u8>,
-        Option<u64>,
+        Option<Cursor>,
     )> {
         // get the last synced cursor
         let stream = context.api().subscribe_group_messages(filters).await?;
-        Ok((stream, new_group, Some(1)))
+        Ok((
+            stream,
+            new_group,
+            Some(Cursor {
+                sequence_id: 1,
+                originator_id: 0,
+            }),
+        ))
     }
 }
 
@@ -293,13 +300,7 @@ where
                 let (stream, group, cursor) = ready!(future.poll(cx))?;
                 let this = self.as_mut();
                 if let Some(c) = cursor {
-                    this.set_cursor(
-                        group.as_slice(),
-                        Cursor {
-                            sequence_id: c,
-                            originator_id: 0,
-                        },
-                    );
+                    this.set_cursor(group.as_slice(), c)
                 };
                 let mut this = self.as_mut().project();
                 this.inner.set(stream);
@@ -518,7 +519,10 @@ where
             let mut this = self.as_mut().project();
             if let Some(msg) = processed.message {
                 this.state.set(State::Waiting);
-                this.returned.push(processed.tried_to_process);
+                this.returned.push(Cursor {
+                    sequence_id: msg.sequence_id as u64,
+                    originator_id: msg.originator_id as u32,
+                });
                 self.as_mut()
                     .set_cursor(msg.group_id.as_slice(), processed.next_message);
                 tracing::trace!(
