@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
-use crate::subscriptions::SubscribeError;
-use futures::{StreamExt, TryStreamExt, stream};
-use xmtp_api::{ApiClientWrapper, GroupFilter, XmtpApi};
+use xmtp_api::GroupFilter;
 use xmtp_configuration::Originators;
+use xmtp_db::{prelude::QueryRefreshState, refresh_state::EntityKind};
 use xmtp_proto::types::{Cursor, GroupId};
+
+use crate::{context::XmtpSharedContext, subscriptions::SubscribeError};
 
 #[derive(thiserror::Error, Debug)]
 pub enum MessageStreamError {
@@ -14,11 +15,11 @@ pub enum MessageStreamError {
     InvalidPayload,
 }
 
-/// the position of this message in the backend topic
+/// the position of this group in the backend topic
 /// based only upon messages from the stream
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct MessagePosition {
-    started_at: HashMap<u32, u64>,
+    last_synced: HashMap<u32, u64>,
     /// last mesasage we got from the network
     /// If we get a message before this cursor, we should
     /// check if we synced after that cursor, and should
@@ -30,21 +31,27 @@ pub struct MessagePosition {
 impl std::fmt::Debug for MessagePosition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MessagePosition")
-            .field("started_at", &self.started_at)
+            .field("last_synced", &self.last_synced)
             .field("last_streamed", &self.last_streamed)
             .finish()
     }
 }
 
 impl MessagePosition {
-    pub fn new(cursor: Cursor, started_at: Cursor) -> Self {
-        let mut last_map = HashMap::new();
-        last_map.insert(cursor.originator_id, cursor.sequence_id);
-        let mut started_map = HashMap::new();
-        started_map.insert(started_at.originator_id, started_at.sequence_id);
+    pub fn new(last_synced_cursor: Cursor, last_streamed_cursor: Cursor) -> Self {
+        let mut synced_map = HashMap::new();
+        synced_map.insert(
+            last_synced_cursor.originator_id,
+            last_synced_cursor.sequence_id,
+        );
+        let mut last_streamed_map = HashMap::new();
+        last_streamed_map.insert(
+            last_streamed_cursor.originator_id,
+            last_streamed_cursor.sequence_id,
+        );
         Self {
-            last_streamed: last_map,
-            started_at: started_map,
+            last_streamed: last_streamed_map,
+            last_synced: synced_map,
         }
     }
     /// Updates the cursor position for this message.
@@ -79,58 +86,34 @@ impl MessagePosition {
         self.last_streamed.clone()
     }
 
-    pub(crate) fn started(&self) -> HashMap<u32, u64> {
-        self.started_at.clone()
+    pub(crate) fn synced(&self) -> HashMap<u32, u64> {
+        self.last_synced.clone()
     }
 
-    /// stream started after this cursor
-    pub(crate) fn started_after(&self, cursor: Cursor) -> bool {
-        let sid = self
-            .started_at
-            .get(&cursor.originator_id)
-            .copied()
-            .unwrap_or(0);
-        sid > cursor.sequence_id
-    }
+    // /// stream started after this cursor
+    // pub(crate) fn synced_after(&self, cursor: Cursor) -> bool {
+    //     let sid = self
+    //         .last_synced
+    //         .get(&cursor.originator_id)
+    //         .copied()
+    //         .unwrap_or(0);
+    //     sid > cursor.sequence_id
+    // }
 
-    /// stream started before this cursor
-    pub(crate) fn started_before(&self, cursor: Cursor) -> bool {
-        let sid = self
-            .started_at
-            .get(&cursor.originator_id)
-            .copied()
-            .unwrap_or(0);
-        sid < cursor.sequence_id
-    }
+    // /// last sync before the stream started was before this cursor
+    // pub(crate) fn synced_before(&self, cursor: Cursor) -> bool {
+    //     let sid = self
+    //         .last_synced
+    //         .get(&cursor.originator_id)
+    //         .copied()
+    //         .unwrap_or(0);
+    //     sid < cursor.sequence_id
+    // }
 }
 
 impl std::fmt::Display for MessagePosition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.last_streamed())
-    }
-}
-
-pub(super) trait Api {
-    /// get the latest message for a cursor
-    async fn query_latest_position(
-        &self,
-        group: &GroupId,
-    ) -> Result<MessagePosition, SubscribeError>;
-}
-
-impl<A> Api for ApiClientWrapper<A>
-where
-    A: XmtpApi,
-{
-    async fn query_latest_position(
-        &self,
-        group: &GroupId,
-    ) -> Result<MessagePosition, SubscribeError> {
-        if let Some(msg) = self.query_latest_group_message(group).await? {
-            Ok(MessagePosition::new(msg.cursor, msg.cursor))
-        } else {
-            Ok(MessagePosition::new(Default::default(), Default::default()))
-        } // there is no cursor for this group yet
     }
 }
 
@@ -140,26 +123,39 @@ pub(super) struct GroupList {
 }
 
 impl GroupList {
-    pub(super) async fn new(list: Vec<GroupId>, api: &impl Api) -> Result<Self, SubscribeError> {
-        let list = stream::iter(list)
-            .map(|group| async {
-                let position = api.query_latest_position(&group).await?;
-                Ok((group, position))
-            })
-            .buffer_unordered(8)
-            .try_fold(HashMap::new(), async move |mut map, (group, position)| {
-                map.insert(group, position);
-                Ok::<_, SubscribeError>(map)
-            })
-            .await?;
-        Ok(Self { list })
+    pub(super) fn new(
+        list: Vec<GroupId>,
+        ctx: &impl XmtpSharedContext,
+    ) -> Result<Self, SubscribeError> {
+        let db = ctx.db();
+        let mut existing_positions = db.get_last_cursor_for_ids(&list, EntityKind::Group)?;
+
+        let mut group_list = HashMap::new();
+
+        for group_id in list {
+            let db_cursor = existing_positions.remove(group_id.as_ref()).unwrap_or(0) as u64;
+
+            // Query shared last_streamed mapping
+            let last_streamed = ctx
+                .get_shared_last_streamed(group_id.as_ref())
+                .unwrap_or(db_cursor); // fallback to db cursor if not found
+
+            let message_position = MessagePosition::new(
+                // TODO:(nm) This will 100% break with decentralization
+                Cursor::v3_messages(db_cursor),     // last_streamed
+                Cursor::v3_messages(last_streamed), // started
+            );
+            group_list.insert(group_id, message_position);
+        }
+
+        Ok(Self { list: group_list })
     }
 
     pub(super) fn filters(&self) -> Vec<GroupFilter> {
         self.list
             .iter()
             .map(|(group_id, cursor)| {
-                let map = cursor.last_streamed();
+                let map = cursor.synced();
                 let sid = map
                     .get(&(Originators::MLS_COMMITS as u32))
                     .copied()

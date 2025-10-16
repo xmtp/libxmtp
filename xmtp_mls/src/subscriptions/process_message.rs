@@ -8,9 +8,9 @@
 pub mod factory;
 
 use super::Result;
-use crate::context::XmtpSharedContext;
 use crate::groups::summary::MessageIdentifierBuilder;
-use factory::{GroupDatabase, GroupDb, MessageProcessor, Syncer};
+use crate::{context::XmtpSharedContext, subscriptions::process_message::factory::GroupDatabase};
+use factory::{GroupDb, MessageProcessor, Syncer};
 use xmtp_common::FutureWrapper;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::types::Cursor;
@@ -22,6 +22,7 @@ pub trait ProcessFutureFactory<'a> {
         msg: xmtp_proto::types::GroupMessage,
     ) -> FutureWrapper<'a, Result<ProcessedMessage>>;
     /// Try to retrieve a message
+    #[allow(dead_code)]
     fn retrieve(&self, msg: &xmtp_proto::types::GroupMessage)
     -> Result<Option<StoredGroupMessage>>;
 }
@@ -42,6 +43,7 @@ where
         FutureWrapper::new(future)
     }
     /// Try to retrieve a message
+    #[allow(dead_code)]
     fn retrieve(
         &self,
         msg: &xmtp_proto::types::GroupMessage,
