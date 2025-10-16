@@ -130,37 +130,46 @@ mod tests {
         assert!(msg.contains("tls channel"));
     }
 
+    /// This test also serves as an example of how to use the MultiNodeClientBuilder and D14nClientBuilder.
     #[tokio::test]
     async fn d14n_builder_works_with_multinode() {
         use crate::D14nClientBuilder;
         use xmtp_proto::prelude::ApiBuilder;
 
-        // 1) Create gateway builder (not built yet)
-        let mut gateway = GrpcClient::builder();
+        // 1) Create gateway builder.
+        let mut gateway_builder = GrpcClient::builder();
         let url = url::Url::parse(GrpcUrls::GATEWAY).expect("valid gateway url");
         match url.scheme() {
-            "https" => gateway.set_tls(true),
-            _ => gateway.set_tls(false),
+            "https" => gateway_builder.set_tls(true),
+            _ => gateway_builder.set_tls(false),
         }
-        gateway.set_host(GrpcUrls::GATEWAY.into());
+        gateway_builder.set_host(GrpcUrls::GATEWAY.into());
 
-        // 2) Configure multi-node builder with the gateway builder
-        let mut multi_node = MultiNodeClientBuilder::default();
-        multi_node
-            .set_timeout(xmtp_common::time::Duration::from_millis(100))
-            .unwrap();
-        // Ensure node template inherits TLS policy
-        ClientBuilder::set_tls(
-            &mut multi_node.node_client_template,
-            url.scheme() == "https",
-        );
-        // Pass the gateway BUILDER (will be built internally when MultiNodeClient is built)
-        multi_node
-            .set_gateway_builder(gateway.clone())
+        // 2) Configure multi-node builder with the gateway builder.
+        let mut multi_node_builder = MultiNodeClientBuilder::default();
+
+        // Multi-node specific configuration.
+        // Pass the gateway builder to the multi-node builder.
+        multi_node_builder
+            .set_gateway_builder(gateway_builder.clone())
             .expect("gateway set on multi-node");
 
+        // Multi-node specific configuration.
+        // Set the timeout, used in multi-node client requests to the gateway.
+        multi_node_builder
+            .set_timeout(xmtp_common::time::Duration::from_millis(100))
+            .unwrap();
+
+        // ApiBuilder methods forward configuration to the node client template.
+        // All GrpcClient instances will inherit these settings.
+        multi_node_builder.set_tls(url.scheme() == "https");
+
+        // All ApiBuilder methods are available:
+        // multi_node_builder.set_libxmtp_version("1.0.0".into())?;
+        // multi_node_builder.set_retry(Retry::default());
+
         // 3) Build D14n client with both builders
-        // D14nClientBuilder.build() will call both builders' build() methods
-        let _d14n = D14nClientBuilder::new(multi_node, gateway);
+        // D14nClientBuilder.build() will call both builders' build() methods!
+        let _d14n = D14nClientBuilder::new(multi_node_builder, gateway_builder);
     }
 }
