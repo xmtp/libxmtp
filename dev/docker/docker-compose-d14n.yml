@@ -71,7 +71,7 @@ services:
       register-node:
         condition: service_completed_successfully
     restart: on-failure
-  repnode:
+  xmtpd:
     platform: linux/amd64
     image: *x-xmtpd-server-image
     env_file:
