@@ -1432,6 +1432,44 @@ async fn test_self_removal_simple() {
     assert_eq!(amal_group.members().await.unwrap().len(), 1);
 }
 #[xmtp_common::test(flavor = "current_thread")]
+async fn test_self_removal_group_update_message() {
+    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group
+        .add_members_by_inbox_id(&[bola.inbox_id()])
+        .await
+        .unwrap();
+
+    bola.sync_welcomes().await.unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+    let bola_group = bola_groups.first().unwrap();
+    assert_eq!(bola_group.members().await.unwrap().len(), 2);
+
+    bola_group.leave_group().await.unwrap();
+    amal_group.sync().await.unwrap();
+    xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
+    bola_group.sync().await.unwrap();
+    xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
+    assert!(!bola_group.is_active().unwrap());
+    assert_eq!(amal_group.members().await.unwrap().len(), 1);
+    amal_group.sync().await.unwrap();
+    let messages = amal_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    tracing::info!("{:?}", messages.len());
+    let message = messages[2].clone();
+    assert_eq!(message.kind, GroupMessageKind::MembershipChange);
+    let encoded_content =
+        EncodedContent::decode(message.decrypted_message_bytes.as_slice()).unwrap();
+    let group_update = GroupUpdatedCodec::decode(encoded_content).unwrap();
+    assert_eq!(group_update.added_inboxes.len(), 0);
+    assert_eq!(group_update.removed_inboxes.len(), 0);
+    assert_eq!(group_update.left_inboxes.len(), 1);
+    assert_eq!(
+        group_update.left_inboxes.first().unwrap().inbox_id,
+        bola.inbox_id().to_string()
+    );
+}
+#[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_single_installations() {
     let amal_wallet = generate_local_wallet();
     let bola_wallet = generate_local_wallet();
@@ -1740,6 +1778,7 @@ async fn test_remove_by_account_address() {
     let group_update = GroupUpdatedCodec::decode(encoded_content).unwrap();
     assert_eq!(group_update.added_inboxes.len(), 2);
     assert_eq!(group_update.removed_inboxes.len(), 0);
+    assert_eq!(group_update.left_inboxes.len(), 0);
 
     group
         .remove_members(&[bola_wallet.identifier()])
@@ -1755,6 +1794,7 @@ async fn test_remove_by_account_address() {
     let group_update = GroupUpdatedCodec::decode(encoded_content).unwrap();
     assert_eq!(group_update.added_inboxes.len(), 0);
     assert_eq!(group_update.removed_inboxes.len(), 1);
+    assert_eq!(group_update.left_inboxes.len(), 1);
 
     let bola_group = receive_group_invite(&bola).await;
     bola_group.sync().await.unwrap();
