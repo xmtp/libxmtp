@@ -35,6 +35,7 @@ pub mod user_preferences;
 
 pub mod local_commit_log;
 pub mod readd_status;
+pub mod pending_remove;
 pub mod remote_commit_log;
 
 pub use self::db_connection::DbConnection;
