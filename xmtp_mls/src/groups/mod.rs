@@ -96,10 +96,13 @@ use xmtp_mls_common::{
         GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings, MetadataField,
     },
 };
-use xmtp_proto::xmtp::mls::message_contents::{
-    EncodedContent, OneshotMessage, PlaintextEnvelope,
-    content_types::ReactionV2,
-    plaintext_envelope::{Content, V1},
+use xmtp_proto::{
+    types::Cursor,
+    xmtp::mls::message_contents::{
+        EncodedContent, OneshotMessage, PlaintextEnvelope,
+        content_types::ReactionV2,
+        plaintext_envelope::{Content, V1},
+    },
 };
 
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
@@ -182,7 +185,7 @@ pub struct ConversationDebugInfo {
     pub is_commit_log_forked: Option<bool>,
     pub local_commit_log: String,
     pub remote_commit_log: String,
-    pub cursor: i64,
+    pub cursor: Vec<Cursor>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1424,7 +1427,7 @@ where
             is_commit_log_forked: stored_group.is_commit_log_forked,
             local_commit_log: format!("{:?}", commit_log),
             remote_commit_log: format!("{:?}", remote_commit_log),
-            cursor,
+            cursor: vec![Cursor::v3_messages(cursor as u64)],
         })
     }
 

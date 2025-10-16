@@ -187,31 +187,3 @@ where
         Ok(())
     }
 }
-/*
-* WARN: ProtocolEnvelope implementation for a Vec<T>
-* should be avoided, since it may cause Envelope
-* to implicity act on a collection when a single envelope is expected.
-* Theres a way to seal this trait implementation to
-* avoid external implementations which should be done.
-impl<'env, T> ProtocolEnvelope<'env> for Vec<T>
-where
-    T: ProtocolEnvelope<'env>,
-{
-    type Nested<'a>
-        = ()
-    where
-        T: 'a;
-
-    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
-    where
-        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
-    {
-        self.iter().try_for_each(|t| t.accept(visitor))?;
-        Ok(())
-    }
-
-    fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
-        Ok(())
-    }
-}
-*/

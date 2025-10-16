@@ -1,10 +1,8 @@
 use crate::groups::MlsGroup;
 use crate::groups::commit_log_key::CommitLogKeyCrypto;
-use crate::groups::commit_log_key::derive_consensus_public_key;
 use crate::groups::oneshot::Oneshot;
 use futures::StreamExt;
-use openmls::prelude::OpenMlsCrypto;
-use openmls::prelude::SignatureScheme;
+use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use std::{collections::HashMap, time::Duration};
@@ -31,6 +29,7 @@ use xmtp_proto::{
     xmtp::{message_api::v1::SortDirection, mls::message_contents::PlaintextCommitLogEntry},
 };
 
+use crate::groups::commit_log_key::derive_consensus_public_key;
 use crate::groups::commit_log_key::get_or_create_signing_key;
 use crate::{
     context::XmtpSharedContext,

@@ -14,6 +14,7 @@ use futures::StreamExt;
 use rstest::*;
 use std::sync::Arc;
 use std::time::Duration;
+use xmtp_configuration::Originators;
 
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_id::associations::test_utils::WalletTestExt;
@@ -487,7 +488,13 @@ async fn stream_messages_keeps_track_of_cursor(
     {
         let msg_stream = &s.messages;
         let cursor = msg_stream.position(group.group_id.as_slice()).unwrap();
-        assert!(cursor.last_streamed() > 1);
+        assert!(
+            *cursor
+                .last_streamed()
+                .get(&(Originators::APPLICATION_MESSAGES.into()))
+                .unwrap_or(&0)
+                > 1
+        );
     }
 
     eve_group

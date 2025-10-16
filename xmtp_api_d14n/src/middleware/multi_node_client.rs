@@ -4,8 +4,10 @@ use prost::bytes::Bytes;
 use std::collections::HashMap;
 use thiserror::Error;
 use tokio::sync::OnceCell;
-use xmtp_api_grpc::{client::ClientBuilder, error::GrpcBuilderError};
-use xmtp_api_grpc::{client::GrpcClient, error::GrpcError};
+use xmtp_api_grpc::{
+    ClientBuilder, GrpcClient,
+    error::{GrpcBuilderError, GrpcError},
+};
 use xmtp_common::{
     RetryableError,
     time::{Duration, Instant},
@@ -450,7 +452,7 @@ mod tests {
         b.build().expect("gateway client")
     }
 
-    fn make_template(tls: bool) -> xmtp_api_grpc::client::ClientBuilder {
+    fn make_template(tls: bool) -> xmtp_api_grpc::ClientBuilder {
         let mut t = GrpcClient::builder();
         t.set_tls(tls);
         // host will be overridden per node
@@ -514,7 +516,7 @@ mod tests {
         gateway.set_host(GrpcUrls::GATEWAY.into());
 
         // Build the gateway client.
-        let built_gateway = <xmtp_api_grpc::client::ClientBuilder as ApiBuilder>::build(gateway)
+        let built_gateway = <xmtp_api_grpc::ClientBuilder as ApiBuilder>::build(gateway)
             .expect("gateway client built");
 
         // Configure multi-node builder via ApiBuilder methods and inject gateway

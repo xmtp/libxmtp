@@ -715,7 +715,7 @@ impl Conversation {
       is_commit_log_forked: debug_info.is_commit_log_forked,
       local_commit_log: debug_info.local_commit_log,
       remote_commit_log: debug_info.remote_commit_log,
-      cursor: debug_info.cursor,
+      cursor: debug_info.cursor.into_iter().map(Into::into).collect(),
     })?)
   }
 

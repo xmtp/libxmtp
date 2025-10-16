@@ -10,7 +10,7 @@ use thiserror::Error;
 use xmtp_api::XmtpApi;
 use xmtp_common::RetryableError;
 use xmtp_db::{XmtpDb, group_message::MsgQueryArgs};
-use xmtp_proto::mls_v1::GroupMessage;
+use xmtp_proto::types::GroupMessage;
 
 #[derive(Error, Debug)]
 pub enum TestError {
@@ -57,7 +57,7 @@ where
         let mut messages = self
             .context
             .api()
-            .query_group_messages(self.group_id.clone(), None)
+            .query_group_messages(self.group_id.clone().into(), vec![])
             .await?;
 
         let last_message = messages
