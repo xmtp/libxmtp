@@ -5,6 +5,7 @@ use crate::{
     groups::{
         device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
         key_package_cleaner_worker::KeyPackagesCleanerWorker,
+        pending_self_remove_worker::PendingSelfRemoveWorker,
     },
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
@@ -267,6 +268,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             .register_new_worker::<DisappearingMessagesWorker<ContextParts<ApiClient, S, Db>>, _>(
                 context.clone(),
             );
+        workers.register_new_worker::<PendingSelfRemoveWorker<ContextParts<ApiClient, S, Db>>, _>(
+            context.clone(),
+        );
         // Enable CommitLogWorker based on configuration
         if xmtp_configuration::ENABLE_COMMIT_LOG && !disable_commit_log_worker {
             workers.register_new_worker::<
