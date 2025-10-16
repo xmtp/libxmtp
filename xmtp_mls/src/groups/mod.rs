@@ -1438,7 +1438,7 @@ where
             is_commit_log_forked: stored_group.is_commit_log_forked,
             local_commit_log: format!("{:?}", commit_log),
             remote_commit_log: format!("{:?}", remote_commit_log),
-            cursor,
+            cursor: cursor.to_vec(),
         })
     }
 

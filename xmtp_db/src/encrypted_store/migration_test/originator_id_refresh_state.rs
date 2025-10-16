@@ -1,6 +1,10 @@
 use diesel::QueryableByName;
 use diesel::sql_types::{BigInt, Blob, Bool, Integer, Text};
+use xmtp_configuration::Originators;
 
+use crate::group::QueryGroup;
+use crate::identity_update::StoredIdentityUpdate;
+use crate::prelude::QueryIdentityUpdates;
 use crate::{prelude::QueryRefreshState, refresh_state::EntityKind};
 use xmtp_proto::types::Cursor;
 
@@ -72,26 +76,160 @@ fn message(db: impl ConnectionExt, group_id: &[u8], kind: i32, sequence_id: i64)
     }).unwrap();
 }
 
-fn group(db: impl ConnectionExt, group_id: &[u8]) {
+fn identity_update(db: impl ConnectionExt, inbox_id: &str, sequence_id: i64) {
     db.raw_query_write(|conn| {
-        sql_query(r#"
-            INSERT INTO groups (id, created_at_ns, membership_state, installations_last_checked, added_by_inbox_id, rotated_at_ns, conversation_type, maybe_forked, fork_details, should_publish_commit_log)
-            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        "#)
-            .bind::<Blob, _>(group_id)
-            .bind::<BigInt, _>(0)
-            .bind::<Integer, _>(2)
-            .bind::<Integer, _>(2)
-            .bind::<Text, _>("test")
-            .bind::<BigInt, _>(0)
-            .bind::<Integer, _>(0)
-            .bind::<Bool, _>(false)
-            .bind::<Text, _>("details")
-            .bind::<Bool, _>(false)
-            .execute(conn)?;
-            Ok(())
+        sql_query(
+            r#"
+            INSERT INTO identity_updates (inbox_id, sequence_id, server_timestamp_ns, payload)
+            VALUES($1, $2, $3, $4)
+        "#,
+        )
+        .bind::<Text, _>(inbox_id)
+        .bind::<BigInt, _>(sequence_id)
+        .bind::<BigInt, _>(xmtp_common::rand_i64())
+        .bind::<Blob, _>(xmtp_common::rand_vec::<32>())
+        .execute(conn)?;
+        Ok(())
+    })
+    .unwrap();
+}
 
+fn group(db: impl ConnectionExt, group_id: &[u8], welcome_id: Option<i64>) {
+    if let Some(w_id) = welcome_id {
+        db.raw_query_write(|conn| {
+            sql_query(r#"
+                INSERT INTO groups (id, created_at_ns, membership_state, installations_last_checked, added_by_inbox_id, rotated_at_ns, conversation_type, maybe_forked, fork_details, should_publish_commit_log, welcome_id)
+                VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            "#)
+                .bind::<Blob, _>(group_id)
+                .bind::<BigInt, _>(0)
+                .bind::<Integer, _>(2)
+                .bind::<Integer, _>(2)
+                .bind::<Text, _>("test")
+                .bind::<BigInt, _>(0)
+                .bind::<Integer, _>(1)
+                .bind::<Bool, _>(false)
+                .bind::<Text, _>("details")
+                .bind::<Bool, _>(false)
+                .bind::<BigInt,_>(w_id)
+                .execute(conn)?;
+                Ok(())
+        }).unwrap();
+    } else {
+        db.raw_query_write(|conn| {
+            sql_query(r#"
+                INSERT INTO groups (id, created_at_ns, membership_state, installations_last_checked, added_by_inbox_id, rotated_at_ns, conversation_type, maybe_forked, fork_details, should_publish_commit_log)
+                VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            "#)
+                .bind::<Blob, _>(group_id)
+                .bind::<BigInt, _>(0)
+                .bind::<Integer, _>(2)
+                .bind::<Integer, _>(2)
+                .bind::<Text, _>("test")
+                .bind::<BigInt, _>(0)
+                .bind::<Integer, _>(1)
+                .bind::<Bool, _>(false)
+                .bind::<Text, _>("details")
+                .bind::<Bool, _>(false)
+                .execute(conn)?;
+                Ok(())
+        }).unwrap();
+    }
+}
+
+#[xmtp_common::test]
+async fn up_groups() {
+    let db = crate::TestDb::create_database(None).await;
+    migrate_before(db.conn(), "2025-08-19-141841_originator_id_groups");
+
+    group(db.conn(), &[1, 2, 3], Some(100));
+    group(db.conn(), &[3, 4, 5], Some(150));
+
+    finish_migrations(db.conn());
+
+    let group = db.db().find_group(&[1, 2, 3]).unwrap().unwrap();
+    assert_eq!(group.sequence_id, Some(100));
+    assert_eq!(
+        group.originator_id,
+        Some(Originators::WELCOME_MESSAGES as i64)
+    );
+}
+
+#[xmtp_common::test]
+async fn up_identity_updates() {
+    let db = crate::TestDb::create_database(None).await;
+    migrate_before(
+        db.conn(),
+        "2025-08-20-174800_d14n_originator_identity_updates",
+    );
+
+    identity_update(db.conn(), "test_inbox1", 1);
+    identity_update(db.conn(), "test_inbox1", 2);
+
+    finish_migrations(db.conn());
+
+    // Both cursors should be set to the old cursor value (100)
+    let cursor = db
+        .db()
+        .get_identity_updates("test_inbox1", None, None)
+        .unwrap();
+
+    let cursor = cursor.last().unwrap();
+    let cursor = Cursor {
+        sequence_id: cursor.sequence_id as u64,
+        originator_id: cursor.originator_id as u32,
+    };
+    assert_eq!(
+        cursor,
+        Cursor::inbox_log(2),
+        "IdentityUpdate should migrate"
+    );
+}
+
+#[xmtp_common::test]
+async fn down_identity_updates() {
+    let db = crate::TestDb::create_database(None).await;
+    migrate_to(
+        db.conn(),
+        "2025-08-20-174800_d14n_originator_identity_updates",
+    );
+
+    StoredIdentityUpdate {
+        inbox_id: "test_inbox1".to_string(),
+        sequence_id: 1,
+        server_timestamp_ns: 100,
+        payload: vec![1, 1, 1],
+        originator_id: 1,
+    }
+    .store(&db.conn())
+    .unwrap();
+
+    db.conn()
+        .raw_query_write(|conn| {
+            conn.revert_last_migration(MIGRATIONS).unwrap();
+            Ok(())
+        })
+        .unwrap();
+
+    #[allow(dead_code)]
+    #[derive(QueryableByName, Debug)]
+    struct OldIdentityUpdate {
+        #[diesel(sql_type = Text)]
+        inbox_id: String,
+        #[diesel(sql_type = BigInt)]
+        sequence_id: i64,
+        #[diesel(sql_type = BigInt)]
+        server_timestamp_ns: i64,
+        #[diesel(sql_type = Blob)]
+        payload: Vec<u8>,
+    }
+    let results: Vec<OldIdentityUpdate> = db.conn().raw_query_read(|conn| {
+        sql_query("SELECT inbox_id, sequence_id, server_timestamp_ns, payload FROM identity_updates ORDER BY sequence_id")
+            .load(conn)
     }).unwrap();
+
+    let cursor = results.first().unwrap();
+    assert_eq!(cursor.sequence_id, 1, "IdentityUpdate should migrate");
 }
 
 #[xmtp_common::test]
@@ -99,7 +237,7 @@ async fn up_both_cursors_set_to_old_value() {
     let db = crate::TestDb::create_database(None).await;
     migrate_before(db.conn(), "2025-08-20-175213_d14n_originator_refresh_state");
 
-    group(db.conn(), &[0, 0, 0]);
+    group(db.conn(), &[0, 0, 0], None);
     update_cursor(db.conn(), &[0, 0, 0], 2, 100); // cursor=100
 
     message(db.conn(), &[0, 0, 0], 2, 75); // commit at seq_id=75
@@ -136,7 +274,7 @@ async fn up_welcome_unchanged() {
     let db = crate::TestDb::create_database(None).await;
     migrate_before(db.conn(), "2025-08-20-175213_d14n_originator_refresh_state");
 
-    group(db.conn(), &[0, 0, 0]);
+    group(db.conn(), &[0, 0, 0], None);
     update_cursor(db.conn(), &[0, 0, 0], 1, 100); // Welcome cursor
 
     finish_migrations(db.conn());
