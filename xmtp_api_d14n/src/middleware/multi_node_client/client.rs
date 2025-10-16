@@ -124,19 +124,19 @@ mod tests {
         client_builder
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn tls_guard_accepts_matching_https_tls_true() {
         let t = create_node_client_template(true);
         validate_tls_guard(&t, "https://example.com:443").expect("should accept");
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn tls_guard_accepts_matching_http_tls_false() {
         let t = create_node_client_template(false);
         validate_tls_guard(&t, "http://example.com:80").expect("should accept");
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn tls_guard_rejects_https_with_plain_template() {
         let t = create_node_client_template(false);
         let err = validate_tls_guard(&t, "https://example.com:443")
@@ -146,7 +146,7 @@ mod tests {
         assert!(msg.contains("tls channel"));
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn tls_guard_rejects_http_with_tls_template() {
         let t = create_node_client_template(true);
         let err = validate_tls_guard(&t, "http://example.com:80")
@@ -157,7 +157,7 @@ mod tests {
     }
 
     /// This test also serves as an example of how to use the MultiNodeClientBuilder and D14nClientBuilder.
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn build_multinode_as_d14n() {
         use crate::D14nClientBuilder;
         use xmtp_proto::prelude::ApiBuilder;
@@ -194,7 +194,7 @@ mod tests {
     }
 
     /// This test also serves as an example of how to use the MultiNodeClientBuilder standalone.
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn build_multinode_as_standalone() {
         let gateway_builder = create_gateway_builder();
 
@@ -210,7 +210,7 @@ mod tests {
         let _ = <MultiNodeClientBuilder as MiddlewareBuilder>::build(multi_node_builder);
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn d14n_request_latest_group_message() {
         let client = create_d14n_client();
         let id: GroupId = GroupId::from(vec![]);
@@ -226,7 +226,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn multinode_request_latest_group_message() {
         use crate::d14n::GetNewestEnvelopes;
         let client = create_multinode_client();

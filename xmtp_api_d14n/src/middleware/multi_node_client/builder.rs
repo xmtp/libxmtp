@@ -8,9 +8,9 @@ use xmtp_proto::{api_client::ApiBuilder, types::AppVersion};
 /* MultiNodeClientBuilder struct and its associated errors */
 
 pub struct MultiNodeClientBuilder {
-    pub gateway_builder: Option<ClientBuilder>,
-    pub timeout: Duration,
-    pub node_client_template: ClientBuilder,
+    gateway_builder: Option<ClientBuilder>,
+    timeout: Duration,
+    node_client_template: ClientBuilder,
 }
 
 /// Errors that can occur when building a MultiNodeClient.
