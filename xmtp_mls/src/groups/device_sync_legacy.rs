@@ -3,6 +3,7 @@
 use super::device_sync::preference_sync::PreferenceUpdate;
 use super::device_sync::worker::SyncMetric;
 use super::device_sync::{DeviceSyncClient, DeviceSyncError};
+use super::send_message_opts;
 use crate::context::XmtpSharedContext;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::worker::metrics::WorkerMetrics;
@@ -91,15 +92,19 @@ where
         let content = DeviceSyncContent::Request(request.clone());
         let content_bytes = serde_json::to_vec(&content)?;
 
-        let _message_id = sync_group.prepare_message(&content_bytes, {
-            let request = request.clone();
-            move |now| PlaintextEnvelope {
-                content: Some(Content::V2(V2 {
-                    message_type: Some(MessageType::DeviceSyncRequest(request)),
-                    idempotency_key: now.to_string(),
-                })),
-            }
-        })?;
+        let _message_id = sync_group.prepare_message(
+            &content_bytes,
+            send_message_opts::SendMessageOpts { should_push: false },
+            {
+                let request = request.clone();
+                move |now| PlaintextEnvelope {
+                    content: Some(Content::V2(V2 {
+                        message_type: Some(MessageType::DeviceSyncRequest(request)),
+                        idempotency_key: now.to_string(),
+                    })),
+                }
+            },
+        )?;
 
         // publish the intent
         sync_group.publish_intents().await?;
@@ -156,12 +161,16 @@ where
             (content_bytes, contents)
         };
 
-        sync_group.prepare_message(&content_bytes, |now| PlaintextEnvelope {
-            content: Some(Content::V2(V2 {
-                message_type: Some(MessageType::DeviceSyncReply(contents)),
-                idempotency_key: now.to_string(),
-            })),
-        })?;
+        sync_group.prepare_message(
+            &content_bytes,
+            send_message_opts::SendMessageOpts { should_push: false },
+            |now| PlaintextEnvelope {
+                content: Some(Content::V2(V2 {
+                    message_type: Some(MessageType::DeviceSyncReply(contents)),
+                    idempotency_key: now.to_string(),
+                })),
+            },
+        )?;
 
         sync_group.publish_intents().await?;
 

@@ -3,6 +3,7 @@ use crate::{
     client::ClientError,
     context::XmtpSharedContext,
     groups::group_membership::{GroupMembership, MembershipDiff},
+    identity::IdentityError,
     subscriptions::SyncWorkerEvent,
 };
 use futures::future::try_join_all;
@@ -660,6 +661,25 @@ where
     ))?;
 
     Ok(association_state.get(identifier).is_some())
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+pub async fn get_creation_signature_kind(
+    conn: &impl xmtp_db::DbQuery,
+    scw_verifier: impl SmartContractSignatureVerifier,
+    inbox_id: InboxIdRef<'_>,
+) -> Result<Option<xmtp_id::associations::SignatureKind>, ClientError> {
+    let updates = conn.get_identity_updates(inbox_id, None, None)?;
+
+    let first_update = updates
+        .first()
+        .ok_or_else(|| ClientError::Identity(IdentityError::RequiredIdentityNotFound))?;
+
+    let unverified_update: UnverifiedIdentityUpdate = first_update.clone().try_into()?;
+
+    let verified = unverified_update.to_verified(scw_verifier).await?;
+
+    Ok(verified.creation_signature_kind())
 }
 
 #[cfg(test)]

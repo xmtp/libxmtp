@@ -42,7 +42,7 @@ where
         let this = self.as_mut().project();
         if let Some(item) = ready!(this.inner.try_poll_next(cx)) {
             let res = item
-                .map_err(|e| ApiClientError::new(self.endpoint, e))
+                .map_err(|e| ApiClientError::new(self.endpoint.clone(), e))
                 .and_then(|i| T::decode(i).map_err(ApiClientError::<S::Error>::DecodeError));
             Poll::Ready(Some(res))
         } else {

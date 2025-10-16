@@ -21,6 +21,7 @@ import {
   MetadataField,
   PermissionPolicy,
   PermissionUpdateType,
+  SendMessageOpts,
 } from '../dist'
 
 const SLEEP_MS = 300
@@ -319,7 +320,9 @@ describe('Conversations', () => {
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    const messageId = await group.send(encodeTextMessage('gm!'))
+    const messageId = await group.send(encodeTextMessage('gm!'), {
+      shouldPush: true,
+    })
     expect(messageId).toBeDefined()
 
     const message = client1.conversations().findMessageById(messageId)
@@ -710,13 +713,22 @@ describe('Conversations', () => {
     const groupsList4 = groups4.list()
 
     const message1 = await groupsList2[0].conversation.send(
-      encodeTextMessage('gm!')
+      encodeTextMessage('gm!'),
+      {
+        shouldPush: true,
+      }
     )
     const message2 = await groupsList3[0].conversation.send(
-      encodeTextMessage('gm2!')
+      encodeTextMessage('gm2!'),
+      {
+        shouldPush: true,
+      }
     )
     const message3 = await groupsList4[0].conversation.send(
-      encodeTextMessage('gm3!')
+      encodeTextMessage('gm3!'),
+      {
+        shouldPush: true,
+      }
     )
 
     await sleep(2000)
@@ -786,12 +798,20 @@ describe('Conversations', () => {
     await groups4.sync()
     const groupsList4 = groups4.list()
 
-    await groupsList4[0].conversation.send(encodeTextMessage('gm3!'))
+    await groupsList4[0].conversation.send(encodeTextMessage('gm3!'), {
+      shouldPush: true,
+    })
     const message1 = await groupsList2[0].conversation.send(
-      encodeTextMessage('gm!')
+      encodeTextMessage('gm!'),
+      {
+        shouldPush: true,
+      }
     )
     const message2 = await groupsList3[0].conversation.send(
-      encodeTextMessage('gm2!')
+      encodeTextMessage('gm2!'),
+      {
+        shouldPush: true,
+      }
     )
 
     await sleep()
@@ -852,10 +872,17 @@ describe('Conversations', () => {
     await groups4.sync()
     const groupsList4 = groups4.list()
 
-    await groupsList2[0].conversation.send(encodeTextMessage('gm!'))
-    await groupsList3[0].conversation.send(encodeTextMessage('gm2!'))
+    await groupsList2[0].conversation.send(encodeTextMessage('gm!'), {
+      shouldPush: true,
+    })
+    await groupsList3[0].conversation.send(encodeTextMessage('gm2!'), {
+      shouldPush: true,
+    })
     const message3 = await groupsList4[0].conversation.send(
-      encodeTextMessage('gm3!')
+      encodeTextMessage('gm3!'),
+      {
+        shouldPush: true,
+      }
     )
 
     await sleep()
@@ -891,7 +918,10 @@ describe('Conversations', () => {
     // await client_a_groups.sync()
     const client_a_conversations = client_a_groups.list()
     expect(client_a_conversations.length).toBe(1)
-    await client_a_conversations[0].conversation.send(encodeTextMessage('gm!'))
+    await client_a_conversations[0].conversation.send(
+      encodeTextMessage('gm!'),
+      { shouldPush: true }
+    )
 
     // confirm the agent received the message
     await sleep(10000)
@@ -911,7 +941,9 @@ describe('Conversations', () => {
     await client_b_groups.sync()
     const client_b_conversations = client_a_groups.list()
     expect(client_b_conversations.length).toBe(1)
-    await client_b_conversations[0].conversation.send(encodeTextMessage('b'))
+    await client_b_conversations[0].conversation.send(encodeTextMessage('b'), {
+      shouldPush: true,
+    })
 
     // confirm the agent received the second message
     await sleep(10000)
@@ -998,11 +1030,11 @@ describe('Conversations', () => {
     const group1 = await client1
       .conversations()
       .createGroupByInboxId([client2.inboxId(), client3.inboxId()])
-    await group1.send(encodeTextMessage('gm1'))
+    await group1.send(encodeTextMessage('gm1'), { shouldPush: true })
     await group1.removeMembersByInboxId([client2.inboxId()])
-    await group1.send(encodeTextMessage('gm2'))
+    await group1.send(encodeTextMessage('gm2'), { shouldPush: true })
     await group1.addMembersByInboxId([client2.inboxId()])
-    await group1.send(encodeTextMessage('gm3'))
+    await group1.send(encodeTextMessage('gm3'), { shouldPush: true })
 
     const messages1 = await group1.findMessages()
     expect(messages1.length).toBe(6)

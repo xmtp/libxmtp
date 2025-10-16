@@ -48,6 +48,7 @@ pub mod prelude {
     pub use super::local_commit_log::QueryLocalCommitLog;
     pub use super::pragmas::Pragmas;
     pub use super::processed_device_sync_messages::QueryDeviceSyncMessages;
+    pub use super::readd_status::QueryReaddStatus;
     pub use super::refresh_state::QueryRefreshState;
     pub use super::remote_commit_log::QueryRemoteCommitLog;
     pub use super::traits::*;
@@ -138,6 +139,14 @@ pub mod test_util {
                 );
                 "#,
                 r#"
+                -- Create a table to store history of key package rotation timestamps
+                CREATE TABLE key_package_rotation_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    next_key_package_rotation_ns BIGINT,
+                    updated_at BIGINT NOT NULL
+                );
+                "#,
+                r#"
                 -- Modify the deletion trigger to record payload hash history
                 CREATE TRIGGER intents_deleted_tracking AFTER DELETE ON group_intents
                 FOR EACH ROW
@@ -165,6 +174,15 @@ pub mod test_util {
                 BEGIN
                     UPDATE test_metadata SET intents_processed = intents_processed + 1;
                 END;"#,
+                r#"
+                CREATE TRIGGER track_key_package_rotation AFTER UPDATE OF next_key_package_rotation_ns ON identity
+                FOR EACH ROW
+                WHEN OLD.next_key_package_rotation_ns IS NOT NEW.next_key_package_rotation_ns
+                BEGIN
+                    INSERT INTO key_package_rotation_history (next_key_package_rotation_ns, updated_at)
+                    VALUES (NEW.next_key_package_rotation_ns, (strftime('%s', 'now') || substr(strftime('%f', 'now'), 4)) * 1);
+                END;
+                "#,
                 r#"INSERT INTO test_metadata (
                     intents_created,
                     intents_deleted,
@@ -279,6 +297,28 @@ pub mod test_util {
                 .order(group_messages::sequence_id.asc());
 
             self.raw_query_read(|conn| query.load(conn)).unwrap()
+        }
+
+        pub fn key_package_rotation_history(&self) -> Vec<(i64, i64)> {
+            let mut history = vec![];
+            self.raw_query_read(|conn| {
+                let rows = conn
+                    .load(sql_query(
+                        "SELECT next_key_package_rotation_ns, updated_at FROM key_package_rotation_history ORDER BY id ASC",
+                    ))
+                    .unwrap();
+                for row in rows {
+                    let row = row.unwrap();
+                    let rotation_ns = <i64 as FromSqlRow<diesel::sql_types::BigInt, _>>::build_from_row(&row)
+                        .unwrap();
+                    let updated_at = <i64 as FromSqlRow<diesel::sql_types::BigInt, _>>::build_from_row(&row)
+                        .unwrap();
+                    history.push((rotation_ns, updated_at));
+                }
+                Ok(())
+            })
+            .unwrap();
+            history
         }
     }
 }

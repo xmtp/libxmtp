@@ -8,7 +8,7 @@ use xmtp_configuration::Originators;
 #[derive(
     Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
-// TODO:d14n comparing cursors is unsafe/undefined behavior if originator ids are not equal.
+// _*NOTE:*_ comparing cursors is unsafe/undefined behavior if originator ids are not equal.
 pub struct Cursor {
     pub originator_id: super::OriginatorId,
     pub sequence_id: super::SequenceId,

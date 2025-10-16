@@ -388,6 +388,7 @@ pub async fn upload_debug_archive(
 
 #[cfg(test)]
 mod tests {
+    use crate::groups::send_message_opts::SendMessageOpts;
     use crate::{tester, utils::events::upload_debug_archive};
     use std::time::Duration;
     use xmtp_configuration::DeviceSyncUrls;
@@ -402,9 +403,13 @@ mod tests {
         let (bo_dm, _msg) = bo.test_talk_in_dm_with(&alix).await?;
 
         let alix_dm = alix.group(&bo_dm.group_id)?;
-        alix_dm.send_message(b"Hello there").await?;
+        alix_dm
+            .send_message(b"Hello there", SendMessageOpts::default())
+            .await?;
         xmtp_common::time::sleep(Duration::from_millis(1000)).await;
-        alix_dm.send_message(b"Hello there").await?;
+        alix_dm
+            .send_message(b"Hello there", SendMessageOpts::default())
+            .await?;
 
         caro.test_talk_in_dm_with(&alix).await?;
         alix.sync_welcomes().await?;
@@ -414,17 +419,21 @@ mod tests {
             .await?;
         g.update_group_name("Group with the buds".to_string())
             .await?;
-        g.send_message(b"Hello there").await?;
+        g.send_message(b"Hello there", SendMessageOpts::default())
+            .await?;
         g.sync().await?;
 
         bo.sync_welcomes().await?;
         let bo_g = bo.group(&g.group_id)?;
-        bo_g.send_message(b"Gonna add Caro").await?;
+        bo_g.send_message(b"Gonna add Caro", SendMessageOpts::default())
+            .await?;
         bo_g.add_members_by_inbox_id(&[caro.inbox_id()]).await?;
 
         caro.sync_welcomes().await?;
         let caro_g = caro.group(&g.group_id)?;
-        caro_g.send_message(b"hi guise!").await?;
+        caro_g
+            .send_message(b"hi guise!", SendMessageOpts::default())
+            .await?;
 
         g.sync().await?;
 

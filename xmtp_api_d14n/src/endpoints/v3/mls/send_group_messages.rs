@@ -56,7 +56,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_send_group_messages() {
-        let client = crate::TestClient::create_local();
+        let client = crate::TestGrpcClient::create_local();
         let client = client.build().unwrap();
         let endpoint = SendGroupMessages::builder()
             .messages(vec![GroupMessageInput::default()])
