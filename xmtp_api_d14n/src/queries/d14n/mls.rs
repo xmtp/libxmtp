@@ -1,34 +1,22 @@
-use std::collections::HashSet;
-use std::hash::DefaultHasher;
-use std::hash::Hash;
-use std::hash::Hasher;
-
 use super::D14nClient;
 use crate::d14n::GetNewestEnvelopes;
 use crate::d14n::PublishClientEnvelopes;
 use crate::d14n::QueryEnvelope;
-use crate::d14n::SubscribeEnvelopes;
 use crate::protocol::CollectionExtractor;
 use crate::protocol::EnvelopeError;
 use crate::protocol::GroupMessageExtractor;
 use crate::protocol::KeyPackagesExtractor;
-use crate::protocol::MlsDataExtractor;
 use crate::protocol::ProtocolEnvelope;
 use crate::protocol::SequencedExtractor;
 use crate::protocol::WelcomeMessageExtractor;
 use crate::protocol::traits::Envelope;
 use crate::protocol::traits::EnvelopeCollection;
 use crate::protocol::traits::Extractor;
-use crate::queries::stream;
-use futures::TryStreamExt;
-use itertools::Itertools;
 use xmtp_common::RetryableError;
-use xmtp_common::time::timeout;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api;
 use xmtp_proto::api::Client;
 use xmtp_proto::api::EndpointExt;
-use xmtp_proto::api::QueryStreamExt;
 use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
@@ -113,32 +101,7 @@ where
         &self,
         request: mls_v1::SendWelcomeMessagesRequest,
     ) -> Result<(), Self::Error> {
-        let topics = request.messages.topics()?;
-        let mut data_hashes = request
-            .messages
-            .clone()
-            .consume::<MlsDataExtractor>()?
-            .into_iter()
-            .map_ok(|data| {
-                let mut hasher = DefaultHasher::new();
-                data.hash(&mut hasher);
-                hasher.finish()
-            })
-            .collect::<Result<HashSet<_>, _>>()?;
         let envelopes = request.messages.client_envelopes()?;
-
-        let last_seen = self
-            .cursor_store
-            .load()
-            .lowest_common_cursor(&topics.iter().collect::<Vec<_>>())?;
-        let s = SubscribeEnvelopes::builder()
-            .last_seen(last_seen)
-            .topics(topics)
-            .build()?
-            .subscribe(&self.message_client)
-            .await?;
-        let s = stream::try_extractor::<_, WelcomeMessageExtractor>(s);
-
         // TODO:d14n revert this once [batch publishes](https://github.com/xmtp/xmtpd/issues/262)
         for e in envelopes {
             PublishClientEnvelopes::builder()
@@ -147,21 +110,6 @@ where
                 .ignore_response()
                 .query(&self.gateway_client)
                 .await?;
-        }
-        futures::pin_mut!(s);
-        let duration = std::time::Duration::from_secs(5);
-        while let Some(item) = timeout(duration, s.try_next()).await?? {
-            let mut hasher = DefaultHasher::new();
-            let _ = &item.data.hash(&mut hasher);
-            let hash = hasher.finish();
-            tracing::info!(
-                "read welcome for {hash} @cursor {} after publish",
-                item.cursor
-            );
-            data_hashes.remove(&hash);
-            if data_hashes.is_empty() {
-                break;
-            }
         }
         Ok(())
     }

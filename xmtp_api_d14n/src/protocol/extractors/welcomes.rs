@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Utc};
 use xmtp_proto::ConversionError;
 use xmtp_proto::types::{Cursor, InstallationId, WelcomeMessage, WelcomeMessageBuilder};
 
@@ -11,7 +11,7 @@ use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
 #[derive(Default)]
 pub struct WelcomeMessageExtractor {
     cursor: Cursor,
-    created_ns: DateTime<Local>,
+    created_ns: DateTime<Utc>,
     welcome_message: Option<WelcomeMessageBuilder>,
 }
 
@@ -48,7 +48,7 @@ impl EnvelopeVisitor<'_> for WelcomeMessageExtractor {
             originator_id: envelope.originator_node_id,
             sequence_id: envelope.originator_sequence_id,
         };
-        self.created_ns = DateTime::from_timestamp_nanos(envelope.originator_ns).into();
+        self.created_ns = DateTime::from_timestamp_nanos(envelope.originator_ns);
         Ok(())
     }
 

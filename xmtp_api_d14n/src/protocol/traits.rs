@@ -174,8 +174,6 @@ pub trait TryEnvelopeCollectionExt<'env>: EnvelopeCollection<'env> {
             self.consume::<E>()?.into_iter().partition_result();
         Ok((success, failure))
     }
-    // TODO: fn like try_consume but that does not fail on only one element failure
-    // i.e keeps processing messages, keeping errors around
 }
 
 impl<'env, T> TryEnvelopeCollectionExt<'env> for T where T: EnvelopeCollection<'env> {}

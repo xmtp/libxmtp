@@ -7,7 +7,7 @@ use xmtp_proto::{
 
 use crate::protocol::traits::EnvelopeVisitor;
 use crate::protocol::{ExtractionError, Extractor};
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Utc};
 use openmls::{
     framing::MlsMessageIn,
     prelude::{ContentType, ProtocolMessage, tls_codec::Deserialize},
@@ -19,7 +19,7 @@ use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
 #[derive(Default)]
 pub struct GroupMessageExtractor {
     cursor: Cursor,
-    created_ns: DateTime<Local>,
+    created_ns: DateTime<Utc>,
     group_message: Option<GroupMessageBuilder>,
 }
 
@@ -56,7 +56,7 @@ impl EnvelopeVisitor<'_> for GroupMessageExtractor {
             originator_id: envelope.originator_node_id,
             sequence_id: envelope.originator_sequence_id,
         };
-        self.created_ns = DateTime::from_timestamp_nanos(envelope.originator_ns).into();
+        self.created_ns = DateTime::from_timestamp_nanos(envelope.originator_ns);
         Ok(())
     }
 
