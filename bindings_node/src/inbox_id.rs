@@ -4,12 +4,12 @@ use napi::bindgen_prelude::Result;
 use napi::bindgen_prelude::Uint8Array;
 use napi_derive::napi;
 use std::sync::Arc;
-use xmtp_api::ApiIdentifier;
 use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_api_d14n::TrackedStatsClient;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_id::associations::MemberIdentifier;
+use xmtp_proto::types::ApiIdentifier;
 
 #[napi]
 pub async fn get_inbox_id_for_identifier(
@@ -25,13 +25,11 @@ pub async fn get_inbox_id_for_identifier(
     .build()
     .map_err(ErrorWrapper::from)?;
   let backend = TrackedStatsClient::new(backend);
-
-  // api rate limit cooldown period
-  let api_client = ApiClientWrapper::new(backend, strategies::exponential_cooldown());
+  let api = ApiClientWrapper::new(Arc::new(backend), strategies::exponential_cooldown());
 
   let identifier: xmtp_id::associations::Identifier = identifier.try_into()?;
   let api_ident: ApiIdentifier = identifier.into();
-  let results = api_client
+  let results = api
     .get_inbox_ids(vec![api_ident.clone()])
     .await
     .map_err(ErrorWrapper::from)?;
@@ -93,16 +91,12 @@ async fn is_member_of_association_state(
     .map_err(ErrorWrapper::from)?;
   let backend = TrackedStatsClient::new(backend);
 
-  let api_client = ApiClientWrapper::new(Arc::new(backend), strategies::exponential_cooldown());
+  let api = ApiClientWrapper::new(Arc::new(backend), strategies::exponential_cooldown());
 
-  let is_member = xmtp_mls::identity_updates::is_member_of_association_state(
-    &api_client,
-    inbox_id,
-    identifier,
-    None,
-  )
-  .await
-  .map_err(ErrorWrapper::from)?;
+  let is_member =
+    xmtp_mls::identity_updates::is_member_of_association_state(&api, inbox_id, identifier, None)
+      .await
+      .map_err(ErrorWrapper::from)?;
 
   Ok(is_member)
 }

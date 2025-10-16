@@ -302,7 +302,7 @@ where
         }
         if last_synced_id.sequence_id < msg.sequence_id() {
             tracing::debug!(
-                "stream does require sync; last_synced@[{}], this message @[{}]",
+                "stream requires sync; last_synced@[{}], this message @[{}]",
                 last_synced_id,
                 msg.cursor
             );

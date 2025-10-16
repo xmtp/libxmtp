@@ -1,16 +1,20 @@
 use std::future::Future;
+use xmtp_api_d14n::protocol::XmtpEnvelope;
+use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_common::RetryableError;
 use xmtp_proto::api::HasStats;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
+use xmtp_proto::api_client::CursorAwareApi;
 use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
 };
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::GlobalCursor;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::types::GroupMessage;
 use xmtp_proto::types::InstallationId;
+use xmtp_proto::types::Topic;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request;
 use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response;
@@ -24,8 +28,6 @@ use xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest;
 use xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesResponse;
 use xmtp_proto::xmtp::mls::api::v1::SendGroupMessagesRequest;
 use xmtp_proto::xmtp::mls::api::v1::SendWelcomeMessagesRequest;
-use xmtp_proto::xmtp::mls::api::v1::SubscribeGroupMessagesRequest;
-use xmtp_proto::xmtp::mls::api::v1::SubscribeWelcomeMessagesRequest;
 use xmtp_proto::xmtp::mls::api::v1::UploadKeyPackageRequest;
 use xmtp_proto::{
     api::ApiClientError,
@@ -147,10 +149,9 @@ where
     async fn query_group_messages(
         &self,
         group_id: GroupId,
-        cursor: Vec<Cursor>,
     ) -> Result<Vec<GroupMessage>, Self::Error> {
         wrap_err(
-            || self.inner.query_group_messages(group_id, cursor),
+            || self.inner.query_group_messages(group_id),
             || self.inner.aggregate_stats(),
         )
         .await
@@ -170,10 +171,9 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: Vec<Cursor>,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         wrap_err(
-            || self.inner.query_welcome_messages(installation_key, cursor),
+            || self.inner.query_welcome_messages(installation_key),
             || self.inner.aggregate_stats(),
         )
         .await
@@ -218,10 +218,10 @@ where
 
     async fn subscribe_group_messages(
         &self,
-        request: SubscribeGroupMessagesRequest,
+        group_ids: &[&GroupId],
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         wrap_err(
-            || self.inner.subscribe_group_messages(request),
+            || self.inner.subscribe_group_messages(group_ids),
             || self.inner.aggregate_stats(),
         )
         .await
@@ -229,10 +229,10 @@ where
 
     async fn subscribe_welcome_messages(
         &self,
-        request: SubscribeWelcomeMessagesRequest,
+        installations: &[&InstallationId],
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         wrap_err(
-            || self.inner.subscribe_welcome_messages(request),
+            || self.inner.subscribe_welcome_messages(installations),
             || self.inner.aggregate_stats(),
         )
         .await
@@ -291,5 +291,30 @@ where
             || self.inner.aggregate_stats(),
         )
         .await
+    }
+}
+
+impl<A: CursorAwareApi> CursorAwareApi for ApiDebugWrapper<A> {
+    type CursorStore = A::CursorStore;
+
+    fn set_cursor_store(&self, store: Self::CursorStore) {
+        <A as CursorAwareApi>::set_cursor_store(&self.inner, store);
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<C> XmtpQuery for ApiDebugWrapper<C>
+where
+    C: XmtpQuery,
+{
+    type Error = <C as XmtpQuery>::Error;
+
+    async fn query_at(
+        &self,
+        topic: Topic,
+        at: Option<GlobalCursor>,
+    ) -> Result<XmtpEnvelope, Self::Error> {
+        <C as XmtpQuery>::query_at(&self.inner, topic, at).await
     }
 }

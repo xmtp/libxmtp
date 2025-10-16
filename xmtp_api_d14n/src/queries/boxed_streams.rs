@@ -3,17 +3,18 @@ use std::pin::Pin;
 use xmtp_proto::api::HasStats;
 use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api_client::ApiStats;
+use xmtp_proto::api_client::CursorAwareApi;
 use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::identity_v1;
 use xmtp_proto::mls_v1;
-use xmtp_proto::mls_v1::SubscribeGroupMessagesRequest;
-use xmtp_proto::mls_v1::SubscribeWelcomeMessagesRequest;
 use xmtp_proto::prelude::XmtpIdentityClient;
 use xmtp_proto::prelude::XmtpMlsStreams;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::WelcomeMessage;
-use xmtp_proto::types::{Cursor, GroupId, GroupMessage};
+use xmtp_proto::types::{GroupId, GroupMessage};
+
+use crate::protocol::XmtpQuery;
 
 /// Wraps an ApiClient to allow turning
 /// a concretely-typed client into type-erased a [`BoxableXmtpApi`]
@@ -67,9 +68,8 @@ where
     async fn query_group_messages(
         &self,
         group_id: GroupId,
-        cursor: Vec<Cursor>,
     ) -> Result<Vec<GroupMessage>, Self::Error> {
-        self.inner.query_group_messages(group_id, cursor).await
+        self.inner.query_group_messages(group_id).await
     }
 
     async fn query_latest_group_message(
@@ -82,11 +82,8 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: Vec<Cursor>,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
-        self.inner
-            .query_welcome_messages(installation_key, cursor)
-            .await
+        self.inner.query_welcome_messages(installation_key).await
     }
 
     async fn publish_commit_log(
@@ -157,17 +154,17 @@ where
 
     async fn subscribe_group_messages(
         &self,
-        request: SubscribeGroupMessagesRequest,
+        group_ids: &[&GroupId],
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        let s = self.inner.subscribe_group_messages(request).await?;
+        let s = self.inner.subscribe_group_messages(group_ids).await?;
         Ok(Box::pin(s) as Pin<Box<_>>)
     }
 
     async fn subscribe_welcome_messages(
         &self,
-        request: SubscribeWelcomeMessagesRequest,
+        installations: &[&InstallationId],
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
-        let s = self.inner.subscribe_welcome_messages(request).await?;
+        let s = self.inner.subscribe_welcome_messages(installations).await?;
         Ok(Box::pin(s) as Pin<Box<_>>)
     }
 }
@@ -197,5 +194,27 @@ where
 {
     async fn is_connected(&self) -> bool {
         self.inner.is_connected().await
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<C: XmtpQuery> XmtpQuery for BoxedStreamsClient<C> {
+    type Error = <C as XmtpQuery>::Error;
+
+    async fn query_at(
+        &self,
+        topic: xmtp_proto::types::Topic,
+        at: Option<xmtp_proto::types::GlobalCursor>,
+    ) -> Result<crate::protocol::XmtpEnvelope, Self::Error> {
+        <C as XmtpQuery>::query_at(&self.inner, topic, at).await
+    }
+}
+
+impl<A: CursorAwareApi> CursorAwareApi for BoxedStreamsClient<A> {
+    type CursorStore = A::CursorStore;
+
+    fn set_cursor_store(&self, store: Self::CursorStore) {
+        <A as CursorAwareApi>::set_cursor_store(&self.inner, store);
     }
 }

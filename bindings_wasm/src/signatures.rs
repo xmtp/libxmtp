@@ -14,7 +14,6 @@ use xmtp_id::associations::{
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
 };
 use xmtp_id::associations::{Identifier as XmtpIdentifier, verify_signed_with_public_context};
-use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_mls::identity_updates::apply_signature_request_with_verifier;
 use xmtp_mls::identity_updates::revoke_installations_with_verifier;
@@ -61,9 +60,7 @@ pub fn revoke_installations_signature_request(
     .map_err(|e| JsError::new(&e.to_string()))?;
   let backend = TrackedStatsClient::new(backend);
   let api = ApiClientWrapper::new(Arc::new(backend), strategies::exponential_cooldown());
-  let scw_verifier =
-    Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
-      as Box<dyn SmartContractSignatureVerifier>);
+  let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
   let ident = recovery_identifier.try_into()?;
   let ids: Vec<Vec<u8>> = installation_ids.into_iter().map(|i| i.to_vec()).collect();
@@ -95,7 +92,7 @@ pub async fn apply_signature_request(
     TrackedStatsClient::new(backend),
     strategies::exponential_cooldown(),
   );
-  let scw_verifier = Arc::new(RemoteSignatureVerifier::new(api.clone()));
+  let scw_verifier = Arc::new(api.clone());
 
   let inner = signature_request.inner.lock().await;
 

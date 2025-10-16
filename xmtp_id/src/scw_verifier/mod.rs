@@ -11,6 +11,7 @@ use std::{collections::HashMap, fs, path::Path, sync::Arc};
 use thiserror::Error;
 use tracing::info;
 use url::Url;
+use xmtp_common::RetryableError;
 
 static DEFAULT_CHAIN_URLS: &str = include_str!("chain_urls_default.json");
 
@@ -28,12 +29,24 @@ pub enum VerifierError {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Serde(#[from] serde_json::Error),
-    #[error("URLs must be preceeded with eip144:")]
+    #[error("URLs must be preceded with eip144:")]
     MalformedEipUrl,
-    #[error(transparent)]
-    Api(#[from] xmtp_api::ApiError),
     #[error("verifier not present")]
     NoVerifier,
+    #[error("hash was invalid length or otherwise malformed")]
+    InvalidHash(Vec<u8>),
+    #[error("{0}")]
+    Other(Box<dyn RetryableError + Send + Sync>),
+}
+
+impl RetryableError for VerifierError {
+    fn is_retryable(&self) -> bool {
+        use VerifierError::*;
+        match self {
+            Other(o) => o.is_retryable(),
+            _ => false,
+        }
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -177,11 +190,12 @@ impl MultiSmartContractSignatureVerifier {
 
         #[cfg(feature = "test-utils")]
         if let Ok(url) = std::env::var("ANVIL_URL") {
-            info!("Adding anvil to the verifiers: {url}");
-            self.verifiers.insert(
-                "eip155:31337".to_string(),
-                Box::new(RpcSmartContractWalletVerifier::new(url)?),
-            );
+            info!("Adding anvil from env to the verifiers: {url}");
+            self.add_anvil(url)?;
+        } else {
+            use xmtp_configuration::DockerUrls;
+            info!("adding default anvil url @{}", DockerUrls::ANVIL);
+            self.add_anvil(DockerUrls::ANVIL.to_string())?;
         }
         Ok(self)
     }
@@ -189,6 +203,14 @@ impl MultiSmartContractSignatureVerifier {
     pub fn add_verifier(&mut self, id: String, url: String) -> Result<(), VerifierError> {
         self.verifiers
             .insert(id, Box::new(RpcSmartContractWalletVerifier::new(url)?));
+        Ok(())
+    }
+
+    pub fn add_anvil(&mut self, url: String) -> Result<(), VerifierError> {
+        self.verifiers.insert(
+            "eip155:31337".to_string(),
+            Box::new(RpcSmartContractWalletVerifier::new(url)?),
+        );
         Ok(())
     }
 }

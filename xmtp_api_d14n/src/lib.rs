@@ -14,6 +14,3 @@ xmtp_common::if_test! {
     mod test;
     pub use test::*;
 }
-
-#[macro_use]
-extern crate tracing;

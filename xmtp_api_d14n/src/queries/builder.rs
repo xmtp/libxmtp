@@ -1,16 +1,22 @@
 //! Generic Builder for the backend API
 
+use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use xmtp_api_grpc::error::GrpcBuilderError;
 use xmtp_api_grpc::{GrpcClient, error::GrpcError};
-use xmtp_proto::api_client::ToDynApi;
-use xmtp_proto::api_client::{ApiBuilder, ArcedXmtpApi};
+use xmtp_id::scw_verifier::VerifierError;
+use xmtp_proto::api::IsConnectedCheck;
+use xmtp_proto::api_client::CursorAwareApi;
+use xmtp_proto::api_client::{ApiBuilder, BoxedGroupS, BoxedWelcomeS};
+use xmtp_proto::prelude::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
 use xmtp_proto::{api::ApiClientError, types::AppVersion};
 
+use crate::protocol::{CursorStore, InMemoryCursorStore, XmtpQuery};
 use crate::{
     D14nClient, MiddlewareBuilder, MultiNodeClientBuilder, MultiNodeClientBuilderError, V3Client,
 };
+mod impls;
 
 /// Builder to access the backend XMTP API
 /// Passing a gateway host implicitly enables decentralization.
@@ -19,6 +25,7 @@ pub struct MessageBackendBuilder {
     v3_host: Option<String>,
     gateway_host: Option<String>,
     app_version: Option<AppVersion>,
+    cursor_store: Option<Arc<dyn CursorStore>>,
     is_secure: bool,
 }
 
@@ -29,7 +36,54 @@ pub enum MessageBackendBuilderError {
     #[error(transparent)]
     GrpcBuilder(#[from] GrpcBuilderError),
     #[error(transparent)]
-    MutliNode(#[from] MultiNodeClientBuilderError),
+    MultiNode(#[from] MultiNodeClientBuilderError),
+    #[error(transparent)]
+    Scw(#[from] VerifierError),
+}
+
+/// A type-erased version of the Xmtp Api in a [`Box`]
+pub type FullXmtpApiBox<E> = Box<dyn FullXmtpApiT<E>>;
+/// A type-erased version of the Xntp Api in a [`Arc`]
+pub type FullXmtpApiArc<E> = Arc<dyn FullXmtpApiT<E>>;
+
+pub trait FullXmtpApiT<Err>
+where
+    Self: XmtpMlsClient<Error = Err>
+        + XmtpIdentityClient<Error = Err>
+        + XmtpMlsStreams<
+            Error = Err,
+            WelcomeMessageStream = BoxedWelcomeS<Err>,
+            GroupMessageStream = BoxedGroupS<Err>,
+        > + IsConnectedCheck
+        + XmtpQuery<Error = Err>
+        + CursorAwareApi<CursorStore = Arc<dyn CursorStore>>
+        + Send
+        + Sync,
+{
+}
+
+impl<T, Err> FullXmtpApiT<Err> for T where
+    T: XmtpMlsClient<Error = Err>
+        + XmtpIdentityClient<Error = Err>
+        + XmtpMlsStreams<
+            Error = Err,
+            WelcomeMessageStream = BoxedWelcomeS<Err>,
+            GroupMessageStream = BoxedGroupS<Err>,
+        > + IsConnectedCheck
+        + CursorAwareApi<CursorStore = Arc<dyn CursorStore>>
+        + XmtpQuery<Error = Err>
+        + Send
+        + Sync
+        + ?Sized
+{
+}
+
+/// Indicates this api implementation can be type-erased
+/// and coerced into a [`Box`] or [`Arc`]
+pub trait ToDynApi {
+    type Error;
+    fn boxed(self) -> FullXmtpApiBox<Self::Error>;
+    fn arced(self) -> FullXmtpApiArc<Self::Error>;
 }
 
 impl MessageBackendBuilder {
@@ -75,17 +129,25 @@ impl MessageBackendBuilder {
         self
     }
 
+    pub fn cursor_store(&mut self, store: impl CursorStore + 'static) -> &mut Self {
+        self.cursor_store = Some(Arc::new(store) as Arc<_>);
+        self
+    }
+
     /// Build the client
     pub fn build(
         &mut self,
-    ) -> Result<ArcedXmtpApi<ApiClientError<GrpcError>>, MessageBackendBuilderError> {
+    ) -> Result<FullXmtpApiArc<ApiClientError<GrpcError>>, MessageBackendBuilderError> {
         let Self {
             v3_host,
             gateway_host,
             app_version,
             is_secure,
+            cursor_store,
         } = self.clone();
         let v3_host = v3_host.ok_or(MessageBackendBuilderError::MissingV3Host)?;
+        let cursor_store =
+            cursor_store.unwrap_or(Arc::new(InMemoryCursorStore::default()) as Arc<_>);
 
         if let Some(gateway) = gateway_host {
             let mut gateway_client = GrpcClient::builder();
@@ -96,12 +158,12 @@ impl MessageBackendBuilder {
             }
             let gateway_client = gateway_client.build()?;
             let mut multi_node = crate::multi_node::builder();
-            multi_node.set_timeout(Duration::from_millis(100))?;
-            multi_node.set_tls(true);
+            multi_node.set_timeout(Duration::from_secs(100_000))?;
+            multi_node.set_tls(is_secure);
             multi_node.set_gateway_client(gateway_client.clone())?;
             let multi_node = <MultiNodeClientBuilder as ApiBuilder>::build(multi_node)?;
 
-            Ok(D14nClient::new(multi_node, gateway_client).arced())
+            Ok(D14nClient::new(multi_node, gateway_client, cursor_store)?.arced())
         } else {
             let mut v3_client = GrpcClient::builder();
             v3_client.set_host(v3_host);
@@ -111,7 +173,7 @@ impl MessageBackendBuilder {
             }
 
             let v3_client = v3_client.build()?;
-            Ok(V3Client::new(v3_client).arced())
+            Ok(V3Client::new(v3_client, cursor_store).arced())
         }
     }
 }

@@ -38,7 +38,7 @@ impl Endpoint for PublishClientEnvelopes {
 
 #[cfg(test)]
 mod test {
-    use crate::protocol::TopicKind;
+    use xmtp_proto::types::TopicKind;
 
     use super::*;
     use xmtp_api_grpc::error::GrpcError;

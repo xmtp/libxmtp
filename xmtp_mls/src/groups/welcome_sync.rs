@@ -81,7 +81,7 @@ where
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
         let db = self.context.db();
         let store = MlsStore::new(self.context.clone());
-        let envelopes = store.query_welcome_messages(&db).await?;
+        let envelopes = store.query_welcome_messages().await?;
         let num_envelopes = envelopes.len();
 
         let groups: Vec<MlsGroup<Context>> = stream::iter(envelopes.into_iter())
@@ -309,7 +309,7 @@ mod tests {
         message.wrapper_algorithm = WrapperAlgorithm::Curve25519.into();
         message.data = data;
         message.cursor.sequence_id = id;
-        message.cursor.originator_id = Originators::WELCOME_MESSAGES.into();
+        message.cursor.originator_id = Originators::WELCOME_MESSAGES;
         message.welcome_metadata = welcome_metadata;
         message
     }
@@ -411,7 +411,7 @@ mod tests {
                     .returning(|_id, _entity, _| {
                         Ok(vec![Cursor {
                             sequence_id: 0,
-                            originator_id: Originators::WELCOME_MESSAGES.into(),
+                            originator_id: Originators::WELCOME_MESSAGES,
                         }])
                     });
                 db.expect_find_group().returning(|_id| Ok(None));
@@ -422,7 +422,7 @@ mod tests {
                     .returning(|_id, _entity, _| {
                         Ok(vec![Cursor {
                             sequence_id: 0,
-                            originator_id: Originators::WELCOME_MESSAGES.into(),
+                            originator_id: Originators::WELCOME_MESSAGES,
                         }])
                     });
             })
@@ -432,7 +432,7 @@ mod tests {
                     .returning(|_id, _entity, _| {
                         Ok(vec![Cursor {
                             sequence_id: 0,
-                            originator_id: Originators::WELCOME_MESSAGES.into(),
+                            originator_id: Originators::WELCOME_MESSAGES,
                         }])
                     });
                 db.expect_update_cursor().returning(|_, _, _| Ok(true));
@@ -480,7 +480,7 @@ mod tests {
                             cursor,
                             Cursor {
                                 sequence_id: 50,
-                                originator_id: Originators::WELCOME_MESSAGES.into()
+                                originator_id: Originators::WELCOME_MESSAGES
                             }
                         );
                         assert_eq!(entity, EntityKind::Welcome);
@@ -493,7 +493,7 @@ mod tests {
                     .returning(|_id, _entity, _| {
                         Ok(vec![Cursor {
                             sequence_id: 0,
-                            originator_id: Originators::WELCOME_MESSAGES.into(),
+                            originator_id: Originators::WELCOME_MESSAGES,
                         }])
                     });
                 db.expect_find_group().once().returning(|_id| Ok(None));
@@ -553,7 +553,7 @@ mod tests {
                     .returning(|_id, _entity, _| {
                         Ok(vec![Cursor {
                             sequence_id: 0,
-                            originator_id: Originators::WELCOME_MESSAGES.into(),
+                            originator_id: Originators::WELCOME_MESSAGES,
                         }])
                     });
                 db.expect_update_cursor()
@@ -591,7 +591,7 @@ mod tests {
                     .returning(|_id, _entity, _| {
                         Ok(vec![Cursor {
                             sequence_id: 0,
-                            originator_id: Originators::WELCOME_MESSAGES as u32,
+                            originator_id: Originators::WELCOME_MESSAGES,
                         }])
                     });
                 db.expect_update_cursor().returning(|_, _, _| Ok(true));
@@ -605,7 +605,7 @@ mod tests {
                             cursor,
                             Cursor {
                                 sequence_id: 50,
-                                originator_id: Originators::WELCOME_MESSAGES as u32
+                                originator_id: Originators::WELCOME_MESSAGES
                             }
                         );
                         assert_eq!(entity, EntityKind::Welcome);
@@ -614,11 +614,17 @@ mod tests {
                 db.expect_update_cursor()
                     .once()
                     .returning(|_id, entity, cursor| {
+                        // TODO:d14n welcome cursor for d14n
+                        let originator_id = if cfg!(feature = "d14n") {
+                            100
+                        } else {
+                            Originators::APPLICATION_MESSAGES
+                        };
                         assert_eq!(
                             cursor,
                             Cursor {
                                 sequence_id: 10,
-                                originator_id: Originators::APPLICATION_MESSAGES as u32
+                                originator_id,
                             }
                         );
                         assert_eq!(entity, EntityKind::ApplicationMessage);
@@ -631,7 +637,7 @@ mod tests {
                     .returning(|_id, _entity, _| {
                         Ok(vec![Cursor {
                             sequence_id: 0,
-                            originator_id: Originators::WELCOME_MESSAGES as u32,
+                            originator_id: Originators::WELCOME_MESSAGES,
                         }])
                     });
                 db.expect_find_group().once().returning(|_id| Ok(None));
@@ -676,7 +682,7 @@ mod tests {
                     .returning(|_id, _entity, _| {
                         Ok(vec![Cursor {
                             sequence_id: 0,
-                            originator_id: Originators::WELCOME_MESSAGES.into(),
+                            originator_id: Originators::WELCOME_MESSAGES,
                         }])
                     });
             })

@@ -21,6 +21,20 @@ impl DockerUrls {
     pub const ANVIL: &'static str = "http://localhost:8545";
 }
 
+/// poor mans docker dns, for testing only
+/// converts internal docker hosts to localhost
+/// panics if host fails to set to localhost on [`url::Url`]
+pub fn internal_to_localhost(host_url: &str) -> String {
+    let mut url = url::Url::parse(host_url).unwrap();
+    match url.domain().unwrap() {
+        "repnode" | "node" | "gateway" => {
+            url.set_host(Some("localhost")).unwrap();
+        }
+        _ => (),
+    }
+    url.into()
+}
+
 /// Urls to the Grpc Backends
 /// These URLS are rust-feature-flag aware, and will choose local or dev:
 /// * if no feature is passed, uses local environment

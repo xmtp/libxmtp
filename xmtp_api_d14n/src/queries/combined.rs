@@ -4,7 +4,7 @@ use xmtp_proto::mls_v1;
 use xmtp_proto::prelude::XmtpIdentityClient;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::WelcomeMessage;
-use xmtp_proto::types::{Cursor, GroupId, GroupMessage};
+use xmtp_proto::types::{GroupId, GroupMessage};
 
 #[derive(Clone)]
 pub struct CombinedD14nClient<C, D> {
@@ -51,11 +51,8 @@ where
     async fn query_group_messages(
         &self,
         group_id: GroupId,
-        cursor: Vec<Cursor>,
     ) -> Result<Vec<GroupMessage>, Self::Error> {
-        self.xmtpd_client
-            .query_group_messages(group_id, cursor)
-            .await
+        self.xmtpd_client.query_group_messages(group_id).await
     }
 
     async fn query_latest_group_message(
@@ -68,10 +65,9 @@ where
     async fn query_welcome_messages(
         &self,
         installation_key: InstallationId,
-        cursor: Vec<Cursor>,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         self.xmtpd_client
-            .query_welcome_messages(installation_key, cursor)
+            .query_welcome_messages(installation_key)
             .await
     }
 

@@ -523,7 +523,16 @@ where
         db.update_cursor(
             &group.group_id,
             EntityKind::ApplicationMessage,
-            Cursor::v3_messages(cursor as u64),
+            //TODO:d14n this must change before D14n-only
+            //Originator must be included in welcome
+            if cfg!(feature = "d14n") {
+                Cursor {
+                    originator_id: 100,
+                    sequence_id: cursor as u64,
+                }
+            } else {
+                Cursor::v3_messages(cursor as u64)
+            },
         )?;
 
         tracing::info!(

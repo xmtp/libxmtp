@@ -5,7 +5,7 @@ use derive_builder::Builder;
 use openmls::prelude::ContentType;
 
 /// A GroupMessage from the network
-#[derive(Clone, Builder)]
+#[derive(Clone, Builder, Debug)]
 #[builder(setter(into), build_fn(error = "ConversionError"))]
 pub struct GroupMessage {
     /// Cursor of this message
@@ -64,6 +64,17 @@ impl xmtp_common::Generate for GroupMessage {
     }
 }
 
+impl std::fmt::Display for GroupMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "GroupMessage {{ cursor {}, created at {}, group {} }}",
+            self.cursor,
+            self.created_ns.time(),
+            self.group_id
+        )
+    }
+}
 #[cfg(test)]
 mod test {
     use openmls::prelude::ContentType;

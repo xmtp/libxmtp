@@ -2,8 +2,12 @@
 set -eou pipefail
 
 cargo fmt --check &
+pid=$!
 
-wait
-
-echo "Format Good ✅"
+if wait $pid; then
+  echo "Format Good ✅"
+else
+  echo "Format Bad ❌"
+  exit 1
+fi
 

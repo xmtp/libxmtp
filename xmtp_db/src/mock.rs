@@ -5,7 +5,7 @@ use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
 use crate::remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder};
 use std::collections::HashMap;
 use std::sync::Arc;
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, GlobalCursor, Topic};
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
 use diesel::prelude::SqliteConnection;
@@ -549,6 +549,28 @@ mock! {
             &self,
             conversation_ids: &[&Vec<u8>],
         ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError>;
+
+        #[mockall::concretize]
+        fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, StorageError>;
+
+        #[mockall::concretize]
+        fn latest_cursor_for_id<Id: AsRef<[u8]>>(
+            &self,
+            entity: Id,
+            entities: &[crate::refresh_state::EntityKind],
+            originators: Option<&[&xmtp_proto::types::OriginatorId]>
+        ) -> Result<xmtp_proto::types::GlobalCursor, StorageError>;
+
+        #[mockall::concretize]
+        fn latest_cursor_combined<Id: AsRef<[u8]>>(
+            &self,
+            entity_id: Id,
+            entities: &[crate::refresh_state::EntityKind],
+            originators: Option<&[&xmtp_proto::types::OriginatorId]>,
+        ) -> Result<GlobalCursor, StorageError>;
+
+        #[mockall::concretize]
+        fn lowest_common_cursor_combined(&self, topics: &[&Topic]) -> Result<GlobalCursor, StorageError>;
     }
 
     impl QueryIdentityUpdates for DbQuery {

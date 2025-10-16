@@ -8,6 +8,7 @@ version.workspace = true
 workspace = true
 
 [dependencies]
+arc-swap.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 derive_builder.workspace = true
@@ -31,6 +32,7 @@ xmtp_api_grpc = { workspace = true }
 xmtp_common.workspace = true
 xmtp_configuration = { workspace = true }
 xmtp_cryptography.workspace = true
+xmtp_id = { workspace = true }
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Test Utils
