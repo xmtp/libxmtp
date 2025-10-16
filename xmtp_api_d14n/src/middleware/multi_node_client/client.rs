@@ -73,12 +73,12 @@ mod tests {
     use xmtp_configuration::GrpcUrls;
     use xmtp_proto::api_client::ApiBuilder;
 
-    fn create_gateway() -> GrpcClient {
+    fn create_gateway_builder() -> ClientBuilder {
         let mut b = GrpcClient::builder();
         let url = url::Url::parse(GrpcUrls::GATEWAY).expect("valid gateway url");
         b.set_host(GrpcUrls::GATEWAY.to_string());
         b.set_tls(url.scheme() == "https");
-        b.build().expect("gateway client")
+        b
     }
 
     fn make_template(tls: bool) -> xmtp_api_grpc::ClientBuilder {
@@ -92,7 +92,7 @@ mod tests {
     #[tokio::test]
     async fn builder_ok_when_all_set() {
         let mut b = MultiNodeClientBuilder::default();
-        b.set_gateway_client(create_gateway()).unwrap();
+        b.set_gateway_builder(create_gateway_builder()).unwrap();
         b.set_timeout(Duration::from_millis(100)).unwrap();
         let client = <MultiNodeClientBuilder as MiddlewareBuilder>::build(b).expect("build ok");
         let _ = client; // not used further
@@ -135,7 +135,7 @@ mod tests {
         use crate::D14nClientBuilder;
         use xmtp_proto::prelude::ApiBuilder;
 
-        // Prepare gateway builder.
+        // 1) Create gateway builder (not built yet)
         let mut gateway = GrpcClient::builder();
         let url = url::Url::parse(GrpcUrls::GATEWAY).expect("valid gateway url");
         match url.scheme() {
@@ -144,11 +144,7 @@ mod tests {
         }
         gateway.set_host(GrpcUrls::GATEWAY.into());
 
-        // Build the gateway client.
-        let built_gateway = <xmtp_api_grpc::ClientBuilder as ApiBuilder>::build(gateway)
-            .expect("gateway client built");
-
-        // Configure multi-node builder via ApiBuilder methods and inject gateway
+        // 2) Configure multi-node builder with the gateway builder
         let mut multi_node = MultiNodeClientBuilder::default();
         multi_node
             .set_timeout(xmtp_common::time::Duration::from_millis(100))
@@ -158,15 +154,13 @@ mod tests {
             &mut multi_node.node_client_template,
             url.scheme() == "https",
         );
+        // Pass the gateway BUILDER (will be built internally when MultiNodeClient is built)
         multi_node
-            .set_gateway_client(built_gateway)
+            .set_gateway_builder(gateway.clone())
             .expect("gateway set on multi-node");
 
-        // Build D14n client using multi-node as the message builder and gateway builder
-        // Recreate a gateway builder for D14n builder (callers will normally pass the original builder)
-        let mut gateway_b = GrpcClient::builder();
-        gateway_b.set_host(GrpcUrls::GATEWAY.into());
-        gateway_b.set_tls(url.scheme() == "https");
-        let _d14n = D14nClientBuilder::new(multi_node, gateway_b);
+        // 3) Build D14n client with both builders
+        // D14nClientBuilder.build() will call both builders' build() methods
+        let _d14n = D14nClientBuilder::new(multi_node, gateway);
     }
 }

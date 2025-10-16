@@ -8,7 +8,7 @@ use xmtp_proto::{api_client::ApiBuilder, types::AppVersion};
 /* MultiNodeClientBuilder struct and its associated errors */
 
 pub struct MultiNodeClientBuilder {
-    pub gateway_client: Option<GrpcClient>,
+    pub gateway_builder: Option<ClientBuilder>,
     pub timeout: Duration,
     pub node_client_template: ClientBuilder,
 }
@@ -20,8 +20,8 @@ pub enum MultiNodeClientBuilderError {
     GrpcBuilderError(#[from] GrpcBuilderError),
     #[error("timeout must be greater than 0")]
     InvalidTimeout,
-    #[error("gateway client is required")]
-    MissingGatewayClient,
+    #[error("gateway builder is required")]
+    MissingGatewayBuilder,
 }
 
 /* MultiNodeClientBuilder implementations */
@@ -31,7 +31,7 @@ pub enum MultiNodeClientBuilderError {
 impl Default for MultiNodeClientBuilder {
     fn default() -> Self {
         Self {
-            gateway_client: None,
+            gateway_builder: None,
             timeout: Duration::from_millis(1000),
             node_client_template: GrpcClient::builder(),
         }
@@ -44,8 +44,8 @@ impl MiddlewareBuilder for MultiNodeClientBuilder {
     type Output = MultiNodeClient;
     type Error = MultiNodeClientBuilderError;
 
-    fn set_gateway_client(&mut self, gateway_client: GrpcClient) -> Result<(), Self::Error> {
-        self.gateway_client = Some(gateway_client);
+    fn set_gateway_builder(&mut self, gateway_builder: ClientBuilder) -> Result<(), Self::Error> {
+        self.gateway_builder = Some(gateway_builder);
         Ok(())
     }
 
@@ -55,13 +55,15 @@ impl MiddlewareBuilder for MultiNodeClientBuilder {
     }
 
     fn build(self) -> Result<Self::Output, Self::Error> {
-        let gateway_client = self
-            .gateway_client
-            .ok_or(MultiNodeClientBuilderError::MissingGatewayClient)?;
+        let gateway_builder = self
+            .gateway_builder
+            .ok_or(MultiNodeClientBuilderError::MissingGatewayBuilder)?;
 
         if self.timeout.is_zero() {
             return Err(MultiNodeClientBuilderError::InvalidTimeout);
         }
+
+        let gateway_client = gateway_builder.build()?;
 
         Ok(MultiNodeClient {
             gateway_client,
@@ -114,9 +116,15 @@ impl ApiBuilder for MultiNodeClientBuilder {
     }
 
     fn build(self) -> Result<Self::Output, Self::Error> {
-        let gateway_client = self
-            .gateway_client
-            .ok_or(MultiNodeClientBuilderError::MissingGatewayClient)?;
+        let gateway_builder = self
+            .gateway_builder
+            .ok_or(MultiNodeClientBuilderError::MissingGatewayBuilder)?;
+
+        if self.timeout.is_zero() {
+            return Err(MultiNodeClientBuilderError::InvalidTimeout);
+        }
+
+        let gateway_client = gateway_builder.build()?;
 
         Ok(MultiNodeClient {
             gateway_client,
