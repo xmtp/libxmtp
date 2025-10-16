@@ -69,16 +69,19 @@ impl Client for MultiNodeClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::D14nClient;
     use crate::middleware::{MiddlewareBuilder, MultiNodeClientBuilder};
     use xmtp_configuration::GrpcUrls;
+    use xmtp_proto::api::Query;
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::prelude::XmtpMlsClient;
     use xmtp_proto::types::GroupId;
-    use crate::D14nClient;
-    use xmtp_proto::api::Query;
 
     fn is_tls_enabled() -> bool {
-        url::Url::parse(GrpcUrls::GATEWAY).expect("valid gateway url").scheme() == "https"
+        url::Url::parse(GrpcUrls::GATEWAY)
+            .expect("valid gateway url")
+            .scheme()
+            == "https"
     }
 
     fn create_gateway_builder() -> ClientBuilder {
@@ -90,22 +93,26 @@ mod tests {
 
     fn create_multinode_client_builder() -> MultiNodeClientBuilder {
         let mut multi_node_builder = MultiNodeClientBuilder::default();
-        multi_node_builder.set_gateway_builder(create_gateway_builder()).unwrap();
-        multi_node_builder.set_timeout(Duration::from_millis(1000)).unwrap();
+        multi_node_builder
+            .set_gateway_builder(create_gateway_builder())
+            .unwrap();
+        multi_node_builder
+            .set_timeout(Duration::from_millis(1000))
+            .unwrap();
         multi_node_builder.set_tls(is_tls_enabled());
         multi_node_builder
     }
 
     fn create_multinode_client() -> MultiNodeClient {
         let multi_node_builder = create_multinode_client_builder();
-        let client = <MultiNodeClientBuilder as MiddlewareBuilder>::build(multi_node_builder).unwrap();
-        client
+        <MultiNodeClientBuilder as MiddlewareBuilder>::build(multi_node_builder).unwrap()
     }
 
     fn create_d14n_client() -> D14nClient<MultiNodeClient, GrpcClient> {
         D14nClient::new(
-            <MultiNodeClientBuilder as MiddlewareBuilder>::build(create_multinode_client_builder()).unwrap(),
-            <ClientBuilder as ApiBuilder>::build(create_gateway_builder()).unwrap()
+            <MultiNodeClientBuilder as MiddlewareBuilder>::build(create_multinode_client_builder())
+                .unwrap(),
+            <ClientBuilder as ApiBuilder>::build(create_gateway_builder()).unwrap(),
         )
     }
 
@@ -188,7 +195,7 @@ mod tests {
 
     /// This test also serves as an example of how to use the MultiNodeClientBuilder standalone.
     #[tokio::test]
-     async fn build_multinode_as_standalone() {
+    async fn build_multinode_as_standalone() {
         let gateway_builder = create_gateway_builder();
 
         let mut multi_node_builder = MultiNodeClientBuilder::default();
@@ -208,7 +215,7 @@ mod tests {
         let client = create_d14n_client();
         let id: GroupId = GroupId::from(vec![]);
         let response = client.query_latest_group_message(id).await;
-        
+
         match response {
             Err(e) => {
                 // The query should throw UninitializedFieldError(cursor).
