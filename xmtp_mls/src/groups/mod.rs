@@ -1388,7 +1388,7 @@ where
         .await
     }
 
-    pub async fn cursor(&self) -> Result<Vec<Cursor>, GroupError> {
+    pub async fn cursor(&self) -> Result<[Cursor; 2], GroupError> {
         let db = self.context.db();
         let msgs = db.get_last_cursor_for_originator(
             &self.group_id,
