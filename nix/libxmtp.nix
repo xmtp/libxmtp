@@ -35,6 +35,8 @@
 , shellcheck
 , lcov
 , cargo-llvm-cov
+, cargo-machete
+, wasm-bindgen-cli_0_2_104
 , ...
 }:
 
@@ -84,11 +86,13 @@ mkShell {
       cargo-deny
       cargo-flamegraph
       cargo-nextest
+      cargo-machete
       inferno
       lnav
       jq
       curl
       lcov
+      wasm-bindgen-cli_0_2_104
 
       # Protobuf
       buf
