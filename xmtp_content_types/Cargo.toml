@@ -18,7 +18,7 @@ tracing.workspace = true
 
 # XMTP/Local
 xmtp_common = { workspace = true }
-xmtp_proto = { workspace = true, features = ["convert"] }
+xmtp_proto = { workspace = true }
 
 [dev-dependencies]
 xmtp_common = { workspace = true, features = ['test-utils'] }
