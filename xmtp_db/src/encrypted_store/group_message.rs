@@ -289,6 +289,8 @@ pub struct MsgQueryArgs {
     pub content_types: Option<Vec<ContentType>>,
     #[builder(default = None)]
     pub exclude_content_types: Option<Vec<ContentType>>,
+    #[builder(default = None)]
+    pub exclude_sender_inbox_ids: Option<Vec<String>>,
 }
 
 impl MsgQueryArgs {
@@ -601,6 +603,10 @@ macro_rules! apply_message_filters {
 
         if let Some(exclude_content_types) = &$args.exclude_content_types {
             query = query.filter(dsl::content_type.ne_all(exclude_content_types));
+        }
+
+        if let Some(exclude_sender_inbox_ids) = &$args.exclude_sender_inbox_ids {
+            query = query.filter(dsl::sender_inbox_id.ne_all(exclude_sender_inbox_ids));
         }
 
         query

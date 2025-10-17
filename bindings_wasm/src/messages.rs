@@ -94,6 +94,8 @@ pub struct ListMessagesOptions {
   pub delivery_status: Option<DeliveryStatus>,
   pub direction: Option<SortDirection>,
   pub kind: Option<GroupMessageKind>,
+  #[wasm_bindgen(js_name = excludeSenderInboxIds)]
+  pub exclude_sender_inbox_ids: Option<Vec<String>>,
 }
 
 impl From<ListMessagesOptions> for MsgQueryArgs {
@@ -111,6 +113,7 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
       content_types: opts
         .content_types
         .map(|t| t.into_iter().map(Into::into).collect()),
+      exclude_sender_inbox_ids: opts.exclude_sender_inbox_ids,
     }
   }
 }
@@ -128,6 +131,7 @@ impl ListMessagesOptions {
     content_types: Option<Vec<ContentType>>,
     exclude_content_types: Option<Vec<ContentType>>,
     kind: Option<GroupMessageKind>,
+    exclude_sender_inbox_ids: Option<Vec<String>>,
   ) -> Self {
     Self {
       sent_before_ns,
@@ -138,6 +142,7 @@ impl ListMessagesOptions {
       content_types,
       exclude_content_types,
       kind,
+      exclude_sender_inbox_ids,
     }
   }
 }
