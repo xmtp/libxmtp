@@ -2257,6 +2257,24 @@ impl FfiConversation {
         Ok(messages)
     }
 
+    pub fn count_messages(&self, opts: FfiListMessagesOptions) -> Result<i64, GenericError> {
+        let delivery_status = opts.delivery_status.map(|status| status.into());
+
+        let count = self.inner.count_messages(&MsgQueryArgs {
+            sent_before_ns: opts.sent_before_ns,
+            sent_after_ns: opts.sent_after_ns,
+            kind: None,
+            delivery_status,
+            limit: None,
+            direction: None,
+            content_types: opts
+                .content_types
+                .map(|types| types.into_iter().map(Into::into).collect()),
+        })?;
+
+        Ok(count)
+    }
+
     pub fn find_messages_with_reactions(
         &self,
         opts: FfiListMessagesOptions,

@@ -253,6 +253,18 @@ impl Conversation {
     Ok(messages)
   }
 
+  #[wasm_bindgen(js_name = countMessages)]
+  pub async fn count_messages(&self, opts: Option<ListMessagesOptions>) -> Result<i64, JsError> {
+    let opts = opts.unwrap_or_default();
+    let group = self.to_mls_group();
+    let query_args = opts.into();
+    let count = group
+      .count_messages(&query_args)
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(count)
+  }
+
   #[wasm_bindgen(js_name = findMessagesWithReactions)]
   pub async fn find_messages_with_reactions(
     &self,
