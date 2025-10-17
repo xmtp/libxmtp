@@ -10,9 +10,7 @@ use xmtp_proto::api::Query;
 use xmtp_proto::api_client::ApiBuilder;
 use xmtp_proto::{ApiEndpoint, api::ApiClientError};
 
-/* Gateway API functions */
-
-/// Get the nodes from the gateway server and build the clients for each one.
+/// Get the nodes from the gateway server and build the clients for each node.
 pub async fn get_nodes(
     gateway_client: &GrpcClient,
     template: &ClientBuilder,
@@ -44,23 +42,24 @@ pub async fn get_nodes(
         futures::stream::iter(response.nodes.into_iter().map(|(node_id, url)| async move {
             // Clone a fresh builder per node so we can mutate it safely.
             let mut client_builder = template.clone();
+
             tracing::debug!("building client for node {}: {}", node_id, url);
 
             // Validate TLS policy against the fully-qualified URL.
             validate_tls_guard(&client_builder, &url).map_err(|e| (node_id, e))?;
 
-            client_builder.set_host(url);
+            client_builder.set_host(url.to_string());
 
             let client = client_builder.build().map_err(|e| (node_id, e.into()))?;
 
-            Ok::<_, (u32, Box<dyn std::error::Error + Send + Sync>)>((node_id, client))
+            Ok::<_, (u32, Box<dyn std::error::Error + Send + Sync>)>((node_id, client, url))
         }))
         .buffer_unordered(max_concurrency);
 
     while let Some(res) = stream.next().await {
         match res {
-            Ok((node_id, client)) => {
-                tracing::info!("built client for node {}", node_id);
+            Ok((node_id, client, url)) => {
+                tracing::info!("built client for node {}: {}", node_id, url);
                 clients.insert(node_id, client);
             }
             Err(err) => {
@@ -102,6 +101,7 @@ pub async fn get_fastest_node(
     }?;
 
     let mut fastest_client: Option<(u32, GrpcClient, u64)> = None;
+    let mut failed_nodes = Vec::new();
 
     let mut stream = futures::stream::iter(clients.into_iter().map(|(node_id, client)| {
         let mut endpoint = endpoint.clone();
@@ -114,7 +114,7 @@ pub async fn get_fastest_node(
             xmtp_common::time::timeout(timeout, endpoint.query(&client))
                 .await
                 .map_err(|_| {
-                    tracing::error!("node timed out: {}", node_id);
+                    tracing::error!("node {} timed out after {}ms", node_id, timeout.as_millis());
                     ApiClientError::new(
                         ApiEndpoint::HealthCheck,
                         MultiNodeClientError::NodeTimedOut {
@@ -124,11 +124,11 @@ pub async fn get_fastest_node(
                     )
                 })
                 .and_then(|r| {
-                    r.map_err(|_| {
-                        tracing::error!("node is unhealthy: {}", node_id);
+                    r.map_err(|e| {
+                        tracing::error!("node {} is unhealthy: {}", node_id, e);
                         ApiClientError::new(
                             ApiEndpoint::HealthCheck,
-                            MultiNodeClientError::UnhealthyNode { node_id },
+                            MultiNodeClientError::GrpcError(e),
                         )
                     })
                 })
@@ -150,16 +150,23 @@ pub async fn get_fastest_node(
             }
             Err(e) => {
                 tracing::warn!("healthcheck failed: {}", e);
+                failed_nodes.push(e);
             }
         }
     }
 
-    let (node_id, client, latency) = fastest_client.ok_or(ApiClientError::new(
-        ApiEndpoint::HealthCheck,
-        MultiNodeClientError::NoResponsiveNodesFound {
-            latency: timeout.as_millis() as u64,
-        },
-    ))?;
+    let (node_id, client, latency) = fastest_client.ok_or_else(|| {
+        tracing::error!(
+            "no responsive nodes found, {} node(s) failed health checks",
+            failed_nodes.len()
+        );
+        ApiClientError::new(
+            ApiEndpoint::HealthCheck,
+            MultiNodeClientError::NoResponsiveNodesFound {
+                latency: timeout.as_millis() as u64,
+            },
+        )
+    })?;
 
     tracing::info!("chosen node is {} with latency {}", node_id, latency);
 

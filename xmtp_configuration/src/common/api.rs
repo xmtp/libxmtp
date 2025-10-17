@@ -70,6 +70,6 @@ impl GrpcUrls {
 pub struct InternalDockerUrls;
 impl InternalDockerUrls {
     pub const NODE: &'static str = "http://node:5556";
-    pub const XMTPD: &'static str = "http://repnode:5050";
+    pub const XMTPD: &'static str = "http://xmtpd:5050";
     pub const GATEWAY: &'static str = "http://gateway:5052";
 }
