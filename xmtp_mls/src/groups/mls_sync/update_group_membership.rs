@@ -41,6 +41,7 @@ pub(crate) async fn apply_update_group_membership_intent(
     if leaf_nodes_to_remove.is_empty()
         && changes_with_kps.new_key_packages.is_empty()
         && membership_diff.updated_inboxes.is_empty()
+        && changes_with_kps.new_installations.is_empty()
     {
         return Ok(None);
     }
