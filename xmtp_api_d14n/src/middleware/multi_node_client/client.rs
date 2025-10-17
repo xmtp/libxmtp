@@ -70,7 +70,7 @@ impl Client for MultiNodeClient {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl IsConnectedCheck for MultiNodeClient {
     async fn is_connected(&self) -> bool {
-        self.gateway_client.is_connected().await && self.inner.get().unwrap().is_connected().await
+        self.gateway_client.is_connected().await
     }
 }
 
