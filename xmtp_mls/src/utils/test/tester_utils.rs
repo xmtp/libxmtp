@@ -130,6 +130,7 @@ impl LocalTester for Tester<PrivateKeySigner, FullXmtpClient> {
     }
 }
 
+#[allow(async_fn_in_trait)]
 pub trait LocalTesterBuilder<Owner, C>
 where
     Owner: InboxOwner,
@@ -320,7 +321,7 @@ where
 }
 
 #[derive(Clone)]
-enum ApiEndpoint {
+pub enum ApiEndpoint {
     Local,
     Dev,
 }
@@ -404,74 +405,54 @@ where
         self
     }
 
-    pub fn sync_worker(self) -> Self {
-        Self {
-            sync_mode: SyncWorkerMode::Enabled,
-            ..self
-        }
+    pub fn sync_worker(mut self) -> Self {
+        self.sync_mode = SyncWorkerMode::Enabled;
+        self
     }
 
-    pub fn sync_server(self) -> Self {
-        Self {
-            sync_url: Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
-            ..self
-        }
+    pub fn sync_server(mut self) -> Self {
+        self.sync_url = Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string());
+        self
     }
 
-    pub fn ephemeral_db(self) -> Self {
-        Self {
-            ephemeral_db: true,
-            ..self
-        }
+    pub fn ephemeral_db(mut self) -> Self {
+        self.ephemeral_db = true;
+        self
     }
 
-    pub fn in_memory_cursors(self) -> Self {
-        Self {
-            in_memory_cursors: true,
-            ..self
-        }
+    pub fn in_memory_cursors(mut self) -> Self {
+        self.in_memory_cursors = true;
+        self
     }
 
-    pub fn stream(self) -> Self {
-        Self {
-            stream: true,
-            ..self
-        }
+    pub fn stream(mut self) -> Self {
+        self.stream = true;
+        self
     }
 
-    pub fn proxy(self) -> Self {
-        Self {
-            proxy: true,
-            ..self
-        }
+    pub fn proxy(mut self) -> Self {
+        self.proxy = true;
+        self
     }
 
-    pub fn with_commit_log_worker(self, enabled: bool) -> Self {
-        Self {
-            commit_log_worker: enabled,
-            ..self
-        }
+    pub fn with_commit_log_worker(mut self, enabled: bool) -> Self {
+        self.commit_log_worker = enabled;
+        self
     }
 
-    pub fn events(self) -> Self {
-        Self {
-            events: true,
-            ..self
-        }
+    pub fn events(mut self) -> Self {
+        self.events = true;
+        self
     }
 
-    pub fn installation(self) -> Self {
-        Self {
-            installation: true,
-            ..self
-        }
+    pub fn installation(mut self) -> Self {
+        self.installation = true;
+        self
     }
 
-    pub fn do_not_wait_for_init(self) -> Self {
-        Self {
-            wait_for_init: false,
-            ..self
-        }
+    pub fn do_not_wait_for_init(mut self) -> Self {
+        self.wait_for_init = false;
+        self
     }
 
     pub fn sync_mode(self, sync_mode: SyncWorkerMode) -> Self {
