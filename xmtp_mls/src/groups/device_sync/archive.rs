@@ -80,7 +80,7 @@ mod tests {
     #![allow(unused)]
     use super::*;
     use crate::groups::send_message_opts::SendMessageOpts;
-    use crate::utils::Tester;
+    use crate::utils::{LocalTester, Tester};
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::wait_for_min_intents,
     };
