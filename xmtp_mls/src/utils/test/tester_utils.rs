@@ -1,6 +1,7 @@
 #![allow(unused)]
 
 use super::FullXmtpClient;
+use async_trait::async_trait;
 use xmtp_api_d14n::protocol::InMemoryCursorStore;
 use xmtp_configuration::{DeviceSyncUrls, DockerUrls};
 
@@ -52,9 +53,9 @@ use xmtp_id::{
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
-use xmtp_proto::api_client::ApiBuilder;
 use xmtp_proto::prelude::XmtpTestClient;
 use xmtp_proto::{TestApiBuilder, ToxicProxies};
+use xmtp_proto::{api_client::ApiBuilder, xmtp::message_contents::PrivateKey};
 
 type XmtpMlsProvider = XmtpOpenMlsProvider<Arc<TestMlsStorage>>;
 
@@ -81,13 +82,14 @@ macro_rules! tester {
     };
 
     ($name:ident $(, $k:ident $(: $v:expr)?)*) => {
-        let builder = $crate::utils::Tester::builder();
+        let builder = $crate::utils::TesterBuilder::new();
         tester!(@process builder ; $name $(, $k $(: $v)?)*)
     };
 
     (@process $builder:expr ; $name:ident) => {
         let $name = {
             use tracing::Instrument;
+
             use $crate::utils::LocalTesterBuilder;
             let span = tracing::info_span!(stringify!($name));
             $builder.build().instrument(span).await
@@ -103,23 +105,31 @@ macro_rules! tester {
     };
 }
 
-impl Tester<PrivateKeySigner, FullXmtpClient> {
-    pub(crate) async fn new() -> Tester<PrivateKeySigner, FullXmtpClient> {
+#[async_trait]
+pub trait LocalTester {
+    async fn new() -> Tester<PrivateKeySigner, FullXmtpClient>;
+    async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient>;
+    fn builder() -> TesterBuilder<PrivateKeySigner>;
+}
+
+#[async_trait]
+impl LocalTester for Tester<PrivateKeySigner, FullXmtpClient> {
+    async fn new() -> Tester<PrivateKeySigner, FullXmtpClient> {
         let wallet = generate_local_wallet();
         Tester::new_with_owner(wallet).await
     }
 
-    pub(crate) async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient> {
+    async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient> {
         let passkey_user = PasskeyUser::new().await;
         Tester::new_with_owner(passkey_user).await
     }
 
-    pub(crate) fn builder() -> TesterBuilder<PrivateKeySigner> {
+    fn builder() -> TesterBuilder<PrivateKeySigner> {
         TesterBuilder::new()
     }
 }
 
-pub(crate) trait LocalTesterBuilder<Owner, C>
+pub trait LocalTesterBuilder<Owner, C>
 where
     Owner: InboxOwner,
 {
@@ -204,7 +214,7 @@ impl<Owner> Tester<Owner, FullXmtpClient>
 where
     Owner: InboxOwner + Clone + 'static,
 {
-    pub(crate) async fn new_with_owner(owner: Owner) -> Self {
+    pub async fn new_with_owner(owner: Owner) -> Self {
         TesterBuilder::new().owner(owner).build().await
     }
 

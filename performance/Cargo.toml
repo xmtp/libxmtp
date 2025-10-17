@@ -1,0 +1,24 @@
+[package]
+name = "performance"
+edition = "2024"
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "streaming"
+path = "src/streaming.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap = { version =  "4.5.49", features = ["derive"] }
+futures.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+xmtp_mls = { workspace = true, features = ["test-utils"] }
+
+[lints]
+workspace = true
+
+[features]
+bench = []
+test-utils = []

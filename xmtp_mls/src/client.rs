@@ -968,7 +968,7 @@ pub(crate) mod tests {
     use crate::identity::IdentityError;
     use crate::subscriptions::StreamMessages;
     use crate::tester;
-    use crate::utils::{LocalTesterBuilder, Tester};
+    use crate::utils::{LocalTester, LocalTesterBuilder, Tester};
     use crate::{builder::ClientBuilder, identity::serialize_key_package_hash_ref};
     use diesel::RunQueryDsl;
     use futures::TryStreamExt;
