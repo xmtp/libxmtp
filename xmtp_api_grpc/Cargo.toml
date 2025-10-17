@@ -47,7 +47,7 @@ tower = { workspace = true, default-features = true }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 tonic-web-wasm-client.workspace = true
-tonic = { workspace = true, features = ["codegen"] }
+tonic = { workspace = true }
 hyper = { version = "1.6", default-features = false }
 tower = { workspace = true }
 

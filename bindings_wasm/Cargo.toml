@@ -18,7 +18,7 @@ pin-project-lite = { workspace = true }
 prost.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde-wasm-bindgen = "0.6.5"
-serde_bytes = "0.11.19"
+serde_bytes = "0.11"
 tracing = { workspace = true, features = ["release_max_level_debug"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 tracing-web = "0.1"

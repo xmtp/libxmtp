@@ -23,7 +23,7 @@ prost = { workspace = true, features = ["derive"] }
 prost-types = "0.14"
 serde = { workspace = true }
 thiserror.workspace = true
-tonic = { workspace = true, default-features = false, features = ["codegen"] }
+tonic = { workspace = true, default-features = false }
 tonic-prost = "0.14"
 tracing.workspace = true
 xmtp_common.workspace = true
@@ -63,6 +63,7 @@ color-eyre.workspace = true
 relative-path = "2"
 xshell = "0.2"
 pbjson-build = "0.8"
+tonic = { workspace = true, features = ["codegen"] }
 # this puts protoc on path with std::env::set_var("PROTOC", protobuf_src::protoc());
 # but takes forever to compile
 # protobuf-src = "2.1"
@@ -77,3 +78,4 @@ test-utils = [
   "dep:tokio",
   "dep:toxiproxy_rust",
 ]
+grpc_server_impls = ["tonic/codegen"]
