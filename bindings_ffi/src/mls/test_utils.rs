@@ -4,7 +4,7 @@ use alloy::signers::local::PrivateKeySigner;
 use xmtp_common::{TestLogReplace, tmp_path};
 use xmtp_configuration::GrpcUrls;
 use xmtp_id::InboxOwner;
-use xmtp_mls::utils::test::tester_utils::*;
+use xmtp_mls::utils::{PasskeyUser, Tester, TesterBuilder};
 
 use crate::inbox_owner::FfiInboxOwner;
 

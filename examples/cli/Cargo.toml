@@ -20,8 +20,13 @@ path = "stream-monitor.rs"
 name = "message-sender"
 path = "message-sender.rs"
 
+[[bin]]
+name = "bench"
+path = "benchmarks/streaming/main.rs"
+
 [dependencies]
 alloy = { workspace = true, features = ["signer-mnemonic"] }
+anyhow.workspace = true
 chrono.workspace = true
 clap = { version = "4.4.6", features = ["derive"] }
 color-eyre = "0.6"
@@ -56,5 +61,5 @@ xmtp_content_types = { workspace = true }
 xmtp_cryptography = { workspace = true }
 xmtp_db = { workspace = true }
 xmtp_id = { workspace = true }
-xmtp_mls = { workspace = true }
+xmtp_mls = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true }

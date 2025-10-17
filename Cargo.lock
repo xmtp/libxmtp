@@ -8493,6 +8493,7 @@ name = "xmtp_cli"
 version = "1.6.0-dev"
 dependencies = [
  "alloy",
+ "anyhow",
  "chrono",
  "clap",
  "color-eyre",
