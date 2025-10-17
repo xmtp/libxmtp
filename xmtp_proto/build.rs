@@ -12,29 +12,35 @@ fn codegen_configure(builder: Builder) -> Builder {
         .build_transport(false)
         .server_mod_attribute(
             "xmtp.identity.api.v1",
-            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
         )
         .server_mod_attribute(
             "xmtp.mls_validation.v1",
-            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
         )
         .server_mod_attribute(
             "xmtp.message_api.v1",
-            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
         )
-        .server_mod_attribute("xmtp.mls.api.v1", r#"#[cfg(not(target_arch = "wasm32"))]"#)
-        .server_mod_attribute("xmtp.xmtpv4", r#"#[cfg(not(target_arch = "wasm32"))]"#)
+        .server_mod_attribute(
+            "xmtp.mls.api.v1",
+            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
+        )
+        .server_mod_attribute(
+            "xmtp.xmtpv4",
+            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
+        )
         .server_mod_attribute(
             "xmtp.xmtpv4.payer_api",
-            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
         )
         .server_mod_attribute(
             "xmtp.xmtpv4.message_api",
-            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
         )
         .server_mod_attribute(
             "xmtp.xmtpv4.metadata_api",
-            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
         )
 }
 
@@ -139,6 +145,7 @@ fn main() -> Result<()> {
         // include can be used to generate the mod.rs file, before
         // editing it to include serde additions
         // .include_file("mod.rs")
+        .build_client(false)
         .compile_with_config(config, &files, &includes)
         .expect("Failed to compile protos");
     let descriptors = std::fs::read(&descriptor_path)?;
