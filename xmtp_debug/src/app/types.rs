@@ -20,6 +20,7 @@ pub struct EthereumWallet(SigningKey<k256::Secp256k1>);
 
 impl EthereumWallet {
     pub fn into_alloy(self) -> PrivateKeySigner {
+        #[allow(deprecated)]
         PrivateKeySigner::from_slice(self.0.to_bytes().as_slice()).expect("Should never fail")
     }
 
@@ -80,6 +81,7 @@ impl Identity {
         let mut inbox_id = [0u8; 32];
         let mut eth_key = [0u8; 32];
         hex::decode_to_slice(identity.inbox_id.clone(), &mut inbox_id)?;
+        #[allow(deprecated)]
         eth_key.copy_from_slice(wallet.0.to_bytes().as_slice());
         Ok(Identity {
             inbox_id,

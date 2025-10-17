@@ -5,6 +5,7 @@ use async_compression::futures::bufread::ZstdDecoder;
 use futures::{FutureExt, Stream, StreamExt};
 use futures_util::{AsyncBufRead, AsyncReadExt};
 use prost::Message;
+#[allow(deprecated)]
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::{pin::Pin, task::Poll};
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
@@ -18,6 +19,7 @@ pub struct ArchiveImporter {
     decoder: ZstdDecoder<Pin<Box<dyn AsyncBufRead + Send>>>,
 
     cipher: AesGcm<Aes256, typenum::U12, typenum::U16>,
+    #[allow(deprecated)]
     nonce: GenericArray<u8, typenum::U12>,
 }
 
@@ -80,7 +82,9 @@ impl ArchiveImporter {
             decoded: vec![],
             metadata: BackupMetadata::default(),
 
+            #[allow(deprecated)]
             cipher: Aes256Gcm::new(GenericArray::from_slice(key)),
+            #[allow(deprecated)]
             nonce: GenericArray::from(nonce),
         };
 

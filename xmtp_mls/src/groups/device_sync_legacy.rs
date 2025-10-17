@@ -8,6 +8,7 @@ use crate::context::XmtpSharedContext;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::worker::metrics::WorkerMetrics;
 use crate::{Client, subscriptions::LocalEvents};
+#[allow(deprecated)]
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
     Aes256Gcm,
@@ -346,7 +347,9 @@ where
         let (nonce, ciphertext) = payload.split_at(NONCE_SIZE);
 
         // Create a cipher instance
+        #[allow(deprecated)]
         let cipher = Aes256Gcm::new(GenericArray::from_slice(enc_key));
+        #[allow(deprecated)]
         let nonce_array = GenericArray::from_slice(nonce);
 
         // Decrypt the ciphertext
@@ -590,7 +593,9 @@ fn encrypt_syncables_with_key(
     let mut result = generate_nonce().to_vec();
 
     // create a cipher instance
+    #[allow(deprecated)]
     let cipher = Aes256Gcm::new(GenericArray::from_slice(enc_key_bytes));
+    #[allow(deprecated)]
     let nonce_array = GenericArray::from_slice(&result);
 
     // encrypt the payload and append to the result
