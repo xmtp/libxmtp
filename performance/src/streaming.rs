@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use futures::{StreamExt, future::join_all};
+use futures::{StreamExt, TryStreamExt, future::join_all};
 use indicatif::ProgressBar;
 use std::{
     sync::{
@@ -16,6 +16,8 @@ use tokio::{
     },
     time::{sleep, timeout},
 };
+use xmtp_api_grpc::{GrpcClient, error::GrpcError};
+
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 use xmtp_mls::tester;
@@ -57,7 +59,8 @@ async fn main() -> Result<()> {
         // build but do not install the subscriber.
         .init();
 
-    let args = Args::parse();
+    let mut args = Args::parse();
+
     let num_msgs = args.senders * args.count;
     let app = App {
         ctx: Arc::new(Context {
@@ -81,7 +84,7 @@ async fn main() -> Result<()> {
         fut
     };
 
-    // Sleep to allow rx to receive welcomes
+    // Sleep to allow rx to receive welcomes and set up stream
     sleep(Duration::from_secs(1)).await;
 
     let start = Instant::now();
@@ -153,8 +156,13 @@ async fn setup_send_messages(
 ) -> Result<impl Future<Output = ()>> {
     let mut futs = Vec::with_capacity(ctx.args.senders as usize);
     for _ in 0..ctx.args.senders {
-        futs.push(send_messages(inbox_id.clone(), ctx.clone()).await?);
+        futs.push(send_messages(inbox_id.clone(), ctx.clone()));
     }
+
+    let futs: Vec<_> = futures::stream::iter(futs)
+        .buffer_unordered(10)
+        .try_collect()
+        .await?;
 
     Ok(async move {
         join_all(futs).await;
@@ -165,7 +173,7 @@ async fn send_messages(
     inbox_id: String,
     ctx: Arc<Context>,
 ) -> Result<impl Future<Output = Result<()>>> {
-    tester!(bodashery);
+    tester!(bodashery, ephemeral_db);
     let dm = bodashery
         .find_or_create_dm_by_inbox_id(inbox_id, None)
         .await?;

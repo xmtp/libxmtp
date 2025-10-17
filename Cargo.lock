@@ -4891,6 +4891,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "xmtp_api_grpc",
  "xmtp_mls",
 ]
 

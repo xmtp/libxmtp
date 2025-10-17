@@ -12,7 +12,7 @@ use crate::{
     context::XmtpSharedContext,
     groups::device_sync::worker::SyncMetric,
     subscriptions::SubscribeError,
-    utils::{TestClient, TestMlsStorage, VersionInfo, register_client},
+    utils::{TestClient, TestMlsStorage, VersionInfo, register_client, test::identity_setup},
     worker::metrics::WorkerMetrics,
 };
 use alloy::signers::local::PrivateKeySigner;
@@ -41,8 +41,8 @@ use xmtp_common::TestLogReplace;
 use xmtp_configuration::LOCALHOST;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
 use xmtp_db::{
-    MlsProviderExt, XmtpOpenMlsProvider, group_message::StoredGroupMessage,
-    sql_key_store::SqlKeyStore,
+    EncryptedMessageStore, MlsProviderExt, NativeDb, StorageOption, XmtpOpenMlsProvider,
+    group_message::StoredGroupMessage, sql_key_store::SqlKeyStore,
 };
 use xmtp_id::{
     InboxOwner,
@@ -149,8 +149,12 @@ where
             let ident = self.owner.get_identifier().unwrap();
             replace.add(&ident.to_string(), &format!("{name}_ident"));
         }
-        let mut local_client = TestClient::create_local();
-        let mut sync_api_client = TestClient::create_local();
+
+        let (mut local_client, mut sync_api_client) = match self.api_endpoint {
+            ApiEndpoint::Local => (TestClient::create_local(), TestClient::create_local()),
+            ApiEndpoint::Dev => (TestClient::create_dev(), TestClient::create_dev()),
+        };
+
         let mut proxy = None;
 
         if self.proxy {
@@ -164,20 +168,30 @@ where
         );
         let api_client = local_client.build().unwrap();
         let sync_api_client = sync_api_client.build().unwrap();
-        let mut client = ClientBuilder::new_test_builder(&self.owner)
-            .await
+
+        let strategy = identity_setup(&self.owner);
+        let mut client = Client::builder(strategy)
             .api_clients(api_client, sync_api_client)
+            .with_disable_events(Some(!self.events))
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .with_device_sync_worker_mode(Some(self.sync_mode))
             .with_device_sync_server_url(self.sync_url.clone())
             .maybe_version(self.version.clone())
-            .with_disable_events(Some(!self.events))
             .with_commit_log_worker(self.commit_log_worker);
+
+        if self.ephemeral_db {
+            let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral).unwrap();
+            let db = EncryptedMessageStore::new(db).unwrap();
+            client = client.store(db);
+        } else {
+            client = client.temp_store().await;
+        }
 
         if self.in_memory_cursors {
             client = client.cursor_store(Arc::new(InMemoryCursorStore::new()) as Arc<_>);
         }
 
-        let client = client.build().await.unwrap();
+        let client = client.default_mls_store().unwrap().build().await.unwrap();
         register_client(&client, &self.owner).await;
         if let Some(name) = &self.name {
             replace.add(
@@ -299,8 +313,16 @@ where
     pub proxy: bool,
     pub commit_log_worker: bool,
     pub in_memory_cursors: bool,
+    pub ephemeral_db: bool,
+    pub api_endpoint: ApiEndpoint,
     /// whether this builder represents a second installation
     installation: bool,
+}
+
+#[derive(Clone)]
+enum ApiEndpoint {
+    Local,
+    Dev,
 }
 
 impl TesterBuilder<PrivateKeySigner> {
@@ -324,6 +346,8 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             commit_log_worker: true, // Default to enabled to match production
             installation: false,
             in_memory_cursors: false,
+            ephemeral_db: false,
+            api_endpoint: ApiEndpoint::Local,
         }
     }
 }
@@ -349,6 +373,8 @@ where
             commit_log_worker: self.commit_log_worker,
             installation: self.installation,
             in_memory_cursors: self.in_memory_cursors,
+            ephemeral_db: self.ephemeral_db,
+            api_endpoint: self.api_endpoint,
         }
     }
 
@@ -373,6 +399,11 @@ where
         self.owner(block_on(async { PasskeyUser::new().await }))
     }
 
+    pub fn dev(mut self) -> Self {
+        self.api_endpoint = ApiEndpoint::Dev;
+        self
+    }
+
     pub fn sync_worker(self) -> Self {
         Self {
             sync_mode: SyncWorkerMode::Enabled,
@@ -383,6 +414,13 @@ where
     pub fn sync_server(self) -> Self {
         Self {
             sync_url: Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
+            ..self
+        }
+    }
+
+    pub fn ephemeral_db(self) -> Self {
+        Self {
+            ephemeral_db: true,
             ..self
         }
     }

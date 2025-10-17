@@ -17,6 +17,7 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 xmtp_mls = { workspace = true, features = ["test-utils"] }
+xmtp_api_grpc.workspace = true
 
 [lints]
 workspace = true
