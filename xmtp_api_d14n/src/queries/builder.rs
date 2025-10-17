@@ -5,6 +5,7 @@ use std::time::Duration;
 use thiserror::Error;
 use xmtp_api_grpc::error::GrpcBuilderError;
 use xmtp_api_grpc::{GrpcClient, error::GrpcError};
+use xmtp_configuration::MULTI_NODE_TIMEOUT_MS;
 use xmtp_id::scw_verifier::VerifierError;
 use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api_client::CursorAwareApi;
@@ -157,7 +158,7 @@ impl MessageBackendBuilder {
             }
 
             let mut multi_node = crate::middleware::MultiNodeClientBuilder::default();
-            multi_node.set_timeout(Duration::from_secs(100_000))?;
+            multi_node.set_timeout(Duration::from_millis(MULTI_NODE_TIMEOUT_MS))?;
             multi_node.set_tls(is_secure);
             multi_node.set_gateway_builder(gateway_client_builder.clone())?;
 

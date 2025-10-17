@@ -3,6 +3,7 @@ use thiserror::Error;
 use tokio::sync::OnceCell;
 use xmtp_api_grpc::{ClientBuilder, GrpcClient, error::GrpcBuilderError};
 use xmtp_common::time::Duration;
+use xmtp_configuration::MULTI_NODE_TIMEOUT_MS;
 use xmtp_proto::{api_client::ApiBuilder, types::AppVersion};
 
 /* MultiNodeClientBuilder struct and its associated errors */
@@ -32,7 +33,7 @@ impl Default for MultiNodeClientBuilder {
     fn default() -> Self {
         Self {
             gateway_builder: None,
-            timeout: Duration::from_millis(1000),
+            timeout: Duration::from_millis(MULTI_NODE_TIMEOUT_MS),
             node_client_template: GrpcClient::builder(),
         }
     }

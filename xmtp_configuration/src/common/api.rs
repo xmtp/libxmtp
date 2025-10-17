@@ -5,6 +5,11 @@ pub const LOCALHOST: &str = "http://localhost";
 /// should match GRPC_PAYLOAD_LIMIT in xmtp_api_grpc crate
 pub const GRPC_PAYLOAD_LIMIT: usize = 1024 * 1024 * 25;
 
+/// The timeout used by the multi-node client for:
+/// - connect to the gateway and retrieve the list of nodes
+/// - connect to nodes and perform a health check
+pub const MULTI_NODE_TIMEOUT_MS: u64 = 30_000;
+
 pub struct DeviceSyncUrls;
 impl DeviceSyncUrls {
     pub const LOCAL_ADDRESS: &'static str = "http://0.0.0.0:5558";
