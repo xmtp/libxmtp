@@ -902,13 +902,14 @@ mod tests {
     use xmtp_proto::types::TopicKind;
 
     async fn get_key_package_from_network(client: &FullXmtpClient) -> VerifiedKeyPackageV2 {
-        let kp_mapping = client
+        let mut kp_mapping = client
             .get_key_packages_for_installation_ids(vec![client.installation_public_key().to_vec()])
             .await
             .unwrap();
 
-        kp_mapping[&client.installation_public_key().to_vec()]
-            .clone()
+        kp_mapping
+            .remove(client.installation_public_key().as_slice())
+            .unwrap()
             .unwrap()
     }
 
