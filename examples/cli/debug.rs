@@ -65,7 +65,11 @@ pub async fn debug_welcome_messages(
         .await
         .unwrap();
     for envelope in envelopes {
-        let body = match MlsMessageIn::tls_deserialize_exact(&envelope.data)
+        let Some(v1) = envelope.as_v1() else {
+            tracing::debug!("Welcome pointers not supported");
+            continue;
+        };
+        let body = match MlsMessageIn::tls_deserialize_exact(&v1.data)
             .map_err(|e| e.to_string())?
             .extract()
         {

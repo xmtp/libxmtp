@@ -414,7 +414,7 @@ impl<'env> ProtocolEnvelope<'env> for welcome_message::Version {
     {
         match self {
             welcome_message::Version::V1(v1) => visitor.visit_v3_welcome_message(v1)?,
-            welcome_message::Version::WelcomePointer(_) => todo!("Handle WelcomePointer"),
+            welcome_message::Version::WelcomePointer(wp) => visitor.visit_v3_welcome_pointer(wp)?,
         }
         Ok(())
     }
