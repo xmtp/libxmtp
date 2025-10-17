@@ -13,9 +13,7 @@ use xmtp_proto::prelude::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
 use xmtp_proto::{api::ApiClientError, types::AppVersion};
 
 use crate::protocol::{CursorStore, InMemoryCursorStore, XmtpQuery};
-use crate::{
-    D14nClient, MiddlewareBuilder, MultiNodeClientBuilder, MultiNodeClientBuilderError, V3Client,
-};
+use crate::{D14nClient, MiddlewareBuilder, MultiNodeClientBuilderError, V3Client};
 mod impls;
 
 /// Builder to access the backend XMTP API
@@ -150,18 +148,21 @@ impl MessageBackendBuilder {
             cursor_store.unwrap_or(Arc::new(InMemoryCursorStore::default()) as Arc<_>);
 
         if let Some(gateway) = gateway_host {
-            let mut gateway_client = GrpcClient::builder();
-            gateway_client.set_host(gateway);
-            gateway_client.set_tls(is_secure);
+            let mut gateway_client_builder = GrpcClient::builder();
+            gateway_client_builder.set_host(gateway);
+            gateway_client_builder.set_tls(is_secure);
+
             if let Some(version) = app_version {
-                gateway_client.set_app_version(version)?;
+                gateway_client_builder.set_app_version(version)?;
             }
-            let gateway_client = gateway_client.build()?;
-            let mut multi_node = crate::multi_node::builder();
+
+            let mut multi_node = crate::middleware::MultiNodeClientBuilder::default();
             multi_node.set_timeout(Duration::from_secs(100_000))?;
             multi_node.set_tls(is_secure);
-            multi_node.set_gateway_client(gateway_client.clone())?;
-            let multi_node = <MultiNodeClientBuilder as ApiBuilder>::build(multi_node)?;
+            multi_node.set_gateway_builder(gateway_client_builder.clone())?;
+
+            let gateway_client = gateway_client_builder.build()?;
+            let multi_node = multi_node.build()?;
 
             Ok(D14nClient::new(multi_node, gateway_client, cursor_store)?.arced())
         } else {

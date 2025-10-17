@@ -34,7 +34,7 @@ pub async fn get_nodes(
         Ok(response.nodes.len())
     }?;
 
-    tracing::debug!("got nodes from gateway: {:?}", response.nodes);
+    tracing::info!("got nodes from gateway: {:?}", response.nodes);
 
     let mut clients: HashMap<u32, GrpcClient> = HashMap::new();
 
@@ -140,6 +140,7 @@ pub async fn get_fastest_node(
     while let Some(res) = stream.next().await {
         match res {
             Ok((node_id, client, latency)) => {
+                tracing::debug!("node {} has latency {}ms", node_id, latency);
                 if fastest_client
                     .as_ref()
                     .map(|f| latency < f.2)
@@ -168,7 +169,7 @@ pub async fn get_fastest_node(
         )
     })?;
 
-    tracing::info!("chosen node is {} with latency {}", node_id, latency);
+    tracing::info!("chosen node is {} with latency {}ms", node_id, latency);
 
     Ok(client)
 }

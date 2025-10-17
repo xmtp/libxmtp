@@ -3,7 +3,7 @@ use prost::bytes::Bytes;
 use tokio::sync::OnceCell;
 use xmtp_api_grpc::{ClientBuilder, GrpcClient, error::GrpcError};
 use xmtp_common::time::Duration;
-use xmtp_proto::api::{ApiClientError, Client};
+use xmtp_proto::api::{ApiClientError, Client, IsConnectedCheck};
 
 /* MultiNodeClient struct and its implementations */
 
@@ -66,11 +66,23 @@ impl Client for MultiNodeClient {
     }
 }
 
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl IsConnectedCheck for MultiNodeClient {
+    async fn is_connected(&self) -> bool {
+        self.gateway_client.is_connected().await && self.inner.get().unwrap().is_connected().await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::D14nClient;
-    use crate::middleware::{MiddlewareBuilder, MultiNodeClientBuilder};
+    use crate::{
+        middleware::{MiddlewareBuilder, MultiNodeClientBuilder},
+        protocol::InMemoryCursorStore,
+        queries::D14nClient,
+    };
+    use std::sync::Arc;
     use xmtp_configuration::GrpcUrls;
     use xmtp_proto::api::Query;
     use xmtp_proto::api_client::ApiBuilder;
@@ -82,6 +94,10 @@ mod tests {
             .expect("valid gateway url")
             .scheme()
             == "https"
+    }
+
+    fn create_in_memory_cursor_store() -> Arc<InMemoryCursorStore> {
+        Arc::new(InMemoryCursorStore::default())
     }
 
     fn create_gateway_builder() -> ClientBuilder {
@@ -112,7 +128,9 @@ mod tests {
         D14nClient::new(
             create_multinode_client_builder().into_client().unwrap(),
             create_gateway_builder().build().unwrap(),
+            create_in_memory_cursor_store(),
         )
+        .unwrap()
     }
 
     fn create_node_client_template(tls: bool) -> xmtp_api_grpc::ClientBuilder {
@@ -158,7 +176,7 @@ mod tests {
     /// This test also serves as an example of how to use the MultiNodeClientBuilder and D14nClientBuilder.
     #[xmtp_common::test]
     async fn build_multinode_as_d14n() {
-        use crate::D14nClientBuilder;
+        use crate::D14nClient;
         use xmtp_proto::prelude::ApiBuilder;
 
         // 1) Create gateway builder.
@@ -187,9 +205,12 @@ mod tests {
         // multi_node_builder.set_libxmtp_version("1.0.0".into())?;
         // multi_node_builder.set_retry(Retry::default());
 
-        // 3) Build D14n client with both builders
-        // D14nClientBuilder.build() will call both builders' build() methods!
-        let _d14n = D14nClientBuilder::new(multi_node_builder, gateway_builder);
+        let cursor_store = create_in_memory_cursor_store();
+        let multi_node_client = multi_node_builder.into_client().unwrap();
+        let gateway_client = gateway_builder.build().unwrap();
+
+        // 3) Build D14n client with both clients
+        let _d14n = D14nClient::new(multi_node_client, gateway_client, cursor_store).unwrap();
     }
 
     /// This test also serves as an example of how to use the MultiNodeClientBuilder standalone.
@@ -216,12 +237,12 @@ mod tests {
         let client = create_d14n_client();
         let id: GroupId = GroupId::from(vec![]);
         let response = client.query_latest_group_message(id).await;
-
         match response {
             Err(e) => {
-                // The query should throw UninitializedFieldError(cursor).
                 let err_str = e.to_string();
-                assert!(err_str.contains("cursor"));
+                // The query shouldn't return a valid message.
+                // But it shouldn't return any other type of error.
+                assert!(err_str.contains("missing field group_message"));
             }
             Ok(_) => panic!("expected error for empty group id"),
         }
