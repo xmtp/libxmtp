@@ -11,15 +11,16 @@ import uniffi.xmtpv3.encodeMultiRemoteAttachment
 import java.net.URI
 import java.net.URL
 
-val ContentTypeMultiRemoteAttachment = ContentTypeIdBuilder.builderFromAuthorityId(
-    "xmtp.org",
-    "multiRemoteStaticAttachment",
-    versionMajor = 1,
-    versionMinor = 0,
-)
+val ContentTypeMultiRemoteAttachment =
+    ContentTypeIdBuilder.builderFromAuthorityId(
+        "xmtp.org",
+        "multiRemoteStaticAttachment",
+        versionMajor = 1,
+        versionMinor = 0,
+    )
 
 data class MultiRemoteAttachment(
-    val remoteAttachments: List<RemoteAttachmentInfo>
+    val remoteAttachments: List<RemoteAttachmentInfo>,
 )
 
 data class RemoteAttachmentInfo(
@@ -30,10 +31,13 @@ data class RemoteAttachmentInfo(
     val nonce: ByteString,
     val scheme: String,
     val salt: ByteString,
-    val secret: ByteString
+    val secret: ByteString,
 ) {
     companion object {
-        fun from(url: URL, encryptedEncodedContent: EncryptedEncodedContent): RemoteAttachmentInfo {
+        fun from(
+            url: URL,
+            encryptedEncodedContent: EncryptedEncodedContent,
+        ): RemoteAttachmentInfo {
             if (URI(url.toString()).scheme != "https") {
                 throw XMTPException("scheme must be https://")
             }
@@ -46,48 +50,51 @@ data class RemoteAttachmentInfo(
                 nonce = encryptedEncodedContent.nonce,
                 scheme = URI(url.toString()).scheme,
                 contentLength = encryptedEncodedContent.contentLength?.toLong() ?: 0,
-                filename = encryptedEncodedContent.filename ?: ""
+                filename = encryptedEncodedContent.filename ?: "",
             )
         }
     }
 }
 
-data class MultiRemoteAttachmentCodec(override var contentType: ContentTypeId = ContentTypeMultiRemoteAttachment) :
-    ContentCodec<MultiRemoteAttachment> {
-
+data class MultiRemoteAttachmentCodec(
+    override var contentType: ContentTypeId = ContentTypeMultiRemoteAttachment,
+) : ContentCodec<MultiRemoteAttachment> {
     override fun encode(content: MultiRemoteAttachment): EncodedContent {
-        val ffiMultiRemoteAttachment = FfiMultiRemoteAttachment(
-            attachments = content.remoteAttachments.map { attachment ->
-                FfiRemoteAttachmentInfo(
-                    url = attachment.url,
-                    filename = attachment.filename,
-                    contentDigest = attachment.contentDigest,
-                    nonce = attachment.nonce.toByteArray(),
-                    scheme = attachment.scheme,
-                    salt = attachment.salt.toByteArray(),
-                    secret = attachment.secret.toByteArray(),
-                    contentLength = attachment.contentLength.toUInt(),
-                )
-            }
-        )
+        val ffiMultiRemoteAttachment =
+            FfiMultiRemoteAttachment(
+                attachments =
+                    content.remoteAttachments.map { attachment ->
+                        FfiRemoteAttachmentInfo(
+                            url = attachment.url,
+                            filename = attachment.filename,
+                            contentDigest = attachment.contentDigest,
+                            nonce = attachment.nonce.toByteArray(),
+                            scheme = attachment.scheme,
+                            salt = attachment.salt.toByteArray(),
+                            secret = attachment.secret.toByteArray(),
+                            contentLength = attachment.contentLength.toUInt(),
+                        )
+                    },
+            )
         return EncodedContent.parseFrom(encodeMultiRemoteAttachment(ffiMultiRemoteAttachment))
     }
 
     override fun decode(content: EncodedContent): MultiRemoteAttachment {
         val ffiMultiRemoteAttachment = decodeMultiRemoteAttachment(content.toByteArray())
         return MultiRemoteAttachment(
-            remoteAttachments = ffiMultiRemoteAttachment.attachments.map { attachment ->
-                RemoteAttachmentInfo(
-                    url = attachment.url,
-                    filename = attachment.filename ?: "",
-                    contentLength = attachment.contentLength?.toLong() ?: 0,
-                    contentDigest = attachment.contentDigest,
-                    nonce = attachment.nonce.toProtoByteString(),
-                    scheme = attachment.scheme,
-                    salt = attachment.salt.toProtoByteString(),
-                    secret = attachment.secret.toProtoByteString(),
-                )
-            }
+            remoteAttachments =
+                ffiMultiRemoteAttachment.attachments.map { attachment ->
+                    RemoteAttachmentInfo(
+                        url = attachment.url,
+                        filename = attachment.filename ?: "",
+                        contentLength = attachment.contentLength?.toLong() ?: 0,
+                        contentDigest = attachment.contentDigest,
+                        nonce = attachment.nonce.toProtoByteString(),
+                        scheme = attachment.scheme,
+                        salt = attachment.salt.toProtoByteString(),
+                        secret = attachment.secret.toProtoByteString(),
+                    )
+                },
         )
     }
 
@@ -96,17 +103,21 @@ data class MultiRemoteAttachmentCodec(override var contentType: ContentTypeId = 
     override fun shouldPush(content: MultiRemoteAttachment): Boolean = true
 
     companion object {
+        fun encryptBytesForLocalAttachment(
+            bytesToEncrypt: ByteArray,
+            filename: String,
+        ): EncryptedEncodedContent = encodeEncryptedBytes(bytesToEncrypt, filename)
 
-        fun encryptBytesForLocalAttachment(bytesToEncrypt: ByteArray, filename: String): EncryptedEncodedContent {
-            return encodeEncryptedBytes(bytesToEncrypt, filename)
-        }
+        fun buildRemoteAttachmentInfo(
+            encryptedAttachment: EncryptedEncodedContent,
+            remoteUrl: URL,
+        ): RemoteAttachmentInfo = RemoteAttachmentInfo.from(remoteUrl, encryptedAttachment)
 
-        fun buildRemoteAttachmentInfo(encryptedAttachment: EncryptedEncodedContent, remoteUrl: URL): RemoteAttachmentInfo {
-            return RemoteAttachmentInfo.from(remoteUrl, encryptedAttachment)
-        }
-
-        fun buildEncryptAttachmentResult(remoteAttachment: RemoteAttachment, encryptedPayload: ByteArray): EncryptedEncodedContent {
-            return EncryptedEncodedContent(
+        fun buildEncryptAttachmentResult(
+            remoteAttachment: RemoteAttachment,
+            encryptedPayload: ByteArray,
+        ): EncryptedEncodedContent =
+            EncryptedEncodedContent(
                 remoteAttachment.contentDigest,
                 remoteAttachment.secret,
                 remoteAttachment.salt,
@@ -115,7 +126,6 @@ data class MultiRemoteAttachmentCodec(override var contentType: ContentTypeId = 
                 remoteAttachment.contentLength,
                 remoteAttachment.filename,
             )
-        }
 
         fun decryptAttachment(encryptedAttachment: EncryptedEncodedContent): EncodedContent {
             val decrypted = decryptEncoded(encryptedAttachment)
@@ -125,6 +135,4 @@ data class MultiRemoteAttachmentCodec(override var contentType: ContentTypeId = 
     }
 }
 
-private fun ByteArray.toProtoByteString(): ByteString {
-    return ByteString.copyFrom(this)
-}
+private fun ByteArray.toProtoByteString(): ByteString = ByteString.copyFrom(this)

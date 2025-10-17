@@ -4,19 +4,23 @@ import uniffi.xmtpv3.FfiIdentifier
 import uniffi.xmtpv3.FfiIdentifierKind
 
 enum class IdentityKind {
-    ETHEREUM, PASSKEY
+    ETHEREUM,
+    PASSKEY,
 }
 
-class PublicIdentity(val ffiPrivate: FfiIdentifier) {
+class PublicIdentity(
+    val ffiPrivate: FfiIdentifier,
+) {
     constructor(
         kind: IdentityKind,
         identifier: String,
     ) :
         this(
-            ffiPrivate = FfiIdentifier(
-                identifier,
-                kind.toFfiPublicIdentifierKind(),
-            ),
+            ffiPrivate =
+                FfiIdentifier(
+                    identifier,
+                    kind.toFfiPublicIdentifierKind(),
+                ),
         )
 
     val kind: IdentityKind
@@ -26,16 +30,14 @@ class PublicIdentity(val ffiPrivate: FfiIdentifier) {
         get() = ffiPrivate.identifier.lowercase()
 }
 
-fun IdentityKind.toFfiPublicIdentifierKind(): FfiIdentifierKind {
-    return when (this) {
+fun IdentityKind.toFfiPublicIdentifierKind(): FfiIdentifierKind =
+    when (this) {
         IdentityKind.ETHEREUM -> FfiIdentifierKind.ETHEREUM
         IdentityKind.PASSKEY -> FfiIdentifierKind.PASSKEY
     }
-}
 
-fun FfiIdentifierKind.toIdentityKind(): IdentityKind {
-    return when (this) {
+fun FfiIdentifierKind.toIdentityKind(): IdentityKind =
+    when (this) {
         FfiIdentifierKind.ETHEREUM -> IdentityKind.ETHEREUM
         FfiIdentifierKind.PASSKEY -> IdentityKind.PASSKEY
     }
-}

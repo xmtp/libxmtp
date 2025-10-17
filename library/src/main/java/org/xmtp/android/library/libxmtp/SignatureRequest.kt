@@ -2,7 +2,9 @@ package org.xmtp.android.library.libxmtp
 
 import uniffi.xmtpv3.FfiSignatureRequest
 
-class SignatureRequest(val ffiSignatureRequest: FfiSignatureRequest) {
+class SignatureRequest(
+    val ffiSignatureRequest: FfiSignatureRequest,
+) {
     suspend fun addScwSignature(
         signatureBytes: ByteArray,
         address: String,
@@ -16,7 +18,5 @@ class SignatureRequest(val ffiSignatureRequest: FfiSignatureRequest) {
         ffiSignatureRequest.addEcdsaSignature(signatureBytes)
     }
 
-    suspend fun signatureText(): String {
-        return ffiSignatureRequest.signatureText()
-    }
+    suspend fun signatureText(): String = ffiSignatureRequest.signatureText()
 }

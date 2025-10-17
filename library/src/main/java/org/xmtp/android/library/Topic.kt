@@ -1,8 +1,15 @@
 package org.xmtp.android.library
 
 sealed class Topic {
-    data class userWelcome(val installationId: String?) : Topic()
-    data class groupMessage(val groupId: String?) : Topic()
+    @Suppress("ktlint:standard:class-naming")
+    data class userWelcome(
+        val installationId: String?,
+    ) : Topic()
+
+    @Suppress("ktlint:standard:class-naming")
+    data class groupMessage(
+        val groupId: String?,
+    ) : Topic()
 
     val description: String
         get() {

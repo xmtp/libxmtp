@@ -17,15 +17,15 @@ import java.io.File
 import java.net.URL
 
 class RemoteAttachmentTest {
-
     @Test
     fun testEncryptedContentShouldBeDecryptable() {
         Client.register(codec = AttachmentCodec())
-        val attachment = Attachment(
-            filename = "test.txt",
-            mimeType = "text/plain",
-            data = "hello world".toByteStringUtf8(),
-        )
+        val attachment =
+            Attachment(
+                filename = "test.txt",
+                mimeType = "text/plain",
+                data = "hello world".toByteStringUtf8(),
+            )
 
         val encrypted = RemoteAttachment.encodeEncrypted(attachment, AttachmentCodec())
 
@@ -41,35 +41,39 @@ class RemoteAttachmentTest {
     @Test
     @Ignore("Flaky")
     fun testCanUseRemoteAttachmentCodec() {
-        val attachment = Attachment(
-            filename = "test.txt",
-            mimeType = "text/plain",
-            data = "hello world".toByteStringUtf8(),
-        )
+        val attachment =
+            Attachment(
+                filename = "test.txt",
+                mimeType = "text/plain",
+                data = "hello world".toByteStringUtf8(),
+            )
 
         Client.register(codec = AttachmentCodec())
         Client.register(codec = RemoteAttachmentCodec())
 
-        val encodedEncryptedContent = RemoteAttachment.encodeEncrypted(
-            content = attachment,
-            codec = AttachmentCodec(),
-        )
+        val encodedEncryptedContent =
+            RemoteAttachment.encodeEncrypted(
+                content = attachment,
+                codec = AttachmentCodec(),
+            )
 
         File("abcdefg").writeBytes(encodedEncryptedContent.payload.toByteArray())
 
-        val remoteAttachment = RemoteAttachment.from(
-            url = URL("https://abcdefg"),
-            encryptedEncodedContent = encodedEncryptedContent,
-        )
+        val remoteAttachment =
+            RemoteAttachment.from(
+                url = URL("https://abcdefg"),
+                encryptedEncodedContent = encodedEncryptedContent,
+            )
 
         remoteAttachment.contentLength = attachment.data.size()
         remoteAttachment.filename = attachment.filename
 
         val fixtures = fixtures()
         val aliceClient = fixtures.aliceClient
-        val aliceConversation = runBlocking {
-            aliceClient.conversations.newConversation(fixtures.bobClient.inboxId)
-        }
+        val aliceConversation =
+            runBlocking {
+                aliceClient.conversations.newConversation(fixtures.bobClient.inboxId)
+            }
 
         runBlocking {
             aliceConversation.send(
@@ -96,19 +100,21 @@ class RemoteAttachmentTest {
 
     @Test
     fun testCannotUseNonHTTPSURL() {
-        val attachment = Attachment(
-            filename = "test.txt",
-            mimeType = "text/plain",
-            data = "hello world".toByteStringUtf8(),
-        )
+        val attachment =
+            Attachment(
+                filename = "test.txt",
+                mimeType = "text/plain",
+                data = "hello world".toByteStringUtf8(),
+            )
 
         Client.register(codec = AttachmentCodec())
         Client.register(codec = RemoteAttachmentCodec())
 
-        val encodedEncryptedContent = RemoteAttachment.encodeEncrypted(
-            content = attachment,
-            codec = AttachmentCodec(),
-        )
+        val encodedEncryptedContent =
+            RemoteAttachment.encodeEncrypted(
+                content = attachment,
+                codec = AttachmentCodec(),
+            )
 
         File("abcdefg").writeBytes(encodedEncryptedContent.payload.toByteArray())
 
@@ -123,35 +129,39 @@ class RemoteAttachmentTest {
     @Test
     @Ignore("Flaky")
     fun testEnsuresContentDigestMatches() {
-        val attachment = Attachment(
-            filename = "test.txt",
-            mimeType = "text/plain",
-            data = "hello world".toByteStringUtf8(),
-        )
+        val attachment =
+            Attachment(
+                filename = "test.txt",
+                mimeType = "text/plain",
+                data = "hello world".toByteStringUtf8(),
+            )
 
         Client.register(codec = AttachmentCodec())
         Client.register(codec = RemoteAttachmentCodec())
 
-        val encodedEncryptedContent = RemoteAttachment.encodeEncrypted(
-            content = attachment,
-            codec = AttachmentCodec(),
-        )
+        val encodedEncryptedContent =
+            RemoteAttachment.encodeEncrypted(
+                content = attachment,
+                codec = AttachmentCodec(),
+            )
 
         File("abcdefg").writeBytes(encodedEncryptedContent.payload.toByteArray())
 
-        val remoteAttachment = RemoteAttachment.from(
-            url = URL("https://abcdefg"),
-            encryptedEncodedContent = encodedEncryptedContent,
-        )
+        val remoteAttachment =
+            RemoteAttachment.from(
+                url = URL("https://abcdefg"),
+                encryptedEncodedContent = encodedEncryptedContent,
+            )
 
         remoteAttachment.contentLength = attachment.data.size()
         remoteAttachment.filename = attachment.filename
 
         val fixtures = fixtures()
         val aliceClient = fixtures.aliceClient
-        val aliceConversation = runBlocking {
-            aliceClient.conversations.newConversation(fixtures.bobClient.inboxId)
-        }
+        val aliceConversation =
+            runBlocking {
+                aliceClient.conversations.newConversation(fixtures.bobClient.inboxId)
+            }
 
         runBlocking {
             aliceConversation.send(

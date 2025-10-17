@@ -34,7 +34,7 @@ class Dm(
     val client: Client,
     private val libXMTPGroup: FfiConversation,
     private val ffiLastMessage: FfiMessage? = null,
-    private val ffiIsCommitLogForked: Boolean? = null
+    private val ffiIsCommitLogForked: Boolean? = null,
 ) {
     val id: String
         get() = libXMTPGroup.id().toHex()
@@ -56,69 +56,89 @@ class Dm(
 
     @Deprecated(
         message = "Use suspend disappearingMessageSettings()",
-        replaceWith = ReplaceWith("disappearingMessageSettings()")
     )
     val disappearingMessageSettings: DisappearingMessageSettings?
-        get() = runCatching {
-            libXMTPGroup.takeIf { isDisappearingMessagesEnabled }
-                ?.let { group ->
-                    group.conversationMessageDisappearingSettings()
-                        ?.let { DisappearingMessageSettings.createFromFfi(it) }
-                }
-        }.getOrNull()
+        get() =
+            runCatching {
+                libXMTPGroup
+                    .takeIf { isDisappearingMessagesEnabled }
+                    ?.let { group ->
+                        group
+                            .conversationMessageDisappearingSettings()
+                            ?.let { DisappearingMessageSettings.createFromFfi(it) }
+                    }
+            }.getOrNull()
 
-    suspend fun disappearingMessageSettings(): DisappearingMessageSettings? = withContext(Dispatchers.IO) {
-        runCatching {
-            libXMTPGroup.takeIf { isDisappearingMessagesEnabled() }
-                ?.let { group ->
-                    group.conversationMessageDisappearingSettings()
-                        ?.let { DisappearingMessageSettings.createFromFfi(it) }
-                }
-        }.getOrNull()
-    }
+    suspend fun disappearingMessageSettings(): DisappearingMessageSettings? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                libXMTPGroup
+                    .takeIf { isDisappearingMessagesEnabled() }
+                    ?.let { group ->
+                        group
+                            .conversationMessageDisappearingSettings()
+                            ?.let { DisappearingMessageSettings.createFromFfi(it) }
+                    }
+            }.getOrNull()
+        }
 
     @Deprecated(
         message = "Use suspend isDisappearingMessagesEnabled()",
-        replaceWith = ReplaceWith("isDisappearingMessagesEnabled()")
     )
     val isDisappearingMessagesEnabled: Boolean
         get() = libXMTPGroup.isConversationMessageDisappearingEnabled()
 
-    suspend fun isDisappearingMessagesEnabled(): Boolean = withContext(Dispatchers.IO) {
-        libXMTPGroup.isConversationMessageDisappearingEnabled()
-    }
-
-    private suspend fun metadata(): FfiConversationMetadata = withContext(Dispatchers.IO) {
-        libXMTPGroup.groupMetadata()
-    }
-
-    suspend fun send(text: String): String = withContext(Dispatchers.IO) {
-        send(encodeContent(content = text, options = null))
-    }
-
-    suspend fun <T> send(content: T, options: SendOptions? = null): String = withContext(Dispatchers.IO) {
-        val preparedMessage = encodeContent(content = content, options = options)
-        send(preparedMessage)
-    }
-
-    suspend fun send(encodedContent: EncodedContent): String = withContext(Dispatchers.IO) {
-        val messageId = libXMTPGroup.send(contentBytes = encodedContent.toByteArray())
-        messageId.toHex()
-    }
-
-    fun <T> encodeContent(content: T, options: SendOptions?): EncodedContent {
-        val codec = Client.codecRegistry.find(options?.contentType)
-        fun <Codec : ContentCodec<T>> encode(codec: Codec, content: T): EncodedContent {
-            return codec.encode(content)
+    suspend fun isDisappearingMessagesEnabled(): Boolean =
+        withContext(Dispatchers.IO) {
+            libXMTPGroup.isConversationMessageDisappearingEnabled()
         }
+
+    private suspend fun metadata(): FfiConversationMetadata =
+        withContext(Dispatchers.IO) {
+            libXMTPGroup.groupMetadata()
+        }
+
+    suspend fun send(text: String): String =
+        withContext(Dispatchers.IO) {
+            send(encodeContent(content = text, options = null))
+        }
+
+    suspend fun <T> send(
+        content: T,
+        options: SendOptions? = null,
+    ): String =
+        withContext(Dispatchers.IO) {
+            val preparedMessage = encodeContent(content = content, options = options)
+            send(preparedMessage)
+        }
+
+    suspend fun send(encodedContent: EncodedContent): String =
+        withContext(Dispatchers.IO) {
+            val messageId = libXMTPGroup.send(contentBytes = encodedContent.toByteArray())
+            messageId.toHex()
+        }
+
+    fun <T> encodeContent(
+        content: T,
+        options: SendOptions?,
+    ): EncodedContent {
+        val codec = Client.codecRegistry.find(options?.contentType)
+
+        fun <Codec : ContentCodec<T>> encode(
+            codec: Codec,
+            content: T,
+        ): EncodedContent = codec.encode(content)
         try {
             @Suppress("UNCHECKED_CAST")
             var encoded = encode(codec as ContentCodec<T>, content)
             val fallback = codec.fallback(content)
             if (!fallback.isNullOrBlank()) {
-                encoded = encoded.toBuilder().also {
-                    it.fallback = fallback
-                }.build()
+                encoded =
+                    encoded
+                        .toBuilder()
+                        .also {
+                            it.fallback = fallback
+                        }.build()
             }
             val compression = options?.compression
             if (compression != null) {
@@ -130,38 +150,45 @@ class Dm(
         }
     }
 
-    suspend fun prepareMessage(encodedContent: EncodedContent): String = withContext(Dispatchers.IO) {
-        libXMTPGroup.sendOptimistic(encodedContent.toByteArray()).toHex()
-    }
-
-    suspend fun <T> prepareMessage(content: T, options: SendOptions? = null): String = withContext(Dispatchers.IO) {
-        val encodeContent = encodeContent(content = content, options = options)
-        libXMTPGroup.sendOptimistic(encodeContent.toByteArray()).toHex()
-    }
-
-    suspend fun publishMessages() = withContext(Dispatchers.IO) {
-        libXMTPGroup.publishMessages()
-    }
-
-    suspend fun sync() = withContext(Dispatchers.IO) {
-        libXMTPGroup.sync()
-    }
-
-    suspend fun lastMessage(): DecodedMessage? = withContext(Dispatchers.IO) {
-        if (ffiLastMessage != null) {
-            DecodedMessage.create(ffiLastMessage)
-        } else {
-            messages(limit = 1).firstOrNull()
+    suspend fun prepareMessage(encodedContent: EncodedContent): String =
+        withContext(Dispatchers.IO) {
+            libXMTPGroup.sendOptimistic(encodedContent.toByteArray()).toHex()
         }
-    }
 
-    fun commitLogForkStatus(): CommitLogForkStatus {
-        return when (ffiIsCommitLogForked) {
+    suspend fun <T> prepareMessage(
+        content: T,
+        options: SendOptions? = null,
+    ): String =
+        withContext(Dispatchers.IO) {
+            val encodeContent = encodeContent(content = content, options = options)
+            libXMTPGroup.sendOptimistic(encodeContent.toByteArray()).toHex()
+        }
+
+    suspend fun publishMessages() =
+        withContext(Dispatchers.IO) {
+            libXMTPGroup.publishMessages()
+        }
+
+    suspend fun sync() =
+        withContext(Dispatchers.IO) {
+            libXMTPGroup.sync()
+        }
+
+    suspend fun lastMessage(): DecodedMessage? =
+        withContext(Dispatchers.IO) {
+            if (ffiLastMessage != null) {
+                DecodedMessage.create(ffiLastMessage)
+            } else {
+                messages(limit = 1).firstOrNull()
+            }
+        }
+
+    fun commitLogForkStatus(): CommitLogForkStatus =
+        when (ffiIsCommitLogForked) {
             true -> CommitLogForkStatus.FORKED
             false -> CommitLogForkStatus.NOT_FORKED
             null -> CommitLogForkStatus.UNKNOWN
         }
-    }
 
     suspend fun messages(
         limit: Int? = null,
@@ -169,28 +196,33 @@ class Dm(
         afterNs: Long? = null,
         direction: SortDirection = SortDirection.DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
-    ): List<DecodedMessage> = withContext(Dispatchers.IO) {
-        libXMTPGroup.findMessages(
-            opts = FfiListMessagesOptions(
-                sentBeforeNs = beforeNs,
-                sentAfterNs = afterNs,
-                limit = limit?.toLong(),
-                deliveryStatus = when (deliveryStatus) {
-                    MessageDeliveryStatus.PUBLISHED -> FfiDeliveryStatus.PUBLISHED
-                    MessageDeliveryStatus.UNPUBLISHED -> FfiDeliveryStatus.UNPUBLISHED
-                    MessageDeliveryStatus.FAILED -> FfiDeliveryStatus.FAILED
-                    else -> null
-                },
-                direction = when (direction) {
-                    SortDirection.ASCENDING -> FfiDirection.ASCENDING
-                    else -> FfiDirection.DESCENDING
-                },
-                contentTypes = null
-            )
-        ).mapNotNull {
-            DecodedMessage.create(it)
+    ): List<DecodedMessage> =
+        withContext(Dispatchers.IO) {
+            libXMTPGroup
+                .findMessages(
+                    opts =
+                        FfiListMessagesOptions(
+                            sentBeforeNs = beforeNs,
+                            sentAfterNs = afterNs,
+                            limit = limit?.toLong(),
+                            deliveryStatus =
+                                when (deliveryStatus) {
+                                    MessageDeliveryStatus.PUBLISHED -> FfiDeliveryStatus.PUBLISHED
+                                    MessageDeliveryStatus.UNPUBLISHED -> FfiDeliveryStatus.UNPUBLISHED
+                                    MessageDeliveryStatus.FAILED -> FfiDeliveryStatus.FAILED
+                                    else -> null
+                                },
+                            direction =
+                                when (direction) {
+                                    SortDirection.ASCENDING -> FfiDirection.ASCENDING
+                                    else -> FfiDirection.DESCENDING
+                                },
+                            contentTypes = null,
+                        ),
+                ).mapNotNull {
+                    DecodedMessage.create(it)
+                }
         }
-    }
 
     suspend fun messagesWithReactions(
         limit: Int? = null,
@@ -198,30 +230,34 @@ class Dm(
         afterNs: Long? = null,
         direction: SortDirection = SortDirection.DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
-    ): List<DecodedMessage> = withContext(Dispatchers.IO) {
-        val ffiMessageWithReactions = libXMTPGroup.findMessagesWithReactions(
-            opts = FfiListMessagesOptions(
-                sentBeforeNs = beforeNs,
-                sentAfterNs = afterNs,
-                limit = limit?.toLong(),
-                deliveryStatus = when (deliveryStatus) {
-                    MessageDeliveryStatus.PUBLISHED -> FfiDeliveryStatus.PUBLISHED
-                    MessageDeliveryStatus.UNPUBLISHED -> FfiDeliveryStatus.UNPUBLISHED
-                    MessageDeliveryStatus.FAILED -> FfiDeliveryStatus.FAILED
-                    else -> null
-                },
-                when (direction) {
-                    SortDirection.ASCENDING -> FfiDirection.ASCENDING
-                    else -> FfiDirection.DESCENDING
-                },
-                contentTypes = null
-            )
-        )
+    ): List<DecodedMessage> =
+        withContext(Dispatchers.IO) {
+            val ffiMessageWithReactions =
+                libXMTPGroup.findMessagesWithReactions(
+                    opts =
+                        FfiListMessagesOptions(
+                            sentBeforeNs = beforeNs,
+                            sentAfterNs = afterNs,
+                            limit = limit?.toLong(),
+                            deliveryStatus =
+                                when (deliveryStatus) {
+                                    MessageDeliveryStatus.PUBLISHED -> FfiDeliveryStatus.PUBLISHED
+                                    MessageDeliveryStatus.UNPUBLISHED -> FfiDeliveryStatus.UNPUBLISHED
+                                    MessageDeliveryStatus.FAILED -> FfiDeliveryStatus.FAILED
+                                    else -> null
+                                },
+                            when (direction) {
+                                SortDirection.ASCENDING -> FfiDirection.ASCENDING
+                                else -> FfiDirection.DESCENDING
+                            },
+                            contentTypes = null,
+                        ),
+                )
 
-        ffiMessageWithReactions.mapNotNull { ffiMessageWithReaction ->
-            DecodedMessage.create(ffiMessageWithReaction)
+            ffiMessageWithReactions.mapNotNull { ffiMessageWithReaction ->
+                DecodedMessage.create(ffiMessageWithReaction)
+            }
         }
-    }
 
     suspend fun enrichedMessages(
         limit: Int? = null,
@@ -229,158 +265,190 @@ class Dm(
         afterNs: Long? = null,
         direction: SortDirection = SortDirection.DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
-    ): List<DecodedMessageV2> = withContext(Dispatchers.IO) {
-        libXMTPGroup.findMessagesV2(
-            opts = FfiListMessagesOptions(
-                sentBeforeNs = beforeNs,
-                sentAfterNs = afterNs,
-                limit = limit?.toLong(),
-                deliveryStatus = when (deliveryStatus) {
-                    MessageDeliveryStatus.PUBLISHED -> FfiDeliveryStatus.PUBLISHED
-                    MessageDeliveryStatus.UNPUBLISHED -> FfiDeliveryStatus.UNPUBLISHED
-                    MessageDeliveryStatus.FAILED -> FfiDeliveryStatus.FAILED
-                    else -> null
-                },
-                direction = when (direction) {
-                    SortDirection.ASCENDING -> FfiDirection.ASCENDING
-                    else -> FfiDirection.DESCENDING
-                },
-                contentTypes = null
-            )
-        ).mapNotNull {
-            DecodedMessageV2.create(it)
-        }
-    }
-
-    suspend fun processMessage(messageBytes: ByteArray): DecodedMessage? = withContext(Dispatchers.IO) {
-        val message = libXMTPGroup.processStreamedConversationMessage(messageBytes)
-        DecodedMessage.create(message)
-    }
-
-    suspend fun creatorInboxId(): InboxId = withContext(Dispatchers.IO) {
-        metadata().creatorInboxId()
-    }
-
-    suspend fun isCreator(): Boolean = withContext(Dispatchers.IO) {
-        metadata().creatorInboxId() == client.inboxId
-    }
-
-    suspend fun isActive(): Boolean = withContext(Dispatchers.IO) {
-        libXMTPGroup.isActive()
-    }
-
-    suspend fun members(): List<Member> = withContext(Dispatchers.IO) {
-        libXMTPGroup.listMembers().map { Member(it) }
-    }
-
-    fun streamMessages(onClose: (() -> Unit)? = null): Flow<DecodedMessage> = callbackFlow {
-        val messageCallback = object : FfiMessageCallback {
-            override fun onMessage(message: FfiMessage) {
-                try {
-                    val decodedMessage = DecodedMessage.create(message)
-                    if (decodedMessage != null) {
-                        trySend(decodedMessage)
-                    } else {
-                        Log.w(
-                            "XMTP Dm stream",
-                            "Failed to decode message: id=${message.id.toHex()}, " + "conversationId=${message.conversationId.toHex()}, " + "senderInboxId=${message.senderInboxId}"
-                        )
-                    }
-                } catch (e: Exception) {
-                    Log.e(
-                        "XMTP Dm stream",
-                        "Error decoding message: id=${message.id.toHex()}, " + "conversationId=${message.conversationId.toHex()}, " + "senderInboxId=${message.senderInboxId}",
-                        e
-                    )
+    ): List<DecodedMessageV2> =
+        withContext(Dispatchers.IO) {
+            libXMTPGroup
+                .findMessagesV2(
+                    opts =
+                        FfiListMessagesOptions(
+                            sentBeforeNs = beforeNs,
+                            sentAfterNs = afterNs,
+                            limit = limit?.toLong(),
+                            deliveryStatus =
+                                when (deliveryStatus) {
+                                    MessageDeliveryStatus.PUBLISHED -> FfiDeliveryStatus.PUBLISHED
+                                    MessageDeliveryStatus.UNPUBLISHED -> FfiDeliveryStatus.UNPUBLISHED
+                                    MessageDeliveryStatus.FAILED -> FfiDeliveryStatus.FAILED
+                                    else -> null
+                                },
+                            direction =
+                                when (direction) {
+                                    SortDirection.ASCENDING -> FfiDirection.ASCENDING
+                                    else -> FfiDirection.DESCENDING
+                                },
+                            contentTypes = null,
+                        ),
+                ).mapNotNull {
+                    DecodedMessageV2.create(it)
                 }
-            }
-
-            override fun onError(error: FfiSubscribeException) {
-                Log.e("XMTP Dm stream", "Stream error: ${error.message}", error)
-            }
-
-            override fun onClose() {
-                onClose?.invoke()
-                close()
-            }
         }
 
-        val stream = libXMTPGroup.stream(messageCallback)
-        awaitClose { stream.end() }
-    }
-
-    suspend fun clearDisappearingMessageSettings() = withContext(Dispatchers.IO) {
-        try {
-            libXMTPGroup.removeConversationMessageDisappearingSettings()
-        } catch (e: Exception) {
-            throw XMTPException("Permission denied: Unable to clear group message expiration", e)
+    suspend fun processMessage(messageBytes: ByteArray): DecodedMessage? =
+        withContext(Dispatchers.IO) {
+            val message = libXMTPGroup.processStreamedConversationMessage(messageBytes)
+            DecodedMessage.create(message)
         }
-    }
 
-    suspend fun updateDisappearingMessageSettings(disappearingMessageSettings: DisappearingMessageSettings?) = withContext(Dispatchers.IO) {
-        try {
-            if (disappearingMessageSettings == null) {
-                clearDisappearingMessageSettings()
-            } else {
-                libXMTPGroup.updateConversationMessageDisappearingSettings(
-                    FfiMessageDisappearingSettings(
-                        disappearingMessageSettings.disappearStartingAtNs,
-                        disappearingMessageSettings.retentionDurationInNs
-                    )
+    suspend fun creatorInboxId(): InboxId =
+        withContext(Dispatchers.IO) {
+            metadata().creatorInboxId()
+        }
+
+    suspend fun isCreator(): Boolean =
+        withContext(Dispatchers.IO) {
+            metadata().creatorInboxId() == client.inboxId
+        }
+
+    suspend fun isActive(): Boolean =
+        withContext(Dispatchers.IO) {
+            libXMTPGroup.isActive()
+        }
+
+    suspend fun members(): List<Member> =
+        withContext(Dispatchers.IO) {
+            libXMTPGroup.listMembers().map { Member(it) }
+        }
+
+    fun streamMessages(onClose: (() -> Unit)? = null): Flow<DecodedMessage> =
+        callbackFlow {
+            val messageCallback =
+                object : FfiMessageCallback {
+                    override fun onMessage(message: FfiMessage) {
+                        try {
+                            val decodedMessage = DecodedMessage.create(message)
+                            if (decodedMessage != null) {
+                                trySend(decodedMessage)
+                            } else {
+                                Log.w(
+                                    "XMTP Dm stream",
+                                    "Failed to decode message: id=${message.id.toHex()}, " +
+                                        "conversationId=${message.conversationId.toHex()}, " +
+                                        "senderInboxId=${message.senderInboxId}",
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.e(
+                                "XMTP Dm stream",
+                                "Error decoding message: id=${message.id.toHex()}, " +
+                                    "conversationId=${message.conversationId.toHex()}, " +
+                                    "senderInboxId=${message.senderInboxId}",
+                                e,
+                            )
+                        }
+                    }
+
+                    override fun onError(error: FfiSubscribeException) {
+                        Log.e("XMTP Dm stream", "Stream error: ${error.message}", error)
+                    }
+
+                    override fun onClose() {
+                        onClose?.invoke()
+                        close()
+                    }
+                }
+
+            val stream = libXMTPGroup.stream(messageCallback)
+            awaitClose { stream.end() }
+        }
+
+    suspend fun clearDisappearingMessageSettings() =
+        withContext(Dispatchers.IO) {
+            try {
+                libXMTPGroup.removeConversationMessageDisappearingSettings()
+            } catch (e: Exception) {
+                throw XMTPException(
+                    "Permission denied: Unable to clear group message expiration",
+                    e,
                 )
             }
-        } catch (e: Exception) {
-            throw XMTPException("Permission denied: Unable to update group message expiration", e)
         }
-    }
 
-    suspend fun updateConsentState(state: ConsentState) = withContext(Dispatchers.IO) {
-        val consentState = ConsentState.toFfiConsentState(state)
-        libXMTPGroup.updateConsentState(consentState)
-    }
+    suspend fun updateDisappearingMessageSettings(disappearingMessageSettings: DisappearingMessageSettings?) =
+        withContext(Dispatchers.IO) {
+            try {
+                if (disappearingMessageSettings == null) {
+                    clearDisappearingMessageSettings()
+                } else {
+                    libXMTPGroup.updateConversationMessageDisappearingSettings(
+                        FfiMessageDisappearingSettings(
+                            disappearingMessageSettings.disappearStartingAtNs,
+                            disappearingMessageSettings.retentionDurationInNs,
+                        ),
+                    )
+                }
+            } catch (e: Exception) {
+                throw XMTPException(
+                    "Permission denied: Unable to update group message expiration",
+                    e,
+                )
+            }
+        }
 
-    suspend fun consentState(): ConsentState = withContext(Dispatchers.IO) {
-        ConsentState.fromFfiConsentState(libXMTPGroup.consentState())
-    }
+    suspend fun updateConsentState(state: ConsentState) =
+        withContext(Dispatchers.IO) {
+            val consentState = ConsentState.toFfiConsentState(state)
+            libXMTPGroup.updateConsentState(consentState)
+        }
+
+    suspend fun consentState(): ConsentState =
+        withContext(Dispatchers.IO) {
+            ConsentState.fromFfiConsentState(libXMTPGroup.consentState())
+        }
 
     // Returns null if dm is not paused, otherwise the min version required to unpause this dm
-    suspend fun pausedForVersion(): String? = withContext(Dispatchers.IO) {
-        libXMTPGroup.pausedForVersion()
-    }
-
-    suspend fun getHmacKeys(): Keystore.GetConversationHmacKeysResponse = withContext(Dispatchers.IO) {
-        val hmacKeysResponse = Keystore.GetConversationHmacKeysResponse.newBuilder()
-        val conversations = libXMTPGroup.getHmacKeys()
-        conversations.iterator().forEach {
-            val hmacKeys = Keystore.GetConversationHmacKeysResponse.HmacKeys.newBuilder()
-            it.value.forEach { key ->
-                val hmacKeyData = Keystore.GetConversationHmacKeysResponse.HmacKeyData.newBuilder()
-                hmacKeyData.hmacKey = key.key.toByteString()
-                hmacKeyData.thirtyDayPeriodsSinceEpoch = key.epoch.toInt()
-                hmacKeys.addValues(hmacKeyData)
-            }
-            hmacKeysResponse.putHmacKeys(
-                Topic.groupMessage(it.key.toHex()).description,
-                hmacKeys.build()
-            )
+    suspend fun pausedForVersion(): String? =
+        withContext(Dispatchers.IO) {
+            libXMTPGroup.pausedForVersion()
         }
-        hmacKeysResponse.build()
-    }
 
-    suspend fun getPushTopics(): List<String> = withContext(Dispatchers.IO) {
-        val duplicates = libXMTPGroup.findDuplicateDms()
-        val topicIds = duplicates.map { it.id().toHex() }.toMutableList()
-        topicIds.add(id)
-        topicIds.map { Topic.groupMessage(it).description }
-    }
+    suspend fun getHmacKeys(): Keystore.GetConversationHmacKeysResponse =
+        withContext(Dispatchers.IO) {
+            val hmacKeysResponse = Keystore.GetConversationHmacKeysResponse.newBuilder()
+            val conversations = libXMTPGroup.getHmacKeys()
+            conversations.iterator().forEach {
+                val hmacKeys = Keystore.GetConversationHmacKeysResponse.HmacKeys.newBuilder()
+                it.value.forEach { key ->
+                    val hmacKeyData =
+                        Keystore.GetConversationHmacKeysResponse.HmacKeyData.newBuilder()
+                    hmacKeyData.hmacKey = key.key.toByteString()
+                    hmacKeyData.thirtyDayPeriodsSinceEpoch = key.epoch.toInt()
+                    hmacKeys.addValues(hmacKeyData)
+                }
+                hmacKeysResponse.putHmacKeys(
+                    Topic.groupMessage(it.key.toHex()).description,
+                    hmacKeys.build(),
+                )
+            }
+            hmacKeysResponse.build()
+        }
 
-    suspend fun getDebugInformation(): ConversationDebugInfo = withContext(Dispatchers.IO) {
-        ConversationDebugInfo(libXMTPGroup.conversationDebugInfo())
-    }
+    suspend fun getPushTopics(): List<String> =
+        withContext(Dispatchers.IO) {
+            val duplicates = libXMTPGroup.findDuplicateDms()
+            val topicIds = duplicates.map { it.id().toHex() }.toMutableList()
+            topicIds.add(id)
+            topicIds.map { Topic.groupMessage(it).description }
+        }
 
-    suspend fun getLastReadTimes(): Map<InboxId, Long> = withContext(Dispatchers.IO) {
-        libXMTPGroup.getLastReadTimes()
-    }
+    suspend fun getDebugInformation(): ConversationDebugInfo =
+        withContext(Dispatchers.IO) {
+            ConversationDebugInfo(libXMTPGroup.conversationDebugInfo())
+        }
+
+    suspend fun getLastReadTimes(): Map<InboxId, Long> =
+        withContext(Dispatchers.IO) {
+            libXMTPGroup.getLastReadTimes()
+        }
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -391,7 +459,5 @@ class Dm(
         return id == other.id
     }
 
-    override fun hashCode(): Int {
-        return id.hashCode()
-    }
+    override fun hashCode(): Int = id.hashCode()
 }

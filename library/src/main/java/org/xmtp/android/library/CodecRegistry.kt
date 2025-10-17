@@ -5,8 +5,9 @@ import org.xmtp.android.library.codecs.ContentTypeId
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.codecs.id
 
-data class CodecRegistry(val codecs: MutableMap<String, ContentCodec<*>> = mutableMapOf()) {
-
+data class CodecRegistry(
+    val codecs: MutableMap<String, ContentCodec<*>> = mutableMapOf(),
+) {
     fun register(codec: ContentCodec<*>) {
         codecs[codec.contentType.id] = codec
     }

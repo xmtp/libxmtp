@@ -15,12 +15,13 @@ typealias CipherText = CiphertextOuterClass.Ciphertext
 class Crypto {
     companion object {
         private const val TAG = "Crypto"
+
         fun encrypt(
             secret: ByteArray,
             message: ByteArray,
             additionalData: ByteArray = byteArrayOf(),
-        ): CipherText? {
-            return try {
+        ): CipherText? =
+            try {
                 val salt = SecureRandom().generateSeed(32)
                 val nonceData = SecureRandom().generateSeed(12)
                 val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -35,25 +36,29 @@ class Crypto {
                 }
                 val final = cipher.doFinal(message)
 
-                CiphertextOuterClass.Ciphertext.newBuilder().apply {
-                    aes256GcmHkdfSha256 = aes256GcmHkdfSha256.toBuilder().also {
-                        it.payload = final.toByteString()
-                        it.hkdfSalt = salt.toByteString()
-                        it.gcmNonce = nonceData.toByteString()
+                CiphertextOuterClass.Ciphertext
+                    .newBuilder()
+                    .apply {
+                        aes256GcmHkdfSha256 =
+                            aes256GcmHkdfSha256
+                                .toBuilder()
+                                .also {
+                                    it.payload = final.toByteString()
+                                    it.hkdfSalt = salt.toByteString()
+                                    it.gcmNonce = nonceData.toByteString()
+                                }.build()
                     }.build()
-                }.build()
             } catch (err: GeneralSecurityException) {
                 Log.e(TAG, err.message.toString())
                 null
             }
-        }
 
         fun decrypt(
             secret: ByteArray,
             ciphertext: CipherText,
             additionalData: ByteArray = byteArrayOf(),
-        ): ByteArray? {
-            return try {
+        ): ByteArray? =
+            try {
                 val salt = ciphertext.aes256GcmHkdfSha256.hkdfSalt.toByteArray()
                 val nonceData = ciphertext.aes256GcmHkdfSha256.gcmNonce.toByteArray()
                 val payload = ciphertext.aes256GcmHkdfSha256.payload.toByteArray()
@@ -72,6 +77,5 @@ class Crypto {
                 Log.e(TAG, err.message.toString())
                 null
             }
-        }
     }
 }

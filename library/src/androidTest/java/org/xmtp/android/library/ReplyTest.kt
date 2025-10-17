@@ -13,35 +13,46 @@ import org.xmtp.android.library.codecs.Reply
 import org.xmtp.android.library.codecs.ReplyCodec
 
 @RunWith(AndroidJUnit4::class)
-class ReplyTest {
+class ReplyTest : BaseInstrumentedTest() {
+    private lateinit var fixtures: TestFixtures
+    private lateinit var alixClient: Client
+    private lateinit var boClient: Client
+
+    @org.junit.Before
+    override fun setUp() {
+        super.setUp()
+        fixtures = runBlocking { createFixtures() }
+        alixClient = fixtures.alixClient
+        boClient = fixtures.boClient
+    }
 
     @Test
     fun testCanUseReplyCodec() {
         Client.register(codec = ReplyCodec())
 
-        val fixtures = fixtures()
-        val aliceClient = fixtures.alixClient
-        val aliceConversation = runBlocking {
-            aliceClient.conversations.newConversation(fixtures.boClient.inboxId)
-        }
+        val alixConversation =
+            runBlocking {
+                alixClient.conversations.newConversation(boClient.inboxId)
+            }
 
-        runBlocking { aliceConversation.send(text = "hey alice 2 bob") }
+        runBlocking { alixConversation.send(text = "hey alice 2 bob") }
 
-        val messageToReact = runBlocking { aliceConversation.messages()[0] }
+        val messageToReact = runBlocking { alixConversation.messages()[0] }
 
-        val attachment = Reply(
-            reference = messageToReact.id,
-            content = "Hello",
-            contentType = ContentTypeText
-        )
+        val attachment =
+            Reply(
+                reference = messageToReact.id,
+                content = "Hello",
+                contentType = ContentTypeText,
+            )
 
         runBlocking {
-            aliceConversation.send(
+            alixConversation.send(
                 content = attachment,
                 options = SendOptions(contentType = ContentTypeReply),
             )
         }
-        val messages = runBlocking { aliceConversation.messages() }
+        val messages = runBlocking { alixConversation.messages() }
         assertEquals(messages.size, 3)
         if (messages.size == 3) {
             val content: Reply? = messages.first().content()
@@ -55,31 +66,24 @@ class ReplyTest {
     fun testMessagesV2WithReply() {
         Client.register(codec = ReplyCodec())
 
-        val fixtures = fixtures()
-        val aliceClient = fixtures.alixClient
-        val boClient = fixtures.boClient
-
-        val aliceGroup = runBlocking {
-            aliceClient.conversations.newGroup(listOf(boClient.inboxId))
-        }
-        runBlocking {
-            boClient.conversations.sync()
-        }
+        val aliceGroup = runBlocking { alixClient.conversations.newGroup(listOf(boClient.inboxId)) }
+        runBlocking { boClient.conversations.sync() }
         val boGroup = runBlocking { boClient.conversations.listGroups().first() }
 
         runBlocking {
             val originalMessageId = aliceGroup.send("Original message")
             boGroup.sync()
 
-            val replyContent = Reply(
-                reference = originalMessageId,
-                content = "This is a reply",
-                contentType = ContentTypeText
-            )
+            val replyContent =
+                Reply(
+                    reference = originalMessageId,
+                    content = "This is a reply",
+                    contentType = ContentTypeText,
+                )
 
             boGroup.send(
                 content = replyContent,
-                options = SendOptions(contentType = ContentTypeReply)
+                options = SendOptions(contentType = ContentTypeReply),
             )
             aliceGroup.sync()
         }
@@ -97,31 +101,24 @@ class ReplyTest {
     }
 
     @Test
-    fun testReplyToDeletedMessage() {
+    fun testMessagesV2WithReplyToDeletedMessage() {
         Client.register(codec = ReplyCodec())
 
-        val fixtures = fixtures()
-        val aliceClient = fixtures.alixClient
-        val boClient = fixtures.boClient
-
-        val aliceGroup = runBlocking {
-            aliceClient.conversations.newGroup(listOf(boClient.inboxId))
-        }
-        runBlocking {
-            boClient.conversations.sync()
-        }
+        val aliceGroup = runBlocking { alixClient.conversations.newGroup(listOf(boClient.inboxId)) }
+        runBlocking { boClient.conversations.sync() }
         val boGroup = runBlocking { boClient.conversations.listGroups().first() }
 
         runBlocking {
-            val replyContent = Reply(
-                reference = "non-existent-message-id",
-                content = "Reply to deleted",
-                contentType = ContentTypeText
-            )
+            val replyContent =
+                Reply(
+                    reference = "non-existent-message-id",
+                    content = "Reply to deleted",
+                    contentType = ContentTypeText,
+                )
 
             boGroup.send(
                 content = replyContent,
-                options = SendOptions(contentType = ContentTypeReply)
+                options = SendOptions(contentType = ContentTypeReply),
             )
             aliceGroup.sync()
         }
@@ -138,35 +135,25 @@ class ReplyTest {
     }
 
     @Test
-    fun testReplyContentTypes() {
+    fun testMessagesV2WithReplyIncludesReferencedMessage() {
         Client.register(codec = ReplyCodec())
 
-        val fixtures = fixtures()
-        val aliceClient = fixtures.alixClient
-        val boClient = fixtures.boClient
-
-        val aliceGroup = runBlocking {
-            aliceClient.conversations.newGroup(listOf(boClient.inboxId))
-        }
-        runBlocking {
-            boClient.conversations.sync()
-        }
+        val aliceGroup = runBlocking { alixClient.conversations.newGroup(listOf(boClient.inboxId)) }
+        runBlocking { boClient.conversations.sync() }
         val boGroup = runBlocking { boClient.conversations.listGroups().first() }
 
         runBlocking {
             val originalMessageId = aliceGroup.send("Original message")
             boGroup.sync()
 
-            val textReply = Reply(
-                reference = originalMessageId,
-                content = "Text reply",
-                contentType = ContentTypeText
-            )
+            val textReply =
+                Reply(
+                    reference = originalMessageId,
+                    content = "Text reply",
+                    contentType = ContentTypeText,
+                )
 
-            boGroup.send(
-                content = textReply,
-                options = SendOptions(contentType = ContentTypeReply)
-            )
+            boGroup.send(content = textReply, options = SendOptions(contentType = ContentTypeReply))
             aliceGroup.sync()
         }
 

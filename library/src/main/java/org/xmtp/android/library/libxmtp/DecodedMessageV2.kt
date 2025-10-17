@@ -37,7 +37,7 @@ import java.net.URL
 import java.util.Date
 
 class DecodedMessageV2 private constructor(
-    private val libXMTPMessage: FfiDecodedMessage
+    private val libXMTPMessage: FfiDecodedMessage,
 ) {
     val id: String
         get() = libXMTPMessage.id().toHex()
@@ -55,11 +55,12 @@ class DecodedMessageV2 private constructor(
         get() = libXMTPMessage.sentAtNs()
 
     val deliveryStatus: DecodedMessage.MessageDeliveryStatus
-        get() = when (libXMTPMessage.deliveryStatus()) {
-            FfiDeliveryStatus.UNPUBLISHED -> DecodedMessage.MessageDeliveryStatus.UNPUBLISHED
-            FfiDeliveryStatus.PUBLISHED -> DecodedMessage.MessageDeliveryStatus.PUBLISHED
-            FfiDeliveryStatus.FAILED -> DecodedMessage.MessageDeliveryStatus.FAILED
-        }
+        get() =
+            when (libXMTPMessage.deliveryStatus()) {
+                FfiDeliveryStatus.UNPUBLISHED -> DecodedMessage.MessageDeliveryStatus.UNPUBLISHED
+                FfiDeliveryStatus.PUBLISHED -> DecodedMessage.MessageDeliveryStatus.PUBLISHED
+                FfiDeliveryStatus.FAILED -> DecodedMessage.MessageDeliveryStatus.FAILED
+            }
 
     val reactions: List<DecodedMessageV2>
         get() = libXMTPMessage.reactions().mapNotNull { create(it) }
@@ -77,57 +78,56 @@ class DecodedMessageV2 private constructor(
         get() = ContentTypeIdBuilder.fromFfi(libXMTPMessage.contentTypeId())
 
     @Suppress("UNCHECKED_CAST")
-    fun <T> content(): T? {
-        return try {
+    fun <T> content(): T? =
+        try {
             decodeContent(libXMTPMessage.content()) as? T
         } catch (e: Exception) {
             Log.e("DecodedMessageV2", "Error decoding content: ${e.message}")
             null
         }
-    }
 
     companion object {
-        fun create(libXMTPMessage: FfiDecodedMessage): DecodedMessageV2? {
-            return try {
+        fun create(libXMTPMessage: FfiDecodedMessage): DecodedMessageV2? =
+            try {
                 DecodedMessageV2(libXMTPMessage)
             } catch (e: Exception) {
                 Log.e("DecodedMessageV2", "Error creating DecodedMessageV2: ${e.message}")
                 null
             }
-        }
 
         // Helper functions for mapping FFI types to domain types
 
         private fun mapReaction(ffiReaction: FfiReactionPayload): Reaction {
-            val action = when (ffiReaction.action) {
-                FfiReactionAction.ADDED -> ReactionAction.Added
-                FfiReactionAction.REMOVED -> ReactionAction.Removed
-                FfiReactionAction.UNKNOWN -> ReactionAction.Unknown
-            }
-            val schema = when (ffiReaction.schema) {
-                FfiReactionSchema.UNICODE -> ReactionSchema.Unicode
-                FfiReactionSchema.SHORTCODE -> ReactionSchema.Shortcode
-                FfiReactionSchema.CUSTOM -> ReactionSchema.Custom
-                FfiReactionSchema.UNKNOWN -> ReactionSchema.Unknown
-            }
+            val action =
+                when (ffiReaction.action) {
+                    FfiReactionAction.ADDED -> ReactionAction.Added
+                    FfiReactionAction.REMOVED -> ReactionAction.Removed
+                    FfiReactionAction.UNKNOWN -> ReactionAction.Unknown
+                }
+            val schema =
+                when (ffiReaction.schema) {
+                    FfiReactionSchema.UNICODE -> ReactionSchema.Unicode
+                    FfiReactionSchema.SHORTCODE -> ReactionSchema.Shortcode
+                    FfiReactionSchema.CUSTOM -> ReactionSchema.Custom
+                    FfiReactionSchema.UNKNOWN -> ReactionSchema.Unknown
+                }
             return Reaction(
                 reference = ffiReaction.reference,
                 action = action,
                 content = ffiReaction.content,
-                schema = schema
+                schema = schema,
             )
         }
 
-        private fun mapAttachment(ffiAttachment: FfiAttachment): Attachment {
-            return Attachment(
+        private fun mapAttachment(ffiAttachment: FfiAttachment): Attachment =
+            Attachment(
                 filename = ffiAttachment.filename ?: "",
                 mimeType = ffiAttachment.mimeType,
-                data = ffiAttachment.content.toByteString()
+                data = ffiAttachment.content.toByteString(),
             )
-        }
 
-        private fun mapRemoteAttachment(ffiRemote: FfiRemoteAttachment): RemoteAttachment {
-            return RemoteAttachment(
+        private fun mapRemoteAttachment(ffiRemote: FfiRemoteAttachment): RemoteAttachment =
+            RemoteAttachment(
                 url = URL(ffiRemote.url),
                 contentDigest = ffiRemote.contentDigest,
                 secret = ffiRemote.secret.toByteString(),
@@ -135,12 +135,11 @@ class DecodedMessageV2 private constructor(
                 nonce = ffiRemote.nonce.toByteString(),
                 scheme = ffiRemote.scheme,
                 contentLength = ffiRemote.contentLength.toInt(),
-                filename = ffiRemote.filename
+                filename = ffiRemote.filename,
             )
-        }
 
-        private fun mapRemoteAttachmentInfo(ffiInfo: FfiRemoteAttachmentInfo): RemoteAttachmentInfo {
-            return RemoteAttachmentInfo(
+        private fun mapRemoteAttachmentInfo(ffiInfo: FfiRemoteAttachmentInfo): RemoteAttachmentInfo =
+            RemoteAttachmentInfo(
                 url = ffiInfo.url,
                 filename = ffiInfo.filename ?: "",
                 contentLength = ffiInfo.contentLength?.toLong() ?: 0,
@@ -148,56 +147,54 @@ class DecodedMessageV2 private constructor(
                 nonce = ffiInfo.nonce.toByteString(),
                 scheme = ffiInfo.scheme,
                 salt = ffiInfo.salt.toByteString(),
-                secret = ffiInfo.secret.toByteString()
+                secret = ffiInfo.secret.toByteString(),
             )
-        }
 
-        private fun mapMultiRemoteAttachment(ffiMulti: FfiMultiRemoteAttachment): MultiRemoteAttachment {
-            return MultiRemoteAttachment(
-                remoteAttachments = ffiMulti.attachments.map { mapRemoteAttachmentInfo(it) }
+        private fun mapMultiRemoteAttachment(ffiMulti: FfiMultiRemoteAttachment): MultiRemoteAttachment =
+            MultiRemoteAttachment(
+                remoteAttachments = ffiMulti.attachments.map { mapRemoteAttachmentInfo(it) },
             )
-        }
 
-        private fun mapTransactionMetadata(meta: FfiTransactionMetadata): TransactionReference.Metadata {
-            return TransactionReference.Metadata(
+        private fun mapTransactionMetadata(meta: FfiTransactionMetadata): TransactionReference.Metadata =
+            TransactionReference.Metadata(
                 transactionType = meta.transactionType,
                 currency = meta.currency,
                 amount = meta.amount,
                 decimals = meta.decimals,
                 fromAddress = meta.fromAddress,
-                toAddress = meta.toAddress
+                toAddress = meta.toAddress,
             )
-        }
 
-        private fun mapTransactionReference(ffiTx: FfiTransactionReference): TransactionReference {
-            return TransactionReference(
+        private fun mapTransactionReference(ffiTx: FfiTransactionReference): TransactionReference =
+            TransactionReference(
                 namespace = ffiTx.namespace,
                 networkId = ffiTx.networkId,
                 reference = ffiTx.reference,
-                metadata = ffiTx.metadata?.let { mapTransactionMetadata(it) }
+                metadata = ffiTx.metadata?.let { mapTransactionMetadata(it) },
             )
-        }
 
         // Helper functions for GroupUpdated proto mapping
 
-        private fun mapFfiInboxToProto(ffiInbox: FfiInbox): org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated.Inbox {
-            return org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated.Inbox.newBuilder()
+        private fun mapFfiInboxToProto(ffiInbox: FfiInbox): org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated.Inbox =
+            org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated.Inbox
+                .newBuilder()
                 .setInboxId(ffiInbox.inboxId)
                 .build()
-        }
 
-        private fun mapFfiMetadataChangeToProto(ffiChange: FfiMetadataFieldChange): org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated.MetadataFieldChange {
-            return org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated.MetadataFieldChange.newBuilder()
+        private fun mapFfiMetadataChangeToProto(
+            ffiChange: FfiMetadataFieldChange,
+        ): org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated.MetadataFieldChange =
+            org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated.MetadataFieldChange
+                .newBuilder()
                 .setFieldName(ffiChange.fieldName)
                 .apply {
                     ffiChange.oldValue?.let { setOldValue(it) }
                     ffiChange.newValue?.let { setNewValue(it) }
-                }
-                .build()
-        }
+                }.build()
 
-        private fun mapGroupUpdated(ffiGroupUpdated: FfiGroupUpdated): org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated {
-            return org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated.newBuilder()
+        private fun mapGroupUpdated(ffiGroupUpdated: FfiGroupUpdated): org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated =
+            org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated
+                .newBuilder()
                 .apply {
                     initiatedByInboxId = ffiGroupUpdated.initiatedByInboxId
 
@@ -216,21 +213,21 @@ class DecodedMessageV2 private constructor(
                         addMetadataFieldChanges(mapFfiMetadataChangeToProto(ffiChange))
                     }
                 }.build()
-        }
 
         /**
          * Decode content from FfiDecodedMessageContent
          */
-        internal fun decodeContent(content: FfiDecodedMessageContent): Any? {
-            return when (content) {
+        internal fun decodeContent(content: FfiDecodedMessageContent): Any? =
+            when (content) {
                 is FfiDecodedMessageContent.Text -> content.v1.content
                 is FfiDecodedMessageContent.Reaction -> mapReaction(content.v1)
                 is FfiDecodedMessageContent.Reply -> Reply.create(content.v1)
                 is FfiDecodedMessageContent.Attachment -> mapAttachment(content.v1)
                 is FfiDecodedMessageContent.RemoteAttachment -> mapRemoteAttachment(content.v1)
-                is FfiDecodedMessageContent.MultiRemoteAttachment -> mapMultiRemoteAttachment(
-                    content.v1
-                )
+                is FfiDecodedMessageContent.MultiRemoteAttachment ->
+                    mapMultiRemoteAttachment(
+                        content.v1,
+                    )
 
                 is FfiDecodedMessageContent.TransactionReference -> mapTransactionReference(content.v1)
                 is FfiDecodedMessageContent.WalletSendCalls -> content.v1
@@ -243,13 +240,12 @@ class DecodedMessageV2 private constructor(
 
                 else -> null
             }
-        }
 
         /**
          * Decode content from FfiDecodedMessageBody (used by Reply)
          */
-        internal fun decodeBodyContent(body: FfiDecodedMessageBody): Any? {
-            return when (body) {
+        internal fun decodeBodyContent(body: FfiDecodedMessageBody): Any? =
+            when (body) {
                 is FfiDecodedMessageBody.Text -> body.v1.content
                 is FfiDecodedMessageBody.Reaction -> mapReaction(body.v1)
                 is FfiDecodedMessageBody.Attachment -> mapAttachment(body.v1)
@@ -265,6 +261,5 @@ class DecodedMessageV2 private constructor(
 
                 else -> null
             }
-        }
     }
 }

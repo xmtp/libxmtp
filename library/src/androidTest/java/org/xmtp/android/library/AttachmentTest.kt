@@ -11,22 +11,24 @@ import org.xmtp.android.library.codecs.AttachmentCodec
 import org.xmtp.android.library.codecs.ContentTypeAttachment
 
 @RunWith(AndroidJUnit4::class)
-class AttachmentTest {
+class AttachmentTest : BaseInstrumentedTest() {
     @Test
     fun testCanUseAttachmentCodec() {
-        val attachment = Attachment(
-            filename = "test.txt",
-            mimeType = "text/plain",
-            data = "hello world".toByteStringUtf8(),
-        )
+        val attachment =
+            Attachment(
+                filename = "test.txt",
+                mimeType = "text/plain",
+                data = "hello world".toByteStringUtf8(),
+            )
 
         Client.register(codec = AttachmentCodec())
 
-        val fixtures = fixtures()
+        val fixtures = runBlocking { createFixtures() }
         val aliceClient = fixtures.alixClient
-        val aliceConversation = runBlocking {
-            aliceClient.conversations.newConversation(fixtures.boClient.inboxId)
-        }
+        val aliceConversation =
+            runBlocking {
+                aliceClient.conversations.newConversation(fixtures.boClient.inboxId)
+            }
 
         runBlocking {
             aliceConversation.send(

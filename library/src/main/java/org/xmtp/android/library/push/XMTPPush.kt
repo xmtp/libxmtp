@@ -31,12 +31,18 @@ class XMTPPush() {
             throw XMTPException("No push server")
         }
 
-        val request = Service.RegisterInstallationRequest.newBuilder().also { request ->
-            request.installationId = installationId
-            request.deliveryMechanism = request.deliveryMechanism.toBuilder().also {
-                it.firebaseDeviceToken = token
-            }.build()
-        }.build()
+        val request =
+            Service.RegisterInstallationRequest
+                .newBuilder()
+                .also { request ->
+                    request.installationId = installationId
+                    request.deliveryMechanism =
+                        request.deliveryMechanism
+                            .toBuilder()
+                            .also {
+                                it.firebaseDeviceToken = token
+                            }.build()
+                }.build()
         client.registerInstallation(request)
     }
 
@@ -44,10 +50,13 @@ class XMTPPush() {
         if (pushServer == "") {
             throw XMTPException("No push server")
         }
-        val request = Service.SubscribeRequest.newBuilder().also { request ->
-            request.installationId = installationId
-            request.addAllTopics(topics)
-        }.build()
+        val request =
+            Service.SubscribeRequest
+                .newBuilder()
+                .also { request ->
+                    request.installationId = installationId
+                    request.addAllTopics(topics)
+                }.build()
         client.subscribe(request)
     }
 
@@ -55,10 +64,13 @@ class XMTPPush() {
         if (pushServer == "") {
             throw XMTPException("No push server")
         }
-        val request = Service.SubscribeWithMetadataRequest.newBuilder().also { request ->
-            request.installationId = installationId
-            request.addAllSubscriptions(subscriptions)
-        }.build()
+        val request =
+            Service.SubscribeWithMetadataRequest
+                .newBuilder()
+                .also { request ->
+                    request.installationId = installationId
+                    request.addAllSubscriptions(subscriptions)
+                }.build()
         client.subscribeWithMetadata(request)
     }
 
@@ -66,19 +78,24 @@ class XMTPPush() {
         if (pushServer == "") {
             throw XMTPException("No push server")
         }
-        val request = Service.UnsubscribeRequest.newBuilder().also { request ->
-            request.installationId = installationId
-            request.addAllTopics(topics)
-        }.build()
+        val request =
+            Service.UnsubscribeRequest
+                .newBuilder()
+                .also { request ->
+                    request.installationId = installationId
+                    request.addAllTopics(topics)
+                }.build()
         client.unsubscribe(request)
     }
 
     val client: NotificationsGrpc.NotificationsFutureStub
         get() {
             val protocolClient: ManagedChannel =
-                Grpc.newChannelBuilder(
-                    pushServer, InsecureChannelCredentials.create(),
-                ).build()
+                Grpc
+                    .newChannelBuilder(
+                        pushServer,
+                        InsecureChannelCredentials.create(),
+                    ).build()
             return NotificationsGrpc.newFutureStub(protocolClient)
         }
 }

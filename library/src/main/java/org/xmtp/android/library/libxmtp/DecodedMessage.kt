@@ -18,15 +18,18 @@ class DecodedMessage private constructor(
     private val libXMTPMessage: FfiMessage,
     val encodedContent: Content.EncodedContent,
     private val decodedContent: Any?,
-    val childMessages: List<DecodedMessage>? = null
+    val childMessages: List<DecodedMessage>? = null,
 ) {
     enum class MessageDeliveryStatus {
-        ALL, PUBLISHED, UNPUBLISHED, FAILED
+        ALL,
+        PUBLISHED,
+        UNPUBLISHED,
+        FAILED,
     }
 
     enum class SortDirection {
         ASCENDING,
-        DESCENDING;
+        DESCENDING,
     }
 
     val id: String
@@ -45,11 +48,12 @@ class DecodedMessage private constructor(
         get() = libXMTPMessage.sentAtNs
 
     val deliveryStatus: MessageDeliveryStatus
-        get() = when (libXMTPMessage.deliveryStatus) {
-            FfiDeliveryStatus.UNPUBLISHED -> MessageDeliveryStatus.UNPUBLISHED
-            FfiDeliveryStatus.PUBLISHED -> MessageDeliveryStatus.PUBLISHED
-            FfiDeliveryStatus.FAILED -> MessageDeliveryStatus.FAILED
-        }
+        get() =
+            when (libXMTPMessage.deliveryStatus) {
+                FfiDeliveryStatus.UNPUBLISHED -> MessageDeliveryStatus.UNPUBLISHED
+                FfiDeliveryStatus.PUBLISHED -> MessageDeliveryStatus.PUBLISHED
+                FfiDeliveryStatus.FAILED -> MessageDeliveryStatus.FAILED
+            }
 
     val topic: String
         get() = Topic.groupMessage(conversationId).description
@@ -66,8 +70,8 @@ class DecodedMessage private constructor(
         }
 
     companion object {
-        fun create(libXMTPMessage: FfiMessage): DecodedMessage? {
-            return try {
+        fun create(libXMTPMessage: FfiMessage): DecodedMessage? =
+            try {
                 val encodedContent = EncodedContent.parseFrom(libXMTPMessage.content)
                 if (encodedContent.type == ContentTypeGroupUpdated && libXMTPMessage.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE) {
                     throw XMTPException("Error decoding group membership change")
@@ -78,13 +82,14 @@ class DecodedMessage private constructor(
             } catch (e: Exception) {
                 null // Return null if decoding fails
             }
-        }
 
-        fun create(libXMTPMessageWithReactions: FfiMessageWithReactions): DecodedMessage? {
-            return try {
+        fun create(libXMTPMessageWithReactions: FfiMessageWithReactions): DecodedMessage? =
+            try {
                 val encodedContent =
                     EncodedContent.parseFrom(libXMTPMessageWithReactions.message.content)
-                if (encodedContent.type == ContentTypeGroupUpdated && libXMTPMessageWithReactions.message.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE) {
+                if (encodedContent.type == ContentTypeGroupUpdated &&
+                    libXMTPMessageWithReactions.message.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE
+                ) {
                     throw XMTPException("Error decoding group membership change")
                 }
                 // Decode the content once during creation
@@ -98,11 +103,10 @@ class DecodedMessage private constructor(
                     libXMTPMessageWithReactions.message,
                     encodedContent,
                     decodedContent,
-                    reactionMessages
+                    reactionMessages,
                 )
             } catch (e: Exception) {
                 null // Return null if decoding fails
             }
-        }
     }
 }

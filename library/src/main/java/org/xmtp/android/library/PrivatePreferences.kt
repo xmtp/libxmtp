@@ -16,50 +16,48 @@ import uniffi.xmtpv3.FfiXmtpClient
 enum class ConsentState {
     ALLOWED,
     DENIED,
-    UNKNOWN;
+    UNKNOWN,
+    ;
 
     companion object {
-        fun toFfiConsentState(option: ConsentState): FfiConsentState {
-            return when (option) {
+        fun toFfiConsentState(option: ConsentState): FfiConsentState =
+            when (option) {
                 ALLOWED -> FfiConsentState.ALLOWED
                 DENIED -> FfiConsentState.DENIED
                 UNKNOWN -> FfiConsentState.UNKNOWN
             }
-        }
 
-        fun fromFfiConsentState(option: FfiConsentState): ConsentState {
-            return when (option) {
+        fun fromFfiConsentState(option: FfiConsentState): ConsentState =
+            when (option) {
                 FfiConsentState.ALLOWED -> ALLOWED
                 FfiConsentState.DENIED -> DENIED
                 FfiConsentState.UNKNOWN -> UNKNOWN
             }
-        }
     }
 }
 
 enum class EntryType {
     CONVERSATION_ID,
-    INBOX_ID;
+    INBOX_ID,
+    ;
 
     companion object {
-        fun toFfiConsentEntityType(option: EntryType): FfiConsentEntityType {
-            return when (option) {
+        fun toFfiConsentEntityType(option: EntryType): FfiConsentEntityType =
+            when (option) {
                 CONVERSATION_ID -> FfiConsentEntityType.CONVERSATION_ID
                 INBOX_ID -> FfiConsentEntityType.INBOX_ID
             }
-        }
 
-        fun fromFfiConsentEntityType(option: FfiConsentEntityType): EntryType {
-            return when (option) {
+        fun fromFfiConsentEntityType(option: FfiConsentEntityType): EntryType =
+            when (option) {
                 FfiConsentEntityType.CONVERSATION_ID -> CONVERSATION_ID
                 FfiConsentEntityType.INBOX_ID -> INBOX_ID
             }
-        }
     }
 }
 
 enum class PreferenceType {
-    HMAC_KEYS;
+    HMAC_KEYS,
 }
 
 data class ConsentRecord(
@@ -71,16 +69,12 @@ data class ConsentRecord(
         fun conversationId(
             groupId: String,
             type: ConsentState = ConsentState.UNKNOWN,
-        ): ConsentRecord {
-            return ConsentRecord(groupId, EntryType.CONVERSATION_ID, type)
-        }
+        ): ConsentRecord = ConsentRecord(groupId, EntryType.CONVERSATION_ID, type)
 
         fun inboxId(
             inboxId: InboxId,
             type: ConsentState = ConsentState.UNKNOWN,
-        ): ConsentRecord {
-            return ConsentRecord(inboxId, EntryType.INBOX_ID, type)
-        }
+        ): ConsentRecord = ConsentRecord(inboxId, EntryType.INBOX_ID, type)
     }
 
     val key: String
@@ -102,88 +96,87 @@ data class PrivatePreferences(
 
     suspend fun streamPreferenceUpdates(onClose: (() -> Unit)? = null): Flow<PreferenceType> =
         callbackFlow {
-            val preferenceCallback = object : FfiPreferenceCallback {
-                override fun onPreferenceUpdate(preference: List<FfiPreferenceUpdate>) {
-                    preference.iterator().forEach {
-                        when (it) {
-                            is FfiPreferenceUpdate.Hmac -> trySend(PreferenceType.HMAC_KEYS)
+            val preferenceCallback =
+                object : FfiPreferenceCallback {
+                    override fun onPreferenceUpdate(preference: List<FfiPreferenceUpdate>) {
+                        preference.iterator().forEach {
+                            when (it) {
+                                is FfiPreferenceUpdate.Hmac -> trySend(PreferenceType.HMAC_KEYS)
+                            }
                         }
                     }
-                }
 
-                override fun onError(error: FfiSubscribeException) {
-                    Log.e("XMTP preference update stream", error.message.toString())
-                }
+                    override fun onError(error: FfiSubscribeException) {
+                        Log.e("XMTP preference update stream", error.message.toString())
+                    }
 
-                override fun onClose() {
-                    onClose?.invoke()
-                    close()
+                    override fun onClose() {
+                        onClose?.invoke()
+                        close()
+                    }
                 }
-            }
 
             val stream = ffiClient.conversations().streamPreferences(preferenceCallback)
 
             awaitClose { stream.end() }
         }
 
-    suspend fun streamConsent(onClose: (() -> Unit)? = null): Flow<ConsentRecord> = callbackFlow {
-        val consentCallback = object : FfiConsentCallback {
-            override fun onConsentUpdate(consent: List<FfiConsent>) {
-                consent.iterator().forEach {
-                    trySend(it.fromFfiConsent())
+    suspend fun streamConsent(onClose: (() -> Unit)? = null): Flow<ConsentRecord> =
+        callbackFlow {
+            val consentCallback =
+                object : FfiConsentCallback {
+                    override fun onConsentUpdate(consent: List<FfiConsent>) {
+                        consent.iterator().forEach {
+                            trySend(it.fromFfiConsent())
+                        }
+                    }
+
+                    override fun onError(error: FfiSubscribeException) {
+                        Log.e("XMTP consent stream", error.message.toString())
+                    }
+
+                    override fun onClose() {
+                        onClose?.invoke()
+                        close()
+                    }
                 }
-            }
 
-            override fun onError(error: FfiSubscribeException) {
-                Log.e("XMTP consent stream", error.message.toString())
-            }
+            val stream = ffiClient.conversations().streamConsent(consentCallback)
 
-            override fun onClose() {
-                onClose?.invoke()
-                close()
-            }
+            awaitClose { stream.end() }
         }
-
-        val stream = ffiClient.conversations().streamConsent(consentCallback)
-
-        awaitClose { stream.end() }
-    }
 
     suspend fun setConsentState(entries: List<ConsentRecord>) {
         ffiClient.setConsentStates(entries.map { it.toFfiConsent() })
     }
 
-    private fun ConsentRecord.toFfiConsent(): FfiConsent {
-        return FfiConsent(
+    private fun ConsentRecord.toFfiConsent(): FfiConsent =
+        FfiConsent(
             EntryType.toFfiConsentEntityType(entryType),
             ConsentState.toFfiConsentState(consentType),
             value,
         )
-    }
 
-    private fun FfiConsent.fromFfiConsent(): ConsentRecord {
-        return ConsentRecord(
+    private fun FfiConsent.fromFfiConsent(): ConsentRecord =
+        ConsentRecord(
             entity,
             EntryType.fromFfiConsentEntityType(entityType),
             ConsentState.fromFfiConsentState(state),
         )
-    }
 
-    suspend fun conversationState(groupId: String): ConsentState {
-        return ConsentState.fromFfiConsentState(
+    suspend fun conversationState(groupId: String): ConsentState =
+        ConsentState.fromFfiConsentState(
             ffiClient.getConsentState(
                 FfiConsentEntityType.CONVERSATION_ID,
                 groupId,
-            )
+            ),
         )
-    }
 
-    suspend fun inboxIdState(inboxId: InboxId): ConsentState {
-        return ConsentState.fromFfiConsentState(
+    suspend fun inboxIdState(inboxId: InboxId): ConsentState =
+        ConsentState.fromFfiConsentState(
             ffiClient.getConsentState(
                 FfiConsentEntityType.INBOX_ID,
                 inboxId,
-            )
+            ),
         )
-    }
 }

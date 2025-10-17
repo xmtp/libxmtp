@@ -6,17 +6,16 @@ import java.math.BigInteger
 
 object KeyUtil {
     private const val MESSAGE_PREFIX = "\u0019Ethereum Signed Message:\n"
+
     fun ethHash(message: String): ByteArray {
         val input = MESSAGE_PREFIX + message.length + message
         return Util.keccak256(input.toByteArray())
     }
 
-    fun getPublicKey(privateKey: ByteArray): ByteArray {
-        return Sign.publicKeyFromPrivate(BigInteger(1, privateKey)).toByteArray()
-    }
+    fun getPublicKey(privateKey: ByteArray): ByteArray = Sign.publicKeyFromPrivate(BigInteger(1, privateKey)).toByteArray()
 
-    fun addUncompressedByte(publicKey: ByteArray): ByteArray {
-        return if (publicKey.size >= 65) {
+    fun addUncompressedByte(publicKey: ByteArray): ByteArray =
+        if (publicKey.size >= 65) {
             val newPublicKey = ByteArray(64)
             System.arraycopy(publicKey, publicKey.size - 64, newPublicKey, 0, 64)
             byteArrayOf(0x4.toByte()) + newPublicKey
@@ -27,7 +26,6 @@ object KeyUtil {
         } else {
             byteArrayOf(0x4.toByte()) + publicKey
         }
-    }
 
     fun getSignatureData(signatureBytes: ByteArray): SignatureData {
         val v = signatureBytes[64]

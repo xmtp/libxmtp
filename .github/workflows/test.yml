@@ -54,5 +54,46 @@ jobs:
           api-level: 34
           arch: x86_64
           disable-animations: true
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: ./gradlew connectedCheck
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -memory 4096 -partition-size 8192
+          script: |
+            export GRADLE_OPTS="-Xmx4096m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+            ./gradlew connectedCheck --continue --stacktrace --info
+      - name: Upload Test Reports on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-reports
+          path: |
+            library/build/reports/androidTests/
+            library/build/outputs/androidTest-results/
+          retention-days: 7
+      - name: Display Test Failure Details
+        if: failure()
+        run: |
+          echo "=== Test Failure Details ==="
+          # Find and display the main test report
+          if [ -f "library/build/reports/androidTests/connected/debug/index.html" ]; then
+            echo "Test report location: library/build/reports/androidTests/connected/debug/index.html"
+          fi
+
+          # Look for XML test results and display failures
+          find library/build/outputs/androidTest-results/ -name "*.xml" -type f 2>/dev/null | while read xml_file; do
+            if grep -q "failures=" "$xml_file" && ! grep -q "failures=\"0\"" "$xml_file"; then
+              echo "=== Failure details from $xml_file ==="
+              # Extract and display failure information
+              grep -A 10 -B 2 "failure\|error" "$xml_file" || true
+            fi
+          done
+
+          # Look for logcat output if available
+          if [ -f "library/build/outputs/androidTest-results/connected/debug/logcat.txt" ]; then
+            echo "=== Recent logcat output ==="
+            tail -100 library/build/outputs/androidTest-results/connected/debug/logcat.txt
+          fi
+
+          # Display gradle test output if available
+          if [ -d "library/build/reports/tests" ]; then
+            find library/build/reports/tests -name "*.html" -type f | head -5 | while read report; do
+              echo "Found test report: $report"
+            done
+          fi

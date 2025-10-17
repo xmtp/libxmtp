@@ -7,7 +7,7 @@ import uniffi.xmtpv3.FfiSignatureKind
 typealias SignatureKind = FfiSignatureKind
 
 class InboxState(
-    private val ffiInboxState: FfiInboxState,
+        private val ffiInboxState: FfiInboxState,
 ) {
     val inboxId: InboxId
         get() = ffiInboxState.inboxId

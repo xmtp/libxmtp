@@ -7,8 +7,7 @@ class DisappearingMessageSettings(
     val retentionDurationInNs: Long,
 ) {
     companion object {
-        fun createFromFfi(ffiSettings: FfiMessageDisappearingSettings): DisappearingMessageSettings {
-            return DisappearingMessageSettings(ffiSettings.fromNs, ffiSettings.inNs)
-        }
+        fun createFromFfi(ffiSettings: FfiMessageDisappearingSettings): DisappearingMessageSettings =
+            DisappearingMessageSettings(ffiSettings.fromNs, ffiSettings.inNs)
     }
 }

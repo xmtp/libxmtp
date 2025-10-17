@@ -8,8 +8,8 @@ import org.web3j.crypto.Sign
 import org.xmtp.android.library.KeyUtil
 import org.xmtp.android.library.SignedData
 import org.xmtp.android.library.SigningKey
-import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.libxmtp.IdentityKind
+import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.toHex
 import java.security.SecureRandom
 import java.util.Date
@@ -34,15 +34,23 @@ class PrivateKeyBuilder : SigningKey {
             val publicData = KeyUtil.getPublicKey(privateKeyData)
             val uncompressedKey = KeyUtil.addUncompressedByte(publicData)
 
-            return PrivateKey.newBuilder().apply {
-                timestamp = time
-                secp256K1 = secp256K1.toBuilder().setBytes(privateKeyData.toByteString()).build()
-                publicKey = publicKey.toBuilder().apply {
-                    this.timestamp = time
-                    secp256K1Uncompressed = secp256K1Uncompressed.toBuilder()
-                        .setBytes(uncompressedKey.toByteString()).build()
+            return PrivateKey
+                .newBuilder()
+                .apply {
+                    timestamp = time
+                    secp256K1 = secp256K1.toBuilder().setBytes(privateKeyData.toByteString()).build()
+                    publicKey =
+                        publicKey
+                            .toBuilder()
+                            .apply {
+                                this.timestamp = time
+                                secp256K1Uncompressed =
+                                    secp256K1Uncompressed
+                                        .toBuilder()
+                                        .setBytes(uncompressedKey.toByteString())
+                                        .build()
+                            }.build()
                 }.build()
-            }.build()
         }
     }
 
@@ -65,9 +73,11 @@ class PrivateKeyBuilder : SigningKey {
 
         return SignedData(
             rawData = fullSignature,
-            publicKey = privateKey.publicKey.secp256K1Uncompressed.bytes.toByteArray(),
+            publicKey =
+                privateKey.publicKey.secp256K1Uncompressed.bytes
+                    .toByteArray(),
             authenticatorData = null,
-            clientDataJson = null
+            clientDataJson = null,
         )
     }
 }
@@ -77,12 +87,13 @@ val PrivateKey.walletAddress: String
 
 val PublicKey.walletAddress: String
     get() {
-        val address = Keys.getAddress(
-            Arrays.copyOfRange(
-                secp256K1Uncompressed.bytes.toByteArray(),
-                1,
-                secp256K1Uncompressed.bytes.toByteArray().size
+        val address =
+            Keys.getAddress(
+                Arrays.copyOfRange(
+                    secp256K1Uncompressed.bytes.toByteArray(),
+                    1,
+                    secp256K1Uncompressed.bytes.toByteArray().size,
+                ),
             )
-        )
         return Keys.toChecksumAddress(address.toHex()).lowercase()
     }

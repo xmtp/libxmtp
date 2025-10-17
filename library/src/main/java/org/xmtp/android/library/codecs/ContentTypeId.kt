@@ -10,24 +10,26 @@ class ContentTypeIdBuilder {
             authorityId: String,
             typeId: String,
             versionMajor: Int,
-            versionMinor: Int
-        ): ContentTypeId {
-            return ContentTypeId.newBuilder().also {
-                it.authorityId = authorityId
-                it.typeId = typeId
-                it.versionMajor = versionMajor
-                it.versionMinor = versionMinor
-            }.build()
-        }
+            versionMinor: Int,
+        ): ContentTypeId =
+            ContentTypeId
+                .newBuilder()
+                .also {
+                    it.authorityId = authorityId
+                    it.typeId = typeId
+                    it.versionMajor = versionMajor
+                    it.versionMinor = versionMinor
+                }.build()
 
-        fun fromFfi(ffiContentTypeId: FfiContentTypeId): ContentTypeId {
-            return ContentTypeId.newBuilder().also {
-                it.authorityId = ffiContentTypeId.authorityId
-                it.typeId = ffiContentTypeId.typeId
-                it.versionMajor = ffiContentTypeId.versionMajor.toInt()
-                it.versionMinor = ffiContentTypeId.versionMinor.toInt()
-            }.build()
-        }
+        fun fromFfi(ffiContentTypeId: FfiContentTypeId): ContentTypeId =
+            ContentTypeId
+                .newBuilder()
+                .also {
+                    it.authorityId = ffiContentTypeId.authorityId
+                    it.typeId = ffiContentTypeId.typeId
+                    it.versionMajor = ffiContentTypeId.versionMajor.toInt()
+                    it.versionMinor = ffiContentTypeId.versionMinor.toInt()
+                }.build()
     }
 }
 

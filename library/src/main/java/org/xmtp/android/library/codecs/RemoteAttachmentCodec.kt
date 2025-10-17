@@ -41,15 +41,16 @@ data class RemoteAttachment(
             throw XMTPException("no remote attachment payload")
         }
 
-        val encrypted = EncryptedEncodedContent(
-            contentDigest,
-            secret,
-            salt,
-            nonce,
-            payload.toByteString(),
-            contentLength,
-            filename,
-        )
+        val encrypted =
+            EncryptedEncodedContent(
+                contentDigest,
+                secret,
+                salt,
+                nonce,
+                payload.toByteString(),
+                contentLength,
+                filename,
+            )
 
         val decrypted = decryptEncoded(encrypted)
 
@@ -62,26 +63,36 @@ data class RemoteAttachment(
                 throw XMTPException("contentDigest does not match")
             }
 
-            val aes = Ciphertext.Aes256gcmHkdfsha256.newBuilder().also {
-                it.hkdfSalt = encrypted.salt
-                it.gcmNonce = encrypted.nonce
-                it.payload = encrypted.payload
-            }.build()
+            val aes =
+                Ciphertext.Aes256gcmHkdfsha256
+                    .newBuilder()
+                    .also {
+                        it.hkdfSalt = encrypted.salt
+                        it.gcmNonce = encrypted.nonce
+                        it.payload = encrypted.payload
+                    }.build()
 
-            val ciphertext = Ciphertext.newBuilder().also {
-                it.aes256GcmHkdfSha256 = aes
-            }.build()
+            val ciphertext =
+                Ciphertext
+                    .newBuilder()
+                    .also {
+                        it.aes256GcmHkdfSha256 = aes
+                    }.build()
 
             val decrypted = Crypto.decrypt(encrypted.secret.toByteArray(), ciphertext)
 
             return EncodedContent.parseFrom(decrypted)
         }
 
-        fun <T> encodeEncrypted(content: T, codec: ContentCodec<T>): EncryptedEncodedContent {
+        fun <T> encodeEncrypted(
+            content: T,
+            codec: ContentCodec<T>,
+        ): EncryptedEncodedContent {
             val secret = SecureRandom().generateSeed(32)
             val encodedContent = codec.encode(content).toByteArray()
-            val ciphertext = Crypto.encrypt(secret, encodedContent)
-                ?: throw XMTPException("ciphertext not created")
+            val ciphertext =
+                Crypto.encrypt(secret, encodedContent)
+                    ?: throw XMTPException("ciphertext not created")
             val contentDigest =
                 Hash.sha256(ciphertext.aes256GcmHkdfSha256.payload.toByteArray()).toHex()
             return EncryptedEncodedContent(
@@ -97,11 +108,12 @@ data class RemoteAttachment(
 
         fun encodeEncryptedBytes(
             encodedContent: ByteArray,
-            filename: String
+            filename: String,
         ): EncryptedEncodedContent {
             val secret = SecureRandom().generateSeed(32)
-            val ciphertext = Crypto.encrypt(secret, encodedContent)
-                ?: throw XMTPException("ciphertext not created")
+            val ciphertext =
+                Crypto.encrypt(secret, encodedContent)
+                    ?: throw XMTPException("ciphertext not created")
             val contentDigest =
                 Hash.sha256(ciphertext.aes256GcmHkdfSha256.payload.toByteArray()).toHex()
             return EncryptedEncodedContent(
@@ -115,7 +127,10 @@ data class RemoteAttachment(
             )
         }
 
-        fun from(url: URL, encryptedEncodedContent: EncryptedEncodedContent): RemoteAttachment {
+        fun from(
+            url: URL,
+            encryptedEncodedContent: EncryptedEncodedContent,
+        ): RemoteAttachment {
             if (URI(url.toString()).scheme != "https") {
                 throw XMTPException("scheme must be https://")
             }
@@ -132,42 +147,43 @@ data class RemoteAttachment(
     }
 }
 
-val ContentTypeRemoteAttachment = ContentTypeIdBuilder.builderFromAuthorityId(
-    "xmtp.org",
-    "remoteStaticAttachment",
-    versionMajor = 1,
-    versionMinor = 0,
-)
+val ContentTypeRemoteAttachment =
+    ContentTypeIdBuilder.builderFromAuthorityId(
+        "xmtp.org",
+        "remoteStaticAttachment",
+        versionMajor = 1,
+        versionMinor = 0,
+    )
 
 interface Fetcher {
     fun fetch(url: URL): ByteArray
 }
 
 class HTTPFetcher : Fetcher {
-    override fun fetch(url: URL): ByteArray {
-        return url.readBytes()
-    }
+    override fun fetch(url: URL): ByteArray = url.readBytes()
 }
 
-data class RemoteAttachmentCodec(override var contentType: ContentTypeId = ContentTypeRemoteAttachment) :
-    ContentCodec<RemoteAttachment> {
-    override fun encode(content: RemoteAttachment): EncodedContent {
-        return EncodedContent.newBuilder().also {
-            it.type = ContentTypeRemoteAttachment
-            it.putAllParameters(
-                mapOf(
-                    "contentDigest" to content.contentDigest,
-                    "secret" to content.secret.toByteArray().toHex(),
-                    "salt" to content.salt.toByteArray().toHex(),
-                    "nonce" to content.nonce.toByteArray().toHex(),
-                    "scheme" to content.scheme,
-                    "contentLength" to content.contentLength.toString(),
-                    "filename" to content.filename,
-                ),
-            )
-            it.content = content.url.toString().toByteStringUtf8()
-        }.build()
-    }
+data class RemoteAttachmentCodec(
+    override var contentType: ContentTypeId = ContentTypeRemoteAttachment,
+) : ContentCodec<RemoteAttachment> {
+    override fun encode(content: RemoteAttachment): EncodedContent =
+        EncodedContent
+            .newBuilder()
+            .also {
+                it.type = ContentTypeRemoteAttachment
+                it.putAllParameters(
+                    mapOf(
+                        "contentDigest" to content.contentDigest,
+                        "secret" to content.secret.toByteArray().toHex(),
+                        "salt" to content.salt.toByteArray().toHex(),
+                        "nonce" to content.nonce.toByteArray().toHex(),
+                        "scheme" to content.scheme,
+                        "contentLength" to content.contentLength.toString(),
+                        "filename" to content.filename,
+                    ),
+                )
+                it.content = content.url.toString().toByteStringUtf8()
+            }.build()
 
     override fun decode(content: EncodedContent): RemoteAttachment {
         val contentDigest =
@@ -193,9 +209,7 @@ data class RemoteAttachmentCodec(override var contentType: ContentTypeId = Conte
         )
     }
 
-    override fun fallback(content: RemoteAttachment): String {
-        return "Can’t display \"${content.filename}”. This app doesn’t support attachments."
-    }
+    override fun fallback(content: RemoteAttachment): String = "Can’t display \"${content.filename}”. This app doesn’t support attachments."
 
     override fun shouldPush(content: RemoteAttachment): Boolean = true
 }

@@ -12,46 +12,60 @@ import org.xmtp.android.library.codecs.ContentTypeIdBuilder
 import org.xmtp.android.library.codecs.EncodedContent
 
 data class NumberCodec(
-    override var contentType: ContentTypeId = ContentTypeIdBuilder.builderFromAuthorityId(
-        authorityId = "example.com",
-        typeId = "number",
-        versionMajor = 1,
-        versionMinor = 1,
-    ),
+    override var contentType: ContentTypeId =
+        ContentTypeIdBuilder.builderFromAuthorityId(
+            authorityId = "example.com",
+            typeId = "number",
+            versionMajor = 1,
+            versionMinor = 1,
+        ),
 ) : ContentCodec<Double> {
-    override fun encode(content: Double): EncodedContent {
-        return EncodedContent.newBuilder().also {
-            it.type = ContentTypeIdBuilder.builderFromAuthorityId(
-                authorityId = "example.com",
-                typeId = "number",
-                versionMajor = 1,
-                versionMinor = 1,
-            )
-            it.content = mapOf(Pair("number", content)).toString().toByteStringUtf8()
-        }.build()
-    }
+    override fun encode(content: Double): EncodedContent =
+        EncodedContent
+            .newBuilder()
+            .also {
+                it.type =
+                    ContentTypeIdBuilder.builderFromAuthorityId(
+                        authorityId = "example.com",
+                        typeId = "number",
+                        versionMajor = 1,
+                        versionMinor = 1,
+                    )
+                it.content = mapOf(Pair("number", content)).toString().toByteStringUtf8()
+            }.build()
 
     override fun decode(content: EncodedContent): Double =
-        content.content.toStringUtf8().filter { it.isDigit() || it == '.' }.toDouble()
+        content.content
+            .toStringUtf8()
+            .filter { it.isDigit() || it == '.' }
+            .toDouble()
 
     override fun shouldPush(content: Double): Boolean = false
 
-    override fun fallback(content: Double): String {
-        return "Error: This app does not support numbers."
-    }
+    override fun fallback(content: Double): String = "Error: This app does not support numbers."
 }
 
 @RunWith(AndroidJUnit4::class)
-class CodecTest {
+class CodecTest : BaseInstrumentedTest() {
+    private lateinit var fixtures: TestFixtures
+    private lateinit var alixClient: Client
+    private lateinit var boClient: Client
+
+    @org.junit.Before
+    override fun setUp() {
+        super.setUp()
+        fixtures = runBlocking { createFixtures() }
+        alixClient = fixtures.alixClient
+        boClient = fixtures.boClient
+    }
 
     @Test
     fun testCanRoundTripWithCustomContentType() {
         Client.register(codec = NumberCodec())
-        val fixtures = fixtures()
-        val aliceClient = fixtures.alixClient
-        val aliceConversation = runBlocking {
-            aliceClient.conversations.newConversation(fixtures.boClient.inboxId)
-        }
+        val aliceConversation =
+            runBlocking {
+                alixClient.conversations.newConversation(boClient.inboxId)
+            }
         runBlocking {
             aliceConversation.send(
                 content = 3.14,

@@ -1,45 +1,38 @@
 package org.xmtp.android.library
 
-enum class XMTPEnvironment(val rawValue: String) {
+enum class XMTPEnvironment(
+    val rawValue: String,
+) {
     DEV("grpc.dev.xmtp.network"),
     PRODUCTION("grpc.production.xmtp.network"),
     LOCAL("10.0.2.2") {
-        override fun withValue(value: String): XMTPEnvironment {
-            return LOCAL.apply { customValue = value }
-        }
-    };
+        override fun withValue(value: String): XMTPEnvironment = LOCAL.apply { customValue = value }
+    }, ;
 
     private var customValue: String = ""
 
-    open fun withValue(value: String): XMTPEnvironment {
-        return this
-    }
+    open fun withValue(value: String): XMTPEnvironment = this
 
     companion object {
-        operator fun invoke(rawValue: String): XMTPEnvironment {
-            return XMTPEnvironment.values().firstOrNull { it.rawValue == rawValue }
+        operator fun invoke(rawValue: String): XMTPEnvironment =
+            XMTPEnvironment.values().firstOrNull { it.rawValue == rawValue }
                 ?: LOCAL.withValue(rawValue)
-        }
     }
 
     // This function returns the actual raw value for the enum, handling the CUSTOM case.
-    fun getValue(): String {
-        return if (this == LOCAL && customValue.isNotEmpty()) customValue else rawValue
-    }
+    fun getValue(): String = if (this == LOCAL && customValue.isNotEmpty()) customValue else rawValue
 
-    fun getUrl(): String {
-        return when (this) {
+    fun getUrl(): String =
+        when (this) {
             DEV -> "https://${getValue()}:443"
             PRODUCTION -> "https://${getValue()}:443"
             LOCAL -> "http://${getValue()}:5556"
         }
-    }
 
-    fun getHistorySyncUrl(): String {
-        return when (this) {
+    fun getHistorySyncUrl(): String =
+        when (this) {
             PRODUCTION -> "https://message-history.production.ephemera.network"
             LOCAL -> "http://10.0.2.2:5558"
             DEV -> "https://message-history.dev.ephemera.network"
         }
-    }
 }

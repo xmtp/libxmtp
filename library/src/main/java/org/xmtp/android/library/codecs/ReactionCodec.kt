@@ -10,12 +10,13 @@ import com.google.gson.JsonSerializer
 import com.google.protobuf.kotlin.toByteStringUtf8
 import java.lang.reflect.Type
 
-val ContentTypeReaction = ContentTypeIdBuilder.builderFromAuthorityId(
-    "xmtp.org",
-    "reaction",
-    versionMajor = 1,
-    versionMinor = 0,
-)
+val ContentTypeReaction =
+    ContentTypeIdBuilder.builderFromAuthorityId(
+        "xmtp.org",
+        "reaction",
+        versionMajor = 1,
+        versionMinor = 0,
+    )
 
 data class Reaction(
     val reference: String,
@@ -26,54 +27,61 @@ data class Reaction(
 
 sealed class ReactionAction {
     object Removed : ReactionAction()
+
     object Added : ReactionAction()
+
     object Unknown : ReactionAction()
 }
 
 sealed class ReactionSchema {
     object Unicode : ReactionSchema()
+
     object Shortcode : ReactionSchema()
+
     object Custom : ReactionSchema()
+
     object Unknown : ReactionSchema()
 }
 
-fun getReactionSchema(schema: String): ReactionSchema {
-    return when (schema) {
+fun getReactionSchema(schema: String): ReactionSchema =
+    when (schema) {
         "unicode" -> ReactionSchema.Unicode
         "shortcode" -> ReactionSchema.Shortcode
         "custom" -> ReactionSchema.Custom
         else -> ReactionSchema.Unknown
     }
-}
 
-fun getReactionAction(action: String): ReactionAction {
-    return when (action) {
+fun getReactionAction(action: String): ReactionAction =
+    when (action) {
         "removed" -> ReactionAction.Removed
         "added" -> ReactionAction.Added
         else -> ReactionAction.Unknown
     }
-}
 
-data class ReactionCodec(override var contentType: ContentTypeId = ContentTypeReaction) :
-    ContentCodec<Reaction> {
-
+data class ReactionCodec(
+    override var contentType: ContentTypeId = ContentTypeReaction,
+) : ContentCodec<Reaction> {
     override fun encode(content: Reaction): EncodedContent {
-        val gson = GsonBuilder()
-            .registerTypeAdapter(Reaction::class.java, ReactionSerializer())
-            .create()
+        val gson =
+            GsonBuilder()
+                .registerTypeAdapter(Reaction::class.java, ReactionSerializer())
+                .create()
 
-        return EncodedContent.newBuilder().also {
-            it.type = ContentTypeReaction
-            it.content = gson.toJson(content).toByteStringUtf8()
-        }.build()
+        return EncodedContent
+            .newBuilder()
+            .also {
+                it.type = ContentTypeReaction
+                it.content = gson.toJson(content).toByteStringUtf8()
+            }.build()
     }
 
     override fun decode(content: EncodedContent): Reaction {
         val json = content.content.toStringUtf8()
 
-        val gson = GsonBuilder()
-            .registerTypeAdapter(Reaction::class.java, ReactionDeserializer())
-            .create()
+        val gson =
+            GsonBuilder()
+                .registerTypeAdapter(Reaction::class.java, ReactionDeserializer())
+                .create()
         try {
             return gson.fromJson(json, Reaction::class.java)
         } catch (ignore: Exception) {
@@ -88,13 +96,12 @@ data class ReactionCodec(override var contentType: ContentTypeId = ContentTypeRe
         )
     }
 
-    override fun fallback(content: Reaction): String? {
-        return when (content.action) {
+    override fun fallback(content: Reaction): String? =
+        when (content.action) {
             ReactionAction.Added -> "Reacted “${content.content}” to an earlier message"
             ReactionAction.Removed -> "Removed “${content.content}” from an earlier message"
             else -> null
         }
-    }
 
     override fun shouldPush(content: Reaction): Boolean = false
 }
@@ -107,9 +114,17 @@ private class ReactionSerializer : JsonSerializer<Reaction> {
     ): JsonObject {
         val json = JsonObject()
         json.addProperty("reference", src.reference)
-        json.addProperty("action", src.action.javaClass.simpleName.lowercase())
+        json.addProperty(
+            "action",
+            src.action.javaClass.simpleName
+                .lowercase(),
+        )
         json.addProperty("content", src.content)
-        json.addProperty("schema", src.schema.javaClass.simpleName.lowercase())
+        json.addProperty(
+            "schema",
+            src.schema.javaClass.simpleName
+                .lowercase(),
+        )
         return json
     }
 }

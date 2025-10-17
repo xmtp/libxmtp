@@ -12,8 +12,7 @@ class Util {
     }
 }
 
-fun ByteArray.toHex(): String =
-    joinToString(separator = "") { eachByte -> "%02x".format(eachByte) }
+fun ByteArray.toHex(): String = joinToString(separator = "") { eachByte -> "%02x".format(eachByte) }
 
 fun String.hexToByteArray(): ByteArray = Numeric.hexStringToByteArray(this)
 

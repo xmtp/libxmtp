@@ -10,9 +10,7 @@ import java.net.URL
 import java.security.SecureRandom
 
 class TestFetcher : Fetcher {
-    override fun fetch(url: URL): ByteArray {
-        return File(url.toString().replace("https://", "")).readBytes()
-    }
+    override fun fetch(url: URL): ByteArray = File(url.toString().replace("https://", "")).readBytes()
 }
 
 data class Fixtures(
@@ -21,11 +19,12 @@ data class Fixtures(
 ) {
     val key = SecureRandom().generateSeed(32)
     val context = InstrumentationRegistry.getInstrumentation().targetContext
-    val clientOptions = ClientOptions(
-        ClientOptions.Api(XMTPEnvironment.LOCAL, isSecure = false),
-        dbEncryptionKey = key,
-        appContext = context,
-    )
+    val clientOptions =
+        ClientOptions(
+            ClientOptions.Api(XMTPEnvironment.LOCAL, isSecure = false),
+            dbEncryptionKey = key,
+            appContext = context,
+        )
     var aliceClient: Client =
         runBlocking { Client.create(account = aliceAccount, options = clientOptions) }
     var alice: PrivateKey = aliceAccount.getPrivateKey()

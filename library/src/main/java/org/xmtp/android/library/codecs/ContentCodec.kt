@@ -46,19 +46,27 @@ fun EncodedContent.decompressContent(): EncodedContent {
     var copy = this
     when (compression) {
         Content.Compression.COMPRESSION_DEFLATE -> {
-            copy = copy.toBuilder().also {
-                it.content =
-                    EncodedContentCompression.DEFLATE.decompress(content = content.toByteArray())
-                        ?.toByteString()
-            }.build()
+            copy =
+                copy
+                    .toBuilder()
+                    .also {
+                        it.content =
+                            EncodedContentCompression.DEFLATE
+                                .decompress(content = content.toByteArray())
+                                ?.toByteString()
+                    }.build()
         }
 
         Content.Compression.COMPRESSION_GZIP -> {
-            copy = copy.toBuilder().also {
-                it.content =
-                    EncodedContentCompression.GZIP.decompress(content = content.toByteArray())
-                        ?.toByteString()
-            }.build()
+            copy =
+                copy
+                    .toBuilder()
+                    .also {
+                        it.content =
+                            EncodedContentCompression.GZIP
+                                .decompress(content = content.toByteArray())
+                                ?.toByteString()
+                    }.build()
         }
 
         else -> return copy
@@ -66,27 +74,32 @@ fun EncodedContent.decompressContent(): EncodedContent {
     return copy
 }
 
-fun encodedContentFromFfi(ffi: FfiEncodedContent): EncodedContent {
-    return EncodedContent.newBuilder().also { builder ->
-        ffi.typeId?.let {
-            builder.type = ContentTypeIdBuilder.fromFfi(it)
-        }
-        builder.putAllParameters(ffi.parameters)
-        ffi.fallback?.let {
-            builder.fallback = it
-        }
-        ffi.compression?.let {
-            builder.compressionValue = it
-        }
-        builder.content = ffi.content.toByteString()
-    }.build()
-}
+fun encodedContentFromFfi(ffi: FfiEncodedContent): EncodedContent =
+    EncodedContent
+        .newBuilder()
+        .also { builder ->
+            ffi.typeId?.let {
+                builder.type = ContentTypeIdBuilder.fromFfi(it)
+            }
+            builder.putAllParameters(ffi.parameters)
+            ffi.fallback?.let {
+                builder.fallback = it
+            }
+            ffi.compression?.let {
+                builder.compressionValue = it
+            }
+            builder.content = ffi.content.toByteString()
+        }.build()
 
 interface ContentCodec<T> {
     val contentType: ContentTypeId
+
     fun encode(content: T): EncodedContent
+
     fun decode(content: EncodedContent): T
+
     fun fallback(content: T): String?
+
     fun shouldPush(content: T): Boolean
 }
 

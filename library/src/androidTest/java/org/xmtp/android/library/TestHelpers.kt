@@ -42,31 +42,32 @@ class FakeSCWWallet : SigningKey {
     override var chainId: Long? = 31337L
 
     companion object {
-        fun generate(privateKey: String): FakeSCWWallet {
-            return FakeSCWWallet().apply {
+        fun generate(privateKey: String): FakeSCWWallet =
+            FakeSCWWallet().apply {
                 contractDeployerCredentials = Credentials.create(privateKey)
                 createSmartContractWallet()
             }
-        }
     }
 
     override suspend fun sign(message: String): SignedData {
-        val smartWallet = CoinbaseSmartWallet.load(
-            walletAddress,
-            web3j,
-            contractDeployerCredentials,
-            DefaultGasProvider()
-        )
+        val smartWallet =
+            CoinbaseSmartWallet.load(
+                walletAddress,
+                web3j,
+                contractDeployerCredentials,
+                DefaultGasProvider(),
+            )
         val digest = KeyUtil.ethHash(message)
         val replaySafeHash = smartWallet.replaySafeHash(digest).send()
 
         val signature =
             Sign.signMessage(replaySafeHash, contractDeployerCredentials!!.ecKeyPair, false)
         val signatureBytes = signature.r + signature.s + signature.v
-        val tokens = listOf(
-            Uint(BigInteger.ZERO),
-            DynamicBytes(signatureBytes)
-        )
+        val tokens =
+            listOf(
+                Uint(BigInteger.ZERO),
+                DynamicBytes(signatureBytes),
+            )
         val encoded = FunctionEncoder.encodeConstructor(tokens)
         val encodedBytes = Numeric.hexStringToByteArray(encoded)
 
@@ -74,29 +75,34 @@ class FakeSCWWallet : SigningKey {
     }
 
     private fun createSmartContractWallet() {
-        val smartWalletContract = CoinbaseSmartWallet.deploy(
-            web3j,
-            contractDeployerCredentials,
-            DefaultGasProvider()
-        ).send()
+        val smartWalletContract =
+            CoinbaseSmartWallet
+                .deploy(
+                    web3j,
+                    contractDeployerCredentials,
+                    DefaultGasProvider(),
+                ).send()
 
-        val factory = CoinbaseSmartWalletFactory.deploy(
-            web3j,
-            contractDeployerCredentials,
-            DefaultGasProvider(),
-            BigInteger.ZERO,
-            smartWalletContract.contractAddress
-        ).send()
+        val factory =
+            CoinbaseSmartWalletFactory
+                .deploy(
+                    web3j,
+                    contractDeployerCredentials,
+                    DefaultGasProvider(),
+                    BigInteger.ZERO,
+                    smartWalletContract.contractAddress,
+                ).send()
 
-        val ownerAddress = ByteArray(32) { 0 }.apply {
-            System.arraycopy(
-                contractDeployerCredentials!!.address.hexToByteArray(),
-                0,
-                this,
-                12,
-                20
-            )
-        }
+        val ownerAddress =
+            ByteArray(32) { 0 }.apply {
+                System.arraycopy(
+                    contractDeployerCredentials!!.address.hexToByteArray(),
+                    0,
+                    this,
+                    12,
+                    20,
+                )
+            }
         val owners = listOf(ownerAddress)
         val nonce = BigInteger.ZERO
 
@@ -112,18 +118,20 @@ class FakeSCWWallet : SigningKey {
 }
 
 class Fixtures(
-    api: ClientOptions.Api = ClientOptions.Api(
-        XMTPEnvironment.LOCAL,
-        isSecure = false
-    ),
+    api: ClientOptions.Api =
+        ClientOptions.Api(
+            XMTPEnvironment.LOCAL,
+            isSecure = false,
+        ),
 ) {
     val key = SecureRandom().generateSeed(32)
     val context = InstrumentationRegistry.getInstrumentation().targetContext
-    val clientOptions = ClientOptions(
-        api,
-        dbEncryptionKey = key,
-        appContext = context,
-    )
+    val clientOptions =
+        ClientOptions(
+            api,
+            dbEncryptionKey = key,
+            appContext = context,
+        )
     val alixAccount = PrivateKeyBuilder()
     val boAccount = PrivateKeyBuilder()
     val caroAccount = PrivateKeyBuilder()
@@ -152,9 +160,9 @@ class Fixtures(
 }
 
 fun fixtures(
-    api: ClientOptions.Api = ClientOptions.Api(
-        XMTPEnvironment.LOCAL,
-        isSecure = false
-    ),
-): Fixtures =
-    Fixtures(api)
+    api: ClientOptions.Api =
+        ClientOptions.Api(
+            XMTPEnvironment.LOCAL,
+            isSecure = false,
+        ),
+): Fixtures = Fixtures(api)

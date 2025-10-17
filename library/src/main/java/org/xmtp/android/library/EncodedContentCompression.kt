@@ -9,10 +9,11 @@ import java.util.zip.InflaterOutputStream
 
 enum class EncodedContentCompression {
     DEFLATE,
-    GZIP;
+    GZIP,
+    ;
 
-    fun compress(content: ByteArray): ByteArray? {
-        return when (this) {
+    fun compress(content: ByteArray): ByteArray? =
+        when (this) {
             DEFLATE -> {
                 ByteArrayOutputStream(content.size).use { bos ->
                     DeflaterOutputStream(bos).use { deflater ->
@@ -32,10 +33,9 @@ enum class EncodedContentCompression {
                 }
             }
         }
-    }
 
-    fun decompress(content: ByteArray): ByteArray? {
-        return when (this) {
+    fun decompress(content: ByteArray): ByteArray? =
+        when (this) {
             DEFLATE -> {
                 val bos = ByteArrayOutputStream()
                 InflaterOutputStream(bos).write(content)
@@ -56,5 +56,4 @@ enum class EncodedContentCompression {
                 }
             }
         }
-    }
 }

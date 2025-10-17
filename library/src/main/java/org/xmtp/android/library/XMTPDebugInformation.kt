@@ -15,13 +15,10 @@ class XMTPDebugInformation(
     val aggregateStatistics: String
         get() = ffiClient.apiAggregateStatistics()
 
-    suspend fun uploadDebugInformation(serverUrl: String = client.environment.getHistorySyncUrl()): String {
-        return ffiClient.uploadDebugArchive(serverUrl)
-    }
+    suspend fun uploadDebugInformation(serverUrl: String = client.environment.getHistorySyncUrl()): String =
+        ffiClient.uploadDebugArchive(serverUrl)
 
-    fun clearAllStatistics() {
-        return ffiClient.clearAllStatistics()
-    }
+    fun clearAllStatistics() = ffiClient.clearAllStatistics()
 }
 
 class ApiStats(
