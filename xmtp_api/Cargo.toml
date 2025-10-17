@@ -11,16 +11,13 @@ workspace = true
 async-trait.workspace = true
 futures = { workspace = true }
 hex.workspace = true
-mockall = { workspace = true, optional = true }
 prost = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 tracing.workspace = true
 xmtp_api_d14n = { workspace = true }
-xmtp_api_grpc.workspace = true
 xmtp_common.workspace = true
-xmtp_configuration.workspace = true
 xmtp_id.workspace = true
-xmtp_proto = { workspace = true, features = ["convert"] }
+xmtp_proto = { workspace = true }
 
 
 # test utils
@@ -28,7 +25,6 @@ xmtp_proto = { workspace = true, features = ["convert"] }
 chrono.workspace = true
 futures-timer.workspace = true
 http = "1.2"
-mockall.workspace = true
 tls_codec.workspace = true
 xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
@@ -48,12 +44,9 @@ ctor.workspace = true
 default = ["v3"]
 test-utils = [
   "xmtp_common/test-utils",
-  "xmtp_configuration/test-utils",
   "xmtp_proto/test-utils",
   "xmtp_id/test-utils",
-  "xmtp_api_grpc/test-utils",
   "xmtp_api_d14n/test-utils",
-  "dep:mockall",
 ]
 v3 = []
 d14n = []

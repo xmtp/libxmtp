@@ -97,7 +97,7 @@ xmtp_cryptography = { workspace = true }
 xmtp_db.workspace = true
 xmtp_id.workspace = true
 xmtp_mls_common.workspace = true
-xmtp_proto = { workspace = true, features = ["convert"] }
+xmtp_proto = { workspace = true }
 
 
 # Optional/Features

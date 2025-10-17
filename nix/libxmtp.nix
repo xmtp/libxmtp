@@ -35,6 +35,7 @@
 , shellcheck
 , lcov
 , cargo-llvm-cov
+, cargo-machete
 , ...
 }:
 
@@ -84,6 +85,7 @@ mkShell {
       cargo-deny
       cargo-flamegraph
       cargo-nextest
+      cargo-machete
       inferno
       lnav
       jq
