@@ -511,7 +511,7 @@ impl FfiXmtpClient {
         Ok(message.into())
     }
 
-    pub fn message_v2(&self, message_id: Vec<u8>) -> Result<FfiDecodedMessage, GenericError> {
+    pub fn enriched_message(&self, message_id: Vec<u8>) -> Result<FfiDecodedMessage, GenericError> {
         let message = self.inner_client.message_v2(message_id)?;
         Ok(message.into())
     }
@@ -2277,7 +2277,7 @@ impl FfiConversation {
         Ok(messages)
     }
 
-    pub fn find_messages_v2(
+    pub fn find_enriched_messages(
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<Arc<FfiDecodedMessage>>, GenericError> {
@@ -8706,7 +8706,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_find_messages_v2_with_reactions() {
+    async fn test_find_enriched_messages_with_reactions() {
         let alix = Tester::new().await;
         let bo = Tester::new().await;
 
@@ -8759,7 +8759,7 @@ mod tests {
 
         // Get messages to react to
         let all_messages = bo_group
-            .find_messages_v2(FfiListMessagesOptions::default())
+            .find_enriched_messages(FfiListMessagesOptions::default())
             .unwrap();
 
         // Filter for just text messages to react to
@@ -8825,9 +8825,9 @@ mod tests {
         alix_group.sync().await.unwrap();
         bo_group.sync().await.unwrap();
 
-        // Test find_messages_v2 returns all messages including reactions
+        // Test find_enriched_messages returns all messages including reactions
         let all_messages = alix_group
-            .find_messages_v2(FfiListMessagesOptions::default())
+            .find_enriched_messages(FfiListMessagesOptions::default())
             .unwrap();
 
         // Should have 1 membership change + 3 text messages
@@ -8852,7 +8852,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_find_messages_v2_with_replies() {
+    async fn test_find_enriched_messages_with_replies() {
         let alix = Tester::new().await;
         let bo = Tester::new().await;
 
@@ -8902,7 +8902,7 @@ mod tests {
 
         // Get messages to reply to
         let messages = alix_dm
-            .find_messages_v2(FfiListMessagesOptions::default())
+            .find_enriched_messages(FfiListMessagesOptions::default())
             .unwrap();
         // 3 messages sent + group membership change
         assert_eq!(messages.len(), 4);
@@ -8935,7 +8935,7 @@ mod tests {
         // Add a reaction to a reply
         alix_dm.sync().await.unwrap();
         let updated_messages = alix_dm
-            .find_messages_v2(FfiListMessagesOptions::default())
+            .find_enriched_messages(FfiListMessagesOptions::default())
             .unwrap();
 
         // Find the first reply message

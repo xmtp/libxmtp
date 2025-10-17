@@ -28,6 +28,7 @@ use crate::{
   consent_state::ConsentState,
   conversations::{HmacKey, MessageDisappearingSettings},
   encoded_content::EncodedContent,
+  enriched_message::DecodedMessage,
   identity::{Identifier, IdentityExt},
   message::{ListMessagesOptions, Message, MessageWithReactions},
   permissions::{GroupPermissions, MetadataField, PermissionPolicy, PermissionUpdateType},
@@ -729,5 +730,29 @@ impl Conversation {
     let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();
 
     Ok(conversations)
+  }
+
+  #[napi]
+  pub async fn find_enriched_messages(
+    &self,
+    opts: Option<ListMessagesOptions>,
+  ) -> Result<Vec<DecodedMessage>> {
+    let opts = opts.unwrap_or_default();
+    let group = self.create_mls_group();
+    let messages: Vec<DecodedMessage> = group
+      .find_messages_v2(&opts.into())
+      .map_err(ErrorWrapper::from)?
+      .into_iter()
+      .map(|msg| msg.into())
+      .collect();
+
+    Ok(messages)
+  }
+
+  #[napi]
+  pub async fn get_last_read_times(&self) -> Result<HashMap<String, i64>> {
+    let group = self.create_mls_group();
+    let times = group.get_last_read_times().map_err(ErrorWrapper::from)?;
+    Ok(times)
   }
 }
