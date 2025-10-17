@@ -27,7 +27,7 @@ impl Extractor for WelcomeMessageExtractor {
         if let Some(mut gm) = welcome_message {
             gm.cursor(cursor);
             gm.created_ns(created_ns);
-            Ok(gm.build().unwrap())
+            Ok(gm.build()?)
         } else {
             Err(ExtractionError::Conversion(ConversionError::Missing {
                 item: "welcome_message",

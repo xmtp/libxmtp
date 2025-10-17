@@ -146,6 +146,7 @@ where
 
 #[cfg(any(test, feature = "test-utils"))]
 mod test {
+    #![allow(clippy::unwrap_used)]
     use xmtp_configuration::LOCALHOST;
     use xmtp_proto::{TestApiBuilder, ToxicProxies};
 
