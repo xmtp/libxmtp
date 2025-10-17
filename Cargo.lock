@@ -4888,10 +4888,10 @@ dependencies = [
  "clap",
  "futures",
  "indicatif",
+ "parking_lot 0.12.4",
  "tokio",
  "tracing",
  "tracing-subscriber",
- "xmtp_api_grpc",
  "xmtp_mls",
 ]
 

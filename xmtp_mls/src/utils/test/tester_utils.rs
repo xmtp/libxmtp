@@ -405,6 +405,14 @@ where
         self
     }
 
+    pub fn with_dev(mut self, dev: bool) -> Self {
+        self.api_endpoint = match dev {
+            true => ApiEndpoint::Dev,
+            false => ApiEndpoint::Local,
+        };
+        self
+    }
+
     pub fn sync_worker(mut self) -> Self {
         self.sync_mode = SyncWorkerMode::Enabled;
         self
