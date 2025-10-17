@@ -93,8 +93,14 @@ class GroupTest {
         assertEquals(runBlocking { alixGroup.members().size }, 3)
         assertEquals(runBlocking { boGroup.members().size }, 3)
 
-        assertEquals(runBlocking { boGroup.permissionPolicySet().addMemberPolicy }, PermissionOption.Allow)
-        assertEquals(runBlocking { alixGroup.permissionPolicySet().addMemberPolicy }, PermissionOption.Allow)
+        assertEquals(
+            runBlocking { boGroup.permissionPolicySet().addMemberPolicy },
+            PermissionOption.Allow
+        )
+        assertEquals(
+            runBlocking { alixGroup.permissionPolicySet().addMemberPolicy },
+            PermissionOption.Allow
+        )
         assertEquals(runBlocking { boGroup.isSuperAdmin(boClient.inboxId) }, true)
         assertEquals(runBlocking { boGroup.isSuperAdmin(alixClient.inboxId) }, false)
         assertEquals(runBlocking { alixGroup.isSuperAdmin(boClient.inboxId) }, true)
@@ -159,8 +165,14 @@ class GroupTest {
         assertEquals(runBlocking { alixGroup.members().size }, 2)
         assertEquals(runBlocking { boGroup.members().size }, 2)
 
-        assertEquals(runBlocking { boGroup.permissionPolicySet().addMemberPolicy }, PermissionOption.Admin)
-        assertEquals(runBlocking { alixGroup.permissionPolicySet().addMemberPolicy }, PermissionOption.Admin)
+        assertEquals(
+            runBlocking { boGroup.permissionPolicySet().addMemberPolicy },
+            PermissionOption.Admin
+        )
+        assertEquals(
+            runBlocking { alixGroup.permissionPolicySet().addMemberPolicy },
+            PermissionOption.Admin
+        )
         assertEquals(runBlocking { boGroup.isSuperAdmin(boClient.inboxId) }, true)
         assertEquals(runBlocking { boGroup.isSuperAdmin(alixClient.inboxId) }, false)
         assertEquals(runBlocking { alixGroup.isSuperAdmin(boClient.inboxId) }, true)
@@ -208,8 +220,14 @@ class GroupTest {
         assertEquals(runBlocking { alixGroup.members().size }, 3)
         assertEquals(runBlocking { boGroup.members().size }, 3)
 
-        assertEquals(runBlocking { boGroup.permissionPolicySet().addMemberPolicy }, PermissionOption.Allow)
-        assertEquals(runBlocking { alixGroup.permissionPolicySet().addMemberPolicy }, PermissionOption.Allow)
+        assertEquals(
+            runBlocking { boGroup.permissionPolicySet().addMemberPolicy },
+            PermissionOption.Allow
+        )
+        assertEquals(
+            runBlocking { alixGroup.permissionPolicySet().addMemberPolicy },
+            PermissionOption.Allow
+        )
         assertEquals(runBlocking { boGroup.isSuperAdmin(boClient.inboxId) }, true)
         assertEquals(runBlocking { boGroup.isSuperAdmin(alixClient.inboxId) }, false)
         assertEquals(runBlocking { alixGroup.isSuperAdmin(boClient.inboxId) }, true)
@@ -246,28 +264,25 @@ class GroupTest {
     }
 
     @Test
-    fun testGroupMetadata() {
-        val boGroup = runBlocking {
-            boClient.conversations.newGroup(
-                listOf(alixClient.inboxId),
-                groupName = "Starting Name",
-                groupImageUrlSquare = "startingurl.com"
-            )
-        }
-        runBlocking {
-            assertEquals("Starting Name", boGroup.name)
-            assertEquals("startingurl.com", boGroup.imageUrl)
-            boGroup.updateName("This Is A Great Group")
-            boGroup.updateImageUrl("thisisanewurl.com")
-            boGroup.sync()
-            alixClient.conversations.sync()
-        }
-        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
-        runBlocking { alixGroup.sync() }
-        assertEquals("This Is A Great Group", boGroup.name)
-        assertEquals("This Is A Great Group", alixGroup.name)
-        assertEquals("thisisanewurl.com", boGroup.imageUrl)
-        assertEquals("thisisanewurl.com", alixGroup.imageUrl)
+    fun testGroupMetadata() = runBlocking {
+        val boGroup = boClient.conversations.newGroup(
+            listOf(alixClient.inboxId),
+            groupName = "Starting Name",
+            groupImageUrlSquare = "startingurl.com"
+        )
+        assertEquals("Starting Name", boGroup.name())
+        assertEquals("startingurl.com", boGroup.imageUrl())
+        boGroup.updateName("This Is A Great Group")
+        boGroup.updateImageUrl("thisisanewurl.com")
+        boGroup.sync()
+
+        alixClient.conversations.sync()
+        val alixGroup = alixClient.conversations.listGroups().first()
+        alixGroup.sync()
+        assertEquals("This Is A Great Group", boGroup.name())
+        assertEquals("This Is A Great Group", alixGroup.name())
+        assertEquals("thisisanewurl.com", boGroup.imageUrl())
+        assertEquals("thisisanewurl.com", alixGroup.imageUrl())
     }
 
     @Test
@@ -1072,9 +1087,9 @@ class GroupTest {
         // Validate messages exist and settings are applied
         assertEquals(boGroup.messages().size, 2) // memberAdd, howdy
         assertEquals(alixGroup?.messages()?.size, 2) // memberAdd, howdy
-        assertNotNull(boGroup.disappearingMessageSettings)
-        assertEquals(boGroup.disappearingMessageSettings!!.retentionDurationInNs, 1_000_000_000)
-        assertEquals(boGroup.disappearingMessageSettings!!.disappearStartingAtNs, 1_000_000_000)
+        assertNotNull(boGroup.disappearingMessageSettings())
+        assertEquals(boGroup.disappearingMessageSettings()!!.retentionDurationInNs, 1_000_000_000)
+        assertEquals(boGroup.disappearingMessageSettings()!!.disappearStartingAtNs, 1_000_000_000)
         Thread.sleep(5000)
         // Validate messages are deleted
         assertEquals(boGroup.messages().size, 1) // memberAdd
@@ -1085,10 +1100,10 @@ class GroupTest {
         boGroup.sync()
         alixGroup!!.sync()
 
-        assertNull(boGroup.disappearingMessageSettings)
-        assertNull(alixGroup.disappearingMessageSettings)
-        assert(!boGroup.isDisappearingMessagesEnabled)
-        assert(!alixGroup.isDisappearingMessagesEnabled)
+        assertNull(boGroup.disappearingMessageSettings())
+        assertNull(alixGroup.disappearingMessageSettings())
+        assert(!boGroup.isDisappearingMessagesEnabled())
+        assert(!alixGroup.isDisappearingMessagesEnabled())
 
         // Send messages after disabling disappearing settings
         boGroup.send("message after disabling disappearing")
@@ -1100,11 +1115,11 @@ class GroupTest {
         // Ensure messages persist
         assertEquals(
             boGroup.messages().size,
-            3
+            5
         ) // memberAdd, disappearing settings 1, disappearing settings 2, boMessage, alixMessage
         assertEquals(
             alixGroup.messages().size,
-            3
+            5
         ) // memberAdd disappearing settings 1, disappearing settings 2, boMessage, alixMessage
 
         // Re-enable disappearing messages
@@ -1116,14 +1131,14 @@ class GroupTest {
         boGroup.sync()
         alixGroup.sync()
 
-        Thread.sleep(1000)
+        Thread.sleep(2000)
 
         assertEquals(
-            boGroup.disappearingMessageSettings!!.disappearStartingAtNs,
+            boGroup.disappearingMessageSettings()!!.disappearStartingAtNs,
             updatedSettings.disappearStartingAtNs
         )
         assertEquals(
-            alixGroup.disappearingMessageSettings!!.disappearStartingAtNs,
+            alixGroup.disappearingMessageSettings()!!.disappearStartingAtNs,
             updatedSettings.disappearStartingAtNs
         )
 
@@ -1134,11 +1149,11 @@ class GroupTest {
 
         assertEquals(
             boGroup.messages().size,
-            5
+            9
         ) // memberAdd, disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
         assertEquals(
             alixGroup.messages().size,
-            5
+            9
         ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
 
         Thread.sleep(6000) // Wait for messages to disappear
@@ -1146,24 +1161,24 @@ class GroupTest {
         // Validate messages were deleted
         assertEquals(
             boGroup.messages().size,
-            3
+            7
         ) // memberAdd, disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6
         assertEquals(
             alixGroup.messages().size,
-            3
+            7
         ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6
 
         // Final validation that settings persist
         assertEquals(
-            boGroup.disappearingMessageSettings!!.retentionDurationInNs,
+            boGroup.disappearingMessageSettings()!!.retentionDurationInNs,
             updatedSettings.retentionDurationInNs
         )
         assertEquals(
-            alixGroup.disappearingMessageSettings!!.retentionDurationInNs,
+            alixGroup.disappearingMessageSettings()!!.retentionDurationInNs,
             updatedSettings.retentionDurationInNs
         )
-        assert(boGroup.isDisappearingMessagesEnabled)
-        assert(alixGroup.isDisappearingMessagesEnabled)
+        assert(boGroup.isDisappearingMessagesEnabled())
+        assert(alixGroup.isDisappearingMessagesEnabled())
     }
 
     @Test

@@ -124,16 +124,14 @@ class GroupUpdatedTest {
     }
 
     @Test
-    fun testIfNotRegisteredReturnsFallback() {
-        val group = runBlocking {
-            alixClient.conversations.newGroup(
-                listOf(
-                    boClient.inboxId,
-                    caroClient.inboxId
-                )
+    fun testIfNotRegisteredReturnsFallback() = runBlocking {
+        val group = alixClient.conversations.newGroup(
+            listOf(
+                boClient.inboxId,
+                caroClient.inboxId
             )
-        }
-        val messages = runBlocking { group.messages() }
+        )
+        val messages = group.messages()
         assertEquals(messages.size, 1)
         assert(messages.first().fallback.isBlank())
     }
