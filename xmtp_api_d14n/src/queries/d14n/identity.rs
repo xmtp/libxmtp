@@ -69,17 +69,15 @@ where
         if request.requests.is_empty() {
             return Ok(identity_v1::GetIdentityUpdatesResponse { responses: vec![] });
         }
-
+        let min_sid = request
+            .requests
+            .iter()
+            .map(|r| r.sequence_id)
+            .min()
+            .unwrap_or(0);
         let topics = request.requests.topics()?;
-        //todo: replace with returned node_id
-        //todo:d14n need to get the lcc for identity updates
-        let node_id = 100;
         let last_seen = Some(Cursor {
-            node_id_to_sequence_id: [
-                (node_id, request.requests.first().unwrap().sequence_id),
-                (Originators::INBOX_LOG, 0),
-            ]
-            .into(),
+            node_id_to_sequence_id: [(Originators::INBOX_LOG, min_sid)].into(),
         });
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {

@@ -5,6 +5,4 @@ set -eou pipefail
 # Skips tests for unimplemented features (streams)
 
 EXTRA_FLAGS=${1:-}
-cargo nextest run $EXTRA_FLAGS --features d14n \
-  -E 'package(xmtp_mls) and not (test(/\w*commit_log*/))' \
-  -E 'rdeps(xmtp_mls) and not (test(/\w*commit_log*/))'
+cargo nextest run $EXTRA_FLAGS --features d14n --profile ci-d14n -E 'package(xmtp_mls)' -E 'rdeps(xmtp_mls)'

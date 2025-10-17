@@ -15,6 +15,7 @@ cargo test --quiet --locked --release --target wasm32-unknown-unknown \
   --\
   --skip encrypted_store::group_message::tests::it_cannot_insert_message_without_group
 $WORKSPACE_PATH/dev/test/v3 "--profile ci"
+$WORKSPACE_PATH/dev/test/d14n "--profile ci"
 
 echo "Tests Good ✅"
 
