@@ -85,6 +85,7 @@ pub struct ListMessagesOptions {
   pub delivery_status: Option<DeliveryStatus>,
   pub direction: Option<SortDirection>,
   pub content_types: Option<Vec<ContentType>>,
+  pub exclude_content_types: Option<Vec<ContentType>>,
   pub kind: Option<GroupMessageKind>,
 }
 
@@ -95,6 +96,9 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
     let content_types = opts
       .content_types
       .map(|types| types.into_iter().map(Into::into).collect());
+    let exclude_content_types = opts
+      .exclude_content_types
+      .map(|types| types.into_iter().map(Into::into).collect());
 
     MsgQueryArgs {
       sent_before_ns: opts.sent_before_ns,
@@ -103,6 +107,7 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
       limit: opts.limit,
       direction,
       content_types,
+      exclude_content_types,
       kind: opts.kind.map(Into::into),
     }
   }
