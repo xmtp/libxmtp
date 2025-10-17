@@ -68,7 +68,8 @@ where
     pub builder: TesterBuilder<Owner>,
     pub client: Client,
     pub worker: Option<Arc<WorkerMetrics<SyncMetric>>>,
-    pub stream_handle: Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>>>>,
+    pub stream_handle:
+        Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>> + Send>>,
     pub proxy: Option<ToxicProxies>,
     /// Replacement names for this tester
     /// Replacements are removed on drop

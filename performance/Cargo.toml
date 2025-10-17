@@ -12,8 +12,10 @@ path = "src/streaming.rs"
 anyhow.workspace = true
 clap = { version =  "4.5.49", features = ["derive"] }
 futures.workspace = true
+indicatif = "0.18.0"
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 xmtp_mls = { workspace = true, features = ["test-utils"] }
 
 [lints]

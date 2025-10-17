@@ -4887,8 +4887,10 @@ dependencies = [
  "anyhow",
  "clap",
  "futures",
+ "indicatif",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "xmtp_mls",
 ]
 
