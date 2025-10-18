@@ -14,6 +14,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+
   replicationdb:
     image: *x-postgres-image
     environment:
@@ -23,9 +24,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
   chain:
     platform: linux/amd64
     image: *x-xmtpd-contracts-image
+
   register-node-native:
     platform: linux/amd64
     image: *x-xmtpd-cli-image
@@ -48,6 +51,7 @@ services:
       chain:
         condition: service_started
     restart: on-failure
+
   enable-node-native:
     platform: linux/amd64
     image: *x-xmtpd-cli-image
@@ -71,6 +75,7 @@ services:
       register-node-native:
         condition: service_completed_successfully
     restart: on-failure
+
   register-node-wasm:
     platform: linux/amd64
     image: *x-xmtpd-cli-image
@@ -95,6 +100,7 @@ services:
       register-node-native:
         condition: service_completed_successfully
     restart: on-failure
+
   enable-node-wasm:
     platform: linux/amd64
     image: *x-xmtpd-cli-image
@@ -118,6 +124,7 @@ services:
       register-node-wasm:
         condition: service_completed_successfully
     restart: on-failure
+
   xmtpd:
     platform: linux/amd64
     image: *x-xmtpd-server-image
@@ -136,19 +143,23 @@ services:
         condition: service_healthy
     ports:
       - 5050:5050
-      - 5055:5055
+      - 5052:5052
+
+  # Gateway runs on the same network namespace as xmtpd.
+  # That means it can access xmtpd on localhost:5050, but docker
+  # explicitly forbids to publish ports under the gateway service.
+  # So we need to publish the port on the xmtpd service.
   gateway:
     platform: linux/amd64
     image: *x-xmtpd-gateway-image
+    network_mode: "service:xmtpd"
     env_file:
       - local.env
     volumes:
       - ../environments/anvil.json:/cfg/anvil.json
     environment:
       - "XMTPD_CONTRACTS_CONFIG_FILE_PATH=/cfg/anvil.json"
+      - "XMTPD_API_PORT=5052"
     depends_on:
       redis:
         condition: service_healthy
-    ports:
-      - 5052:5050
-      - 5057:5055

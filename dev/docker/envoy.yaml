@@ -157,4 +157,4 @@ static_resources:
                   address:
                     socket_address:
                       address: gateway
-                      port_value: 5050
+                      port_value: 5052
