@@ -19,6 +19,7 @@ use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_configuration::Originators;
 use xmtp_db::XmtpOpenMlsProviderRef;
 use xmtp_db::refresh_state::EntityKind;
+use xmtp_id::InboxId;
 use xmtp_proto::types::{Cursor, TopicKind};
 
 #[cfg(target_arch = "wasm32")]
@@ -51,6 +52,7 @@ use diesel::connection::SimpleConnection;
 use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use futures::future::join_all;
 use rstest::*;
+use std::collections::HashSet;
 use std::sync::Arc;
 use wasm_bindgen_test::wasm_bindgen_test;
 use xmtp_common::RetryableError;
@@ -1990,6 +1992,68 @@ async fn test_group_super_admin_list_update() {
         )
         .await
         .expect_err("expected err");
+}
+
+#[xmtp_common::test]
+async fn test_cannot_remove_super_admin_from_group() {
+    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+    let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
+    let amal_group = amal.create_group(policy_set, None).unwrap();
+
+    // Add bola and caro to the group
+    amal_group
+        .add_members_by_inbox_id(&[bola.inbox_id(), caro.inbox_id()])
+        .await
+        .unwrap();
+
+    // Verify we have threem members in the group
+    assert_eq!(amal_group.members().await.unwrap().len(), 3);
+    
+    // Make both bola and caro super admins
+    amal_group
+        .update_admin_list(UpdateAdminListType::AddSuper, bola.inbox_id().to_string())
+        .await
+        .unwrap();
+    amal_group
+        .update_admin_list(UpdateAdminListType::AddSuper, caro.inbox_id().to_string())
+        .await
+        .unwrap();
+
+    // Verify we have 3 super admins
+    assert_eq!(amal_group.super_admin_list().unwrap().len(), 3);
+
+    // Attempting to remove a super admin from the group should fail
+    amal_group
+        .remove_members_by_inbox_id(&[bola.inbox_id()])
+        .await
+        .expect_err("expected err: cannot remove super admin from group");
+
+    // Have amal remove bola as a super admin
+    amal_group
+        .update_admin_list(UpdateAdminListType::RemoveSuper, bola.inbox_id().to_string())
+        .await
+        .unwrap();
+
+    // Verify bola is no longer a super admin
+    assert_eq!(amal_group.super_admin_list().unwrap().len(), 2);
+    assert!(amal_group.super_admin_list().unwrap().contains(&caro.inbox_id().to_string()));
+    assert!(!amal_group.super_admin_list().unwrap().contains(&bola.inbox_id().to_string()));
+
+    // Verify that we can now remove bola from the group
+    amal_group
+        .remove_members_by_inbox_id(&[bola.inbox_id()])
+        .await
+        .unwrap();
+
+    // Verify bola is no longer in the group
+    assert_eq!(amal_group.members().await.unwrap().len(), 2);
+    let members_inbox_ids: HashSet<InboxId> = amal_group.members().await.unwrap().into_iter().map(|m| m.inbox_id).collect();
+    assert!(members_inbox_ids.contains(caro.inbox_id()));
+    assert!(members_inbox_ids.contains(amal.inbox_id()));
+    assert!(!members_inbox_ids.contains(bola.inbox_id()));
 }
 
 #[xmtp_common::test]
