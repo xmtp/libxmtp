@@ -199,6 +199,7 @@ impl<B1, B2> CursorAwareApi for D14nClientBuilder<B1, B2> {
 
 #[cfg(any(test, feature = "test-utils"))]
 mod test {
+    #![allow(clippy::unwrap_used)]
     use xmtp_configuration::LOCALHOST;
     use xmtp_proto::{TestApiBuilder, ToxicProxies};
 
