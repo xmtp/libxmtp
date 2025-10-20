@@ -40,8 +40,12 @@ use xmtp_common::StreamHandle;
 use xmtp_common::TestLogReplace;
 use xmtp_configuration::LOCALHOST;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
+#[cfg(not(target_arch = "wasm32"))]
+use xmtp_db::NativeDb;
+#[cfg(target_arch = "wasm32")]
+use xmtp_db::WasmDb;
 use xmtp_db::{
-    EncryptedMessageStore, MlsProviderExt, NativeDb, StorageOption, XmtpOpenMlsProvider,
+    EncryptedMessageStore, MlsProviderExt, StorageOption, XmtpOpenMlsProvider,
     group_message::StoredGroupMessage, sql_key_store::SqlKeyStore,
 };
 use xmtp_id::{
@@ -181,7 +185,10 @@ where
             .with_commit_log_worker(self.commit_log_worker);
 
         if self.ephemeral_db {
+            #[cfg(not(target_arch = "wasm32"))]
             let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral).unwrap();
+            #[cfg(target_arch = "wasm32")]
+            let db = WasmDb::new(&StorageOption::Ephemeral).unwrap();
             let db = EncryptedMessageStore::new(db).unwrap();
             client = client.store(db);
         } else {
