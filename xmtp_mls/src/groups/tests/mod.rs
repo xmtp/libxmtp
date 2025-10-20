@@ -1670,6 +1670,345 @@ async fn test_self_removal_with_late_installation() {
     );
 }
 
+#[xmtp_common::test(flavor = "current_thread")]
+async fn test_clean_pending_remove_list_on_member_removal() {
+    // Test that when a member is removed from the group, they are also removed from the pending_remove list
+    let amal_wallet = generate_local_wallet();
+    let bola_wallet = generate_local_wallet();
+    let caro_wallet = generate_local_wallet();
+
+    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
+    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
+    let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group
+        .add_members_by_inbox_id(&[bola.inbox_id(), caro.inbox_id()])
+        .await
+        .unwrap();
+
+    amal_group.sync().await.unwrap();
+    bola.sync_welcomes().await.unwrap();
+    caro.sync_welcomes().await.unwrap();
+
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+    let bola_group = bola_groups.first().unwrap();
+    bola_group.sync().await.unwrap();
+
+    let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
+    let caro_group = caro_groups.first().unwrap();
+    caro_group.sync().await.unwrap();
+
+    // Bola requests to leave the group
+    bola_group.leave_group().await.unwrap();
+
+    // Verify Bola is in the pending_remove list
+    let pending_users = bola
+        .db()
+        .get_pending_remove_users(&bola_group.group_id)
+        .unwrap();
+    assert_eq!(pending_users.len(), 1);
+    assert!(pending_users.contains(&bola.inbox_id().to_string()));
+
+    // Amal removes Bola from the group
+    amal_group.sync().await.unwrap();
+    amal_group
+        .remove_members(&[bola_wallet.identifier()])
+        .await
+        .unwrap();
+    amal_group.sync().await.unwrap();
+
+    // Sync on all clients
+    bola_group.sync().await.unwrap();
+    caro_group.sync().await.unwrap();
+
+    // Verify Bola is removed from the pending_remove list on all clients
+    let amal_pending = amal
+        .db()
+        .get_pending_remove_users(&amal_group.group_id)
+        .unwrap();
+    assert!(amal_pending.is_empty());
+
+    let caro_pending = caro
+        .db()
+        .get_pending_remove_users(&caro_group.group_id)
+        .unwrap();
+    assert!(caro_pending.is_empty());
+
+    // Verify the group members
+    assert_eq!(amal_group.members().await.unwrap().len(), 2); // amal and caro
+}
+
+#[xmtp_common::test(flavor = "current_thread")]
+async fn test_super_admin_promotion_marks_pending_leave_requests() {
+    // Test that when a user is promoted to super_admin and there are pending remove users,
+    // the group is marked as having pending leave requests
+    let amal_wallet = generate_local_wallet();
+    let bola_wallet = generate_local_wallet();
+    let caro_wallet = generate_local_wallet();
+
+    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
+    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
+    let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group
+        .add_members_by_inbox_id(&[bola.inbox_id(), caro.inbox_id()])
+        .await
+        .unwrap();
+
+    amal_group.sync().await.unwrap();
+    bola.sync_welcomes().await.unwrap();
+    caro.sync_welcomes().await.unwrap();
+
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+    let bola_group = bola_groups.first().unwrap();
+    bola_group.sync().await.unwrap();
+
+    let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
+    let caro_group = caro_groups.first().unwrap();
+    caro_group.sync().await.unwrap();
+
+    // Caro requests to leave the group
+    caro_group.leave_group().await.unwrap();
+
+    // Verify Caro is in the pending_remove list
+    let pending_users = caro
+        .db()
+        .get_pending_remove_users(&caro_group.group_id)
+        .unwrap();
+    assert_eq!(pending_users.len(), 1);
+    assert!(pending_users.contains(&caro.inbox_id().to_string()));
+
+    // Initially, the group should not have pending leave requests on Bola's side (not super admin)
+    let bola_group_status = bola
+        .db()
+        .find_group(&bola_group.group_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(bola_group_status.has_pending_leave_request, Some(false));
+
+    // Amal promotes Bola to super_admin
+    amal_group
+        .update_admin_list(UpdateAdminListType::AddSuper, bola.inbox_id().to_string())
+        .await
+        .unwrap();
+    amal_group.sync().await.unwrap();
+
+    // Bola syncs and should now be marked as having pending leave requests
+    bola_group.sync().await.unwrap();
+
+    // Verify Bola is a super_admin
+    assert!(bola_group
+        .super_admin_list()
+        .unwrap()
+        .contains(&bola.inbox_id().to_string()));
+
+    // Verify the group is marked as having pending leave requests
+    let bola_group_status = bola
+        .db()
+        .find_group(&bola_group.group_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(bola_group_status.has_pending_leave_request, Some(true));
+}
+
+#[xmtp_common::test(flavor = "current_thread")]
+async fn test_super_admin_demotion_clears_pending_leave_requests() {
+    // Test that when a user is demoted from super_admin, the pending leave request flag is cleared
+    let amal_wallet = generate_local_wallet();
+    let bola_wallet = generate_local_wallet();
+    let caro_wallet = generate_local_wallet();
+
+    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
+    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
+    let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group
+        .add_members_by_inbox_id(&[bola.inbox_id(), caro.inbox_id()])
+        .await
+        .unwrap();
+
+    amal_group.sync().await.unwrap();
+    bola.sync_welcomes().await.unwrap();
+    caro.sync_welcomes().await.unwrap();
+
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+    let bola_group = bola_groups.first().unwrap();
+    bola_group.sync().await.unwrap();
+
+    let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
+    let caro_group = caro_groups.first().unwrap();
+    caro_group.sync().await.unwrap();
+
+    // Amal promotes Bola to super_admin
+    amal_group
+        .update_admin_list(UpdateAdminListType::AddSuper, bola.inbox_id().to_string())
+        .await
+        .unwrap();
+    amal_group.sync().await.unwrap();
+    bola_group.sync().await.unwrap();
+
+    // Verify Bola is a super_admin
+    assert!(bola_group
+        .super_admin_list()
+        .unwrap()
+        .contains(&bola.inbox_id().to_string()));
+
+    // Caro requests to leave
+    caro_group.leave_group().await.unwrap();
+    amal_group.sync().await.unwrap();
+    bola_group.sync().await.unwrap();
+
+    // Verify the group is marked as having pending leave requests on Bola's side
+    let bola_group_status = bola
+        .db()
+        .find_group(&bola_group.group_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(bola_group_status.has_pending_leave_request, Some(true));
+
+    // Bola demotes themselves from super_admin
+    bola_group
+        .update_admin_list(
+            UpdateAdminListType::RemoveSuper,
+            bola.inbox_id().to_string(),
+        )
+        .await
+        .unwrap();
+    bola_group.sync().await.unwrap();
+
+    // Verify Bola is no longer a super_admin
+    assert!(!bola_group
+        .super_admin_list()
+        .unwrap()
+        .contains(&bola.inbox_id().to_string()));
+
+    // Verify the pending leave request flag is cleared
+    let bola_group_status = bola
+        .db()
+        .find_group(&bola_group.group_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(bola_group_status.has_pending_leave_request, Some(false));
+}
+
+#[xmtp_common::test(flavor = "current_thread")]
+async fn test_no_status_change_when_not_in_pending_remove_list() {
+    // Test that promotion to super_admin doesn't mark the group when there are no pending remove users
+    let amal_wallet = generate_local_wallet();
+    let bola_wallet = generate_local_wallet();
+
+    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
+    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
+
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group
+        .add_members_by_inbox_id(&[bola.inbox_id()])
+        .await
+        .unwrap();
+
+    amal_group.sync().await.unwrap();
+    bola.sync_welcomes().await.unwrap();
+
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+    let bola_group = bola_groups.first().unwrap();
+    bola_group.sync().await.unwrap();
+
+    // Verify no pending remove users
+    let pending_users = bola
+        .db()
+        .get_pending_remove_users(&bola_group.group_id)
+        .unwrap();
+    assert!(pending_users.is_empty());
+
+    // Amal promotes Bola to super_admin
+    amal_group
+        .update_admin_list(UpdateAdminListType::AddSuper, bola.inbox_id().to_string())
+        .await
+        .unwrap();
+    amal_group.sync().await.unwrap();
+    bola_group.sync().await.unwrap();
+
+    // Verify Bola is a super_admin
+    assert!(bola_group
+        .super_admin_list()
+        .unwrap()
+        .contains(&bola.inbox_id().to_string()));
+
+    // Verify the group is NOT marked as having pending leave requests (no pending users)
+    let bola_group_status = bola
+        .db()
+        .find_group(&bola_group.group_id)
+        .unwrap()
+        .unwrap();
+    // The status should be false or None since there are no pending remove users
+    assert!(
+        bola_group_status.has_pending_leave_request == Some(false)
+            || bola_group_status.has_pending_leave_request.is_none()
+    );
+}
+
+#[xmtp_common::test(flavor = "current_thread")]
+async fn test_promotion_excludes_self_from_pending_check() {
+    // Test that if the promoted user is in the pending_remove list, the group is NOT marked
+    let amal_wallet = generate_local_wallet();
+    let bola_wallet = generate_local_wallet();
+
+    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
+    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
+
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group
+        .add_members_by_inbox_id(&[bola.inbox_id()])
+        .await
+        .unwrap();
+
+    amal_group.sync().await.unwrap();
+    bola.sync_welcomes().await.unwrap();
+
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+    let bola_group = bola_groups.first().unwrap();
+    bola_group.sync().await.unwrap();
+
+    // Bola requests to leave
+    bola_group.leave_group().await.unwrap();
+
+    // Verify Bola is in the pending_remove list
+    let pending_users = bola
+        .db()
+        .get_pending_remove_users(&bola_group.group_id)
+        .unwrap();
+    assert!(pending_users.contains(&bola.inbox_id().to_string()));
+
+    // Amal promotes Bola to super_admin (edge case)
+    amal_group
+        .update_admin_list(UpdateAdminListType::AddSuper, bola.inbox_id().to_string())
+        .await
+        .unwrap();
+    amal_group.sync().await.unwrap();
+    bola_group.sync().await.unwrap();
+
+    // Verify Bola is a super_admin
+    assert!(bola_group
+        .super_admin_list()
+        .unwrap()
+        .contains(&bola.inbox_id().to_string()));
+
+    // Verify the group is NOT marked as having pending leave requests
+    // (because the only pending user is Bola themselves)
+    let bola_group_status = bola
+        .db()
+        .find_group(&bola_group.group_id)
+        .unwrap()
+        .unwrap();
+    assert!(
+        bola_group_status.has_pending_leave_request == Some(false)
+            || bola_group_status.has_pending_leave_request.is_none()
+    );
+}
+
 #[xmtp_common::test]
 async fn test_key_update() {
     tester!(client);

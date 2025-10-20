@@ -113,6 +113,9 @@ use xmtp_proto::xmtp::mls::{
     },
 };
 use xmtp_proto::{mls_v1::WelcomeMetadata, types::GroupMessage};
+use xmtp_proto::mls_v1::welcome_message_input::Version;
+use crate::groups::validated_commit::{Inbox, MutableMetadataValidationInfo};
+
 pub mod update_group_membership;
 
 #[derive(Debug, Error)]
@@ -1263,6 +1266,19 @@ where
                     *cursor,
                     storage,
                 )?;
+
+                // remove left/removed members from the pending_remove list
+                self.clean_pending_remove_list(storage, &validated_commit.removed_inboxes);
+
+                // Handle super_admin status changes for the current user
+                // If promoted: check for pending remove members and mark group accordingly
+                // If demoted: clear the pending leave request status
+                self.handle_super_admin_status_change(
+                    storage,
+                    mls_group,
+                    &validated_commit.metadata_validation_info,
+                );
+
                 identifier.internal_id(msg.as_ref().map(|m| m.id.clone()));
                 Ok(())
             }
@@ -1360,6 +1376,149 @@ where
         }
 
         Ok(())
+    }
+
+    fn clean_pending_remove_list(
+        &self,
+        storage: &impl XmtpMlsStorageProvider,
+        removed_inboxes: &[Inbox],
+    ) {
+        if removed_inboxes.is_empty() {
+            return;
+        }
+
+        let removed_inbox_ids: Vec<String> = removed_inboxes
+            .iter()
+            .map(|inbox| inbox.inbox_id.clone())
+            .collect();
+
+        match storage
+            .db()
+            .delete_pending_remove_users(&self.group_id, removed_inbox_ids.clone())
+        {
+            Ok(()) => {
+                tracing::info!(
+                    group_id = hex::encode(&self.group_id),
+                    removed_inboxes = ?removed_inbox_ids,
+                    "Successfully removed left/removed members from pending_remove list"
+                );
+            }
+            Err(e) => {
+                tracing::info!(
+                    group_id = hex::encode(&self.group_id),
+                    removed_inboxes = ?removed_inbox_ids,
+                    error = %e,
+                    "Failed to clean pending_remove list for removed members"
+                );
+            }
+        }
+    }
+
+    fn handle_super_admin_status_change(
+        &self,
+        storage: &impl XmtpMlsStorageProvider,
+        mls_group: &OpenMlsGroup,
+        metadata_info: &MutableMetadataValidationInfo,
+    ) {
+        let current_inbox_id = self.context.inbox_id().to_string();
+
+        // Check if current user was promoted to super_admin
+        let was_promoted = metadata_info
+            .super_admins_added
+            .iter()
+            .any(|inbox| inbox.inbox_id == current_inbox_id);
+
+        // Check if current user was demoted from super_admin
+        let was_demoted = metadata_info
+            .super_admins_removed
+            .iter()
+            .any(|inbox| inbox.inbox_id == current_inbox_id);
+
+        if !was_promoted && !was_demoted {
+            // No change in super_admin status for current user
+            return;
+        }
+
+        // Verify current super_admin status from the updated metadata
+        let is_super_admin = match self.is_super_admin(current_inbox_id.clone()) {
+            Ok(status) => status,
+            Err(e) => {
+                tracing::info!(
+                    group_id = hex::encode(&self.group_id),
+                    inbox_id = %current_inbox_id,
+                    error = %e,
+                    "Failed to check super_admin status"
+                );
+                return;
+            }
+        };
+
+        if was_promoted && is_super_admin {
+            // Promoted to super_admin: check if there are pending remove users
+            match storage
+                .db()
+                .get_pending_remove_users(&mls_group.group_id().to_vec())
+            {
+                Ok(pending_remove_users) => {
+                    if !pending_remove_users.is_empty()
+                        && !pending_remove_users.contains(&current_inbox_id)
+                    {
+                        // Mark group as having pending leave requests
+                        match storage
+                            .db()
+                            .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
+                        {
+                            Ok(()) => {
+                                tracing::info!(
+                                    group_id = hex::encode(&self.group_id),
+                                    inbox_id = %current_inbox_id,
+                                    pending_count = pending_remove_users.len(),
+                                    "Promoted to super_admin: marked group as having pending leave requests"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::info!(
+                                    group_id = hex::encode(&self.group_id),
+                                    inbox_id = %current_inbox_id,
+                                    error = %e,
+                                    "Failed to mark group as having pending leave requests after promotion"
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::info!(
+                        group_id = hex::encode(&self.group_id),
+                        inbox_id = %current_inbox_id,
+                        error = %e,
+                        "Failed to get pending remove users after promotion"
+                    );
+                }
+            }
+        } else if was_demoted && !is_super_admin {
+            // Demoted from super_admin: clear the pending leave request flag
+            match storage
+                .db()
+                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
+            {
+                Ok(()) => {
+                    tracing::info!(
+                        group_id = hex::encode(&self.group_id),
+                        inbox_id = %current_inbox_id,
+                        "Demoted from super_admin: cleared pending leave request status"
+                    );
+                }
+                Err(e) => {
+                    tracing::info!(
+                        group_id = hex::encode(&self.group_id),
+                        inbox_id = %current_inbox_id,
+                        error = %e,
+                        "Failed to clear pending leave request status after demotion"
+                    );
+                }
+            }
+        }
     }
 
     fn update_group_pending_status(
