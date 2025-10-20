@@ -39,9 +39,9 @@
     "test:clean": "rm -rf test/*.db3*"
   },
   "devDependencies": {
-    "@ianvs/prettier-plugin-sort-imports": "^4.5.1",
-    "@napi-rs/cli": "^3.0.0-alpha.64",
-    "@types/node": "^24.1.0",
+    "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
+    "@napi-rs/cli": "^3.3.1",
+    "@types/node": "^24.8.1",
     "@types/uuid": "^10.0.0",
     "@xmtp/content-type-group-updated": "^2.0.2",
     "@xmtp/content-type-text": "^2.0.2",
@@ -50,12 +50,12 @@
     "prettier-plugin-packagejson": "^2.5.8",
     "tsx": "^4.20.3",
     "typescript": "^5.9.2",
-    "uuid": "^11.1.0",
-    "viem": "^2.33.0",
-    "vite": "^7.0.5",
+    "uuid": "^13.0.0",
+    "viem": "^2.38.3",
+    "vite": "^7.1.10",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^3.2.2",
-    "zx": "^8.7.1"
+    "zx": "^8.8.5"
   },
   "packageManager": "yarn@4.6.0",
   "engines": {
