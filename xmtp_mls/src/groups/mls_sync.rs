@@ -58,9 +58,7 @@ use xmtp_db::{
 };
 use xmtp_db::{XmtpMlsStorageProvider, refresh_state::HasEntityKind};
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
-use xmtp_mls_common::group_mutable_metadata::{
-    MetadataField, extract_group_mutable_metadata,
-};
+use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 
 use crate::groups::validated_commit::{Inbox, MutableMetadataValidationInfo};
 use crate::traits::IntoWith;
@@ -789,7 +787,7 @@ where
             // If no error committing the change, write a transcript message
             let msg = self
                 .save_transcript_message(
-                    validated_commit,
+                    validated_commit.clone(),
                     envelope_timestamp_ns as u64,
                     *cursor,
                     storage,
@@ -800,6 +798,17 @@ where
                     // will be missing. We mark the intent state as errored and continue.
                     next_intent_state: IntentState::Error,
                 })?;
+
+            // Clean up pending_remove list for removed members
+            self.clean_pending_remove_list(storage, &validated_commit.removed_inboxes);
+
+            // Handle super_admin status changes
+            self.handle_super_admin_status_change(
+                storage,
+                mls_group,
+                &validated_commit.metadata_validation_info,
+            );
+
             return Ok(msg.map(|m| m.id));
         }
 
@@ -1437,21 +1446,7 @@ where
             return;
         }
 
-        // Verify current super_admin status from the updated metadata
-        let is_super_admin = match self.is_super_admin(current_inbox_id.clone()) {
-            Ok(status) => status,
-            Err(e) => {
-                tracing::info!(
-                    group_id = hex::encode(&self.group_id),
-                    inbox_id = %current_inbox_id,
-                    error = %e,
-                    "Failed to check super_admin status"
-                );
-                return;
-            }
-        };
-
-        if was_promoted && is_super_admin {
+        if was_promoted {
             // Promoted to super_admin: check if there are pending remove users
             match storage
                 .db()
@@ -1473,7 +1468,8 @@ where
                     );
                 }
             }
-        } else if was_demoted && !is_super_admin {
+        } else if was_demoted {
+            // Demoted from super_admin: clear the pending leave request status
             self.update_group_pending_status(storage, false);
         }
     }
