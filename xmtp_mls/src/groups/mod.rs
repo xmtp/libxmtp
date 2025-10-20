@@ -33,7 +33,10 @@ use self::{
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
 };
-use crate::groups::{intents::QueueIntent, mls_ext::CommitLogStorer};
+use crate::groups::{
+    intents::{QueueIntent, ReaddInstallationsIntentData},
+    mls_ext::CommitLogStorer,
+};
 use crate::{GroupCommitLock, context::XmtpSharedContext};
 use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
 use crate::{subscriptions::SyncWorkerEvent, track};
@@ -919,6 +922,40 @@ where
             {
                 "added": (),
                 "removed": inbox_ids
+            },
+            group: &self.group_id
+        );
+
+        Ok(())
+    }
+
+    /// Removes and readds installations from the MLS tree.
+    ///
+    /// The installation list should be validated beforehand - invalid installations
+    /// will simply be omitted at the time that the intent's publish data is computed.
+    ///
+    /// # Arguments
+    /// * `installations` - A vector of installations to readd.
+    ///
+    /// # Returns
+    /// A `Result` indicating success or failure of the operation.
+    #[allow(dead_code)]
+    pub(crate) async fn readd_installations(
+        &self,
+        installations: Vec<Vec<u8>>,
+    ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+        let intent_data: Vec<u8> = ReaddInstallationsIntentData::new(installations.clone()).into();
+        let intent = QueueIntent::readd_installations()
+            .data(intent_data)
+            .queue(self)?;
+
+        let _ = self.sync_until_intent_resolved(intent.id).await?;
+
+        track!(
+            "Readd Installations",
+            {
+                "installations": installations
             },
             group: &self.group_id
         );
