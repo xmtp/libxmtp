@@ -33,6 +33,10 @@ pub use xmtp_id::InboxOwner;
 pub use xmtp_mls_common as common;
 pub use xmtp_proto::api_client::*;
 
+pub fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
 /// A manager for group-specific semaphores
 #[derive(Debug)]
 pub struct GroupCommitLock {

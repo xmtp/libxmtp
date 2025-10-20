@@ -12,7 +12,7 @@ use std::{
 };
 use tokio::{
     sync::{
-        Mutex as TokioMutex,
+        Mutex as TokioMutex, Notify,
         oneshot::{self, Sender},
     },
     time::{sleep, timeout},
@@ -75,20 +75,20 @@ async fn main() -> Result<()> {
         }),
     };
 
-    let fut = {
+    let (fut, monitor_ready) = {
         let _barrier = app.ctx.barrier.lock().await;
-        let inbox_id = setup_monitor(app.ctx.clone()).await?;
+        let (inbox_id, ready) = setup_monitor(app.ctx.clone()).await?;
         info!("Receiver inbox_id: {inbox_id}");
         let fut = setup_send_messages(inbox_id.clone(), &app.ctx).await?;
 
         // Sleep to allow tx to send welcomes
         sleep(Duration::from_secs(1)).await;
 
-        fut
+        (fut, ready)
     };
 
-    // Sleep to allow rx to receive welcomes and set up stream
-    sleep(Duration::from_secs(1)).await;
+    // Wait for the monitor thread to notify that the stream is ready.
+    monitor_ready.notified().await;
 
     info!("Sending messages...");
     let start = Instant::now();
@@ -130,18 +130,22 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn setup_monitor(ctx: Arc<Context>) -> Result<String> {
+async fn setup_monitor(ctx: Arc<Context>) -> Result<(String, Arc<Notify>)> {
     let (tx, rx) = oneshot::channel();
-    tokio::spawn(async move {
-        if let Err(err) = monitor_messages(tx, ctx).await {
-            error!("{err:?}");
-        };
+    let ready = Arc::new(Notify::new());
+    tokio::spawn({
+        let ready = ready.clone();
+        async move {
+            if let Err(err) = monitor_messages(tx, ctx, ready).await {
+                error!("{err:?}");
+            };
+        }
     });
 
-    Ok(rx.await?)
+    Ok((rx.await?, ready))
 }
 
-async fn monitor_messages(tx: Sender<String>, ctx: Arc<Context>) -> Result<()> {
+async fn monitor_messages(tx: Sender<String>, ctx: Arc<Context>, ready: Arc<Notify>) -> Result<()> {
     tester!(andre, with_dev: ctx.args.dev);
     tx.send(andre.inbox_id().to_string())
         .expect("Failed to share inbox_id");
@@ -156,6 +160,8 @@ async fn monitor_messages(tx: Sender<String>, ctx: Arc<Context>) -> Result<()> {
     let mut stream = andre.stream_all_messages(None, None).await?;
     let mut start: Option<Instant> = None;
     let grace_period = Duration::from_secs(ctx.args.timeout);
+
+    ready.notify_one();
 
     #[allow(unused)]
     while let Some(Ok(msg)) = timeout(grace_period, stream.next())
