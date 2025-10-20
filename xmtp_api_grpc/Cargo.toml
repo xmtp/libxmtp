@@ -9,16 +9,14 @@ async-trait.workspace = true
 futures = { workspace = true, features = ["alloc"] }
 h2 = "0.4"
 http = "1.2"
-http-body = "1.0"
 pin-project-lite = "0.2.15"
 prost = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["macros", "time"] }
 tracing.workspace = true
 url.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
-xmtp_proto = { workspace = true, features = ["convert"] }
+xmtp_proto = { workspace = true }
 
 toxiproxy_rust = { workspace = true, optional = true }
 
@@ -49,7 +47,7 @@ tower = { workspace = true, default-features = true }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 tonic-web-wasm-client.workspace = true
-tonic = { workspace = true, features = ["codegen"] }
+tonic = { workspace = true }
 hyper = { version = "1.6", default-features = false }
 tower = { workspace = true }
 

@@ -6,12 +6,12 @@ failure-output = "final"
 fail-fast = false
 
 [profile.ci]
+slow-timeout = "90sec"
 default-filter = "not test(test_stream_all_messages_does_not_lose_messages)"
 retries = 0
 status-level = "skip"
 failure-output = "immediate-final"
 fail-fast = false
-
 
 [[profile.ci.overrides]]
 platform = 'wasm32-unknown-unkown'
