@@ -4403,6 +4403,534 @@ impl<'de> serde::Deserialize<'de> for ReaddRequest {
         deserializer.deserialize_struct("xmtp.mls.message_contents.ReaddRequest", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for WelcomePointeeEncryptionAeadType {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "WELCOME_POINTEE_ENCRYPTION_AEAD_TYPE_UNSPECIFIED",
+            Self::Chacha20Poly1305 => "WELCOME_POINTEE_ENCRYPTION_AEAD_TYPE_CHACHA20_POLY1305",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for WelcomePointeeEncryptionAeadType {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "WELCOME_POINTEE_ENCRYPTION_AEAD_TYPE_UNSPECIFIED",
+            "WELCOME_POINTEE_ENCRYPTION_AEAD_TYPE_CHACHA20_POLY1305",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = WelcomePointeeEncryptionAeadType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "WELCOME_POINTEE_ENCRYPTION_AEAD_TYPE_UNSPECIFIED" => Ok(WelcomePointeeEncryptionAeadType::Unspecified),
+                    "WELCOME_POINTEE_ENCRYPTION_AEAD_TYPE_CHACHA20_POLY1305" => Ok(WelcomePointeeEncryptionAeadType::Chacha20Poly1305),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
+impl serde::Serialize for WelcomePointeeEncryptionAeadTypesExtension {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.supported_aead_types.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.WelcomePointeeEncryptionAeadTypesExtension", len)?;
+        if !self.supported_aead_types.is_empty() {
+            let v = self.supported_aead_types.iter().cloned().map(|v| {
+                WelcomePointeeEncryptionAeadType::try_from(v)
+                    .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", v)))
+                }).collect::<std::result::Result<Vec<_>, _>>()?;
+            struct_ser.serialize_field("supported_aead_types", &v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for WelcomePointeeEncryptionAeadTypesExtension {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "supported_aead_types",
+            "supportedAeadTypes",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            SupportedAeadTypes,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "supportedAeadTypes" | "supported_aead_types" => Ok(GeneratedField::SupportedAeadTypes),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = WelcomePointeeEncryptionAeadTypesExtension;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.WelcomePointeeEncryptionAeadTypesExtension")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<WelcomePointeeEncryptionAeadTypesExtension, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut supported_aead_types__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::SupportedAeadTypes => {
+                            if supported_aead_types__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("supportedAeadTypes"));
+                            }
+                            supported_aead_types__ = Some(map_.next_value::<Vec<WelcomePointeeEncryptionAeadType>>()?.into_iter().map(|x| x as i32).collect());
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(WelcomePointeeEncryptionAeadTypesExtension {
+                    supported_aead_types: supported_aead_types__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.WelcomePointeeEncryptionAeadTypesExtension", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for WelcomePointer {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.version.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.WelcomePointer", len)?;
+        if let Some(v) = self.version.as_ref() {
+            match v {
+                welcome_pointer::Version::WelcomeV1Pointer(v) => {
+                    struct_ser.serialize_field("welcome_v1_pointer", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for WelcomePointer {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "welcome_v1_pointer",
+            "welcomeV1Pointer",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            WelcomeV1Pointer,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "welcomeV1Pointer" | "welcome_v1_pointer" => Ok(GeneratedField::WelcomeV1Pointer),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = WelcomePointer;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.WelcomePointer")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<WelcomePointer, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut version__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::WelcomeV1Pointer => {
+                            if version__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("welcomeV1Pointer"));
+                            }
+                            version__ = map_.next_value::<::std::option::Option<_>>()?.map(welcome_pointer::Version::WelcomeV1Pointer)
+;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(WelcomePointer {
+                    version: version__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.WelcomePointer", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for welcome_pointer::WelcomeV1Pointer {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.destination.is_empty() {
+            len += 1;
+        }
+        if self.aead_type != 0 {
+            len += 1;
+        }
+        if !self.encryption_key.is_empty() {
+            len += 1;
+        }
+        if !self.data_nonce.is_empty() {
+            len += 1;
+        }
+        if !self.welcome_metadata_nonce.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.WelcomePointer.WelcomeV1Pointer", len)?;
+        if !self.destination.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("destination", pbjson::private::base64::encode(&self.destination).as_str())?;
+        }
+        if self.aead_type != 0 {
+            let v = WelcomePointeeEncryptionAeadType::try_from(self.aead_type)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.aead_type)))?;
+            struct_ser.serialize_field("aead_type", &v)?;
+        }
+        if !self.encryption_key.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("encryption_key", pbjson::private::base64::encode(&self.encryption_key).as_str())?;
+        }
+        if !self.data_nonce.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("data_nonce", pbjson::private::base64::encode(&self.data_nonce).as_str())?;
+        }
+        if !self.welcome_metadata_nonce.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("welcome_metadata_nonce", pbjson::private::base64::encode(&self.welcome_metadata_nonce).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for welcome_pointer::WelcomeV1Pointer {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "destination",
+            "aead_type",
+            "aeadType",
+            "encryption_key",
+            "encryptionKey",
+            "data_nonce",
+            "dataNonce",
+            "welcome_metadata_nonce",
+            "welcomeMetadataNonce",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Destination,
+            AeadType,
+            EncryptionKey,
+            DataNonce,
+            WelcomeMetadataNonce,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "destination" => Ok(GeneratedField::Destination),
+                            "aeadType" | "aead_type" => Ok(GeneratedField::AeadType),
+                            "encryptionKey" | "encryption_key" => Ok(GeneratedField::EncryptionKey),
+                            "dataNonce" | "data_nonce" => Ok(GeneratedField::DataNonce),
+                            "welcomeMetadataNonce" | "welcome_metadata_nonce" => Ok(GeneratedField::WelcomeMetadataNonce),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = welcome_pointer::WelcomeV1Pointer;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.WelcomePointer.WelcomeV1Pointer")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<welcome_pointer::WelcomeV1Pointer, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut destination__ = None;
+                let mut aead_type__ = None;
+                let mut encryption_key__ = None;
+                let mut data_nonce__ = None;
+                let mut welcome_metadata_nonce__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Destination => {
+                            if destination__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("destination"));
+                            }
+                            destination__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::AeadType => {
+                            if aead_type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("aeadType"));
+                            }
+                            aead_type__ = Some(map_.next_value::<WelcomePointeeEncryptionAeadType>()? as i32);
+                        }
+                        GeneratedField::EncryptionKey => {
+                            if encryption_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("encryptionKey"));
+                            }
+                            encryption_key__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::DataNonce => {
+                            if data_nonce__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("dataNonce"));
+                            }
+                            data_nonce__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::WelcomeMetadataNonce => {
+                            if welcome_metadata_nonce__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("welcomeMetadataNonce"));
+                            }
+                            welcome_metadata_nonce__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(welcome_pointer::WelcomeV1Pointer {
+                    destination: destination__.unwrap_or_default(),
+                    aead_type: aead_type__.unwrap_or_default(),
+                    encryption_key: encryption_key__.unwrap_or_default(),
+                    data_nonce: data_nonce__.unwrap_or_default(),
+                    welcome_metadata_nonce: welcome_metadata_nonce__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.WelcomePointer.WelcomeV1Pointer", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for WelcomePointerWrapperAlgorithm {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "WELCOME_POINTER_WRAPPER_ALGORITHM_UNSPECIFIED",
+            Self::XwingMlkem768Draft6 => "WELCOME_POINTER_WRAPPER_ALGORITHM_XWING_MLKEM_768_DRAFT_6",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for WelcomePointerWrapperAlgorithm {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "WELCOME_POINTER_WRAPPER_ALGORITHM_UNSPECIFIED",
+            "WELCOME_POINTER_WRAPPER_ALGORITHM_XWING_MLKEM_768_DRAFT_6",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = WelcomePointerWrapperAlgorithm;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "WELCOME_POINTER_WRAPPER_ALGORITHM_UNSPECIFIED" => Ok(WelcomePointerWrapperAlgorithm::Unspecified),
+                    "WELCOME_POINTER_WRAPPER_ALGORITHM_XWING_MLKEM_768_DRAFT_6" => Ok(WelcomePointerWrapperAlgorithm::XwingMlkem768Draft6),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
 impl serde::Serialize for WelcomeWrapperAlgorithm {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -4413,6 +4941,7 @@ impl serde::Serialize for WelcomeWrapperAlgorithm {
             Self::Unspecified => "WELCOME_WRAPPER_ALGORITHM_UNSPECIFIED",
             Self::Curve25519 => "WELCOME_WRAPPER_ALGORITHM_CURVE25519",
             Self::XwingMlkem768Draft6 => "WELCOME_WRAPPER_ALGORITHM_XWING_MLKEM_768_DRAFT_6",
+            Self::SymmetricKey => "WELCOME_WRAPPER_ALGORITHM_SYMMETRIC_KEY",
         };
         serializer.serialize_str(variant)
     }
@@ -4427,6 +4956,7 @@ impl<'de> serde::Deserialize<'de> for WelcomeWrapperAlgorithm {
             "WELCOME_WRAPPER_ALGORITHM_UNSPECIFIED",
             "WELCOME_WRAPPER_ALGORITHM_CURVE25519",
             "WELCOME_WRAPPER_ALGORITHM_XWING_MLKEM_768_DRAFT_6",
+            "WELCOME_WRAPPER_ALGORITHM_SYMMETRIC_KEY",
         ];
 
         struct GeneratedVisitor;
@@ -4470,6 +5000,7 @@ impl<'de> serde::Deserialize<'de> for WelcomeWrapperAlgorithm {
                     "WELCOME_WRAPPER_ALGORITHM_UNSPECIFIED" => Ok(WelcomeWrapperAlgorithm::Unspecified),
                     "WELCOME_WRAPPER_ALGORITHM_CURVE25519" => Ok(WelcomeWrapperAlgorithm::Curve25519),
                     "WELCOME_WRAPPER_ALGORITHM_XWING_MLKEM_768_DRAFT_6" => Ok(WelcomeWrapperAlgorithm::XwingMlkem768Draft6),
+                    "WELCOME_WRAPPER_ALGORITHM_SYMMETRIC_KEY" => Ok(WelcomeWrapperAlgorithm::SymmetricKey),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
