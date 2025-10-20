@@ -38,3 +38,6 @@ pub const CREATE_PQ_KEY_PACKAGE_EXTENSION: bool = true;
 // and it does not have a policy set, it is a super admin only field
 pub const SUPER_ADMIN_METADATA_PREFIX: &str = "_";
 pub const HMAC_SALT: &[u8] = b"libXMTP HKDF salt!";
+
+pub const ENABLE_COMMIT_LOG: bool = true;
+pub const MIN_RECOVERY_REQUEST_VERSION: &str = "1.6.1";
