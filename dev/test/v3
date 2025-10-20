@@ -1,0 +1,8 @@
+#!/bin/bash
+set -eou pipefail
+
+# Run MLS tests for D14n
+# Skips tests for unimplemented features (streams)
+
+EXTRA_FLAGS=${1:-}
+cargo nextest run $EXTRA_FLAGS

@@ -235,6 +235,7 @@ describe('Client', () => {
     // Revoke just client2's installation
     const signatureRequest = await revokeInstallationsSignatureRequest(
       TEST_API_URL,
+      undefined,
       client1.accountIdentifier,
       client1.inboxId(),
       [client2.installationIdBytes()]
@@ -248,7 +249,7 @@ describe('Client', () => {
 
     await signatureRequest.addEcdsaSignature(toBytes(signature))
 
-    await applySignatureRequest(TEST_API_URL, signatureRequest)
+    await applySignatureRequest(TEST_API_URL, undefined, signatureRequest)
 
     const stateAfter1 = await client1.inboxState(true)
     const stateAfter2 = await client2.inboxState(true)
@@ -339,7 +340,7 @@ describe('Client', () => {
     const client2 = await createRegisteredClient(user)
     user.uuid = v4()
 
-    const state = await inboxStateFromInboxIds(TEST_API_URL, [
+    const state = await inboxStateFromInboxIds(TEST_API_URL, undefined, [
       client1.inboxId(),
     ])
     expect(state[0].inboxId).toBe(client1.inboxId())

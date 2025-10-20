@@ -6,9 +6,9 @@ use std::{
     fmt::{Debug, Display},
     hash::Hash,
 };
-use xmtp_api::identity::ApiIdentifier;
 use xmtp_cryptography::{XmtpInstallationCredential, signature::IdentifierValidationError};
 use xmtp_db::identity_cache::StoredIdentityKind;
+use xmtp_proto::types::ApiIdentifier;
 use xmtp_proto::{
     ConversionError,
     xmtp::identity::{

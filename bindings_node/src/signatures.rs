@@ -6,15 +6,13 @@ use napi_derive::napi;
 use std::ops::Deref;
 use std::sync::Arc;
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_d14n::V3Client;
-use xmtp_api_grpc::GrpcClient;
+use xmtp_api_d14n::{MessageBackendBuilder, TrackedStatsClient};
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::{
   AccountId,
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
   verify_signed_with_public_context,
 };
-use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_mls::identity_updates::apply_signature_request_with_verifier;
 use xmtp_mls::identity_updates::revoke_installations_with_verifier;
@@ -50,18 +48,22 @@ pub fn verify_signed_with_public_key(
 #[allow(dead_code)]
 #[napi]
 pub fn revoke_installations_signature_request(
-  host: String,
+  v3_host: String,
+  gateway_host: Option<String>,
   recovery_identifier: Identifier,
   inbox_id: String,
   installation_ids: Vec<Uint8Array>,
 ) -> Result<SignatureRequestHandle> {
-  let api_client = GrpcClient::create(&host, true).map_err(ErrorWrapper::from)?;
-  let api_client = V3Client::new(api_client);
+  let backend = MessageBackendBuilder::default()
+    .v3_host(&v3_host)
+    .maybe_gateway_host(gateway_host)
+    .is_secure(true)
+    .build()
+    .map_err(ErrorWrapper::from)?;
+  let backend = TrackedStatsClient::new(backend);
 
-  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
-  let scw_verifier =
-    Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
-      as Box<dyn SmartContractSignatureVerifier>);
+  let api = ApiClientWrapper::new(Arc::new(backend), strategies::exponential_cooldown());
+  let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
   let ident = recovery_identifier.try_into()?;
   let ids: Vec<Vec<u8>> = installation_ids.into_iter().map(|i| i.to_vec()).collect();
@@ -78,16 +80,20 @@ pub fn revoke_installations_signature_request(
 #[allow(dead_code)]
 #[napi]
 pub async fn apply_signature_request(
-  host: String,
+  v3_host: String,
+  gateway_host: Option<String>,
   signature_request: &SignatureRequestHandle,
 ) -> Result<()> {
-  let api_client = GrpcClient::create(&host, true).map_err(ErrorWrapper::from)?;
-  let api_client = V3Client::new(api_client);
+  let backend = MessageBackendBuilder::default()
+    .maybe_gateway_host(gateway_host)
+    .v3_host(&v3_host)
+    .is_secure(true)
+    .build()
+    .map_err(ErrorWrapper::from)?;
+  let backend = TrackedStatsClient::new(backend);
 
-  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
-  let scw_verifier =
-    Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
-      as Box<dyn SmartContractSignatureVerifier>);
+  let api = ApiClientWrapper::new(Arc::new(backend), strategies::exponential_cooldown());
+  let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
   let inner = signature_request.inner.lock().await;
 

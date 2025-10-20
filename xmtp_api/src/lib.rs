@@ -2,11 +2,13 @@
 
 pub mod identity;
 pub mod mls;
+pub mod scw_verifier;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
 pub mod debug_wrapper;
 pub use debug_wrapper::*;
+use xmtp_proto::api_client::CursorAwareApi;
 
 use std::sync::Arc;
 
@@ -15,6 +17,7 @@ pub use xmtp_proto::api_client::XmtpApi;
 
 pub use identity::*;
 pub use mls::*;
+mod xmtp_query;
 
 pub type Result<T> = std::result::Result<T, ApiError>;
 
@@ -26,7 +29,7 @@ pub mod strategies {
 }
 
 // Erases Api Error type (which may be Http or Grpc)
-fn dyn_err(e: impl RetryableError + Send + Sync + 'static) -> ApiError {
+pub fn dyn_err(e: impl RetryableError + Send + Sync + 'static) -> ApiError {
     ApiError::Api(Box::new(e))
 }
 
@@ -64,6 +67,13 @@ pub struct ApiClientWrapper<ApiClient> {
     pub(crate) inbox_id: Option<String>,
 }
 
+impl<C: CursorAwareApi> CursorAwareApi for ApiClientWrapper<C> {
+    type CursorStore = <C as CursorAwareApi>::CursorStore;
+    fn set_cursor_store(&self, store: Self::CursorStore) {
+        self.api_client.set_cursor_store(store);
+    }
+}
+
 impl<ApiClient> ApiClientWrapper<ApiClient> {
     pub fn new(api_client: ApiClient, retry_strategy: Retry<ExponentialBackoff>) -> Self {
         Self {
@@ -76,6 +86,17 @@ impl<ApiClient> ApiClientWrapper<ApiClient> {
     pub fn attach_debug_wrapper(self) -> ApiClientWrapper<ApiDebugWrapper<ApiClient>> {
         ApiClientWrapper {
             api_client: ApiDebugWrapper::new(self.api_client),
+            retry_strategy: self.retry_strategy,
+            inbox_id: self.inbox_id,
+        }
+    }
+
+    pub fn map<F, NewApiClient>(self, f: F) -> ApiClientWrapper<NewApiClient>
+    where
+        F: FnOnce(ApiClient) -> NewApiClient,
+    {
+        ApiClientWrapper {
+            api_client: f(self.api_client),
             retry_strategy: self.retry_strategy,
             inbox_id: self.inbox_id,
         }

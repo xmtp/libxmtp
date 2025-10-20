@@ -53,7 +53,7 @@ pub trait CommitLogStorer: std::marker::Sized {
     fn mark_failed_commit_logged(
         &self,
         provider: &impl MlsProviderExt,
-        commit_sequence_id: u64,
+        commit_cursor: u64,
         commit_epoch: GroupEpoch,
         error: &GroupMessageProcessingError,
     ) -> Result<(), StorageError>;

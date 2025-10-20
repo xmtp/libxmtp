@@ -19,7 +19,7 @@ use xmtp_proto::types::Cursor;
 #[cfg_attr(test, mockall::automock)]
 pub trait GroupDatabase {
     /// Get the last cursor for a message
-    fn last_cursor(&self, group_id: &[u8]) -> Result<i64, StorageError>;
+    fn last_cursor(&self, group_id: &[u8], originator_id: u32) -> Result<Cursor, StorageError>;
     /// get a message from the database
     // not needless, required by mockall
     #[allow(clippy::needless_lifetimes)]
@@ -43,10 +43,12 @@ impl<Context> GroupDatabase for GroupDb<Context>
 where
     Context: XmtpSharedContext,
 {
-    fn last_cursor(&self, group_id: &[u8]) -> Result<i64, StorageError> {
-        self.0
-            .db()
-            .get_last_cursor_for_id(group_id, EntityKind::Group)
+    fn last_cursor(&self, group_id: &[u8], originator_id: u32) -> Result<Cursor, StorageError> {
+        self.0.db().get_last_cursor_for_originator(
+            group_id,
+            EntityKind::ApplicationMessage,
+            originator_id,
+        )
     }
 
     fn msg(
@@ -287,10 +289,20 @@ where
     /// # Errors
     /// Returns an error if the database query for the last cursor fails.
     fn needs_to_sync(&self, msg: &xmtp_proto::types::GroupMessage) -> Result<bool, SubscribeError> {
-        let last_synced_id = self.group_db.last_cursor(&msg.group_id)?;
-        if last_synced_id < msg.sequence_id() as i64 {
+        let last_synced_id = self
+            .group_db
+            .last_cursor(&msg.group_id, msg.originator_id())?;
+        // _*NOTE:*_ this should never happen since we pass the originator to the db query
+        // but exists defensively regardless.
+        if msg.originator_id() != last_synced_id.originator_id {
+            return Err(SubscribeError::MismatchedOriginators {
+                expected: msg.originator_id(),
+                got: last_synced_id.originator_id,
+            });
+        }
+        if last_synced_id.sequence_id < msg.sequence_id() {
             tracing::debug!(
-                "stream does require sync; last_synced@[{}], this message @[{}]",
+                "stream requires sync; last_synced@[{}], this message @[{}]",
                 last_synced_id,
                 msg.cursor
             );
@@ -301,6 +313,6 @@ where
                 msg.cursor
             );
         }
-        Ok(last_synced_id < msg.cursor.sequence_id as i64)
+        Ok(last_synced_id.sequence_id < msg.cursor.sequence_id)
     }
 }

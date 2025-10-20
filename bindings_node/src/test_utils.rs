@@ -31,6 +31,7 @@ pub async fn create_local_toxic_client(
 
   let c = create_client(
     api_addr,
+    None,
     false,
     db_path,
     inbox_id,
