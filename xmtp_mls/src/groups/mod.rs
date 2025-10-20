@@ -1427,12 +1427,10 @@ where
         Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
     }
 
+    #[allow(unused_variables)]
     /// Checks if the given inbox ID is the pending-remove list of the group at the most recently synced epoch.
     pub fn is_in_pending_remove(&self, inbox_id: String) -> Result<bool, GroupError> {
-        return Ok(false);
-        todo!("check if in pending remove list from db");
-        // let mutable_metadata = self.mutable_metadata()?;
-        // Ok(mutable_metadata.pending_remove_list.contains(&inbox_id))
+        Ok(false)
     }
 
     /// Retrieves the conversation type of the group from the group's metadata extension.
