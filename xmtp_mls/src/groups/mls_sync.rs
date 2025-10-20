@@ -62,6 +62,7 @@ use xmtp_mls_common::group_mutable_metadata::{
     GroupMutableMetadataError, MetadataField, extract_group_mutable_metadata,
 };
 
+use crate::groups::validated_commit::{Inbox, MutableMetadataValidationInfo};
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -97,6 +98,7 @@ use xmtp_db::group::GroupMembershipState;
 use xmtp_db::pending_remove::{PendingRemove, QueryPendingRemove};
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_proto::mls_v1::welcome_message_input::Version;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
@@ -113,8 +115,6 @@ use xmtp_proto::xmtp::mls::{
     },
 };
 use xmtp_proto::{mls_v1::WelcomeMetadata, types::GroupMessage};
-use xmtp_proto::mls_v1::welcome_message_input::Version;
-use crate::groups::validated_commit::{Inbox, MutableMetadataValidationInfo};
 
 pub mod update_group_membership;
 
@@ -1396,7 +1396,7 @@ where
             .db()
             .delete_pending_remove_users(&self.group_id, removed_inbox_ids.clone())
         {
-            Ok(()) => {
+            Ok(_) => {
                 tracing::info!(
                     group_id = hex::encode(&self.group_id),
                     removed_inboxes = ?removed_inbox_ids,

@@ -1125,7 +1125,10 @@ async fn test_self_remove_dm_must_fail() {
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
 
     let bola_dm = bola_groups.first().unwrap();
-    bola_dm.send_message(b"test one").await.unwrap();
+    bola_dm
+        .send_message(b"test one", SendMessageOpts::default())
+        .await
+        .unwrap();
 
     // Amal sync and reads message
     amal_dm.sync().await.unwrap();
@@ -1163,7 +1166,10 @@ async fn test_self_remove_dm_must_fail() {
         GroupError::LeaveCantProcessed(GroupLeaveValidationError::DmLeaveForbidden)
     );
 
-    bola_dm.send_message(b"test one").await.unwrap();
+    bola_dm
+        .send_message(b"test one", SendMessageOpts::default())
+        .await
+        .unwrap();
 
     // Amal sync and reads message
     amal_dm.sync().await.unwrap();
@@ -1640,7 +1646,10 @@ async fn test_self_removal_with_late_installation() {
     // Introduce another installation for Bola after the self-removal
     let bola_i3 = ClientBuilder::new_test_client(&bola_wallet).await;
     xmtp_common::time::sleep(std::time::Duration::from_secs(5)).await;
-    bola_i1_group.send_message(b"test one").await.unwrap();
+    bola_i1_group
+        .send_message(b"test one", SendMessageOpts::default())
+        .await
+        .unwrap();
     xmtp_common::time::sleep(std::time::Duration::from_secs(5)).await;
 
     // New installation processes the welcome
@@ -1781,11 +1790,7 @@ async fn test_super_admin_promotion_marks_pending_leave_requests() {
     assert!(pending_users.contains(&caro.inbox_id().to_string()));
 
     // Initially, the group should not have pending leave requests on Bola's side (not super admin)
-    let bola_group_status = bola
-        .db()
-        .find_group(&bola_group.group_id)
-        .unwrap()
-        .unwrap();
+    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
     assert_eq!(bola_group_status.has_pending_leave_request, Some(false));
 
     // Amal promotes Bola to super_admin
@@ -1799,17 +1804,15 @@ async fn test_super_admin_promotion_marks_pending_leave_requests() {
     bola_group.sync().await.unwrap();
 
     // Verify Bola is a super_admin
-    assert!(bola_group
-        .super_admin_list()
-        .unwrap()
-        .contains(&bola.inbox_id().to_string()));
+    assert!(
+        bola_group
+            .super_admin_list()
+            .unwrap()
+            .contains(&bola.inbox_id().to_string())
+    );
 
     // Verify the group is marked as having pending leave requests
-    let bola_group_status = bola
-        .db()
-        .find_group(&bola_group.group_id)
-        .unwrap()
-        .unwrap();
+    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
     assert_eq!(bola_group_status.has_pending_leave_request, Some(true));
 }
 
@@ -1851,10 +1854,12 @@ async fn test_super_admin_demotion_clears_pending_leave_requests() {
     bola_group.sync().await.unwrap();
 
     // Verify Bola is a super_admin
-    assert!(bola_group
-        .super_admin_list()
-        .unwrap()
-        .contains(&bola.inbox_id().to_string()));
+    assert!(
+        bola_group
+            .super_admin_list()
+            .unwrap()
+            .contains(&bola.inbox_id().to_string())
+    );
 
     // Caro requests to leave
     caro_group.leave_group().await.unwrap();
@@ -1862,11 +1867,7 @@ async fn test_super_admin_demotion_clears_pending_leave_requests() {
     bola_group.sync().await.unwrap();
 
     // Verify the group is marked as having pending leave requests on Bola's side
-    let bola_group_status = bola
-        .db()
-        .find_group(&bola_group.group_id)
-        .unwrap()
-        .unwrap();
+    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
     assert_eq!(bola_group_status.has_pending_leave_request, Some(true));
 
     // Bola demotes themselves from super_admin
@@ -1880,17 +1881,15 @@ async fn test_super_admin_demotion_clears_pending_leave_requests() {
     bola_group.sync().await.unwrap();
 
     // Verify Bola is no longer a super_admin
-    assert!(!bola_group
-        .super_admin_list()
-        .unwrap()
-        .contains(&bola.inbox_id().to_string()));
+    assert!(
+        !bola_group
+            .super_admin_list()
+            .unwrap()
+            .contains(&bola.inbox_id().to_string())
+    );
 
     // Verify the pending leave request flag is cleared
-    let bola_group_status = bola
-        .db()
-        .find_group(&bola_group.group_id)
-        .unwrap()
-        .unwrap();
+    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
     assert_eq!(bola_group_status.has_pending_leave_request, Some(false));
 }
 
@@ -1932,17 +1931,15 @@ async fn test_no_status_change_when_not_in_pending_remove_list() {
     bola_group.sync().await.unwrap();
 
     // Verify Bola is a super_admin
-    assert!(bola_group
-        .super_admin_list()
-        .unwrap()
-        .contains(&bola.inbox_id().to_string()));
+    assert!(
+        bola_group
+            .super_admin_list()
+            .unwrap()
+            .contains(&bola.inbox_id().to_string())
+    );
 
     // Verify the group is NOT marked as having pending leave requests (no pending users)
-    let bola_group_status = bola
-        .db()
-        .find_group(&bola_group.group_id)
-        .unwrap()
-        .unwrap();
+    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
     // The status should be false or None since there are no pending remove users
     assert!(
         bola_group_status.has_pending_leave_request == Some(false)
@@ -1991,18 +1988,16 @@ async fn test_promotion_excludes_self_from_pending_check() {
     bola_group.sync().await.unwrap();
 
     // Verify Bola is a super_admin
-    assert!(bola_group
-        .super_admin_list()
-        .unwrap()
-        .contains(&bola.inbox_id().to_string()));
+    assert!(
+        bola_group
+            .super_admin_list()
+            .unwrap()
+            .contains(&bola.inbox_id().to_string())
+    );
 
     // Verify the group is NOT marked as having pending leave requests
     // (because the only pending user is Bola themselves)
-    let bola_group_status = bola
-        .db()
-        .find_group(&bola_group.group_id)
-        .unwrap()
-        .unwrap();
+    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
     assert!(
         bola_group_status.has_pending_leave_request == Some(false)
             || bola_group_status.has_pending_leave_request.is_none()
