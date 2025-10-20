@@ -1197,7 +1197,7 @@ where
             return Err(GroupLeaveValidationError::LeaveWithoutSuperAdminForbidden.into());
         }
 
-        if !self.is_in_pending_remove(&self.context.inbox_id().to_string())? {
+        if !self.is_in_pending_remove(&self.context.inbox_id())? {
             let content = LeaveRequestCodec::encode(LeaveRequest {
                 authenticated_note: None,
             })?;
