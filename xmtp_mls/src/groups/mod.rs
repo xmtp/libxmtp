@@ -999,13 +999,16 @@ where
             return Err(GroupLeaveValidationError::DmLeaveForbidden.into());
         }
 
-        let is_admin = self.is_admin(self.context.inbox_id().to_string())?;
         let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
-        let admin_size = self.admin_list()?.len();
         let super_admin_size = self.super_admin_list()?.len();
 
-        // check if the user is the only Admin or SuperAdmin of the group
-        if (is_admin && admin_size == 1) || (is_super_admin && super_admin_size == 1) {
+        // check if the user is the only SuperAdmin of the group
+        if is_super_admin {
+            return Err(GroupLeaveValidationError::SuperAdminLeaveForbidden.into());
+        }
+
+        // check if the user is the only SuperAdmin of the group
+        if is_super_admin && super_admin_size == 1 {
             return Err(GroupLeaveValidationError::LeaveWithoutSuperAdminForbidden.into());
         }
 
