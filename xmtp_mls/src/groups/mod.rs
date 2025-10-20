@@ -33,6 +33,7 @@ use self::{
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
 };
+use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::{
     intents::{QueueIntent, ReaddInstallationsIntentData},
     mls_ext::CommitLogStorer,
@@ -67,12 +68,12 @@ use xmtp_configuration::{
     MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators,
     SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
-use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
+use xmtp_content_types::leave_request::LeaveRequestCodec;
+use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
 use xmtp_content_types::{
     reaction::{LegacyReaction, ReactionCodec},
     reply::ReplyCodec,
 };
-use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
@@ -102,6 +103,7 @@ use xmtp_mls_common::{
         GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings, MetadataField,
     },
 };
+use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
 use xmtp_proto::{
     types::Cursor,
     xmtp::mls::message_contents::{
@@ -110,8 +112,6 @@ use xmtp_proto::{
         plaintext_envelope::{Content, V1},
     },
 };
-use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
-use crate::groups::send_message_opts::SendMessageOpts;
 
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
@@ -1006,15 +1006,18 @@ where
 
         // check if the user is the only Admin or SuperAdmin of the group
         if (is_admin && admin_size == 1) || (is_super_admin && super_admin_size == 1) {
-            return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
+            return Err(GroupLeaveValidationError::LeaveWithoutSuperAdminForbidden.into());
         }
 
         if !self.is_in_pending_remove(self.context.inbox_id().to_string())? {
             let content = LeaveRequestCodec::encode(LeaveRequest {
-                authenticated_note: None
+                authenticated_note: None,
             })?;
-            self.send_message(&encoded_content_to_bytes(content), SendMessageOpts::default())
-                .await?;
+            self.send_message(
+                &encoded_content_to_bytes(content),
+                SendMessageOpts::default(),
+            )
+            .await?;
         }
         Ok(())
     }
