@@ -10,14 +10,14 @@ path = "src/streaming.rs"
 
 [dependencies]
 anyhow.workspace = true
-clap = { version =  "4.5.49", features = ["derive"] }
+clap = { version = "4.5.49", features = ["derive"] }
 futures.workspace = true
 indicatif = "0.18.0"
+parking_lot.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 xmtp_mls = { workspace = true, features = ["test-utils"] }
-parking_lot.workspace = true
 
 [lints]
 workspace = true
