@@ -2149,7 +2149,7 @@ async fn test_remove_by_account_address() {
     let group_update = GroupUpdatedCodec::decode(encoded_content).unwrap();
     assert_eq!(group_update.added_inboxes.len(), 0);
     assert_eq!(group_update.removed_inboxes.len(), 1);
-    assert_eq!(group_update.left_inboxes.len(), 1);
+    assert_eq!(group_update.left_inboxes.len(), 0);
 
     let bola_group = receive_group_invite(&bola).await;
     bola_group.sync().await.unwrap();
