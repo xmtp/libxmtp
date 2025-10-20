@@ -36,8 +36,8 @@ use tokio::{runtime::Handle, sync::OnceCell};
 use toxiproxy_rust::proxy::{Proxy, ProxyPack};
 use url::Url;
 use xmtp_api::XmtpApi;
+use xmtp_common::StreamHandle;
 use xmtp_common::TestLogReplace;
-use xmtp_common::{MaybeSend, StreamHandle};
 use xmtp_configuration::LOCALHOST;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
 #[cfg(not(target_arch = "wasm32"))]
@@ -113,14 +113,16 @@ macro_rules! tester {
     };
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait LocalTester {
     async fn new() -> Self;
     async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient>;
     fn builder() -> TesterBuilder<PrivateKeySigner>;
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl LocalTester for Tester<PrivateKeySigner, FullXmtpClient> {
     async fn new() -> Self {
         let wallet = generate_local_wallet();
