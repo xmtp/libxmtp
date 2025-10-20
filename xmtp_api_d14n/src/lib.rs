@@ -1,3 +1,5 @@
+#![warn(clippy::unwrap_used)]
+
 mod endpoints;
 pub use endpoints::*;
 

@@ -2412,6 +2412,13 @@ where
                     tracing::debug!("total welcome message proto bytes={size}");
                     size
                 }
+                WelcomeMessageInputVersion::WelcomePointer(welcome_pointer) => {
+                    let size = welcome_pointer.installation_key.len()
+                        + welcome_pointer.welcome_pointer.len()
+                        + welcome_pointer.hpke_public_key.len();
+                    tracing::debug!("total welcome pointer proto bytes={size}");
+                    size
+                }
             })
             // Fallback if the version is missing
             .unwrap_or(GRPC_PAYLOAD_LIMIT / MAX_GROUP_SIZE);

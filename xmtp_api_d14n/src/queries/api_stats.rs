@@ -304,6 +304,7 @@ impl<C: XmtpQuery> XmtpQuery for TrackedStatsClient<C> {
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
     use xmtp_configuration::LOCALHOST;
     use xmtp_proto::ToxicProxies;
