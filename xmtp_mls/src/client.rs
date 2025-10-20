@@ -55,8 +55,11 @@ use xmtp_mls_common::{
     group_metadata::DmMembers,
     group_mutable_metadata::MessageDisappearingSettings,
 };
-use xmtp_proto::api_client::{ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient};
 use xmtp_proto::types::InstallationId;
+use xmtp_proto::{
+    api::HasStats,
+    api_client::{ApiStats, IdentityStats},
+};
 
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
@@ -190,8 +193,22 @@ where
         MlsStore::new(self.context.clone())
     }
 
+    pub fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
+        self.context.scw_verifier()
+    }
+
+    pub fn version_info(&self) -> &VersionInfo {
+        self.context.version_info()
+    }
+}
+
+impl<Context> Client<Context>
+where
+    Context: XmtpSharedContext,
+    Context::ApiClient: HasStats,
+{
     pub fn api_stats(&self) -> ApiStats {
-        self.context.api().api_client.stats()
+        self.context.api().api_client.mls_stats()
     }
 
     pub fn identity_api_stats(&self) -> IdentityStats {
@@ -199,16 +216,8 @@ where
     }
 
     pub fn clear_stats(&self) {
-        self.context.api().api_client.stats().clear();
+        self.context.api().api_client.mls_stats().clear();
         self.context.api().api_client.identity_stats().clear();
-    }
-
-    pub fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
-        self.context.scw_verifier()
-    }
-
-    pub fn version_info(&self) -> &VersionInfo {
-        self.context.version_info()
     }
 }
 
@@ -757,8 +766,8 @@ where
                         version_minor: conversation_item.version_minor?,
                         authority_id: conversation_item.authority_id?,
                         reference_id: None, // conversation_item does not use message reference_id
-                        sequence_id: None,
-                        originator_id: None,
+                        sequence_id: conversation_item.sequence_id?,
+                        originator_id: conversation_item.originator_id?,
                         expire_at_ns: None, //Question: do we need to include this in conversation last message?
                     });
                     if msg.is_none() {
@@ -1160,9 +1169,9 @@ pub(crate) mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test(flavor = "multi_thread")]
-    async fn test_sync_welcomes() {
-        let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    async fn only_test_sync_welcomes() {
+        let alice = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
+        let bob = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
 
         let alice_bob_group = alice.create_group(None, None).unwrap();
         alice_bob_group

@@ -57,7 +57,7 @@ async fn only_one_payload_sent() {
     let result = tokio::select! {
         _r1 = wait1.wait() => "alix1",
         _r2 = wait2.wait() => "alix2",
-        _ = sleep(Duration::from_secs(15)) => "timeout",
+        _ = sleep(Duration::from_secs(10)) => "timeout",
     };
 
     // Register interest for next PayloadSent events

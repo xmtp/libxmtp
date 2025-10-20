@@ -352,10 +352,7 @@ where
 
     /// Load a group from disk by its welcome_id
     fn load_from_store(&self, cursor: Cursor) -> Result<Option<MlsGroup<Context>>> {
-        let maybe_group = self
-            .context
-            .db()
-            .find_group_by_welcome_id(cursor.sequence_id as i64)?;
+        let maybe_group = self.context.db().find_group_by_sequence_id(cursor)?;
         let Some(group) = maybe_group else {
             tracing::warn!(
                 welcome_id = %cursor,
@@ -369,7 +366,7 @@ where
             dm_id = group.dm_id,
             welcome_id = ?group.sequence_id,
             "loading existing group for welcome_id: {:?}",
-            group.welcome_id
+            group.cursor()
         );
         Ok(Some(MlsGroup::new(
             self.context.clone(),

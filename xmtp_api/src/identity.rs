@@ -6,6 +6,7 @@ use crate::Result;
 use futures::future::try_join_all;
 use xmtp_common::RetryableError;
 use xmtp_proto::prelude::XmtpIdentityClient;
+use xmtp_proto::types::ApiIdentifier;
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
     PublishIdentityUpdateRequest,
@@ -13,7 +14,6 @@ use xmtp_proto::xmtp::identity::api::v1::{
     get_identity_updates_response::IdentityUpdateLog,
     get_inbox_ids_request::Request as GetInboxIdsRequestProto,
 };
-
 use xmtp_proto::xmtp::identity::api::v1::{
     VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
@@ -39,16 +39,12 @@ impl From<&GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
 
 /// Maps account addresses to inbox IDs. If no inbox ID found, the value will be None
 type IdentifierToInboxIdMap = HashMap<ApiIdentifier, String>;
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
-pub struct ApiIdentifier {
-    pub identifier: String,
-    pub identifier_kind: IdentifierKind,
-}
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpIdentityClient,
 {
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn publish_identity_update<U: Into<IdentityUpdate>>(&self, update: U) -> Result<()> {
         let update: IdentityUpdate = update.into();
         self.api_client

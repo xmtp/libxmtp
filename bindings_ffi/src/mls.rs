@@ -9,9 +9,8 @@ use futures::future::try_join_all;
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
-use xmtp_api::{ApiClientWrapper, ApiIdentifier, strategies};
-use xmtp_api_d14n::queries::V3Client;
-use xmtp_api_grpc::GrpcClient;
+use xmtp_api::{ApiClientWrapper, strategies};
+use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::attachment::Attachment;
@@ -43,7 +42,6 @@ use xmtp_db::{
 use xmtp_id::associations::{
     DeserializationError, Identifier, ident, verify_signed_with_public_context,
 };
-use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     InboxId,
@@ -88,11 +86,11 @@ use xmtp_mls::{
     identity::IdentityStrategy,
     subscriptions::SubscribeError,
 };
-use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
-use xmtp_proto::types::{AppVersion, Cursor};
+use xmtp_proto::types::ApiIdentifier;
+use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use xmtp_proto::xmtp::mls::message_contents::content_types::{MultiRemoteAttachment, ReactionV2};
@@ -103,35 +101,48 @@ pub use crate::message::{
     FfiTransactionReference,
 };
 
-#[cfg(test)]
-mod test_utils;
+#[cfg(any(test, feature = "bench"))]
+pub mod test_utils;
+
+#[cfg(any(test, feature = "bench"))]
+pub mod inbox_owner;
+
 pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
 pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
 
+/// the opaque Xmtp Api Client for iOS/Android bindings
 #[derive(uniffi::Object, Clone)]
-pub struct XmtpApiClient(V3Client<GrpcClient>);
+pub struct XmtpApiClient(xmtp_mls::XmtpApiClient);
 
+/// connect to the XMTP backend
+/// specifying `gateway_host` enables the D14n backend
+/// and assumes `host` is set to the correct
+/// d14n backend url.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn connect_to_backend(
-    host: String,
+    v3_host: String,
+    gateway_host: Option<String>,
     is_secure: bool,
     app_version: Option<String>,
 ) -> Result<Arc<XmtpApiClient>, GenericError> {
     init_logger();
 
     log::info!(
-        host,
+        v3_host,
         is_secure,
-        "Creating API client for host: {}, isSecure: {}",
-        host,
+        "Creating API client for host: {}, gateway: {:?}, isSecure: {}",
+        v3_host,
+        gateway_host,
         is_secure
     );
-    let api_client = V3Client::new(GrpcClient::create_with_version(
-        &host,
-        is_secure,
-        app_version.map(AppVersion::from).unwrap_or_default(),
-    )?);
-    Ok(Arc::new(XmtpApiClient(api_client)))
+    let mut backend = MessageBackendBuilder::default();
+    let backend = backend
+        .v3_host(&v3_host)
+        .maybe_gateway_host(gateway_host)
+        .app_version(app_version.clone().unwrap_or_default())
+        .is_secure(is_secure)
+        .build()?;
+    Ok(Arc::new(XmtpApiClient(backend)))
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -147,10 +158,9 @@ pub async fn inbox_state_from_inbox_ids(
     api: Arc<XmtpApiClient>,
     inbox_ids: Vec<String>,
 ) -> Result<Vec<FfiInboxState>, GenericError> {
-    let api: ApiClientWrapper<Arc<V3Client<GrpcClient>>> =
-        ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
-    let scw_verifier = Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
-        as Box<dyn SmartContractSignatureVerifier>);
+    let api: ApiClientWrapper<xmtp_mls::XmtpApiClient> =
+        ApiClientWrapper::new(api.0.clone(), strategies::exponential_cooldown());
+    let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
     let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral)?;
     let store = EncryptedMessageStore::new(db)?;
@@ -189,11 +199,9 @@ pub fn revoke_installations(
     inbox_id: &InboxId,
     installation_ids: Vec<Vec<u8>>,
 ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
-    let api: ApiClientWrapper<Arc<V3Client<GrpcClient>>> =
-        ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
-    let scw_verifier = Arc::new(
-        Box::new(RemoteSignatureVerifier::new(api)) as Box<dyn SmartContractSignatureVerifier>
-    );
+    let api: ApiClientWrapper<xmtp_mls::XmtpApiClient> =
+        ApiClientWrapper::new(api.0.clone(), strategies::exponential_cooldown());
+    let scw_verifier = Arc::new(Box::new(api) as Box<dyn SmartContractSignatureVerifier>);
     let ident = recovery_identifier.try_into()?;
 
     let signature_request = revoke_installations_with_verifier(&ident, inbox_id, installation_ids)?;
@@ -214,8 +222,7 @@ pub async fn apply_signature_request(
 ) -> Result<(), GenericError> {
     let api = ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
     let signature_request = signature_request.inner.lock().await;
-    let scw_verifier = Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
-        as Box<dyn SmartContractSignatureVerifier>);
+    let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
     apply_signature_request_with_verifier(&api.clone(), signature_request.clone(), &scw_verifier)
         .await?;
@@ -299,6 +306,7 @@ pub async fn create_client(
             Arc::unwrap_or_clone(api).0,
             Arc::unwrap_or_clone(sync_api).0,
         )
+        .enable_api_stats()?
         .enable_api_debug_wrapper()?
         .with_remote_verifier()?
         .with_allow_offline(allow_offline)
@@ -503,7 +511,7 @@ impl FfiXmtpClient {
         Ok(message.into())
     }
 
-    pub fn message_v2(&self, message_id: Vec<u8>) -> Result<FfiDecodedMessage, GenericError> {
+    pub fn enriched_message(&self, message_id: Vec<u8>) -> Result<FfiDecodedMessage, GenericError> {
         let message = self.inner_client.message_v2(message_id)?;
         Ok(message.into())
     }
@@ -2091,6 +2099,28 @@ pub struct FfiListMessagesOptions {
     pub delivery_status: Option<FfiDeliveryStatus>,
     pub direction: Option<FfiDirection>,
     pub content_types: Option<Vec<FfiContentType>>,
+    pub exclude_content_types: Option<Vec<FfiContentType>>,
+    pub exclude_sender_inbox_ids: Option<Vec<String>>,
+}
+
+impl From<FfiListMessagesOptions> for MsgQueryArgs {
+    fn from(opts: FfiListMessagesOptions) -> Self {
+        MsgQueryArgs {
+            kind: None,
+            sent_before_ns: opts.sent_before_ns,
+            sent_after_ns: opts.sent_after_ns,
+            limit: opts.limit,
+            delivery_status: opts.delivery_status.map(Into::into),
+            direction: opts.direction.map(Into::into),
+            content_types: opts
+                .content_types
+                .map(|types| types.into_iter().map(Into::into).collect()),
+            exclude_content_types: opts
+                .exclude_content_types
+                .map(|types| types.into_iter().map(Into::into).collect()),
+            exclude_sender_inbox_ids: opts.exclude_sender_inbox_ids,
+        }
+    }
 }
 
 #[derive(uniffi::Enum, Clone)]
@@ -2220,93 +2250,42 @@ impl FfiConversation {
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessage>, GenericError> {
-        let delivery_status = opts.delivery_status.map(|status| status.into());
-        let direction = opts.direction.map(|dir| dir.into());
-        let kind = match self.conversation_type() {
-            FfiConversationType::Group => None,
-            FfiConversationType::Dm => None,
-            FfiConversationType::Sync => None,
-            FfiConversationType::Oneshot => None,
-        };
-
         let messages: Vec<FfiMessage> = self
             .inner
-            .find_messages(&MsgQueryArgs {
-                sent_before_ns: opts.sent_before_ns,
-                sent_after_ns: opts.sent_after_ns,
-                limit: opts.limit,
-                kind,
-                delivery_status,
-                direction,
-                content_types: opts
-                    .content_types
-                    .map(|types| types.into_iter().map(Into::into).collect()),
-            })?
+            .find_messages(&opts.into())?
             .into_iter()
             .map(|msg| msg.into())
             .collect();
 
         Ok(messages)
+    }
+
+    pub fn count_messages(&self, opts: FfiListMessagesOptions) -> Result<i64, GenericError> {
+        let count = self.inner.count_messages(&opts.into())?;
+
+        Ok(count)
     }
 
     pub fn find_messages_with_reactions(
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessageWithReactions>, GenericError> {
-        let delivery_status = opts.delivery_status.map(|status| status.into());
-        let direction = opts.direction.map(|dir| dir.into());
-        let kind = match self.conversation_type() {
-            FfiConversationType::Group => None,
-            FfiConversationType::Dm => None,
-            FfiConversationType::Sync => None,
-            FfiConversationType::Oneshot => None,
-        };
-
         let messages: Vec<FfiMessageWithReactions> = self
             .inner
-            .find_messages_with_reactions(&MsgQueryArgs {
-                sent_before_ns: opts.sent_before_ns,
-                sent_after_ns: opts.sent_after_ns,
-                kind,
-                delivery_status,
-                limit: opts.limit,
-                direction,
-                content_types: opts
-                    .content_types
-                    .map(|types| types.into_iter().map(Into::into).collect()),
-            })?
+            .find_messages_with_reactions(&opts.into())?
             .into_iter()
             .map(|msg| msg.into())
             .collect();
         Ok(messages)
     }
 
-    pub fn find_messages_v2(
+    pub fn find_enriched_messages(
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<Arc<FfiDecodedMessage>>, GenericError> {
-        let delivery_status = opts.delivery_status.map(|status| status.into());
-        let direction = opts.direction.map(|dir| dir.into());
-        let kind = match self.conversation_type() {
-            FfiConversationType::Group => None,
-            FfiConversationType::Dm => None,
-            FfiConversationType::Sync => None,
-            FfiConversationType::Oneshot => None,
-        };
-
         let messages: Vec<Arc<FfiDecodedMessage>> = self
             .inner
-            .find_messages_v2(&MsgQueryArgs {
-                sent_before_ns: opts.sent_before_ns,
-                sent_after_ns: opts.sent_after_ns,
-                kind,
-                delivery_status,
-                limit: opts.limit,
-                direction,
-                content_types: opts
-                    .content_types
-                    .map(|types| types.into_iter().map(Into::into).collect()),
-            })?
+            .find_messages_v2(&opts.into())?
             .into_iter()
             .map(|msg| Arc::new(msg.into()))
             .collect();
@@ -2944,6 +2923,7 @@ pub struct FfiMessage {
     pub kind: FfiConversationMessageKind,
     pub delivery_status: FfiDeliveryStatus,
     pub sequence_id: u64,
+    pub originator_id: u32,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -2956,7 +2936,8 @@ impl From<StoredGroupMessage> for FfiMessage {
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
             delivery_status: msg.delivery_status.into(),
-            sequence_id: msg.sequence_id.map(|s| s as u64).unwrap_or(0),
+            sequence_id: msg.sequence_id as u64,
+            originator_id: msg.originator_id as u32,
         }
     }
 }
@@ -3214,10 +3195,13 @@ mod tests {
         encode_remote_attachment, encode_reply, encode_transaction_reference,
         get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
-        inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
+        inbox_owner::FfiInboxOwner,
         inbox_state_from_inbox_ids, is_connected,
         message::{FfiEncodedContent, FfiRemoteAttachmentInfo, FfiTransactionMetadata},
-        mls::test_utils::{LocalBuilder, LocalTester},
+        mls::{
+            inbox_owner::FfiWalletInboxOwner,
+            test_utils::{LocalBuilder, LocalTester, connect_to_backend_test},
+        },
         revoke_installations,
         worker::FfiSyncWorkerMode,
     };
@@ -3242,7 +3226,6 @@ mod tests {
     use xmtp_common::tmp_path;
     use xmtp_common::{time::now_ns, wait_for_ge};
     use xmtp_common::{wait_for_eq, wait_for_ok};
-    use xmtp_configuration::GrpcUrls;
     use xmtp_configuration::MAX_INSTALLATIONS_PER_INBOX;
     use xmtp_content_types::{
         ContentCodec, attachment::AttachmentCodec, bytes_to_encoded_content,
@@ -3270,48 +3253,6 @@ mod tests {
     };
 
     const HISTORY_SYNC_URL: &str = "http://localhost:5558";
-
-    #[derive(Clone)]
-    pub struct FfiWalletInboxOwner {
-        wallet: PrivateKeySigner,
-    }
-
-    impl FfiWalletInboxOwner {
-        pub fn with_wallet(wallet: PrivateKeySigner) -> Self {
-            Self { wallet }
-        }
-
-        pub fn identifier(&self) -> FfiIdentifier {
-            self.wallet.identifier().into()
-        }
-
-        pub fn new() -> Self {
-            Self {
-                wallet: PrivateKeySigner::random(),
-            }
-        }
-    }
-
-    impl FfiInboxOwner for FfiWalletInboxOwner {
-        fn get_identifier(&self) -> Result<FfiIdentifier, IdentityValidationError> {
-            let ident = self
-                .wallet
-                .get_identifier()
-                .map_err(|err| IdentityValidationError::Generic(err.to_string()))?;
-            Ok(ident.into())
-        }
-
-        fn sign(&self, text: String) -> Result<Vec<u8>, SigningError> {
-            let recoverable_signature =
-                self.wallet.sign(&text).map_err(|_| SigningError::Generic)?;
-
-            let bytes = match recoverable_signature {
-                UnverifiedSignature::RecoverableEcdsa(sig) => sig.signature_bytes().to_vec(),
-                _ => unreachable!("Eth wallets only provide ecdsa signatures"),
-            };
-            Ok(bytes)
-        }
-    }
 
     struct RustStreamCallback {
         num_messages: AtomicU32,
@@ -3507,12 +3448,8 @@ mod tests {
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let client = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(tmp_path()),
             Some([0u8; 32].to_vec()),
             &inbox_id,
@@ -3545,12 +3482,8 @@ mod tests {
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let client = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &inbox_id,
@@ -3591,10 +3524,7 @@ mod tests {
         let ident = &client.account_identifier;
         let real_inbox_id = client.inbox_id();
 
-        let api = connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-            .await
-            .unwrap();
-
+        let api = connect_to_backend_test().await;
         let from_network = get_inbox_id_for_identifier(api, ident.clone())
             .await
             .unwrap()
@@ -3616,12 +3546,8 @@ mod tests {
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let client = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(tmp_path()),
             None,
             &inbox_id,
@@ -3649,12 +3575,8 @@ mod tests {
         let path = tmp_path();
 
         let client_a = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(path.clone()),
             None,
             &inbox_id,
@@ -3674,12 +3596,8 @@ mod tests {
         drop(client_a);
 
         let client_b = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(path),
             None,
             &inbox_id,
@@ -3715,12 +3633,8 @@ mod tests {
         let key = static_enc_key().to_vec();
 
         let client_a = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(path.clone()),
             Some(key),
             &inbox_id,
@@ -3741,12 +3655,8 @@ mod tests {
         other_key[31] = 1;
 
         let result_errored = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(path),
             Some(other_key.to_vec()),
             &inbox_id,
@@ -3791,14 +3701,10 @@ mod tests {
         let path = tmp_path();
         let key = static_enc_key().to_vec();
 
-        let connection = connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-            .await
-            .unwrap();
+        let connection = connect_to_backend_test().await;
         let client = create_client(
             connection.clone(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
             Some(path.clone()),
             Some(key.clone()),
             &inbox_id,
@@ -3839,9 +3745,7 @@ mod tests {
 
         let build = create_client(
             connection.clone(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
             Some(path.clone()),
             Some(key.clone()),
             &inbox_id,
@@ -4010,12 +3914,8 @@ mod tests {
         let path = tmp_path();
         let key = static_enc_key().to_vec();
         let client = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(path.clone()),
             Some(key),
             &inbox_id,
@@ -4132,12 +4032,8 @@ mod tests {
         let key = static_enc_key().to_vec();
 
         let client = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(path.clone()),
             Some(key),
             &inbox_id,
@@ -4230,12 +4126,8 @@ mod tests {
         let path = tmp_path();
 
         let client = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(path.clone()),
             None, // encryption_key
             &inbox_id,
@@ -4267,12 +4159,8 @@ mod tests {
         let path = tmp_path();
 
         let client_amal = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(path.clone()),
             None,
             &amal_inbox_id,
@@ -4313,12 +4201,8 @@ mod tests {
         );
 
         let client_bola = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(path.clone()),
             None,
             &bola_inbox_id,
@@ -5117,6 +5001,10 @@ mod tests {
             .conversations()
             .list(FfiListConversationsOptions::default())
             .unwrap();
+
+        if cfg!(feature = "d14n") {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
 
         let alix_group1 = alix_groups[0].clone();
         let alix_group5 = alix_groups[5].clone();
@@ -7405,7 +7293,10 @@ mod tests {
 
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
-
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         // Stream just groups
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
@@ -7432,6 +7323,10 @@ mod tests {
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
 
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         // Stream just dms
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
@@ -7978,12 +7873,8 @@ mod tests {
         let wallet_a_inbox_id = ident_a.inbox_id(1).unwrap();
         let ffi_ident: FfiIdentifier = wallet_a.identifier().into();
         let client_a = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &wallet_a_inbox_id,
@@ -8023,12 +7914,8 @@ mod tests {
 
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &inbox_id,
@@ -8112,12 +7999,8 @@ mod tests {
         let client_b_inbox_id = wallet_b_ident.inbox_id(nonce).unwrap();
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b_new_result = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &client_b_inbox_id,
@@ -8153,12 +8036,8 @@ mod tests {
         let wallet_a_inbox_id = ident_a.inbox_id(1).unwrap();
         let ffi_ident: FfiIdentifier = wallet_a.identifier().into();
         let client_a = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &wallet_a_inbox_id,
@@ -8181,12 +8060,8 @@ mod tests {
         let wallet_b_inbox_id = ident_b.inbox_id(1).unwrap();
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b1 = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &wallet_b_inbox_id,
@@ -8206,12 +8081,8 @@ mod tests {
         // Step 3: Wallet B creates a second client for inbox_id B
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let _client_b2 = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &wallet_b_inbox_id,
@@ -8242,12 +8113,8 @@ mod tests {
         // Step 5: Wallet B tries to create another new client for inbox_id B, but it fails
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b3 = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &wallet_b_inbox_id,
@@ -8846,7 +8713,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_find_messages_v2_with_reactions() {
+    async fn test_find_enriched_messages_with_reactions() {
         let alix = Tester::new().await;
         let bo = Tester::new().await;
 
@@ -8899,7 +8766,7 @@ mod tests {
 
         // Get messages to react to
         let all_messages = bo_group
-            .find_messages_v2(FfiListMessagesOptions::default())
+            .find_enriched_messages(FfiListMessagesOptions::default())
             .unwrap();
 
         // Filter for just text messages to react to
@@ -8965,9 +8832,9 @@ mod tests {
         alix_group.sync().await.unwrap();
         bo_group.sync().await.unwrap();
 
-        // Test find_messages_v2 returns all messages including reactions
+        // Test find_enriched_messages returns all messages including reactions
         let all_messages = alix_group
-            .find_messages_v2(FfiListMessagesOptions::default())
+            .find_enriched_messages(FfiListMessagesOptions::default())
             .unwrap();
 
         // Should have 1 membership change + 3 text messages
@@ -8992,7 +8859,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_find_messages_v2_with_replies() {
+    async fn test_find_enriched_messages_with_replies() {
         let alix = Tester::new().await;
         let bo = Tester::new().await;
 
@@ -9042,7 +8909,7 @@ mod tests {
 
         // Get messages to reply to
         let messages = alix_dm
-            .find_messages_v2(FfiListMessagesOptions::default())
+            .find_enriched_messages(FfiListMessagesOptions::default())
             .unwrap();
         // 3 messages sent + group membership change
         assert_eq!(messages.len(), 4);
@@ -9075,7 +8942,7 @@ mod tests {
         // Add a reaction to a reply
         alix_dm.sync().await.unwrap();
         let updated_messages = alix_dm
-            .find_messages_v2(FfiListMessagesOptions::default())
+            .find_enriched_messages(FfiListMessagesOptions::default())
             .unwrap();
 
         // Find the first reply message
@@ -9784,9 +9651,7 @@ mod tests {
 
         let ident = wallet.identifier();
         let ffi_ident: FfiIdentifier = ident.clone().into();
-        let api_backend = connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-            .await
-            .unwrap();
+        let api_backend = connect_to_backend_test().await;
 
         let client_1 = new_test_client_with_wallet(wallet.clone()).await;
         let client_2 = new_test_client_with_wallet(wallet.clone()).await;
@@ -9844,9 +9709,7 @@ mod tests {
         assert_eq!(client_a_state.installations.len(), 2);
 
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
-        let api_backend = connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-            .await
-            .unwrap();
+        let api_backend = connect_to_backend_test().await;
 
         let revoke_request = revoke_installations(
             api_backend.clone(),
@@ -9881,9 +9744,7 @@ mod tests {
             .await
             .unwrap();
 
-        let api_backend = connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-            .await
-            .unwrap();
+        let api_backend = connect_to_backend_test().await;
 
         let state = inbox_state_from_inbox_ids(api_backend, vec![alix.inbox_id()])
             .await
@@ -9905,12 +9766,8 @@ mod tests {
         let path = tmp_path();
         let key = static_enc_key().to_vec();
         let client = create_client(
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
-            connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-                .await
-                .unwrap(),
+            connect_to_backend_test().await,
+            connect_to_backend_test().await,
             Some(path.clone()),
             Some(key),
             &inbox_id,
@@ -10003,20 +9860,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_connected_after_connect() {
-        let api_backend = connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-            .await
-            .expect("should connect to local grpc server");
+        let api_backend = connect_to_backend_test().await;
 
         let connected = is_connected(api_backend).await;
 
         assert!(connected, "Expected API client to report as connected");
 
-        let api = connect_to_backend("http://127.0.0.1:59999".to_string(), false, None)
+        let api = connect_to_backend("http://127.0.0.1:59999".to_string(), None, false, None)
             .await
             .unwrap();
         let api = ApiClientWrapper::new(api.0.clone(), Default::default());
         let result = api
-            .query_group_messages(xmtp_common::rand_vec::<16>().into(), Default::default())
+            .query_group_messages(xmtp_common::rand_vec::<16>().into())
             .await;
         assert!(result.is_err(), "Expected connection to fail");
     }

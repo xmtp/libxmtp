@@ -5,7 +5,7 @@ use hex::FromHexError;
 
 use crate::ConversionError;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct InstallationId([u8; 32]);
 
 impl InstallationId {
@@ -17,6 +17,14 @@ impl InstallationId {
 impl fmt::Display for InstallationId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", hex::encode(self.0))
+    }
+}
+
+impl fmt::Debug for InstallationId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("InstallationId")
+            .field(&xmtp_common::fmt::debug_hex(self.0))
+            .finish()
     }
 }
 

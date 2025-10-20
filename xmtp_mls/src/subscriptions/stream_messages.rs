@@ -20,7 +20,6 @@ use std::{
     pin::Pin,
     task::{Poll, ready},
 };
-use xmtp_api::GroupFilter;
 use xmtp_common::FutureWrapper;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::api_client::XmtpMlsStreams;
@@ -63,7 +62,7 @@ pin_project! {
             message: Cursor
         },
         Adding {
-            #[pin] future: FutureWrapper<'a, Result<(Out, Vec<u8>, Option<u64>)>>
+            #[pin] future: FutureWrapper<'a, Result<(Out, Vec<u8>, Option<Cursor>)>>
         }
     }
 }
@@ -123,13 +122,6 @@ where
     }
 }
 
-#[cfg(test)]
-impl<'a, Context: Clone, S> StreamGroupMessages<'a, Context, S> {
-    pub fn position(&self, group: impl AsRef<[u8]>) -> Option<MessagePosition> {
-        self.groups.position(group)
-    }
-}
-
 impl<'a, C, Factory> StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C::ApiClient>, Factory>
 where
     C: XmtpSharedContext + 'a,
@@ -143,14 +135,16 @@ where
     ) -> Result<Self> {
         tracing::debug!("setting up messages subscription");
         let api = context.api();
-        let groups = GroupList::new(groups, api).await?;
-        let subscription = api.subscribe_group_messages(groups.filters()).await?;
+        let groups_list = GroupList::new(groups.clone());
+        let subscription = api
+            .subscribe_group_messages(&groups.iter().collect::<Vec<_>>())
+            .await?;
 
         Ok(Self {
             inner: subscription,
             context,
             state: Default::default(),
-            groups,
+            groups: groups_list,
             got: Default::default(),
             returned: Default::default(),
             add_queue: Default::default(),
@@ -221,16 +215,26 @@ where
     #[allow(clippy::type_complexity)]
     async fn subscribe(
         context: Cow<'a, C>,
-        filters: Vec<GroupFilter>,
+        filters: Vec<GroupId>,
         new_group: Vec<u8>,
     ) -> Result<(
         MessagesApiSubscription<'a, C::ApiClient>,
         Vec<u8>,
-        Option<u64>,
+        Option<Cursor>,
     )> {
         // get the last synced cursor
-        let stream = context.api().subscribe_group_messages(filters).await?;
-        Ok((stream, new_group, Some(1)))
+        let stream = context
+            .api()
+            .subscribe_group_messages(&filters.iter().collect::<Vec<_>>())
+            .await?;
+        Ok((
+            stream,
+            new_group,
+            Some(Cursor {
+                sequence_id: 1,
+                originator_id: 0,
+            }),
+        ))
     }
 }
 
@@ -293,13 +297,7 @@ where
                 let (stream, group, cursor) = ready!(future.poll(cx))?;
                 let this = self.as_mut();
                 if let Some(c) = cursor {
-                    this.set_cursor(
-                        group.as_slice(),
-                        Cursor {
-                            sequence_id: c,
-                            originator_id: 0,
-                        },
-                    );
+                    this.set_cursor(group.as_slice(), c)
                 };
                 let mut this = self.as_mut().project();
                 this.inner.set(stream);
@@ -361,39 +359,29 @@ where
         let mut next_msg = next_msg.expect("checked for none")?;
         // ensure we have not tried processing this message yet
         // if we have tried to process, replay messages up to the known cursor.
-        let group_position = self.groups.position(&next_msg.group_id);
-        if let Some(group) = group_position {
-            if group.has_seen(next_msg.cursor) && group.started_after(next_msg.cursor) {
-                tracing::warn!(
-                    "stream started @[{:?}] has cursor@[{:?}] for group_id@[{}], skipping messages for msg with cursor@[{}]",
-                    group.started(),
-                    group.last_streamed(),
-                    xmtp_common::fmt::truncate_hex(hex::encode(next_msg.group_id.as_slice())),
-                    next_msg.cursor,
-                );
-                next_msg = ready!(self.as_mut().skip(cx, next_msg))?;
-            // we got a message with a sequence_id greater than a message we already processed
-            // so it must be present in the database
-            } else if group.has_seen(next_msg.cursor) && group.started_before(next_msg.cursor) {
-                tracing::debug!(
-                    "stream synced up to cursor@[{:?}], checking for message with cursor@[{}] in database",
-                    group.last_streamed(),
-                    next_msg.cursor
-                );
-                if let Some(stored) = self.factory.retrieve(&next_msg)? {
-                    return Poll::Ready(Some(Ok(stored)));
-                } else {
-                    cx.waker().wake_by_ref();
-                    return Poll::Pending;
-                }
-            }
-            tracing::debug!(
-                "stream @cursor=[{:?}] for group_id@[{}] encountered newly unprocessed message @cursor=[{}]",
-                group.last_streamed(),
-                xmtp_common::fmt::debug_hex(next_msg.group_id.as_slice()),
-                next_msg.cursor
+        if self.groups.has_seen(next_msg.cursor) {
+            tracing::warn!(
+                "msg @cursor[{}] for group_id@[{}] has been seen, skipping.",
+                next_msg.cursor,
+                next_msg.group_id
             );
+            next_msg = ready!(self.as_mut().skip(cx, next_msg))?;
         }
+        if let Some(stored) = self.factory.retrieve(&next_msg)? {
+            tracing::debug!(
+                "msg @cursor[{:?}] for group_id@[{}] is available locally",
+                next_msg.cursor,
+                next_msg.group_id
+            );
+            let this = self.as_mut().project();
+            this.groups.set(next_msg.group_id, next_msg.cursor);
+            return Poll::Ready(Some(Ok(stored)));
+        }
+        tracing::debug!(
+            "group_id@[{}] encountered newly unprocessed message @cursor=[{}]",
+            next_msg.group_id,
+            next_msg.cursor
+        );
         let future = self.factory.create(next_msg.clone());
         let msg_cursor = next_msg.cursor;
         let mut this = self.as_mut().project();
@@ -413,11 +401,9 @@ where
             hex::encode(&group.group_id)
         );
         let this = self.as_mut().project();
-        this.groups.add(
-            &group.group_id,
-            MessagePosition::new(Cursor::new(1, 0u32), Cursor::new(1, 0u32)),
-        );
-        let future = Self::subscribe(self.context.clone(), self.groups.filters(), group.group_id);
+        this.groups
+            .add(&group.group_id, MessagePosition::new(Cursor::new(1, 0u32)));
+        let future = Self::subscribe(self.context.clone(), self.groups.ids(), group.group_id);
         let mut this = self.as_mut().project();
         this.state.set(State::Adding {
             future: FutureWrapper::new(future),
@@ -433,15 +419,13 @@ where
         // skip the messages
         while let Some(new_envelope) = ready!(self.as_mut().next_message(cx)) {
             let new_envelope = new_envelope?;
-            if let Some(stream_cursor) = self.as_ref().groups.position(&new_envelope.group_id) {
-                if stream_cursor.has_seen(new_envelope.cursor) {
-                    tracing::debug!(
-                        "skipping msg with group_id@[{}] and cursor@[{}]",
-                        xmtp_common::fmt::debug_hex(new_envelope.group_id.as_slice()),
-                        new_envelope.cursor
-                    );
-                    continue;
-                }
+            if self.as_ref().groups.has_seen(new_envelope.cursor) {
+                tracing::debug!(
+                    "skipping msg with group_id@[{}] and cursor@[{}]",
+                    xmtp_common::fmt::debug_hex(new_envelope.group_id.as_slice()),
+                    new_envelope.cursor
+                );
+                continue;
             } else {
                 envelope = new_envelope;
                 tracing::trace!("finished skipping");
@@ -518,7 +502,10 @@ where
             let mut this = self.as_mut().project();
             if let Some(msg) = processed.message {
                 this.state.set(State::Waiting);
-                this.returned.push(processed.tried_to_process);
+                this.returned.push(Cursor {
+                    sequence_id: msg.sequence_id as u64,
+                    originator_id: msg.originator_id as u32,
+                });
                 self.as_mut()
                     .set_cursor(msg.group_id.as_slice(), processed.next_message);
                 tracing::trace!(
