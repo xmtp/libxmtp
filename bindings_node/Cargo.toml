@@ -48,9 +48,14 @@ napi-build = "2.0.1"
 [dev-dependencies]
 chrono = { workspace = true }
 toxiproxy_rust.workspace = true
+xmtp_proto = { workspace = true, features = ["test-utils"] }
 
 [package.metadata.cross.build.env]
 volumes = ["__LIB12_DEP=../"]
 
 [features]
-test-utils = ["xmtp_mls/test-utils", "dep:toxiproxy_rust"]
+test-utils = [
+  "xmtp_mls/test-utils",
+  "dep:toxiproxy_rust",
+  "xmtp_proto/test-utils",
+]

@@ -5723,7 +5723,10 @@ mod tests {
             )
             .await
             .unwrap();
-
+        if cfg!(feature = "d14n") {
+            // give time for d14n to catch up
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
         alix_group
             .update_group_name("hello".to_string())
             .await

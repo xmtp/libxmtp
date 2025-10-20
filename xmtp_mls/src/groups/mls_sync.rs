@@ -29,7 +29,6 @@ use crate::{
     groups::mls_ext::{CommitLogStorer, WrapWelcomeError, wrap_welcome},
     subscriptions::SyncWorkerEvent,
     track, track_err,
-    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use crate::{
     groups::{
@@ -2594,7 +2593,13 @@ async fn calculate_membership_changes_with_keypackages<'a>(
 #[allow(dead_code)]
 #[cfg(any(test, feature = "test-utils"))]
 async fn inject_failed_installations_for_test(
-    key_packages: &mut HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
+    key_packages: &mut HashMap<
+        Vec<u8>,
+        Result<
+            crate::verified_key_package_v2::VerifiedKeyPackageV2,
+            crate::verified_key_package_v2::KeyPackageVerificationError,
+        >,
+    >,
     failed_installations: &mut Vec<Vec<u8>>,
 ) {
     use crate::utils::test_mocks_helpers::{
