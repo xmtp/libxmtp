@@ -1198,7 +1198,23 @@ async fn test_self_remove_group_fail_with_one_member() {
         GroupError::LeaveCantProcessed(GroupLeaveValidationError::SingleMemberLeaveRejected)
     );
 }
+#[xmtp_common::test(flavor = "current_thread")]
+async fn test_self_remove_super_admin_must_fail() {
+    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group
+        .add_members_by_inbox_id(&[bola.inbox_id()])
+        .await
+        .unwrap();
+
+    let result = amal_group.leave_group().await;
+    assert_err!(
+        result,
+        GroupError::LeaveCantProcessed(GroupLeaveValidationError::SuperAdminLeaveForbidden)
+    );
+}
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_non_member_cannot_leave_group() {
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;

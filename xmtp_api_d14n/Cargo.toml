@@ -18,12 +18,10 @@ http = "1.2"
 hyper = { version = "1.7", default-features = false }
 impl-trait-for-tuples = "0.2"
 itertools.workspace = true
-once_cell.workspace = true
 openmls_rust_crypto = { workspace = true }
 parking_lot.workspace = true
 pin-project-lite = { workspace = true }
 prost.workspace = true
-prost-types.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true }
 tracing.workspace = true
@@ -33,7 +31,7 @@ xmtp_common.workspace = true
 xmtp_configuration = { workspace = true }
 xmtp_cryptography.workspace = true
 xmtp_id = { workspace = true }
-xmtp_proto = { workspace = true, features = ["convert"] }
+xmtp_proto = { workspace = true }
 
 # Test Utils
 ctor = { workspace = true, optional = true }
@@ -55,7 +53,7 @@ rstest.workspace = true
 tokio.workspace = true
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
-xmtp_proto = { workspace = true, features = ["convert", "test-utils"] }
+xmtp_proto = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true

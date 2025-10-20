@@ -1,12 +1,12 @@
 admin:
   address:
-    socket_address: { address: 0.0.0.0, port_value: 9901 }
+    socket_address: {address: 0.0.0.0, port_value: 9901}
   access_log_path: /dev/stdout
 static_resources:
   listeners:
     - name: v3_listener
       address:
-        socket_address: { address: 0.0.0.0, port_value: 5557 }
+        socket_address: {address: 0.0.0.0, port_value: 5557}
       filter_chains:
         - filters:
             - name: envoy.http_connection_manager
@@ -20,7 +20,7 @@ static_resources:
                     - name: local_service
                       domains: ["*"]
                       routes:
-                        - match: { prefix: "/" }
+                        - match: {prefix: "/"}
                           route:
                             cluster: node-go
                             regex_rewrite:
@@ -50,7 +50,7 @@ static_resources:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
     - name: d14n_listener
       address:
-        socket_address: { address: 0.0.0.0, port_value: 5051 }
+        socket_address: {address: 0.0.0.0, port_value: 5051}
       filter_chains:
         - filters:
             - name: envoy.http_connection_manager
@@ -64,7 +64,7 @@ static_resources:
                     - name: local_service
                       domains: ["*"]
                       routes:
-                        - match: { prefix: "/gateway" }
+                        - match: {prefix: "/gateway"}
                           route:
                             cluster: gateway
                             regex_rewrite:
@@ -75,7 +75,7 @@ static_resources:
                             timeout: 0s
                             max_stream_duration:
                               grpc_timeout_header_max: 0s
-                        - match: { prefix: "/xmtpd" }
+                        - match: {prefix: "/xmtpd"}
                           route:
                             cluster: xmtpd
                             regex_rewrite:
@@ -156,5 +156,5 @@ static_resources:
               - endpoint:
                   address:
                     socket_address:
-                      address: gateway
-                      port_value: 5050
+                      address: xmtpd
+                      port_value: 5052
