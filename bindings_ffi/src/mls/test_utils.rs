@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used)]
 use std::sync::Arc;
 
 use alloy::signers::local::PrivateKeySigner;
@@ -8,8 +9,9 @@ use xmtp_mls::utils::test::tester_utils::*;
 
 use crate::inbox_owner::FfiInboxOwner;
 
-use super::{tests::FfiWalletInboxOwner, *};
+use super::{inbox_owner::FfiWalletInboxOwner, *};
 
+#[allow(async_fn_in_trait)]
 pub trait LocalBuilder<Owner>
 where
     Owner: InboxOwner + Clone,
@@ -17,6 +19,7 @@ where
     async fn build(&self) -> Tester<Owner, FfiXmtpClient>;
     async fn build_no_panic(&self) -> Result<Tester<Owner, FfiXmtpClient>, GenericError>;
 }
+
 impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
     async fn build(&self) -> Tester<PrivateKeySigner, FfiXmtpClient> {
         self.build_no_panic().await.unwrap()
@@ -120,6 +123,7 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
     }
 }
 
+#[allow(async_fn_in_trait)]
 pub trait LocalTester {
     async fn new() -> Tester<PrivateKeySigner, FfiXmtpClient>;
     #[allow(unused)]
@@ -140,6 +144,23 @@ impl LocalTester for Tester<PrivateKeySigner, FfiXmtpClient> {
     }
 }
 
+pub async fn connect_to_backend_test() -> Arc<super::XmtpApiClient> {
+    if cfg!(feature = "d14n") {
+        connect_to_backend(
+            GrpcUrls::NODE.to_string(),
+            Some(GrpcUrls::GATEWAY.to_string()),
+            false,
+            None,
+        )
+        .await
+        .unwrap()
+    } else {
+        connect_to_backend(GrpcUrls::NODE.to_string(), None, false, None)
+            .await
+            .unwrap()
+    }
+}
+
 async fn create_raw_client<Owner>(builder: &TesterBuilder<Owner>) -> FfiXmtpClient
 where
     Owner: InboxOwner,
@@ -149,12 +170,8 @@ where
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
     let client = create_client(
-        connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-            .await
-            .unwrap(),
-        connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-            .await
-            .unwrap(),
+        connect_to_backend_test().await,
+        connect_to_backend_test().await,
         Some(tmp_path()),
         Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
         &inbox_id,

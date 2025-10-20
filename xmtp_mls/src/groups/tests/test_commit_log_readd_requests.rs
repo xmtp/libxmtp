@@ -155,3 +155,37 @@ async fn test_request_readd_dm() {
             .unwrap()
     );
 }
+
+#[xmtp_common::test]
+async fn test_readd_installations() {
+    tester!(alix);
+    tester!(bo);
+
+    // Create a group with both members
+    let group = alix
+        .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+        .await
+        .unwrap();
+
+    // Bo syncs to join the group
+    bo.sync_all_welcomes_and_groups(None).await.unwrap();
+
+    let _bo_group = bo.group(&group.group_id).unwrap();
+
+    // Get Bo's installation ID
+    let bo_installation_id = bo.context.installation_id();
+
+    // Verify Bo is currently in the group
+    let members = group.members().await.unwrap();
+    assert_eq!(members.len(), 2);
+
+    // Readd Bo's installation
+    // Note: This is expected to fail until receiver-side validation is implemented
+    let readd_result = group
+        .readd_installations(vec![bo_installation_id.to_vec()])
+        .await;
+
+    // Once validation/receiver side is updated, this call should not error,
+    // and Bo should be able to receive a new welcome for the same group
+    assert!(readd_result.is_err());
+}

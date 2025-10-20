@@ -13,6 +13,7 @@ use crate::{
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
+use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_db::XmtpDb;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProviderRef;
@@ -83,7 +84,10 @@ where
     #[cfg(any(test, feature = "test-utils"))]
     pub fn device_sync_client(
         self: &Arc<XmtpMlsLocalContext<ApiClient, Db, S>>,
-    ) -> DeviceSyncClient<Arc<Self>> {
+    ) -> DeviceSyncClient<Arc<Self>>
+    where
+        ApiClient: XmtpQuery,
+    {
         let metrics = self.sync_metrics();
         DeviceSyncClient::new(
             Arc::clone(self),
@@ -155,7 +159,7 @@ where
     Self: Send + Sync + Sized + Clone,
 {
     type Db: XmtpDb;
-    type ApiClient: XmtpApi;
+    type ApiClient: XmtpApi + XmtpQuery;
     type MlsStorage: Send + Sync + XmtpMlsStorageProvider;
     type ContextReference: Clone + Sized;
 
@@ -204,7 +208,7 @@ where
 
 impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
 where
-    XApiClient: XmtpApi,
+    XApiClient: XmtpApi + XmtpQuery,
     XDb: XmtpDb,
     XMls: Send + Sync + XmtpMlsStorageProvider,
 {

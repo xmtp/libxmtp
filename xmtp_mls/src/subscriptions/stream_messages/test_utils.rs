@@ -16,35 +16,4 @@ pub mod cases {
             })
             .collect::<Vec<GroupId>>()
     }
-    /*
-    #[fixture]
-    pub fn msg_not_found() -> Vec<MessageCase> {
-        vec![
-            MessageCase {
-                found: false,
-                next_message: 10,
-            },
-            MessageCase {
-                found: true,
-                next_message: 20,
-            },
-            MessageCase {
-                found: true,
-                next_message: 25,
-            },
-            MessageCase {
-                found: true,
-                next_message: 999,
-            },
-            MessageCase {
-                found: true,
-                next_message: 30,
-            },
-            MessageCase {
-                found: true,
-                next_message: 999,
-            },
-        ]
-    }
-    */
 }

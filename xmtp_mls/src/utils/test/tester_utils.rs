@@ -1,6 +1,7 @@
 #![allow(unused)]
 
 use super::FullXmtpClient;
+use xmtp_api_d14n::protocol::InMemoryCursorStore;
 use xmtp_configuration::{DeviceSyncUrls, DockerUrls};
 
 use crate::{
@@ -152,17 +153,20 @@ where
         );
         let api_client = local_client.build().unwrap();
         let sync_api_client = sync_api_client.build().unwrap();
-        let client = ClientBuilder::new_test_builder(&self.owner)
+        let mut client = ClientBuilder::new_test_builder(&self.owner)
             .await
             .api_clients(api_client, sync_api_client)
             .with_device_sync_worker_mode(Some(self.sync_mode))
             .with_device_sync_server_url(self.sync_url.clone())
             .maybe_version(self.version.clone())
             .with_disable_events(Some(!self.events))
-            .with_commit_log_worker(self.commit_log_worker)
-            .build()
-            .await
-            .unwrap();
+            .with_commit_log_worker(self.commit_log_worker);
+
+        if self.in_memory_cursors {
+            client = client.cursor_store(Arc::new(InMemoryCursorStore::new()) as Arc<_>);
+        }
+
+        let client = client.build().await.unwrap();
         register_client(&client, &self.owner).await;
         if let Some(name) = &self.name {
             replace.add(
@@ -231,7 +235,7 @@ where
     }
 
     /// Create a new installations for this client
-    pub async fn installation(&self) -> Tester<Owner, FullXmtpClient> {
+    pub async fn new_installation(&self) -> Tester<Owner, FullXmtpClient> {
         TesterBuilder::new()
             .owner(self.builder.owner.clone())
             .build()
@@ -283,6 +287,7 @@ where
     pub version: Option<VersionInfo>,
     pub proxy: bool,
     pub commit_log_worker: bool,
+    pub in_memory_cursors: bool,
     /// whether this builder represents a second installation
     installation: bool,
 }
@@ -307,6 +312,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             proxy: false,
             commit_log_worker: true, // Default to enabled to match production
             installation: false,
+            in_memory_cursors: false,
         }
     }
 }
@@ -331,6 +337,7 @@ where
             proxy: self.proxy,
             commit_log_worker: self.commit_log_worker,
             installation: self.installation,
+            in_memory_cursors: self.in_memory_cursors,
         }
     }
 
@@ -365,6 +372,13 @@ where
     pub fn sync_server(self) -> Self {
         Self {
             sync_url: Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
+            ..self
+        }
+    }
+
+    pub fn in_memory_cursors(self) -> Self {
+        Self {
+            in_memory_cursors: true,
             ..self
         }
     }

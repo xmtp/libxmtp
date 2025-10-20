@@ -8,13 +8,11 @@ use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, PublishCommitLogRequest,
     QueryCommitLogRequest, QueryCommitLogResponse,
 };
-use xmtp_proto::types::{Cursor, GroupId, GroupMessage, WelcomeMessage};
+use xmtp_proto::types::{GroupId, GroupMessage, InstallationId, WelcomeMessage};
 use xmtp_proto::xmtp::mls::api::v1::{
     FetchKeyPackagesRequest, GroupMessageInput, KeyPackageUpload, SendGroupMessagesRequest,
-    SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-    UploadKeyPackageRequest, WelcomeMessageInput,
+    SendWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessageInput,
     subscribe_group_messages_request::Filter as GroupFilterProto,
-    subscribe_welcome_messages_request::Filter as WelcomeFilterProto,
 };
 
 /// A filter for querying group messages
@@ -78,13 +76,9 @@ where
     ApiClient: XmtpApi,
 {
     #[tracing::instrument(level = "trace", skip_all, fields(group_id = hex::encode(&group_id)))]
-    pub async fn query_group_messages(
-        &self,
-        group_id: GroupId,
-        cursor: Vec<Cursor>,
-    ) -> Result<Vec<GroupMessage>> {
+    pub async fn query_group_messages(&self, group_id: GroupId) -> Result<Vec<GroupMessage>> {
         self.api_client
-            .query_group_messages(group_id, cursor)
+            .query_group_messages(group_id)
             .await
             .map_err(crate::dyn_err)
     }
@@ -110,16 +104,14 @@ where
     pub async fn query_welcome_messages<Id: AsRef<[u8]> + Copy>(
         &self,
         installation_id: Id,
-        cursor: Vec<Cursor>,
     ) -> Result<Vec<WelcomeMessage>> {
         tracing::debug!(
             installation_id = hex::encode(installation_id),
-            cursor = ?cursor,
             inbox_id = self.inbox_id,
             "query welcomes"
         );
         self.api_client
-            .query_welcome_messages(installation_id.as_ref().try_into()?, cursor)
+            .query_welcome_messages(installation_id.as_ref().try_into()?)
             .await
             .map_err(crate::dyn_err)
     }
@@ -243,24 +235,21 @@ where
 
     pub async fn subscribe_group_messages(
         &self,
-        filters: Vec<GroupFilter>,
+        group_ids: &[&GroupId],
     ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream>
     where
         ApiClient: XmtpMlsStreams,
     {
         tracing::debug!(inbox_id = self.inbox_id, "subscribing to group messages");
         self.api_client
-            .subscribe_group_messages(SubscribeGroupMessagesRequest {
-                filters: filters.into_iter().map(|f| f.into()).collect(),
-            })
+            .subscribe_group_messages(group_ids)
             .await
             .map_err(crate::dyn_err)
     }
 
     pub async fn subscribe_welcome_messages(
         &self,
-        installation_key: &[u8],
-        id_cursor: Option<u64>,
+        installation_key: &InstallationId,
     ) -> Result<<ApiClient as XmtpMlsStreams>::WelcomeMessageStream>
     where
         ApiClient: XmtpMlsStreams,
@@ -270,12 +259,7 @@ where
         // Default ID Cursor should be one
         // else we miss welcome messages
         self.api_client
-            .subscribe_welcome_messages(SubscribeWelcomeMessagesRequest {
-                filters: vec![WelcomeFilterProto {
-                    installation_key: installation_key.to_vec(),
-                    id_cursor: id_cursor.unwrap_or(1),
-                }],
-            })
+            .subscribe_welcome_messages(&[installation_key])
             .await
             .map_err(crate::dyn_err)
     }
@@ -442,7 +426,7 @@ pub mod tests {
     #[xmtp_common::test]
     async fn test_read_group_messages_single_page() {
         let mock_api = MockNetworkClient::default();
-        let mut v3_client = V3Client::new(mock_api);
+        let mut v3_client = V3Client::new_stateless(mock_api);
         let group_id = rand_vec::<16>();
         let group_id_clone = group_id.clone();
         // Set expectation for first request with no cursor
@@ -470,7 +454,7 @@ pub mod tests {
         let wrapper = ApiClientWrapper::new(v3_client, exponential().build());
 
         let result = wrapper
-            .query_group_messages(group_id_clone.into(), Default::default())
+            .query_group_messages(group_id_clone.into())
             .await
             .unwrap();
         assert_eq!(result.len(), 10);
@@ -479,7 +463,7 @@ pub mod tests {
     #[xmtp_common::test]
     async fn test_read_group_messages_single_page_xactly_100_results() {
         let mock_api = MockNetworkClient::default();
-        let mut v3_client = V3Client::new(mock_api);
+        let mut v3_client = V3Client::new_stateless(mock_api);
         let group_id = rand_vec::<16>();
         let group_id_clone = group_id.clone();
         // Set expectation for first request with no cursor
@@ -507,7 +491,7 @@ pub mod tests {
         let wrapper = ApiClientWrapper::new(v3_client, exponential().build());
 
         let result = wrapper
-            .query_group_messages(group_id_clone.into(), Default::default())
+            .query_group_messages(group_id_clone.into())
             .await
             .unwrap();
         assert_eq!(result.len(), 100);
@@ -516,7 +500,7 @@ pub mod tests {
     #[xmtp_common::test]
     async fn test_read_topic_multi_page() {
         let mock_api = MockNetworkClient::new();
-        let mut v3_client = V3Client::new(mock_api);
+        let mut v3_client = V3Client::new_stateless(mock_api);
         let group_id = vec![1, 2, 3, 4];
         let group_id_clone = group_id.clone();
         let group_id_clone2 = group_id.clone();
@@ -576,7 +560,7 @@ pub mod tests {
         let wrapper = ApiClientWrapper::new(v3_client, exponential().build());
 
         let result = wrapper
-            .query_group_messages(group_id_clone2.into(), Default::default())
+            .query_group_messages(group_id_clone2.into())
             .await
             .unwrap();
         assert_eq!(result.len(), 200);
@@ -620,13 +604,9 @@ pub mod tests {
         let _ = client.set_app_version("999.999.999".into());
         let c = client.build().unwrap();
         let wrapper = ApiClientWrapper::new(c, Retry::default());
-        let _first = wrapper
-            .query_group_messages(vec![0, 0].into(), Default::default())
-            .await;
+        let _first = wrapper.query_group_messages(vec![0, 0].into()).await;
         let now = std::time::Instant::now();
-        let _second = wrapper
-            .query_group_messages(vec![0, 0].into(), Default::default())
-            .await;
+        let _second = wrapper.query_group_messages(vec![0, 0].into()).await;
         assert!(now.elapsed() > std::time::Duration::from_secs(60));
     }
 
@@ -661,7 +641,7 @@ pub mod tests {
             .unwrap();
 
         let messages = wrapper
-            .query_welcome_messages(&installation_key, Default::default())
+            .query_welcome_messages(&installation_key)
             .await
             .unwrap();
         assert_eq!(messages.len(), 1);

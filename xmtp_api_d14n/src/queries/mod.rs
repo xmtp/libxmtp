@@ -10,6 +10,15 @@ pub use v3::*;
 mod stream;
 pub use stream::*;
 
+mod boxed_streams;
+pub use boxed_streams::*;
+
+mod api_stats;
+pub use api_stats::*;
+
+mod builder;
+pub use builder::*;
+
 use std::error::Error as StdError;
 use xmtp_common::{RetryableError, retryable};
 use xmtp_proto::{

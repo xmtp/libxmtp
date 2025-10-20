@@ -17,13 +17,15 @@ use xmtp_common::types::Address;
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 use xmtp_proto::xmtp::mls::database::{
     AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
-    InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
-    UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
+    InstallationIds, PostCommitAction as PostCommitActionProto, ReaddInstallationsData,
+    SendMessageData, UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData,
+    UpdatePermissionData,
     addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
     post_commit_action::{
         Installation as InstallationProto, Kind as PostCommitActionKind,
         SendWelcomes as SendWelcomesProto,
     },
+    readd_installations_data::{V1 as ReaddInstallationsV1, Version as ReaddInstallationsVersion},
     send_message_data::{V1 as SendMessageV1, Version as SendMessageVersion},
     update_admin_lists_data::{V1 as UpdateAdminListsV1, Version as UpdateAdminListsVersion},
     update_group_membership_data::{
@@ -623,6 +625,63 @@ impl TryFrom<Vec<u8>> for UpdatePermissionIntentData {
     }
 }
 
+pub(crate) struct ReaddInstallationsIntentData {
+    pub readded_installations: Vec<Vec<u8>>,
+}
+
+impl ReaddInstallationsIntentData {
+    pub fn new(readded_installations: Vec<Vec<u8>>) -> Self {
+        Self {
+            readded_installations,
+        }
+    }
+}
+
+impl From<ReaddInstallationsIntentData> for Vec<u8> {
+    fn from(intent: ReaddInstallationsIntentData) -> Self {
+        let mut buf = Vec::new();
+        ReaddInstallationsData {
+            version: Some(ReaddInstallationsVersion::V1(ReaddInstallationsV1 {
+                readded_installations: intent.readded_installations,
+            })),
+        }
+        .encode(&mut buf)
+        .expect("encode error");
+
+        buf
+    }
+}
+
+impl TryFrom<Vec<u8>> for ReaddInstallationsIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
+        if let ReaddInstallationsData {
+            version: Some(ReaddInstallationsVersion::V1(v1)),
+        } = ReaddInstallationsData::decode(data.as_slice())?
+        {
+            Ok(Self::new(v1.readded_installations))
+        } else {
+            Err(IntentError::MissingPayload)
+        }
+    }
+}
+
+impl TryFrom<&[u8]> for ReaddInstallationsIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        if let ReaddInstallationsData {
+            version: Some(ReaddInstallationsVersion::V1(v1)),
+        } = ReaddInstallationsData::decode(data)?
+        {
+            Ok(Self::new(v1.readded_installations))
+        } else {
+            Err(IntentError::MissingPayload)
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum PostCommitAction {
     SendWelcomes(SendWelcomesAction),
@@ -754,8 +813,10 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use crate::context::XmtpSharedContext;
     use openmls::prelude::{ProcessedMessageContent, ProtocolMessage};
+    use xmtp_api_d14n::protocol::XmtpQuery;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::XmtpOpenMlsProviderRef;
+    use xmtp_proto::types::TopicKind;
 
     use crate::{builder::ClientBuilder, utils::TestMlsGroup};
 
@@ -810,10 +871,23 @@ pub(crate) mod tests {
         assert_eq!(intent.field_value, restored_intent.field_value);
     }
 
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_serialize_readd_installations() {
+        let readded_installations = vec![vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 9]];
+
+        let intent = ReaddInstallationsIntentData::new(readded_installations.clone());
+
+        let as_bytes: Vec<u8> = intent.into();
+        let restored_intent: ReaddInstallationsIntentData = as_bytes.try_into().unwrap();
+
+        assert_eq!(readded_installations, restored_intent.readded_installations);
+    }
+
     #[xmtp_common::test]
     async fn test_key_rotation_before_first_message() {
-        let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let client_a = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
+        let client_b = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
 
         // client A makes a group with client B, and then sends a message to client B.
         let group_a = client_a.create_group(None, None).expect("create group");
@@ -872,11 +946,11 @@ pub(crate) mod tests {
         let messages = group
             .context
             .api()
-            .query_group_messages(group.group_id.clone().into(), Default::default())
+            .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
             .await
             .unwrap();
         assert_eq!(messages.len(), num_messages);
-        messages
+        messages.group_messages().unwrap()
     }
 
     fn verify_commit_updates_leaf_node(

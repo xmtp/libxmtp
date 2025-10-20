@@ -4,6 +4,7 @@
 pub mod builder;
 pub mod client;
 pub mod context;
+pub mod cursor_store;
 mod definitions;
 pub mod groups;
 pub mod identity;

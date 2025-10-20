@@ -7,10 +7,11 @@ use crate::{
     groups::{GroupError, MlsGroup, send_message_opts::SendMessageOpts},
 };
 use thiserror::Error;
-use xmtp_api::XmtpApi;
+use xmtp_api::{ApiError, XmtpApi};
+use xmtp_api_d14n::protocol::{EnvelopeError, XmtpQuery};
 use xmtp_common::RetryableError;
 use xmtp_db::{XmtpDb, group_message::MsgQueryArgs};
-use xmtp_proto::types::GroupMessage;
+use xmtp_proto::types::{GroupMessage, TopicKind};
 
 #[derive(Error, Debug)]
 pub enum TestError {
@@ -22,6 +23,8 @@ pub enum TestError {
     Client(#[from] ClientError),
     #[error(transparent)]
     Api(#[from] xmtp_api::ApiError),
+    #[error(transparent)]
+    Envelope(#[from] EnvelopeError),
 }
 
 impl RetryableError for TestError {
@@ -57,8 +60,10 @@ where
         let mut messages = self
             .context
             .api()
-            .query_group_messages(self.group_id.clone().into(), vec![])
-            .await?;
+            .query_at(TopicKind::GroupMessagesV1.create(&self.group_id), None)
+            .await
+            .map_err(xmtp_api::dyn_err)?
+            .group_messages()?;
 
         let last_message = messages
             .pop()
