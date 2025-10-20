@@ -125,13 +125,13 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
 
 #[allow(async_fn_in_trait)]
 pub trait LocalTester {
-    async fn new() -> Tester<PrivateKeySigner, FfiXmtpClient>;
+    async fn new() -> Self;
     #[allow(unused)]
     async fn new_passkey() -> Tester<PasskeyUser, FfiXmtpClient>;
     fn builder() -> TesterBuilder<PrivateKeySigner>;
 }
 impl LocalTester for Tester<PrivateKeySigner, FfiXmtpClient> {
-    async fn new() -> Tester<PrivateKeySigner, FfiXmtpClient> {
+    async fn new() -> Self {
         TesterBuilder::new().build().await
     }
     async fn new_passkey() -> Tester<PasskeyUser, FfiXmtpClient> {

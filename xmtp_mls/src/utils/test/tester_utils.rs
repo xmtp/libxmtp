@@ -112,14 +112,14 @@ macro_rules! tester {
 
 #[async_trait]
 pub trait LocalTester {
-    async fn new() -> Tester<PrivateKeySigner, FullXmtpClient>;
+    async fn new() -> Self;
     async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient>;
     fn builder() -> TesterBuilder<PrivateKeySigner>;
 }
 
 #[async_trait]
 impl LocalTester for Tester<PrivateKeySigner, FullXmtpClient> {
-    async fn new() -> Tester<PrivateKeySigner, FullXmtpClient> {
+    async fn new() -> Self {
         let wallet = generate_local_wallet();
         Tester::new_with_owner(wallet).await
     }
@@ -182,14 +182,13 @@ where
             .with_device_sync_worker_mode(Some(self.sync_mode))
             .with_device_sync_server_url(self.sync_url.clone())
             .maybe_version(self.version.clone())
-            .with_commit_log_worker(self.commit_log_worker)
-            .enable_sqlite_triggers();
+            .with_commit_log_worker(self.commit_log_worker);
 
         if self.ephemeral_db {
             #[cfg(not(target_arch = "wasm32"))]
             let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral).unwrap();
             #[cfg(target_arch = "wasm32")]
-            let db = WasmDb::new(&StorageOption::Ephemeral).unwrap();
+            let db = WasmDb::new(&StorageOption::Ephemeral).await.unwrap();
             let db = EncryptedMessageStore::new(db).unwrap();
             client = client.store(db);
         } else {
@@ -200,7 +199,13 @@ where
             client = client.cursor_store(Arc::new(InMemoryCursorStore::new()) as Arc<_>);
         }
 
-        let client = client.default_mls_store().unwrap().build().await.unwrap();
+        let client = client
+            .enable_sqlite_triggers()
+            .default_mls_store()
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
         register_client(&client, &self.owner).await;
         if let Some(name) = &self.name {
             replace.add(
