@@ -18,6 +18,7 @@ use openmls::{
     treesync::LeafNode,
 };
 
+use crate::traits::FromWith;
 use prost::Message;
 use serde::Serialize;
 use std::collections::HashSet;
@@ -1069,23 +1070,37 @@ impl From<&Inbox> for InboxProto {
     }
 }
 
-impl From<ValidatedCommit> for GroupUpdatedProto {
-    fn from(commit: ValidatedCommit) -> Self {
+// Implement the generic conversion: the TARGET (GroupUpdatedProto) declares what params it needs.
+// Here it's `BuildOpts`, but it could be `&dyn Policy`, `&[u8]`, etc.
+impl FromWith<ValidatedCommit> for GroupUpdatedProto {
+    /// Extra parameter is a list of inbox IDs who requested self-removal (pending removals).
+    type Params = Vec<String>;
+
+    fn from_with(commit: ValidatedCommit, pending_removals: &Self::Params) -> Self {
+        use std::collections::HashSet;
+
+        // Convert the pending removals list into a set for fast lookup
+        let pending_set: HashSet<&str> = pending_removals.iter().map(String::as_str).collect();
+
+        // Partition removed inboxes:
+        //  - left_inboxes: those present in pending_removals
+        //  - removed_inboxes: all others
+        let (left_inboxes, removed_inboxes): (Vec<Inbox>, Vec<Inbox>) = commit
+            .removed_inboxes
+            .into_iter()
+            .partition(|inb| pending_set.contains(inb.inbox_id.as_str()));
+
         GroupUpdatedProto {
             initiated_by_inbox_id: commit.actor.inbox_id.clone(),
             added_inboxes: commit.added_inboxes.iter().map(InboxProto::from).collect(),
-            removed_inboxes: commit
-                .removed_inboxes
-                .iter()
-                .map(InboxProto::from)
-                .collect(),
+            removed_inboxes: removed_inboxes.iter().map(InboxProto::from).collect(),
             metadata_field_changes: commit
                 .metadata_validation_info
                 .metadata_field_changes
                 .iter()
                 .map(MetadataFieldChangeProto::from)
                 .collect(),
-            left_inboxes: todo!("Self Removal Implementation"),
+            left_inboxes: left_inboxes.iter().map(InboxProto::from).collect(),
         }
     }
 }

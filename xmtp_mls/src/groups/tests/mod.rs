@@ -26,7 +26,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 use super::group_permissions::PolicySet;
 use crate::context::XmtpSharedContext;
 use crate::groups::intents::QueueIntent;
-use crate::groups::{DmValidationError, MetadataPermissionsError};
+use crate::groups::{DmValidationError, GroupLeaveValidationError, MetadataPermissionsError};
 use crate::groups::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };
@@ -1110,7 +1110,7 @@ async fn test_self_remove_dm_must_fail() {
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-    // Amal creates a dm group targetting bola
+    // Amal creates a dm group with bola
     let amal_dm = amal
         .find_or_create_dm_by_inbox_id(bola.inbox_id().to_string(), None)
         .await
@@ -1124,16 +1124,19 @@ async fn test_self_remove_dm_must_fail() {
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
 
     let bola_dm = bola_groups.first().unwrap();
-    bola_dm.send_message(b"test one").await.unwrap();
+    bola_dm
+        .send_message(b"test one", SendMessageOpts::default())
+        .await
+        .unwrap();
 
-    // Amal sync and reads message
+    // Amal syncs and reads message
     amal_dm.sync().await.unwrap();
     let messages = amal_dm.find_messages(&MsgQueryArgs::default()).unwrap();
     assert_eq!(messages.len(), 2);
     let message = messages.last().unwrap();
     assert_eq!(message.decrypted_message_bytes, b"test one");
 
-    // Amal can not remove bola
+    // Amal cannot remove bola
     let result = amal_dm.remove_members_by_inbox_id(&[bola.inbox_id()]).await;
     assert!(result.is_err());
     amal_dm.sync().await.unwrap();
@@ -1162,9 +1165,12 @@ async fn test_self_remove_dm_must_fail() {
         GroupError::LeaveCantProcessed(GroupLeaveValidationError::DmLeaveForbidden)
     );
 
-    bola_dm.send_message(b"test one").await.unwrap();
+    bola_dm
+        .send_message(b"test one", SendMessageOpts::default())
+        .await
+        .unwrap();
 
-    // Amal sync and reads message
+    // Amal syncs and reads message
     amal_dm.sync().await.unwrap();
     let messages = amal_dm.find_messages(&MsgQueryArgs::default()).unwrap();
     assert_eq!(messages.len(), 3);
@@ -1661,7 +1667,10 @@ async fn test_self_removal_with_late_installation() {
     // Introduce another installation for Bola after the self-removal
     let bola_i3 = ClientBuilder::new_test_client(&bola_wallet).await;
     xmtp_common::time::sleep(std::time::Duration::from_secs(5)).await;
-    bola_i1_group.send_message(b"test one").await.unwrap();
+    bola_i1_group
+        .send_message(b"test one", SendMessageOpts::default())
+        .await
+        .unwrap();
     xmtp_common::time::sleep(std::time::Duration::from_secs(5)).await;
 
     // New installation processes the welcome

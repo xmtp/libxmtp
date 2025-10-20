@@ -61,6 +61,7 @@ use xmtp_mls_common::group_mutable_metadata::{
     GroupMutableMetadataError, MetadataField, extract_group_mutable_metadata,
 };
 
+use crate::traits::IntoWith;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -113,6 +114,7 @@ use xmtp_proto::xmtp::mls::{
         plaintext_envelope::{Content, V1, V2, v2::MessageType},
     },
 };
+
 pub mod update_group_membership;
 
 #[derive(Debug, Error)]
@@ -1275,6 +1277,7 @@ where
                     *cursor,
                     storage,
                 )?;
+                // remove the removed members from the pending remove list
                 identifier.internal_id(msg.as_ref().map(|m| m.id.clone()));
                 Ok(())
             }
@@ -1969,21 +1972,21 @@ where
         if validated_commit.is_empty() {
             return Ok(None);
         }
-
-        tracing::info!(
-            "[{}]: Storing a transcript message with {} members added and {} members removed and {} metadata changes",
-            self.context.inbox_id(),
-            validated_commit.added_inboxes.len(),
-            validated_commit.removed_inboxes.len(),
-            validated_commit
-                .metadata_validation_info
-                .metadata_field_changes
-                .len(),
-        );
         let sender_installation_id = validated_commit.actor_installation_id();
         let sender_inbox_id = validated_commit.actor_inbox_id();
 
-        let payload: GroupUpdated = validated_commit.into();
+        let pending_remove_users = &storage
+            .db()
+            .get_pending_remove_users(&self.group_id.to_vec())?;
+        let payload: GroupUpdated = validated_commit.into_with(pending_remove_users);
+        tracing::info!(
+            "[{}]: Storing a transcript message with {} members added and {} members removed and {} members left and {} metadata changes",
+            self.context.inbox_id(),
+            payload.added_inboxes.len(),
+            payload.removed_inboxes.len(),
+            payload.left_inboxes.len(),
+            payload.metadata_field_changes.len(),
+        );
         let encoded_payload = GroupUpdatedCodec::encode(payload.clone())?;
         let mut encoded_payload_bytes = Vec::new();
         encoded_payload.encode(&mut encoded_payload_bytes)?;
@@ -1994,19 +1997,17 @@ where
             encoded_payload_bytes.as_slice(),
             &timestamp_ns.to_string(),
         );
-        let content_type = match encoded_payload.r#type {
-            Some(ct) => ct,
-            None => {
-                tracing::warn!("Missing content type in encoded payload, using default values");
-                // Default content type values
-                xmtp_proto::xmtp::mls::message_contents::ContentTypeId {
-                    authority_id: "unknown".to_string(),
-                    type_id: "unknown".to_string(),
-                    version_major: 0,
-                    version_minor: 0,
-                }
+        let content_type = encoded_payload.r#type.unwrap_or_else(|| {
+            tracing::warn!("Missing content type in encoded payload, using default values");
+            // Default content type values
+            xmtp_proto::xmtp::mls::message_contents::ContentTypeId {
+                authority_id: "unknown".to_string(),
+                type_id: "unknown".to_string(),
+                version_major: 0,
+                version_minor: 0,
             }
-        };
+        });
+
         self.handle_metadata_update_from_commit(payload.metadata_field_changes, storage)?;
         let msg = StoredGroupMessage {
             id: message_id,
