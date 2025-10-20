@@ -1008,7 +1008,7 @@ where
 
         // check if the user is the only Admin or SuperAdmin of the group
         if (is_admin && admin_size == 1) || (is_super_admin && super_admin_size == 1) {
-            return Err(GroupLeaveValidationError::LeaveWithoutAdminForbidden.into());
+            return Err(GroupLeaveValidationError::LeaveWithoutSuperAdminForbidden.into());
         }
 
         if !self.is_in_pending_remove(self.context.inbox_id().to_string())? {
