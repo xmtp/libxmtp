@@ -35,6 +35,9 @@
 , shellcheck
 , lcov
 , cargo-llvm-cov
+, cargo-machete
+, wasm-bindgen-cli_0_2_104
+, zlib
 , ...
 }:
 
@@ -44,10 +47,6 @@ let
 in
 mkShell {
   OPENSSL_DIR = "${openssl.dev}";
-  # LLVM_PATH = "${llvmPackages_19.stdenv}";
-  # CXX_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/clang++";
-  # AS_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/llvm-as";
-  # STRIP_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/llvm-strip";
   # disable -fzerocallusedregs in clang
   hardeningDisable = [ "zerocallusedregs" "stackprotector" ];
   OPENSSL_LIB_DIR = "${lib.getLib openssl}/lib";
@@ -56,8 +55,8 @@ mkShell {
   CC_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/clang";
   AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
   CFLAGS_wasm32_unknown_unknown = "-I ${llvmPackages.clang-unwrapped.lib}/lib/clang/19/include";
-
-  nativeBuildInputs = [ pkg-config zstd sqlite wasm-pack binaryen emscripten ];
+  LD_LIBRARY_PATH = lib.makeLibraryPath [ openssl zlib ];
+  nativeBuildInputs = [ pkg-config zstd openssl zlib ];
   buildInputs =
     [
       rust-toolchain
@@ -84,11 +83,15 @@ mkShell {
       cargo-deny
       cargo-flamegraph
       cargo-nextest
+      cargo-machete
       inferno
       lnav
       jq
       curl
       lcov
+      wasm-bindgen-cli_0_2_104
+      wasm-pack
+      binaryen
 
       # Protobuf
       buf
