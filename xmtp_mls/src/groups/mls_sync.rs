@@ -1343,7 +1343,7 @@ where
 
         // Process admin actions based on current group state
         // If the current user is admin/super-admin and there are pending remove requests, mark the group accordingly
-        // todo: we need to check if other clients and the same time one of the admins wants to leave the group,
+        // todo: we need to check if other clients at the same time one of the admins wants to leave the group,
         // in this case, both the admin and other clients are in the pending remove list.
         // but still, the admin client needs to react to others and remove them from the pending remove list.
         match extract_group_mutable_metadata(mls_group) {
@@ -1361,21 +1361,22 @@ where
                     Ok(users) => {
                         let current_user_not_pending = !users.contains(&current_inbox_id);
                         if is_admin && current_user_not_pending && !users.is_empty() {
-                            let _ = storage
-                                .db()
-                                .set_group_has_pending_leave_request_status(
-                                    &self.group_id,
-                                    Some(true),
-                                )
-                                .map_err(|e| {
+                            match storage.db().set_group_has_pending_leave_request_status(
+                                &self.group_id,
+                                Some(true),
+                            ) {
+                                Ok(_) => {
+                                    tracing::info!(
+                                        "Marked the group as having pending leave requests"
+                                    );
+                                }
+                                Err(e) => {
                                     tracing::error!(
                                         "Failed to set group pending leave request status: {}",
                                         e
                                     );
-                                    IntentError::Storage(e.into())
-                                });
-
-                            tracing::info!("Marked the group as having pending leave requests");
+                                }
+                            }
                         }
                     }
                     Err(_) => {}
