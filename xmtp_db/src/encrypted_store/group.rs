@@ -1118,7 +1118,7 @@ pub enum GroupMembershipState {
     /// Group has been restored from an archive, but is not active yet.
     Restored = 4,
     /// User is Pending to get removed of the Group
-    PendingRemove = 5,
+    PendingRemove = 5, //todo: add trigger to update the consent state tot pending remove when it's pending remove
 }
 
 impl ToSql<Integer, Sqlite> for GroupMembershipState

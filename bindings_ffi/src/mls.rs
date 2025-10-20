@@ -2025,6 +2025,7 @@ pub enum FfiConsentState {
     Unknown,
     Allowed,
     Denied,
+    PendingRemove,
 }
 
 impl From<ConsentState> for FfiConsentState {
@@ -2033,6 +2034,7 @@ impl From<ConsentState> for FfiConsentState {
             ConsentState::Unknown => FfiConsentState::Unknown,
             ConsentState::Allowed => FfiConsentState::Allowed,
             ConsentState::Denied => FfiConsentState::Denied,
+            ConsentState::PendingRemove => FfiConsentState::PendingRemove,
         }
     }
 }
@@ -2043,6 +2045,7 @@ impl From<FfiConsentState> for ConsentState {
             FfiConsentState::Unknown => ConsentState::Unknown,
             FfiConsentState::Allowed => ConsentState::Allowed,
             FfiConsentState::Denied => ConsentState::Denied,
+            FfiConsentState::PendingRemove => ConsentState::PendingRemove,
         }
     }
 }

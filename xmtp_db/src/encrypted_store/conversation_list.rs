@@ -400,6 +400,7 @@ pub(crate) mod tests {
             test_group_3.store(conn).unwrap();
             let test_group_4 = generate_dm(Some(GroupMembershipState::Allowed));
             test_group_4.store(conn).unwrap();
+            //todo: add test for unknown state
 
             let test_group_1_consent = generate_consent_record(
                 ConsentType::ConversationId,

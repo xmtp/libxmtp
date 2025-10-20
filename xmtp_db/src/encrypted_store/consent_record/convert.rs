@@ -72,6 +72,7 @@ impl From<ConsentState> for ConsentStateSave {
             ConsentState::Allowed => Self::Allowed,
             ConsentState::Denied => Self::Denied,
             ConsentState::Unknown => Self::Unknown,
+            ConsentState::PendingRemove => Self::Denied, //todo: add pendingRemove to ConsentStateSave
         }
     }
 }

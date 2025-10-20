@@ -375,6 +375,8 @@ pub enum ConsentState {
     Allowed = 1,
     /// Consent is denied
     Denied = 2,
+    /// Consent is PendingRemove
+    PendingRemove = 3,
 }
 
 impl ToSql<Integer, Sqlite> for ConsentState
@@ -396,6 +398,7 @@ where
             0 => Ok(ConsentState::Unknown),
             1 => Ok(ConsentState::Allowed),
             2 => Ok(ConsentState::Denied),
+            3 => Ok(ConsentState::PendingRemove),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

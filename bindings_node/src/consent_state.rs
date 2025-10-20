@@ -13,6 +13,7 @@ pub enum ConsentState {
   Unknown,
   Allowed,
   Denied,
+  PendingRemove,
 }
 
 impl From<XmtpConsentState> for ConsentState {
@@ -21,6 +22,7 @@ impl From<XmtpConsentState> for ConsentState {
       XmtpConsentState::Unknown => ConsentState::Unknown,
       XmtpConsentState::Allowed => ConsentState::Allowed,
       XmtpConsentState::Denied => ConsentState::Denied,
+      XmtpConsentState::PendingRemove => ConsentState::PendingRemove,
     }
   }
 }
@@ -30,7 +32,7 @@ impl From<ConsentState> for XmtpConsentState {
     match state {
       ConsentState::Unknown => XmtpConsentState::Unknown,
       ConsentState::Allowed => XmtpConsentState::Allowed,
-      ConsentState::Denied => XmtpConsentState::Denied,
+      ConsentState::PendingRemove => XmtpConsentState::PendingRemove,
     }
   }
 }
