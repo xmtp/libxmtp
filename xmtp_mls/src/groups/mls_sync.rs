@@ -59,7 +59,7 @@ use xmtp_db::{
 use xmtp_db::{XmtpMlsStorageProvider, refresh_state::HasEntityKind};
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_mls_common::group_mutable_metadata::{
-    GroupMutableMetadataError, MetadataField, extract_group_mutable_metadata,
+    MetadataField, extract_group_mutable_metadata,
 };
 
 use crate::groups::validated_commit::{Inbox, MutableMetadataValidationInfo};
@@ -99,7 +99,6 @@ use xmtp_db::group::GroupMembershipState;
 use xmtp_db::pending_remove::{PendingRemove, QueryPendingRemove};
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_id::{InboxId, InboxIdRef};
-use xmtp_proto::mls_v1::welcome_message_input::Version;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
