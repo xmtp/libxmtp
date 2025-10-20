@@ -8,10 +8,13 @@ use super::{
     summary::{MessageIdentifier, MessageIdentifierBuilder, ProcessSummary, SyncSummary},
     validated_commit::{CommitValidationError, LibXMTPVersion, extract_group_membership},
 };
-use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use crate::groups::{
     device_sync_legacy::preference_sync_legacy::process_incoming_preference_update,
-    intents::QueueIntent,
+    intents::QueueIntent, mls_sync::update_group_membership::apply_readd_installations_intent,
+};
+use crate::groups::{
+    intents::ReaddInstallationsIntentData,
+    mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage,
 };
 use crate::identity_updates::IdentityUpdates;
 use crate::{
@@ -44,39 +47,36 @@ use xmtp_configuration::{
     GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
     SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
-use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{
     Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
     events::EventLevel,
     group::{ConversationType, StoredGroup},
     group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-    refresh_state::EntityKind,
     remote_commit_log::CommitResult,
     sql_key_store,
     user_preferences::StoredUserPreferences,
 };
+use xmtp_db::{XmtpMlsStorageProvider, refresh_state::HasEntityKind};
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata, GroupMutableMetadataError};
 
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
+use openmls::group::{ProcessMessageError, ValidationError};
 use openmls::prelude::BasicCredentialError;
 use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
-    framing::{ContentType as MlsContentType, ProtocolMessage},
+    framing::ProtocolMessage,
     group::{GroupEpoch, StagedCommit},
+    key_packages::KeyPackage,
     prelude::{
         LeafNodeIndex, MlsGroup as OpenMlsGroup, ProcessedMessage, ProcessedMessageContent, Sender,
         tls_codec::{Error as TlsCodecError, Serialize},
     },
     treesync::LeafNodeParameters,
-};
-use openmls::{
-    group::{ProcessMessageError, ValidationError},
-    prelude::WireFormat,
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
@@ -94,7 +94,6 @@ use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::{NotFound, group::GroupMembershipState, group_intent::IntentKind::MetadataUpdate};
 use xmtp_id::{InboxId, InboxIdRef};
-use xmtp_proto::mls_v1::WelcomeMetadata;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
@@ -110,6 +109,7 @@ use xmtp_proto::xmtp::mls::{
         plaintext_envelope::{Content, V1, V2, v2::MessageType},
     },
 };
+use xmtp_proto::{mls_v1::WelcomeMetadata, types::GroupMessage};
 pub mod update_group_membership;
 
 #[derive(Debug, Error)]
@@ -560,9 +560,9 @@ where
         &self,
         mls_group: &openmls::group::MlsGroup,
         intent: &StoredGroupIntent,
-        envelope: &xmtp_proto::types::GroupMessage,
+        envelope: &GroupMessage,
     ) -> Result<Option<(StagedCommit, ValidatedCommit)>, IntentResolutionError> {
-        let xmtp_proto::types::GroupMessage {
+        let GroupMessage {
             message, cursor, ..
         } = &envelope;
         let group_epoch = mls_group.epoch();
@@ -573,7 +573,8 @@ where
             | IntentKind::UpdateGroupMembership
             | IntentKind::UpdateAdminList
             | IntentKind::MetadataUpdate
-            | IntentKind::UpdatePermission => {
+            | IntentKind::UpdatePermission
+            | IntentKind::ReaddInstallations => {
                 if let Some(published_in_epoch) = intent.published_in_epoch {
                     let group_epoch = group_epoch.as_u64() as i64;
 
@@ -704,7 +705,7 @@ where
         mls_group: &mut OpenMlsGroup,
         commit: Option<(StagedCommit, ValidatedCommit)>,
         intent: &StoredGroupIntent,
-        envelope: &xmtp_proto::types::GroupMessage,
+        envelope: &GroupMessage,
         storage: &impl XmtpMlsStorageProvider,
     ) -> Result<Option<Vec<u8>>, IntentResolutionError> {
         if intent.state == IntentState::Committed
@@ -724,7 +725,7 @@ where
         }
 
         let message_epoch = envelope.message.epoch();
-        let xmtp_proto::types::GroupMessage { cursor, .. } = envelope;
+        let GroupMessage { cursor, .. } = envelope;
         let envelope_timestamp_ns = envelope.timestamp();
 
         tracing::debug!(
@@ -826,7 +827,7 @@ where
             .set_delivery_status_to_published(
                 &id,
                 envelope_timestamp_ns as u64,
-                envelope.sequence_id() as i64,
+                envelope.cursor,
                 message_expire_at_ns,
             )
             .map_err(|err| IntentResolutionError {
@@ -840,7 +841,7 @@ where
     async fn validate_and_process_external_message(
         &self,
         mls_group: &mut OpenMlsGroup,
-        envelope: &xmtp_proto::types::GroupMessage,
+        envelope: &GroupMessage,
         allow_cursor_increment: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         #[cfg(any(test, feature = "test-utils"))]
@@ -851,7 +852,7 @@ where
 
         let provider = self.context.mls_provider();
 
-        let xmtp_proto::types::GroupMessage {
+        let GroupMessage {
             cursor, message, ..
         } = envelope;
         let envelope_timestamp_ns = envelope.timestamp();
@@ -905,11 +906,7 @@ where
                         match &e {
                             CommitValidationError::ProtocolVersionTooLow(_) => {}
                             _ => {
-                                self.context.db().update_cursor(
-                                    &envelope.group_id,
-                                    EntityKind::Group,
-                                    cursor.sequence_id as i64,
-                                )?;
+                                self.maybe_update_cursor(&self.context.db(), envelope)?;
                             }
                         };
 
@@ -942,16 +939,7 @@ where
                 cursor
             );
             let requires_processing = if allow_cursor_increment {
-                tracing::info!(
-                    "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
-                    hex::encode(envelope.group_id.as_slice()),
-                    *cursor
-                );
-                db.update_cursor(
-                    &envelope.group_id,
-                    EntityKind::Group,
-                    cursor.sequence_id as i64,
-                )?
+                self.maybe_update_cursor(&db, envelope)?
             } else {
                 tracing::info!(
                     "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
@@ -959,15 +947,15 @@ where
                     *cursor
                 );
                 let current_cursor = db
-                    .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
-                current_cursor < cursor.sequence_id as i64
+                    .get_last_cursor_for_originator(&envelope.group_id, envelope.entity_kind(), envelope.originator_id())?;
+                current_cursor.sequence_id < envelope.cursor.sequence_id
             };
             if !requires_processing {
                 // early return if the message is already procesed
                 // _NOTE_: Not early returning and re-processing a message that
                 // has already been processed, has the potential to result in forks.
                 tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
-                    envelope.sequence_id(),
+                    envelope.cursor,
                     xmtp_common::fmt::debug_hex(&envelope.group_id),
                     envelope.created_ns
                  );
@@ -1011,12 +999,12 @@ where
         &self,
         mls_group: &mut OpenMlsGroup,
         processed_message: ProcessedMessage,
-        message_envelope: &xmtp_proto::types::GroupMessage,
+        message_envelope: &GroupMessage,
         validated_commit: Option<ValidatedCommit>,
         storage: &impl XmtpMlsStorageProvider,
         deferred_events: &mut DeferredEvents,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
-        let xmtp_proto::types::GroupMessage { cursor, .. } = &message_envelope;
+        let GroupMessage { cursor, .. } = &message_envelope;
         let envelope_timestamp_ns = message_envelope.timestamp();
         let msg_epoch = processed_message.epoch().as_u64();
         let msg_group_id = hex::encode(processed_message.group_id().as_slice());
@@ -1067,8 +1055,8 @@ where
                             version_minor: queryable_content_fields.version_minor,
                             authority_id: queryable_content_fields.authority_id,
                             reference_id: queryable_content_fields.reference_id,
-                            sequence_id: Some(cursor.sequence_id as i64),
-                            originator_id: None,
+                            sequence_id: cursor.sequence_id as i64,
+                            originator_id: cursor.originator_id as i64,
                             expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                         };
                         // todo: process leave message type here
@@ -1128,8 +1116,8 @@ where
                                     version_minor: 0,
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
-                                    sequence_id: Some(cursor.sequence_id as i64),
-                                    originator_id: None,
+                                    sequence_id: cursor.sequence_id as i64,
+                                    originator_id: cursor.originator_id as i64,
                                     expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                                 };
                                 message.store_or_ignore(&storage.db())?;
@@ -1165,8 +1153,8 @@ where
                                     version_minor: 0,
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
-                                    sequence_id: Some(cursor.sequence_id as i64),
-                                    originator_id: None,
+                                    sequence_id: cursor.sequence_id as i64,
+                                    originator_id: cursor.originator_id as i64,
                                     expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                                 };
                                 message.store_or_ignore(&storage.db())?;
@@ -1443,7 +1431,7 @@ where
     ///   processing from potentially out-of-order sources like streams.
     #[cfg_attr(
         any(test, feature = "test-utils"),
-        tracing::instrument(level = "info", skip(self, envelope))
+        tracing::instrument(level = "info", skip(self), fields(envelope = %envelope))
     )]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
@@ -1451,27 +1439,23 @@ where
     )]
     pub(crate) async fn process_message(
         &self,
-        envelope: &xmtp_proto::types::GroupMessage,
+        envelope: &GroupMessage,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
-        let message_entity_kind = match envelope.message.wire_format() {
-            WireFormat::Welcome => EntityKind::Welcome,
-            _ => EntityKind::Group,
-        };
-
         if trust_message_order {
-            let last_cursor = self
-                .context
-                .db()
-                .get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
-            if last_cursor > envelope.sequence_id() as i64 {
+            let last_cursor = self.context.db().get_last_cursor_for_originator(
+                &envelope.group_id,
+                envelope.entity_kind(),
+                envelope.originator_id(),
+            )?;
+            tracing::info!("last cursor of processed = {}", last_cursor);
+            if last_cursor.sequence_id >= envelope.sequence_id() {
                 tracing::info!(
                     inbox_id = self.context.inbox_id(),
                     installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(&self.group_id),
-                    "Message already processed: skipped cursor:[{}] entity kind:[{:?}] last cursor in db: [{}]",
-                    envelope.sequence_id(),
-                    message_entity_kind,
+                    group_id = hex::encode(&envelope.group_id),
+                    "Message already processed: skipped cursor:[{}] last cursor in db: [{}]",
+                    envelope.cursor,
                     last_cursor
                 );
                 // early return if the message is already procesed
@@ -1491,20 +1475,12 @@ where
                     ));
                 }
             };
-            let message_type = envelope.message.content_type();
-            let message_epoch = envelope.message.epoch();
             let mut result = self
                 .process_message_inner(&mut mls_group, envelope, trust_message_order)
                 .await;
             if trust_message_order {
                 result = self
-                    .post_process_message(
-                        &mls_group,
-                        result,
-                        envelope.cursor,
-                        message_type,
-                        message_epoch,
-                    )
+                    .post_process_message(&mls_group, result, envelope)
                     .await;
             }
             result
@@ -1516,13 +1492,13 @@ where
     async fn process_message_inner(
         &self,
         mls_group: &mut OpenMlsGroup,
-        envelope: &xmtp_proto::types::GroupMessage,
+        envelope: &GroupMessage,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         let db = self.context.db();
         let allow_epoch_increment = trust_message_order;
         let allow_cursor_increment = trust_message_order;
-        let cursor = envelope.sequence_id();
+        let cursor = envelope.cursor;
         if !allow_epoch_increment && envelope.is_commit() {
             return Err(GroupMessageProcessingError::EpochIncrementNotAllowed);
         }
@@ -1531,13 +1507,12 @@ where
             .find_group_intent_by_payload_hash(envelope.payload_hash.as_slice())
             .map_err(GroupMessageProcessingError::Storage)?;
 
-        let group_cursor = db.get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
-        let group_cursor_u64 = u64::try_from(group_cursor).map_err(|e| {
-            GroupMessageProcessingError::Storage(xmtp_db::StorageError::Connection(
-                xmtp_db::ConnectionError::InvalidNegativeCursor(e.to_string()),
-            ))
-        })?;
-        if group_cursor_u64 >= cursor {
+        let group_cursor = db.get_last_cursor_for_originator(
+            &self.group_id,
+            envelope.entity_kind(),
+            envelope.originator_id(),
+        )?;
+        if group_cursor.sequence_id >= envelope.sequence_id() {
             // early return if the message is already processed
             // _NOTE_: Not early returning and re-processing a message that
             // has already been processed, has the potential to result in forks.
@@ -1585,7 +1560,7 @@ where
                     let db = storage.db();
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
                     let requires_processing = if allow_cursor_increment {
-                        self.update_cursor_if_needed(&db, &envelope.group_id, cursor)?
+                        self.maybe_update_cursor(&db, envelope)?
                     } else {
                         tracing::info!(
                             "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
@@ -1593,12 +1568,12 @@ where
                             cursor
                         );
                         let current_cursor = db
-                            .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
-                        current_cursor < cursor as i64
+                            .get_last_cursor_for_originator(&envelope.group_id, envelope.entity_kind(), envelope.originator_id())?;
+                        current_cursor.sequence_id < envelope.sequence_id()
                     };
                     if !requires_processing {
                         tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
-                            envelope.sequence_id(),
+                            envelope.cursor,
                             xmtp_common::fmt::debug_hex(&envelope.group_id),
                             envelope.created_ns
                         );
@@ -1623,8 +1598,7 @@ where
                                 // Rollback the transaction so that we can retry
                                 return Err(err.processing_error);
                             }
-                            // TODO(rich): Add log_err! macro/trait for swallowing errors
-                            if envelope.is_commit() && let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor, envelope.message.epoch(), &err.processing_error) {
+                            if envelope.is_commit() && let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor.sequence_id, envelope.message.epoch(), &err.processing_error) {
                                 tracing::error!("Error inserting commit entry for failed self commit: {}", accounting_error);
                             }
                             (err.next_intent_state, None)
@@ -1643,7 +1617,7 @@ where
                         }
                         IntentState::Committed => {
                             self.handle_metadata_update_from_intent(&intent, &storage)?;
-                            db.set_group_intent_committed(intent_id, cursor as i64)?;
+                            db.set_group_intent_committed(intent_id, cursor)?;
                         }
                         IntentState::Published => {
                             tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
@@ -1749,17 +1723,15 @@ where
         &self,
         mls_group: &OpenMlsGroup,
         process_result: Result<MessageIdentifier, GroupMessageProcessingError>,
-        message_cursor: Cursor,
-        message_type: MlsContentType,
-        message_epoch: GroupEpoch,
+        envelope: &xmtp_proto::types::GroupMessage,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         track_err!("Process message", &process_result, group: &self.group_id);
         let message = match process_result {
             Ok(m) => {
                 tracing::info!(
                     "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
-                    hex::encode(&self.group_id),
-                    message_cursor
+                    &envelope.group_id,
+                    envelope.cursor
                 );
                 Ok(m)
             }
@@ -1779,8 +1751,8 @@ where
             Err(e) => {
                 tracing::info!(
                     "Transaction failed: process for group [{}] envelope cursor [{}] error:[{}]",
-                    hex::encode(&self.group_id),
-                    message_cursor,
+                    &envelope.group_id,
+                    envelope.cursor,
                     e
                 );
 
@@ -1792,16 +1764,15 @@ where
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
                     // TODO(rich): Add log_err! macro/trait for swallowing errors
                     if let Err(update_cursor_error) =
-                        self.update_cursor_if_needed(&storage.db(), &self.group_id, message_cursor.sequence_id)
+                        self.maybe_update_cursor(&storage.db(), envelope)
                     {
                         // We don't need to propagate the error if the cursor fails to update - the worst case is
                         // that the non-retriable error is processed again
                         tracing::error!("Error updating cursor for non-retriable error: {update_cursor_error:?}");
-                    } else if message_type == MlsContentType::Commit
-                    && let Err(accounting_error) = mls_group.mark_failed_commit_logged(
+                    } else if envelope.is_commit() && let Err(accounting_error) = mls_group.mark_failed_commit_logged(
                             &provider,
-                            message_cursor.sequence_id,
-                            message_epoch,
+                            envelope.sequence_id(),
+                            envelope.message.epoch(),
                             &e,
                         ) {
                             tracing::error!(
@@ -1816,8 +1787,8 @@ where
 
                 if let Err(accounting_error) = self
                     .process_group_message_error_for_fork_detection(
-                        message_cursor.sequence_id,
-                        message_epoch,
+                        envelope.sequence_id(),
+                        envelope.message.epoch(),
                         &e,
                         mls_group,
                     )
@@ -1834,11 +1805,15 @@ where
         Ok(message)
     }
 
-    #[tracing::instrument(level = "trace", skip(self, messages))]
-    pub async fn process_messages(
-        &self,
-        messages: Vec<xmtp_proto::types::GroupMessage>,
-    ) -> ProcessSummary {
+    #[cfg_attr(
+        any(test, feature = "test-utils"),
+        tracing::instrument(level = "info", skip_all, fields(who = %self.context.inbox_id()))
+    )]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip_all)
+    )]
+    pub async fn process_messages(&self, messages: Vec<GroupMessage>) -> ProcessSummary {
         let mut summary = ProcessSummary::default();
         for message in messages {
             summary.add_id(message.cursor);
@@ -1883,9 +1858,8 @@ where
     /// cursor ids, so that streams do not unintentially retry O(n^2) messages.
     #[tracing::instrument(skip_all, level = "trace")]
     pub async fn receive(&self) -> Result<ProcessSummary, GroupError> {
-        let db = self.context.db();
         let messages = MlsStore::new(self.context.clone())
-            .query_group_messages(&self.group_id, &db)
+            .query_group_messages(&self.group_id)
             .await?;
 
         let summary = self.process_messages(messages).await;
@@ -1904,20 +1878,19 @@ where
     }
 
     #[tracing::instrument(skip_all, level = "trace")]
-    fn update_cursor_if_needed(
+    fn maybe_update_cursor(
         &self,
         db: &impl DbQuery,
-        group_id: &[u8],
-        cursor: u64,
+        message: &xmtp_proto::types::GroupMessage,
     ) -> Result<bool, StorageError> {
         tracing::info!(
             "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
-            hex::encode(group_id),
-            cursor
+            message.group_id,
+            message.cursor
         );
-        let updated = db.update_cursor(group_id, EntityKind::Group, cursor as i64)?;
+        let updated = db.update_cursor(&message.group_id, message.entity_kind(), message.cursor)?;
         if updated {
-            tracing::debug!("cursor updated to [{}]", cursor as i64);
+            tracing::debug!("cursor updated to [{}]", message.cursor);
         } else {
             tracing::debug!("no cursor update required");
         }
@@ -1987,8 +1960,8 @@ where
             version_minor: content_type.version_minor as i32,
             authority_id: content_type.authority_id.to_string(),
             reference_id: None,
-            sequence_id: Some(cursor.sequence_id as i64),
-            originator_id: None,
+            sequence_id: cursor.sequence_id as i64,
+            originator_id: cursor.originator_id as i64,
             expire_at_ns: None,
         };
         msg.store_or_ignore(&storage.db())?;
@@ -2334,6 +2307,12 @@ where
                     should_send_push_notification: intent.should_push,
                 }))
             }
+            IntentKind::ReaddInstallations => {
+                let intent_data = ReaddInstallationsIntentData::try_from(intent.data.as_slice())?;
+                let signer = &self.context.identity().installation_keys;
+                apply_readd_installations_intent(&self.context, openmls_group, intent_data, signer)
+                    .await
+            }
         }
     }
 
@@ -2530,7 +2509,8 @@ where
      *
      * Internally, this breaks the request into chunks to avoid exceeding the GRPC max message size limits
      */
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip_all, fields(who = %self.context.inbox_id())))]
+    #[cfg_attr(not(any(test, feature = "test-utils")), tracing::instrument(skip_all))]
     pub(super) async fn send_welcomes(
         &self,
         action: SendWelcomesAction,
@@ -2717,23 +2697,14 @@ async fn calculate_membership_changes_with_keypackages<'a>(
     let mut new_failed_installations = Vec::new();
 
     if !installation_diff.added_installations.is_empty() {
-        let key_packages = get_keypackages_for_installation_ids(
+        get_keypackages_for_installation_ids(
             context,
             installation_diff.added_installations,
+            &mut new_installations,
+            &mut new_key_packages,
             &mut new_failed_installations,
         )
         .await?;
-        for (installation_id, result) in key_packages {
-            match result {
-                Ok(verified_key_package) => {
-                    new_installations.push(Installation::from_verified_key_package(
-                        &verified_key_package,
-                    )?);
-                    new_key_packages.push(verified_key_package.inner.clone());
-                }
-                Err(_) => new_failed_installations.push(installation_id.clone()),
-            }
-        }
     }
 
     let mut failed_installations: HashSet<Vec<u8>> = old_group_membership
@@ -2761,23 +2732,35 @@ async fn calculate_membership_changes_with_keypackages<'a>(
         failed_installations.into_iter().collect(),
     ))
 }
+
 #[allow(dead_code)]
 #[cfg(any(test, feature = "test-utils"))]
-async fn get_keypackages_for_installation_ids(
-    context: &impl XmtpSharedContext,
-    added_installations: HashSet<Vec<u8>>,
+async fn inject_failed_installations_for_test(
+    key_packages: &mut HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
     failed_installations: &mut Vec<Vec<u8>>,
-) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
-{
+) {
     use crate::utils::test_mocks_helpers::{
         get_test_mode_malformed_installations, is_test_mode_upload_malformed_keypackage,
     };
+    if is_test_mode_upload_malformed_keypackage() {
+        let malformed_installations = get_test_mode_malformed_installations();
+        key_packages.retain(|id, _| !malformed_installations.contains(id));
+        failed_installations.extend(malformed_installations);
+    }
+}
 
+async fn get_keypackages_for_installation_ids(
+    context: impl XmtpSharedContext,
+    requested_installations: HashSet<Vec<u8>>,
+    fetched_installations: &mut Vec<Installation>,
+    fetched_key_packages: &mut Vec<KeyPackage>,
+    failed_installations: &mut Vec<Vec<u8>>,
+) -> Result<(), GroupError> {
     let my_installation_id = context.installation_id().to_vec();
     let store = MlsStore::new(context.clone());
     let mut key_packages = store
         .get_key_packages_for_installation_ids(
-            added_installations
+            requested_installations
                 .iter()
                 .filter(|installation| my_installation_id.ne(*installation))
                 .cloned()
@@ -2785,36 +2768,22 @@ async fn get_keypackages_for_installation_ids(
         )
         .await?;
 
-    tracing::info!("trying to validate keypackages");
+    #[cfg(any(test, feature = "test-utils"))]
+    inject_failed_installations_for_test(&mut key_packages, failed_installations).await;
 
-    if is_test_mode_upload_malformed_keypackage() {
-        let malformed_installations = get_test_mode_malformed_installations();
-        key_packages.retain(|id, _| !malformed_installations.contains(id));
-        failed_installations.extend(malformed_installations);
+    for (installation_id, result) in key_packages {
+        match result {
+            Ok(verified_key_package) => {
+                fetched_installations.push(Installation::from_verified_key_package(
+                    &verified_key_package,
+                )?);
+                fetched_key_packages.push(verified_key_package.inner.clone());
+            }
+            Err(_) => failed_installations.push(installation_id.clone()),
+        }
     }
 
-    Ok(key_packages)
-}
-#[allow(unused_variables, dead_code)]
-#[cfg(not(any(test, feature = "test-utils")))]
-async fn get_keypackages_for_installation_ids(
-    context: impl XmtpSharedContext,
-    added_installations: HashSet<Vec<u8>>,
-    failed_installations: &mut [Vec<u8>],
-) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
-{
-    let my_installation_id = context.installation_id().to_vec();
-    let store = MlsStore::new(context.clone());
-    store
-        .get_key_packages_for_installation_ids(
-            added_installations
-                .iter()
-                .filter(|installation| my_installation_id.ne(*installation))
-                .cloned()
-                .collect(),
-        )
-        .await
-        .map_err(Into::into)
+    Ok(())
 }
 
 fn get_removed_leaf_nodes(

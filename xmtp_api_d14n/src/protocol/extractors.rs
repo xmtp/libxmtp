@@ -17,6 +17,8 @@ mod welcomes;
 pub use welcomes::*;
 mod topics;
 pub use topics::*;
+mod data;
+pub use data::*;
 
 #[cfg(test)]
 pub mod test_utils;

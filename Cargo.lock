@@ -8346,6 +8346,7 @@ dependencies = [
  "xmtp_api",
  "xmtp_api_d14n",
  "xmtp_api_grpc",
+ "xmtp_configuration",
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
@@ -8385,6 +8386,7 @@ dependencies = [
 name = "xmtp_api_d14n"
 version = "1.6.0-dev"
 dependencies = [
+ "arc-swap",
  "async-trait",
  "chrono",
  "const-hex",
@@ -8415,6 +8417,7 @@ dependencies = [
  "xmtp_common",
  "xmtp_configuration",
  "xmtp_cryptography",
+ "xmtp_id",
  "xmtp_proto",
 ]
 
@@ -8609,6 +8612,7 @@ dependencies = [
  "diesel_migrations",
  "dyn-clone",
  "futures-timer",
+ "itertools 0.14.0",
  "libsqlite3-sys",
  "mockall",
  "openmls",
@@ -8678,7 +8682,6 @@ dependencies = [
  "tracing",
  "url",
  "wasm-bindgen-test",
- "xmtp_api",
  "xmtp_common",
  "xmtp_configuration",
  "xmtp_cryptography",

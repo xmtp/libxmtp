@@ -3,11 +3,14 @@ use crate::protocol::EnvelopeCollection;
 
 use super::traits::{EnvelopeError, EnvelopeVisitor, ProtocolEnvelope};
 use prost::Message;
+use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
+use xmtp_proto::mls_v1::fetch_key_packages_response::KeyPackage;
 use xmtp_proto::mls_v1::subscribe_group_messages_request::Filter as SubscribeGroupMessagesFilter;
 use xmtp_proto::mls_v1::subscribe_welcome_messages_request::Filter as SubscribeWelcomeMessagesFilter;
 use xmtp_proto::mls_v1::{
     SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest, welcome_message,
 };
+use xmtp_proto::types::Topic;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     SubscribeEnvelopesResponse, get_newest_envelope_response,
 };
@@ -263,6 +266,23 @@ impl<'env> ProtocolEnvelope<'env> for get_identity_updates_request::Request {
     }
 }
 
+impl<'env> ProtocolEnvelope<'env> for KeyPackage {
+    type Nested<'a> = ();
+
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    where
+        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
+    {
+        visitor.visit_key_package(self)?;
+        self.get_nested()?.accept(visitor)?;
+        Ok(())
+    }
+
+    fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
+        Ok(())
+    }
+}
+
 impl<'env> ProtocolEnvelope<'env> for get_newest_envelope_response::Response {
     type Nested<'a> = Option<&'a OriginatorEnvelope>;
 
@@ -402,6 +422,22 @@ impl<'env> ProtocolEnvelope<'env> for welcome_message::Version {
     }
 }
 
+impl<'env> ProtocolEnvelope<'env> for IdentityUpdateLog {
+    type Nested<'a> = Option<&'a IdentityUpdate>;
+
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    where
+        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
+    {
+        visitor.visit_identity_update_log(self)?;
+        self.get_nested()?.accept(visitor)
+    }
+
+    fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
+        Ok(self.update.as_ref())
+    }
+}
+
 impl<'env> ProtocolEnvelope<'env> for () {
     type Nested<'a> = ();
 
@@ -418,7 +454,7 @@ impl<'env> ProtocolEnvelope<'env> for () {
 }
 
 impl EnvelopeCollection<'_> for SubscribeEnvelopesResponse {
-    fn topics(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
+    fn topics(&self) -> Result<Vec<Topic>, EnvelopeError> {
         self.envelopes.topics()
     }
 
@@ -447,10 +483,22 @@ impl EnvelopeCollection<'_> for SubscribeEnvelopesResponse {
     {
         self.envelopes.consume::<E>()
     }
+
+    fn group_messages(
+        &self,
+    ) -> Result<Vec<Option<xmtp_proto::types::GroupMessage>>, EnvelopeError> {
+        self.envelopes.group_messages()
+    }
+
+    fn welcome_messages(
+        &self,
+    ) -> Result<Vec<Option<xmtp_proto::types::WelcomeMessage>>, EnvelopeError> {
+        self.envelopes.welcome_messages()
+    }
 }
 
 impl EnvelopeCollection<'_> for SubscribeGroupMessagesRequest {
-    fn topics(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
+    fn topics(&self) -> Result<Vec<Topic>, EnvelopeError> {
         self.filters.topics()
     }
 
@@ -477,11 +525,23 @@ impl EnvelopeCollection<'_> for SubscribeGroupMessagesRequest {
         Self: Sized,
     {
         self.filters.consume()
+    }
+
+    fn group_messages(
+        &self,
+    ) -> Result<Vec<Option<xmtp_proto::types::GroupMessage>>, EnvelopeError> {
+        self.filters.group_messages()
+    }
+
+    fn welcome_messages(
+        &self,
+    ) -> Result<Vec<Option<xmtp_proto::types::WelcomeMessage>>, EnvelopeError> {
+        self.filters.welcome_messages()
     }
 }
 
 impl EnvelopeCollection<'_> for SubscribeWelcomeMessagesRequest {
-    fn topics(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
+    fn topics(&self) -> Result<Vec<Topic>, EnvelopeError> {
         self.filters.topics()
     }
 
@@ -508,6 +568,18 @@ impl EnvelopeCollection<'_> for SubscribeWelcomeMessagesRequest {
         Self: Sized,
     {
         self.filters.consume()
+    }
+
+    fn group_messages(
+        &self,
+    ) -> Result<Vec<Option<xmtp_proto::types::GroupMessage>>, EnvelopeError> {
+        self.filters.group_messages()
+    }
+
+    fn welcome_messages(
+        &self,
+    ) -> Result<Vec<Option<xmtp_proto::types::WelcomeMessage>>, EnvelopeError> {
+        self.filters.welcome_messages()
     }
 }
 
@@ -536,6 +608,7 @@ mod tests {
     use rstest::rstest;
     use xmtp_common::Generate;
     use xmtp_cryptography::XmtpInstallationCredential;
+    use xmtp_proto::types::TopicKind;
     use xmtp_proto::xmtp::mls::api::v1::{
         GroupMessage as V3ProtoGroupMessage, WelcomeMessage as V3ProtoWelcomeMessage,
         group_message, group_message_input::V1 as GroupMessageV1, welcome_message,
@@ -721,7 +794,9 @@ mod tests {
     fn envelope_edge_cases() {
         // Test empty payload handling
         let client = ClientEnvelope {
-            aad: Some(AuthenticatedData::with_topic(vec![1, 2, 3])),
+            aad: Some(AuthenticatedData::with_topic(
+                TopicKind::IdentityUpdatesV1.create([0, 1, 2]),
+            )),
             payload: None,
         };
         let mut visitor = TestVisitor::default();

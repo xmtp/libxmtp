@@ -104,7 +104,6 @@ mod tests {
     use crate::test::mock::generate_messages_with_ids;
     use crate::test::mock::generate_stored_msg;
     use crate::test::mock::generate_successful_summary;
-    use xmtp_common::rand_vec;
 
     use super::*;
     use rstest::*;
@@ -126,10 +125,17 @@ mod tests {
     pub async fn test_process_returns_correct_cursor(
         #[values(5, 8, 10, 11, 13, 18)] current_message: u64,
     ) {
+        use xmtp_common::rand_vec;
+
         let current_message = generate_message(current_message, &rand_vec::<16>());
         let mut mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
-        mock_db.expect_last_cursor().times(1).returning(|_| Ok(3));
+        mock_db.expect_last_cursor().times(1).returning(|_, o| {
+            Ok(Cursor {
+                sequence_id: 3,
+                originator_id: o,
+            })
+        });
         mock_db.expect_msg().times(1).returning(|_, _| Ok(None));
         mock_syncer
             .expect_process()
@@ -158,13 +164,22 @@ mod tests {
         success: Vec<u64>,
         expected: u64,
     ) {
+        use xmtp_common::Generate as _;
+        use xmtp_proto::types::GroupId;
+
         use crate::test::mock::generate_errored_summary;
 
-        let current_message = generate_message(*success.first().unwrap_or(&55), &rand_vec::<16>());
+        let current_message =
+            generate_message(*success.first().unwrap_or(&55), &GroupId::generate());
         let mut mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
         // the last cursor is
-        mock_db.expect_last_cursor().times(1).returning(|_| Ok(50));
+        mock_db.expect_last_cursor().times(1).returning(|_, o| {
+            Ok(Cursor {
+                sequence_id: 50,
+                originator_id: o,
+            })
+        });
         mock_db.expect_msg().times(1).returning(|_, _| Ok(None));
         mock_syncer
             .expect_process()
@@ -190,13 +205,18 @@ mod tests {
 
     #[rstest]
     #[case(None)]
-    #[case(Some(generate_stored_msg(Cursor::mls_commits(55), xmtp_common::rand_vec::<32>())))]
+    #[case(Some(generate_stored_msg(Cursor::new(55, 0u32), xmtp_common::rand_vec::<32>())))]
     #[xmtp_common::test]
     pub async fn test_cursor_no_sync(#[case] message: Option<StoredGroupMessage>) {
-        let current_message = generate_message(55, &rand_vec::<16>());
+        let current_message = generate_message(55, &[0]);
         let mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
-        mock_db.expect_last_cursor().times(1).returning(|_| Ok(100));
+        mock_db.expect_last_cursor().times(1).returning(|_, o| {
+            Ok(Cursor {
+                sequence_id: 100,
+                originator_id: o,
+            })
+        });
         let mocked_m = message.clone();
         mock_db
             .expect_msg()

@@ -33,6 +33,7 @@ use xmtp_db::{
 use xmtp_mls_common::{
     group_metadata::extract_group_metadata, group_mutable_metadata::extract_group_mutable_metadata,
 };
+use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, GroupUpdated, group_updated::Inbox};
 
 /// Create a group from a decrypted and decoded welcome message.
@@ -130,8 +131,13 @@ where
     V: ValidateGroupMembership,
 {
     /// Get the last cursor in the database for welcomes
-    fn last_cursor(&self, db: &impl DbQuery) -> Result<i64, StorageError> {
-        db.get_last_cursor_for_id(self.context.installation_id(), EntityKind::Welcome)
+    fn last_sequence_id(&self, db: &impl DbQuery) -> Result<i64, StorageError> {
+        let last = db.get_last_cursor_for_originator(
+            self.context.installation_id(),
+            EntityKind::Welcome,
+            self.welcome.originator_id(),
+        )?;
+        Ok(last.sequence_id as i64)
     }
 
     /// Update the cursor in the database
@@ -140,7 +146,7 @@ where
         db.update_cursor(
             self.context.installation_id(),
             EntityKind::Welcome,
-            self.welcome.sequence_id() as i64,
+            self.welcome.cursor,
         )
     }
 
@@ -152,15 +158,15 @@ where
         let context = &self.context;
 
         // Check if this welcome was already processed. Return the existing group if so.
-        if self.last_cursor(db)? >= self.welcome.sequence_id() as i64 {
+        if self.last_sequence_id(db)? >= self.welcome.sequence_id() as i64 {
             tracing::debug!(
-                welcome_id = self.welcome.sequence_id(),
+                welcome_id = %self.welcome.cursor,
                 "Welcome id is less than cursor, fetching from DB"
             );
-            let maybe_group = db.find_group_by_welcome_id(self.welcome.sequence_id() as i64)?;
+            let maybe_group = db.find_group_by_sequence_id(self.welcome.cursor)?;
             let Some(group) = maybe_group else {
                 tracing::warn!(
-                    welcome_id = self.welcome.sequence_id(),
+                    welcome_id = %self.welcome.cursor,
                     "Already processed welcome not found in DB, likely pre-existing group or oneshot message"
                 );
                 return Ok(None);
@@ -311,7 +317,7 @@ where
 
         tracing::debug!("calling update cursor for welcome {}", welcome.cursor);
         let requires_processing = {
-            let current_cursor = self.last_cursor(&db)?;
+            let current_cursor = self.last_sequence_id(&db)?;
             welcome.sequence_id() > current_cursor as u64
         };
         if !requires_processing {
@@ -325,7 +331,7 @@ where
             db.update_cursor(
                 context.installation_id(),
                 EntityKind::Welcome,
-                welcome.cursor.sequence_id as i64,
+                welcome.cursor,
             )?;
         }
         let metadata =
@@ -386,7 +392,7 @@ where
             .id(group_id)
             .created_at_ns(now_ns())
             .added_by_inbox_id(&added_by_inbox_id)
-            .welcome_id(welcome.sequence_id() as i64)
+            .cursor(welcome.cursor)
             .conversation_type(conversation_type)
             .dm_id(dm_members.map(String::from))
             .message_disappear_from_ns(disappearing_settings.as_ref().map(|m| m.from_ns))
@@ -494,8 +500,8 @@ where
             version_minor: added_content_type.version_minor as i32,
             authority_id: added_content_type.authority_id,
             reference_id: None,
-            sequence_id: Some(welcome.sequence_id() as i64),
-            originator_id: None,
+            sequence_id: welcome.sequence_id() as i64,
+            originator_id: welcome.originator_id() as i64,
             expire_at_ns: None,
         };
 
@@ -523,13 +529,27 @@ where
         let cursor = welcome_metadata
             .map(|m| m.message_cursor as i64)
             .unwrap_or_default();
-        db.update_cursor(&group.group_id, EntityKind::Group, cursor)?;
+        db.update_cursor(
+            &group.group_id,
+            EntityKind::ApplicationMessage,
+            //TODO:d14n this must change before D14n-only
+            //Originator must be included in welcome
+            if cfg!(feature = "d14n") {
+                Cursor {
+                    originator_id: 100,
+                    sequence_id: cursor as u64,
+                }
+            } else {
+                Cursor::v3_messages(cursor as u64)
+            },
+        )?;
 
         tracing::info!(
             inbox_id = %current_inbox_id,
             installation_id = %self.context.installation_id(),
             group_id = %hex::encode(&group.group_id),
-            welcome_id = welcome.sequence_id(),
+            welcome_id = welcome.cursor.sequence_id,
+            originator_id = welcome.cursor.originator_id,
             cursor = cursor,
             "updated message cursor from welcome metadata"
         );

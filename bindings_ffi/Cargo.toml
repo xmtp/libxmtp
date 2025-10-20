@@ -36,6 +36,7 @@ xmtp_mls.workspace = true
 xmtp_proto.workspace = true
 
 # Bench
+alloy = { workspace = true, optional = true }
 criterion = { workspace = true, optional = true }
 fdlimit = { version = "0.3", optional = true }
 
@@ -75,7 +76,15 @@ xmtp_proto = { workspace = true, features = ["test-utils"] }
 
 
 [features]
-bench = ["xmtp_mls/bench", "xmtp_common/bench", "dep:criterion", "dep:fdlimit"]
+bench = [
+  "xmtp_mls/bench",
+  "xmtp_common/bench",
+  "dep:criterion",
+  "dep:fdlimit",
+  "dep:alloy",
+]
+d14n = []
+dev = ["xmtp_configuration/dev", "xmtp_mls/dev"]
 
 [[bench]]
 harness = false

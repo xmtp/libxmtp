@@ -1,10 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use crate::subscriptions::SubscribeError;
-use futures::{StreamExt, TryStreamExt, stream};
-use xmtp_api::{ApiClientWrapper, GroupFilter, XmtpApi};
-use xmtp_configuration::Originators;
-use xmtp_proto::types::{Cursor, GroupId};
+use xmtp_proto::types::{Cursor, GroupId, OriginatorId, SequenceId};
 
 #[derive(thiserror::Error, Debug)]
 pub enum MessageStreamError {
@@ -18,33 +14,27 @@ pub enum MessageStreamError {
 /// based only upon messages from the stream
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct MessagePosition {
-    started_at: HashMap<u32, u64>,
     /// last mesasage we got from the network
     /// If we get a message before this cursor, we should
     /// check if we synced after that cursor, and should
     /// prefer retrieving from the database
-    /// TODO:d14n this is a global cursor (better Display impl)
-    last_streamed: HashMap<u32, u64>,
+    last_streamed: HashMap<OriginatorId, SequenceId>,
 }
 
 impl std::fmt::Debug for MessagePosition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MessagePosition")
-            .field("started_at", &self.started_at)
             .field("last_streamed", &self.last_streamed)
             .finish()
     }
 }
 
 impl MessagePosition {
-    pub fn new(cursor: Cursor, started_at: Cursor) -> Self {
+    pub fn new(cursor: Cursor) -> Self {
         let mut last_map = HashMap::new();
         last_map.insert(cursor.originator_id, cursor.sequence_id);
-        let mut started_map = HashMap::new();
-        started_map.insert(started_at.originator_id, started_at.sequence_id);
         Self {
             last_streamed: last_map,
-            started_at: started_map,
         }
     }
     /// Updates the cursor position for this message.
@@ -59,16 +49,6 @@ impl MessagePosition {
             .insert(cursor.originator_id, cursor.sequence_id);
     }
 
-    // if our last streamed is greater than this cursor, we have already seen the item
-    pub fn has_seen(&self, cursor: Cursor) -> bool {
-        let sid = self
-            .last_streamed
-            .get(&cursor.originator_id)
-            .copied()
-            .unwrap_or(0);
-        sid > cursor.sequence_id
-    }
-
     /// Retrieves the current cursor position.
     ///
     /// Returns the cursor position or 0 if no cursor has been set yet.
@@ -78,30 +58,6 @@ impl MessagePosition {
     pub(crate) fn last_streamed(&self) -> HashMap<u32, u64> {
         self.last_streamed.clone()
     }
-
-    pub(crate) fn started(&self) -> HashMap<u32, u64> {
-        self.started_at.clone()
-    }
-
-    /// stream started after this cursor
-    pub(crate) fn started_after(&self, cursor: Cursor) -> bool {
-        let sid = self
-            .started_at
-            .get(&cursor.originator_id)
-            .copied()
-            .unwrap_or(0);
-        sid > cursor.sequence_id
-    }
-
-    /// stream started before this cursor
-    pub(crate) fn started_before(&self, cursor: Cursor) -> bool {
-        let sid = self
-            .started_at
-            .get(&cursor.originator_id)
-            .copied()
-            .unwrap_or(0);
-        sid < cursor.sequence_id
-    }
 }
 
 impl std::fmt::Display for MessagePosition {
@@ -110,72 +66,28 @@ impl std::fmt::Display for MessagePosition {
     }
 }
 
-pub(super) trait Api {
-    /// get the latest message for a cursor
-    async fn query_latest_position(
-        &self,
-        group: &GroupId,
-    ) -> Result<MessagePosition, SubscribeError>;
-}
-
-impl<A> Api for ApiClientWrapper<A>
-where
-    A: XmtpApi,
-{
-    async fn query_latest_position(
-        &self,
-        group: &GroupId,
-    ) -> Result<MessagePosition, SubscribeError> {
-        if let Some(msg) = self.query_latest_group_message(group).await? {
-            Ok(MessagePosition::new(msg.cursor, msg.cursor))
-        } else {
-            Ok(MessagePosition::new(Default::default(), Default::default()))
-        } // there is no cursor for this group yet
-    }
-}
-
 #[derive(Clone, Debug, Default)]
 pub(super) struct GroupList {
     list: HashMap<GroupId, MessagePosition>,
+    // NOTE: if mem is a concern use a bloom filter
+    // or create a garbage collection strategy
+    seen: HashSet<Cursor>,
 }
 
 impl GroupList {
-    pub(super) async fn new(list: Vec<GroupId>, api: &impl Api) -> Result<Self, SubscribeError> {
-        let list = stream::iter(list)
-            .map(|group| async {
-                let position = api.query_latest_position(&group).await?;
-                Ok((group, position))
-            })
-            .buffer_unordered(8)
-            .try_fold(HashMap::new(), async move |mut map, (group, position)| {
-                map.insert(group, position);
-                Ok::<_, SubscribeError>(map)
-            })
-            .await?;
-        Ok(Self { list })
+    pub(super) fn new(list: Vec<GroupId>) -> Self {
+        Self {
+            list: list.into_iter().map(|g| (g, Default::default())).collect(),
+            seen: HashSet::new(),
+        }
     }
 
-    pub(super) fn filters(&self) -> Vec<GroupFilter> {
-        self.list
-            .iter()
-            .map(|(group_id, cursor)| {
-                let map = cursor.last_streamed();
-                let sid = map
-                    .get(&(Originators::MLS_COMMITS as u32))
-                    .copied()
-                    .unwrap_or(0);
-                let sid2 = map
-                    .get(&(Originators::APPLICATION_MESSAGES as u32))
-                    .copied()
-                    .unwrap_or(0);
-                // TODO:d14n this is going to need to change
-                // will not work with cursor from dif originators
-                // i.e mixed commits & app msgs will screw up ordering
-                // the cursor store PR selects the right cursor to start from w/o us
-                // having to choose
-                GroupFilter::new(group_id.to_vec(), Some(std::cmp::max(sid, sid2)))
-            })
-            .collect()
+    pub(super) fn has_seen(&self, cursor: Cursor) -> bool {
+        self.seen.contains(&cursor)
+    }
+
+    pub(super) fn ids(&self) -> Vec<GroupId> {
+        self.list.keys().cloned().collect()
     }
 
     /// get the `MessagePosition` for `group_id`, if any
@@ -202,5 +114,6 @@ impl GroupList {
                 pos.set(cursor);
                 pos
             });
+        self.seen.insert(cursor);
     }
 }

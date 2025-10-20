@@ -4,11 +4,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::{JsError, JsValue, prelude::wasm_bindgen};
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_d14n::V3Client;
-use xmtp_api_grpc::GrpcClient;
+use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_api_d14n::TrackedStatsClient;
 use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
 use xmtp_id::associations::{AssociationState, MemberIdentifier, ident};
-use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_mls::client::inbox_addresses_with_verifier;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
@@ -123,16 +122,19 @@ impl From<VerifiedKeyPackageV2> for KeyPackageStatus {
 
 #[wasm_bindgen(js_name = inboxStateFromInboxIds)]
 pub async fn inbox_state_from_inbox_ids(
-  host: String,
+  v3_host: String,
+  gateway_host: Option<String>,
   inbox_ids: Vec<String>,
 ) -> Result<Vec<InboxState>, JsError> {
-  let api_client =
-    V3Client::new(GrpcClient::create(&host, true).map_err(|e| JsError::new(&e.to_string()))?);
-
-  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
-  let scw_verifier =
-    Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
-      as Box<dyn SmartContractSignatureVerifier>);
+  let backend = MessageBackendBuilder::default()
+    .v3_host(&v3_host)
+    .maybe_gateway_host(gateway_host)
+    .is_secure(true)
+    .build()
+    .map_err(|e| JsError::new(&e.to_string()))?;
+  let backend = TrackedStatsClient::new(backend);
+  let api = ApiClientWrapper::new(backend, strategies::exponential_cooldown());
+  let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
   let db = WasmDb::new(&StorageOption::Ephemeral).await?;
   let store = EncryptedMessageStore::new(db)

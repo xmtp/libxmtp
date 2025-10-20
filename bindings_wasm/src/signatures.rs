@@ -7,15 +7,13 @@ use js_sys::Uint8Array;
 use std::sync::Arc;
 use wasm_bindgen::prelude::{JsError, wasm_bindgen};
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_d14n::queries::V3Client;
-use xmtp_api_grpc::GrpcClient;
+use xmtp_api_d14n::{MessageBackendBuilder, TrackedStatsClient};
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::{
   AccountId,
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
 };
 use xmtp_id::associations::{Identifier as XmtpIdentifier, verify_signed_with_public_context};
-use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_mls::identity_updates::apply_signature_request_with_verifier;
 use xmtp_mls::identity_updates::revoke_installations_with_verifier;
@@ -48,18 +46,21 @@ pub fn verify_signed_with_public_key(
 
 #[wasm_bindgen(js_name = revokeInstallationsSignatureRequest)]
 pub fn revoke_installations_signature_request(
-  host: String,
+  v3_host: String,
+  gateway_host: Option<String>,
   recovery_identifier: Identifier,
   inbox_id: String,
   installation_ids: Vec<Uint8Array>,
 ) -> Result<SignatureRequestHandle, JsError> {
-  let api_client =
-    V3Client::new(GrpcClient::create(&host, true).map_err(|e| JsError::new(&e.to_string()))?);
-
-  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
-  let scw_verifier =
-    Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
-      as Box<dyn SmartContractSignatureVerifier>);
+  let backend = MessageBackendBuilder::default()
+    .v3_host(&v3_host)
+    .maybe_gateway_host(gateway_host)
+    .is_secure(true)
+    .build()
+    .map_err(|e| JsError::new(&e.to_string()))?;
+  let backend = TrackedStatsClient::new(backend);
+  let api = ApiClientWrapper::new(Arc::new(backend), strategies::exponential_cooldown());
+  let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
   let ident = recovery_identifier.try_into()?;
   let ids: Vec<Vec<u8>> = installation_ids.into_iter().map(|i| i.to_vec()).collect();
@@ -75,14 +76,23 @@ pub fn revoke_installations_signature_request(
 
 #[wasm_bindgen(js_name = applySignatureRequest)]
 pub async fn apply_signature_request(
-  host: String,
+  v3_host: String,
+  gateway_host: Option<String>,
   signature_request: &SignatureRequestHandle,
 ) -> Result<(), JsError> {
-  let api_client =
-    V3Client::new(GrpcClient::create(&host, true).map_err(|e| JsError::new(&e.to_string()))?);
+  let backend = MessageBackendBuilder::default()
+    .v3_host(&v3_host)
+    .maybe_gateway_host(gateway_host)
+    .is_secure(true)
+    .build()
+    .map_err(|e| JsError::new(&e.to_string()))?;
+  let backend = TrackedStatsClient::new(backend);
 
-  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
-  let scw_verifier = Arc::new(RemoteSignatureVerifier::new(api.clone()));
+  let api = ApiClientWrapper::new(
+    TrackedStatsClient::new(backend),
+    strategies::exponential_cooldown(),
+  );
+  let scw_verifier = Arc::new(api.clone());
 
   let inner = signature_request.inner.lock().await;
 

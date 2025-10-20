@@ -7,7 +7,6 @@
       inputs = { nixpkgs.follows = "nixpkgs"; };
     };
     flake-parts = { url = "github:hercules-ci/flake-parts"; };
-    systems.url = "github:nix-systems/default";
     foundry.url = "github:shazow/foundry.nix/stable";
     crane = {
       url = "github:ipetkov/crane";
@@ -25,7 +24,11 @@
 
   outputs = inputs@{ flake-parts, fenix, crane, foundry, rust-manifest, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
-      systems = import inputs.systems;
+      systems = [
+        "aarch64-darwin"
+        "aarch64-linux"
+        "x86_64-linux"
+      ];
       perSystem = { pkgs, system, inputs', ... }:
         let
           pkgConfig = {

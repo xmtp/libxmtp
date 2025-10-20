@@ -5,6 +5,7 @@ mod test_commit_log_remote;
 mod test_consent;
 mod test_dm;
 mod test_key_updates;
+mod test_libxmtp_version;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_network;
 mod test_send_message_opts;
@@ -15,10 +16,11 @@ use chrono::DateTime;
 use openmls::prelude::MlsMessageIn;
 use prost::Message;
 use tls_codec::Deserialize;
+use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_configuration::Originators;
 use xmtp_db::XmtpOpenMlsProviderRef;
 use xmtp_db::refresh_state::EntityKind;
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, TopicKind};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
@@ -154,7 +156,7 @@ async fn test_send_message() {
     let messages = alix
         .context
         .api()
-        .query_group_messages(group.group_id.clone().into(), Default::default())
+        .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
         .await?;
 
     group.sync().await?;
@@ -493,10 +495,9 @@ async fn test_add_inbox() {
     let messages = client
         .context
         .api()
-        .query_group_messages(group_id.into(), Default::default())
+        .query_at(TopicKind::GroupMessagesV1.create(&group_id), None)
         .await
         .unwrap();
-
     assert_eq!(messages.len(), 1);
 }
 
@@ -576,7 +577,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
     let messages_bola_1 = bola_1
         .context
         .api()
-        .query_group_messages(group.clone().group_id.into(), Default::default())
+        .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
         .await
         .unwrap();
 
@@ -587,7 +588,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
     let messages_alix = alix
         .context
         .api()
-        .query_group_messages(group.clone().group_id.into(), Default::default())
+        .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
         .await
         .unwrap();
 
@@ -1096,7 +1097,7 @@ async fn test_remove_inbox() {
     let messages = client_1
         .context
         .api()
-        .query_group_messages(group_id.into(), Default::default())
+        .query_at(TopicKind::GroupMessagesV1.create(&group_id), None)
         .await
         .expect("read topic");
 
@@ -1637,7 +1638,7 @@ async fn test_key_update() {
     let messages = client
         .context
         .api()
-        .query_group_messages(group.group_id.clone().into(), Default::default())
+        .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
         .await
         .unwrap();
     assert_eq!(messages.len(), 2);
@@ -1678,7 +1679,10 @@ async fn test_post_commit() {
     let welcome_messages = client
         .context
         .api()
-        .query_welcome_messages(client_2.installation_public_key(), Default::default())
+        .query_at(
+            TopicKind::WelcomeMessagesV1.create(client_2.installation_public_key()),
+            None,
+        )
         .await
         .unwrap();
 
@@ -2964,9 +2968,12 @@ async fn process_messages_abort_on_retryable_error() {
     // Get the group messages before we lock the DB, simulating an error that happens
     // in the middle of a sync instead of the beginning
     let bo_messages = bo
-        .mls_store()
-        .query_group_messages(&bo_group.group_id, &bo.context.db())
+        .context
+        .api()
+        .query_at(TopicKind::GroupMessagesV1.create(&bo_group.group_id), None)
         .await
+        .unwrap()
+        .group_messages()
         .unwrap();
 
     let db = bo.context.store().db();
@@ -2987,8 +2994,8 @@ async fn process_messages_abort_on_retryable_error() {
 
 #[xmtp_common::test]
 async fn skip_already_processed_messages() {
-    tester!(alix);
-    tester!(bo);
+    tester!(alix, with_name: "alix");
+    tester!(bo, with_name: "bo");
 
     let alix_group = alix.create_group(None, None).unwrap();
 
@@ -3007,22 +3014,38 @@ async fn skip_already_processed_messages() {
     let bo_group = bo_groups.first().unwrap();
 
     let mut bo_messages_from_api = bo
-        .mls_store()
-        .query_group_messages(&bo_group.group_id, &bo.context.db())
+        .context
+        .api()
+        .query_at(TopicKind::GroupMessagesV1.create(&bo_group.group_id), None)
+        .await
+        .unwrap()
+        .group_messages()
+        .unwrap();
+
+    // _NOTE:_ care should be taken with d14n since
+    // messages are either commits or application messages which effects
+    // the sequence_id semantics here
+    let _process_result = bo_group
+        .process_messages(bo_messages_from_api.clone())
+        .await;
+    alix_group
+        .send_message(&alix_message, SendMessageOpts::default())
         .await
         .unwrap();
 
-    // override the messages to contain already processed messaged
-    for msg in &mut bo_messages_from_api {
-        msg.cursor.sequence_id = 0;
-    }
-    let process_result = bo_group.process_messages(bo_messages_from_api).await;
+    // get new, unprocessed messages
+    let new_message = bo
+        .mls_store()
+        .query_group_messages(&bo_group.group_id)
+        .await
+        .unwrap();
+    bo_messages_from_api.extend(new_message);
 
-    assert_eq!(process_result.new_messages.len(), 1);
+    let process_result = bo_group.process_messages(bo_messages_from_api).await;
+    assert_eq!(process_result.new_messages.len(), 3);
     // We no longer error when the message is previously processed
     assert_eq!(process_result.errored.len(), 0);
 }
-
 #[xmtp_common::test]
 async fn skip_already_processed_intents() {
     let alix = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
@@ -3093,8 +3116,13 @@ async fn test_parallel_syncs() {
     let alix2_welcomes = alix1
         .context
         .api()
-        .query_welcome_messages(alix2.installation_public_key(), Default::default())
+        .query_at(
+            TopicKind::WelcomeMessagesV1.create(alix2.installation_public_key()),
+            None,
+        )
         .await
+        .unwrap()
+        .welcome_messages()
         .unwrap();
     assert_eq!(alix2_welcomes.len(), 1);
 
@@ -3102,7 +3130,10 @@ async fn test_parallel_syncs() {
     let group_messages = alix1
         .context
         .api()
-        .query_group_messages(alix1_group.group_id.clone().into(), Default::default())
+        .query_at(
+            TopicKind::GroupMessagesV1.create(&alix1_group.group_id),
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(group_messages.len(), 1);
@@ -3195,8 +3226,13 @@ async fn add_missing_installs_reentrancy() {
     let alix2_welcomes = alix1
         .context
         .api()
-        .query_welcome_messages(alix2.installation_public_key(), Default::default())
+        .query_at(
+            TopicKind::WelcomeMessagesV1.create(alix2.installation_public_key()),
+            None,
+        )
         .await
+        .unwrap()
+        .welcome_messages()
         .unwrap();
     assert_eq!(alix2_welcomes.len(), 1);
 
@@ -3205,7 +3241,10 @@ async fn add_missing_installs_reentrancy() {
     let group_messages = alix1
         .context
         .api()
-        .query_group_messages(alix1_group.group_id.clone().into(), Default::default())
+        .query_at(
+            TopicKind::GroupMessagesV1.create(&alix1_group.group_id),
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(group_messages.len(), 2);
@@ -3259,8 +3298,10 @@ async fn respect_allow_epoch_increment() {
     let messages = client
         .context
         .api()
-        .query_group_messages(group.group_id.clone().into(), Default::default())
+        .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
         .await
+        .unwrap()
+        .group_messages()
         .unwrap();
 
     let first_message = messages.first().unwrap();
@@ -4283,8 +4324,10 @@ async fn can_stream_out_of_order_without_forking() {
     let messages = client_b
         .context
         .api()
-        .query_group_messages(group_b.group_id.clone().into(), Default::default())
+        .query_at(TopicKind::GroupMessagesV1.create(&group_b.group_id), None)
         .await
+        .unwrap()
+        .group_messages()
         .unwrap();
     assert_eq!(messages.len(), 8);
 
@@ -4345,12 +4388,12 @@ async fn non_retryable_error_increments_cursor() {
     // u64::MAX.
     let new_cursor = Cursor {
         sequence_id: (i64::MAX - 1_000) as u64,
-        originator_id: Originators::MLS_COMMITS.into(),
+        originator_id: Originators::MLS_COMMITS,
     };
 
     let message = xmtp_proto::types::GroupMessage {
         cursor: new_cursor,
-        created_ns: DateTime::from_timestamp_nanos(xmtp_common::time::now_ns()).into(),
+        created_ns: DateTime::from_timestamp_nanos(xmtp_common::time::now_ns()),
         group_id: group.group_id.clone().into(),
         message: MlsMessageIn::tls_deserialize(&mut message.to_bytes().unwrap().as_slice())
             .unwrap()
@@ -4367,8 +4410,11 @@ async fn non_retryable_error_increments_cursor() {
     let last_cursor = alice
         .context
         .db()
-        .get_last_cursor_for_id(&group.group_id, EntityKind::Group)
+        .get_last_cursor_for_originator(
+            &group.group_id,
+            EntityKind::ApplicationMessage,
+            Originators::MLS_COMMITS,
+        )
         .unwrap();
-
-    assert_eq!(new_cursor, Cursor::mls_commits(last_cursor as u64));
+    assert_eq!(new_cursor, last_cursor);
 }

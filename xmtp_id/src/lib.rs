@@ -5,6 +5,7 @@ pub mod constants;
 pub mod scw_verifier;
 pub mod utils;
 
+pub use alloy::primitives::{BlockNumber, Bytes};
 use alloy::{signers::SignerSync, signers::local::PrivateKeySigner};
 use associations::{
     Identifier,

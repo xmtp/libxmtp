@@ -6,8 +6,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter, fmt::format::Pretty};
 use wasm_bindgen::{JsValue, prelude::*};
-use xmtp_api_d14n::queries::V3Client;
-use xmtp_api_grpc::GrpcClient;
+use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::Client as MlsClient;
@@ -16,9 +15,9 @@ use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_proto::api_client::AggregateStats;
-use xmtp_proto::types::AppVersion;
 
 use crate::conversations::Conversations;
+use crate::enriched_message::DecodedMessage;
 use crate::identity::{ApiStats, Identifier, IdentityStats};
 use crate::inbox_state::InboxState;
 
@@ -149,25 +148,24 @@ pub async fn create_client(
   allow_offline: Option<bool>,
   disable_events: Option<bool>,
   app_version: Option<String>,
+  gateway_host: Option<String>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
-  let api_client = V3Client::new(GrpcClient::create_with_version(
-    &host,
-    true,
-    app_version
-      .clone()
-      .map(AppVersion::from)
-      .unwrap_or_default(),
-  )?);
+  let mut backend = MessageBackendBuilder::default();
+  backend
+    .v3_host(&host)
+    .maybe_gateway_host(gateway_host)
+    .app_version(app_version.clone().unwrap_or_default())
+    .is_secure(true);
 
-  let sync_api_client = V3Client::new(GrpcClient::create_with_version(
-    &host,
-    true,
-    app_version
-      .clone()
-      .map(AppVersion::from)
-      .unwrap_or_default(),
-  )?);
+  let api_client = backend
+    .clone()
+    .build()
+    .map_err(|e| JsError::new(&e.to_string()))?;
+  let sync_api_client = backend
+    .clone()
+    .build()
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
@@ -199,22 +197,17 @@ pub async fn create_client(
     None,
   );
 
-  let mut builder = match device_sync_server_url {
-    Some(url) => xmtp_mls::Client::builder(identity_strategy)
-      .api_clients(api_client, sync_api_client)
-      .enable_api_debug_wrapper()?
-      .with_remote_verifier()?
-      .with_allow_offline(allow_offline)
-      .with_disable_events(disable_events)
-      .store(store)
-      .device_sync_server_url(&url),
-    None => xmtp_mls::Client::builder(identity_strategy)
-      .api_clients(api_client, sync_api_client)
-      .enable_api_debug_wrapper()?
-      .with_remote_verifier()?
-      .with_allow_offline(allow_offline)
-      .with_disable_events(disable_events)
-      .store(store),
+  let mut builder = xmtp_mls::Client::builder(identity_strategy)
+    .api_clients(api_client, sync_api_client)
+    .enable_api_stats()?
+    .enable_api_debug_wrapper()?
+    .with_remote_verifier()?
+    .with_allow_offline(allow_offline)
+    .with_disable_events(disable_events)
+    .store(store);
+
+  if let Some(u) = device_sync_server_url {
+    builder = builder.device_sync_server_url(&u);
   };
 
   if let Some(device_sync_worker_mode) = device_sync_worker_mode {
@@ -404,5 +397,15 @@ impl Client {
       .delete_message(message_id)
       .map_err(|e| JsError::new(&format!("{e}")))?;
     Ok(deleted_count as u32)
+  }
+
+  #[wasm_bindgen(js_name = messageV2)]
+  pub async fn enriched_message(&self, message_id: Vec<u8>) -> Result<DecodedMessage, JsValue> {
+    let message = self
+      .inner_client
+      .message_v2(message_id)
+      .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(message.into())
   }
 }
