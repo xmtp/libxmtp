@@ -1069,6 +1069,7 @@ impl From<&Inbox> for InboxProto {
     }
 }
 
+#[allow(unreachable_code)]
 impl From<ValidatedCommit> for GroupUpdatedProto {
     fn from(commit: ValidatedCommit) -> Self {
         GroupUpdatedProto {
