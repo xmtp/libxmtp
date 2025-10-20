@@ -28,7 +28,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 use super::group_permissions::PolicySet;
 use crate::context::XmtpSharedContext;
 use crate::groups::intents::QueueIntent;
-use crate::groups::{DmValidationError, MetadataPermissionsError};
+use crate::groups::{DmValidationError, GroupLeaveValidationError, MetadataPermissionsError};
 use crate::groups::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };
