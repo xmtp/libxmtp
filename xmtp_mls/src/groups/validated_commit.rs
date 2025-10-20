@@ -1086,7 +1086,7 @@ impl From<ValidatedCommit> for GroupUpdatedProto {
                 .iter()
                 .map(MetadataFieldChangeProto::from)
                 .collect(),
-            left_inboxes: todo!("Self Removal Implementation"),
+            left_inboxes: vec![],
         }
     }
 }
