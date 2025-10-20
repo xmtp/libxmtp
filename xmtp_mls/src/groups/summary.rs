@@ -1,4 +1,4 @@
-use chrono::Local;
+use chrono::Utc;
 use derive_builder::Builder;
 use openmls::group::GroupContext;
 use std::collections::{HashMap, HashSet};
@@ -151,7 +151,7 @@ pub struct MessageIdentifier {
     /// the cursor of the message as it exists on the network
     pub cursor: Cursor,
     pub group_id: xmtp_proto::types::GroupId,
-    pub created_ns: chrono::DateTime<Local>,
+    pub created_ns: chrono::DateTime<Utc>,
     /// tru if the message has been processed previously
     #[builder(default = false)]
     pub previously_processed: bool,

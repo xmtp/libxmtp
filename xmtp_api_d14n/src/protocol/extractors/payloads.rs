@@ -51,7 +51,6 @@ impl EnvelopeVisitor<'_> for PayloadExtractor {
         &mut self,
         message: &GroupMessageInput,
     ) -> Result<(), Self::Error> {
-        tracing::debug!("Group Message Input");
         self.payload = Some(Payload::GroupMessage(message.clone()));
         Ok(())
     }

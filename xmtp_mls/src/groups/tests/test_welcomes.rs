@@ -32,12 +32,14 @@ async fn test_welcome_cursor() {
     group.update_installations().await?;
 
     alix2.sync_welcomes().await?;
-    let alix2_refresh_state = alix2
-        .context
-        .db()
-        .get_refresh_state(&group.group_id, EntityKind::Group)??;
+    let alix2_refresh_state = alix2.context.db().latest_cursor_for_id(
+        &group.group_id,
+        &[EntityKind::ApplicationMessage],
+        None,
+    )?;
 
-    assert!(alix2_refresh_state.cursor > 0);
+    assert_eq!(alix2_refresh_state.len(), 1);
+    assert!(*alix2_refresh_state.values().last().unwrap() > 0);
 }
 
 #[xmtp_common::test(unwrap_try = true)]

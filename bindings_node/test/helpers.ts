@@ -7,15 +7,22 @@ import { sepolia } from 'viem/chains'
 import {
   createClient as create,
   createLocalToxicClient,
+  deserializeEncodedContent,
+  EncodedContent,
+  encodeReaction,
   generateInboxId,
   getInboxIdForIdentifier,
   IdentifierKind,
   LogLevel,
+  ReactionAction,
+  ReactionSchema,
+  serializeEncodedContent,
   SyncWorkerMode,
 } from '../dist/index'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 export const TEST_API_URL = 'http://localhost:5556'
+export const GATEWAY_TEST_URL = 'http://localhost:5052'
 
 export const createUser = () => {
   const key = generatePrivateKey()
@@ -37,7 +44,7 @@ export type User = ReturnType<typeof createUser>
 export const createClient = async (user: User, appVersion?: string) => {
   const dbPath = join(__dirname, `${user.uuid}.db3`)
   const inboxId =
-    (await getInboxIdForIdentifier(TEST_API_URL, false, {
+    (await getInboxIdForIdentifier(TEST_API_URL, undefined, false, {
       identifier: user.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })) ||
@@ -47,6 +54,7 @@ export const createClient = async (user: User, appVersion?: string) => {
     })
   return create(
     TEST_API_URL,
+    undefined,
     false,
     dbPath,
     inboxId,
@@ -85,7 +93,7 @@ export const createRegisteredClient = async (
 export const createToxicClient = async (user: User) => {
   const dbPath = join(__dirname, `${user.uuid}.db3`)
   const inboxId =
-    (await getInboxIdForIdentifier(TEST_API_URL, false, {
+    (await getInboxIdForIdentifier(TEST_API_URL, undefined, false, {
       identifier: user.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })) ||
@@ -125,7 +133,7 @@ export const createToxicRegisteredClient = async (user: User) => {
   return toxic_client
 }
 
-export const encodeTextMessage = (text: string) => {
+export const encodeTextMessage = (text: string): EncodedContent => {
   return {
     type: {
       authorityId: 'xmtp.org',
@@ -136,7 +144,7 @@ export const encodeTextMessage = (text: string) => {
     parameters: {
       encoding: 'UTF-8',
     },
-    content: new TextEncoder().encode(text),
+    content: new Uint8Array(new TextEncoder().encode(text)),
   }
 }
 
@@ -144,4 +152,39 @@ export function sleep(ms: number) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms)
   })
+}
+
+export const encodeReactionMessage = (
+  reference: string,
+  referenceInboxId: string,
+  content: string,
+  action: ReactionAction = ReactionAction.Added,
+  schema: ReactionSchema = ReactionSchema.Unicode
+): EncodedContent => {
+  // encodeReaction returns the fully encoded EncodedContent as bytes
+  // Deserialize it back to an EncodedContent object for send()
+  const bytes = encodeReaction({
+    reference,
+    referenceInboxId,
+    action,
+    content,
+    schema,
+  })
+  return deserializeEncodedContent(bytes)
+}
+
+export const encodeReplyMessage = (referenceId: string, content: string) => {
+  // Reply content type using composite codec
+  return {
+    type: {
+      authorityId: 'xmtp.org',
+      typeId: 'reply',
+      versionMajor: 1,
+      versionMinor: 0,
+    },
+    parameters: {
+      reference: referenceId,
+    },
+    content: serializeEncodedContent(encodeTextMessage(content)),
+  }
 }

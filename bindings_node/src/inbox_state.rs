@@ -6,13 +6,12 @@ use napi_derive::napi;
 use std::sync::Arc;
 use xmtp_api::ApiClientWrapper;
 use xmtp_api::strategies;
-use xmtp_api_d14n::V3Client;
-use xmtp_api_grpc::GrpcClient;
+use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_api_d14n::TrackedStatsClient;
 use xmtp_db::EncryptedMessageStore;
 use xmtp_db::NativeDb;
 use xmtp_db::StorageOption;
 use xmtp_id::associations::{AssociationState, MemberIdentifier, ident};
-use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_mls::client::inbox_addresses_with_verifier;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
@@ -89,16 +88,20 @@ impl From<VerifiedKeyPackageV2> for KeyPackageStatus {
 #[allow(dead_code)]
 #[napi]
 pub async fn inbox_state_from_inbox_ids(
-  host: String,
+  v3_host: String,
+  gateway_host: Option<String>,
   inbox_ids: Vec<String>,
 ) -> Result<Vec<InboxState>> {
-  let api_client = GrpcClient::create(&host, true).map_err(ErrorWrapper::from)?;
-  let api_client = V3Client::new(api_client);
+  let backend = MessageBackendBuilder::default()
+    .v3_host(&v3_host)
+    .maybe_gateway_host(gateway_host)
+    .is_secure(true)
+    .build()
+    .map_err(ErrorWrapper::from)?;
+  let backend = TrackedStatsClient::new(backend);
 
-  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
-  let scw_verifier =
-    Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
-      as Box<dyn SmartContractSignatureVerifier>);
+  let api = ApiClientWrapper::new(Arc::new(backend), strategies::exponential_cooldown());
+  let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
   let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral)
     .map_err(|e| Error::from_reason(e.to_string()))?;

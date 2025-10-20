@@ -35,7 +35,11 @@ use self::{
     },
 };
 use crate::groups::send_message_opts::SendMessageOpts;
-use crate::groups::{intents::QueueIntent, mls_ext::CommitLogStorer};
+use crate::groups::{
+    intents::{QueueIntent, ReaddInstallationsIntentData},
+    mls_ext::CommitLogStorer,
+    validated_commit::LibXMTPVersion,
+};
 use crate::{GroupCommitLock, context::XmtpSharedContext};
 use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
 use crate::{subscriptions::SyncWorkerEvent, track};
@@ -62,7 +66,8 @@ use tokio::sync::Mutex;
 use xmtp_common::time::now_ns;
 use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
-    MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
+    MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators,
+    SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
@@ -716,8 +721,8 @@ where
             version_minor: queryable_content_fields.version_minor,
             authority_id: queryable_content_fields.authority_id,
             reference_id: queryable_content_fields.reference_id,
-            sequence_id: None,
-            originator_id: None,
+            sequence_id: 0,
+            originator_id: 0,
             expire_at_ns: None,
         };
         group_message.store(&self.context.db())?;
@@ -743,6 +748,13 @@ where
         let conn = self.context.db();
         let messages = conn.get_group_messages(&self.group_id, args)?;
         Ok(messages)
+    }
+
+    /// Count the number of stored messages matching the given criteria
+    pub fn count_messages(&self, args: &MsgQueryArgs) -> Result<i64, GroupError> {
+        let conn = self.context.db();
+        let count = conn.count_group_messages(&self.group_id, args)?;
+        Ok(count)
     }
 
     /// Query the database for stored messages. Optionally filtered by time, kind, delivery_status
@@ -918,6 +930,55 @@ where
             {
                 "added": (),
                 "removed": inbox_ids
+            },
+            group: &self.group_id
+        );
+
+        Ok(())
+    }
+
+    /// Removes and readds installations from the MLS tree.
+    ///
+    /// The installation list should be validated beforehand - invalid installations
+    /// will simply be omitted at the time that the intent's publish data is computed.
+    ///
+    /// # Arguments
+    /// * `installations` - A vector of installations to readd.
+    ///
+    /// # Returns
+    /// A `Result` indicating success or failure of the operation.
+    #[allow(dead_code)]
+    pub(crate) async fn readd_installations(
+        &self,
+        installations: Vec<Vec<u8>>,
+    ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
+        let readd_min_version =
+            LibXMTPVersion::parse(xmtp_configuration::MIN_RECOVERY_REQUEST_VERSION)?;
+        let metadata = self.mutable_metadata()?;
+        let group_version = metadata
+            .attributes
+            .get(MetadataField::MinimumSupportedProtocolVersion.as_str());
+        let group_min_version =
+            LibXMTPVersion::parse(group_version.unwrap_or(&"0.0.0".to_string()))?;
+
+        if readd_min_version > group_min_version {
+            self.update_group_min_version(xmtp_configuration::MIN_RECOVERY_REQUEST_VERSION)
+                .await?;
+        }
+
+        let intent_data: Vec<u8> = ReaddInstallationsIntentData::new(installations.clone()).into();
+        let intent = QueueIntent::readd_installations()
+            .data(intent_data)
+            .queue(self)?;
+
+        let _ = self.sync_until_intent_resolved(intent.id).await?;
+
+        track!(
+            "Readd Installations",
+            {
+                "installations": installations
             },
             group: &self.group_id
         );
@@ -1182,14 +1243,37 @@ where
     }
 
     /// Updates min version of the group to match this client's version.
+    /// Not publicly exposed because:
+    /// - Setting the min version to pre-release versions may not behave as expected
+    /// - When the version is not explicitly specified, unexpected behavior may arise,
+    ///   for example if the code is left in across multiple version bumps.
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip(self))
     )]
-    pub async fn update_group_min_version_to_match_self(&self) -> Result<(), GroupError> {
-        self.ensure_not_paused().await?;
+    #[allow(dead_code)]
+    pub(crate) async fn update_group_min_version_to_match_self(&self) -> Result<(), GroupError> {
         let version = self.context.version_info().pkg_version();
+        self.update_group_min_version(version).await
+    }
+
+    /// Updates min version of the group to match the given version.
+    ///
+    /// # Arguments
+    /// * `version` - The libxmtp version to update the group min version to.
+    ///   This is a semver-formatted string matching the Cargo.toml in the
+    ///   libxmtp dependency, and does not match mobile or web release versions.
+    ///   Do NOT include pre-release metadata like "1.0.0-alpha",
+    ///   "1.0.0-beta", etc, as the version comparison may not match what
+    ///   is expected. For historical reasons, "1.0.0-alpha" is considered to be
+    ///   > "1.0.0", so it is better to just specify "1.0.0".
+    ///
+    /// # Returns
+    /// A `Result` indicating success or failure of the operation.
+    pub async fn update_group_min_version(&self, version: &str) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+        tracing::info!("updating group min version to match self: {}", version);
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_min_version_to_match_self(
                 version.to_string(),
@@ -1637,9 +1721,19 @@ where
         .await
     }
 
-    pub async fn cursor(&self) -> Result<i64, GroupError> {
+    pub async fn cursor(&self) -> Result<[Cursor; 2], GroupError> {
         let db = self.context.db();
-        Ok(db.get_last_cursor_for_id(&self.group_id, EntityKind::Group)?)
+        let msgs = db.get_last_cursor_for_originator(
+            &self.group_id,
+            EntityKind::ApplicationMessage,
+            Originators::APPLICATION_MESSAGES,
+        )?;
+        let commits = db.get_last_cursor_for_originator(
+            &self.group_id,
+            EntityKind::CommitMessage,
+            Originators::MLS_COMMITS,
+        )?;
+        Ok([msgs, commits])
     }
 
     pub async fn local_commit_log(&self) -> Result<Vec<LocalCommitLog>, GroupError> {
@@ -1677,7 +1771,7 @@ where
             is_commit_log_forked: stored_group.is_commit_log_forked,
             local_commit_log: format!("{:?}", commit_log),
             remote_commit_log: format!("{:?}", remote_commit_log),
-            cursor: vec![Cursor::v3_messages(cursor as u64)],
+            cursor: cursor.to_vec(),
         })
     }
 

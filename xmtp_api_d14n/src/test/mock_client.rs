@@ -3,7 +3,7 @@ use std::pin::Pin;
 use futures::Stream;
 use xmtp_proto::api::mock::MockApiBuilder;
 use xmtp_proto::{
-    api_client::{ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
+    api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
     types::{GroupMessage, WelcomeMessage},
     xmtp::{
         identity::api::v1::{
@@ -16,16 +16,18 @@ use xmtp_proto::{
         mls::api::v1::{
             BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
             FetchKeyPackagesRequest, FetchKeyPackagesResponse, SendGroupMessagesRequest,
-            SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
-            SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
+            UploadKeyPackageRequest,
         },
     },
 };
 
+use crate::protocol::CursorStore;
+use crate::protocol::XmtpQuery;
 use mockall::mock;
+use std::sync::Arc;
+use xmtp_proto::api_client::CursorAwareApi;
 use xmtp_proto::api_client::XmtpTestClient;
-use xmtp_proto::types::{Cursor, GroupId, InstallationId};
-
+use xmtp_proto::types::{GroupId, InstallationId};
 xmtp_common::if_native! {
     pub use not_wasm::*;
 }
@@ -69,6 +71,7 @@ mock! {
         fn query_latest_group_message<Id: AsRef<[u8]> + Copy + 'static>(&self, group_id: Id) -> Result<Option<GroupMessage>, crate::ApiError>;
     }
 }
+
 // Create a mock XmtpClient for testing the client wrapper
 // need separate defs for wasm and not wasm, b/c `cfg_attr` not supportd in macro! block
 #[cfg(not(target_arch = "wasm32"))]
@@ -94,14 +97,13 @@ mod not_wasm {
                 request: FetchKeyPackagesRequest,
             ) -> Result<FetchKeyPackagesResponse, MockError>;
             async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), MockError>;
-            async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), MockError>;
-            async fn query_group_messages(&self, group_id: GroupId, cursor: Vec<Cursor>) -> Result<Vec<GroupMessage>, MockError>;
+            async fn send_welcome_messages(&self, request: xmtp_proto::mls_v1::SendWelcomeMessagesRequest) -> Result<(), MockError>;
+            async fn query_group_messages(&self, group_id: GroupId) -> Result<Vec<GroupMessage>, MockError>;
             async fn query_latest_group_message(&self, group_id: GroupId) -> Result<Option<GroupMessage>, MockError>;
 
-            async fn query_welcome_messages(&self, installation_key: InstallationId, cursor: Vec<Cursor>) -> Result<Vec<WelcomeMessage>, MockError>;
+            async fn query_welcome_messages(&self, installation_key: InstallationId) -> Result<Vec<WelcomeMessage>, MockError>;
             async fn publish_commit_log(&self, request: BatchPublishCommitLogRequest) -> Result<(), MockError>;
             async fn query_commit_log(&self, request: BatchQueryCommitLogRequest) -> Result<BatchQueryCommitLogResponse, MockError>;
-            fn stats(&self) -> ApiStats;
         }
 
         #[async_trait::async_trait]
@@ -109,9 +111,10 @@ mod not_wasm {
             type Error = MockError;
             type GroupMessageStream = MockGroupStream;
             type WelcomeMessageStream = MockWelcomeStream;
-
-            async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<MockGroupStream, MockError>;
-            async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<MockWelcomeStream, MockError>;
+            #[mockall::concretize]
+            async fn subscribe_group_messages(&self, group_ids: &[&GroupId]) -> Result<MockGroupStream, MockError>;
+            #[mockall::concretize]
+            async fn subscribe_welcome_messages(&self, installations: &[&InstallationId]) -> Result<MockWelcomeStream, MockError>;
         }
 
         #[async_trait::async_trait]
@@ -121,7 +124,6 @@ mod not_wasm {
             async fn get_identity_updates_v2(&self, request: GetIdentityUpdatesV2Request) -> Result<GetIdentityUpdatesV2Response, MockError>;
             async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, MockError>;
             async fn verify_smart_contract_wallet_signatures(&self, request: VerifySmartContractWalletSignaturesRequest) -> Result<VerifySmartContractWalletSignaturesResponse, MockError>;
-            fn identity_stats(&self) -> IdentityStats;
         }
 
         impl XmtpTestClient for ApiClient {
@@ -130,6 +132,23 @@ mod not_wasm {
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
             fn create_d14n() -> MockApiBuilder { MockApiBuilder }
             fn create_gateway() -> MockApiBuilder { MockApiBuilder }
+        }
+
+        impl CursorAwareApi for ApiClient {
+            type CursorStore = Arc<dyn CursorStore>;
+            fn set_cursor_store(&self, store: <Self as CursorAwareApi>::CursorStore);
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl XmtpQuery for MockApiClient {
+        type Error = MockError;
+        async fn query_at(
+            &self,
+            _topic: xmtp_proto::types::Topic,
+            _at: Option<xmtp_proto::types::GlobalCursor>,
+        ) -> Result<crate::protocol::XmtpEnvelope, Self::Error> {
+            panic!("query at cannot yet be mocked")
         }
     }
 }
@@ -156,13 +175,12 @@ mod wasm {
                 request: FetchKeyPackagesRequest,
             ) -> Result<FetchKeyPackagesResponse, MockError>;
             async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), MockError>;
-            async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), MockError>;
-            async fn query_group_messages(&self, group_id: GroupId, cursor: Vec<Cursor>) -> Result<Vec<GroupMessage>, MockError>;
+            async fn send_welcome_messages(&self, request: xmtp_proto::mls_v1::SendWelcomeMessagesRequest) -> Result<(), MockError>;
+            async fn query_group_messages(&self, group_id: GroupId) -> Result<Vec<GroupMessage>, MockError>;
             async fn query_latest_group_message(&self, group_id: GroupId) -> Result<Option<GroupMessage>, MockError>;
-            async fn query_welcome_messages(&self, installation_key: InstallationId, cursor: Vec<Cursor>) -> Result<Vec<WelcomeMessage>, MockError>;
+            async fn query_welcome_messages(&self, installation_key: InstallationId) -> Result<Vec<WelcomeMessage>, MockError>;
             async fn publish_commit_log(&self, request: BatchPublishCommitLogRequest) -> Result<(), MockError>;
             async fn query_commit_log(&self, request: BatchQueryCommitLogRequest) -> Result<BatchQueryCommitLogResponse, MockError>;
-            fn stats(&self) -> ApiStats;
         }
 
         #[async_trait::async_trait(?Send)]
@@ -171,8 +189,10 @@ mod wasm {
             type GroupMessageStream = MockGroupStream;
             type WelcomeMessageStream = MockWelcomeStream;
 
-            async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<MockGroupStream, MockError>;
-            async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<MockWelcomeStream, MockError>;
+            #[mockall::concretize]
+            async fn subscribe_group_messages(&self, group_ids: &[&GroupId]) -> Result<MockGroupStream, MockError>;
+            #[mockall::concretize]
+            async fn subscribe_welcome_messages(&self, installations: &[&InstallationId]) -> Result<MockWelcomeStream, MockError>;
         }
 
         #[async_trait::async_trait(?Send)]
@@ -183,7 +203,6 @@ mod wasm {
             async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, MockError>;
             async fn verify_smart_contract_wallet_signatures(&self, request: VerifySmartContractWalletSignaturesRequest)
             -> Result<VerifySmartContractWalletSignaturesResponse, MockError>;
-            fn identity_stats(&self) -> IdentityStats;
         }
 
         #[async_trait::async_trait(?Send)]
@@ -193,6 +212,24 @@ mod wasm {
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
             fn create_d14n() -> MockApiBuilder { MockApiBuilder }
             fn create_gateway() -> MockApiBuilder { MockApiBuilder }
+        }
+
+
+        impl CursorAwareApi for ApiClient {
+            type CursorStore = Arc<dyn CursorStore>;
+            fn set_cursor_store(&self, store: <Self as CursorAwareApi>::CursorStore);
+        }
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl XmtpQuery for MockApiClient {
+        type Error = MockError;
+        async fn query_at(
+            &self,
+            _topic: xmtp_proto::types::Topic,
+            _at: Option<xmtp_proto::types::GlobalCursor>,
+        ) -> Result<crate::protocol::XmtpEnvelope, Self::Error> {
+            panic!("query at cannot yet be mocked")
         }
     }
 }

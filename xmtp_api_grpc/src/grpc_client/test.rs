@@ -1,6 +1,6 @@
 use super::*;
-use xmtp_configuration::GrpcUrls;
 use xmtp_configuration::LOCALHOST;
+use xmtp_configuration::{GrpcUrls, GrpcUrlsDev};
 use xmtp_proto::prelude::ApiBuilder;
 use xmtp_proto::{TestApiBuilder, ToxicProxies, api_client::XmtpTestClient};
 
@@ -43,7 +43,7 @@ impl XmtpTestClient for GrpcClient {
 
     fn create_dev() -> Self::Builder {
         let mut client = GrpcClient::builder();
-        client.set_host(GrpcUrls::NODE_DEV.into());
+        client.set_host(GrpcUrlsDev::NODE.into());
         client.set_tls(true);
         client
     }
