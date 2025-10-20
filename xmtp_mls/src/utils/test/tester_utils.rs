@@ -36,8 +36,8 @@ use tokio::{runtime::Handle, sync::OnceCell};
 use toxiproxy_rust::proxy::{Proxy, ProxyPack};
 use url::Url;
 use xmtp_api::XmtpApi;
-use xmtp_common::StreamHandle;
 use xmtp_common::TestLogReplace;
+use xmtp_common::{MaybeSend, StreamHandle};
 use xmtp_configuration::LOCALHOST;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
 #[cfg(not(target_arch = "wasm32"))]
@@ -72,6 +72,9 @@ where
     pub builder: TesterBuilder<Owner>,
     pub client: Client,
     pub worker: Option<Arc<WorkerMetrics<SyncMetric>>>,
+    #[cfg(target_arch = "wasm32")]
+    pub stream_handle: Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>>>>,
+    #[cfg(not(target_arch = "wasm32"))]
     pub stream_handle:
         Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>> + Send>>,
     pub proxy: Option<ToxicProxies>,
@@ -199,13 +202,11 @@ where
             client = client.cursor_store(Arc::new(InMemoryCursorStore::new()) as Arc<_>);
         }
 
-        let client = client
-            .enable_sqlite_triggers()
-            .default_mls_store()
-            .unwrap()
-            .build()
-            .await
-            .unwrap();
+        if self.triggers {
+            client = client.enable_sqlite_triggers();
+        }
+
+        let client = client.default_mls_store().unwrap().build().await.unwrap();
         register_client(&client, &self.owner).await;
         if let Some(name) = &self.name {
             replace.add(
@@ -329,6 +330,7 @@ where
     pub in_memory_cursors: bool,
     pub ephemeral_db: bool,
     pub api_endpoint: ApiEndpoint,
+    pub triggers: bool,
     /// whether this builder represents a second installation
     installation: bool,
 }
@@ -361,6 +363,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             installation: false,
             in_memory_cursors: false,
             ephemeral_db: false,
+            triggers: false,
             api_endpoint: ApiEndpoint::Local,
         }
     }
@@ -389,6 +392,7 @@ where
             in_memory_cursors: self.in_memory_cursors,
             ephemeral_db: self.ephemeral_db,
             api_endpoint: self.api_endpoint,
+            triggers: self.triggers,
         }
     }
 
@@ -423,6 +427,11 @@ where
             true => ApiEndpoint::Dev,
             false => ApiEndpoint::Local,
         };
+        self
+    }
+
+    pub fn triggers(mut self) -> Self {
+        self.triggers = true;
         self
     }
 
