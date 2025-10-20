@@ -1006,10 +1006,8 @@ where
             return Ok(());
         }
 
-        //todo: check if is admin, and has the remove access policy
-        let is_admin = self.is_admin(self.context.inbox_id().to_string())?;
         let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
-        if !is_admin && !is_super_admin {
+        if !is_super_admin {
             tracing::debug!(
                 group_id = hex::encode(&self.group_id),
                 inbox_id = %self.context.inbox_id(),
