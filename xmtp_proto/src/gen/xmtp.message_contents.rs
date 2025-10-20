@@ -922,85 +922,63 @@ impl ::prost::Name for PrivatePreferencesPayload {
         "/xmtp.message_contents.PrivatePreferencesPayload".into()
     }
 }
-/// The message that will be signed by the Client and returned inside the
-/// `action_body` field of the FrameAction message
+/// LEGACY: User key bundle V1 using PublicKeys.
+/// The PublicKeys MUST be signed.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct FrameActionBody {
-    /// The URL of the frame that was clicked
-    /// May be different from `post_url`
-    #[prost(string, tag = "1")]
-    pub frame_url: ::prost::alloc::string::String,
-    /// The 1-indexed button that was clicked
-    #[prost(int32, tag = "2")]
-    pub button_index: i32,
-    /// Timestamp of the click in milliseconds since the epoch
-    #[deprecated]
-    #[prost(uint64, tag = "3")]
-    pub timestamp: u64,
-    /// A unique identifier for the conversation, not tied to anything on the
-    /// network. Will not match the topic or conversation_id
-    #[prost(string, tag = "4")]
-    pub opaque_conversation_identifier: ::prost::alloc::string::String,
-    /// Unix timestamp
-    #[prost(uint32, tag = "5")]
-    pub unix_timestamp: u32,
-    /// Input text from a text input field
-    #[prost(string, tag = "6")]
-    pub input_text: ::prost::alloc::string::String,
-    /// A state serialized to a string (for example via JSON.stringify()). Maximum 4096 bytes.
-    #[prost(string, tag = "7")]
-    pub state: ::prost::alloc::string::String,
-    /// A 0x wallet address
-    #[prost(string, tag = "8")]
-    pub address: ::prost::alloc::string::String,
-    /// A hash from a transaction
-    #[prost(string, tag = "9")]
-    pub transaction_id: ::prost::alloc::string::String,
-}
-impl ::prost::Name for FrameActionBody {
-    const NAME: &'static str = "FrameActionBody";
-    const PACKAGE: &'static str = "xmtp.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.message_contents.FrameActionBody".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.message_contents.FrameActionBody".into()
-    }
-}
-/// The outer payload that will be sent as the `messageBytes` in the
-/// `trusted_data` part of the Frames message
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct FrameAction {
-    #[deprecated]
+pub struct ContactBundleV1 {
     #[prost(message, optional, tag = "1")]
-    pub signature: ::core::option::Option<Signature>,
-    /// The SignedPublicKeyBundle of the signer, used to link the XMTP signature
-    /// with a blockchain account through a chain of signatures.
-    #[deprecated]
-    #[prost(message, optional, tag = "2")]
-    pub signed_public_key_bundle: ::core::option::Option<SignedPublicKeyBundle>,
-    /// Serialized FrameActionBody message, so that the signature verification can
-    /// happen on a byte-perfect representation of the message
-    #[prost(bytes = "vec", tag = "3")]
-    pub action_body: ::prost::alloc::vec::Vec<u8>,
-    /// The installation signature
-    #[prost(bytes = "vec", tag = "4")]
-    pub installation_signature: ::prost::alloc::vec::Vec<u8>,
-    /// The public installation id used to sign.
-    #[prost(bytes = "vec", tag = "5")]
-    pub installation_id: ::prost::alloc::vec::Vec<u8>,
-    /// The inbox id of the installation used to sign.
-    #[prost(string, tag = "6")]
-    pub inbox_id: ::prost::alloc::string::String,
+    pub key_bundle: ::core::option::Option<PublicKeyBundle>,
 }
-impl ::prost::Name for FrameAction {
-    const NAME: &'static str = "FrameAction";
+impl ::prost::Name for ContactBundleV1 {
+    const NAME: &'static str = "ContactBundleV1";
     const PACKAGE: &'static str = "xmtp.message_contents";
     fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.message_contents.FrameAction".into()
+        "xmtp.message_contents.ContactBundleV1".into()
     }
     fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.message_contents.FrameAction".into()
+        "/xmtp.message_contents.ContactBundleV1".into()
+    }
+}
+/// User key bundle V2 using SignedPublicKeys.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ContactBundleV2 {
+    #[prost(message, optional, tag = "1")]
+    pub key_bundle: ::core::option::Option<SignedPublicKeyBundle>,
+}
+impl ::prost::Name for ContactBundleV2 {
+    const NAME: &'static str = "ContactBundleV2";
+    const PACKAGE: &'static str = "xmtp.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_contents.ContactBundleV2".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_contents.ContactBundleV2".into()
+    }
+}
+/// Versioned ContactBundle
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ContactBundle {
+    #[prost(oneof = "contact_bundle::Version", tags = "1, 2")]
+    pub version: ::core::option::Option<contact_bundle::Version>,
+}
+/// Nested message and enum types in `ContactBundle`.
+pub mod contact_bundle {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Version {
+        #[prost(message, tag = "1")]
+        V1(super::ContactBundleV1),
+        #[prost(message, tag = "2")]
+        V2(super::ContactBundleV2),
+    }
+}
+impl ::prost::Name for ContactBundle {
+    const NAME: &'static str = "ContactBundle";
+    const PACKAGE: &'static str = "xmtp.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_contents.ContactBundle".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_contents.ContactBundle".into()
     }
 }
 /// ContentTypeId is used to identify the type of content stored in a Message.
@@ -1117,83 +1095,6 @@ impl Compression {
         }
     }
 }
-/// LEGACY: User key bundle V1 using PublicKeys.
-/// The PublicKeys MUST be signed.
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ContactBundleV1 {
-    #[prost(message, optional, tag = "1")]
-    pub key_bundle: ::core::option::Option<PublicKeyBundle>,
-}
-impl ::prost::Name for ContactBundleV1 {
-    const NAME: &'static str = "ContactBundleV1";
-    const PACKAGE: &'static str = "xmtp.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.message_contents.ContactBundleV1".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.message_contents.ContactBundleV1".into()
-    }
-}
-/// User key bundle V2 using SignedPublicKeys.
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ContactBundleV2 {
-    #[prost(message, optional, tag = "1")]
-    pub key_bundle: ::core::option::Option<SignedPublicKeyBundle>,
-}
-impl ::prost::Name for ContactBundleV2 {
-    const NAME: &'static str = "ContactBundleV2";
-    const PACKAGE: &'static str = "xmtp.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.message_contents.ContactBundleV2".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.message_contents.ContactBundleV2".into()
-    }
-}
-/// Versioned ContactBundle
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ContactBundle {
-    #[prost(oneof = "contact_bundle::Version", tags = "1, 2")]
-    pub version: ::core::option::Option<contact_bundle::Version>,
-}
-/// Nested message and enum types in `ContactBundle`.
-pub mod contact_bundle {
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
-    pub enum Version {
-        #[prost(message, tag = "1")]
-        V1(super::ContactBundleV1),
-        #[prost(message, tag = "2")]
-        V2(super::ContactBundleV2),
-    }
-}
-impl ::prost::Name for ContactBundle {
-    const NAME: &'static str = "ContactBundle";
-    const PACKAGE: &'static str = "xmtp.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.message_contents.ContactBundle".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.message_contents.ContactBundle".into()
-    }
-}
-/// SignedPayload is a wrapper for a signature and a payload
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct SignedPayload {
-    #[prost(bytes = "vec", tag = "1")]
-    pub payload: ::prost::alloc::vec::Vec<u8>,
-    #[prost(message, optional, tag = "2")]
-    pub signature: ::core::option::Option<Signature>,
-}
-impl ::prost::Name for SignedPayload {
-    const NAME: &'static str = "SignedPayload";
-    const PACKAGE: &'static str = "xmtp.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.message_contents.SignedPayload".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.message_contents.SignedPayload".into()
-    }
-}
 /// Composite is used to implement xmtp.org/composite content type
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Composite {
@@ -1237,6 +1138,105 @@ impl ::prost::Name for Composite {
     }
     fn type_url() -> ::prost::alloc::string::String {
         "/xmtp.message_contents.Composite".into()
+    }
+}
+/// SignedPayload is a wrapper for a signature and a payload
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SignedPayload {
+    #[prost(bytes = "vec", tag = "1")]
+    pub payload: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "2")]
+    pub signature: ::core::option::Option<Signature>,
+}
+impl ::prost::Name for SignedPayload {
+    const NAME: &'static str = "SignedPayload";
+    const PACKAGE: &'static str = "xmtp.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_contents.SignedPayload".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_contents.SignedPayload".into()
+    }
+}
+/// The message that will be signed by the Client and returned inside the
+/// `action_body` field of the FrameAction message
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FrameActionBody {
+    /// The URL of the frame that was clicked
+    /// May be different from `post_url`
+    #[prost(string, tag = "1")]
+    pub frame_url: ::prost::alloc::string::String,
+    /// The 1-indexed button that was clicked
+    #[prost(int32, tag = "2")]
+    pub button_index: i32,
+    /// Timestamp of the click in milliseconds since the epoch
+    #[deprecated]
+    #[prost(uint64, tag = "3")]
+    pub timestamp: u64,
+    /// A unique identifier for the conversation, not tied to anything on the
+    /// network. Will not match the topic or conversation_id
+    #[prost(string, tag = "4")]
+    pub opaque_conversation_identifier: ::prost::alloc::string::String,
+    /// Unix timestamp
+    #[prost(uint32, tag = "5")]
+    pub unix_timestamp: u32,
+    /// Input text from a text input field
+    #[prost(string, tag = "6")]
+    pub input_text: ::prost::alloc::string::String,
+    /// A state serialized to a string (for example via JSON.stringify()). Maximum 4096 bytes.
+    #[prost(string, tag = "7")]
+    pub state: ::prost::alloc::string::String,
+    /// A 0x wallet address
+    #[prost(string, tag = "8")]
+    pub address: ::prost::alloc::string::String,
+    /// A hash from a transaction
+    #[prost(string, tag = "9")]
+    pub transaction_id: ::prost::alloc::string::String,
+}
+impl ::prost::Name for FrameActionBody {
+    const NAME: &'static str = "FrameActionBody";
+    const PACKAGE: &'static str = "xmtp.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_contents.FrameActionBody".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_contents.FrameActionBody".into()
+    }
+}
+/// The outer payload that will be sent as the `messageBytes` in the
+/// `trusted_data` part of the Frames message
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FrameAction {
+    #[deprecated]
+    #[prost(message, optional, tag = "1")]
+    pub signature: ::core::option::Option<Signature>,
+    /// The SignedPublicKeyBundle of the signer, used to link the XMTP signature
+    /// with a blockchain account through a chain of signatures.
+    #[deprecated]
+    #[prost(message, optional, tag = "2")]
+    pub signed_public_key_bundle: ::core::option::Option<SignedPublicKeyBundle>,
+    /// Serialized FrameActionBody message, so that the signature verification can
+    /// happen on a byte-perfect representation of the message
+    #[prost(bytes = "vec", tag = "3")]
+    pub action_body: ::prost::alloc::vec::Vec<u8>,
+    /// The installation signature
+    #[prost(bytes = "vec", tag = "4")]
+    pub installation_signature: ::prost::alloc::vec::Vec<u8>,
+    /// The public installation id used to sign.
+    #[prost(bytes = "vec", tag = "5")]
+    pub installation_id: ::prost::alloc::vec::Vec<u8>,
+    /// The inbox id of the installation used to sign.
+    #[prost(string, tag = "6")]
+    pub inbox_id: ::prost::alloc::string::String,
+}
+impl ::prost::Name for FrameAction {
+    const NAME: &'static str = "FrameAction";
+    const PACKAGE: &'static str = "xmtp.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_contents.FrameAction".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_contents.FrameAction".into()
     }
 }
 /// Message header is encoded separately as the bytes are also used
