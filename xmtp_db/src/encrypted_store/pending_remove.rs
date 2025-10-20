@@ -134,9 +134,9 @@ mod tests {
                 message_id: vec![1, 2, 3],
             }
             .store_or_ignore(conn)?;
-            let users = conn.get_pending_remove_users(&vec![1, 2, 3]).unwrap();
+            let users = conn.get_pending_remove_users(&[1, 2, 3]).unwrap();
             assert_eq!(users.len(), 1);
-            let users = conn.get_pending_remove_users(&vec![1]).unwrap();
+            let users = conn.get_pending_remove_users(&[1]).unwrap();
             assert_eq!(users.len(), 0);
         })
         .await
@@ -164,16 +164,16 @@ mod tests {
                 message_id: vec![1, 2, 3],
             }
             .store_or_ignore(conn)?;
-            let users = conn.get_pending_remove_users(&vec![1, 2, 3]).unwrap();
+            let users = conn.get_pending_remove_users(&[1, 2, 3]).unwrap();
             assert_eq!(users.len(), 3);
             let deleted_users = conn
-                .delete_pending_remove_users(&vec![1, 2, 3], vec!["1".to_string(), "2".to_string()])
+                .delete_pending_remove_users(&[1, 2, 3], vec!["1".to_string(), "2".to_string()])
                 .unwrap();
             assert_eq!(deleted_users, 2usize);
-            let users = conn.get_pending_remove_users(&vec![1, 2, 3]).unwrap();
+            let users = conn.get_pending_remove_users(&[1, 2, 3]).unwrap();
             assert_eq!(users.len(), 1);
             let deleted_users = conn
-                .delete_pending_remove_users(&vec![1], vec!["3".to_string()])
+                .delete_pending_remove_users(&[1], vec!["3".to_string()])
                 .unwrap();
             assert_eq!(deleted_users, 0usize);
         })

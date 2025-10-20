@@ -62,8 +62,8 @@ use xmtp_mls_common::group_mutable_metadata::{
     GroupMutableMetadataError, MetadataField, extract_group_mutable_metadata,
 };
 
-use crate::traits::IntoWith;
 use crate::groups::validated_commit::{Inbox, MutableMetadataValidationInfo};
+use crate::traits::IntoWith;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -1371,9 +1371,7 @@ where
 
         // if the current user is in pending remove-users, then we should not mark it for the worker
         if !pending_remove_users.contains(&current_inbox_id) {
-            storage
-                .db()
-                .set_group_has_pending_leave_request_status(&self.group_id, Some(true))?;
+            self.update_group_pending_status(storage, true)
         }
 
         Ok(())
@@ -1464,28 +1462,7 @@ where
                     if !pending_remove_users.is_empty()
                         && !pending_remove_users.contains(&current_inbox_id)
                     {
-                        // Mark group as having pending leave requests
-                        match storage
-                            .db()
-                            .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
-                        {
-                            Ok(()) => {
-                                tracing::info!(
-                                    group_id = hex::encode(&self.group_id),
-                                    inbox_id = %current_inbox_id,
-                                    pending_count = pending_remove_users.len(),
-                                    "Promoted to super_admin: marked group as having pending leave requests"
-                                );
-                            }
-                            Err(e) => {
-                                tracing::info!(
-                                    group_id = hex::encode(&self.group_id),
-                                    inbox_id = %current_inbox_id,
-                                    error = %e,
-                                    "Failed to mark group as having pending leave requests after promotion"
-                                );
-                            }
-                        }
+                        self.update_group_pending_status(storage, true);
                     }
                 }
                 Err(e) => {
@@ -1498,31 +1475,11 @@ where
                 }
             }
         } else if was_demoted && !is_super_admin {
-            // Demoted from super_admin: clear the pending leave request flag
-            match storage
-                .db()
-                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
-            {
-                Ok(()) => {
-                    tracing::info!(
-                        group_id = hex::encode(&self.group_id),
-                        inbox_id = %current_inbox_id,
-                        "Demoted from super_admin: cleared pending leave request status"
-                    );
-                }
-                Err(e) => {
-                    tracing::info!(
-                        group_id = hex::encode(&self.group_id),
-                        inbox_id = %current_inbox_id,
-                        error = %e,
-                        "Failed to clear pending leave request status after demotion"
-                    );
-                }
-            }
+            self.update_group_pending_status(storage, false);
         }
     }
 
-    fn update_group_pending_status(
+    pub(crate) fn update_group_pending_status(
         &self,
         storage: &impl XmtpMlsStorageProvider,
         has_pending_removes: bool,
