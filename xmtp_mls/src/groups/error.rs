@@ -218,6 +218,8 @@ pub enum GroupLeaveValidationError {
     SingleMemberLeaveRejected,
     #[error("cannot leave a group without a super admin")]
     LeaveWithoutSuperAdminForbidden,
+    #[error("super admin cannot leave a group without, needs to be demoted first")]
+    SuperAdminLeaveForbidden,
     #[error("inbox ID already exists in the pending leave list")]
     InboxAlreadyInPendingList,
     #[error("inbox ID does not exist in the pending leave list")]

@@ -1162,6 +1162,13 @@ where
 
     pub async fn leave_group(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
+
+        // Check if user is a member
+        let is_member = self.is_member().await?;
+        if !is_member {
+            return Err(GroupLeaveValidationError::NotAGroupMember.into());
+        }
+
         self.is_member().await?;
 
         //check member size
@@ -1177,13 +1184,16 @@ where
             return Err(GroupLeaveValidationError::DmLeaveForbidden.into());
         }
 
-        let is_admin = self.is_admin(self.context.inbox_id().to_string())?;
         let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
-        let admin_size = self.admin_list()?.len();
         let super_admin_size = self.super_admin_list()?.len();
 
-        // check if the user is the only Admin or SuperAdmin of the group
-        if (is_admin && admin_size == 1) || (is_super_admin && super_admin_size == 1) {
+        // check if the user is the only SuperAdmin of the group
+        if is_super_admin {
+            return Err(GroupLeaveValidationError::SuperAdminLeaveForbidden.into());
+        }
+
+        // check if the user is the only SuperAdmin of the group
+        if is_super_admin && super_admin_size == 1 {
             return Err(GroupLeaveValidationError::LeaveWithoutSuperAdminForbidden.into());
         }
 
@@ -1201,17 +1211,13 @@ where
     }
 
     /// Checks if the current user is a member of the group.
-    /// Returns Ok(()) if the user is a member, otherwise returns NotAGroupMember error.
+    /// Returns true if the user is a member, false otherwise.
     #[tracing::instrument(level = "debug", skip(self))]
-    async fn is_member(&self) -> Result<(), GroupError> {
+    async fn is_member(&self) -> Result<bool, GroupError> {
         let members = self.members().await?;
-        if !members
+        Ok(members
             .iter()
-            .any(|m| m.inbox_id == self.context.inbox_id())
-        {
-            return Err(GroupLeaveValidationError::NotAGroupMember.into());
-        }
-        Ok(())
+            .any(|m| m.inbox_id == self.context.inbox_id()))
     }
 
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
