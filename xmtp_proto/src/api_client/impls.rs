@@ -1,6 +1,6 @@
 use crate::{
     mls_v1::QueryGroupMessagesResponse,
-    types::{GroupId, WelcomeMessage},
+    types::{GroupId, GroupMessageMetadata, WelcomeMessage},
 };
 
 use super::*;
@@ -159,6 +159,13 @@ where
     ) -> Result<BatchQueryCommitLogResponse, Self::Error> {
         (**self).query_commit_log(request).await
     }
+
+    async fn get_newest_group_message(
+        &self,
+        request: GetNewestGroupMessageRequest,
+    ) -> Result<Vec<Option<GroupMessageMetadata>>, Self::Error> {
+        (**self).get_newest_group_message(request).await
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -230,6 +237,13 @@ where
         request: BatchQueryCommitLogRequest,
     ) -> Result<BatchQueryCommitLogResponse, Self::Error> {
         (**self).query_commit_log(request).await
+    }
+
+    async fn get_newest_group_message(
+        &self,
+        request: GetNewestGroupMessageRequest,
+    ) -> Result<Vec<Option<GroupMessageMetadata>>, Self::Error> {
+        (**self).get_newest_group_message(request).await
     }
 }
 

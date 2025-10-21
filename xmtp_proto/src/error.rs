@@ -25,6 +25,7 @@ pub enum ApiEndpoint {
     HealthCheck,
     GetNodes,
     Path(String),
+    GetNewestGroupMessage,
 }
 
 impl std::fmt::Display for ApiEndpoint {
@@ -51,6 +52,7 @@ impl std::fmt::Display for ApiEndpoint {
             HealthCheck => write!(f, "health_check"),
             GetNodes => write!(f, "get_nodes"),
             Path(s) => write!(f, "{}", s),
+            GetNewestGroupMessage => write!(f, "get_newest_group_message"),
         }
     }
 }

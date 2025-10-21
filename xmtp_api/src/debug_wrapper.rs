@@ -7,12 +7,14 @@ use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::CursorAwareApi;
 use xmtp_proto::api_client::IdentityStats;
+use xmtp_proto::mls_v1::GetNewestGroupMessageRequest;
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
 };
 use xmtp_proto::types::GlobalCursor;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::types::GroupMessage;
+use xmtp_proto::types::GroupMessageMetadata;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::Topic;
 use xmtp_proto::types::WelcomeMessage;
@@ -196,6 +198,17 @@ where
     ) -> Result<BatchQueryCommitLogResponse, Self::Error> {
         wrap_err(
             || self.inner.query_commit_log(request),
+            || self.inner.aggregate_stats(),
+        )
+        .await
+    }
+
+    async fn get_newest_group_message(
+        &self,
+        request: GetNewestGroupMessageRequest,
+    ) -> Result<Vec<Option<GroupMessageMetadata>>, Self::Error> {
+        wrap_err(
+            || self.inner.get_newest_group_message(request),
             || self.inner.aggregate_stats(),
         )
         .await

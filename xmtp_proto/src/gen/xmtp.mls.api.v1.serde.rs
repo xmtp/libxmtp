@@ -1245,6 +1245,314 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::WalletUpdat
         deserializer.deserialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.WalletUpdates", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for GetNewestGroupMessageRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.group_ids.is_empty() {
+            len += 1;
+        }
+        if self.include_content {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetNewestGroupMessageRequest", len)?;
+        if !self.group_ids.is_empty() {
+            struct_ser.serialize_field("group_ids", &self.group_ids.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+        }
+        if self.include_content {
+            struct_ser.serialize_field("include_content", &self.include_content)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for GetNewestGroupMessageRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "group_ids",
+            "groupIds",
+            "include_content",
+            "includeContent",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            GroupIds,
+            IncludeContent,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "groupIds" | "group_ids" => Ok(GeneratedField::GroupIds),
+                            "includeContent" | "include_content" => Ok(GeneratedField::IncludeContent),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = GetNewestGroupMessageRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.api.v1.GetNewestGroupMessageRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GetNewestGroupMessageRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut group_ids__ = None;
+                let mut include_content__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::GroupIds => {
+                            if group_ids__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("groupIds"));
+                            }
+                            group_ids__ = 
+                                Some(map_.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
+                                    .into_iter().map(|x| x.0).collect())
+                            ;
+                        }
+                        GeneratedField::IncludeContent => {
+                            if include_content__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("includeContent"));
+                            }
+                            include_content__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(GetNewestGroupMessageRequest {
+                    group_ids: group_ids__.unwrap_or_default(),
+                    include_content: include_content__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.api.v1.GetNewestGroupMessageRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for GetNewestGroupMessageResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.responses.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetNewestGroupMessageResponse", len)?;
+        if !self.responses.is_empty() {
+            struct_ser.serialize_field("responses", &self.responses)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for GetNewestGroupMessageResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "responses",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Responses,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "responses" => Ok(GeneratedField::Responses),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = GetNewestGroupMessageResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.api.v1.GetNewestGroupMessageResponse")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GetNewestGroupMessageResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut responses__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Responses => {
+                            if responses__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("responses"));
+                            }
+                            responses__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(GetNewestGroupMessageResponse {
+                    responses: responses__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.api.v1.GetNewestGroupMessageResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for get_newest_group_message_response::Response {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.group_message.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetNewestGroupMessageResponse.Response", len)?;
+        if let Some(v) = self.group_message.as_ref() {
+            struct_ser.serialize_field("group_message", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for get_newest_group_message_response::Response {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "group_message",
+            "groupMessage",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            GroupMessage,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "groupMessage" | "group_message" => Ok(GeneratedField::GroupMessage),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = get_newest_group_message_response::Response;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.api.v1.GetNewestGroupMessageResponse.Response")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<get_newest_group_message_response::Response, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut group_message__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::GroupMessage => {
+                            if group_message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("groupMessage"));
+                            }
+                            group_message__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(get_newest_group_message_response::Response {
+                    group_message: group_message__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.api.v1.GetNewestGroupMessageResponse.Response", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for GroupMessage {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1371,6 +1679,9 @@ impl serde::Serialize for group_message::V1 {
         if self.should_push {
             len += 1;
         }
+        if self.is_commit {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GroupMessage.V1", len)?;
         if self.id != 0 {
             #[allow(clippy::needless_borrow)]
@@ -1400,6 +1711,9 @@ impl serde::Serialize for group_message::V1 {
         if self.should_push {
             struct_ser.serialize_field("should_push", &self.should_push)?;
         }
+        if self.is_commit {
+            struct_ser.serialize_field("is_commit", &self.is_commit)?;
+        }
         struct_ser.end()
     }
 }
@@ -1420,6 +1734,8 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
             "senderHmac",
             "should_push",
             "shouldPush",
+            "is_commit",
+            "isCommit",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1430,6 +1746,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
             Data,
             SenderHmac,
             ShouldPush,
+            IsCommit,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1458,6 +1775,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                             "data" => Ok(GeneratedField::Data),
                             "senderHmac" | "sender_hmac" => Ok(GeneratedField::SenderHmac),
                             "shouldPush" | "should_push" => Ok(GeneratedField::ShouldPush),
+                            "isCommit" | "is_commit" => Ok(GeneratedField::IsCommit),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1483,6 +1801,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                 let mut data__ = None;
                 let mut sender_hmac__ = None;
                 let mut should_push__ = None;
+                let mut is_commit__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -1531,6 +1850,12 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                             }
                             should_push__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::IsCommit => {
+                            if is_commit__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("isCommit"));
+                            }
+                            is_commit__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1543,6 +1868,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                     data: data__.unwrap_or_default(),
                     sender_hmac: sender_hmac__.unwrap_or_default(),
                     should_push: should_push__.unwrap_or_default(),
+                    is_commit: is_commit__.unwrap_or_default(),
                 })
             }
         }
