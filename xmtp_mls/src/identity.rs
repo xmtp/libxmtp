@@ -1,4 +1,6 @@
-use crate::groups::mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension};
+use crate::groups::mls_ext::{
+    WelcomePointersExtension, WrapperAlgorithm, WrapperEncryptionExtension,
+};
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
 use crate::worker::NeedsDbReconnect;
 use crate::{XmtpApi, verified_key_package_v2::KeyPackageVerificationError};
@@ -30,7 +32,8 @@ use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::{
     CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
     GROUP_PERMISSIONS_EXTENSION_ID, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
-    MUTABLE_METADATA_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+    MUTABLE_METADATA_EXTENSION_ID, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+    WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
 use xmtp_cryptography::signature::IdentifierValidationError;
@@ -693,7 +696,9 @@ impl XmtpKeyPackageBuilder {
     ) -> Result<NewKeyPackageResult, IdentityError> {
         let this = self.inner_build()?;
         let last_resort = Extension::LastResort(LastResortExtension::default());
-        let mut extensions = vec![last_resort];
+        let welcome_pointee_encryption_aead_types =
+            WelcomePointersExtension::available_types().try_into()?;
+        let mut extensions = vec![last_resort, welcome_pointee_encryption_aead_types];
         let mut post_quantum_keypair = None;
         if include_post_quantum {
             let keypair = generate_post_quantum_key()?;
@@ -716,6 +721,7 @@ impl XmtpKeyPackageBuilder {
                 ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
                 ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
                 ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
+                ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
                 ExtensionType::ImmutableMetadata,
             ]),
             Some(&[ProposalType::GroupContextExtensions]),
@@ -1089,12 +1095,13 @@ mod tests {
             let bola_welcome = get_latest_welcome(&bola).await;
 
             // Make sure the wrapper algorithms were set correctly in the Welcome messages
-            let pq_algorithm: i32 = WrapperAlgorithm::XWingMLKEM768Draft6.into();
-            let traditional_algorithm: i32 = WrapperAlgorithm::Curve25519.into();
+            let pq_algorithm = WrapperAlgorithm::XWingMLKEM768Draft6;
+            let traditional_algorithm = WrapperAlgorithm::Curve25519;
+            let bola_wrapper = bola_welcome.as_v1().unwrap().wrapper_algorithm;
             if bola_has_pq {
-                assert_eq!(bola_welcome.wrapper_algorithm, pq_algorithm);
+                assert_eq!(bola_wrapper, pq_algorithm.into());
             } else {
-                assert_eq!(bola_welcome.wrapper_algorithm, traditional_algorithm);
+                assert_eq!(bola_wrapper, traditional_algorithm.into());
             }
         }
     }

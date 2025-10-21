@@ -84,6 +84,7 @@ tokio-stream = { workspace = true, default-features = false, features = [
 tokio-util.workspace = true
 tracing.workspace = true
 trait-variant.workspace = true
+zeroize.workspace = true
 
 # XMTP/Local
 xmtp_api = { workspace = true }

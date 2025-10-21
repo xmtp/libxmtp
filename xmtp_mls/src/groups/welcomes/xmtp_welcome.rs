@@ -25,7 +25,7 @@ use xmtp_common::time::now_ns;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_db::{
-    StorageError, XmtpOpenMlsProvider, XmtpOpenMlsProviderRef,
+    StorageError, XmtpOpenMlsProviderRef,
     consent_record::{ConsentState, StoredConsentRecord},
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -103,7 +103,7 @@ where
             return Ok(Some(group));
         }
 
-        match this.validate_membership(&db).await {
+        let decrypted_welcome = match this.validate_membership(&db).await {
             Err(e) if !e.is_retryable() && this.cursor_increment => {
                 tracing::info!(
                     "detected non-retryable error {e}, incrementing welcome cursor [{}]",
@@ -115,14 +115,14 @@ where
             Err(e) => {
                 return Err(e);
             }
-            _ => (),
-        }
+            Ok(decrypted_welcome) => decrypted_welcome,
+        };
         // we only use take once
         let mut events = this
             .events
             .take()
             .expect("builder is built with events as Some");
-        let commit_result = this.commit_or_fail_forever(&mut events)?;
+        let commit_result = this.commit_or_fail_forever(decrypted_welcome, &mut events)?;
         commit_result.into_result()
     }
 }
@@ -131,6 +131,7 @@ impl<'a, C, V> XmtpWelcome<'a, C, V>
 where
     C: XmtpSharedContext,
     V: ValidateGroupMembership,
+    <C::MlsStorage as XmtpMlsStorageProvider>::Connection: xmtp_db::ConnectionExt,
 {
     /// Get the last cursor in the database for welcomes
     fn last_sequence_id(&self, db: &impl DbQuery) -> Result<i64, StorageError> {
@@ -190,31 +191,16 @@ where
 
     /// Process the welcome without affecting persistent state.
     /// Return error if validation fails or if welcome was already processed.
-    async fn validate_membership(&self, db: &impl DbQuery) -> Result<(), GroupError> {
+    async fn validate_membership(&self, db: &impl DbQuery) -> Result<DecryptedWelcome, GroupError> {
         let Self { welcome, .. } = self;
-        let mut decrypt_result: Result<DecryptedWelcome, GroupError> =
-            Err(GroupError::UninitializedResult);
-        let transaction_result = self.context.mls_storage().transaction(|conn| {
-            let mls_storage = conn.key_store();
-            decrypt_result = DecryptedWelcome::from_encrypted_bytes(
-                &XmtpOpenMlsProvider::new(mls_storage),
-                &welcome.hpke_public_key,
-                &welcome.data,
-                &welcome.welcome_metadata,
-                welcome.wrapper_algorithm.into(),
-            );
-            Err(StorageError::IntentionalRollback)
-        });
+        let decrypted_welcome =
+            DecryptedWelcome::from_welcome_proto(welcome, &self.context).await?;
 
-        let Err(StorageError::IntentionalRollback) = transaction_result else {
-            return Err(transaction_result?);
-        };
-
-        let DecryptedWelcome { staged_welcome, .. } = decrypt_result?;
+        let DecryptedWelcome { staged_welcome, .. } = &decrypted_welcome;
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
         self.validator
-            .check_initial_membership(&staged_welcome)
+            .check_initial_membership(staged_welcome)
             .await?;
         let group_id = staged_welcome.public_group().group_id();
         // try to load the group this welcome represents
@@ -247,7 +233,7 @@ where
                 );
             }
         }
-        Ok(())
+        Ok(decrypted_welcome)
     }
 
     /// Commit the welcome to the local db and memory.
@@ -257,13 +243,14 @@ where
     /// Once transaction succeeds, sends device sync messages
     fn commit_or_fail_forever(
         &self,
+        decrypted_welcome: DecryptedWelcome,
         events: &mut DeferredEvents,
     ) -> Result<CommitResult<C>, GroupError> {
         tracing::info!("attempting to commit welcome={}", &self.welcome.cursor);
         let commit_result = self.context.mls_storage().transaction(|conn| {
             let storage = conn.key_store();
             // Savepoint transaction
-            let result = storage.savepoint(|conn| self.commit(conn, events));
+            let result = storage.savepoint(|conn| self.commit(conn, events, decrypted_welcome));
             let db = storage.db();
             // if we got an error
             // and the error is not retryable
@@ -292,6 +279,7 @@ where
         &self,
         tx: &mut impl TransactionalKeyStore,
         events: &mut DeferredEvents,
+        decrypted_welcome: DecryptedWelcome,
     ) -> Result<Option<MlsGroup<C>>, GroupError> {
         let Self {
             welcome,
@@ -303,13 +291,7 @@ where
         let storage = tx.key_store();
         let db = storage.db();
         let provider = XmtpOpenMlsProviderRef::new(&storage);
-        let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
-            &provider,
-            &welcome.hpke_public_key,
-            &welcome.data,
-            &welcome.welcome_metadata,
-            welcome.wrapper_algorithm.into(),
-        )?;
+
         let DecryptedWelcome {
             staged_welcome,
             added_by_inbox_id,
@@ -459,9 +441,7 @@ where
 
         let encoded_added_payload = GroupUpdatedCodec::encode(added_payload)?;
         let mut encoded_added_payload_bytes = Vec::new();
-        encoded_added_payload
-            .encode(&mut encoded_added_payload_bytes)
-            .map_err(GroupError::EncodeError)?;
+        encoded_added_payload.encode(&mut encoded_added_payload_bytes)?;
 
         let added_message_id = crate::utils::id::calculate_message_id(
             &stored_group.id,
@@ -485,7 +465,7 @@ where
             decrypted_message_bytes: encoded_added_payload_bytes,
             sent_at_ns: welcome.timestamp(),
             kind: GroupMessageKind::MembershipChange,
-            sender_installation_id: welcome.installation_key.to_vec(),
+            sender_installation_id: added_by_installation_id,
             sender_inbox_id: added_by_inbox_id,
             delivery_status: DeliveryStatus::Published,
             content_type: added_content_type.type_id.into(),
