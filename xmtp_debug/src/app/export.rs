@@ -1,10 +1,13 @@
 use crate::{
-    app::store::{Database, GroupStore, IdentityStore},
-    args,
+    app::{
+        App,
+        store::{Database, GroupStore, IdentityStore},
+    },
+    args::{self, BackendOpts, ExportOpts},
 };
 
 use color_eyre::eyre::Result;
-use miniserde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::{fs, io::Write, sync::Arc};
 
 use super::types::{Group, Identity};
@@ -15,16 +18,13 @@ pub struct Export {
 }
 
 impl Export {
-    pub fn new(
-        opts: args::ExportOpts,
-        store: Arc<redb::Database>,
-        network: args::BackendOpts,
-    ) -> Self {
-        Self {
+    pub fn new(opts: ExportOpts, network: BackendOpts) -> Result<Self> {
+        let store = App::db()?;
+        Ok(Self {
             store,
             opts,
             network,
-        }
+        })
     }
 
     pub fn run(self) -> Result<()> {
@@ -48,7 +48,7 @@ impl Export {
                     let ids = ids
                         .map(|i| IdentityExport::from(i.value()))
                         .collect::<Vec<_>>();
-                    let json = miniserde::json::to_string(&ids);
+                    let json = serde_json::to_string(&ids)?;
                     writer.write_all(json.as_bytes())?;
                     writer.flush()?;
                 };
@@ -59,7 +59,7 @@ impl Export {
                     let groups = groups
                         .map(|g| GroupExport::from(g.value()))
                         .collect::<Vec<_>>();
-                    let json = miniserde::json::to_string(&groups);
+                    let json = serde_json::to_string(&groups)?;
                     writer.write_all(json.as_bytes())?;
                     writer.flush()?;
                 };

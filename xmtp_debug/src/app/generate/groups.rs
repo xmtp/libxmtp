@@ -12,7 +12,6 @@ use std::sync::Arc;
 pub struct GenerateGroups {
     group_store: GroupStore<'static>,
     identity_store: IdentityStore<'static>,
-    // metadata_store: MetadataStore<'static>,
     network: args::BackendOpts,
 }
 

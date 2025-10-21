@@ -55,6 +55,8 @@ pub async fn docker_smart_wallet(
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn deploy_wallets(provider: EthereumProvider) -> SmartWalletContext {
+    use std::time::Duration;
+
     let EthereumProvider {
         provider,
         owner0,
@@ -79,6 +81,8 @@ async fn deploy_wallets(provider: EthereumProvider) -> SmartWalletContext {
         .send()
         .await
         .unwrap()
+        .with_required_confirmations(1)
+        .with_timeout(Some(Duration::from_secs(30)))
         .watch()
         .await
         .unwrap();

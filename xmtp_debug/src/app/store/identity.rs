@@ -15,10 +15,19 @@ const TABLE: TableDefinition<IdentityKey, Identity> = TableDefinition::new(NAMES
 pub type IdentityKey = super::NetworkKey<32>;
 pub type IdentityStore<'a> = super::KeyValueStore<'a, IdentityStorage>;
 
-impl From<Arc<redb::Database>> for IdentityStore<'static> {
+impl From<Arc<redb::Database>> for IdentityStore<'_> {
     fn from(value: Arc<redb::Database>) -> Self {
         IdentityStore {
             db: super::DatabaseOrTransaction::Db(value),
+            store: IdentityStorage,
+        }
+    }
+}
+
+impl From<Arc<redb::ReadOnlyDatabase>> for IdentityStore<'_> {
+    fn from(value: Arc<redb::ReadOnlyDatabase>) -> Self {
+        IdentityStore {
+            db: super::DatabaseOrTransaction::ReadOnly(value),
             store: IdentityStorage,
         }
     }
@@ -42,7 +51,7 @@ impl super::DeriveKey<IdentityKey> for &Identity {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IdentityStorage;
 
 impl<'a> super::TableProvider<'a, IdentityKey, Identity> for IdentityStorage {

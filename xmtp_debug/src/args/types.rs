@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use color_eyre::eyre::ensure;
+
 #[derive(Debug, Clone)]
 pub struct InboxId([u8; 32]);
 
@@ -27,7 +29,7 @@ impl std::str::FromStr for InboxId {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GroupId([u8; 16]);
 
 impl std::fmt::Display for GroupId {
@@ -51,6 +53,17 @@ impl std::str::FromStr for GroupId {
         let mut slice = [0u8; 16];
         hex::decode_to_slice(s, &mut slice)?;
         Ok(GroupId(slice))
+    }
+}
+
+impl TryFrom<Vec<u8>> for GroupId {
+    type Error = color_eyre::eyre::Error;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        ensure!(value.len() == 16, "a group id must be 16 bytes long");
+        let mut id = [0u8; 16];
+        id.copy_from_slice(value.as_slice());
+        Ok(GroupId(id))
     }
 }
 

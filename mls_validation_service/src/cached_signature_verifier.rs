@@ -66,22 +66,24 @@ mod tests {
     use alloy::primitives::{B256, U256};
     use alloy::providers::Provider;
     use alloy::signers::Signer;
+    use std::time::Duration;
     use xmtp_id::scw_verifier::{
         MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier, ValidationResponse,
         VerifierError,
     };
-    use xmtp_id::utils::test::{SignatureWithNonce, SmartWalletContext, docker_smart_wallet};
+    use xmtp_id::utils::test::{SignatureWithNonce, SmartWalletContext, smart_wallet};
 
     #[rstest::rstest]
+    #[timeout(Duration::from_secs(60))]
     #[tokio::test]
-    async fn test_is_valid_signature(#[future] docker_smart_wallet: SmartWalletContext) {
+    async fn test_is_valid_signature(#[future] smart_wallet: SmartWalletContext) {
         let SmartWalletContext {
             factory,
             owner0: owner,
             sw,
             sw_address,
             ..
-        } = docker_smart_wallet.await;
+        } = smart_wallet.await;
         let chain_id = factory.provider().get_chain_id().await.unwrap();
         let hash = B256::random();
         let replay_safe_hash = sw.replaySafeHash(hash).call().await.unwrap();

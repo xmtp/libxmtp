@@ -773,6 +773,17 @@ where
         Ok(latest_read_receipt)
     }
 
+    /// Load the group reference stored in the local database
+    pub fn load(&self) -> Result<StoredGroup, StorageError> {
+        let conn = self.context.db();
+        if let Some(group) = conn.find_group(&self.group_id)? {
+            Ok(group)
+        } else {
+            tracing::error!("group {} does not exist", hex::encode(&self.group_id));
+            Err(NotFound::GroupById(self.group_id.to_vec()).into())
+        }
+    }
+
     ///
     /// Add members to the group by account address
     ///
