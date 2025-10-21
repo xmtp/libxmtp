@@ -20,6 +20,7 @@ use xmtp_proto::api::EndpointExt;
 use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
+use xmtp_proto::mls_v1::BatchQueryCommitLogResponse;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::TopicKind;
@@ -189,20 +190,19 @@ where
             .collect::<Result<_, _>>()?)
     }
 
-    // TODO(cvoell): implement
     #[tracing::instrument(level = "debug", skip_all)]
     async fn publish_commit_log(
         &self,
         _request: mls_v1::BatchPublishCommitLogRequest,
     ) -> Result<(), Self::Error> {
-        unimplemented!();
+        Ok(())
     }
 
-    // TODO(cvoell): implement
     async fn query_commit_log(
         &self,
         _request: mls_v1::BatchQueryCommitLogRequest,
     ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
-        unimplemented!();
+        tracing::debug!("commit log disabled for d14n");
+        Ok(BatchQueryCommitLogResponse { responses: vec![] })
     }
 }
