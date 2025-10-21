@@ -1,23 +1,17 @@
 use crate::args;
 use color_eyre::eyre::Result;
-use std::{collections::HashSet, sync::Arc};
+use std::collections::HashSet;
 use xmtp_mls::context::XmtpSharedContext;
 
 pub struct Query {
     opts: args::Query,
     #[allow(unused)]
     network: args::BackendOpts,
-    #[allow(unused)]
-    store: Arc<redb::Database>,
 }
 
 impl Query {
-    pub fn new(opts: args::Query, network: args::BackendOpts, store: Arc<redb::Database>) -> Self {
-        Self {
-            opts,
-            network,
-            store,
-        }
+    pub fn new(opts: args::Query, network: args::BackendOpts) -> Result<Self> {
+        Ok(Self { opts, network })
     }
 
     pub async fn run(self) -> Result<()> {

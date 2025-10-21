@@ -3,20 +3,23 @@ use std::sync::Arc;
 use valuable::Valuable;
 
 use crate::{
-    app,
-    app::store::{Database, IdentityStore},
+    app::{
+        self, App,
+        store::{Database, IdentityStore},
+    },
     args,
 };
 
 pub struct Inspect {
-    db: Arc<redb::Database>,
+    db: Arc<redb::ReadOnlyDatabase>,
     opts: args::Inspect,
     network: args::BackendOpts,
 }
 
 impl Inspect {
-    pub fn new(opts: args::Inspect, network: args::BackendOpts, db: Arc<redb::Database>) -> Self {
-        Self { opts, network, db }
+    pub fn new(opts: args::Inspect, network: args::BackendOpts) -> Result<Self> {
+        let db = App::readonly_db()?;
+        Ok(Self { opts, network, db })
     }
 
     pub async fn run(self) -> Result<()> {

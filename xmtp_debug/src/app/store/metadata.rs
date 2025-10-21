@@ -113,3 +113,12 @@ impl From<Arc<redb::Database>> for MetadataStore<'static> {
         }
     }
 }
+
+impl From<Arc<redb::ReadOnlyDatabase>> for MetadataStore<'static> {
+    fn from(value: Arc<redb::ReadOnlyDatabase>) -> Self {
+        MetadataStore {
+            db: super::DatabaseOrTransaction::ReadOnly(value),
+            store: MetadataStorage,
+        }
+    }
+}

@@ -101,25 +101,26 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod tests {
     #![allow(clippy::unwrap_used)]
-    use crate::utils::test::{SignatureWithNonce, SmartWalletContext, docker_smart_wallet};
+    use crate::utils::test::{SignatureWithNonce, SmartWalletContext, smart_wallet};
 
     use super::*;
     use alloy::dyn_abi::SolType;
     use alloy::primitives::{B256, U256};
     use alloy::providers::ext::AnvilApi;
     use alloy::signers::Signer;
+    use std::time::Duration;
 
     #[rstest::rstest]
-    #[timeout(std::time::Duration::from_secs(30))]
+    #[timeout(Duration::from_secs(30))]
     #[tokio::test]
-    async fn test_coinbase_smart_wallet(#[future] docker_smart_wallet: SmartWalletContext) {
+    async fn test_coinbase_smart_wallet(#[future] smart_wallet: SmartWalletContext) {
         let SmartWalletContext {
             factory,
             sw,
             owner0,
             owner1,
             sw_address,
-        } = docker_smart_wallet.await;
+        } = smart_wallet.await;
         let provider = factory.provider();
         let chain_id = provider.get_chain_id().await.unwrap();
         let hash = B256::random();
@@ -169,15 +170,16 @@ pub(crate) mod tests {
     }
 
     #[rstest::rstest]
+    #[timeout(Duration::from_secs(60))]
     #[tokio::test]
-    async fn test_smart_wallet_time_travel(#[future] docker_smart_wallet: SmartWalletContext) {
+    async fn test_smart_wallet_time_travel(#[future] smart_wallet: SmartWalletContext) {
         let SmartWalletContext {
             factory,
             sw,
             owner1,
             sw_address,
             ..
-        } = docker_smart_wallet.await;
+        } = smart_wallet.await;
 
         let provider = factory.provider();
         let verifier = RpcSmartContractWalletVerifier::new_from_provider(provider.clone());
@@ -227,15 +229,16 @@ pub(crate) mod tests {
 
     // Testing ERC-6492 with deployed / undeployed coinbase smart wallet(ERC-1271) contracts, and EOA.
     #[rstest::rstest]
+    #[timeout(Duration::from_secs(60))]
     #[tokio::test]
-    async fn test_is_valid_signature(#[future] docker_smart_wallet: SmartWalletContext) {
+    async fn test_is_valid_signature(#[future] smart_wallet: SmartWalletContext) {
         let SmartWalletContext {
             factory,
             sw,
             owner0: owner,
             sw_address,
             ..
-        } = docker_smart_wallet.await;
+        } = smart_wallet.await;
         let provider = factory.provider();
         let chain_id = provider.get_chain_id().await.unwrap();
         let hash = B256::random();
