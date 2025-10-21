@@ -1086,8 +1086,6 @@ where
                             originator_id: cursor.originator_id as i64,
                             expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                         };
-                        // todo: process leave message type here
-
                         message.store_or_ignore(&storage.db())?;
                         // make sure internal id is on return type after its stored successfully
                         identifier.internal_id(message_id);
@@ -1339,7 +1337,6 @@ where
         storage: &impl XmtpMlsStorageProvider,
         message: &StoredGroupMessage,
     ) -> Result<(), GroupMessageProcessingError> {
-        debug!("### started processing leave request message");
         let current_inbox_id = self.context.inbox_id().to_string();
 
         // Process leave-request messages - only if the actor is the current user
@@ -1497,9 +1494,7 @@ where
         storage: &impl XmtpMlsStorageProvider,
         has_pending_removes: bool,
     ) {
-        // TODO: Implement the actual database update when the method becomes available
         // This is where we would mark the group as having/not having pending remove requests
-
         if has_pending_removes {
             tracing::info!(
                 group_id = hex::encode(&self.group_id),
