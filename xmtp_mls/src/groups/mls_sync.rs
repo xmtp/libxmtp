@@ -779,6 +779,17 @@ where
                 group: &envelope.group_id
             );
 
+            Self::mark_readd_requests_as_responded(
+                storage,
+                &self.group_id,
+                &validated_commit.readded_installations,
+                cursor.sequence_id as i64,
+            )
+            .map_err(|err| IntentResolutionError {
+                processing_error: err.into(),
+                next_intent_state: IntentState::Error,
+            })?;
+
             // If no error committing the change, write a transcript message
             let msg = self
                 .save_transcript_message(
@@ -1231,6 +1242,13 @@ where
                     cursor.sequence_id as i64,
                 )?;
 
+                Self::mark_readd_requests_as_responded(
+                    storage,
+                    &self.group_id,
+                    &validated_commit.readded_installations,
+                    cursor.sequence_id as i64,
+                )?;
+
                 let epoch = mls_group.epoch().as_u64();
                 track!(
                     "Commit merged",
@@ -1257,6 +1275,22 @@ where
             }
         }?;
         identifier.build()
+    }
+
+    pub(crate) fn mark_readd_requests_as_responded(
+        storage: &impl XmtpMlsStorageProvider,
+        group_id: &Vec<u8>,
+        readded_installations: &HashSet<Vec<u8>>,
+        cursor: i64,
+    ) -> Result<(), StorageError> {
+        for installation_id in readded_installations {
+            storage.db().update_responded_at_sequence_id(
+                group_id.as_slice(),
+                installation_id.as_slice(),
+                cursor,
+            )?;
+        }
+        Ok(())
     }
 
     fn get_message_expire_at_ns(mls_group: &OpenMlsGroup) -> Option<i64> {
