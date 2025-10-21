@@ -359,6 +359,7 @@ pub mod tests {
                         .unwrap(),
                     sender_hmac: vec![],
                     should_push: true,
+                    is_commit: false,
                 })),
             })
         }
