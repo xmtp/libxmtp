@@ -146,6 +146,12 @@ pub trait QueryRefreshState {
             .map(|c| c[0])
     }
 
+    fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+        &self,
+        ids: &[Id],
+        entity_kind: EntityKind,
+    ) -> Result<HashMap<Vec<u8>, i64>, StorageError>;
+
     fn update_cursor<Id: AsRef<[u8]>>(
         &self,
         entity_id: Id,
@@ -188,6 +194,14 @@ impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
         originator: u32,
     ) -> Result<Option<RefreshState>, StorageError> {
         (**self).get_refresh_state(entity_id, entity_kind, originator)
+    }
+
+    fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+        &self,
+        ids: &[Id],
+        entity_kind: EntityKind,
+    ) -> Result<HashMap<Vec<u8>, i64>, StorageError> {
+        (**self).get_last_cursor_for_ids(ids, entity_kind)
     }
 
     fn update_cursor<Id: AsRef<[u8]>>(
@@ -316,6 +330,39 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
             .collect();
 
         Ok(result)
+    }
+
+    fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+        &self,
+        ids: &[Id],
+        entity_kind: EntityKind,
+    ) -> Result<HashMap<Vec<u8>, i64>, StorageError> {
+        use super::schema::refresh_state::dsl;
+        use std::collections::HashMap;
+
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // Run multiple small IN-queries and merge results.
+        // Keep chunks comfortably under SQLite's default 999-bind limit.
+        const CHUNK: usize = 900;
+
+        let map = self.raw_query_read(|conn| {
+            ids.chunks(CHUNK)
+                .map(|chunk| {
+                    let id_refs: Vec<&[u8]> = chunk.iter().map(|id| id.as_ref()).collect();
+                    dsl::refresh_state
+                        .filter(dsl::entity_kind.eq(entity_kind))
+                        .filter(dsl::entity_id.eq_any(&id_refs))
+                        .select((dsl::entity_id, dsl::cursor))
+                        .load::<(Vec<u8>, i64)>(conn)
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map(|vecs| vecs.into_iter().flatten().collect::<HashMap<_, _>>())
+        })?;
+
+        Ok(map)
     }
 
     #[tracing::instrument(level = "info", skip(self), fields(entity_id = %hex::encode(&entity_id)))]
@@ -1179,6 +1226,243 @@ pub(crate) mod tests {
             create_identity_update(conn, 1, 100);
             let cursor = conn.lowest_common_cursor(&topic_refs).unwrap();
             assert_eq!(cursor.len(), 0);
+        })
+        .await
+    }
+
+    #[xmtp_common::test]
+    async fn get_last_cursor_for_ids_empty() {
+        with_connection(|conn| {
+            let ids: Vec<Vec<u8>> = vec![];
+            let entity_kind = EntityKind::Group;
+            let result = conn.get_last_cursor_for_ids(&ids, entity_kind).unwrap();
+            assert!(result.is_empty());
+        })
+        .await
+    }
+
+    #[xmtp_common::test]
+    async fn get_last_cursor_for_ids_single() {
+        with_connection(|conn| {
+            let id = vec![1, 2, 3];
+            let entity_kind = EntityKind::Group;
+
+            // Store a state
+            let entry = RefreshState {
+                entity_id: id.clone(),
+                entity_kind,
+                cursor: 456,
+            };
+            entry.store_or_ignore(conn).unwrap();
+
+            // Query for it
+            let ids = vec![id.clone()];
+            let result = conn.get_last_cursor_for_ids(&ids, entity_kind).unwrap();
+
+            assert_eq!(result.len(), 1);
+            assert_eq!(result.get(&id), Some(&456));
+        })
+        .await
+    }
+
+    #[xmtp_common::test]
+    async fn get_last_cursor_for_ids_multiple_mixed() {
+        with_connection(|conn| {
+            let entity_kind = EntityKind::Group;
+
+            // Create some ids with existing state
+            let id1 = vec![1, 0, 0];
+            let id2 = vec![2, 0, 0];
+            let id3 = vec![3, 0, 0];
+            let id4 = vec![4, 0, 0]; // This one won't have state
+
+            RefreshState {
+                entity_id: id1.clone(),
+                entity_kind,
+                cursor: 100,
+            }
+            .store_or_ignore(conn)
+            .unwrap();
+
+            RefreshState {
+                entity_id: id2.clone(),
+                entity_kind,
+                cursor: 200,
+            }
+            .store_or_ignore(conn)
+            .unwrap();
+
+            RefreshState {
+                entity_id: id3.clone(),
+                entity_kind,
+                cursor: 300,
+            }
+            .store_or_ignore(conn)
+            .unwrap();
+
+            // Query for all ids including one without state
+            let ids = vec![id1.clone(), id2.clone(), id3.clone(), id4.clone()];
+            let result = conn.get_last_cursor_for_ids(&ids, entity_kind).unwrap();
+
+            // Should only return the ones with existing state
+            assert_eq!(result.len(), 3);
+            assert_eq!(result.get(&id1), Some(&100));
+            assert_eq!(result.get(&id2), Some(&200));
+            assert_eq!(result.get(&id3), Some(&300));
+            assert_eq!(result.get(&id4), None);
+        })
+        .await
+    }
+
+    #[xmtp_common::test]
+    async fn get_last_cursor_for_ids_exactly_900() {
+        with_connection(|conn| {
+            let entity_kind = EntityKind::Group;
+
+            // Create exactly 900 ids
+            let mut ids = Vec::new();
+            for i in 0..900 {
+                let id = vec![(i / 256) as u8, (i % 256) as u8];
+                RefreshState {
+                    entity_id: id.clone(),
+                    entity_kind,
+                    cursor: i as i64,
+                }
+                .store_or_ignore(conn)
+                .unwrap();
+                ids.push(id);
+            }
+
+            // Query for all 900 ids
+            let result = conn.get_last_cursor_for_ids(&ids, entity_kind).unwrap();
+
+            assert_eq!(result.len(), 900);
+            for (idx, id) in ids.iter().enumerate() {
+                assert_eq!(result.get(id), Some(&(idx as i64)));
+            }
+        })
+        .await
+    }
+
+    #[xmtp_common::test]
+    async fn get_last_cursor_for_ids_over_900() {
+        with_connection(|conn| {
+            let entity_kind = EntityKind::Group;
+
+            // Create 1000 ids to test chunking
+            let mut ids = Vec::new();
+            for i in 0..1000 {
+                let id = vec![(i / 256) as u8, (i % 256) as u8, 0];
+                RefreshState {
+                    entity_id: id.clone(),
+                    entity_kind,
+                    cursor: i as i64,
+                }
+                .store_or_ignore(conn)
+                .unwrap();
+                ids.push(id);
+            }
+
+            // Query for all 1000 ids (should use 2 chunks)
+            let result = conn.get_last_cursor_for_ids(&ids, entity_kind).unwrap();
+
+            assert_eq!(result.len(), 1000);
+            for (idx, id) in ids.iter().enumerate() {
+                assert_eq!(
+                    result.get(id),
+                    Some(&(idx as i64)),
+                    "Mismatch for id at index {}",
+                    idx
+                );
+            }
+        })
+        .await
+    }
+
+    #[xmtp_common::test]
+    async fn get_last_cursor_for_ids_over_1800() {
+        with_connection(|conn| {
+            let entity_kind = EntityKind::Group;
+
+            // Create 2000 ids to test multiple chunks
+            let mut ids = Vec::new();
+            for i in 0..2000 {
+                let id = vec![(i / 256) as u8, (i % 256) as u8, 1];
+                RefreshState {
+                    entity_id: id.clone(),
+                    entity_kind,
+                    cursor: i as i64,
+                }
+                .store_or_ignore(conn)
+                .unwrap();
+                ids.push(id);
+            }
+
+            // Query for all 2000 ids (should use 3 chunks: 900, 900, 200)
+            let result = conn.get_last_cursor_for_ids(&ids, entity_kind).unwrap();
+
+            assert_eq!(result.len(), 2000);
+            for (idx, id) in ids.iter().enumerate() {
+                assert_eq!(
+                    result.get(id),
+                    Some(&(idx as i64)),
+                    "Mismatch for id at index {}",
+                    idx
+                );
+            }
+        })
+        .await
+    }
+
+    #[xmtp_common::test]
+    async fn get_last_cursor_for_ids_different_entity_kinds() {
+        with_connection(|conn| {
+            let id1 = vec![1, 2, 3];
+            let id2 = vec![4, 5, 6];
+
+            // Store same ids with different entity kinds
+            RefreshState {
+                entity_id: id1.clone(),
+                entity_kind: EntityKind::Group,
+                cursor: 100,
+            }
+            .store_or_ignore(conn)
+            .unwrap();
+
+            RefreshState {
+                entity_id: id1.clone(),
+                entity_kind: EntityKind::Welcome,
+                cursor: 200,
+            }
+            .store_or_ignore(conn)
+            .unwrap();
+
+            RefreshState {
+                entity_id: id2.clone(),
+                entity_kind: EntityKind::Group,
+                cursor: 300,
+            }
+            .store_or_ignore(conn)
+            .unwrap();
+
+            // Query for Group entity kind only
+            let ids = vec![id1.clone(), id2.clone()];
+            let result = conn
+                .get_last_cursor_for_ids(&ids, EntityKind::Group)
+                .unwrap();
+
+            assert_eq!(result.len(), 2);
+            assert_eq!(result.get(&id1), Some(&100));
+            assert_eq!(result.get(&id2), Some(&300));
+
+            // Query for Welcome entity kind only
+            let result = conn
+                .get_last_cursor_for_ids(&ids, EntityKind::Welcome)
+                .unwrap();
+
+            assert_eq!(result.len(), 1);
+            assert_eq!(result.get(&id1), Some(&200));
+            assert_eq!(result.get(&id2), None);
         })
         .await
     }
