@@ -78,6 +78,7 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     scw_verifier: Option<Arc<Box<dyn SmartContractSignatureVerifier>>>,
     device_sync_server_url: Option<String>,
     device_sync_worker_mode: SyncWorkerMode,
+    fork_recovery_opts: Option<ForkRecoveryOpts>,
     version_info: VersionInfo,
     allow_offline: bool,
     disable_events: bool,
@@ -91,6 +92,32 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
 pub enum SyncWorkerMode {
     Disabled,
     Enabled,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ForkRecoveryPolicy {
+    None,
+    AllowlistedGroups,
+    All,
+}
+
+#[derive(Clone, Debug)]
+pub struct ForkRecoveryOpts {
+    pub enable_recovery_requests: ForkRecoveryPolicy,
+    pub groups_to_request_recovery: Vec<String>,
+    pub disable_recovery_responses: bool,
+    pub worker_interval_ns: Option<u64>,
+}
+
+impl Default for ForkRecoveryOpts {
+    fn default() -> Self {
+        Self {
+            enable_recovery_requests: ForkRecoveryPolicy::None,
+            groups_to_request_recovery: Vec::new(),
+            disable_recovery_responses: false,
+            worker_interval_ns: None,
+        }
+    }
 }
 
 impl Client<()> {
@@ -111,6 +138,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: None,
             device_sync_server_url: None,
             device_sync_worker_mode: SyncWorkerMode::Enabled,
+            fork_recovery_opts: None,
             version_info: VersionInfo::default(),
             allow_offline: false,
             #[cfg(not(test))]
@@ -145,6 +173,7 @@ where
             scw_verifier: Some(client.context.scw_verifier.clone()),
             device_sync_server_url: client.context.device_sync.server_url.clone(),
             device_sync_worker_mode: client.context.device_sync.mode,
+            fork_recovery_opts: Some(client.context.fork_recovery_opts.clone()),
             version_info: client.context.version_info.clone(),
             allow_offline: false,
             #[cfg(test)]
@@ -180,6 +209,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
             device_sync_server_url,
             device_sync_worker_mode,
+            fork_recovery_opts,
             version_info,
             allow_offline,
             disable_events,
@@ -264,6 +294,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 server_url: device_sync_server_url,
                 mode: device_sync_worker_mode,
             },
+            fork_recovery_opts: fork_recovery_opts.unwrap_or_default(),
             workers: workers.clone(),
             sync_api_client,
         });
@@ -329,6 +360,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: self.scw_verifier,
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
+            fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
@@ -356,6 +388,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: self.scw_verifier,
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
+            fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
@@ -383,6 +416,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: self.scw_verifier,
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
+            fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
@@ -421,6 +455,13 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
+    pub fn fork_recovery_opts(self, opts: ForkRecoveryOpts) -> Self {
+        Self {
+            fork_recovery_opts: Some(opts),
+            ..self
+        }
+    }
+
     pub fn api_clients<A>(self, api_client: A, sync_api_client: A) -> ClientBuilder<A, S, Db> {
         let api_retry = Retry::builder().build();
         let api_client = ApiClientWrapper::new(api_client, api_retry.clone());
@@ -433,6 +474,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             store: self.store,
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
+            fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
@@ -560,6 +602,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
+            fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
@@ -596,6 +639,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
+            fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
@@ -623,6 +667,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
+            fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
@@ -658,6 +703,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
+            fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,

@@ -295,6 +295,7 @@ pub struct ValidatedCommit {
     pub actor: CommitParticipant,
     pub added_inboxes: Vec<Inbox>,
     pub removed_inboxes: Vec<Inbox>,
+    pub readded_installations: HashSet<Vec<u8>>,
     pub metadata_validation_info: MutableMetadataValidationInfo,
     pub installations_changed: bool,
     pub permissions_changed: bool,
@@ -373,8 +374,8 @@ impl ValidatedCommit {
 
         // Get the installations actually added and removed in the commit
         let ProposalChanges {
-            added_installations,
-            removed_installations,
+            mut added_installations,
+            mut removed_installations,
             mut credentials_to_verify,
         } = get_proposal_changes(
             staged_commit,
@@ -399,13 +400,26 @@ impl ValidatedCommit {
         let installations_changed =
             !added_installations.is_empty() || !removed_installations.is_empty();
 
+        let mut failed_installations: HashSet<Vec<u8>> = new_group_membership
+            .failed_installations
+            .iter()
+            .cloned()
+            .collect();
+
+        // Remove readded installations from the added/removed/failed lists before going through validation
+        let readded_installations = extract_readded_installations(
+            &actor,
+            &mut added_installations,
+            &mut removed_installations,
+            &mut failed_installations,
+        );
         // Ensure that the expected diff matches the added/removed installations in the proposals
         expected_diff_matches_commit(
             &expected_installation_diff,
             added_installations,
             removed_installations,
             current_group_members,
-            &new_group_membership.failed_installations,
+            failed_installations,
         )?;
         credentials_to_verify.push(actor.clone());
 
@@ -437,6 +451,7 @@ impl ValidatedCommit {
             actor,
             added_inboxes,
             removed_inboxes,
+            readded_installations,
             metadata_validation_info,
             installations_changed,
             permissions_changed,
@@ -692,6 +707,40 @@ impl ExpectedDiff {
     }
 }
 
+/// Superadmins are permitted to readd installations, e.g. for fork recovery
+/// We can take these readded installations out of the list of installations to validate
+pub(super) fn extract_readded_installations(
+    actor: &CommitParticipant,
+    added_installations: &mut HashSet<Vec<u8>>,
+    removed_installations: &mut HashSet<Vec<u8>>,
+    failed_installations: &mut HashSet<Vec<u8>>,
+) -> HashSet<Vec<u8>> {
+    if !actor.is_super_admin {
+        return HashSet::new();
+    }
+    let successfully_readded = added_installations
+        .intersection(removed_installations)
+        .cloned()
+        .collect::<HashSet<Vec<u8>>>();
+    added_installations.retain(|installation_id| !successfully_readded.contains(installation_id));
+    removed_installations.retain(|installation_id| !successfully_readded.contains(installation_id));
+
+    // We only want to intersect with *remaining* removed installations here, to avoid double counting
+    let unsuccessfully_readded = failed_installations
+        .intersection(removed_installations)
+        .cloned()
+        .collect::<HashSet<Vec<u8>>>();
+    failed_installations
+        .retain(|installation_id| !unsuccessfully_readded.contains(installation_id));
+    removed_installations
+        .retain(|installation_id| !unsuccessfully_readded.contains(installation_id));
+
+    successfully_readded
+        .union(&unsuccessfully_readded)
+        .cloned()
+        .collect()
+}
+
 /// Compare the list of installations added and removed in the commit to the expected diff based on the changes
 /// to the inbox state.
 /// Satisfies Rule 3 and Rule 7
@@ -700,7 +749,7 @@ fn expected_diff_matches_commit(
     added_installations: HashSet<Vec<u8>>,
     removed_installations: HashSet<Vec<u8>>,
     existing_installation_ids: HashSet<Vec<u8>>,
-    failed_installation_ids: &[Vec<u8>],
+    failed_installation_ids: HashSet<Vec<u8>>,
 ) -> Result<(), CommitValidationError> {
     // Check and make sure that any added installations are either:
     // 1. In the expected diff

@@ -164,6 +164,19 @@ pub struct StoredGroupForReaddRequest {
     pub latest_commit_sequence_id: Option<i64>,
 }
 
+/// A struct for fetching groups that need to respond to readd requests
+#[derive(Debug, Clone, Queryable, QueryableByName)]
+pub struct StoredGroupForRespondingReadds {
+    #[diesel(sql_type = diesel::sql_types::Binary)]
+    pub group_id: Vec<u8>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub dm_id: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    pub conversation_type: ConversationType,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    pub created_at_ns: i64,
+}
+
 // TODO: Create two more structs that delegate to StoredGroup
 impl_fetch!(StoredGroup, groups, Vec<u8>);
 impl_store!(StoredGroup, groups);
@@ -321,6 +334,11 @@ pub trait QueryGroup {
     fn get_conversation_ids_for_requesting_readds(
         &self,
     ) -> Result<Vec<StoredGroupForReaddRequest>, crate::ConnectionError>;
+
+    /// Get conversation IDs for conversations that need to respond to readd requests
+    fn get_conversation_ids_for_responding_readds(
+        &self,
+    ) -> Result<Vec<StoredGroupForRespondingReadds>, crate::ConnectionError>;
 
     fn get_conversation_type(
         &self,
@@ -492,6 +510,12 @@ where
         &self,
     ) -> Result<Vec<StoredGroupForReaddRequest>, crate::ConnectionError> {
         (**self).get_conversation_ids_for_requesting_readds()
+    }
+
+    fn get_conversation_ids_for_responding_readds(
+        &self,
+    ) -> Result<Vec<StoredGroupForRespondingReadds>, crate::ConnectionError> {
+        (**self).get_conversation_ids_for_responding_readds()
     }
 
     fn get_conversation_type(
@@ -1066,6 +1090,32 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })
     }
 
+    fn get_conversation_ids_for_responding_readds(
+        &self,
+    ) -> Result<Vec<StoredGroupForRespondingReadds>, crate::ConnectionError> {
+        use super::schema::{groups::dsl as groups_dsl, readd_status::dsl as readd_dsl};
+        use diesel::{ExpressionMethods, JoinOnDsl, QueryDsl};
+
+        self.raw_query_read(|conn| {
+            readd_dsl::readd_status
+                .inner_join(groups_dsl::groups.on(readd_dsl::group_id.eq(groups_dsl::id)))
+                .filter(readd_dsl::requested_at_sequence_id.is_not_null())
+                .filter(
+                    readd_dsl::requested_at_sequence_id
+                        .ge(readd_dsl::responded_at_sequence_id)
+                        .or(readd_dsl::responded_at_sequence_id.is_null()),
+                )
+                .select((
+                    groups_dsl::id,
+                    groups_dsl::dm_id,
+                    groups_dsl::conversation_type,
+                    groups_dsl::created_at_ns,
+                ))
+                .distinct()
+                .load::<StoredGroupForRespondingReadds>(conn)
+        })
+    }
+
     fn get_conversation_type(
         &self,
         group_id: &[u8],
@@ -1296,6 +1346,7 @@ pub(crate) mod tests {
     use crate::{
         Fetch, Store,
         consent_record::{ConsentType, StoredConsentRecord},
+        readd_status::ReaddStatus,
         schema::groups::dsl::groups,
         test_utils::{with_connection, with_connection_async},
     };
@@ -1835,6 +1886,114 @@ pub(crate) mod tests {
             let conversation_ids = conn.get_conversation_ids_for_remote_log_download().unwrap();
             assert_eq!(conversation_ids.len(), 1);
             assert_eq!(conversation_ids[0].id, allowed_group.id);
+        })
+        .await
+    }
+
+    #[xmtp_common::test]
+    async fn test_get_conversation_ids_for_responding_readds() {
+        with_connection(|conn| {
+            // Create test groups
+            let group_id_1 = vec![1, 2, 3];
+            let group_id_2 = vec![4, 5, 6];
+            let group_id_3 = vec![7, 8, 9];
+
+            let group1 = StoredGroup::builder()
+                .id(group_id_1.clone())
+                .created_at_ns(1000)
+                .membership_state(GroupMembershipState::Allowed)
+                .added_by_inbox_id("placeholder_address")
+                .build()
+                .unwrap();
+            group1.store(conn).unwrap();
+
+            let group2 = StoredGroup::builder()
+                .id(group_id_2.clone())
+                .created_at_ns(2000)
+                .membership_state(GroupMembershipState::Allowed)
+                .added_by_inbox_id("placeholder_address")
+                .build()
+                .unwrap();
+            group2.store(conn).unwrap();
+
+            let group3 = StoredGroup::builder()
+                .id(group_id_3.clone())
+                .created_at_ns(3000)
+                .membership_state(GroupMembershipState::Allowed)
+                .added_by_inbox_id("placeholder_address")
+                .build()
+                .unwrap();
+            group3.store(conn).unwrap();
+
+            // Create readd status entries with various test cases
+            let test_cases = vec![
+                // Case 1: Pending readd (requested_at > responded_at)
+                ReaddStatus {
+                    group_id: group_id_1.clone(),
+                    installation_id: vec![1],
+                    requested_at_sequence_id: Some(10),
+                    responded_at_sequence_id: Some(5),
+                },
+                // Case 2: Pending readd (responded_at is None)
+                ReaddStatus {
+                    group_id: group_id_1.clone(),
+                    installation_id: vec![2],
+                    requested_at_sequence_id: Some(8),
+                    responded_at_sequence_id: None,
+                },
+                // Case 4: Not pending (requested_at < responded_at)
+                ReaddStatus {
+                    group_id: group_id_2.clone(),
+                    installation_id: vec![4],
+                    requested_at_sequence_id: Some(12),
+                    responded_at_sequence_id: Some(15),
+                },
+                // Case 5: Not pending (requested_at is None)
+                ReaddStatus {
+                    group_id: group_id_2.clone(),
+                    installation_id: vec![5],
+                    requested_at_sequence_id: None,
+                    responded_at_sequence_id: Some(20),
+                },
+                // Case 6: Pending readd (requested_at == responded_at, should be pending)
+                ReaddStatus {
+                    group_id: group_id_3.clone(),
+                    installation_id: vec![6],
+                    requested_at_sequence_id: Some(25),
+                    responded_at_sequence_id: Some(25),
+                },
+            ];
+
+            // Store all test cases
+            for status in test_cases {
+                status.store(conn).unwrap();
+            }
+
+            // Call the method under test
+            let result = conn.get_conversation_ids_for_responding_readds().unwrap();
+
+            // Should return groups 1 and 3 (both have pending readd requests)
+            // Group 2 has no pending readds
+            assert_eq!(result.len(), 2);
+
+            // Results should be sorted by group_id (since we used distinct())
+            let mut result_group_ids: Vec<Vec<u8>> =
+                result.iter().map(|r| r.group_id.clone()).collect();
+            result_group_ids.sort();
+
+            assert_eq!(result_group_ids[0], group_id_1);
+            assert_eq!(result_group_ids[1], group_id_3);
+
+            // Check that the correct metadata is returned
+            let group1_result = result.iter().find(|r| r.group_id == group_id_1).unwrap();
+            assert_eq!(group1_result.dm_id, None);
+            assert_eq!(group1_result.conversation_type, ConversationType::Group);
+            assert_eq!(group1_result.created_at_ns, 1000);
+
+            let group3_result = result.iter().find(|r| r.group_id == group_id_3).unwrap();
+            assert_eq!(group3_result.dm_id, None);
+            assert_eq!(group3_result.conversation_type, ConversationType::Group);
+            assert_eq!(group3_result.created_at_ns, 3000);
         })
         .await
     }

@@ -231,6 +231,10 @@ mock! {
             &self,
         ) -> Result<Vec<crate::encrypted_store::group::StoredGroupForReaddRequest>, crate::ConnectionError>;
 
+        fn get_conversation_ids_for_responding_readds(
+            &self,
+        ) -> Result<Vec<crate::encrypted_store::group::StoredGroupForRespondingReadds>, crate::ConnectionError>;
+
         fn get_conversation_type(&self, group_id: &[u8]) -> Result<ConversationType, crate::ConnectionError>;
 
         fn set_group_commit_log_public_key(
@@ -354,6 +358,24 @@ mock! {
             installation_id: &[u8],
             sequence_id: i64,
         ) -> Result<(), crate::ConnectionError>;
+
+        fn delete_other_readd_statuses(
+            &self,
+            group_id: &[u8],
+            self_installation_id: &[u8],
+        ) -> Result<(), crate::ConnectionError>;
+
+        fn delete_readd_statuses(
+            &self,
+            group_id: &[u8],
+            installation_ids: std::collections::HashSet<Vec<u8> > ,
+        ) -> Result<(), crate::ConnectionError>;
+
+        fn get_readds_awaiting_response(
+            &self,
+            group_id: &[u8],
+            self_installation_id: &[u8],
+        ) -> Result<Vec<crate::readd_status::ReaddStatus>, crate::ConnectionError>;
     }
 
     impl QueryGroupMessage for DbQuery {

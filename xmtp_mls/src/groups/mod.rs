@@ -1725,6 +1725,17 @@ where
         .await
     }
 
+    /// Get the encryption state of the current epoch. Should match for all installations
+    /// in the same epoch.
+    #[cfg(test)]
+    #[allow(unused)]
+    pub(crate) async fn epoch_authenticator(&self) -> Result<Vec<u8>, GroupError> {
+        self.load_mls_group_with_lock_async(|mls_group| {
+            futures::future::ready(Ok(mls_group.epoch_authenticator().as_slice().to_vec()))
+        })
+        .await
+    }
+
     pub async fn cursor(&self) -> Result<[Cursor; 2], GroupError> {
         let db = self.context.db();
         let msgs = db.get_last_cursor_for_originator(

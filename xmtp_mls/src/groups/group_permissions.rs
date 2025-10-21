@@ -1350,6 +1350,8 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+    use std::collections::HashSet;
+
     use crate::groups::validated_commit::MutableMetadataValidationInfo;
     use xmtp_common::{rand_string, rand_vec};
     use xmtp_mls_common::group_metadata::DmMembers;
@@ -1441,6 +1443,7 @@ pub(crate) mod tests {
             removed_inboxes: member_removed
                 .map(build_membership_change)
                 .unwrap_or_default(),
+            readded_installations: HashSet::new(),
             metadata_validation_info: MutableMetadataValidationInfo {
                 metadata_field_changes: field_changes,
                 ..Default::default()
