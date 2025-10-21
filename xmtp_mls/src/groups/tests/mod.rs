@@ -1349,7 +1349,7 @@ async fn test_self_removal() {
         .membership_state;
     assert_eq!(amal_group_member_state, GroupMembershipState::Allowed);
 
-    //check Bola's other installations
+    // Check Bola's other installations
     bola_i2.sync_welcomes().await.unwrap();
     let bola_i2_groups = bola_i2.find_groups(GroupQueryArgs::default()).unwrap();
     assert_eq!(bola_i2_groups.len(), 1);
@@ -1373,55 +1373,6 @@ async fn test_self_removal() {
         GroupMembershipState::PendingRemove
     );
 
-    // // Bola introduces another installation, after processing the welcome the group state should be set to PendingRemove
-    // let bola_i3 = ClientBuilder::new_test_client(&bola_wallet).await;
-    // xmtp_common::time::sleep(std::time::Duration::from_secs(5)).await;
-    // bola_i1_group.send_message(b"test one").await.unwrap();
-    // // xmtp_common::time::sleep(std::time::Duration::from_secs(5)).await;
-    // bola_i3.sync_welcomes().await.unwrap();
-    // let bola_i3_groups = bola_i3.find_groups(GroupQueryArgs::default()).unwrap();
-    // assert_eq!(bola_i3_groups.len(), 1);
-    // let bola_i3_group = bola_i3_groups.first().unwrap();
-    // assert_eq!(bola_i3_group.members().await.unwrap().len(), 2);
-    // bola_i3_group.sync().await.unwrap();
-    //
-    // let bola_i3_group_pending_leave_users = bola_i3.db().get_pending_remove_users(&bola_i3_group.group_id).unwrap();
-    //
-    // // Bola's inboxId should be in the pending-remove list
-    // assert!(bola_i3_group_pending_leave_users.contains(&bola_i1.inbox_id().to_string()));
-    // // The pending-remove list should only contain one item
-    // assert_eq!(bola_i3_group_pending_leave_users.len(), 1);
-    // let bola_i3_group_state_in_db = bola_i3.db().find_group(&bola_i1_group.group_id).unwrap();
-    //
-    // // group's state should be set to PendingRemove on Bola's other installation
-    // assert_eq!(
-    //     bola_i3_group_state_in_db.unwrap().membership_state,
-    //     GroupMembershipState::PendingRemove
-    // );
-    //
-    // // Amal introduces another installation, after processing the welcome the group state should not be affected
-    // let amal_i2 = ClientBuilder::new_test_client(&amal_wallet).await;
-    // xmtp_common::time::sleep(std::time::Duration::from_secs(5)).await;
-    // amal_group.send_message(b"test one").await.unwrap();
-    // amal_i2.sync_welcomes().await.unwrap();
-    // let amal_i2_groups = amal_i2.find_groups(GroupQueryArgs::default()).unwrap();
-    // assert_eq!(amal_i2_groups.len(), 1);
-    // let amal_i2_group = amal_i2_groups.first().unwrap();
-    // assert_eq!(amal_i2_group.members().await.unwrap().len(), 2);
-    // amal_i2_group.sync().await.unwrap();
-    //
-    // let amal_i2_group_pending_leave_users = amal_i2.db().get_pending_remove_users(&amal_i2_group.group_id).unwrap();
-    // // Amal's inboxId should be in the pending-remove list
-    // assert!(!amal_i2_group_pending_leave_users.contains(&amal_i2.inbox_id().to_string()));
-    // // The pending-remove list should only contain one item
-    // assert_eq!(amal_i2_group_pending_leave_users.len(), 1);
-    // let amal_i2_group_state_in_db = amal_i2.db().find_group(&amal_i2_group.group_id).unwrap();
-    //
-    // // group's state should be set to PendingRemove on Bola's other installation
-    // assert_ne!(
-    //     amal_i2_group_state_in_db.unwrap().membership_state,
-    //     GroupMembershipState::PendingRemove
-    // );
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     let _ = bola_i1_group.sync().await;
@@ -1786,6 +1737,42 @@ async fn test_clean_pending_remove_list_on_member_removal() {
 
     // Verify the group members
     assert_eq!(amal_group.members().await.unwrap().len(), 2); // amal and caro
+
+    // Verify the GroupUpdated message correctly classifies Bola as "left" (not "removed")
+    // since they were in the pending_remove list
+    let messages = amal_group.find_messages(&MsgQueryArgs::default()).unwrap();
+
+    // Find all membership change messages
+    let membership_messages: Vec<_> = messages
+        .iter()
+        .filter(|m| m.kind == GroupMessageKind::MembershipChange)
+        .collect();
+
+    // Get the last membership change message (should be Bola's removal)
+    let removal_message = membership_messages
+        .last()
+        .expect("Should find membership change message");
+
+    let encoded_content =
+        EncodedContent::decode(removal_message.decrypted_message_bytes.as_slice()).unwrap();
+    let group_update = GroupUpdatedCodec::decode(encoded_content).unwrap();
+
+    // Bola should be in left_inboxes (not removed_inboxes) because they were in pending_remove
+    assert_eq!(
+        group_update.left_inboxes.len(),
+        1,
+        "Should have 1 left inbox"
+    );
+    assert_eq!(
+        group_update.left_inboxes.first().unwrap().inbox_id,
+        bola.inbox_id().to_string(),
+        "Bola should be in left_inboxes"
+    );
+    assert_eq!(
+        group_update.removed_inboxes.len(),
+        0,
+        "Should have 0 removed inboxes"
+    );
 }
 
 #[xmtp_common::test(flavor = "current_thread")]
@@ -2041,6 +2028,91 @@ async fn test_promotion_excludes_self_from_pending_check() {
     assert!(
         bola_group_status.has_pending_leave_request == Some(false)
             || bola_group_status.has_pending_leave_request.is_none()
+    );
+}
+
+#[xmtp_common::test(flavor = "current_thread")]
+async fn test_admin_removal_without_pending_shows_as_removed() {
+    // Test that when an admin removes a member who is NOT in pending_remove,
+    // they appear in removed_inboxes (not left_inboxes)
+    let amal_wallet = generate_local_wallet();
+    let bola_wallet = generate_local_wallet();
+    let caro_wallet = generate_local_wallet();
+
+    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
+    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
+    let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group
+        .add_members_by_inbox_id(&[bola.inbox_id(), caro.inbox_id()])
+        .await
+        .unwrap();
+
+    amal_group.sync().await.unwrap();
+    bola.sync_welcomes().await.unwrap();
+    caro.sync_welcomes().await.unwrap();
+
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+    let bola_group = bola_groups.first().unwrap();
+    bola_group.sync().await.unwrap();
+
+    let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
+    let caro_group = caro_groups.first().unwrap();
+    caro_group.sync().await.unwrap();
+
+    // Verify Bola is NOT in the pending_remove list
+    let pending_users = amal
+        .db()
+        .get_pending_remove_users(&amal_group.group_id)
+        .unwrap();
+    assert!(pending_users.is_empty());
+
+    // Amal removes Bola from the group (admin removal, not self-removal)
+    amal_group
+        .remove_members(&[bola_wallet.identifier()])
+        .await
+        .unwrap();
+
+    // Sync on all clients
+    amal_group.sync().await.unwrap();
+    bola_group.sync().await.unwrap();
+    caro_group.sync().await.unwrap();
+
+    // Verify the GroupUpdated message correctly classifies Bola as "removed" (not "left")
+    // since they were NOT in the pending_remove list
+    let messages = amal_group.find_messages(&MsgQueryArgs::default()).unwrap();
+
+    // Find all membership change messages
+    let membership_messages: Vec<_> = messages
+        .iter()
+        .filter(|m| m.kind == GroupMessageKind::MembershipChange)
+        .collect();
+
+    // Get the LAST membership change message (should be Bola's removal, not the addition)
+    let removal_message = membership_messages
+        .last()
+        .expect("Should find membership change message");
+
+    let encoded_content =
+        EncodedContent::decode(removal_message.decrypted_message_bytes.as_slice()).unwrap();
+    let group_update = GroupUpdatedCodec::decode(encoded_content).unwrap();
+
+    // Bola should be in removed_inboxes (not left_inboxes) because they were NOT in pending_remove
+    assert_eq!(
+        group_update.removed_inboxes.len(),
+        1,
+        "Should have 1 removed inbox"
+    );
+    assert_eq!(
+        group_update.removed_inboxes.first().unwrap().inbox_id,
+        bola.inbox_id().to_string(),
+        "Bola should be in removed_inboxes"
+    );
+    assert_eq!(
+        group_update.left_inboxes.len(),
+        0,
+        "Should have 0 left inboxes"
     );
 }
 

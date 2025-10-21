@@ -598,8 +598,6 @@ where
             return Err(GroupError::GroupInactive);
         }
 
-        // todo: check if the group is not in the pending removal state
-
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(update_interval_ns).await?;
@@ -1183,16 +1181,10 @@ where
         }
 
         let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
-        let super_admin_size = self.super_admin_list()?.len();
 
-        // check if the user is the only SuperAdmin of the group
+        // check if the user is SuperAdmin, in this case since other SuperAdmins are not allowed to remove other SuperAdmins they need to be demoted first
         if is_super_admin {
             return Err(GroupLeaveValidationError::SuperAdminLeaveForbidden.into());
-        }
-
-        // check if the user is the only SuperAdmin of the group
-        if is_super_admin && super_admin_size == 1 {
-            return Err(GroupLeaveValidationError::LeaveWithoutSuperAdminForbidden.into());
         }
 
         if !self.is_in_pending_remove(self.context.inbox_id())? {
