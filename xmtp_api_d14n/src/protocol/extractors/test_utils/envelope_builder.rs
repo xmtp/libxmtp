@@ -106,6 +106,26 @@ impl TestEnvelopeBuilder {
         self
     }
 
+    pub fn with_welcome_pointer(
+        mut self,
+        installation_key: Vec<u8>,
+        welcome_pointer: Vec<u8>,
+        hpke_public_key: Vec<u8>,
+        wrapper_algorithm: i32,
+    ) -> Self {
+        self.payload = Some(Payload::WelcomeMessage(WelcomeMessageInput {
+            version: Some(welcome_message_input::Version::WelcomePointer(
+                welcome_message_input::WelcomePointer {
+                    installation_key,
+                    welcome_pointer,
+                    hpke_public_key,
+                    wrapper_algorithm,
+                },
+            )),
+        }));
+        self
+    }
+
     pub fn with_key_package(self, inbox: String, installation: XmtpInstallationCredential) -> Self {
         let provider = MemProvider::default();
         let credential = Credential::new(CredentialType::Basic, inbox.into_bytes());
