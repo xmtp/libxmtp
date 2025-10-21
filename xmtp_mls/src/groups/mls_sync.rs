@@ -58,11 +58,10 @@ use xmtp_db::{
 };
 use xmtp_db::{XmtpMlsStorageProvider, refresh_state::HasEntityKind};
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
-use xmtp_mls_common::group_mutable_metadata::{
-    GroupMutableMetadataError, MetadataField, extract_group_mutable_metadata,
-};
+use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 
 use crate::groups::validated_commit::{Inbox, MutableMetadataValidationInfo};
+use crate::traits::IntoWith;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -98,7 +97,6 @@ use xmtp_db::group::GroupMembershipState;
 use xmtp_db::pending_remove::{PendingRemove, QueryPendingRemove};
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_id::{InboxId, InboxIdRef};
-use xmtp_proto::mls_v1::welcome_message_input::Version;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
@@ -789,7 +787,7 @@ where
             // If no error committing the change, write a transcript message
             let msg = self
                 .save_transcript_message(
-                    validated_commit,
+                    validated_commit.clone(),
                     envelope_timestamp_ns as u64,
                     *cursor,
                     storage,
@@ -800,6 +798,17 @@ where
                     // will be missing. We mark the intent state as errored and continue.
                     next_intent_state: IntentState::Error,
                 })?;
+
+            // Clean up pending_remove list for removed members
+            self.clean_pending_remove_list(storage, &validated_commit.removed_inboxes);
+
+            // Handle super_admin status changes
+            self.handle_super_admin_status_change(
+                storage,
+                mls_group,
+                &validated_commit.metadata_validation_info,
+            );
+
             return Ok(msg.map(|m| m.id));
         }
 
@@ -1370,9 +1379,7 @@ where
 
         // if the current user is in pending remove-users, then we should not mark it for the worker
         if !pending_remove_users.contains(&current_inbox_id) {
-            storage
-                .db()
-                .set_group_has_pending_leave_request_status(&self.group_id, Some(true))?;
+            self.update_group_pending_status(storage, true)
         }
 
         Ok(())
@@ -1439,21 +1446,7 @@ where
             return;
         }
 
-        // Verify current super_admin status from the updated metadata
-        let is_super_admin = match self.is_super_admin(current_inbox_id.clone()) {
-            Ok(status) => status,
-            Err(e) => {
-                tracing::info!(
-                    group_id = hex::encode(&self.group_id),
-                    inbox_id = %current_inbox_id,
-                    error = %e,
-                    "Failed to check super_admin status"
-                );
-                return;
-            }
-        };
-
-        if was_promoted && is_super_admin {
+        if was_promoted {
             // Promoted to super_admin: check if there are pending remove users
             match storage
                 .db()
@@ -1463,28 +1456,7 @@ where
                     if !pending_remove_users.is_empty()
                         && !pending_remove_users.contains(&current_inbox_id)
                     {
-                        // Mark group as having pending leave requests
-                        match storage
-                            .db()
-                            .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
-                        {
-                            Ok(()) => {
-                                tracing::info!(
-                                    group_id = hex::encode(&self.group_id),
-                                    inbox_id = %current_inbox_id,
-                                    pending_count = pending_remove_users.len(),
-                                    "Promoted to super_admin: marked group as having pending leave requests"
-                                );
-                            }
-                            Err(e) => {
-                                tracing::info!(
-                                    group_id = hex::encode(&self.group_id),
-                                    inbox_id = %current_inbox_id,
-                                    error = %e,
-                                    "Failed to mark group as having pending leave requests after promotion"
-                                );
-                            }
-                        }
+                        self.update_group_pending_status(storage, true);
                     }
                 }
                 Err(e) => {
@@ -1496,32 +1468,13 @@ where
                     );
                 }
             }
-        } else if was_demoted && !is_super_admin {
-            // Demoted from super_admin: clear the pending leave request flag
-            match storage
-                .db()
-                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
-            {
-                Ok(()) => {
-                    tracing::info!(
-                        group_id = hex::encode(&self.group_id),
-                        inbox_id = %current_inbox_id,
-                        "Demoted from super_admin: cleared pending leave request status"
-                    );
-                }
-                Err(e) => {
-                    tracing::info!(
-                        group_id = hex::encode(&self.group_id),
-                        inbox_id = %current_inbox_id,
-                        error = %e,
-                        "Failed to clear pending leave request status after demotion"
-                    );
-                }
-            }
+        } else if was_demoted {
+            // Demoted from super_admin: clear the pending leave request status
+            self.update_group_pending_status(storage, false);
         }
     }
 
-    fn update_group_pending_status(
+    pub(crate) fn update_group_pending_status(
         &self,
         storage: &impl XmtpMlsStorageProvider,
         has_pending_removes: bool,
@@ -2067,21 +2020,21 @@ where
         if validated_commit.is_empty() {
             return Ok(None);
         }
-
-        tracing::info!(
-            "[{}]: Storing a transcript message with {} members added and {} members removed and {} metadata changes",
-            self.context.inbox_id(),
-            validated_commit.added_inboxes.len(),
-            validated_commit.removed_inboxes.len(),
-            validated_commit
-                .metadata_validation_info
-                .metadata_field_changes
-                .len(),
-        );
         let sender_installation_id = validated_commit.actor_installation_id();
         let sender_inbox_id = validated_commit.actor_inbox_id();
 
-        let payload: GroupUpdated = validated_commit.into();
+        let pending_remove_users = &storage
+            .db()
+            .get_pending_remove_users(&self.group_id.to_vec())?;
+        let payload: GroupUpdated = validated_commit.into_with(pending_remove_users);
+        tracing::info!(
+            "[{}]: Storing a transcript message with {} members added and {} members removed and {} members left and {} metadata changes",
+            self.context.inbox_id(),
+            payload.added_inboxes.len(),
+            payload.removed_inboxes.len(),
+            payload.left_inboxes.len(),
+            payload.metadata_field_changes.len(),
+        );
         let encoded_payload = GroupUpdatedCodec::encode(payload.clone())?;
         let mut encoded_payload_bytes = Vec::new();
         encoded_payload.encode(&mut encoded_payload_bytes)?;
@@ -2092,19 +2045,17 @@ where
             encoded_payload_bytes.as_slice(),
             &timestamp_ns.to_string(),
         );
-        let content_type = match encoded_payload.r#type {
-            Some(ct) => ct,
-            None => {
-                tracing::warn!("Missing content type in encoded payload, using default values");
-                // Default content type values
-                xmtp_proto::xmtp::mls::message_contents::ContentTypeId {
-                    authority_id: "unknown".to_string(),
-                    type_id: "unknown".to_string(),
-                    version_major: 0,
-                    version_minor: 0,
-                }
+        let content_type = encoded_payload.r#type.unwrap_or_else(|| {
+            tracing::warn!("Missing content type in encoded payload, using default values");
+            // Default content type values
+            xmtp_proto::xmtp::mls::message_contents::ContentTypeId {
+                authority_id: "unknown".to_string(),
+                type_id: "unknown".to_string(),
+                version_major: 0,
+                version_minor: 0,
             }
-        };
+        });
+
         self.handle_metadata_update_from_commit(payload.metadata_field_changes, storage)?;
         let msg = StoredGroupMessage {
             id: message_id,
