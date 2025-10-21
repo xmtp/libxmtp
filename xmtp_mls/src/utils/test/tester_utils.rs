@@ -2,8 +2,13 @@
 
 use super::FullXmtpClient;
 use async_trait::async_trait;
+use diesel::QueryableByName;
 use xmtp_api_d14n::protocol::InMemoryCursorStore;
 use xmtp_configuration::{DeviceSyncUrls, DockerUrls};
+use xmtp_db::{
+    ConnectionExt, ReadOnly,
+    diesel::{self, Connection, RunQueryDsl, SqliteConnection, sql_query},
+};
 
 use crate::{
     Client,
@@ -11,6 +16,7 @@ use crate::{
     client::ClientError,
     context::XmtpSharedContext,
     groups::device_sync::worker::SyncMetric,
+    identity::IdentityStrategy,
     subscriptions::SubscribeError,
     utils::{TestClient, TestMlsStorage, VersionInfo, register_client, test::identity_setup},
     worker::metrics::WorkerMetrics,
@@ -81,6 +87,27 @@ where
     /// Replacement names for this tester
     /// Replacements are removed on drop
     pub replace: TestLogReplace,
+}
+
+#[derive(QueryableByName)]
+struct TableName {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    name: String,
+}
+
+impl<Owner> Tester<Owner, FullXmtpClient>
+where
+    Owner: InboxOwner,
+{
+    pub fn dump_db(&self) -> Vec<u8> {
+        self.db()
+            .raw_query_write(|c| {
+                let buffer = c.serialize_database_to_buffer();
+                let buffer = buffer.to_vec();
+                Ok(buffer)
+            })
+            .unwrap()
+    }
 }
 
 #[macro_export]
@@ -179,7 +206,11 @@ where
         let api_client = local_client.build().unwrap();
         let sync_api_client = sync_api_client.build().unwrap();
 
-        let strategy = identity_setup(&self.owner);
+        let strategy = match &self.snapshot {
+            Some(_) => IdentityStrategy::CachedOnly,
+            _ => identity_setup(&self.owner),
+        };
+
         let mut client = Client::builder(strategy)
             .api_clients(api_client, sync_api_client)
             .with_disable_events(Some(!self.events))
@@ -189,12 +220,19 @@ where
             .maybe_version(self.version.clone())
             .with_commit_log_worker(self.commit_log_worker);
 
-        if self.ephemeral_db {
+        // Setup the database
+        if self.ephemeral_db || self.snapshot.is_some() {
             #[cfg(not(target_arch = "wasm32"))]
             let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral).unwrap();
             #[cfg(target_arch = "wasm32")]
             let db = WasmDb::new(&StorageOption::Ephemeral).await.unwrap();
             let db = EncryptedMessageStore::new(db).unwrap();
+
+            if let Some(snapshot) = &self.snapshot {
+                db.conn()
+                    .raw_query_write(|c| c.deserialize_database_from_buffer(&***snapshot));
+            }
+
             client = client.store(db);
         } else {
             client = client.temp_store().await;
@@ -209,7 +247,11 @@ where
         }
 
         let client = client.default_mls_store().unwrap().build().await.unwrap();
-        register_client(&client, &self.owner).await;
+
+        if self.snapshot.is_none() {
+            register_client(&client, &self.owner).await;
+        }
+
         if let Some(name) = &self.name {
             replace.add(
                 &client.installation_public_key().to_string(),
@@ -333,6 +375,7 @@ where
     pub ephemeral_db: bool,
     pub api_endpoint: ApiEndpoint,
     pub triggers: bool,
+    pub snapshot: Option<Arc<Vec<u8>>>,
     /// whether this builder represents a second installation
     installation: bool,
 }
@@ -367,6 +410,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             ephemeral_db: false,
             triggers: false,
             api_endpoint: ApiEndpoint::Local,
+            snapshot: None,
         }
     }
 }
@@ -395,6 +439,7 @@ where
             ephemeral_db: self.ephemeral_db,
             api_endpoint: self.api_endpoint,
             triggers: self.triggers,
+            snapshot: self.snapshot,
         }
     }
 
@@ -429,6 +474,11 @@ where
             true => ApiEndpoint::Dev,
             false => ApiEndpoint::Local,
         };
+        self
+    }
+
+    pub fn snapshot(mut self, snapshot: Arc<Vec<u8>>) -> Self {
+        self.snapshot = Some(snapshot);
         self
     }
 

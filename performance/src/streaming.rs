@@ -11,6 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::{
+    fs,
     sync::{
         Mutex as TokioMutex, Notify,
         oneshot::{self, Sender},
@@ -228,11 +229,15 @@ async fn send_messages(
     ctx: Arc<Context>,
     register_progress: Option<ProgressBar>,
 ) -> Result<impl Future<Output = Result<()>>> {
-    tester!(bodashery, ephemeral_db, with_dev: ctx.args.dev);
+    let cached_db = Arc::new(fs::read("test.db").await.unwrap());
+    tester!(bodashery, with_dev: ctx.args.dev, snapshot: cached_db);
+
     let dm = bodashery
         .find_or_create_dm_by_inbox_id(inbox_id, None)
         .await?;
     register_progress.inspect(|p| p.inc(1));
+
+    info!("{:?}", bodashery.inbox_id());
 
     Ok(async move {
         for i in 0..ctx.args.count {
