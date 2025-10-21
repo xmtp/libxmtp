@@ -404,13 +404,6 @@ where
                 mutable_metadata,
             ));
 
-        // todo: revise the logic later
-        // let membership_state = if pending_remove_state.unwrap_or(false) {
-        //     GroupMembershipState::PendingRemove
-        // } else {
-        //     GroupMembershipState::Pending
-        // };
-
         let to_store = match conversation_type {
             ConversationType::Group => group
                 .membership_state(GroupMembershipState::Pending)

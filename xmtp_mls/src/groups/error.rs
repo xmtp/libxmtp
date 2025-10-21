@@ -216,7 +216,7 @@ pub enum GroupLeaveValidationError {
     DmLeaveForbidden,
     #[error("cannot leave a group that has only one member")]
     SingleMemberLeaveRejected,
-    #[error("super admin cannot leave a group without, needs to be demoted first")]
+    #[error("super-admin cannot leave a group; must be demoted first")]
     SuperAdminLeaveForbidden,
     #[error("inbox ID already exists in the pending leave list")]
     InboxAlreadyInPendingList,

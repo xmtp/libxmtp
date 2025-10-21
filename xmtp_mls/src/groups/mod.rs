@@ -1193,7 +1193,8 @@ where
 
         let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
 
-        // check if the user is SuperAdmin, in this case since other SuperAdmins are not allowed to remove other SuperAdmins they need to be demoted first
+        // super-admin cannot leave a group; must be demoted first
+        // since SuperAdmins can't remove other SuperAdmins they need to be demoted first
         if is_super_admin {
             return Err(GroupLeaveValidationError::SuperAdminLeaveForbidden.into());
         }
