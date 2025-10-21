@@ -104,6 +104,11 @@ pub struct StoredGroup {
     /// NULL if the remote commit log is not up to date yet
     #[builder(default = None)]
     pub is_commit_log_forked: Option<bool>,
+    /// Whether the pending-remove list is empty
+    /// NULL if the pending-remove didn't receive an update yet
+    #[builder(default = None)]
+    pub has_pending_leave_request: Option<bool>,
+    //todo: store member role?
 }
 
 impl StoredGroupBuilder {
@@ -341,6 +346,16 @@ pub trait QueryGroup {
         &self,
         group_id: &[u8],
     ) -> Result<Option<bool>, StorageError>;
+
+    /// Updates the has_pending_leave_request status for a group
+    fn set_group_has_pending_leave_request_status(
+        &self,
+        group_id: &[u8],
+        has_pending_leave_request: Option<bool>,
+    ) -> Result<(), StorageError>;
+
+    fn get_groups_have_pending_leave_request(&self)
+    -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
 }
 
 impl<T> QueryGroup for &T
@@ -507,6 +522,20 @@ where
         group_id: &[u8],
     ) -> Result<Option<bool>, StorageError> {
         (**self).get_group_commit_log_forked_status(group_id)
+    }
+
+    fn set_group_has_pending_leave_request_status(
+        &self,
+        group_id: &[u8],
+        has_pending_leave_request: Option<bool>,
+    ) -> Result<(), StorageError> {
+        (**self).set_group_has_pending_leave_request_status(group_id, has_pending_leave_request)
+    }
+
+    fn get_groups_have_pending_leave_request(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+        (**self).get_groups_have_pending_leave_request()
     }
 }
 
@@ -1099,6 +1128,34 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })
         .map_err(StorageError::from)
     }
+
+    fn set_group_has_pending_leave_request_status(
+        &self,
+        group_id: &[u8],
+        has_pending_leave_request: Option<bool>,
+    ) -> Result<(), StorageError> {
+        use crate::schema::groups::dsl;
+        self.raw_query_write(|conn| {
+            diesel::update(dsl::groups.find(group_id))
+                .set(dsl::has_pending_leave_request.eq(has_pending_leave_request))
+                .execute(conn)
+        })?;
+        Ok(())
+    }
+
+    fn get_groups_have_pending_leave_request(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+        let query = dsl::groups
+            .filter(
+                dsl::conversation_type
+                    .ne(ConversationType::Sync)
+                    .and(dsl::has_pending_leave_request.eq(Some(true))),
+            )
+            .select(dsl::id);
+
+        self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
+    }
 }
 
 #[repr(i32)]
@@ -1114,6 +1171,8 @@ pub enum GroupMembershipState {
     Pending = 3,
     /// Group has been restored from an archive, but is not active yet.
     Restored = 4,
+    /// User is Pending to get removed of the Group
+    PendingRemove = 5,
 }
 
 impl ToSql<Integer, Sqlite> for GroupMembershipState
@@ -1136,6 +1195,7 @@ where
             2 => Ok(GroupMembershipState::Rejected),
             3 => Ok(GroupMembershipState::Pending),
             4 => Ok(GroupMembershipState::Restored),
+            5 => Ok(GroupMembershipState::PendingRemove),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

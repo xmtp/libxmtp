@@ -1,6 +1,7 @@
 use crate::ConnectionExt;
 use crate::StorageError;
 use crate::association_state::QueryAssociationStateCache;
+use crate::pending_remove::QueryPendingRemove;
 use crate::prelude::*;
 use crate::readd_status::QueryReaddStatus;
 
@@ -80,6 +81,7 @@ pub trait DbQuery:
     + QueryRemoteCommitLog
     + QueryAssociationStateCache
     + QueryReaddStatus
+    + QueryPendingRemove
     + Pragmas
     + crate::ConnectionExt
 {
@@ -105,6 +107,7 @@ impl<T: ?Sized> DbQuery for T where
         + QueryRemoteCommitLog
         + QueryAssociationStateCache
         + QueryReaddStatus
+        + QueryPendingRemove
         + Pragmas
         + crate::ConnectionExt
 {
