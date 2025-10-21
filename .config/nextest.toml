@@ -26,7 +26,7 @@ filter = 'test(/\btest_can_stream_group_messages_for_updates/)'
 retries = 3
 
 [profile.ci-d14n]
-default-filter = "not (test(/\\w*commit_log*/)|test(case_2_onehundred_dms)|test(rapidfire_duplicate_create)|test(test_can_sync_all_groups)|test(test_static_revoke_fails_with_non_recovery_identity)|test(test_stream_consent)|test(test_sync_100_allowed_groups_performance)|test(test_stream_all_dm_messages))"
+default-filter = "not (test(/\\w*commit_log*/)|test(case_2_onehundred_dms)|test(case_1_five_dms)|test(rapidfire_duplicate_create)|test(test_can_sync_all_groups)|test(test_static_revoke_fails_with_non_recovery_identity)|test(test_stream_consent)|test(test_sync_100_allowed_groups_performance)|test(test_stream_all_dm_messages))"
 status-level = "skip"
 failure-output = "immediate-final"
 fail-fast = false

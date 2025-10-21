@@ -36,6 +36,7 @@ pub enum Commands {
     Query(Query),
     Info(InfoOpts),
     Export(ExportOpts),
+    Stream(StreamOpts),
 }
 
 /// Send Data on the network
@@ -174,6 +175,43 @@ pub struct ExportOpts {
     /// File to write to
     #[arg(long, short)]
     pub out: Option<PathBuf>,
+}
+
+/// Stream messages and conversations
+#[derive(Args, Debug)]
+pub struct StreamOpts {
+    /// Indicate the Inbox to stream messages from.
+    /// Defaults to a randomly chosen identity
+    #[arg(long, short)]
+    pub inbox: Option<InboxId>,
+    /// Indicate the kind of stream.
+    #[arg(long, short)]
+    pub kind: StreamKind,
+    /// Indicate format that should be used.
+    #[arg(long, short)]
+    pub format: FormatKind,
+    /// optionally indicate a file to write to.
+    /// Defaults to stdout
+    #[arg(long, short)]
+    pub out: Option<PathBuf>,
+}
+
+#[derive(ValueEnum, Debug, Default, Clone, Copy)]
+pub enum FormatKind {
+    /// output in a JSON Format
+    Json,
+    /// output in a CSV Format
+    #[default]
+    Csv,
+}
+
+#[derive(ValueEnum, Debug, Default, Clone, Copy)]
+pub enum StreamKind {
+    /// Stream only new conversations for this inbox id
+    Conversations,
+    /// Stream only messages for this inbox id
+    #[default]
+    Messages,
 }
 
 #[derive(ValueEnum, Debug, Clone)]

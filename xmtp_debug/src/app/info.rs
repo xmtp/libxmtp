@@ -1,8 +1,8 @@
 //! Get information about xdbg storage
 
+use crate::app::App;
 use crate::app::store::{Database, MetadataStore};
 use crate::args;
-use std::sync::Arc;
 use valuable::Valuable;
 
 use color_eyre::eyre::Result;
@@ -14,12 +14,13 @@ pub struct Info {
 }
 
 impl Info {
-    pub fn new(opts: args::InfoOpts, network: args::BackendOpts, db: Arc<redb::Database>) -> Self {
-        Self {
+    pub fn new(opts: args::InfoOpts, network: args::BackendOpts) -> Result<Self> {
+        let db = App::readonly_db()?;
+        Ok(Self {
             opts,
             network,
             metadata_store: db.into(),
-        }
+        })
     }
 
     pub async fn run(self) -> Result<()> {
@@ -50,7 +51,7 @@ impl Info {
         info!(
             metadata.identities,
             metadata.groups,
-            metadata.messages,
+            // metadata.messages,
             project = crate::app::App::data_directory()?.as_value(),
             sqlite = sqlite_stores.as_value(),
             sqlite_size = %format!("{db_dir_size}MB"),
