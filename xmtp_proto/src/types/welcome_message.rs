@@ -47,6 +47,13 @@ impl WelcomeMessage {
             .timestamp_nanos_opt()
             .expect("timestamp out of range for i64, are we in 2262 A.D?")
     }
+
+    pub fn resuming(&self) -> bool {
+        matches!(
+            &self.variant,
+            WelcomeMessageType::DecryptedWelcomePointer(_)
+        )
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -136,6 +143,48 @@ impl DecryptedWelcomePointer {
     pub fn decode(data: &[u8]) -> Result<Self, ConversionError> {
         let wp = crate::xmtp::mls::message_contents::WelcomePointer::decode(data)?;
         let wp = match wp.version {
+            Some(
+                crate::xmtp::mls::message_contents::welcome_pointer::Version::WelcomeV1Pointer(v1),
+            ) => v1,
+            None => {
+                return Err(ConversionError::InvalidValue {
+                    item: "WelcomePointer",
+                    expected: "WelcomeV1Pointer",
+                    got: "None".into(),
+                });
+            }
+        };
+        Ok(Self {
+            destination: wp.destination.try_into()?,
+            aead_type: wp.aead_type.try_into()?,
+            encryption_key: wp.encryption_key,
+            data_nonce: wp.data_nonce,
+            welcome_metadata_nonce: wp.welcome_metadata_nonce,
+        })
+    }
+    pub fn to_proto(self) -> crate::xmtp::mls::message_contents::WelcomePointer {
+        crate::xmtp::mls::message_contents::WelcomePointer {
+            version: Some(
+                crate::xmtp::mls::message_contents::welcome_pointer::Version::WelcomeV1Pointer(
+                    crate::xmtp::mls::message_contents::welcome_pointer::WelcomeV1Pointer {
+                        destination: self.destination.to_vec(),
+                        aead_type: self.aead_type.into(),
+                        encryption_key: self.encryption_key,
+                        data_nonce: self.data_nonce,
+                        welcome_metadata_nonce: self.welcome_metadata_nonce,
+                    },
+                ),
+            ),
+        }
+    }
+}
+
+impl TryFrom<crate::xmtp::mls::message_contents::WelcomePointer> for DecryptedWelcomePointer {
+    type Error = ConversionError;
+    fn try_from(
+        value: crate::xmtp::mls::message_contents::WelcomePointer,
+    ) -> Result<Self, Self::Error> {
+        let wp = match value.version {
             Some(
                 crate::xmtp::mls::message_contents::welcome_pointer::Version::WelcomeV1Pointer(v1),
             ) => v1,

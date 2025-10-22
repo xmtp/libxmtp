@@ -694,6 +694,24 @@ mock! {
         ) -> Result<Vec<AssociationStateProto>, StorageError>;
     }
 
+    impl QueryTasks for DbQuery {
+        fn create_task(&self, task: crate::tasks::NewTask) -> Result<crate::tasks::Task, StorageError>;
+
+        fn get_tasks(&self) -> Result<Vec<crate::tasks::Task>, StorageError>;
+
+        fn get_next_task(&self) -> Result<Option<crate::tasks::Task>, StorageError>;
+
+        fn update_task(
+            &self,
+            id: i32,
+            attempts: i32,
+            last_attempted_at_ns: i64,
+            next_attempt_at_ns: i64,
+        ) -> Result<crate::tasks::Task, StorageError>;
+
+        fn delete_task(&self, id: i32) -> Result<bool, StorageError>;
+    }
+
     impl Pragmas for DbQuery {
         fn busy_timeout(
             &self,

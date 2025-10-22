@@ -324,6 +324,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 _,
             >(context.clone());
         }
+        workers.register_new_worker::<crate::tasks::TaskWorker<ContextParts<ApiClient, S, Db>>, _>(
+            context.clone(),
+        );
         workers.spawn();
         let client = Client {
             context,
