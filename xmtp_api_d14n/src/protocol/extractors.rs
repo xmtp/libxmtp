@@ -9,6 +9,8 @@ mod group_messages;
 pub use group_messages::*;
 mod identity_updates;
 pub use identity_updates::*;
+mod group_message_metadata;
+pub use group_message_metadata::*;
 mod key_packages;
 pub use key_packages::*;
 mod payloads;

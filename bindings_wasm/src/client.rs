@@ -92,6 +92,35 @@ impl LogOptions {
   }
 }
 
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Clone, serde::Serialize)]
+pub struct GroupSyncSummary {
+  #[wasm_bindgen(js_name = numEligible)]
+  pub num_eligible: u32,
+  #[wasm_bindgen(js_name = numSynced)]
+  pub num_synced: u32,
+}
+
+#[wasm_bindgen]
+impl GroupSyncSummary {
+  #[wasm_bindgen(constructor)]
+  pub fn new(num_eligible: u32, num_synced: u32) -> Self {
+    Self {
+      num_eligible,
+      num_synced,
+    }
+  }
+}
+
+impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for GroupSyncSummary {
+  fn from(summary: xmtp_mls::groups::welcome_sync::GroupSyncSummary) -> Self {
+    Self {
+      num_eligible: summary.num_eligible as u32,
+      num_synced: summary.num_synced as u32,
+    }
+  }
+}
+
 fn init_logging(options: LogOptions) -> Result<(), JsError> {
   LOGGER_INIT
     .get_or_init(|| {
@@ -343,19 +372,15 @@ impl Client {
   }
 
   #[wasm_bindgen(js_name = syncPreferences)]
-  pub async fn sync_preferences(&self) -> Result<u32, JsError> {
+  pub async fn sync_preferences(&self) -> Result<GroupSyncSummary, JsError> {
     let inner = self.inner_client.as_ref();
 
-    let num_groups_synced: usize = inner
+    let summary = inner
       .sync_all_welcomes_and_history_sync_groups()
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
-    let num_groups_synced: u32 = num_groups_synced
-      .try_into()
-      .map_err(|_| JsError::new("Failed to convert usize to u32"))?;
-
-    Ok(num_groups_synced)
+    Ok(summary.into())
   }
 
   #[wasm_bindgen(js_name = apiStatistics)]

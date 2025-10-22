@@ -87,6 +87,24 @@ impl<'env> ProtocolEnvelope<'env> for PayerEnvelope {
     }
 }
 
+impl<'env> ProtocolEnvelope<'env>
+    for xmtp_proto::mls_v1::get_newest_group_message_response::Response
+{
+    type Nested<'a> = ();
+
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    where
+        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
+    {
+        visitor.visit_newest_group_message_response(self)?;
+        Ok(())
+    }
+
+    fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
+        Ok(())
+    }
+}
+
 impl<'env> ProtocolEnvelope<'env> for ClientEnvelope {
     type Nested<'a> = Option<&'a Payload>;
 

@@ -45,6 +45,7 @@ xmtp_common::if_test! {
                 data: xmtp_common::rand_vec::<6>(),
                 sender_hmac: xmtp_common::rand_vec::<6>(),
                 should_push: false,
+                is_commit: false,
             }
         }
     }
