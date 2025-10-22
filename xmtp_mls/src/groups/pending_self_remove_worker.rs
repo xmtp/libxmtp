@@ -148,7 +148,10 @@ where
                 }
             }
             Err(e) => {
-                tracing::error!("Failed to get groups with pending leave requests, error: {:?}", e);
+                tracing::error!(
+                    "Failed to get groups with pending leave requests, error: {:?}",
+                    e
+                );
                 return Err(PendingSelfRemoveWorkerError::Storage(e.into()));
             }
         }
