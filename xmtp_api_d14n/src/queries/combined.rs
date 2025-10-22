@@ -84,6 +84,13 @@ where
     ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
         self.v3_client.query_commit_log(request).await
     }
+
+    async fn get_newest_group_message(
+        &self,
+        request: mls_v1::GetNewestGroupMessageRequest,
+    ) -> Result<Vec<Option<xmtp_proto::types::GroupMessageMetadata>>, Self::Error> {
+        self.xmtpd_client.get_newest_group_message(request).await
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]

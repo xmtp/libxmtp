@@ -25,6 +25,7 @@ pub enum ApiEndpoint {
     HealthCheck,
     GetNodes,
     Path(String),
+    GetNewestGroupMessage,
 }
 
 impl std::fmt::Display for ApiEndpoint {
@@ -51,6 +52,7 @@ impl std::fmt::Display for ApiEndpoint {
             HealthCheck => write!(f, "health_check"),
             GetNodes => write!(f, "get_nodes"),
             Path(s) => write!(f, "{}", s),
+            GetNewestGroupMessage => write!(f, "get_newest_group_message"),
         }
     }
 }
@@ -92,6 +94,10 @@ pub enum ConversionError {
     },
     #[error("decoding proto {0}")]
     Decode(#[from] prost::DecodeError),
+    #[error("encoding proto {0}")]
+    Encode(#[from] prost::EncodeError),
+    #[error("Unknown enum value {0}")]
+    UnknownEnumValue(#[from] prost::UnknownEnumValue),
     // we keep Ed signature bytes on ProtoBuf definitions
     #[error(transparent)]
     EdSignature(#[from] ed25519_dalek::ed25519::Error),

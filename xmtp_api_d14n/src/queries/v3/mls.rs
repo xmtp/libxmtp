@@ -1,4 +1,6 @@
-use crate::protocol::{ProtocolEnvelope, V3WelcomeMessageExtractor};
+use crate::protocol::{
+    CollectionExtractor, MessageMetadataExtractor, ProtocolEnvelope, V3WelcomeMessageExtractor,
+};
 use crate::protocol::{SequencedExtractor, V3GroupMessageExtractor, traits::Extractor};
 use crate::{V3Client, v3::*};
 use xmtp_common::RetryableError;
@@ -6,7 +8,7 @@ use xmtp_configuration::{MAX_PAGE_SIZE, Originators};
 use xmtp_proto::api::{self, ApiClientError, Client, Query};
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1::{self, GroupMessage as ProtoGroupMessage, PagingInfo, SortDirection};
-use xmtp_proto::types::{GroupId, InstallationId, TopicKind, WelcomeMessage};
+use xmtp_proto::types::{GroupId, GroupMessageMetadata, InstallationId, TopicKind, WelcomeMessage};
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -169,5 +171,22 @@ where
             .build()?
             .query(&self.client)
             .await
+    }
+
+    async fn get_newest_group_message(
+        &self,
+        request: mls_v1::GetNewestGroupMessageRequest,
+    ) -> Result<Vec<Option<GroupMessageMetadata>>, Self::Error> {
+        let responses = GetNewestGroupMessage::builder()
+            .group_ids(request.group_ids)
+            .build()?
+            .query(&self.client)
+            .await?;
+
+        let extractor =
+            CollectionExtractor::new(responses.responses, MessageMetadataExtractor::new());
+        let responses = extractor.get()?;
+
+        Ok(responses)
     }
 }

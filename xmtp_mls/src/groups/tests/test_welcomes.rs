@@ -34,7 +34,7 @@ async fn test_welcome_cursor() {
     alix2.sync_welcomes().await?;
     let alix2_refresh_state = alix2.context.db().latest_cursor_for_id(
         &group.group_id,
-        &[EntityKind::ApplicationMessage],
+        &[EntityKind::CommitMessage],
         None,
     )?;
 

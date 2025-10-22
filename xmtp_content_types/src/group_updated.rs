@@ -68,6 +68,7 @@ pub(crate) mod tests {
             removed_inboxes: vec![],
             left_inboxes: vec![],
             metadata_field_changes: vec![],
+            left_inboxes: vec![],
         };
 
         let encoded = GroupUpdatedCodec::encode(data).unwrap();

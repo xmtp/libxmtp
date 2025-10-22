@@ -87,6 +87,24 @@ impl<'env> ProtocolEnvelope<'env> for PayerEnvelope {
     }
 }
 
+impl<'env> ProtocolEnvelope<'env>
+    for xmtp_proto::mls_v1::get_newest_group_message_response::Response
+{
+    type Nested<'a> = ();
+
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    where
+        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
+    {
+        visitor.visit_newest_group_message_response(self)?;
+        Ok(())
+    }
+
+    fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
+        Ok(())
+    }
+}
+
 impl<'env> ProtocolEnvelope<'env> for ClientEnvelope {
     type Nested<'a> = Option<&'a Payload>;
 
@@ -205,9 +223,9 @@ impl<'env> ProtocolEnvelope<'env> for WelcomeMessageVersion {
     {
         visitor.visit_welcome_message_version(self)?;
         match self {
-            WelcomeMessageVersion::V1(v1) => visitor.visit_welcome_message_v1(v1),
-            WelcomeMessageVersion::WelcomePointer(_) => todo!("Handle WelcomePointer"),
-        }?;
+            WelcomeMessageVersion::V1(v1) => visitor.visit_welcome_message_v1(v1)?,
+            WelcomeMessageVersion::WelcomePointer(wp) => visitor.visit_welcome_pointer(wp)?,
+        }
         Ok(())
     }
 
@@ -414,7 +432,7 @@ impl<'env> ProtocolEnvelope<'env> for welcome_message::Version {
     {
         match self {
             welcome_message::Version::V1(v1) => visitor.visit_v3_welcome_message(v1)?,
-            welcome_message::Version::WelcomePointer(_) => todo!("Handle WelcomePointer"),
+            welcome_message::Version::WelcomePointer(wp) => visitor.visit_v3_welcome_pointer(wp)?,
         }
         Ok(())
     }

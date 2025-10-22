@@ -1,10 +1,15 @@
 use chrono::{DateTime, Utc};
 use xmtp_proto::ConversionError;
-use xmtp_proto::types::{Cursor, InstallationId, WelcomeMessage, WelcomeMessageBuilder};
+use xmtp_proto::types::{
+    Cursor, WelcomeMessage, WelcomeMessageBuilder, WelcomeMessageV1, WelcomePointer,
+};
 
 use crate::protocol::traits::EnvelopeVisitor;
 use crate::protocol::{ExtractionError, Extractor};
-use xmtp_proto::mls_v1::welcome_message_input::V1 as WelcomeMessageV1;
+use xmtp_proto::mls_v1::welcome_message::WelcomePointer as V3ProtoWelcomePointer;
+use xmtp_proto::mls_v1::welcome_message_input::{
+    V1 as ProtoWelcomeMessageV1, WelcomePointer as WelcomeMessageWelcomePointer,
+};
 use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
 
 /// Type to extract a Welcome Message from Originator Envelopes
@@ -52,14 +57,34 @@ impl EnvelopeVisitor<'_> for WelcomeMessageExtractor {
         Ok(())
     }
 
-    fn visit_welcome_message_v1(&mut self, message: &WelcomeMessageV1) -> Result<(), Self::Error> {
-        let mut wm = WelcomeMessageBuilder::default();
-        wm.installation_key(InstallationId::try_from(message.installation_key.clone())?)
-            .data(message.data.clone())
-            .hpke_public_key(message.hpke_public_key.clone())
-            .wrapper_algorithm(message.wrapper_algorithm)
-            .welcome_metadata(message.welcome_metadata.clone());
-        self.welcome_message = Some(wm);
+    fn visit_welcome_message_v1(
+        &mut self,
+        message: &ProtoWelcomeMessageV1,
+    ) -> Result<(), Self::Error> {
+        let mut builder = WelcomeMessage::builder();
+        builder.variant(WelcomeMessageV1 {
+            installation_key: message.installation_key.as_slice().try_into()?,
+            data: message.data.clone(),
+            hpke_public_key: message.hpke_public_key.clone(),
+            wrapper_algorithm: message.wrapper_algorithm.try_into()?,
+            welcome_metadata: message.welcome_metadata.clone(),
+        });
+        self.welcome_message = Some(builder);
+        Ok(())
+    }
+
+    fn visit_welcome_pointer(
+        &mut self,
+        message: &WelcomeMessageWelcomePointer,
+    ) -> Result<(), Self::Error> {
+        let mut builder = WelcomeMessage::builder();
+        builder.variant(WelcomePointer {
+            installation_key: message.installation_key.as_slice().try_into()?,
+            welcome_pointer: message.welcome_pointer.clone(),
+            hpke_public_key: message.hpke_public_key.clone(),
+            wrapper_algorithm: message.wrapper_algorithm.try_into()?,
+        });
+        self.welcome_message = Some(builder);
         Ok(())
     }
 }
@@ -92,17 +117,45 @@ impl EnvelopeVisitor<'_> for V3WelcomeMessageExtractor {
                 sequence_id: message.id,
             })
             .created_ns(DateTime::from_timestamp_nanos(message.created_ns as i64))
-            .installation_key(InstallationId::try_from(message.installation_key.clone())?)
-            .data(message.data.clone())
-            .hpke_public_key(message.hpke_public_key.clone())
-            .wrapper_algorithm(message.wrapper_algorithm)
-            .welcome_metadata(message.welcome_metadata.clone());
+            .variant(
+                WelcomeMessageV1::builder()
+                    .installation_key(message.installation_key.as_slice().try_into()?)
+                    .data(message.data.clone())
+                    .hpke_public_key(message.hpke_public_key.clone())
+                    .wrapper_algorithm(message.wrapper_algorithm.try_into()?)
+                    .welcome_metadata(message.welcome_metadata.clone())
+                    .build()?,
+            );
+        Ok(())
+    }
+
+    fn visit_v3_welcome_pointer(
+        &mut self,
+        message: &V3ProtoWelcomePointer,
+    ) -> Result<(), Self::Error> {
+        let originator_node_id = xmtp_configuration::Originators::WELCOME_MESSAGES;
+        self.welcome_message
+            .cursor(Cursor {
+                originator_id: originator_node_id,
+                sequence_id: message.id,
+            })
+            .created_ns(DateTime::from_timestamp_nanos(message.created_ns as i64))
+            .variant(
+                WelcomePointer::builder()
+                    .installation_key(message.installation_key.as_slice().try_into()?)
+                    .welcome_pointer(message.welcome_pointer.clone())
+                    .hpke_public_key(message.hpke_public_key.clone())
+                    .wrapper_algorithm(message.wrapper_algorithm.try_into()?)
+                    .build()?,
+            );
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use xmtp_proto::xmtp::mls::message_contents::WelcomeWrapperAlgorithm;
+
     use super::*;
     use crate::protocol::ProtocolEnvelope;
     use crate::protocol::extractors::test_utils::*;
@@ -121,7 +174,7 @@ mod tests {
                 installation_key.clone(),
                 data.clone(),
                 hpke_public_key.clone(),
-                1,
+                WelcomeWrapperAlgorithm::XwingMlkem768Draft6.into(),
                 vec![1, 2, 3],
             )
             .build();
@@ -139,10 +192,14 @@ mod tests {
             }
         );
         assert_eq!(msg.created_ns.timestamp_nanos_opt().unwrap(), 789);
-        assert_eq!(msg.installation_key, installation_key);
-        assert_eq!(msg.data, data);
-        assert_eq!(msg.hpke_public_key, hpke_public_key);
-        assert_eq!(msg.wrapper_algorithm, 1);
-        assert_eq!(msg.welcome_metadata, vec![1, 2, 3]);
+        let v1 = msg.as_v1().unwrap();
+        assert_eq!(v1.installation_key, installation_key);
+        assert_eq!(v1.data, data);
+        assert_eq!(v1.hpke_public_key, hpke_public_key);
+        assert_eq!(
+            v1.wrapper_algorithm,
+            WelcomeWrapperAlgorithm::XwingMlkem768Draft6
+        );
+        assert_eq!(v1.welcome_metadata, vec![1, 2, 3]);
     }
 }

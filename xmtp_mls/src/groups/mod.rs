@@ -20,6 +20,7 @@ pub mod summary;
 #[cfg(test)]
 mod tests;
 pub mod validated_commit;
+pub mod welcome_pointer;
 pub mod welcome_sync;
 mod welcomes;
 pub use welcomes::*;
@@ -691,9 +692,7 @@ where
         let now = now_ns();
         let plain_envelope = envelope(now);
         let mut encoded_envelope = vec![];
-        plain_envelope
-            .encode(&mut encoded_envelope)
-            .map_err(GroupError::EncodeError)?;
+        plain_envelope.encode(&mut encoded_envelope)?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         let queryable_content_fields: QueryableContentFields =

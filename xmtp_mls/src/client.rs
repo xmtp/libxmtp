@@ -1,4 +1,5 @@
 use crate::{
+    groups::welcome_sync::GroupSyncSummary,
     identity_updates::{batch_get_association_state_with_verifier, get_creation_signature_kind},
     messages::{
         decoded_message::DecodedMessage,
@@ -860,7 +861,7 @@ where
     pub async fn sync_all_groups(
         &self,
         groups: Vec<MlsGroup<Context>>,
-    ) -> Result<usize, GroupError> {
+    ) -> Result<GroupSyncSummary, GroupError> {
         WelcomeService::new(self.context.clone())
             .sync_all_groups(groups)
             .await
@@ -871,13 +872,15 @@ where
     pub async fn sync_all_welcomes_and_groups(
         &self,
         consent_states: Option<Vec<ConsentState>>,
-    ) -> Result<usize, GroupError> {
+    ) -> Result<GroupSyncSummary, GroupError> {
         WelcomeService::new(self.context.clone())
             .sync_all_welcomes_and_groups(consent_states)
             .await
     }
 
-    pub async fn sync_all_welcomes_and_history_sync_groups(&self) -> Result<usize, ClientError> {
+    pub async fn sync_all_welcomes_and_history_sync_groups(
+        &self,
+    ) -> Result<GroupSyncSummary, ClientError> {
         self.sync_welcomes().await?;
         let groups = self
             .context
@@ -894,9 +897,8 @@ where
                 )
             })
             .collect();
-        let active_groups_count = self.sync_all_groups(groups).await?;
 
-        Ok(active_groups_count)
+        Ok(self.sync_all_groups(groups).await?)
     }
 
     /**
@@ -1054,12 +1056,12 @@ pub(crate) mod tests {
 
         let installation_public_key = client.installation_public_key().to_vec();
         // Get original KeyPackage.
-        let kp1 = client
+        let mut kp1 = client
             .get_key_packages_for_installation_ids(vec![installation_public_key.clone()])
             .await
             .unwrap();
         assert_eq!(kp1.len(), 1);
-        let binding = kp1[&installation_public_key].clone().unwrap();
+        let binding = kp1.remove(&installation_public_key).unwrap().unwrap();
         let init1 = binding.inner.hpke_init_key();
         let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
         assert!(fetched_identity.next_key_package_rotation_ns.is_some());
@@ -1071,12 +1073,12 @@ pub(crate) mod tests {
 
         xmtp_common::time::sleep(std::time::Duration::from_secs(11)).await;
 
-        let kp2 = client
+        let mut kp2 = client
             .get_key_packages_for_installation_ids(vec![installation_public_key.clone()])
             .await
             .unwrap();
         assert_eq!(kp2.len(), 1);
-        let binding = kp2[&installation_public_key].clone().unwrap();
+        let binding = kp2.remove(&installation_public_key).unwrap().unwrap();
         let init2 = binding.inner.hpke_init_key();
 
         assert_ne!(init1, init2);
@@ -1300,7 +1302,8 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        bo.sync_all_groups(bo_groups).await.unwrap();
+        let summary = bo.sync_all_groups(bo_groups).await.unwrap();
+        assert_eq!(summary.num_synced, 2);
 
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages1.len(), 2);
@@ -1329,11 +1332,11 @@ pub(crate) mod tests {
 
         // Initial sync (None): Bob should fetch both groups
         let bob_received_groups = bo.sync_all_welcomes_and_groups(None).await.unwrap();
-        assert_eq!(bob_received_groups, 2);
+        assert_eq!(bob_received_groups.num_synced, 0);
 
         xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
-        // Verify Bob initially has no messages
+        // Verify Bo initially has no messages
         let bo_group1 = bo.group(&alix_bo_group1.group_id.clone()).unwrap();
         assert_eq!(
             bo_group1
@@ -1366,7 +1369,7 @@ pub(crate) mod tests {
             .sync_all_welcomes_and_groups(Some([ConsentState::Allowed].to_vec()))
             .await
             .unwrap();
-        assert_eq!(bob_received_groups_unknown, 0);
+        assert_eq!(bob_received_groups_unknown.num_synced, 0);
 
         // Verify Bob still has no messages
         assert_eq!(
@@ -1395,11 +1398,11 @@ pub(crate) mod tests {
             .unwrap();
 
         // Sync with `None`: Bob should fetch all messages
-        let bob_received_groups_all = bo
+        let bo_sync_summary = bo
             .sync_all_welcomes_and_groups(Some([ConsentState::Unknown].to_vec()))
             .await
             .unwrap();
-        assert_eq!(bob_received_groups_all, 2);
+        assert_eq!(bo_sync_summary.num_synced, 2);
 
         // Verify Bob now has all messages
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
@@ -1451,14 +1454,8 @@ pub(crate) mod tests {
         );
 
         let start = xmtp_common::time::Instant::now();
-        let synced_count = bo.sync_all_welcomes_and_groups(None).await.unwrap();
+        bo.sync_all_welcomes_and_groups(None).await.unwrap();
         let elapsed = start.elapsed();
-
-        assert_eq!(
-            synced_count, group_count,
-            "Expected {} groups synced, got {}",
-            group_count, synced_count
-        );
 
         println!(
             "Synced {} groups in {:?} (avg per group: {:?})",
@@ -1534,20 +1531,17 @@ pub(crate) mod tests {
         client: &Client<Context>,
         installation_id: Id,
     ) -> Result<Vec<u8>, IdentityError> {
-        let kps_map = client
+        let mut kps_map = client
             .get_key_packages_for_installation_ids(vec![installation_id.as_ref().to_vec()])
             .await
             .map_err(|_| IdentityError::NewIdentity("Failed to fetch key packages".to_string()))?;
 
-        let kp_result = kps_map
-            .get(installation_id.as_ref())
-            .ok_or_else(|| {
-                IdentityError::NewIdentity(format!(
-                    "Missing key package for {}",
-                    hex::encode(installation_id.as_ref())
-                ))
-            })?
-            .clone()?;
+        let kp_result = kps_map.remove(installation_id.as_ref()).ok_or_else(|| {
+            IdentityError::NewIdentity(format!(
+                "Missing key package for {}",
+                hex::encode(installation_id.as_ref())
+            ))
+        })??;
 
         serialize_key_package_hash_ref(&kp_result.inner, &client.context.mls_provider())
     }

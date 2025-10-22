@@ -8,10 +8,15 @@ use xmtp_proto::xmtp::mls::api::v1::GroupMessageInput;
 use xmtp_proto::xmtp::mls::api::v1::UploadKeyPackageRequest;
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessageInput;
 use xmtp_proto::xmtp::mls::api::v1::{
+    get_newest_group_message_response,
     group_message::V1 as V3GroupMessage,
     group_message_input::{V1 as GroupMessageV1, Version as GroupMessageVersion},
     welcome_message::V1 as V3WelcomeMessage,
-    welcome_message_input::{V1 as WelcomeMessageV1, Version as WelcomeMessageVersion},
+    welcome_message::WelcomePointer as V3WelcomePointer,
+    welcome_message_input::{
+        V1 as WelcomeMessageV1, Version as WelcomeMessageVersion,
+        WelcomePointer as WelcomeMessageWelcomePointer,
+    },
 };
 use xmtp_proto::xmtp::xmtpv4::envelopes::{
     ClientEnvelope, OriginatorEnvelope, PayerEnvelope, UnsignedOriginatorEnvelope,
@@ -93,6 +98,15 @@ pub trait EnvelopeVisitor<'env> {
         Ok(())
     }
 
+    /// Visit a Welcome Pointer
+    fn visit_welcome_pointer(
+        &mut self,
+        _m: &WelcomeMessageWelcomePointer,
+    ) -> Result<(), Self::Error> {
+        tracing::trace!("noop_visit_welcome_pointer");
+        Ok(())
+    }
+
     fn visit_v3_group_message(&mut self, _m: &V3GroupMessage) -> Result<(), Self::Error> {
         tracing::trace!("noop_visit_v3_group_message");
         Ok(())
@@ -100,6 +114,11 @@ pub trait EnvelopeVisitor<'env> {
 
     fn visit_v3_welcome_message(&mut self, _m: &V3WelcomeMessage) -> Result<(), Self::Error> {
         tracing::trace!("noop_visit_v3_welcome_message");
+        Ok(())
+    }
+
+    fn visit_v3_welcome_pointer(&mut self, _m: &V3WelcomePointer) -> Result<(), Self::Error> {
+        tracing::trace!("noop_visit_v3_welcome_pointer");
         Ok(())
     }
 
@@ -169,6 +188,14 @@ pub trait EnvelopeVisitor<'env> {
         _r: &SubscribeWelcomeMessagesFilter,
     ) -> Result<(), Self::Error> {
         tracing::trace!("noop_visit_subscribe_group_messages_request");
+        Ok(())
+    }
+
+    fn visit_newest_group_message_response(
+        &mut self,
+        _u: &get_newest_group_message_response::Response,
+    ) -> Result<(), Self::Error> {
+        tracing::trace!("noop_visit_newest_group_message_response");
         Ok(())
     }
 

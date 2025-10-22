@@ -124,8 +124,10 @@ pub enum GroupError {
     CommitValidation(#[from] CommitValidationError),
     #[error("identity error: {0}")]
     Identity(#[from] IdentityError),
-    #[error("serialization error: {0}")]
-    EncodeError(#[from] prost::EncodeError),
+    #[error("conversion error: {0}")]
+    ConversionError(#[from] xmtp_proto::ConversionError),
+    #[error("crypto error: {0}")]
+    CryptoError(#[from] openmls::prelude::CryptoError),
     #[error("create group context proposal error: {0}")]
     CreateGroupContextExtProposalError(
         #[from] CreateGroupContextExtProposalError<sql_key_store::SqlKeyStoreError>,
@@ -180,6 +182,18 @@ pub enum GroupError {
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
     #[error(transparent)]
     EnrichMessage(#[from] EnrichMessageError),
+}
+
+impl From<prost::EncodeError> for GroupError {
+    fn from(value: prost::EncodeError) -> Self {
+        GroupError::ConversionError(value.into())
+    }
+}
+
+impl From<prost::DecodeError> for GroupError {
+    fn from(value: prost::DecodeError) -> Self {
+        GroupError::ConversionError(value.into())
+    }
 }
 
 impl From<SyncSummary> for GroupError {
@@ -308,7 +322,8 @@ impl RetryableError for GroupError {
             | Self::AddressValidation(_)
             | Self::InvalidPublicKeys(_)
             | Self::CredentialError(_)
-            | Self::EncodeError(_)
+            | Self::ConversionError(_)
+            | Self::CryptoError(_)
             | Self::TooManyCharacters { .. }
             | Self::GroupPausedUntilUpdate(_)
             | Self::GroupInactive
