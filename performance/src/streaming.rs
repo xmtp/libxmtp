@@ -172,7 +172,7 @@ async fn monitor_messages(tx: Sender<String>, ctx: Arc<Context>, ready: Arc<Noti
     ready.notify_one();
 
     #[allow(unused)]
-    while let Some(Ok(msg)) = timeout(grace_period, stream.next())
+    while let Some(msg) = timeout(grace_period, stream.next())
         .await
         .inspect_err(|_| {
             if let Some(start) = start {
@@ -182,18 +182,27 @@ async fn monitor_messages(tx: Sender<String>, ctx: Arc<Context>, ready: Arc<Noti
             error!("Timed out")
         })?
     {
+        let msg = match msg {
+            Ok(msg) => msg,
+            Err(err) => {
+                tracing::error!("{err:?}");
+                break;
+            }
+        };
+
         if start.is_none() {
             start = Some(Instant::now());
         }
 
         let i = ctx.msg_rx.fetch_add(1, Ordering::SeqCst) + 1;
         if i == total {
-            if let Some(start) = start {
-                let elapsed = start.elapsed();
-                *ctx.receive_duration.lock() = Some(elapsed);
-            }
             break;
         }
+    }
+
+    if let Some(start) = start {
+        let elapsed = start.elapsed();
+        *ctx.receive_duration.lock() = Some(elapsed);
     }
 
     Ok(())
