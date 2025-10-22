@@ -94,7 +94,8 @@ class Dm(
 
     suspend fun send(text: String): String =
         withContext(Dispatchers.IO) {
-            send(encodeContent(content = text, options = null))
+            val (encodedContent, opts) = encodeContent(content = text, options = null)
+            send(encodedContent, opts)
         }
 
     suspend fun <T> send(
@@ -102,20 +103,27 @@ class Dm(
         options: SendOptions? = null,
     ): String =
         withContext(Dispatchers.IO) {
-            val preparedMessage = encodeContent(content = content, options = options)
-            send(preparedMessage)
+            val (encodedContent, opts) = encodeContent(content = content, options = options)
+            send(encodedContent, opts)
         }
 
-    suspend fun send(encodedContent: EncodedContent): String =
+    suspend fun send(
+        encodedContent: EncodedContent,
+        opts: MessageVisibilityOptions = MessageVisibilityOptions(shouldPush = true),
+    ): String =
         withContext(Dispatchers.IO) {
-            val messageId = libXMTPGroup.send(contentBytes = encodedContent.toByteArray())
+            val messageId =
+                libXMTPGroup.send(
+                    contentBytes = encodedContent.toByteArray(),
+                    opts = opts.toFfi(),
+                )
             messageId.toHex()
         }
 
     fun <T> encodeContent(
         content: T,
         options: SendOptions?,
-    ): EncodedContent {
+    ): Pair<EncodedContent, MessageVisibilityOptions> {
         val codec = Client.codecRegistry.find(options?.contentType)
 
         fun <Codec : ContentCodec<T>> encode(
@@ -124,7 +132,8 @@ class Dm(
         ): EncodedContent = codec.encode(content)
         try {
             @Suppress("UNCHECKED_CAST")
-            var encoded = encode(codec as ContentCodec<T>, content)
+            val typedCodec = codec as ContentCodec<T>
+            var encoded = encode(typedCodec, content)
             val fallback = codec.fallback(content)
             if (!fallback.isNullOrBlank()) {
                 encoded = encoded.toBuilder().also { it.fallback = fallback }.build()
@@ -133,15 +142,19 @@ class Dm(
             if (compression != null) {
                 encoded = encoded.compress(compression)
             }
-            return encoded
+            val sendOpts = MessageVisibilityOptions(shouldPush = typedCodec.shouldPush(content))
+            return Pair(encoded, sendOpts)
         } catch (e: Exception) {
             throw XMTPException("Codec type is not registered")
         }
     }
 
-    suspend fun prepareMessage(encodedContent: EncodedContent): String =
+    suspend fun prepareMessage(
+        encodedContent: EncodedContent,
+        opts: MessageVisibilityOptions = MessageVisibilityOptions(shouldPush = true),
+    ): String =
         withContext(Dispatchers.IO) {
-            libXMTPGroup.sendOptimistic(encodedContent.toByteArray()).toHex()
+            libXMTPGroup.sendOptimistic(encodedContent.toByteArray(), opts.toFfi()).toHex()
         }
 
     suspend fun <T> prepareMessage(
@@ -149,8 +162,8 @@ class Dm(
         options: SendOptions? = null,
     ): String =
         withContext(Dispatchers.IO) {
-            val encodeContent = encodeContent(content = content, options = options)
-            libXMTPGroup.sendOptimistic(encodeContent.toByteArray()).toHex()
+            val (encodedContent, opts) = encodeContent(content = content, options = options)
+            libXMTPGroup.sendOptimistic(encodedContent.toByteArray(), opts.toFfi()).toHex()
         }
 
     suspend fun publishMessages() = withContext(Dispatchers.IO) { libXMTPGroup.publishMessages() }
@@ -180,6 +193,7 @@ class Dm(
         direction: SortDirection = SortDirection.DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
         excludeContentTypes: List<FfiContentType>? = null,
+        excludeSenderInboxIds: List<String>? = null,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             libXMTPGroup
@@ -211,6 +225,7 @@ class Dm(
                                 },
                             contentTypes = null,
                             excludeContentTypes = excludeContentTypes,
+                            excludeSenderInboxIds = excludeSenderInboxIds,
                         ),
                 ).mapNotNull { DecodedMessage.create(it) }
         }
@@ -220,6 +235,7 @@ class Dm(
         afterNs: Long? = null,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
         excludeContentTypes: List<FfiContentType>? = null,
+        excludeSenderInboxIds: List<String>? = null,
     ): Long =
         withContext(Dispatchers.IO) {
             libXMTPGroup.countMessages(
@@ -244,6 +260,7 @@ class Dm(
                         direction = null,
                         contentTypes = null,
                         excludeContentTypes = excludeContentTypes,
+                        excludeSenderInboxIds = excludeSenderInboxIds,
                     ),
             )
         }
@@ -255,55 +272,11 @@ class Dm(
         direction: SortDirection = SortDirection.DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
         excludeContentTypes: List<FfiContentType>? = null,
+        excludeSenderInboxIds: List<String>? = null,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             val ffiMessageWithReactions =
                 libXMTPGroup.findMessagesWithReactions(
-                    opts =
-                        FfiListMessagesOptions(
-                            sentBeforeNs = beforeNs,
-                            sentAfterNs = afterNs,
-                            limit = limit?.toLong(),
-                            deliveryStatus =
-                                when (deliveryStatus) {
-                                    MessageDeliveryStatus.PUBLISHED ->
-                                        FfiDeliveryStatus.PUBLISHED
-
-                                    MessageDeliveryStatus.UNPUBLISHED ->
-                                        FfiDeliveryStatus.UNPUBLISHED
-
-                                    MessageDeliveryStatus.FAILED ->
-                                        FfiDeliveryStatus.FAILED
-
-                                    else -> null
-                                },
-                            when (direction) {
-                                SortDirection.ASCENDING ->
-                                    FfiDirection.ASCENDING
-
-                                else -> FfiDirection.DESCENDING
-                            },
-                            contentTypes = null,
-                            excludeContentTypes = excludeContentTypes,
-                        ),
-                )
-
-            ffiMessageWithReactions.mapNotNull { ffiMessageWithReaction ->
-                DecodedMessage.create(ffiMessageWithReaction)
-            }
-        }
-
-    suspend fun enrichedMessages(
-        limit: Int? = null,
-        beforeNs: Long? = null,
-        afterNs: Long? = null,
-        direction: SortDirection = SortDirection.DESCENDING,
-        deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
-        excludeContentTypes: List<FfiContentType>? = null,
-    ): List<DecodedMessageV2> =
-        withContext(Dispatchers.IO) {
-            libXMTPGroup
-                .findMessagesV2(
                     opts =
                         FfiListMessagesOptions(
                             sentBeforeNs = beforeNs,
@@ -331,6 +304,55 @@ class Dm(
                                 },
                             contentTypes = null,
                             excludeContentTypes = excludeContentTypes,
+                            excludeSenderInboxIds = excludeSenderInboxIds,
+                        ),
+                )
+
+            ffiMessageWithReactions.mapNotNull { ffiMessageWithReaction ->
+                DecodedMessage.create(ffiMessageWithReaction)
+            }
+        }
+
+    suspend fun enrichedMessages(
+        limit: Int? = null,
+        beforeNs: Long? = null,
+        afterNs: Long? = null,
+        direction: SortDirection = SortDirection.DESCENDING,
+        deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
+        excludeContentTypes: List<FfiContentType>? = null,
+        excludeSenderInboxIds: List<String>? = null,
+    ): List<DecodedMessageV2> =
+        withContext(Dispatchers.IO) {
+            libXMTPGroup
+                .findEnrichedMessages(
+                    opts =
+                        FfiListMessagesOptions(
+                            sentBeforeNs = beforeNs,
+                            sentAfterNs = afterNs,
+                            limit = limit?.toLong(),
+                            deliveryStatus =
+                                when (deliveryStatus) {
+                                    MessageDeliveryStatus.PUBLISHED ->
+                                        FfiDeliveryStatus.PUBLISHED
+
+                                    MessageDeliveryStatus.UNPUBLISHED ->
+                                        FfiDeliveryStatus.UNPUBLISHED
+
+                                    MessageDeliveryStatus.FAILED ->
+                                        FfiDeliveryStatus.FAILED
+
+                                    else -> null
+                                },
+                            direction =
+                                when (direction) {
+                                    SortDirection.ASCENDING ->
+                                        FfiDirection.ASCENDING
+
+                                    else -> FfiDirection.DESCENDING
+                                },
+                            contentTypes = null,
+                            excludeContentTypes = excludeContentTypes,
+                            excludeSenderInboxIds = excludeSenderInboxIds,
                         ),
                 ).mapNotNull { DecodedMessageV2.create(it) }
         }

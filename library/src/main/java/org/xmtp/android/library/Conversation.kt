@@ -181,11 +181,14 @@ sealed class Conversation {
             }
         }
 
-    suspend fun prepareMessage(encodedContent: EncodedContent): String =
+    suspend fun prepareMessage(
+        encodedContent: EncodedContent,
+        opts: MessageVisibilityOptions = MessageVisibilityOptions(shouldPush = true),
+    ): String =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
-                is Group -> group.prepareMessage(encodedContent)
-                is Dm -> dm.prepareMessage(encodedContent)
+                is Group -> group.prepareMessage(encodedContent, opts)
+                is Dm -> dm.prepareMessage(encodedContent, opts)
             }
         }
 
@@ -200,11 +203,14 @@ sealed class Conversation {
             }
         }
 
-    suspend fun send(encodedContent: EncodedContent): String =
+    suspend fun send(
+        encodedContent: EncodedContent,
+        opts: MessageVisibilityOptions = MessageVisibilityOptions(shouldPush = true),
+    ): String =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
-                is Group -> group.send(encodedContent)
-                is Dm -> dm.send(encodedContent)
+                is Group -> group.send(encodedContent, opts)
+                is Dm -> dm.send(encodedContent, opts)
             }
         }
 
@@ -232,11 +238,30 @@ sealed class Conversation {
         deliveryStatus: DecodedMessage.MessageDeliveryStatus =
             DecodedMessage.MessageDeliveryStatus.ALL,
         excludedContentTypes: List<FfiContentType>? = null,
+        excludeSenderInboxIds: List<String>? = null,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
-                is Group -> group.messages(limit, beforeNs, afterNs, direction, deliveryStatus, excludedContentTypes)
-                is Dm -> dm.messages(limit, beforeNs, afterNs, direction, deliveryStatus, excludedContentTypes)
+                is Group ->
+                    group.messages(
+                        limit,
+                        beforeNs,
+                        afterNs,
+                        direction,
+                        deliveryStatus,
+                        excludedContentTypes,
+                        excludeSenderInboxIds,
+                    )
+                is Dm ->
+                    dm.messages(
+                        limit,
+                        beforeNs,
+                        afterNs,
+                        direction,
+                        deliveryStatus,
+                        excludedContentTypes,
+                        excludeSenderInboxIds,
+                    )
             }
         }
 
@@ -246,11 +271,26 @@ sealed class Conversation {
         deliveryStatus: DecodedMessage.MessageDeliveryStatus =
             DecodedMessage.MessageDeliveryStatus.ALL,
         excludedContentTypes: List<FfiContentType>? = null,
+        excludeSenderInboxIds: List<String>? = null,
     ): Long =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
-                is Group -> group.countMessages(beforeNs, afterNs, deliveryStatus, excludedContentTypes)
-                is Dm -> dm.countMessages(beforeNs, afterNs, deliveryStatus, excludedContentTypes)
+                is Group ->
+                    group.countMessages(
+                        beforeNs,
+                        afterNs,
+                        deliveryStatus,
+                        excludedContentTypes,
+                        excludeSenderInboxIds,
+                    )
+                is Dm ->
+                    dm.countMessages(
+                        beforeNs,
+                        afterNs,
+                        deliveryStatus,
+                        excludedContentTypes,
+                        excludeSenderInboxIds,
+                    )
             }
         }
 
@@ -262,6 +302,7 @@ sealed class Conversation {
         deliveryStatus: DecodedMessage.MessageDeliveryStatus =
             DecodedMessage.MessageDeliveryStatus.ALL,
         excludedContentTypes: List<FfiContentType>? = null,
+        excludeSenderInboxIds: List<String>? = null,
     ): List<DecodedMessageV2> =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
@@ -273,10 +314,19 @@ sealed class Conversation {
                         direction,
                         deliveryStatus,
                         excludedContentTypes,
+                        excludeSenderInboxIds,
                     )
 
                 is Dm ->
-                    dm.enrichedMessages(limit, beforeNs, afterNs, direction, deliveryStatus, excludedContentTypes)
+                    dm.enrichedMessages(
+                        limit,
+                        beforeNs,
+                        afterNs,
+                        direction,
+                        deliveryStatus,
+                        excludedContentTypes,
+                        excludeSenderInboxIds,
+                    )
             }
         }
 
@@ -288,6 +338,7 @@ sealed class Conversation {
         deliveryStatus: DecodedMessage.MessageDeliveryStatus =
             DecodedMessage.MessageDeliveryStatus.ALL,
         excludedContentTypes: List<FfiContentType>? = null,
+        excludeSenderInboxIds: List<String>? = null,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
@@ -299,6 +350,7 @@ sealed class Conversation {
                         direction,
                         deliveryStatus,
                         excludedContentTypes,
+                        excludeSenderInboxIds,
                     )
 
                 is Dm ->
@@ -309,6 +361,7 @@ sealed class Conversation {
                         direction,
                         deliveryStatus,
                         excludedContentTypes,
+                        excludeSenderInboxIds,
                     )
             }
         }

@@ -1100,9 +1100,9 @@ internal interface IntegrityCheckingUniffiLib : Library {
 
     fun uniffi_xmtpv3_checksum_method_fficonversation_find_duplicate_dms(): Short
 
-    fun uniffi_xmtpv3_checksum_method_fficonversation_find_messages(): Short
+    fun uniffi_xmtpv3_checksum_method_fficonversation_find_enriched_messages(): Short
 
-    fun uniffi_xmtpv3_checksum_method_fficonversation_find_messages_v2(): Short
+    fun uniffi_xmtpv3_checksum_method_fficonversation_find_messages(): Short
 
     fun uniffi_xmtpv3_checksum_method_fficonversation_find_messages_with_reactions(): Short
 
@@ -1332,6 +1332,8 @@ internal interface IntegrityCheckingUniffiLib : Library {
 
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_dm_conversation(): Short
 
+    fun uniffi_xmtpv3_checksum_method_ffixmtpclient_enriched_message(): Short
+
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_find_inbox_id(): Short
 
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_get_consent_state(): Short
@@ -1349,8 +1351,6 @@ internal interface IntegrityCheckingUniffiLib : Library {
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_installation_id(): Short
 
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_message(): Short
-
-    fun uniffi_xmtpv3_checksum_method_ffixmtpclient_message_v2(): Short
 
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_register_identity(): Short
 
@@ -1534,16 +1534,16 @@ internal interface UniffiLib : Library {
 
     fun uniffi_xmtpv3_fn_method_fficonversation_find_duplicate_dms(`ptr`: Pointer): Long
 
-    fun uniffi_xmtpv3_fn_method_fficonversation_find_messages(
-        `ptr`: Pointer,
-        `opts`: RustBuffer.ByValue,
-    ): Long
-
-    fun uniffi_xmtpv3_fn_method_fficonversation_find_messages_v2(
+    fun uniffi_xmtpv3_fn_method_fficonversation_find_enriched_messages(
         `ptr`: Pointer,
         `opts`: RustBuffer.ByValue,
         uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
+
+    fun uniffi_xmtpv3_fn_method_fficonversation_find_messages(
+        `ptr`: Pointer,
+        `opts`: RustBuffer.ByValue,
+    ): Long
 
     fun uniffi_xmtpv3_fn_method_fficonversation_find_messages_with_reactions(
         `ptr`: Pointer,
@@ -1649,11 +1649,13 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_fn_method_fficonversation_send(
         `ptr`: Pointer,
         `contentBytes`: RustBuffer.ByValue,
+        `opts`: RustBuffer.ByValue,
     ): Long
 
     fun uniffi_xmtpv3_fn_method_fficonversation_send_optimistic(
         `ptr`: Pointer,
         `contentBytes`: RustBuffer.ByValue,
+        `opts`: RustBuffer.ByValue,
         uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
 
@@ -2255,6 +2257,12 @@ internal interface UniffiLib : Library {
         uniffi_out_err: UniffiRustCallStatus,
     ): Pointer
 
+    fun uniffi_xmtpv3_fn_method_ffixmtpclient_enriched_message(
+        `ptr`: Pointer,
+        `messageId`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): Pointer
+
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_find_inbox_id(
         `ptr`: Pointer,
         `identifier`: RustBuffer.ByValue,
@@ -2302,12 +2310,6 @@ internal interface UniffiLib : Library {
         `messageId`: RustBuffer.ByValue,
         uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-
-    fun uniffi_xmtpv3_fn_method_ffixmtpclient_message_v2(
-        `ptr`: Pointer,
-        `messageId`: RustBuffer.ByValue,
-        uniffi_out_err: UniffiRustCallStatus,
-    ): Pointer
 
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_register_identity(
         `ptr`: Pointer,
@@ -2915,10 +2917,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_find_duplicate_dms() != 15813.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_find_messages() != 19931.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_find_enriched_messages() != 4573.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_find_messages_v2() != 4772.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_find_messages() != 19931.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_find_messages_with_reactions() != 46761.toShort()) {
@@ -2987,10 +2989,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_remove_super_admin() != 46017.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_send() != 7954.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_send() != 12477.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_send_optimistic() != 5885.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_send_optimistic() != 22242.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_send_text() != 55684.toShort()) {
@@ -3263,6 +3265,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_dm_conversation() != 23917.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_enriched_message() != 37575.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_find_inbox_id() != 17517.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -3288,9 +3293,6 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_message() != 26932.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_message_v2() != 17937.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_register_identity() != 42003.toShort()) {
@@ -4233,9 +4235,9 @@ public interface FfiConversationInterface {
 
     suspend fun `findDuplicateDms`(): List<FfiConversation>
 
-    suspend fun `findMessages`(`opts`: FfiListMessagesOptions): List<FfiMessage>
+    fun `findEnrichedMessages`(`opts`: FfiListMessagesOptions): List<FfiDecodedMessage>
 
-    fun `findMessagesV2`(`opts`: FfiListMessagesOptions): List<FfiDecodedMessage>
+    suspend fun `findMessages`(`opts`: FfiListMessagesOptions): List<FfiMessage>
 
     fun `findMessagesWithReactions`(`opts`: FfiListMessagesOptions): List<FfiMessageWithReactions>
 
@@ -4284,12 +4286,18 @@ public interface FfiConversationInterface {
 
     suspend fun `removeSuperAdmin`(`inboxId`: kotlin.String)
 
-    suspend fun `send`(`contentBytes`: kotlin.ByteArray): kotlin.ByteArray
+    suspend fun `send`(
+        `contentBytes`: kotlin.ByteArray,
+        `opts`: FfiSendMessageOpts,
+    ): kotlin.ByteArray
 
     /**
      * send a message without immediately publishing to the delivery service.
      */
-    fun `sendOptimistic`(`contentBytes`: kotlin.ByteArray): kotlin.ByteArray
+    fun `sendOptimistic`(
+        `contentBytes`: kotlin.ByteArray,
+        `opts`: FfiSendMessageOpts,
+    ): kotlin.ByteArray
 
     suspend fun `sendText`(`text`: kotlin.String): kotlin.ByteArray
 
@@ -4620,6 +4628,20 @@ open class FfiConversation :
         )
 
     @Throws(GenericException::class)
+    override fun `findEnrichedMessages`(`opts`: FfiListMessagesOptions): List<FfiDecodedMessage> =
+        FfiConverterSequenceTypeFfiDecodedMessage.lift(
+            callWithPointer {
+                uniffiRustCallWithError(GenericException) { _status ->
+                    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_find_enriched_messages(
+                        it,
+                        FfiConverterTypeFfiListMessagesOptions.lower(`opts`),
+                        _status,
+                    )
+                }
+            },
+        )
+
+    @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
     override suspend fun `findMessages`(`opts`: FfiListMessagesOptions): List<FfiMessage> =
         uniffiRustCallAsync(
@@ -4642,20 +4664,6 @@ open class FfiConversation :
             { FfiConverterSequenceTypeFfiMessage.lift(it) },
             // Error FFI converter
             GenericException.ErrorHandler,
-        )
-
-    @Throws(GenericException::class)
-    override fun `findMessagesV2`(`opts`: FfiListMessagesOptions): List<FfiDecodedMessage> =
-        FfiConverterSequenceTypeFfiDecodedMessage.lift(
-            callWithPointer {
-                uniffiRustCallWithError(GenericException) { _status ->
-                    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_find_messages_v2(
-                        it,
-                        FfiConverterTypeFfiListMessagesOptions.lower(`opts`),
-                        _status,
-                    )
-                }
-            },
         )
 
     @Throws(GenericException::class)
@@ -4979,12 +4987,16 @@ open class FfiConversation :
 
     @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `send`(`contentBytes`: kotlin.ByteArray): kotlin.ByteArray =
+    override suspend fun `send`(
+        `contentBytes`: kotlin.ByteArray,
+        `opts`: FfiSendMessageOpts,
+    ): kotlin.ByteArray =
         uniffiRustCallAsync(
             callWithPointer { thisPtr ->
                 UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_send(
                     thisPtr,
                     FfiConverterByteArray.lower(`contentBytes`),
+                    FfiConverterTypeFfiSendMessageOpts.lower(`opts`),
                 )
             },
             {
@@ -5006,13 +5018,17 @@ open class FfiConversation :
      * send a message without immediately publishing to the delivery service.
      */
     @Throws(GenericException::class)
-    override fun `sendOptimistic`(`contentBytes`: kotlin.ByteArray): kotlin.ByteArray =
+    override fun `sendOptimistic`(
+        `contentBytes`: kotlin.ByteArray,
+        `opts`: FfiSendMessageOpts,
+    ): kotlin.ByteArray =
         FfiConverterByteArray.lift(
             callWithPointer {
                 uniffiRustCallWithError(GenericException) { _status ->
                     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_send_optimistic(
                         it,
                         FfiConverterByteArray.lower(`contentBytes`),
+                        FfiConverterTypeFfiSendMessageOpts.lower(`opts`),
                         _status,
                     )
                 }
@@ -9329,6 +9345,8 @@ public interface FfiXmtpClientInterface {
 
     fun `dmConversation`(`targetInboxId`: kotlin.String): FfiConversation
 
+    fun `enrichedMessage`(`messageId`: kotlin.ByteArray): FfiDecodedMessage
+
     suspend fun `findInboxId`(`identifier`: FfiIdentifier): kotlin.String?
 
     suspend fun `getConsentState`(
@@ -9363,8 +9381,6 @@ public interface FfiXmtpClientInterface {
     fun `installationId`(): kotlin.ByteArray
 
     fun `message`(`messageId`: kotlin.ByteArray): FfiMessage
-
-    fun `messageV2`(`messageId`: kotlin.ByteArray): FfiDecodedMessage
 
     suspend fun `registerIdentity`(`signatureRequest`: FfiSignatureRequest)
 
@@ -9798,6 +9814,20 @@ open class FfiXmtpClient :
         )
 
     @Throws(GenericException::class)
+    override fun `enrichedMessage`(`messageId`: kotlin.ByteArray): FfiDecodedMessage =
+        FfiConverterTypeFfiDecodedMessage.lift(
+            callWithPointer {
+                uniffiRustCallWithError(GenericException) { _status ->
+                    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_enriched_message(
+                        it,
+                        FfiConverterByteArray.lower(`messageId`),
+                        _status,
+                    )
+                }
+            },
+        )
+
+    @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
     override suspend fun `findInboxId`(`identifier`: FfiIdentifier): kotlin.String? =
         uniffiRustCallAsync(
@@ -9983,20 +10013,6 @@ open class FfiXmtpClient :
             callWithPointer {
                 uniffiRustCallWithError(GenericException) { _status ->
                     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_message(it, FfiConverterByteArray.lower(`messageId`), _status)
-                }
-            },
-        )
-
-    @Throws(GenericException::class)
-    override fun `messageV2`(`messageId`: kotlin.ByteArray): FfiDecodedMessage =
-        FfiConverterTypeFfiDecodedMessage.lift(
-            callWithPointer {
-                uniffiRustCallWithError(GenericException) { _status ->
-                    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_message_v2(
-                        it,
-                        FfiConverterByteArray.lower(`messageId`),
-                        _status,
-                    )
                 }
             },
         )
@@ -11225,6 +11241,7 @@ data class FfiInboxState(
     var `recoveryIdentity`: FfiIdentifier,
     var `installations`: List<FfiInstallation>,
     var `accountIdentities`: List<FfiIdentifier>,
+    var `creationSignatureKind`: FfiSignatureKind?,
 ) {
     companion object
 }
@@ -11239,6 +11256,7 @@ public object FfiConverterTypeFfiInboxState : FfiConverterRustBuffer<FfiInboxSta
             FfiConverterTypeFfiIdentifier.read(buf),
             FfiConverterSequenceTypeFfiInstallation.read(buf),
             FfiConverterSequenceTypeFfiIdentifier.read(buf),
+            FfiConverterOptionalTypeFfiSignatureKind.read(buf),
         )
 
     override fun allocationSize(value: FfiInboxState) =
@@ -11246,7 +11264,8 @@ public object FfiConverterTypeFfiInboxState : FfiConverterRustBuffer<FfiInboxSta
             FfiConverterString.allocationSize(value.`inboxId`) +
                 FfiConverterTypeFfiIdentifier.allocationSize(value.`recoveryIdentity`) +
                 FfiConverterSequenceTypeFfiInstallation.allocationSize(value.`installations`) +
-                FfiConverterSequenceTypeFfiIdentifier.allocationSize(value.`accountIdentities`)
+                FfiConverterSequenceTypeFfiIdentifier.allocationSize(value.`accountIdentities`) +
+                FfiConverterOptionalTypeFfiSignatureKind.allocationSize(value.`creationSignatureKind`)
         )
 
     override fun write(
@@ -11257,6 +11276,7 @@ public object FfiConverterTypeFfiInboxState : FfiConverterRustBuffer<FfiInboxSta
         FfiConverterTypeFfiIdentifier.write(value.`recoveryIdentity`, buf)
         FfiConverterSequenceTypeFfiInstallation.write(value.`installations`, buf)
         FfiConverterSequenceTypeFfiIdentifier.write(value.`accountIdentities`, buf)
+        FfiConverterOptionalTypeFfiSignatureKind.write(value.`creationSignatureKind`, buf)
     }
 }
 
@@ -11420,6 +11440,7 @@ data class FfiListMessagesOptions(
     var `direction`: FfiDirection?,
     var `contentTypes`: List<FfiContentType>?,
     var `excludeContentTypes`: List<FfiContentType>?,
+    var `excludeSenderInboxIds`: List<kotlin.String>?,
 ) {
     companion object
 }
@@ -11437,6 +11458,7 @@ public object FfiConverterTypeFfiListMessagesOptions : FfiConverterRustBuffer<Ff
             FfiConverterOptionalTypeFfiDirection.read(buf),
             FfiConverterOptionalSequenceTypeFfiContentType.read(buf),
             FfiConverterOptionalSequenceTypeFfiContentType.read(buf),
+            FfiConverterOptionalSequenceString.read(buf),
         )
 
     override fun allocationSize(value: FfiListMessagesOptions) =
@@ -11447,7 +11469,8 @@ public object FfiConverterTypeFfiListMessagesOptions : FfiConverterRustBuffer<Ff
                 FfiConverterOptionalTypeFfiDeliveryStatus.allocationSize(value.`deliveryStatus`) +
                 FfiConverterOptionalTypeFfiDirection.allocationSize(value.`direction`) +
                 FfiConverterOptionalSequenceTypeFfiContentType.allocationSize(value.`contentTypes`) +
-                FfiConverterOptionalSequenceTypeFfiContentType.allocationSize(value.`excludeContentTypes`)
+                FfiConverterOptionalSequenceTypeFfiContentType.allocationSize(value.`excludeContentTypes`) +
+                FfiConverterOptionalSequenceString.allocationSize(value.`excludeSenderInboxIds`)
         )
 
     override fun write(
@@ -11461,6 +11484,7 @@ public object FfiConverterTypeFfiListMessagesOptions : FfiConverterRustBuffer<Ff
         FfiConverterOptionalTypeFfiDirection.write(value.`direction`, buf)
         FfiConverterOptionalSequenceTypeFfiContentType.write(value.`contentTypes`, buf)
         FfiConverterOptionalSequenceTypeFfiContentType.write(value.`excludeContentTypes`, buf)
+        FfiConverterOptionalSequenceString.write(value.`excludeSenderInboxIds`, buf)
     }
 }
 
@@ -11964,6 +11988,34 @@ public object FfiConverterTypeFfiReply : FfiConverterRustBuffer<FfiReply> {
         FfiConverterString.write(value.`reference`, buf)
         FfiConverterOptionalString.write(value.`referenceInboxId`, buf)
         FfiConverterTypeFfiEncodedContent.write(value.`content`, buf)
+    }
+}
+
+data class FfiSendMessageOpts(
+    var `shouldPush`: kotlin.Boolean,
+) {
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiSendMessageOpts : FfiConverterRustBuffer<FfiSendMessageOpts> {
+    override fun read(buf: ByteBuffer): FfiSendMessageOpts =
+        FfiSendMessageOpts(
+            FfiConverterBoolean.read(buf),
+        )
+
+    override fun allocationSize(value: FfiSendMessageOpts) =
+        (
+            FfiConverterBoolean.allocationSize(value.`shouldPush`)
+        )
+
+    override fun write(
+        value: FfiSendMessageOpts,
+        buf: ByteBuffer,
+    ) {
+        FfiConverterBoolean.write(value.`shouldPush`, buf)
     }
 }
 
@@ -13604,6 +13656,62 @@ public object FfiConverterTypeFfiReactionSchema : FfiConverterRustBuffer<FfiReac
     }
 }
 
+/**
+ * Signature kind used in identity operations
+ */
+
+enum class FfiSignatureKind {
+    /**
+     * ERC-191 signature (Externally Owned Account/EOA)
+     */
+    ERC191,
+
+    /**
+     * ERC-1271 signature (Smart Contract Wallet/SCW)
+     */
+    ERC1271,
+
+    /**
+     * Installation key signature
+     */
+    INSTALLATION_KEY,
+
+    /**
+     * Legacy delegated signature
+     */
+    LEGACY_DELEGATED,
+
+    /**
+     * P256 passkey signature
+     */
+    P256,
+
+    ;
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiSignatureKind : FfiConverterRustBuffer<FfiSignatureKind> {
+    override fun read(buf: ByteBuffer) =
+        try {
+            FfiSignatureKind.values()[buf.getInt() - 1]
+        } catch (e: IndexOutOfBoundsException) {
+            throw RuntimeException("invalid enum value, something is very wrong!!", e)
+        }
+
+    override fun allocationSize(value: FfiSignatureKind) = 4UL
+
+    override fun write(
+        value: FfiSignatureKind,
+        buf: ByteBuffer,
+    ) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
 sealed class FfiSubscribeException(
     message: String,
 ) : kotlin.Exception(message) {
@@ -14804,6 +14912,38 @@ public object FfiConverterOptionalTypeFfiMetadataField : FfiConverterRustBuffer<
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeFfiSignatureKind : FfiConverterRustBuffer<FfiSignatureKind?> {
+    override fun read(buf: ByteBuffer): FfiSignatureKind? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeFfiSignatureKind.read(buf)
+    }
+
+    override fun allocationSize(value: FfiSignatureKind?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeFfiSignatureKind.allocationSize(value)
+        }
+    }
+
+    override fun write(
+        value: FfiSignatureKind?,
+        buf: ByteBuffer,
+    ) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeFfiSignatureKind.write(value, buf)
+        }
+    }
+}
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeFfiSyncWorkerMode : FfiConverterRustBuffer<FfiSyncWorkerMode?> {
     override fun read(buf: ByteBuffer): FfiSyncWorkerMode? {
         if (buf.get().toInt() == 0) {
@@ -14829,6 +14969,38 @@ public object FfiConverterOptionalTypeFfiSyncWorkerMode : FfiConverterRustBuffer
         } else {
             buf.put(1)
             FfiConverterTypeFfiSyncWorkerMode.write(value, buf)
+        }
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalSequenceString : FfiConverterRustBuffer<List<kotlin.String>?> {
+    override fun read(buf: ByteBuffer): List<kotlin.String>? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterSequenceString.read(buf)
+    }
+
+    override fun allocationSize(value: List<kotlin.String>?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterSequenceString.allocationSize(value)
+        }
+    }
+
+    override fun write(
+        value: List<kotlin.String>?,
+        buf: ByteBuffer,
+    ) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterSequenceString.write(value, buf)
         }
     }
 }

@@ -123,7 +123,7 @@ data class Conversations(
     suspend fun findEnrichedMessage(messageId: String): DecodedMessageV2? =
         withContext(Dispatchers.IO) {
             try {
-                DecodedMessageV2.create(ffiClient.messageV2(messageId.hexToByteArray()))
+                DecodedMessageV2.create(ffiClient.enrichedMessage(messageId.hexToByteArray()))
             } catch (e: Exception) {
                 Log.e("findEnrichedMessage failed", e.toString())
                 null
