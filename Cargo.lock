@@ -2191,7 +2191,8 @@ dependencies = [
 [[package]]
 name = "diesel"
 version = "2.3.2"
-source = "git+https://github.com/ephemerahq/diesel?branch=codabrink%2Fwritable-deserialize#ccc4103e53fd1aad5b0811e96a8d498123c2ee0b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8496eeb328dce26ee9d9b73275d396d9bddb433fa30106cf6056dd8c3c2764c"
 dependencies = [
  "diesel_derives",
  "downcast-rs",
@@ -2205,7 +2206,8 @@ dependencies = [
 [[package]]
 name = "diesel_derives"
 version = "2.3.3"
-source = "git+https://github.com/ephemerahq/diesel?branch=codabrink%2Fwritable-deserialize#ccc4103e53fd1aad5b0811e96a8d498123c2ee0b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09af0e983035368439f1383011cd87c46f41da81d0f21dc3727e2857d5a43c8e"
 dependencies = [
  "diesel_table_macro_syntax",
  "dsl_auto_type",
@@ -2217,7 +2219,8 @@ dependencies = [
 [[package]]
 name = "diesel_migrations"
 version = "2.3.0"
-source = "git+https://github.com/ephemerahq/diesel?branch=codabrink%2Fwritable-deserialize#ccc4103e53fd1aad5b0811e96a8d498123c2ee0b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee060f709c3e3b1cadd83fcd0f61711f7a8cf493348f758d3a1c1147d70b3c97"
 dependencies = [
  "diesel",
  "migrations_internals",
@@ -2227,7 +2230,8 @@ dependencies = [
 [[package]]
 name = "diesel_table_macro_syntax"
 version = "0.3.0"
-source = "git+https://github.com/ephemerahq/diesel?branch=codabrink%2Fwritable-deserialize#ccc4103e53fd1aad5b0811e96a8d498123c2ee0b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe2444076b48641147115697648dc743c2c00b61adade0f01ce67133c7babe8c"
 dependencies = [
  "syn 2.0.106",
 ]
@@ -2300,7 +2304,8 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 [[package]]
 name = "dsl_auto_type"
 version = "0.2.0"
-source = "git+https://github.com/ephemerahq/diesel?branch=codabrink%2Fwritable-deserialize#ccc4103e53fd1aad5b0811e96a8d498123c2ee0b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd122633e4bef06db27737f21d3738fb89c8f6d5360d6d9d7635dda142a7757e"
 dependencies = [
  "darling 0.21.3",
  "either",
@@ -4021,7 +4026,8 @@ dependencies = [
 [[package]]
 name = "migrations_internals"
 version = "2.3.0"
-source = "git+https://github.com/ephemerahq/diesel?branch=codabrink%2Fwritable-deserialize#ccc4103e53fd1aad5b0811e96a8d498123c2ee0b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36c791ecdf977c99f45f23280405d7723727470f6689a5e6dbf513ac547ae10d"
 dependencies = [
  "serde",
  "toml 0.9.5",
@@ -4030,7 +4036,8 @@ dependencies = [
 [[package]]
 name = "migrations_macros"
 version = "2.3.0"
-source = "git+https://github.com/ephemerahq/diesel?branch=codabrink%2Fwritable-deserialize#ccc4103e53fd1aad5b0811e96a8d498123c2ee0b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36fc5ac76be324cfd2d3f2cf0fdf5d5d3c4f14ed8aaebadb09e304ba42282703"
 dependencies = [
  "migrations_internals",
  "proc-macro2",
@@ -4895,6 +4902,8 @@ dependencies = [
  "futures",
  "indicatif",
  "parking_lot 0.12.4",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",

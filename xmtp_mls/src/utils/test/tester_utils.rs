@@ -16,7 +16,7 @@ use crate::{
     client::ClientError,
     context::XmtpSharedContext,
     groups::device_sync::worker::SyncMetric,
-    identity::IdentityStrategy,
+    identity::{Identity, IdentityStrategy},
     subscriptions::SubscribeError,
     utils::{TestClient, TestMlsStorage, VersionInfo, register_client, test::identity_setup},
     worker::metrics::WorkerMetrics,
@@ -93,21 +93,6 @@ where
 struct TableName {
     #[diesel(sql_type = diesel::sql_types::Text)]
     name: String,
-}
-
-impl<Owner> Tester<Owner, FullXmtpClient>
-where
-    Owner: InboxOwner,
-{
-    pub fn dump_db(&self) -> Vec<u8> {
-        self.db()
-            .raw_query_write(|c| {
-                let buffer = c.serialize_database_to_buffer();
-                let buffer = buffer.to_vec();
-                Ok(buffer)
-            })
-            .unwrap()
-    }
 }
 
 #[macro_export]
@@ -206,8 +191,8 @@ where
         let api_client = local_client.build().unwrap();
         let sync_api_client = sync_api_client.build().unwrap();
 
-        let strategy = match &self.snapshot {
-            Some(_) => IdentityStrategy::CachedOnly,
+        let strategy = match &self.external_identity {
+            Some(identity) => IdentityStrategy::ExternalIdentity(identity.clone()),
             _ => identity_setup(&self.owner),
         };
 
@@ -221,17 +206,12 @@ where
             .with_commit_log_worker(self.commit_log_worker);
 
         // Setup the database
-        if self.ephemeral_db || self.snapshot.is_some() {
+        if self.ephemeral_db {
             #[cfg(not(target_arch = "wasm32"))]
             let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral).unwrap();
             #[cfg(target_arch = "wasm32")]
             let db = WasmDb::new(&StorageOption::Ephemeral).await.unwrap();
             let db = EncryptedMessageStore::new(db).unwrap();
-
-            if let Some(snapshot) = &self.snapshot {
-                db.conn()
-                    .raw_query_write(|c| c.deserialize_database_from_buffer(snapshot));
-            }
 
             client = client.store(db);
         } else {
@@ -248,7 +228,7 @@ where
 
         let client = client.default_mls_store().unwrap().build().await.unwrap();
 
-        if self.snapshot.is_none() {
+        if self.external_identity.is_none() {
             register_client(&client, &self.owner).await;
         }
 
@@ -375,7 +355,7 @@ where
     pub ephemeral_db: bool,
     pub api_endpoint: ApiEndpoint,
     pub triggers: bool,
-    pub snapshot: Option<Arc<Vec<u8>>>,
+    pub external_identity: Option<Identity>,
     /// whether this builder represents a second installation
     installation: bool,
 }
@@ -410,7 +390,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             ephemeral_db: false,
             triggers: false,
             api_endpoint: ApiEndpoint::Local,
-            snapshot: None,
+            external_identity: None,
         }
     }
 }
@@ -439,7 +419,7 @@ where
             ephemeral_db: self.ephemeral_db,
             api_endpoint: self.api_endpoint,
             triggers: self.triggers,
-            snapshot: self.snapshot,
+            external_identity: self.external_identity,
         }
     }
 
@@ -477,9 +457,8 @@ where
         self
     }
 
-    pub fn snapshot(mut self, snapshot: Arc<Vec<u8>>) -> Self {
-        self.ephemeral_db = true;
-        self.snapshot = Some(snapshot);
+    pub fn external_identity(mut self, identity: Identity) -> Self {
+        self.external_identity = Some(identity);
         self
     }
 

@@ -28,6 +28,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
+pub use xmtp_db;
 use xmtp_db::{DuplicateItem, StorageError};
 pub use xmtp_id::InboxOwner;
 pub use xmtp_mls_common as common;

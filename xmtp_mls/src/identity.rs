@@ -82,7 +82,7 @@ pub enum IdentityStrategy {
     /// Identity that is already in the disk store
     CachedOnly,
     /// An already-built Identity for testing purposes
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     ExternalIdentity(Identity),
 }
 
@@ -175,7 +175,7 @@ impl IdentityStrategy {
                     .await
                 }
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-utils"))]
             ExternalIdentity(identity) => Ok(identity),
         }
     }

@@ -20,7 +20,7 @@ use tokio::{
 };
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
-use xmtp_mls::tester;
+use xmtp_mls::{identity::Identity, tester, xmtp_db::identity::StoredIdentity};
 
 #[derive(Parser)]
 struct Args {
@@ -229,8 +229,12 @@ async fn send_messages(
     ctx: Arc<Context>,
     register_progress: Option<ProgressBar>,
 ) -> Result<impl Future<Output = Result<()>>> {
-    let cached_db = Arc::new(fs::read("test.db").await.unwrap());
-    tester!(bodashery, with_dev: ctx.args.dev, snapshot: cached_db);
+    let cached_ident = fs::read("ident").await.unwrap();
+    let cached_ident: StoredIdentity = serde_json::from_slice(&cached_ident).unwrap();
+    let cached_ident: Identity = cached_ident.try_into().unwrap();
+    tester!(bodashery, with_dev: ctx.args.dev, ephemeral_db, external_identity: cached_ident);
+
+    // tester!(bodashery, with_dev: ctx.args.dev);
 
     let dm = bodashery
         .find_or_create_dm_by_inbox_id(inbox_id, None)
@@ -239,8 +243,11 @@ async fn send_messages(
 
     info!("{:?}", bodashery.inbox_id());
 
-    // let dump = bodashery.dump_db();
-    // fs::write("test.db", dump).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let identity: StoredIdentity = bodashery.identity().try_into().unwrap();
+    let ident = serde_json::to_vec(&identity).unwrap();
+    fs::write("ident", ident).await.unwrap();
 
     Ok(async move {
         for i in 0..ctx.args.count {
