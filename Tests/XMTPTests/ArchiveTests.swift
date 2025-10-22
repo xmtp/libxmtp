@@ -12,6 +12,11 @@ import XCTest
 
 @available(iOS 15, *)
 class ArchiveTests: XCTestCase {
+	override func setUp() {
+		super.setUp()
+		setupLocalEnv()
+	}
+
 	func testClientArchives() async throws {
 		let fixtures = try await fixtures()
 		let key = try Crypto.secureRandomBytes(count: 32)
@@ -21,7 +26,7 @@ class ArchiveTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: false),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_test1"
 			)
@@ -38,9 +43,10 @@ class ArchiveTests: XCTestCase {
 		_ = try await alixClient.conversations.syncAllConversations()
 		_ = try await fixtures.boClient.conversations.syncAllConversations()
 
-		let boGroup = try fixtures.boClient.conversations.findGroup(
+		let boGroupResult = try await fixtures.boClient.conversations.findGroup(
 			groupId: group.id
-		)!
+		)
+		let boGroup = try XCTUnwrap(boGroupResult)
 		try await alixClient.createArchive(
 			path: allPath, encryptionKey: encryptionKey
 		)
@@ -66,7 +72,7 @@ class ArchiveTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: false),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_test2"
 			)
@@ -91,7 +97,7 @@ class ArchiveTests: XCTestCase {
 		let convos = try await alixClient2.conversations.list()
 		XCTAssertEqual(convos.count, 1)
 
-		let convo = convos.first!
+		let convo = try XCTUnwrap(convos.first)
 		try await convo.sync()
 		let messagesCount = try await convo.messages().count
 		let state = try convo.consentState()
@@ -109,7 +115,7 @@ class ArchiveTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: false),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_test1"
 			)
@@ -132,7 +138,7 @@ class ArchiveTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: false),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_test2"
 			)
@@ -146,7 +152,7 @@ class ArchiveTests: XCTestCase {
 		let convos = try await alixClient2.conversations.list()
 		XCTAssertEqual(convos.count, 1)
 
-		let isInactive = try convos.first!.isActive()
+		let isInactive = try XCTUnwrap(convos.first?.isActive())
 		XCTAssertFalse(isInactive)
 
 		// While our dm with Bo from archive is still in an inactive state, Alix installation 2 creates a duplicate DM with Bo
@@ -194,9 +200,10 @@ class ArchiveTests: XCTestCase {
 		_ = try await fixtures.alixClient.conversations.syncAllConversations()
 		_ = try await fixtures.boClient.conversations.syncAllConversations()
 
-		let boGroup = try fixtures.boClient.conversations.findGroup(
+		let boGroupResult2 = try await fixtures.boClient.conversations.findGroup(
 			groupId: group.id
-		)!
+		)
+		let boGroup = try XCTUnwrap(boGroupResult2)
 
 		let groupMessagesCount1 = try await group.messages().count
 		let boGroupMessagesCount1 = try await boGroup.messages().count

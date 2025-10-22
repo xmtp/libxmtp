@@ -288,7 +288,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			limit: nil,
 			deliveryStatus: nil,
 			direction: nil,
-			contentTypes: nil
+			contentTypes: nil,
+			excludeContentTypes: nil
 		)
 
 		if let beforeNs {
@@ -348,7 +349,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			limit: nil,
 			deliveryStatus: nil,
 			direction: nil,
-			contentTypes: nil
+			contentTypes: nil,
+			excludeContentTypes: nil
 		)
 
 		if let beforeNs {
@@ -394,7 +396,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			limit: nil,
 			deliveryStatus: deliveryStatus.toFfi(),
 			direction: .descending,
-			contentTypes: nil
+			contentTypes: nil,
+			excludeContentTypes: nil
 		))
 	}
 
@@ -411,7 +414,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			limit: nil,
 			deliveryStatus: nil,
 			direction: nil,
-			contentTypes: nil
+			contentTypes: nil,
+			excludeContentTypes: nil
 		)
 
 		if let beforeNs {

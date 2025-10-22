@@ -6,6 +6,11 @@ import XCTest
 @available(macOS 13.0, *)
 @available(iOS 16, *)
 class MultiRemoteAttachmentTests: XCTestCase {
+	override func setUp() {
+		super.setUp()
+		setupLocalEnv()
+	}
+
 	func testCanEncryptAndDecrypt() async throws {
 		Client.register(codec: AttachmentCodec())
 		Client.register(codec: RemoteAttachmentCodec())
@@ -36,8 +41,8 @@ class MultiRemoteAttachmentTests: XCTestCase {
 	func testCanUseMultiRemoteAttachmentCodec() async throws {
 		let fixtures = try await fixtures()
 
-		let alixClient = fixtures.alixClient!
-		let boClient = fixtures.boClient!
+		let alixClient = try XCTUnwrap(fixtures.alixClient)
+		let boClient = try XCTUnwrap(fixtures.boClient)
 
 		// Register all necessary codecs
 		Client.register(codec: AttachmentCodec())
@@ -85,7 +90,7 @@ class MultiRemoteAttachmentTests: XCTestCase {
 			// 4) Build a RemoteAttachmentInfo for that URL
 			let info = try MultiRemoteAttachmentCodec.buildRemoteAttachmentInfo(
 				encryptedAttachment: encrypted,
-				remoteUrl: URL(string: urlString)!
+				remoteUrl: XCTUnwrap(URL(string: urlString))
 			)
 			remoteAttachmentInfos.append(info)
 		}

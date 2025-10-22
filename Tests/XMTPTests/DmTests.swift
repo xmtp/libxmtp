@@ -5,6 +5,11 @@ import XMTPTestHelpers
 
 @available(iOS 16, *)
 class DmTests: XCTestCase {
+	override func setUp() {
+		super.setUp()
+		setupLocalEnv()
+	}
+
 	func testCanFindDmByInboxId() async throws {
 		let fixtures = try await fixtures()
 
@@ -88,7 +93,7 @@ class DmTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		try await assertThrowsAsyncError(
-			fixtures.alixClient.conversations.findOrCreateDm(
+			await fixtures.alixClient.conversations.findOrCreateDm(
 				with: fixtures.alixClient.inboxID
 			)
 		)
@@ -121,7 +126,7 @@ class DmTests: XCTestCase {
 		let nonRegistered = try PrivateKey.generate()
 
 		try await assertThrowsAsyncError(
-			fixtures.alixClient.conversations
+			await fixtures.alixClient.conversations
 				.findOrCreateDmWithIdentity(
 					with: nonRegistered.identity
 				)
@@ -217,7 +222,8 @@ class DmTests: XCTestCase {
 		let messageId = try await dm.send(content: "gm")
 		try await dm.sync()
 
-		let firstMessage = try await dm.messages().first!
+		let dmMessages = try await dm.messages()
+		let firstMessage = try XCTUnwrap(dmMessages.first)
 		XCTAssertEqual(try firstMessage.body, "gm")
 		XCTAssertEqual(firstMessage.id, messageId)
 		XCTAssertEqual(firstMessage.deliveryStatus, .published)
@@ -225,12 +231,13 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(messages.count, 3)
 
 		try await fixtures.alixClient.conversations.sync()
-		let sameDm = try await fixtures.alixClient.conversations.listDms().last!
+		let alixDms = try await fixtures.alixClient.conversations.listDms()
+		let sameDm = try XCTUnwrap(alixDms.last)
 		try await sameDm.sync()
 
 		let sameMessages = try await sameDm.messages()
 		XCTAssertEqual(sameMessages.count, 3)
-		XCTAssertEqual(try sameMessages.first!.body, "gm")
+		XCTAssertEqual(try sameMessages.first?.body, "gm")
 		try fixtures.cleanUpDatabases()
 	}
 
@@ -392,7 +399,7 @@ class DmTests: XCTestCase {
 		XCTAssertNil(boGroupSettingsAfterNil)
 		XCTAssertNil(alixGroupSettingsAfterNil)
 		XCTAssertFalse(try boDm.isDisappearingMessagesEnabled())
-		XCTAssertFalse(try alixDm!.isDisappearingMessagesEnabled())
+		XCTAssertFalse(try XCTUnwrap(alixDm?.isDisappearingMessagesEnabled()))
 
 		// Send messages after disabling disappearing settings
 		_ = try await boDm.send(
@@ -413,8 +420,9 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(alixGroupMessagesPersist, 3) // memberAdd settings 1, settings 2, boMessage, alixMessage
 
 		// Re-enable disappearing messages
-		let updatedSettings = try await DisappearingMessageSettings(
-			disappearStartingAtNs: boDm.messages().first!.sentAtNs
+		let boDmMessages = try await boDm.messages()
+		let updatedSettings = try DisappearingMessageSettings(
+			disappearStartingAtNs: XCTUnwrap(boDmMessages.first?.sentAtNs)
 				+ 1_000_000_000, // 1s from now
 			retentionDurationInNs: 1_000_000_000 // 2s duration
 		)
@@ -427,11 +435,11 @@ class DmTests: XCTestCase {
 		let alixGroupUpdatedSettings = alixDm?.disappearingMessageSettings
 
 		XCTAssertEqual(
-			boGroupUpdatedSettings!.retentionDurationInNs,
+			boGroupUpdatedSettings?.retentionDurationInNs,
 			updatedSettings.retentionDurationInNs
 		)
 		XCTAssertEqual(
-			alixGroupUpdatedSettings!.retentionDurationInNs,
+			alixGroupUpdatedSettings?.retentionDurationInNs,
 			updatedSettings.retentionDurationInNs
 		)
 
@@ -460,15 +468,15 @@ class DmTests: XCTestCase {
 		let alixGroupFinalSettings = alixDm?.disappearingMessageSettings
 
 		XCTAssertEqual(
-			boGroupFinalSettings!.retentionDurationInNs,
+			boGroupFinalSettings?.retentionDurationInNs,
 			updatedSettings.retentionDurationInNs
 		)
 		XCTAssertEqual(
-			alixGroupFinalSettings!.retentionDurationInNs,
+			alixGroupFinalSettings?.retentionDurationInNs,
 			updatedSettings.retentionDurationInNs
 		)
 		XCTAssert(try boDm.isDisappearingMessagesEnabled())
-		XCTAssert(try alixDm!.isDisappearingMessagesEnabled())
+		XCTAssert(try XCTUnwrap(alixDm?.isDisappearingMessagesEnabled()))
 		try fixtures.cleanUpDatabases()
 	}
 

@@ -23,8 +23,8 @@ disabled_rules: # rule identifiers turned on by default to exclude from running
   - for_where
   - private_over_fileprivate
   - redundant_string_enum_value
-  - redundant_optional_initialization
-  - operator_whitespace
+  - implicit_optional_initialization
+  - function_name_whitespace
   - comma
   - no_optional_try
 

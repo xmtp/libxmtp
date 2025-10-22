@@ -6,45 +6,115 @@ on:
       - main
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   GPR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   GPR_USER: ${{ secrets.GITHUB_ACTOR }}
 
 jobs:
-  ios-tests:
-    runs-on: macos-15
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
 
+      - name: Install docker-compose
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq docker-compose
+
+      - name: Start Docker services
+        run: ./dev/local/up
+
+      - name: Wait for services to be ready
+        run: |
+          timeout 60 bash -c 'until nc -z localhost 5556; do sleep 1; done'
+
+      - name: Install ngrok
+        run: |
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt-get update
+          sudo apt-get install -y ngrok
+
+      - name: Setup NGrok Tunnels
+        id: tunnel
+        env:
+          NGROK_AUTHTOKEN: ${{ secrets.NGROK_TOKEN }}
+        run: |
+          # Start both tunnels using config file (writes URLs to tunnel-info/)
+          ./dev/start-ngrok-tunnels.sh
+
+      - name: Verify tunnels
+        run: |
+          echo "=== Ngrok 5556 Log ==="
+          cat ngrok-5556.log
+          echo ""
+          echo "=== Ngrok 5558 Log ==="
+          cat ngrok-5558.log
+          echo ""
+          echo "=== Tunnel URLs ==="
+          echo "Node: $(cat tunnel-info/node-url.txt)"
+          echo "History: $(cat tunnel-info/history-url.txt)"
+
+      - name: Upload tunnel info
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunnel-info-${{ github.run_id }}-${{ github.run_attempt }}
+          path: tunnel-info/
+          retention-days: 1
+
+      - name: Keep backend running
+        run: |
+          echo "Monitoring tunnel activity for up to 1 hour, with a 10 minute inactivity timeout..."
+          timeout 3600 bash -c 'tail -f ngrok-5556.log ngrok-5558.log | while read -t 600; do :; done' || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          if [ -f ngrok-5556.pid ]; then
+            kill $(cat ngrok-5556.pid) || true
+          fi
+          if [ -f ngrok-5558.pid ]; then
+            kill $(cat ngrok-5558.pid) || true
+          fi
+          docker-compose -p xmtp-ios -f dev/local/docker-compose.yml down
+
+  tests:
+    runs-on: warp-macos-15-arm64-6x
     steps:
       - uses: actions/checkout@v3
 
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "16.4"
+          xcode-version: "16.0"
+      - name: Build everything
+        run: swift build --build-tests -q
+      # Get the tunnel info from the github artifact as soon as it is available
+      - name: Wait for tunnel info
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 30
+          retry_wait_seconds: 10
+          command: |
+            gh run download ${{ github.run_id }} -n tunnel-info-${{ github.run_id }}-${{ github.run_attempt }} -D tunnel-info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup working Python for Colima
+      - name: Configure test environment
         run: |
-          brew uninstall --ignore-dependencies python@3.12 || true
-
-          # Remove conflicting files
-          rm -f /usr/local/bin/2to3-3.11
-          rm -f /usr/local/bin/idle3.11
-          rm -f /usr/local/bin/pydoc3.11
-          rm -f /usr/local/bin/python3.11
-          rm -f /usr/local/bin/python3.11-config
-
-          brew install python@3.11
-          brew link --overwrite --force python@3.11
-
-      - name: Install Colima + Docker
-        run: |
-          brew install colima docker docker-compose
-          colima start --cpu 2 --memory 4 --disk 20
-
-      - name: Start containers
-        run: dev/up
-
+          NODE_URL=$(cat tunnel-info/node-url.txt)
+          HISTORY_URL=$(cat tunnel-info/history-url.txt)
+          if [ -z "$NODE_URL" ] || [ -z "$HISTORY_URL" ]; then
+            echo "Failed to read tunnel URLs"
+            exit 1
+          fi
+          echo "XMTP_NODE_ADDRESS=${NODE_URL}" >> $GITHUB_ENV
+          echo "XMTP_HISTORY_SERVER_ADDRESS=${HISTORY_URL}" >> $GITHUB_ENV
+          echo "Using node tunnel: $NODE_URL"
+          echo "Using history tunnel: $HISTORY_URL"
       - name: Run iOS tests
-        run: script/run_tests.sh
-
-      - name: Teardown
-        run: docker-compose -p xmtp-ios -f dev/local/docker-compose.yml down
+        run: ./script/run_tests.sh

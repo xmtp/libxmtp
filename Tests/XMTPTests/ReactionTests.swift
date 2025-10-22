@@ -5,6 +5,11 @@ import XCTest
 
 @available(iOS 15, *)
 class ReactionTests: XCTestCase {
+	override func setUp() {
+		super.setUp()
+		setupLocalEnv()
+	}
+
 	func testCanDecodeLegacyForm() async throws {
 		let codec = ReactionCodec()
 
@@ -172,7 +177,7 @@ class ReactionTests: XCTestCase {
 		XCTAssertEqual(messagesWithReactions.count, 2)
 		XCTAssertEqual(messagesWithReactions[0].id, messageToReact.id)
 
-		let reactionContent: FfiReactionPayload = try messagesWithReactions[0].childMessages![0].content()
+		let reactionContent: FfiReactionPayload = try XCTUnwrap(messagesWithReactions[0].childMessages?[0].content())
 		XCTAssertEqual(reactionContent.reference, messageToReact.id)
 	}
 
@@ -222,10 +227,10 @@ class ReactionTests: XCTestCase {
 		XCTAssertEqual(2, messagesWithReactions[0].childMessages?.count)
 
 		// Verify both reaction contents
-		let childContent1: Reaction = try messagesWithReactions[0].childMessages![0].content()
+		let childContent1: Reaction = try XCTUnwrap(messagesWithReactions[0].childMessages?[0].content())
 		XCTAssertEqual("U+1F604", childContent1.content)
 
-		let childContent2: FfiReactionPayload = try messagesWithReactions[0].childMessages![1].content()
+		let childContent2: FfiReactionPayload = try XCTUnwrap(messagesWithReactions[0].childMessages?[1].content())
 		XCTAssertEqual("U+1F603", childContent2.content)
 		XCTAssertEqual(FfiReactionSchema.unicode, childContent2.schema)
 	}

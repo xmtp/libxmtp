@@ -9,6 +9,11 @@ class PerformanceTests: XCTestCase {
 	static var dm: Dm?
 	static var group: Group?
 
+	override func setUp() {
+		super.setUp()
+		setupLocalEnv()
+	}
+
 	func test1_CreateDM() async throws {
 		let fixtures = try await fixtures(
 			clientOptions: ClientOptions.Api(

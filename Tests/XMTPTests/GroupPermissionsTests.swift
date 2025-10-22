@@ -4,6 +4,11 @@ import XMTPTestHelpers
 
 @available(iOS 16, *)
 class GroupPermissionTests: XCTestCase {
+	override func setUp() {
+		super.setUp()
+		setupLocalEnv()
+	}
+
 	enum CryptoError: Error {
 		case randomBytes, combinedPayload, hmacSignatureError
 	}
@@ -95,7 +100,7 @@ class GroupPermissionTests: XCTestCase {
 		// Verify that alix can NOT update group name
 		XCTAssertEqual(try boGroup.name(), "")
 		try await assertThrowsAsyncError(
-			alixGroup.updateName(name: "alix group name")
+			await alixGroup.updateName(name: "alix group name")
 		)
 
 		try await alixGroup.sync()
@@ -140,7 +145,7 @@ class GroupPermissionTests: XCTestCase {
 
 		// Verify that alix can NOT update group name
 		try await assertThrowsAsyncError(
-			alixGroup.updateName(
+			await alixGroup.updateName(
 				name: "alix group name 2"
 			)
 		)
@@ -166,7 +171,7 @@ class GroupPermissionTests: XCTestCase {
 
 		// Attempt to remove bo as a super admin by alix should fail since she is not a super admin
 		try await assertThrowsAsyncError(
-			alixGroup.removeSuperAdmin(
+			await alixGroup.removeSuperAdmin(
 				inboxId: fixtures.boClient.inboxID
 			)
 		)
@@ -269,7 +274,7 @@ class GroupPermissionTests: XCTestCase {
 		// Verify that alix can NOT add an admin
 		XCTAssertEqual(try boGroup.name(), "")
 		try await assertThrowsAsyncError(
-			alixGroup.addAdmin(inboxId: fixtures.alixClient.inboxID)
+			await alixGroup.addAdmin(inboxId: fixtures.alixClient.inboxID)
 		)
 
 		try await alixGroup.sync()
@@ -300,7 +305,7 @@ class GroupPermissionTests: XCTestCase {
 		// Verify that alix cannot update group description
 		XCTAssertEqual(try boGroup.description(), "")
 		try await assertThrowsAsyncError(
-			alixGroup.updateDescription(
+			await alixGroup.updateDescription(
 				description: "new group description"
 			)
 		)
@@ -442,7 +447,7 @@ class GroupPermissionTests: XCTestCase {
 			updateMessageDisappearingPolicy: PermissionOption.allow
 		)
 		try await assertThrowsAsyncError(
-			fixtures.boClient.conversations
+			await fixtures.boClient.conversations
 				.newGroupCustomPermissions(
 					with: [
 						fixtures.alixClient.inboxID,

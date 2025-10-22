@@ -1,7 +1,20 @@
 #if canImport(XCTest)
 	import Combine
+	import Foundation
 	import XCTest
 	import XMTPiOS
+
+	func _env(_ key: String) -> String? {
+		ProcessInfo.processInfo.environment[key]
+	}
+
+	public func getLocalAddressFromEnvironment() -> String? {
+		_env("XMTP_NODE_ADDRESS")
+	}
+
+	public func getHistorySyncUrlFromEnvironment() -> String? {
+		_env("XMTP_HISTORY_SERVER_ADDRESS")
+	}
 
 	public enum TestConfig {
 		static let TEST_SERVER_ENABLED = _env("TEST_SERVER_ENABLED") == "true"
@@ -9,10 +22,6 @@
 		// static let TEST_SERVER_HOST = _env("TEST_SERVER_HOST") ?? "127.0.0.1"
 		// static let TEST_SERVER_PORT = Int(_env("TEST_SERVER_PORT")) ?? 5556
 		// static let TEST_SERVER_IS_SECURE = _env("TEST_SERVER_IS_SECURE") == "true"
-
-		private static func _env(_ key: String) -> String? {
-			ProcessInfo.processInfo.environment[key]
-		}
 
 		public static func skipIfNotRunningLocalNodeTests() throws {
 			try XCTSkipIf(!TEST_SERVER_ENABLED, "requires local node")
@@ -77,10 +86,19 @@
 	}
 
 	public extension XCTestCase {
+		func setupLocalEnv() {
+			if let localAddress = getLocalAddressFromEnvironment(), !localAddress.isEmpty {
+				XMTPEnvironment.customLocalAddress = localAddress
+			}
+			if let localHistoryUrl = getHistorySyncUrlFromEnvironment(), !localHistoryUrl.isEmpty {
+				XMTPEnvironment.customHistorySyncUrl = localHistoryUrl
+			}
+		}
+
 		@available(iOS 15, *)
 		func fixtures(
 			clientOptions: ClientOptions.Api = ClientOptions.Api(
-				env: XMTPEnvironment.local, isSecure: false
+				env: XMTPEnvironment.local, isSecure: XMTPEnvironment.local.isSecure
 			)
 		) async throws -> Fixtures {
 			try await Fixtures(clientOptions: clientOptions)

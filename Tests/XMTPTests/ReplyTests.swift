@@ -5,6 +5,11 @@ import XCTest
 
 @available(iOS 15, *)
 class ReplyTests: XCTestCase {
+	override func setUp() {
+		super.setUp()
+		setupLocalEnv()
+	}
+
 	func testCanUseReplyCodec() async throws {
 		let fixtures = try await fixtures()
 		let conversation = try await fixtures.alixClient.conversations

@@ -18,3 +18,10 @@
 
 # Acronyms commonly used in this project
 --acronyms XMTP,SDK,iOS,API,URL,MLS
+
+# Preserve await in autoclosure contexts
+--asynccapturing assertThrowsAsyncError
+
+# Disable rules that incorrectly remove await keywords
+# The redundantAsync rule is too aggressive and removes await in autoclosure contexts
+--disable redundantAsync

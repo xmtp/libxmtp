@@ -3,6 +3,11 @@ import XCTest
 @testable import XMTPiOS
 
 final class CryptoTests: XCTestCase {
+	override func setUp() {
+		super.setUp()
+		setupLocalEnv()
+	}
+
 	func testCodec() throws {
 		let message = Data([5, 5, 5])
 		let secret = Data([1, 2, 3, 4])

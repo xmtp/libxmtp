@@ -23,12 +23,26 @@ services:
     image: ghcr.io/xmtp/mls-validation-service:main
     platform: linux/amd64
 
+  anvil:
+    image: ghcr.io/foundry-rs/foundry
+    platform: linux/amd64
+    entrypoint: ["anvil", "--host", "0.0.0.0"]
+    working_dir: /anvil
+    ports:
+      - 8545:8545
+
+  history-server:
+    image: ghcr.io/xmtp/message-history-server:main
+    platform: linux/amd64
+    ports:
+      - "5558:5558"
+
   db:
-    image: postgres:13
+    image: postgres:16
     environment:
       POSTGRES_PASSWORD: xmtp
 
   mlsdb:
-    image: postgres:13
+    image: postgres:16
     environment:
       POSTGRES_PASSWORD: xmtp

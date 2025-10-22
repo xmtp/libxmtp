@@ -12,6 +12,11 @@ import XCTest
 
 @available(iOS 15, *)
 class HistorySyncTests: XCTestCase {
+	override func setUp() {
+		super.setUp()
+		setupLocalEnv()
+	}
+
 	func testSyncConsent() async throws {
 		let fixtures = try await fixtures()
 
@@ -20,7 +25,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: false),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db"
 				// useDefaultHistorySyncUrl: false
@@ -36,7 +41,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: false),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db2"
 				//                useDefaultHistorySyncUrl: false
@@ -83,7 +88,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: false),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db"
 			)
@@ -98,7 +103,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: false),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db2"
 			)
@@ -136,7 +141,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: false),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db"
 				//                useDefaultHistorySyncUrl: false
@@ -150,7 +155,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: false),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db2"
 			)
@@ -159,9 +164,10 @@ class HistorySyncTests: XCTestCase {
 		try await alixGroup.send(content: "Hello")
 		try await alixClient.conversations.syncAllConversations()
 		try await alixClient2.conversations.syncAllConversations()
-		let alixGroup2 = try alixClient2.conversations.findGroup(
+		let alixGroup2Result = try await alixClient2.conversations.findGroup(
 			groupId: alixGroup.id
-		)!
+		)
+		let alixGroup2 = try XCTUnwrap(alixGroup2Result)
 
 		var consentList = [ConsentRecord]()
 		let expectation = XCTestExpectation(description: "Stream Consent")
@@ -194,7 +200,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: false),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db"
 			)
@@ -216,7 +222,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: false),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db2"
 			)
@@ -236,7 +242,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: false),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db",
 				useDefaultHistorySyncUrl: false
@@ -252,7 +258,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: false),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db2",
 				useDefaultHistorySyncUrl: false
@@ -299,7 +305,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: false),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db",
 				useDefaultHistorySyncUrl: false
@@ -315,7 +321,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: false),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db2"
 			)

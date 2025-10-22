@@ -5,6 +5,10 @@ on:
     branches: ["main"]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   swiftlint:
     name: SwiftLint
@@ -19,7 +23,9 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v3
+      - name: Update homebrew
+        run: brew update
       - name: Install SwiftFormat
-        run: brew install swiftformat
+        run: brew upgrade swiftformat
       - name: Check SwiftFormat
         run: ./dev/fmt --lint

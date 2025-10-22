@@ -6,6 +6,11 @@ import XMTPTestHelpers
 
 @available(iOS 16, *)
 class EnrichedMessagesTests: XCTestCase {
+	override func setUp() {
+		super.setUp()
+		setupLocalEnv()
+	}
+
 	func testFindMessagesV2ComparedToFindMessages() async throws {
 		// Register codecs
 		Client.register(codec: ReactionCodec())
@@ -441,7 +446,7 @@ class EnrichedMessagesTests: XCTestCase {
 			}
 			XCTAssertEqual(remoteContent.contentDigest, "digest123")
 			// Content length might be 0 if not properly encoded
-			if remoteContent.contentLength != nil, remoteContent.contentLength! > 0 {
+			if remoteContent.contentLength != nil, try XCTUnwrap(remoteContent.contentLength) > 0 {
 				XCTAssertEqual(remoteContent.contentLength, 100)
 			}
 
