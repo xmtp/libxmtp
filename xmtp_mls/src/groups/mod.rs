@@ -1175,8 +1175,6 @@ where
             return Err(GroupLeaveValidationError::NotAGroupMember.into());
         }
 
-        self.is_member().await?;
-
         //check member size
         let members = self.members().await?;
 
