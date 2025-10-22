@@ -104,4 +104,57 @@ class CodecTests: XCTestCase {
 		XCTAssertEqual(nil, content)
 		XCTAssertEqual("pi", try messages[0].fallback)
 	}
+
+	func testShouldPushForTextCodec() async throws {
+		let fixtures = try await fixtures()
+		let alixClient = try XCTUnwrap(fixtures.alixClient)
+		let alixConversation = try await alixClient.conversations
+			.newConversation(with: fixtures.boClient.inboxID)
+
+		// Text codec should have shouldPush = true
+		let textCodec = TextCodec()
+		let shouldPush = try textCodec.shouldPush(content: "Hello")
+		XCTAssertTrue(shouldPush, "TextCodec should have shouldPush = true")
+	}
+
+	func testShouldPushForReactionCodec() async throws {
+		// Reaction codec should have shouldPush = false
+		let reactionCodec = ReactionCodec()
+		let reaction = Reaction(
+			reference: "messageId",
+			action: .added,
+			content: "👍",
+			schema: .unicode
+		)
+		let shouldPush = try reactionCodec.shouldPush(content: reaction)
+		XCTAssertFalse(shouldPush, "ReactionCodec should have shouldPush = false")
+	}
+
+	func testShouldPushForReadReceiptCodec() async throws {
+		// ReadReceipt codec should have shouldPush = false
+		let readReceiptCodec = ReadReceiptCodec()
+		let readReceipt = ReadReceipt()
+		let shouldPush = try readReceiptCodec.shouldPush(content: readReceipt)
+		XCTAssertFalse(shouldPush, "ReadReceiptCodec should have shouldPush = false")
+	}
+
+	func testShouldPushForCustomCodec() async throws {
+		// Custom NumberCodec should have shouldPush = false
+		let numberCodec = NumberCodec()
+		let shouldPush = try numberCodec.shouldPush(content: 3.14)
+		XCTAssertFalse(shouldPush, "NumberCodec should have shouldPush = false")
+	}
+
+	func testMessageVisibilityOptionsToFfi() async throws {
+		// Test that MessageVisibilityOptions correctly converts to FfiSendMessageOpts
+		let visibilityOptions = MessageVisibilityOptions(shouldPush: true)
+		let ffiOpts = visibilityOptions.toFfi()
+		XCTAssertTrue(ffiOpts.shouldPush, "FfiSendMessageOpts should have shouldPush = true")
+
+		let visibilityOptionsNoPush = MessageVisibilityOptions(shouldPush: false)
+		let ffiOptsNoPush = visibilityOptionsNoPush.toFfi()
+		XCTAssertFalse(
+			ffiOptsNoPush.shouldPush, "FfiSendMessageOpts should have shouldPush = false"
+		)
+	}
 }

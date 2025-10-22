@@ -199,7 +199,9 @@ public class Conversations {
 
 	public func findEnrichedMessage(messageId: String) throws -> DecodedMessageV2? {
 		do {
-			return try DecodedMessageV2.create(ffiMessage: ffiClient.messageV2(messageId: messageId.hexToData))
+			return try DecodedMessageV2.create(
+				ffiMessage: ffiClient.enrichedMessage(messageId: messageId.hexToData)
+			)
 		} catch {
 			return nil
 		}
@@ -424,7 +426,9 @@ public class Conversations {
 				.findOrCreateDm(
 					targetIdentity: peerIdentity.ffiPrivate,
 					opts: FfiCreateDmOptions(
-						messageDisappearingSettings: toFfiDisappearingMessageSettings(disappearingMessageSettings)
+						messageDisappearingSettings: toFfiDisappearingMessageSettings(
+							disappearingMessageSettings
+						)
 					)
 				)
 
@@ -457,7 +461,9 @@ public class Conversations {
 				.findOrCreateDmByInboxId(
 					inboxId: peerInboxId,
 					opts: FfiCreateDmOptions(
-						messageDisappearingSettings: toFfiDisappearingMessageSettings(disappearingMessageSettings)
+						messageDisappearingSettings: toFfiDisappearingMessageSettings(
+							disappearingMessageSettings
+						)
 					)
 				)
 		return dm.dmFromFFI(client: client)
@@ -523,7 +529,9 @@ public class Conversations {
 				groupImageUrlSquare: imageUrl,
 				groupDescription: description,
 				customPermissionPolicySet: permissionPolicySet,
-				messageDisappearingSettings: toFfiDisappearingMessageSettings(disappearingMessageSettings)
+				messageDisappearingSettings: toFfiDisappearingMessageSettings(
+					disappearingMessageSettings
+				)
 			)
 		).groupFromFFI(client: client)
 		return group
@@ -590,7 +598,9 @@ public class Conversations {
 				groupImageUrlSquare: imageUrl,
 				groupDescription: description,
 				customPermissionPolicySet: permissionPolicySet,
-				messageDisappearingSettings: toFfiDisappearingMessageSettings(disappearingMessageSettings)
+				messageDisappearingSettings: toFfiDisappearingMessageSettings(
+					disappearingMessageSettings
+				)
 			)
 		).groupFromFFI(client: client)
 		return group
@@ -612,7 +622,9 @@ public class Conversations {
 			groupImageUrlSquare: groupImageUrlSquare,
 			groupDescription: groupDescription,
 			customPermissionPolicySet: nil,
-			messageDisappearingSettings: toFfiDisappearingMessageSettings(disappearingMessageSettings)
+			messageDisappearingSettings: toFfiDisappearingMessageSettings(
+				disappearingMessageSettings
+			)
 		)
 
 		let ffiGroup = try ffiConversations.createGroupOptimistic(opts: ffiOpts)

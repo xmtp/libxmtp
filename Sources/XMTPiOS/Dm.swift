@@ -150,21 +150,25 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	public func send<T>(content: T, options: SendOptions? = nil) async throws
 		-> String
 	{
-		let encodeContent = try await encodeContent(
+		let (encodeContent, visibilityOptions) = try await encodeContent(
 			content: content, options: options
 		)
-		return try await send(encodedContent: encodeContent)
+		return try await send(encodedContent: encodeContent, visibilityOptions: visibilityOptions)
 	}
 
-	public func send(encodedContent: EncodedContent) async throws -> String {
+	public func send(
+		encodedContent: EncodedContent, visibilityOptions: MessageVisibilityOptions? = nil
+	) async throws -> String {
+		let opts = visibilityOptions?.toFfi() ?? FfiSendMessageOpts(shouldPush: true)
 		let messageId = try await ffiConversation.send(
-			contentBytes: encodedContent.serializedData()
+			contentBytes: encodedContent.serializedData(),
+			opts: opts
 		)
 		return messageId.toHex
 	}
 
 	public func encodeContent<T>(content: T, options: SendOptions?) async throws
-		-> EncodedContent
+		-> (EncodedContent, MessageVisibilityOptions)
 	{
 		let codec = Client.codecRegistry.find(for: options?.contentType)
 
@@ -198,14 +202,32 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			encoded = try encoded.compress(compression)
 		}
 
-		return encoded
+		func shouldPush<Codec: ContentCodec>(codec: Codec, content: Any) throws
+			-> Bool
+		{
+			if let content = content as? Codec.T {
+				return try codec.shouldPush(content: content)
+			} else {
+				throw CodecError.invalidContent
+			}
+		}
+
+		let visibilityOptions = try MessageVisibilityOptions(
+			shouldPush: shouldPush(codec: codec, content: content)
+		)
+
+		return (encoded, visibilityOptions)
 	}
 
-	public func prepareMessage(encodedContent: EncodedContent) async throws
+	public func prepareMessage(
+		encodedContent: EncodedContent, visibilityOptions: MessageVisibilityOptions? = nil
+	) async throws
 		-> String
 	{
+		let opts = visibilityOptions?.toFfi() ?? FfiSendMessageOpts(shouldPush: true)
 		let messageId = try ffiConversation.sendOptimistic(
-			contentBytes: encodedContent.serializedData()
+			contentBytes: encodedContent.serializedData(),
+			opts: opts
 		)
 		return messageId.toHex
 	}
@@ -213,11 +235,12 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	public func prepareMessage<T>(content: T, options: SendOptions? = nil)
 		async throws -> String
 	{
-		let encodeContent = try await encodeContent(
+		let (encodeContent, visibilityOptions) = try await encodeContent(
 			content: content, options: options
 		)
 		return try ffiConversation.sendOptimistic(
-			contentBytes: encodeContent.serializedData()
+			contentBytes: encodeContent.serializedData(),
+			opts: visibilityOptions.toFfi()
 		).toHex
 	}
 
@@ -284,7 +307,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		limit: Int? = nil,
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all,
-		excludeContentTypes: [StandardContentType]? = nil
+		excludeContentTypes: [StandardContentType]? = nil,
+		excludeSenderInboxIds: [String]? = nil
 	) async throws -> [DecodedMessage] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
@@ -293,7 +317,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			deliveryStatus: nil,
 			direction: nil,
 			contentTypes: nil,
-			excludeContentTypes: nil
+			excludeContentTypes: nil,
+			excludeSenderInboxIds: nil
 		)
 
 		if let beforeNs {
@@ -334,6 +359,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 
 		options.direction = direction
 		options.excludeContentTypes = excludeContentTypes
+		options.excludeSenderInboxIds = excludeSenderInboxIds
 
 		return try await ffiConversation.findMessages(opts: options).compactMap {
 			ffiMessage in
@@ -347,7 +373,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		limit: Int? = nil,
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all,
-		excludeContentTypes: [StandardContentType]? = nil
+		excludeContentTypes: [StandardContentType]? = nil,
+		excludeSenderInboxIds: [String]? = nil
 	) async throws -> [DecodedMessage] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
@@ -356,7 +383,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			deliveryStatus: nil,
 			direction: nil,
 			contentTypes: nil,
-			excludeContentTypes: nil
+			excludeContentTypes: nil,
+			excludeSenderInboxIds: nil
 		)
 
 		if let beforeNs {
@@ -384,6 +412,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 
 		options.direction = direction
 		options.excludeContentTypes = excludeContentTypes
+		options.excludeSenderInboxIds = excludeSenderInboxIds
 
 		return try ffiConversation.findMessagesWithReactions(
 			opts: options
@@ -396,7 +425,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	// Count the number of messages in the conversation according to the provided filters
 	public func countMessages(
 		beforeNs: Int64? = nil, afterNs: Int64? = nil, deliveryStatus: MessageDeliveryStatus = .all,
-		excludeContentTypes: [StandardContentType]? = nil
+		excludeContentTypes: [StandardContentType]? = nil,
+		excludeSenderInboxIds: [String]? = nil
 	) throws -> Int64 {
 		try ffiConversation.countMessages(
 			opts: FfiListMessagesOptions(
@@ -406,7 +436,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 				deliveryStatus: deliveryStatus.toFfi(),
 				direction: .descending,
 				contentTypes: nil,
-				excludeContentTypes: excludeContentTypes
+				excludeContentTypes: excludeContentTypes,
+				excludeSenderInboxIds: excludeSenderInboxIds
 			)
 		)
 	}
@@ -417,7 +448,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		limit: Int? = nil,
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all,
-		excludeContentTypes: [StandardContentType]? = nil
+		excludeContentTypes: [StandardContentType]? = nil,
+		excludeSenderInboxIds: [String]? = nil
 	) async throws -> [DecodedMessageV2] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
@@ -426,7 +458,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			deliveryStatus: nil,
 			direction: nil,
 			contentTypes: nil,
-			excludeContentTypes: nil
+			excludeContentTypes: nil,
+			excludeSenderInboxIds: nil
 		)
 
 		if let beforeNs {
@@ -467,8 +500,9 @@ public struct Dm: Identifiable, Equatable, Hashable {
 
 		options.direction = direction
 		options.excludeContentTypes = excludeContentTypes
+		options.excludeSenderInboxIds = excludeSenderInboxIds
 
-		return try await ffiConversation.findMessagesV2(opts: options).compactMap {
+		return try await ffiConversation.findEnrichedMessages(opts: options).compactMap {
 			ffiDecodedMessage in
 			DecodedMessageV2(ffiMessage: ffiDecodedMessage)
 		}

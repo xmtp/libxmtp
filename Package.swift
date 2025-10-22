@@ -26,8 +26,8 @@ let package = Package(
 		.binaryTarget(
 			name: "LibXMTPSwiftFFI",
 			url:
-			"https://github.com/xmtp/libxmtp/releases/download/swift-bindings-1.6.0-dev.3f76d5e/LibXMTPSwiftFFI.zip",
-			checksum: "a3c63fcaa57bcb1ab3cac659c56db4d2805de1274b819246eb8f6bb1053c078d"
+			"https://github.com/xmtp/libxmtp/releases/download/swift-bindings-1.6.0-dev.3656d63/LibXMTPSwiftFFI.zip",
+			checksum: "d36b68a4520846c9bf4aee99425a681f1d2c18a8b15e3523c325621d6b7ede87"
 		),
 		.target(
 			name: "XMTPiOS",

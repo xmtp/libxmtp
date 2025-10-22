@@ -27,7 +27,7 @@ public struct GroupUpdatedCodec: ContentCodec {
 		var encodedContent = EncodedContent()
 
 		encodedContent.type = ContentTypeGroupUpdated
-		encodedContent.content = try content.serializedData()
+		encodedContent.content = try content.serializedBytes()
 
 		return encodedContent
 	}
