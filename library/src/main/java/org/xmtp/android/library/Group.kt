@@ -23,6 +23,7 @@ import org.xmtp.android.library.libxmtp.PermissionOption
 import org.xmtp.android.library.libxmtp.PermissionPolicySet
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.proto.keystore.api.v1.Keystore
+import uniffi.xmtpv3.FfiContentType
 import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationMetadata
 import uniffi.xmtpv3.FfiDeliveryStatus
@@ -211,6 +212,7 @@ class Group(
         afterNs: Long? = null,
         direction: SortDirection = SortDirection.DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
+        excludeContentTypes: List<FfiContentType>? = null,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             libXMTPGroup
@@ -241,6 +243,7 @@ class Group(
                                     else -> FfiDirection.DESCENDING
                                 },
                             contentTypes = null,
+                            excludeContentTypes = excludeContentTypes,
                         ),
                 ).mapNotNull { DecodedMessage.create(it) }
         }
@@ -251,6 +254,7 @@ class Group(
         afterNs: Long? = null,
         direction: SortDirection = SortDirection.DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
+        excludeContentTypes: List<FfiContentType>? = null,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             val ffiMessageWithReactions =
@@ -280,6 +284,7 @@ class Group(
                                 else -> FfiDirection.DESCENDING
                             },
                             contentTypes = null,
+                            excludeContentTypes = excludeContentTypes,
                         ),
                 )
 
@@ -294,6 +299,7 @@ class Group(
         afterNs: Long? = null,
         direction: SortDirection = SortDirection.DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
+        excludeContentTypes: List<FfiContentType>? = null,
     ): List<DecodedMessageV2> =
         withContext(Dispatchers.IO) {
             libXMTPGroup
@@ -324,6 +330,7 @@ class Group(
                                     else -> FfiDirection.DESCENDING
                                 },
                             contentTypes = null,
+                            excludeContentTypes = excludeContentTypes,
                         ),
                 ).mapNotNull { DecodedMessageV2.create(it) }
         }
@@ -645,6 +652,7 @@ class Group(
         beforeNs: Long? = null,
         afterNs: Long? = null,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
+        excludeContentTypes: List<FfiContentType>? = null,
     ): Long =
         withContext(Dispatchers.IO) {
             libXMTPGroup.countMessages(
@@ -668,6 +676,7 @@ class Group(
                             },
                         direction = null,
                         contentTypes = null,
+                        excludeContentTypes = excludeContentTypes,
                     ),
             )
         }

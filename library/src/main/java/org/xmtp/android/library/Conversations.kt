@@ -141,7 +141,8 @@ data class Conversations(
 
     suspend fun newGroupWithIdentities(
         identities: List<PublicIdentity>,
-        permissions: GroupPermissionPreconfiguration = GroupPermissionPreconfiguration.ALL_MEMBERS,
+        permissions: GroupPermissionPreconfiguration =
+            GroupPermissionPreconfiguration.ALL_MEMBERS,
         groupName: String = "",
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
@@ -209,7 +210,8 @@ data class Conversations(
                             groupImageUrlSquare = groupImageUrlSquare,
                             groupDescription = groupDescription,
                             customPermissionPolicySet = permissionsPolicySet,
-                            messageDisappearingSettings = messageDisappearingSettings,
+                            messageDisappearingSettings =
+                            messageDisappearingSettings,
                         ),
                 )
             Group(client, group)
@@ -217,7 +219,8 @@ data class Conversations(
 
     suspend fun newGroup(
         inboxIds: List<InboxId>,
-        permissions: GroupPermissionPreconfiguration = GroupPermissionPreconfiguration.ALL_MEMBERS,
+        permissions: GroupPermissionPreconfiguration =
+            GroupPermissionPreconfiguration.ALL_MEMBERS,
         groupName: String = "",
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
@@ -286,14 +289,16 @@ data class Conversations(
                             groupImageUrlSquare = groupImageUrlSquare,
                             groupDescription = groupDescription,
                             customPermissionPolicySet = permissionsPolicySet,
-                            messageDisappearingSettings = messageDisappearingSettings,
+                            messageDisappearingSettings =
+                            messageDisappearingSettings,
                         ),
                 )
             Group(client, group)
         }
 
     suspend fun newGroupOptimistic(
-        permissions: GroupPermissionPreconfiguration = GroupPermissionPreconfiguration.ALL_MEMBERS,
+        permissions: GroupPermissionPreconfiguration =
+            GroupPermissionPreconfiguration.ALL_MEMBERS,
         groupName: String = "",
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
@@ -305,9 +310,10 @@ data class Conversations(
                     opts =
                         FfiCreateGroupOptions(
                             permissions =
-                                GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(
-                                    permissions,
-                                ),
+                                GroupPermissionPreconfiguration
+                                    .toFfiGroupPermissionOptions(
+                                        permissions,
+                                    ),
                             groupName = groupName,
                             groupImageUrlSquare = groupImageUrlSquare,
                             groupDescription = groupDescription,
@@ -325,10 +331,7 @@ data class Conversations(
         }
 
     // Sync from the network the latest list of conversations
-    suspend fun sync() =
-        withContext(Dispatchers.IO) {
-            ffiConversations.sync()
-        }
+    suspend fun sync() = withContext(Dispatchers.IO) { ffiConversations.sync() }
 
     // Sync all new and existing conversations data from the network
     suspend fun syncAllConversations(consentStates: List<ConsentState>? = null): UInt =
@@ -354,7 +357,9 @@ data class Conversations(
         disappearingMessageSettings: DisappearingMessageSettings? = null,
     ): Dm =
         withContext(Dispatchers.IO) {
-            if (peerPublicIdentity.identifier in client.inboxState(false).identities.map { it.identifier }) {
+            if (peerPublicIdentity.identifier in
+                client.inboxState(false).identities.map { it.identifier }
+            ) {
                 throw XMTPException("Recipient is sender")
             }
 
@@ -429,16 +434,16 @@ data class Conversations(
                             limit = limit?.toLong(),
                             consentStates =
                                 consentStates?.let { states ->
-                                    states.map { ConsentState.toFfiConsentState(it) }
+                                    states.map {
+                                        ConsentState.toFfiConsentState(it)
+                                    }
                                 },
                             orderBy = orderBy.toFfi(),
                             includeDuplicateDms = false,
                         ),
                 )
 
-            ffiGroups.map {
-                Group(client, it.conversation(), it.lastMessage())
-            }
+            ffiGroups.map { Group(client, it.conversation(), it.lastMessage()) }
         }
 
     suspend fun listDms(
@@ -462,16 +467,16 @@ data class Conversations(
                             limit = limit?.toLong(),
                             consentStates =
                                 consentStates?.let { states ->
-                                    states.map { ConsentState.toFfiConsentState(it) }
+                                    states.map {
+                                        ConsentState.toFfiConsentState(it)
+                                    }
                                 },
                             orderBy = orderBy.toFfi(),
                             includeDuplicateDms = false,
                         ),
                 )
 
-            ffiDms.map {
-                Dm(client, it.conversation(), it.lastMessage())
-            }
+            ffiDms.map { Dm(client, it.conversation(), it.lastMessage()) }
         }
 
     suspend fun list(
@@ -495,7 +500,9 @@ data class Conversations(
                             limit = limit?.toLong(),
                             consentStates =
                                 consentStates?.let { states ->
-                                    states.map { ConsentState.toFfiConsentState(it) }
+                                    states.map {
+                                        ConsentState.toFfiConsentState(it)
+                                    }
                                 },
                             orderBy = orderBy.toFfi(),
                             includeDuplicateDms = false,
@@ -517,7 +524,6 @@ data class Conversations(
                             isCommitLogForked(),
                         ),
                     )
-
                 else ->
                     Conversation.Group(
                         Group(
@@ -549,7 +555,6 @@ data class Conversations(
                                             ),
                                         ),
                                     )
-
                                 else -> trySend(Conversation.Group(Group(client, conversation)))
                             }
                         }
@@ -572,7 +577,6 @@ data class Conversations(
                         ffiConversations.streamGroups(
                             conversationCallback,
                         )
-
                     ConversationFilterType.DMS -> ffiConversations.streamDms(conversationCallback)
                 }
 
@@ -602,9 +606,7 @@ data class Conversations(
                     }
                 }
             val states =
-                consentStates?.let { states ->
-                    states.map { ConsentState.toFfiConsentState(it) }
-                }
+                consentStates?.let { states -> states.map { ConsentState.toFfiConsentState(it) } }
 
             val stream =
                 when (type) {
@@ -613,13 +615,11 @@ data class Conversations(
                             messageCallback,
                             states,
                         )
-
                     ConversationFilterType.GROUPS ->
                         ffiConversations.streamAllGroupMessages(
                             messageCallback,
                             states,
                         )
-
                     ConversationFilterType.DMS ->
                         ffiConversations.streamAllDmMessages(
                             messageCallback,
@@ -670,7 +670,5 @@ data class Conversations(
         }
 
     suspend fun deleteMessageLocally(messageId: String) =
-        withContext(Dispatchers.IO) {
-            ffiClient.deleteMessage(messageId.hexToByteArray())
-        }
+        withContext(Dispatchers.IO) { ffiClient.deleteMessage(messageId.hexToByteArray()) }
 }

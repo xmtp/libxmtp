@@ -1236,4 +1236,47 @@ class GroupTest : BaseInstrumentedTest() {
             val pausedForVersionDm = boDm.pausedForVersion()
             assertNull(pausedForVersionDm)
         }
+
+    @Test
+    fun testCountMessagesWithExcludedContentTypes() {
+        Client.register(codec = ReactionCodec())
+
+        val group = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
+        runBlocking {
+            group.send("gm")
+            group.sync()
+        }
+        val messageToReact = runBlocking { group.messages() }[0]
+
+        val reaction =
+            Reaction(
+                reference = messageToReact.id,
+                action = ReactionAction.Added,
+                content = "U+1F603",
+                schema = ReactionSchema.Unicode,
+            )
+
+        runBlocking {
+            group.send(
+                content = reaction,
+                options = SendOptions(contentType = ContentTypeReaction),
+            )
+        }
+
+        // Count without exclusions - should include memberAdd, text message, and reaction
+        val totalCount = runBlocking { group.countMessages() }
+        assertEquals(3, totalCount)
+
+        // Count with reaction exclusion - should only include memberAdd and text message
+        val countWithoutReactions =
+            runBlocking {
+                group.countMessages(
+                    excludeContentTypes =
+                        listOf(
+                            uniffi.xmtpv3.FfiContentType.REACTION,
+                        ),
+                )
+            }
+        assertEquals(2, countWithoutReactions)
+    }
 }

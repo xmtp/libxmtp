@@ -714,4 +714,47 @@ class DmTest : BaseInstrumentedTest() {
             assert(boDm.isDisappearingMessagesEnabled())
             assert(alixDm.isDisappearingMessagesEnabled())
         }
+
+    @Test
+    fun testCountMessagesWithExcludedContentTypes() {
+        Client.register(codec = ReactionCodec())
+
+        val dm =
+            runBlocking {
+                fixtures.boClient.conversations.findOrCreateDm(fixtures.alixClient.inboxId)
+            }
+        runBlocking {
+            dm.send("gm")
+            dm.sync()
+        }
+        val messageToReact = runBlocking { dm.messages() }[0]
+
+        val reaction =
+            Reaction(
+                reference = messageToReact.id,
+                action = ReactionAction.Added,
+                content = "U+1F603",
+                schema = ReactionSchema.Unicode,
+            )
+
+        runBlocking {
+            dm.send(content = reaction, options = SendOptions(contentType = ContentTypeReaction))
+        }
+
+        // Count without exclusions - should include memberAdd, text message, and reaction
+        val totalCount = runBlocking { dm.countMessages() }
+        assertEquals(3, totalCount)
+
+        // Count with reaction exclusion - should only include memberAdd and text message
+        val countWithoutReactions =
+            runBlocking {
+                dm.countMessages(
+                    excludeContentTypes =
+                        listOf(
+                            uniffi.xmtpv3.FfiContentType.REACTION,
+                        ),
+                )
+            }
+        assertEquals(2, countWithoutReactions)
+    }
 }

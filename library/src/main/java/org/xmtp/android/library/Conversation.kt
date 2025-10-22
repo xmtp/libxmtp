@@ -11,6 +11,7 @@ import org.xmtp.android.library.libxmtp.DecodedMessageV2
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.libxmtp.Member
 import org.xmtp.proto.keystore.api.v1.Keystore
+import uniffi.xmtpv3.FfiContentType
 import java.util.Date
 
 sealed class Conversation {
@@ -230,11 +231,12 @@ sealed class Conversation {
         direction: DecodedMessage.SortDirection = DecodedMessage.SortDirection.DESCENDING,
         deliveryStatus: DecodedMessage.MessageDeliveryStatus =
             DecodedMessage.MessageDeliveryStatus.ALL,
+        excludedContentTypes: List<FfiContentType>? = null,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
-                is Group -> group.messages(limit, beforeNs, afterNs, direction, deliveryStatus)
-                is Dm -> dm.messages(limit, beforeNs, afterNs, direction, deliveryStatus)
+                is Group -> group.messages(limit, beforeNs, afterNs, direction, deliveryStatus, excludedContentTypes)
+                is Dm -> dm.messages(limit, beforeNs, afterNs, direction, deliveryStatus, excludedContentTypes)
             }
         }
 
@@ -243,11 +245,12 @@ sealed class Conversation {
         afterNs: Long? = null,
         deliveryStatus: DecodedMessage.MessageDeliveryStatus =
             DecodedMessage.MessageDeliveryStatus.ALL,
+        excludedContentTypes: List<FfiContentType>? = null,
     ): Long =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
-                is Group -> group.countMessages(beforeNs, afterNs, deliveryStatus)
-                is Dm -> dm.countMessages(beforeNs, afterNs, deliveryStatus)
+                is Group -> group.countMessages(beforeNs, afterNs, deliveryStatus, excludedContentTypes)
+                is Dm -> dm.countMessages(beforeNs, afterNs, deliveryStatus, excludedContentTypes)
             }
         }
 
@@ -258,6 +261,7 @@ sealed class Conversation {
         direction: DecodedMessage.SortDirection = DecodedMessage.SortDirection.DESCENDING,
         deliveryStatus: DecodedMessage.MessageDeliveryStatus =
             DecodedMessage.MessageDeliveryStatus.ALL,
+        excludedContentTypes: List<FfiContentType>? = null,
     ): List<DecodedMessageV2> =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
@@ -268,10 +272,11 @@ sealed class Conversation {
                         afterNs,
                         direction,
                         deliveryStatus,
+                        excludedContentTypes,
                     )
 
                 is Dm ->
-                    dm.enrichedMessages(limit, beforeNs, afterNs, direction, deliveryStatus)
+                    dm.enrichedMessages(limit, beforeNs, afterNs, direction, deliveryStatus, excludedContentTypes)
             }
         }
 
@@ -282,6 +287,7 @@ sealed class Conversation {
         direction: DecodedMessage.SortDirection = DecodedMessage.SortDirection.DESCENDING,
         deliveryStatus: DecodedMessage.MessageDeliveryStatus =
             DecodedMessage.MessageDeliveryStatus.ALL,
+        excludedContentTypes: List<FfiContentType>? = null,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
@@ -292,6 +298,7 @@ sealed class Conversation {
                         afterNs,
                         direction,
                         deliveryStatus,
+                        excludedContentTypes,
                     )
 
                 is Dm ->
@@ -301,6 +308,7 @@ sealed class Conversation {
                         afterNs,
                         direction,
                         deliveryStatus,
+                        excludedContentTypes,
                     )
             }
         }

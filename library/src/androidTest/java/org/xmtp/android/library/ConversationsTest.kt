@@ -612,8 +612,7 @@ class ConversationsTest : BaseInstrumentedTest() {
             // Test with delivery status filtering
             val unpublishedId = dm.prepareMessage("Unpublished message")
 
-            val allCount =
-                dm.countMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.ALL)
+            val allCount = dm.countMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.ALL)
             val publishedCount =
                 dm.countMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.PUBLISHED)
             val unpublishedCount =

@@ -19,6 +19,7 @@ import org.xmtp.android.library.libxmtp.DecodedMessageV2
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.libxmtp.Member
 import org.xmtp.proto.keystore.api.v1.Keystore
+import uniffi.xmtpv3.FfiContentType
 import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationMetadata
 import uniffi.xmtpv3.FfiDeliveryStatus
@@ -178,6 +179,7 @@ class Dm(
         afterNs: Long? = null,
         direction: SortDirection = SortDirection.DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
+        excludeContentTypes: List<FfiContentType>? = null,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             libXMTPGroup
@@ -208,6 +210,7 @@ class Dm(
                                     else -> FfiDirection.DESCENDING
                                 },
                             contentTypes = null,
+                            excludeContentTypes = excludeContentTypes,
                         ),
                 ).mapNotNull { DecodedMessage.create(it) }
         }
@@ -216,6 +219,7 @@ class Dm(
         beforeNs: Long? = null,
         afterNs: Long? = null,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
+        excludeContentTypes: List<FfiContentType>? = null,
     ): Long =
         withContext(Dispatchers.IO) {
             libXMTPGroup.countMessages(
@@ -239,6 +243,7 @@ class Dm(
                             },
                         direction = null,
                         contentTypes = null,
+                        excludeContentTypes = excludeContentTypes,
                     ),
             )
         }
@@ -249,6 +254,7 @@ class Dm(
         afterNs: Long? = null,
         direction: SortDirection = SortDirection.DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
+        excludeContentTypes: List<FfiContentType>? = null,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             val ffiMessageWithReactions =
@@ -278,6 +284,7 @@ class Dm(
                                 else -> FfiDirection.DESCENDING
                             },
                             contentTypes = null,
+                            excludeContentTypes = excludeContentTypes,
                         ),
                 )
 
@@ -292,6 +299,7 @@ class Dm(
         afterNs: Long? = null,
         direction: SortDirection = SortDirection.DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
+        excludeContentTypes: List<FfiContentType>? = null,
     ): List<DecodedMessageV2> =
         withContext(Dispatchers.IO) {
             libXMTPGroup
@@ -322,6 +330,7 @@ class Dm(
                                     else -> FfiDirection.DESCENDING
                                 },
                             contentTypes = null,
+                            excludeContentTypes = excludeContentTypes,
                         ),
                 ).mapNotNull { DecodedMessageV2.create(it) }
         }
