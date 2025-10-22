@@ -6,6 +6,7 @@
 //
 
 public typealias ContentTypeID = Xmtp_MessageContents_ContentTypeId
+public typealias StandardContentType = FfiContentType
 
 public extension ContentTypeID {
 	init(authorityID: String, typeID: String, versionMajor: Int, versionMinor: Int) {

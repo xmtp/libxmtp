@@ -671,4 +671,111 @@ class ConversationTests: XCTestCase {
 
 		try fixtures.cleanUpDatabases()
 	}
+
+	func testMessagesWithExcludedContentTypes() async throws {
+		let fixtures = try await fixtures()
+		Client.register(codec: ReactionCodec())
+
+		// Create a group
+		let group = try await fixtures.boClient.conversations.newGroup(with: [
+			fixtures.caroClient.inboxID,
+		])
+
+		// Send different types of messages
+		_ = try await group.send(content: "Text message 1")
+		_ = try await group.send(content: "Text message 2")
+
+		// Send a reaction
+		let textMessageId = try await group.send(content: "Message to react to")
+		_ = try await group.send(
+			content: Reaction(
+				reference: textMessageId,
+				action: .added,
+				content: "👍",
+				schema: .unicode
+			),
+			options: SendOptions(contentType: ContentTypeReaction)
+		)
+
+		// Wait a bit for messages to sync
+		try await Task.sleep(nanoseconds: 100_000_000)
+		try await group.sync()
+
+		// Get all messages
+		let allMessages = try await group.messages()
+
+		// Get messages excluding reactions
+		let messagesWithoutReactions = try await group.messages(
+			excludeContentTypes: [.reaction]
+		)
+
+		// Should have fewer messages when excluding reactions
+		XCTAssertGreaterThan(allMessages.count, messagesWithoutReactions.count)
+
+		// Verify no reactions in the filtered list
+		for message in messagesWithoutReactions {
+			XCTAssertNotEqual(try message.encodedContent.type.typeID, "reaction")
+		}
+
+		try fixtures.cleanUpDatabases()
+	}
+
+	func testCountMessagesWithExcludedContentTypes() async throws {
+		let fixtures = try await fixtures()
+		Client.register(codec: ReactionCodec())
+
+		// Create a DM
+		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
+			with: fixtures.caroClient.inboxID
+		)
+
+		// Send different types of messages
+		_ = try await dm.send(content: "Text message 1")
+		_ = try await dm.send(content: "Text message 2")
+		_ = try await dm.send(content: "Text message 3")
+
+		// Send reactions
+		let textMessageId = try await dm.send(content: "Message to react to")
+		_ = try await dm.send(
+			content: Reaction(
+				reference: textMessageId,
+				action: .added,
+				content: "👍",
+				schema: .unicode
+			),
+			options: SendOptions(contentType: ContentTypeReaction)
+		)
+		_ = try await dm.send(
+			content: Reaction(
+				reference: textMessageId,
+				action: .added,
+				content: "❤️",
+				schema: .unicode
+			),
+			options: SendOptions(contentType: ContentTypeReaction)
+		)
+
+		// Wait a bit for messages to sync
+		try await Task.sleep(nanoseconds: 100_000_000)
+		try await dm.sync()
+
+		// Count all messages
+		let totalCount = try dm.countMessages()
+
+		// Count messages excluding reactions
+		let countWithoutReactions = try dm.countMessages(
+			excludeContentTypes: [.reaction]
+		)
+
+		// Should have 6 total (4 text + 2 reactions)
+		XCTAssertEqual(totalCount, 6)
+
+		// Should have 4 without reactions
+		XCTAssertEqual(countWithoutReactions, 4)
+
+		// Verify the difference equals the number of reactions
+		XCTAssertEqual(totalCount - countWithoutReactions, 2)
+
+		try fixtures.cleanUpDatabases()
+	}
 }

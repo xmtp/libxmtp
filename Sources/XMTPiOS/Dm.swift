@@ -13,7 +13,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		public var description: String {
 			switch self {
 			case .missingPeerInboxId:
-				return "ConversationError.missingPeerInboxId: The direct message is missing a peer inbox ID"
+				return
+					"ConversationError.missingPeerInboxId: The direct message is missing a peer inbox ID"
 			}
 		}
 
@@ -228,7 +229,9 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		streamHolder.stream?.end()
 	}
 
-	public func streamMessages(onClose: (() -> Void)? = nil) -> AsyncThrowingStream<DecodedMessage, Error> {
+	public func streamMessages(onClose: (() -> Void)? = nil) -> AsyncThrowingStream<
+		DecodedMessage, Error
+	> {
 		AsyncThrowingStream { continuation in
 			let task = Task.detached {
 				streamHolder.stream = await ffiConversation.stream(
@@ -280,7 +283,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		afterNs: Int64? = nil,
 		limit: Int? = nil,
 		direction: SortDirection? = .descending,
-		deliveryStatus: MessageDeliveryStatus = .all
+		deliveryStatus: MessageDeliveryStatus = .all,
+		excludeContentTypes: [StandardContentType]? = nil
 	) async throws -> [DecodedMessage] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
@@ -329,6 +333,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		}()
 
 		options.direction = direction
+		options.excludeContentTypes = excludeContentTypes
 
 		return try await ffiConversation.findMessages(opts: options).compactMap {
 			ffiMessage in
@@ -341,7 +346,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		afterNs: Int64? = nil,
 		limit: Int? = nil,
 		direction: SortDirection? = .descending,
-		deliveryStatus: MessageDeliveryStatus = .all
+		deliveryStatus: MessageDeliveryStatus = .all,
+		excludeContentTypes: [StandardContentType]? = nil
 	) async throws -> [DecodedMessage] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
@@ -377,6 +383,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		}()
 
 		options.direction = direction
+		options.excludeContentTypes = excludeContentTypes
 
 		return try ffiConversation.findMessagesWithReactions(
 			opts: options
@@ -387,18 +394,21 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	}
 
 	// Count the number of messages in the conversation according to the provided filters
-	public func countMessages(beforeNs: Int64? = nil, afterNs: Int64? = nil,
-	                          deliveryStatus: MessageDeliveryStatus = .all) throws -> Int64
-	{
-		try ffiConversation.countMessages(opts: FfiListMessagesOptions(
-			sentBeforeNs: beforeNs,
-			sentAfterNs: afterNs,
-			limit: nil,
-			deliveryStatus: deliveryStatus.toFfi(),
-			direction: .descending,
-			contentTypes: nil,
-			excludeContentTypes: nil
-		))
+	public func countMessages(
+		beforeNs: Int64? = nil, afterNs: Int64? = nil, deliveryStatus: MessageDeliveryStatus = .all,
+		excludeContentTypes: [StandardContentType]? = nil
+	) throws -> Int64 {
+		try ffiConversation.countMessages(
+			opts: FfiListMessagesOptions(
+				sentBeforeNs: beforeNs,
+				sentAfterNs: afterNs,
+				limit: nil,
+				deliveryStatus: deliveryStatus.toFfi(),
+				direction: .descending,
+				contentTypes: nil,
+				excludeContentTypes: excludeContentTypes
+			)
+		)
 	}
 
 	public func enrichedMessages(
@@ -406,7 +416,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		afterNs: Int64? = nil,
 		limit: Int? = nil,
 		direction: SortDirection? = .descending,
-		deliveryStatus: MessageDeliveryStatus = .all
+		deliveryStatus: MessageDeliveryStatus = .all,
+		excludeContentTypes: [StandardContentType]? = nil
 	) async throws -> [DecodedMessageV2] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
@@ -455,6 +466,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		}()
 
 		options.direction = direction
+		options.excludeContentTypes = excludeContentTypes
 
 		return try await ffiConversation.findMessagesV2(opts: options).compactMap {
 			ffiDecodedMessage in
@@ -495,7 +507,9 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	}
 
 	public func getDebugInformation() async throws -> ConversationDebugInfo {
-		try await ConversationDebugInfo(ffiConversationDebugInfo: ffiConversation.conversationDebugInfo())
+		try await ConversationDebugInfo(
+			ffiConversationDebugInfo: ffiConversation.conversationDebugInfo()
+		)
 	}
 
 	public func getLastReadTimes() throws -> [String: Int64] {
