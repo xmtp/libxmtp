@@ -172,6 +172,8 @@ pub enum GroupError {
     WrapWelcome(#[from] WrapWelcomeError),
     #[error(transparent)]
     UnwrapWelcome(#[from] UnwrapWelcomeError),
+    #[error("Failed to retrieve welcome data from topic {0}")]
+    WelcomeDataNotFound(String),
     #[error("Result was not initialized")]
     UninitializedResult,
     #[error(transparent)]
@@ -304,6 +306,7 @@ impl RetryableError for GroupError {
             | Self::GroupInactive
             | Self::FailedToVerifyInstallations
             | Self::NoWelcomesToSend
+            | Self::WelcomeDataNotFound(_)
             | Self::UninitializedField(_)
             | Self::UninitializedResult => false,
         }

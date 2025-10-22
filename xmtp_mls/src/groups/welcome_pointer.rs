@@ -3,10 +3,11 @@ use xmtp_common::{Retry, retry_async};
 use xmtp_proto::prelude::XmtpMlsClient;
 use xmtp_proto::types::{DecryptedWelcomePointer, WelcomeMessageType, WelcomeMessageV1};
 
+/// Returns none if the welcome pointer is not found
 pub async fn resolve_welcome_pointer<Context: crate::context::XmtpSharedContext>(
     decrypted_welcome_pointer: &DecryptedWelcomePointer,
     context: &Context,
-) -> Result<WelcomeMessageV1, GroupError> {
+) -> Result<Option<WelcomeMessageV1>, GroupError> {
     let retry = Retry::default();
     let mut retries = 0;
     let time_spent = xmtp_common::time::Instant::now();
@@ -18,6 +19,7 @@ pub async fn resolve_welcome_pointer<Context: crate::context::XmtpSharedContext>
         decrypted_v1.destination
     );
 
+    // Can't use retry_async! because we want to return Ok(None) if it isn't resolved.
     let welcome = loop {
         let welcome = retry_async!(
             Retry::default(),
@@ -35,28 +37,22 @@ pub async fn resolve_welcome_pointer<Context: crate::context::XmtpSharedContext>
             break first;
         }
         retries += 1;
-        tracing::info!(
-            "Welcome pointee not found, backing off... (attempt {})",
-            retries
-        );
-        if retries < retry.retries()
+        if retries <= retry.retries()
             && let Some(d) = retry.backoff(retries, time_spent)
         {
+            tracing::info!(
+                "Welcome pointee not found, backing off for {d:?}... (attempt {})",
+                retries
+            );
             xmtp_common::time::sleep(d).await;
         } else {
-            return Err(xmtp_proto::ConversionError::InvalidValue {
-                item: "WelcomeMessage",
-                expected: "WelcomeMessage from Node",
-                got: "None".into(),
-            }
-            .into());
+            return Ok(None);
         }
-        tracing::debug!("welcome pointee not found, retrying...");
     };
     // These failure modes are non-retryable and will end up incrementing
     // the cursor and will prevent the welcome message from being retried.
     match welcome.variant {
-        WelcomeMessageType::V1(v1) => Ok(v1),
+        WelcomeMessageType::V1(v1) => Ok(Some(v1)),
         WelcomeMessageType::WelcomePointer(_) => {
             tracing::warn!("Got Another welcome pointer from a welcome pointer. Ignoring.");
             Err(xmtp_proto::ConversionError::InvalidValue {

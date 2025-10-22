@@ -54,7 +54,7 @@ impl RetryableError for LocalEventError {
 
 /// Events local to this client
 /// are broadcast across all senders/receivers of streams
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LocalEvents {
     // a new group was created
     NewGroup(Vec<u8>),
