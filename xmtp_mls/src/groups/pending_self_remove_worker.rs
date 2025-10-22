@@ -6,7 +6,6 @@ use crate::worker::{WorkerKind, WorkerResult};
 use futures::{StreamExt, TryFutureExt};
 use std::time::Duration;
 use thiserror::Error;
-use tokio::sync::OnceCell;
 use xmtp_db::{StorageError, prelude::*};
 
 /// Interval at which the PendingSelfRemoveWorker runs to remove the members want requested SelfRemove.
@@ -31,8 +30,6 @@ impl NeedsDbReconnect for PendingSelfRemoveWorkerError {
 
 pub struct PendingSelfRemoveWorker<Context> {
     context: Context,
-    #[allow(dead_code)]
-    init: OnceCell<()>,
     pub(crate) mls_store: MlsStore<Context>,
 }
 
@@ -89,7 +86,6 @@ where
     pub fn new(context: Context) -> Self {
         Self {
             context: context.clone(),
-            init: OnceCell::new(),
             mls_store: MlsStore::new(context),
         }
     }
@@ -152,7 +148,8 @@ where
                 }
             }
             Err(e) => {
-                tracing::error!("Failed to delete expired messages, error: {:?}", e);
+                tracing::error!("Failed to get groups with pending leave requests, error: {:?}", e);
+                return Err(PendingSelfRemoveWorkerError::Storage(e.into()));
             }
         }
         Ok(())
