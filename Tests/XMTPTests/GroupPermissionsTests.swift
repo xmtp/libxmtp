@@ -3,7 +3,7 @@ import XMTPiOS
 import XMTPTestHelpers
 
 @available(iOS 16, *)
-class GroupPermissionTests: XCTestCase {
+class GroupPermissionsTests: XCTestCase {
 	override func setUp() {
 		super.setUp()
 		setupLocalEnv()
@@ -37,7 +37,7 @@ class GroupPermissionTests: XCTestCase {
 			with: [fixtures.alixClient.inboxID]
 		)
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try await fixtures.alixClient.conversations
+		let alixGroup = try fixtures.alixClient.conversations
 			.listGroups().first!
 
 		XCTAssertFalse(
@@ -72,7 +72,7 @@ class GroupPermissionTests: XCTestCase {
 			permissions: .adminOnly
 		)
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try await fixtures.alixClient.conversations
+		let alixGroup = try fixtures.alixClient.conversations
 			.listGroups().first!
 
 		XCTAssertFalse(
@@ -159,7 +159,7 @@ class GroupPermissionTests: XCTestCase {
 			permissions: .adminOnly
 		)
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try await fixtures.alixClient.conversations
+		let alixGroup = try fixtures.alixClient.conversations
 			.listGroups().first!
 
 		XCTAssertTrue(
@@ -204,7 +204,7 @@ class GroupPermissionTests: XCTestCase {
 			permissions: .adminOnly
 		)
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try await fixtures.alixClient.conversations
+		let alixGroup = try fixtures.alixClient.conversations
 			.listGroups().first!
 
 		// Initial checks for group members and their permissions
@@ -268,7 +268,7 @@ class GroupPermissionTests: XCTestCase {
 			permissions: .allMembers
 		)
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try await fixtures.alixClient.conversations
+		let alixGroup = try fixtures.alixClient.conversations
 			.listGroups().first!
 
 		// Verify that alix can NOT add an admin
@@ -299,7 +299,7 @@ class GroupPermissionTests: XCTestCase {
 			permissions: .adminOnly
 		)
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try await fixtures.alixClient.conversations
+		let alixGroup = try fixtures.alixClient.conversations
 			.listGroups().first!
 
 		// Verify that alix cannot update group description
@@ -364,7 +364,7 @@ class GroupPermissionTests: XCTestCase {
 			)
 
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try await fixtures.alixClient.conversations
+		let alixGroup = try fixtures.alixClient.conversations
 			.listGroups().first!
 
 		let alixPermissionSet = try alixGroup.permissionPolicySet()
@@ -408,7 +408,7 @@ class GroupPermissionTests: XCTestCase {
 			)
 
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try await fixtures.alixClient.conversations
+		let alixGroup = try fixtures.alixClient.conversations
 			.listGroups().first!
 
 		let alixPermissionSet = try alixGroup.permissionPolicySet()
