@@ -74,8 +74,8 @@ const_format = "0.2"
 ctor = "0.6"
 criterion = { version = "0.7", features = ["html_reports", "async_tokio"] }
 derive_builder = "0.20"
-diesel = { version = "2.3.2", default-features = false }
-diesel_migrations = { version = "2.2", default-features = false }
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "codabrink/writable-deserialize", default-features = false }
+diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "codabrink/writable-deserialize", default-features = false }
 dyn-clone = "1"
 ed25519-dalek = { version = "2.2", features = ["zeroize"] }
 fdlimit = "0.3"

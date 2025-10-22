@@ -70,21 +70,22 @@ impl From<crate::groups::GroupError> for ClientBuilderError {
 }
 
 pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
-    api_client: Option<ApiClientWrapper<ApiClient>>,
-    identity: Option<Identity>,
-    store: Option<Db>,
-    identity_strategy: IdentityStrategy,
-    scw_verifier: Option<Arc<Box<dyn SmartContractSignatureVerifier>>>,
-    device_sync_server_url: Option<String>,
-    device_sync_worker_mode: SyncWorkerMode,
-    fork_recovery_opts: Option<ForkRecoveryOpts>,
-    version_info: VersionInfo,
-    allow_offline: bool,
-    disable_events: bool,
-    disable_commit_log_worker: bool,
-    mls_storage: Option<S>,
-    sync_api_client: Option<ApiClientWrapper<ApiClient>>,
-    cursor_store: Option<Arc<dyn CursorStore>>,
+    pub(crate) api_client: Option<ApiClientWrapper<ApiClient>>,
+    pub(crate) identity: Option<Identity>,
+    pub(crate) store: Option<Db>,
+    pub(crate) identity_strategy: IdentityStrategy,
+    pub(crate) scw_verifier: Option<Arc<Box<dyn SmartContractSignatureVerifier>>>,
+    pub(crate) device_sync_server_url: Option<String>,
+    pub(crate) device_sync_worker_mode: SyncWorkerMode,
+    pub(crate) fork_recovery_opts: Option<ForkRecoveryOpts>,
+    pub(crate) version_info: VersionInfo,
+    pub(crate) allow_offline: bool,
+    pub(crate) disable_events: bool,
+    pub(crate) disable_commit_log_worker: bool,
+    pub(crate) mls_storage: Option<S>,
+    pub(crate) sync_api_client: Option<ApiClientWrapper<ApiClient>>,
+    pub(crate) cursor_store: Option<Arc<dyn CursorStore>>,
+    pub(crate) disable_workers: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -148,6 +149,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mls_storage: None,
             sync_api_client: None,
             cursor_store: None,
+            disable_workers: false,
         }
     }
 }
@@ -183,6 +185,7 @@ where
             mls_storage: Some(client.context.mls_storage.clone()),
             sync_api_client: Some(cloned_sync_api),
             cursor_store: None,
+            disable_workers: false,
         }
     }
 }
@@ -216,6 +219,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mut mls_storage,
             mut sync_api_client,
             cursor_store,
+            disable_workers,
         } = self;
 
         let api_client = api_client
@@ -299,32 +303,36 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         });
 
         // register workers
-        if context.device_sync_worker_enabled() {
-            workers.register_new_worker::<SyncWorker<ContextParts<ApiClient, S, Db>>, _>(
-                context.clone(),
-            );
-        }
-        if !disable_events {
-            EVENTS_ENABLED.store(true, Ordering::SeqCst);
-            workers.register_new_worker::<EventWorker<ContextParts<ApiClient, S, Db>>, _>(
-                context.clone(),
-            );
-        }
-        workers.register_new_worker::<KeyPackagesCleanerWorker<ContextParts<ApiClient, S, Db>>, _>(
-            context.clone(),
-        );
-        workers
-            .register_new_worker::<DisappearingMessagesWorker<ContextParts<ApiClient, S, Db>>, _>(
-                context.clone(),
-            );
-        // Enable CommitLogWorker based on configuration
-        if xmtp_configuration::ENABLE_COMMIT_LOG && !disable_commit_log_worker {
-            workers.register_new_worker::<
+        if !disable_workers {
+            if context.device_sync_worker_enabled() {
+                workers.register_new_worker::<SyncWorker<ContextParts<ApiClient, S, Db>>, _>(
+                    context.clone(),
+                );
+            }
+            if !disable_events {
+                EVENTS_ENABLED.store(true, Ordering::SeqCst);
+                workers.register_new_worker::<EventWorker<ContextParts<ApiClient, S, Db>>, _>(
+                    context.clone(),
+                );
+            }
+            workers
+                .register_new_worker::<KeyPackagesCleanerWorker<ContextParts<ApiClient, S, Db>>, _>(
+                    context.clone(),
+                );
+            workers
+                .register_new_worker::<DisappearingMessagesWorker<ContextParts<ApiClient, S, Db>>, _>(
+                    context.clone(),
+                );
+            // Enable CommitLogWorker based on configuration
+            if xmtp_configuration::ENABLE_COMMIT_LOG && !disable_commit_log_worker {
+                workers.register_new_worker::<
                 crate::groups::commit_log::CommitLogWorker<ContextParts<ApiClient, S, Db>>,
                 _,
-            >(context.clone());
+                >(context.clone());
+            }
+            workers.spawn();
         }
-        workers.spawn();
+
         let client = Client {
             context,
             local_events: tx,
@@ -364,6 +372,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
+            disable_workers: self.disable_workers,
         }
     }
 
@@ -400,6 +409,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             store: self.store,
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
+            disable_workers: self.disable_workers,
         })
     }
 
@@ -420,6 +430,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mls_storage: Some(mls_storage),
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
+            disable_workers: self.disable_workers,
         }
     }
 
@@ -428,6 +439,11 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             device_sync_server_url: url,
             ..self
         }
+    }
+
+    pub fn with_disable_workers(mut self, disable_workers: bool) -> Self {
+        self.disable_workers = disable_workers;
+        self
     }
 
     pub fn device_sync_server_url(self, url: &str) -> Self {
@@ -478,6 +494,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mls_storage: self.mls_storage,
             sync_api_client: Some(sync_api_client),
             cursor_store: self.cursor_store,
+            disable_workers: self.disable_workers,
         }
     }
 
@@ -610,6 +627,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     .attach_debug_wrapper(),
             ),
             cursor_store: self.cursor_store,
+            disable_workers: self.disable_workers,
         })
     }
 
@@ -647,6 +665,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     .map(|a| TrackedStatsClient::new(a)),
             ),
             cursor_store: self.cursor_store,
+            disable_workers: self.disable_workers,
         })
     }
 
@@ -671,6 +690,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
+            disable_workers: self.disable_workers,
         }
     }
 
@@ -707,6 +727,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
+            disable_workers: self.disable_workers,
         })
     }
 }

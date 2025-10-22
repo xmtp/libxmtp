@@ -3,7 +3,9 @@ use clap::Parser;
 use futures::{StreamExt, TryStreamExt, future::join_all};
 use indicatif::ProgressBar;
 use parking_lot::Mutex;
+use rlimit::{Resource, setrlimit};
 use std::{
+    path::PathBuf,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -20,7 +22,7 @@ use tokio::{
 };
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
-use xmtp_mls::{identity::Identity, tester, xmtp_db::identity::StoredIdentity};
+use xmtp_mls::{tester, utils::Tester};
 
 #[derive(Parser)]
 struct Args {
@@ -53,6 +55,8 @@ impl Context {
     }
 }
 
+const RLIMIT: u64 = 4096;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -63,6 +67,9 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
+
+    info!("Temporarily increasing the file descriptor limit to {RLIMIT}");
+    setrlimit(Resource::NOFILE, RLIMIT, RLIMIT).expect("Failed to set file descriptor limit");
 
     let num_msgs = args.senders * args.count;
     let app = App {
@@ -147,7 +154,7 @@ async fn setup_monitor(ctx: Arc<Context>) -> Result<(String, Arc<Notify>)> {
 }
 
 async fn monitor_messages(tx: Sender<String>, ctx: Arc<Context>, ready: Arc<Notify>) -> Result<()> {
-    tester!(andre, with_dev: ctx.args.dev);
+    tester!(andre, with_dev: ctx.args.dev, disable_workers);
     tx.send(andre.inbox_id().to_string())
         .expect("Failed to share inbox_id");
 
@@ -178,8 +185,6 @@ async fn monitor_messages(tx: Sender<String>, ctx: Arc<Context>, ready: Arc<Noti
         if start.is_none() {
             start = Some(Instant::now());
         }
-        // let msg = String::from_utf8_lossy(&msg.decrypted_message_bytes);
-        // info!("{msg}");
 
         let i = ctx.msg_rx.fetch_add(1, Ordering::SeqCst) + 1;
         if i == total {
@@ -198,24 +203,30 @@ async fn setup_send_messages(
     inbox_id: String,
     ctx: &Arc<Context>,
 ) -> Result<impl Future<Output = ()>> {
-    let mut futs = Vec::with_capacity(ctx.args.senders as usize);
-
     info!("Registering {} senders...", ctx.args.senders);
     let mut progress = None;
     if ctx.args.senders > 10 {
         progress = Some(ProgressBar::new(ctx.args.senders));
     }
 
-    for _ in 0..ctx.args.senders {
-        futs.push(send_messages(
-            inbox_id.clone(),
-            ctx.clone(),
-            progress.clone(),
-        ));
-    }
+    let _ = tokio::fs::create_dir_all("snapshots").await;
 
-    let futs: Vec<_> = futures::stream::iter(futs)
-        .buffer_unordered(10)
+    let mut futs = vec![];
+    for i in 0..ctx.args.senders {
+        futs.push(create_client(i, ctx, progress.clone()));
+    }
+    let testers: Vec<Tester> = futures::stream::iter(futs)
+        .buffer_unordered(100)
+        .try_collect()
+        .await?;
+    progress.inspect(|p| p.finish());
+
+    let futs: Vec<_> = futures::stream::iter(testers)
+        .map(|tester| {
+            let inbox_id = inbox_id.clone();
+            async move { send_messages(tester, inbox_id, ctx.clone()).await }
+        })
+        .buffer_unordered(100)
         .try_collect()
         .await?;
 
@@ -224,30 +235,34 @@ async fn setup_send_messages(
     })
 }
 
+async fn create_client(
+    i: u64,
+    ctx: &Context,
+    register_progress: Option<ProgressBar>,
+) -> Result<Tester> {
+    let snapshot_path = PathBuf::from(format!("snapshots/{i}.db3"));
+    let snapshot = fs::read(&snapshot_path).await.ok().map(Arc::new);
+
+    tester!(bo, with_dev: ctx.args.dev, ephemeral_db, with_snapshot: snapshot.clone(), disable_workers);
+
+    if snapshot.is_none() {
+        let snapshot = bo.dump_db();
+        fs::write(&snapshot_path, snapshot).await?;
+    }
+
+    if let Some(progress) = register_progress {
+        progress.inc(1);
+    }
+
+    Ok(bo)
+}
+
 async fn send_messages(
+    sender: Tester,
     inbox_id: String,
     ctx: Arc<Context>,
-    register_progress: Option<ProgressBar>,
 ) -> Result<impl Future<Output = Result<()>>> {
-    let cached_ident = fs::read("ident").await.unwrap();
-    let cached_ident: StoredIdentity = serde_json::from_slice(&cached_ident).unwrap();
-    let cached_ident: Identity = cached_ident.try_into().unwrap();
-    tester!(bodashery, with_dev: ctx.args.dev, ephemeral_db, external_identity: cached_ident);
-
-    // tester!(bodashery, with_dev: ctx.args.dev);
-
-    let dm = bodashery
-        .find_or_create_dm_by_inbox_id(inbox_id, None)
-        .await?;
-    register_progress.inspect(|p| p.inc(1));
-
-    info!("{:?}", bodashery.inbox_id());
-
-    tokio::time::sleep(Duration::from_secs(1)).await;
-
-    let identity: StoredIdentity = bodashery.identity().try_into().unwrap();
-    let ident = serde_json::to_vec(&identity).unwrap();
-    fs::write("ident", ident).await.unwrap();
+    let dm = sender.find_or_create_dm_by_inbox_id(inbox_id, None).await?;
 
     Ok(async move {
         for i in 0..ctx.args.count {

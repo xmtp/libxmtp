@@ -141,7 +141,7 @@ impl IdentityStrategy {
             .map(|i: StoredIdentity| i.try_into())
             .transpose()?;
 
-        debug!("identity in store: {:?}", stored_identity);
+        debug!("identity strategy: {self:?}, identity in store: {stored_identity:?}");
         match self {
             CachedOnly => stored_identity.ok_or(IdentityError::RequiredIdentityNotFound),
             CreateIfNotFound {

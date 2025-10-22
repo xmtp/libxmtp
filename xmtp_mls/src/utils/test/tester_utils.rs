@@ -71,7 +71,7 @@ type XmtpMlsProvider = XmtpOpenMlsProvider<Arc<TestMlsStorage>>;
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
-pub struct Tester<Owner, Client>
+pub struct Tester<Owner = PrivateKeySigner, Client = FullXmtpClient>
 where
     Owner: InboxOwner,
 {
@@ -87,6 +87,20 @@ where
     /// Replacement names for this tester
     /// Replacements are removed on drop
     pub replace: TestLogReplace,
+}
+
+impl<Owner> Tester<Owner, FullXmtpClient>
+where
+    Owner: InboxOwner,
+{
+    pub fn dump_db(&self) -> Vec<u8> {
+        self.db()
+            .raw_query_write(|conn| {
+                let buff = conn.serialize_database_to_buffer();
+                Ok(buff.to_vec())
+            })
+            .unwrap()
+    }
 }
 
 #[derive(QueryableByName)]
@@ -178,27 +192,24 @@ where
         };
 
         let mut proxy = None;
-
         if self.proxy {
             proxy = Some(local_client.with_toxiproxy().await);
             sync_api_client.with_existing_toxi(local_client.host().unwrap());
         }
-        tracing::info!(
-            "building with hosts = {:?}:{:?}",
-            local_client.host(),
-            sync_api_client.host()
-        );
+
         let api_client = local_client.build().unwrap();
         let sync_api_client = sync_api_client.build().unwrap();
 
-        let strategy = match &self.external_identity {
-            Some(identity) => IdentityStrategy::ExternalIdentity(identity.clone()),
+        let strategy = match (&self.external_identity, &self.snapshot) {
+            (Some(identity), _) => IdentityStrategy::ExternalIdentity(identity.clone()),
+            (_, Some(snapshot)) => IdentityStrategy::CachedOnly,
             _ => identity_setup(&self.owner),
         };
 
-        let mut client = Client::builder(strategy)
+        let mut client = Client::builder(strategy.clone())
             .api_clients(api_client, sync_api_client)
             .with_disable_events(Some(!self.events))
+            .with_disable_workers(self.disable_workers)
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .with_device_sync_worker_mode(Some(self.sync_mode))
             .with_device_sync_server_url(self.sync_url.clone())
@@ -206,13 +217,21 @@ where
             .with_commit_log_worker(self.commit_log_worker)
             .fork_recovery_opts(self.fork_recovery_opts.clone().unwrap_or_default());
 
-        // Setup the database
-        if self.ephemeral_db {
+        // Setup the database. Snapshots are always ephemeral.
+        if self.ephemeral_db || self.snapshot.is_some() {
             #[cfg(not(target_arch = "wasm32"))]
             let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral).unwrap();
             #[cfg(target_arch = "wasm32")]
             let db = WasmDb::new(&StorageOption::Ephemeral).await.unwrap();
             let db = EncryptedMessageStore::new(db).unwrap();
+
+            if let Some(snapshot) = &self.snapshot {
+                db.conn()
+                    .raw_query_write(|conn| conn.deserialize_database_from_buffer(snapshot))
+                    .unwrap();
+
+                client.allow_offline = true;
+            }
 
             client = client.store(db);
         } else {
@@ -229,7 +248,7 @@ where
 
         let client = client.default_mls_store().unwrap().build().await.unwrap();
 
-        if self.external_identity.is_none() {
+        if let IdentityStrategy::CreateIfNotFound { .. } = &strategy {
             register_client(&client, &self.owner).await;
         }
 
@@ -358,8 +377,10 @@ where
     pub api_endpoint: ApiEndpoint,
     pub triggers: bool,
     pub external_identity: Option<Identity>,
+    pub snapshot: Option<Arc<Vec<u8>>>,
     /// whether this builder represents a second installation
-    installation: bool,
+    pub installation: bool,
+    pub disable_workers: bool,
 }
 
 #[derive(Clone)]
@@ -394,6 +415,8 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             triggers: false,
             api_endpoint: ApiEndpoint::Local,
             external_identity: None,
+            snapshot: None,
+            disable_workers: false,
         }
     }
 }
@@ -424,6 +447,8 @@ where
             api_endpoint: self.api_endpoint,
             triggers: self.triggers,
             external_identity: self.external_identity,
+            snapshot: self.snapshot,
+            disable_workers: self.disable_workers,
         }
     }
 
@@ -463,6 +488,28 @@ where
 
     pub fn external_identity(mut self, identity: Identity) -> Self {
         self.external_identity = Some(identity);
+        self
+    }
+
+    pub fn with_external_identity(mut self, identity: Option<Identity>) -> Self {
+        self.external_identity = identity;
+        self
+    }
+
+    pub fn snapshot(mut self, snapshot: Arc<Vec<u8>>) -> Self {
+        self.snapshot = Some(snapshot);
+        self.ephemeral_db()
+    }
+
+    pub fn disable_workers(mut self) -> Self {
+        self.disable_workers = true;
+        self
+    }
+
+    pub fn with_snapshot(mut self, snapshot: Option<Arc<Vec<u8>>>) -> Self {
+        if let Some(snapshot) = snapshot {
+            self = self.snapshot(snapshot);
+        }
         self
     }
 
