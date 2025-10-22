@@ -135,7 +135,6 @@ impl TestContentGenerator {
                 )
                 .collect(),
             removed_inboxes: vec![],
-            left_inboxes: vec![],
             metadata_field_changes: vec![],
             left_inboxes: vec![],
         };

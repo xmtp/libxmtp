@@ -66,7 +66,6 @@ pub(crate) mod tests {
             initiated_by_inbox_id: rand_string::<24>(),
             added_inboxes: vec![new_member.clone()],
             removed_inboxes: vec![],
-            left_inboxes: vec![],
             metadata_field_changes: vec![],
             left_inboxes: vec![],
         };
