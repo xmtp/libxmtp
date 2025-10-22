@@ -1,8 +1,12 @@
 use super::{GroupError, MlsGroup, PreconfiguredPolicies};
 use crate::context::XmtpSharedContext;
+use openmls::group::GroupId;
 use xmtp_common::snippet::Snippet;
 use xmtp_db::{
-    MlsProviderExt, XmtpMlsStorageProvider, group::ConversationType, prelude::QueryReaddStatus,
+    MlsProviderExt, XmtpMlsStorageProvider,
+    consent_record::{ConsentState, ConsentType},
+    group::ConversationType,
+    prelude::{QueryConsentRecord, QueryReaddStatus},
 };
 use xmtp_id::AsIdRef;
 use xmtp_mls_common::{group::GroupMetadataOptions, group_metadata::GroupMetadata};
@@ -60,17 +64,23 @@ impl Oneshot {
     ) -> Result<(), GroupError> {
         match message.message_type {
             Some(oneshot_message::MessageType::ReaddRequest(readd_request)) => {
-                tracing::info!(
-                    group_id = readd_request.group_id.snippet(),
-                    sender_installation_id = sender_installation_id.snippet(),
-                    latest_commit_sequence_id = readd_request.latest_commit_sequence_id,
-                    "Received readd request for group"
-                );
-                provider.key_store().db().update_requested_at_sequence_id(
-                    readd_request.group_id.as_slice(),
+                if Self::validate_readd_request(
+                    provider.key_store(),
+                    &readd_request.group_id,
                     &sender_installation_id,
-                    readd_request.latest_commit_sequence_id as i64,
-                )?;
+                )? {
+                    provider.key_store().db().update_requested_at_sequence_id(
+                        readd_request.group_id.as_slice(),
+                        &sender_installation_id,
+                        readd_request.latest_commit_sequence_id as i64,
+                    )?;
+                    tracing::info!(
+                        group_id = readd_request.group_id.snippet(),
+                        sender_installation_id = sender_installation_id.snippet(),
+                        latest_commit_sequence_id = readd_request.latest_commit_sequence_id,
+                        "Stored incoming readd request"
+                    );
+                }
             }
             _ => {
                 tracing::warn!(
@@ -100,6 +110,52 @@ impl Oneshot {
         }
         Ok(())
     }
+
+    fn validate_readd_request(
+        storage: &impl XmtpMlsStorageProvider,
+        group_id: &Vec<u8>,
+        sender_installation_id: &Vec<u8>,
+    ) -> Result<bool, GroupError> {
+        let Some(record) = storage
+            .db()
+            .get_consent_record(hex::encode(group_id), ConsentType::ConversationId)?
+        else {
+            tracing::warn!(
+                group_id = group_id.snippet(),
+                "No consent record found for readd request"
+            );
+            return Ok(false);
+        };
+        if record.state != ConsentState::Allowed {
+            tracing::warn!(
+                group_id = group_id.snippet(),
+                "Group not consented for readd request"
+            );
+            return Ok(false);
+        }
+        // Fetch the OpenMLS group without locking; consistency is not important here, and we are not writing to it
+        let Ok(Some(openmls_group)) =
+            openmls::group::MlsGroup::load(storage, &GroupId::from_slice(group_id))
+        else {
+            tracing::warn!(
+                group_id = group_id.snippet(),
+                "Unable to load OpenMLS group for readd request"
+            );
+            return Ok(false);
+        };
+        if !openmls_group
+            .members()
+            .any(|member| member.signature_key == *sender_installation_id)
+        {
+            tracing::warn!(
+                group_id = group_id.snippet(),
+                "Sender not a member of group for readd request"
+            );
+            return Ok(false);
+        }
+
+        Ok(true)
+    }
 }
 
 #[cfg(test)]
@@ -117,7 +173,17 @@ mod tests {
         tester!(bo);
         tester!(caro);
 
-        let group_id = vec![1, 2, 3, 4];
+        let a_group = alix
+            .create_group_with_inbox_ids(&[bo.inbox_id(), caro.inbox_id()], None, None)
+            .await
+            .unwrap();
+        let group_id = a_group.group_id.clone();
+        bo.sync_all_welcomes_and_groups(None).await.unwrap();
+        caro.sync_all_welcomes_and_groups(None).await.unwrap();
+        let b_group = bo.group(&group_id).unwrap();
+        b_group.update_consent_state(ConsentState::Allowed).unwrap();
+        let c_group = caro.group(&group_id).unwrap();
+        c_group.update_consent_state(ConsentState::Allowed).unwrap();
         let latest_commit_sequence_id = 42;
 
         // Verify that Bo and Caro have no readd status for Alix initially

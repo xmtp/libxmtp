@@ -1,11 +1,17 @@
 use super::WrapperAlgorithm;
 use openmls::ciphersuite::hpke::Error as OpenmlsHpkeError;
 use openmls::prelude::tls_codec::Error as TlsCodecError;
+use openmls_traits::crypto::OpenMlsCrypto;
 use openmls_traits::types::HpkeCiphertext;
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_common::RetryableError;
 use xmtp_configuration::WELCOME_HPKE_LABEL;
+
+static LIBCRUX_CRYPTO_PROVIDER: std::sync::LazyLock<openmls_libcrux_crypto::CryptoProvider> =
+    std::sync::LazyLock::new(|| {
+        openmls_libcrux_crypto::CryptoProvider::new().expect("Failed to create CryptoProvider")
+    });
 
 #[derive(Debug, Error)]
 pub enum WrapWelcomeError {
@@ -23,6 +29,8 @@ pub enum UnwrapWelcomeError {
     Hpke(#[from] OpenmlsHpkeError),
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
+    #[error(transparent)]
+    Crypto(#[from] openmls_traits::types::CryptoError),
 }
 
 impl RetryableError for WrapWelcomeError {
@@ -44,10 +52,10 @@ impl RetryableError for UnwrapWelcomeError {
 /// For the XWingMLKEM768Draft6 algorithm, the openmls_welcome and welcome_metadata are wrapped using the same HPKE public key
 /// and the first vec returned is the HpkeCiphertext with tls serialization. The second vec is just ciphertext.
 pub fn wrap_welcome(
-    openmls_welcome: &[u8],
+    welcome: &[u8],
     welcome_metadata: &[u8],
     hpke_public_key: &[u8],
-    wrapper_algorithm: &WrapperAlgorithm,
+    wrapper_algorithm: WrapperAlgorithm,
 ) -> Result<(Vec<u8>, Vec<u8>), WrapWelcomeError> {
     // The following implementation is the same as calling openmls_libcrux_crypto::CryptoProvider::hpke_seal(...)
     // but uses the context to encrypt multiple messages at once using the same context
@@ -70,7 +78,7 @@ pub fn wrap_welcome(
         .map_err(map_hpke_error)?;
 
     let encrypted_welcome = ctxt
-        .seal(aad, openmls_welcome)
+        .seal(aad, welcome)
         .map(|ct| HpkeCiphertext {
             kem_output: enc.into(),
             ciphertext: ct.into(),
@@ -132,10 +140,32 @@ pub fn unwrap_welcome(
     Ok((welcome, welcome_metadata))
 }
 
+pub fn wrap_welcome_symmetric(
+    data: &[u8],
+    aead_type: openmls::prelude::AeadType,
+    symmetric_key: &[u8],
+    nonce: &[u8],
+) -> Result<Vec<u8>, WrapWelcomeError> {
+    (*LIBCRUX_CRYPTO_PROVIDER)
+        .aead_encrypt(aead_type, symmetric_key, data, nonce, &[])
+        .map_err(Into::into)
+}
+
+pub fn unwrap_welcome_symmetric(
+    data: &[u8],
+    aead_type: openmls::prelude::AeadType,
+    symmetric_key: &[u8],
+    nonce: &[u8],
+) -> Result<Vec<u8>, UnwrapWelcomeError> {
+    (*LIBCRUX_CRYPTO_PROVIDER)
+        .aead_decrypt(aead_type, symmetric_key, data, nonce, &[])
+        .map_err(Into::into)
+}
+
 #[cfg(test)]
 mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_db::MlsProviderExt;
+    use xmtp_db::{MlsProviderExt, XmtpMlsStorageProvider};
 
     use crate::{
         builder::ClientBuilder,
@@ -146,7 +176,7 @@ mod tests {
     use super::*;
 
     fn find_key_package_private_key(
-        provider: &impl MlsProviderExt,
+        provider: &impl XmtpMlsStorageProvider,
         hpke_public_key: &[u8],
         wrapper_algorithm: WrapperAlgorithm,
     ) -> Vec<u8> {
@@ -164,8 +194,11 @@ mod tests {
 
         let hpke_public_key = key_package.hpke_init_key().as_slice();
 
-        let private_key =
-            find_key_package_private_key(&provider, hpke_public_key, WrapperAlgorithm::Curve25519);
+        let private_key = find_key_package_private_key(
+            provider.key_store(),
+            hpke_public_key,
+            WrapperAlgorithm::Curve25519,
+        );
 
         let to_encrypt = xmtp_common::rand_vec::<1000>();
         let to_encrypt_metadata = xmtp_common::rand_vec::<32>();
@@ -175,7 +208,7 @@ mod tests {
             to_encrypt.as_slice(),
             to_encrypt_metadata.as_slice(),
             hpke_public_key,
-            &WrapperAlgorithm::Curve25519,
+            WrapperAlgorithm::Curve25519,
         )
         .unwrap();
 
@@ -204,7 +237,7 @@ mod tests {
         } = client.identity().new_key_package(&provider, true).unwrap();
         let pq_pub_key = maybe_pq_pub_key.unwrap();
         let private_key = find_key_package_private_key(
-            &provider,
+            provider.key_store(),
             &pq_pub_key,
             WrapperAlgorithm::XWingMLKEM768Draft6,
         );
@@ -216,7 +249,7 @@ mod tests {
             to_encrypt.as_slice(),
             to_encrypt_metadata.as_slice(),
             &pq_pub_key[..pq_pub_key.len().saturating_sub(1)],
-            &WrapperAlgorithm::XWingMLKEM768Draft6,
+            WrapperAlgorithm::XWingMLKEM768Draft6,
         )
         .unwrap_err();
 
@@ -224,7 +257,7 @@ mod tests {
             to_encrypt.as_slice(),
             to_encrypt_metadata.as_slice(),
             &pq_pub_key,
-            &WrapperAlgorithm::XWingMLKEM768Draft6,
+            WrapperAlgorithm::XWingMLKEM768Draft6,
         )
         .unwrap();
 
@@ -303,7 +336,7 @@ mod tests {
         } = client.identity().new_key_package(&provider, true).unwrap();
         let pq_pub_key = maybe_pq_pub_key.unwrap();
         let private_key = find_key_package_private_key(
-            &provider,
+            provider.key_store(),
             &pq_pub_key,
             WrapperAlgorithm::XWingMLKEM768Draft6,
         );
@@ -317,7 +350,7 @@ mod tests {
                 &to_encrypt,
                 &to_encrypt_metadata,
                 &pq_pub_key,
-                &WrapperAlgorithm::XWingMLKEM768Draft6,
+                WrapperAlgorithm::XWingMLKEM768Draft6,
             )
             .unwrap();
 
@@ -366,8 +399,11 @@ mod tests {
 
         let hpke_public_key = key_package.hpke_init_key().as_slice();
 
-        let private_key =
-            find_key_package_private_key(&provider, hpke_public_key, WrapperAlgorithm::Curve25519);
+        let private_key = find_key_package_private_key(
+            provider.key_store(),
+            hpke_public_key,
+            WrapperAlgorithm::Curve25519,
+        );
         let to_encrypt = xmtp_common::rand_vec::<1000>();
         let to_encrypt_metadata = xmtp_common::rand_vec::<32>();
 
@@ -377,7 +413,7 @@ mod tests {
                 &to_encrypt,
                 &to_encrypt_metadata,
                 hpke_public_key,
-                &WrapperAlgorithm::Curve25519,
+                WrapperAlgorithm::Curve25519,
             )
             .unwrap();
 
@@ -410,6 +446,20 @@ mod tests {
                 unwrap_welcome(&wrapped, &[], &private_key, WrapperAlgorithm::Curve25519).unwrap();
 
             assert_eq!(unwrapped, (to_encrypt, vec![]));
+        }
+    }
+
+    #[xmtp_common::test]
+    async fn round_trip_symmetric_key() {
+        let symmetric_key = xmtp_common::rand_array::<32>();
+        let nonce = xmtp_common::rand_array::<12>();
+        let data = xmtp_common::rand_array::<1000>();
+        let available_types = crate::groups::mls_ext::WelcomePointersExtension::available_types();
+        for aead_type in available_types.supported_aead_types {
+            let wrapped = wrap_welcome_symmetric(&data, aead_type, &symmetric_key, &nonce).unwrap();
+            let unwrapped =
+                unwrap_welcome_symmetric(&wrapped, aead_type, &symmetric_key, &nonce).unwrap();
+            assert_eq!(data.as_slice(), unwrapped.as_slice());
         }
     }
 }

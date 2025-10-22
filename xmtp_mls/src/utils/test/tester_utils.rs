@@ -12,7 +12,7 @@ use xmtp_db::{
 
 use crate::{
     Client,
-    builder::{ClientBuilder, SyncWorkerMode},
+    builder::{ClientBuilder, ForkRecoveryOpts, ForkRecoveryPolicy, SyncWorkerMode},
     client::ClientError,
     context::XmtpSharedContext,
     groups::device_sync::worker::SyncMetric,
@@ -203,7 +203,8 @@ where
             .with_device_sync_worker_mode(Some(self.sync_mode))
             .with_device_sync_server_url(self.sync_url.clone())
             .maybe_version(self.version.clone())
-            .with_commit_log_worker(self.commit_log_worker);
+            .with_commit_log_worker(self.commit_log_worker)
+            .fork_recovery_opts(self.fork_recovery_opts.clone().unwrap_or_default());
 
         // Setup the database
         if self.ephemeral_db {
@@ -344,6 +345,7 @@ where
     pub owner: Owner,
     pub sync_mode: SyncWorkerMode,
     pub sync_url: Option<String>,
+    pub fork_recovery_opts: Option<ForkRecoveryOpts>,
     pub wait_for_init: bool,
     pub stream: bool,
     pub name: Option<String>,
@@ -378,6 +380,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             owner: generate_local_wallet(),
             sync_mode: SyncWorkerMode::Disabled,
             sync_url: None,
+            fork_recovery_opts: None,
             wait_for_init: true,
             stream: false,
             name: None,
@@ -407,6 +410,7 @@ where
             owner,
             sync_mode: self.sync_mode,
             sync_url: self.sync_url,
+            fork_recovery_opts: self.fork_recovery_opts,
             wait_for_init: self.wait_for_init,
             stream: self.stream,
             name: self.name,
@@ -467,6 +471,49 @@ where
         self
     }
 
+    pub fn enable_fork_recovery_requests(self) -> Self {
+        Self {
+            fork_recovery_opts: Some(ForkRecoveryOpts {
+                enable_recovery_requests: ForkRecoveryPolicy::All,
+                groups_to_request_recovery: vec![],
+                disable_recovery_responses: false,
+                worker_interval_ns: None,
+            }),
+            ..self
+        }
+    }
+
+    pub fn enable_fork_recovery_requests_for(self, groups: Vec<String>) -> Self {
+        Self {
+            fork_recovery_opts: Some(ForkRecoveryOpts {
+                enable_recovery_requests: ForkRecoveryPolicy::AllowlistedGroups,
+                groups_to_request_recovery: groups,
+                disable_recovery_responses: false,
+                worker_interval_ns: None,
+            }),
+            ..self
+        }
+    }
+
+    pub fn disable_fork_recovery_responses(self) -> Self {
+        Self {
+            fork_recovery_opts: Some(ForkRecoveryOpts {
+                enable_recovery_requests: ForkRecoveryPolicy::None,
+                groups_to_request_recovery: vec![],
+                disable_recovery_responses: true,
+                worker_interval_ns: None,
+            }),
+            ..self
+        }
+    }
+
+    pub fn stream(self) -> Self {
+        Self {
+            stream: true,
+            ..self
+        }
+    }
+
     pub fn sync_worker(mut self) -> Self {
         self.sync_mode = SyncWorkerMode::Enabled;
         self
@@ -484,11 +531,6 @@ where
 
     pub fn in_memory_cursors(mut self) -> Self {
         self.in_memory_cursors = true;
-        self
-    }
-
-    pub fn stream(mut self) -> Self {
-        self.stream = true;
         self
     }
 

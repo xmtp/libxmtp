@@ -19,7 +19,10 @@ use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 use xmtp_proto::xmtp::mls::api::v1::KeyPackageUpload;
 use xmtp_proto::xmtp::mls::api::v1::UploadKeyPackageRequest;
 use xmtp_proto::xmtp::mls::api::v1::{
-    group_message_input::V1 as GroupMessageV1, welcome_message_input::V1 as WelcomeMessageV1,
+    group_message_input::V1 as GroupMessageV1,
+    welcome_message_input::{
+        V1 as WelcomeMessageV1, WelcomePointer as WelcomeMessageWelcomePointer,
+    },
 };
 
 /// Extract Topics from Envelopes
@@ -86,7 +89,29 @@ impl EnvelopeVisitor<'_> for TopicExtractor {
         Ok(())
     }
 
+    fn visit_welcome_message_version(
+        &mut self,
+        version: &xmtp_proto::mls_v1::welcome_message_input::Version,
+    ) -> Result<(), Self::Error> {
+        match version {
+            xmtp_proto::mls_v1::welcome_message_input::Version::V1(v1) => {
+                self.visit_welcome_message_v1(v1)
+            }
+            xmtp_proto::mls_v1::welcome_message_input::Version::WelcomePointer(wp) => {
+                self.visit_welcome_pointer(wp)
+            }
+        }
+    }
+
     fn visit_welcome_message_v1(&mut self, message: &WelcomeMessageV1) -> Result<(), Self::Error> {
+        self.topic = Some(TopicKind::WelcomeMessagesV1.create(message.installation_key.as_slice()));
+        Ok(())
+    }
+
+    fn visit_welcome_pointer(
+        &mut self,
+        message: &WelcomeMessageWelcomePointer,
+    ) -> Result<(), Self::Error> {
         self.topic = Some(TopicKind::WelcomeMessagesV1.create(message.installation_key.as_slice()));
         Ok(())
     }

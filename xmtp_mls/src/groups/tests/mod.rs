@@ -4,11 +4,13 @@ mod test_commit_log_readd_requests;
 mod test_commit_log_remote;
 mod test_consent;
 mod test_dm;
+mod test_extract_readded_installations;
 mod test_key_updates;
 mod test_libxmtp_version;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_network;
 mod test_send_message_opts;
+mod test_welcome_pointers;
 mod test_welcomes;
 
 use crate::groups::send_message_opts::SendMessageOpts;
@@ -98,7 +100,7 @@ async fn force_add_member(
     sender_mls_group: &mut openmls::prelude::MlsGroup,
     sender_provider: &impl xmtp_db::MlsProviderExt,
 ) {
-    use crate::groups::mls_ext::WrapperAlgorithm;
+    use crate::groups::mls_ext::{WelcomePointersExtension, WrapperAlgorithm};
     use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
 
     use super::intents::{Installation, SendWelcomesAction};
@@ -128,6 +130,7 @@ async fn force_add_member(
             installation_key: new_member_client.installation_public_key().into(),
             hpke_public_key: hpke_init_key,
             welcome_wrapper_algorithm: WrapperAlgorithm::Curve25519,
+            welcome_pointee_encryption_aead_types: WelcomePointersExtension::empty(),
         }],
         serialized_welcome,
     );

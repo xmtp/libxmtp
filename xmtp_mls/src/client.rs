@@ -1054,12 +1054,12 @@ pub(crate) mod tests {
 
         let installation_public_key = client.installation_public_key().to_vec();
         // Get original KeyPackage.
-        let kp1 = client
+        let mut kp1 = client
             .get_key_packages_for_installation_ids(vec![installation_public_key.clone()])
             .await
             .unwrap();
         assert_eq!(kp1.len(), 1);
-        let binding = kp1[&installation_public_key].clone().unwrap();
+        let binding = kp1.remove(&installation_public_key).unwrap().unwrap();
         let init1 = binding.inner.hpke_init_key();
         let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
         assert!(fetched_identity.next_key_package_rotation_ns.is_some());
@@ -1071,12 +1071,12 @@ pub(crate) mod tests {
 
         xmtp_common::time::sleep(std::time::Duration::from_secs(11)).await;
 
-        let kp2 = client
+        let mut kp2 = client
             .get_key_packages_for_installation_ids(vec![installation_public_key.clone()])
             .await
             .unwrap();
         assert_eq!(kp2.len(), 1);
-        let binding = kp2[&installation_public_key].clone().unwrap();
+        let binding = kp2.remove(&installation_public_key).unwrap().unwrap();
         let init2 = binding.inner.hpke_init_key();
 
         assert_ne!(init1, init2);
@@ -1534,20 +1534,17 @@ pub(crate) mod tests {
         client: &Client<Context>,
         installation_id: Id,
     ) -> Result<Vec<u8>, IdentityError> {
-        let kps_map = client
+        let mut kps_map = client
             .get_key_packages_for_installation_ids(vec![installation_id.as_ref().to_vec()])
             .await
             .map_err(|_| IdentityError::NewIdentity("Failed to fetch key packages".to_string()))?;
 
-        let kp_result = kps_map
-            .get(installation_id.as_ref())
-            .ok_or_else(|| {
-                IdentityError::NewIdentity(format!(
-                    "Missing key package for {}",
-                    hex::encode(installation_id.as_ref())
-                ))
-            })?
-            .clone()?;
+        let kp_result = kps_map.remove(installation_id.as_ref()).ok_or_else(|| {
+            IdentityError::NewIdentity(format!(
+                "Missing key package for {}",
+                hex::encode(installation_id.as_ref())
+            ))
+        })??;
 
         serialize_key_package_hash_ref(&kp_result.inner, &client.context.mls_provider())
     }

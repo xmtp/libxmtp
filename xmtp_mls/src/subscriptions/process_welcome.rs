@@ -309,17 +309,8 @@ where
     /// # Note
     /// This function uses retry logic to handle transient network failures
     async fn on_welcome(&self, welcome: &WelcomeMessage) -> Result<Option<MlsGroup<Context>>> {
-        let WelcomeMessage {
-            cursor,
-            created_ns: _,
-            installation_key,
-            ..
-        } = welcome;
-        let id = cursor.sequence_id as i64;
-
         tracing::info!(
-            installation_id = hex::encode(installation_key),
-            welcome_id = &id,
+            welcome_id = %welcome.cursor,
             "Trying to process streamed welcome"
         );
         self.process_welcome(welcome).await
@@ -344,7 +335,7 @@ where
             _,
         ))) = res
         {
-            Ok(self.load_from_store(id)?)
+            self.load_from_store(id)
         } else {
             Err(res.expect_err("Checked for Ok value").into())
         }

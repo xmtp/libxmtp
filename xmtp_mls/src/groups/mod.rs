@@ -19,6 +19,7 @@ pub mod summary;
 #[cfg(test)]
 mod tests;
 pub mod validated_commit;
+pub mod welcome_pointer;
 pub mod welcome_sync;
 mod welcomes;
 pub use welcomes::*;
@@ -686,9 +687,7 @@ where
         let now = now_ns();
         let plain_envelope = envelope(now);
         let mut encoded_envelope = vec![];
-        plain_envelope
-            .encode(&mut encoded_envelope)
-            .map_err(GroupError::EncodeError)?;
+        plain_envelope.encode(&mut encoded_envelope)?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         let queryable_content_fields: QueryableContentFields =
@@ -766,6 +765,17 @@ where
         let latest_read_receipt =
             conn.get_latest_message_times_by_sender(&self.group_id, &[ContentType::ReadReceipt])?;
         Ok(latest_read_receipt)
+    }
+
+    /// Load the group reference stored in the local database
+    pub fn load(&self) -> Result<StoredGroup, StorageError> {
+        let conn = self.context.db();
+        if let Some(group) = conn.find_group(&self.group_id)? {
+            Ok(group)
+        } else {
+            tracing::error!("group {} does not exist", hex::encode(&self.group_id));
+            Err(NotFound::GroupById(self.group_id.to_vec()).into())
+        }
     }
 
     ///
@@ -1467,6 +1477,17 @@ where
     pub async fn epoch(&self) -> Result<u64, GroupError> {
         self.load_mls_group_with_lock_async(|mls_group| {
             futures::future::ready(Ok(mls_group.epoch().as_u64()))
+        })
+        .await
+    }
+
+    /// Get the encryption state of the current epoch. Should match for all installations
+    /// in the same epoch.
+    #[cfg(test)]
+    #[allow(unused)]
+    pub(crate) async fn epoch_authenticator(&self) -> Result<Vec<u8>, GroupError> {
+        self.load_mls_group_with_lock_async(|mls_group| {
+            futures::future::ready(Ok(mls_group.epoch_authenticator().as_slice().to_vec()))
         })
         .await
     }

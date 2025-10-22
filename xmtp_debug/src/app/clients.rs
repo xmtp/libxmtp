@@ -42,6 +42,7 @@ pub async fn temp_client(
     .await
 }
 
+/// Get the XMTP Client from an [`Identity`]
 pub async fn client_from_identity(
     identity: &Identity,
     network: &args::BackendOpts,

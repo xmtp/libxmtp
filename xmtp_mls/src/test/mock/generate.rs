@@ -30,6 +30,7 @@ pub fn context() -> NewMockContext {
             server_url: None,
             mode: SyncWorkerMode::Disabled,
         },
+        fork_recovery_opts: Default::default(),
         workers: WorkerRunner::new(),
         mls_storage: SqlKeyStore::new(MemoryStorage::new()),
         sync_api_client: ApiClientWrapper::new(MockApiClient::new(), Default::default()),

@@ -45,7 +45,16 @@ impl From<Arc<redb::Database>> for GroupStore<'_> {
     }
 }
 
-#[derive(Debug)]
+impl From<Arc<redb::ReadOnlyDatabase>> for GroupStore<'_> {
+    fn from(value: Arc<redb::ReadOnlyDatabase>) -> Self {
+        GroupStore {
+            db: super::DatabaseOrTransaction::ReadOnly(value),
+            store: GroupStorage,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct GroupStorage;
 
 impl<'a> super::TableProvider<'a, GroupKey, Group> for GroupStorage {
