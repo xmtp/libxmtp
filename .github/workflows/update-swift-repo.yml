@@ -96,32 +96,114 @@ jobs:
           # Verify podspec
           pod spec lint LibXMTP.podspec || echo "Podspec validation failed but continuing"
 
-      - name: Get checksum from release
-        id: get_checksum
+      - name: Get checksums from releases
+        id: get_checksums
         env:
           GH_TOKEN: ${{ secrets.LIBXMTP_SWIFT_PAT }}
         run: |
-          # Fetch the checksum from the release description
-          RELEASE_TAG="${{ steps.version_info.outputs.release_tag }}"
-          CHECKSUM=$(gh api repos/xmtp/libxmtp/releases/tags/$RELEASE_TAG --jq '.body' | grep -o 'Checksum of LibXMTPSwiftFFI.zip: [a-f0-9]*' | cut -d' ' -f4)
+          # Static library release tag
+          STATIC_RELEASE_TAG="${{ steps.version_info.outputs.release_tag }}"
 
-          # Verify we got a valid checksum
+          # Dynamic library release tag (has -dynamic suffix)
+          DYNAMIC_RELEASE_TAG="${STATIC_RELEASE_TAG%-dynamic}"
+          if [[ "$DYNAMIC_RELEASE_TAG" == "$STATIC_RELEASE_TAG" ]]; then
+            # Original tag didn't have -dynamic, so we need to add it
+            DYNAMIC_RELEASE_TAG="${STATIC_RELEASE_TAG}-dynamic"
+          fi
+
+          # Fetch static library checksum from static release
+          STATIC_BODY=$(gh api repos/xmtp/libxmtp/releases/tags/$STATIC_RELEASE_TAG --jq '.body')
+          CHECKSUM=$(echo "$STATIC_BODY" | grep -o 'Checksum of LibXMTPSwiftFFI.zip: [a-f0-9]*' | cut -d' ' -f4)
+
+          # Fetch dynamic library checksum from dynamic release
+          DYNAMIC_BODY=$(gh api repos/xmtp/libxmtp/releases/tags/$DYNAMIC_RELEASE_TAG --jq '.body')
+          DYNAMIC_CHECKSUM=$(echo "$DYNAMIC_BODY" | grep -o 'Checksum of LibXMTPSwiftFFIDynamic.zip: [a-f0-9]*' | cut -d' ' -f4)
+
+          # Verify we got valid checksums
           if [[ ! $CHECKSUM =~ ^[a-f0-9]+$ ]]; then
-            echo "Failed to extract valid checksum from release description"
+            echo "Failed to extract valid checksum for static library from release $STATIC_RELEASE_TAG"
+            exit 1
+          fi
+
+          if [[ ! $DYNAMIC_CHECKSUM =~ ^[a-f0-9]+$ ]]; then
+            echo "Failed to extract valid checksum for dynamic library from release $DYNAMIC_RELEASE_TAG"
             exit 1
           fi
 
           echo "checksum=${CHECKSUM}" >> $GITHUB_OUTPUT
+          echo "dynamic_checksum=${DYNAMIC_CHECKSUM}" >> $GITHUB_OUTPUT
+          echo "dynamic_release_tag=${DYNAMIC_RELEASE_TAG}" >> $GITHUB_OUTPUT
 
       - name: Update Package.swift
         run: |
           cd libxmtp-swift
-          RELEASE_URL="https://github.com/xmtp/libxmtp/releases/download/${{ steps.version_info.outputs.release_tag }}/LibXMTPSwiftFFI.zip"
-          CHECKSUM="${{ steps.get_checksum.outputs.checksum }}"
+          STATIC_RELEASE_URL="https://github.com/xmtp/libxmtp/releases/download/${{ steps.version_info.outputs.release_tag }}/LibXMTPSwiftFFI.zip"
+          DYNAMIC_RELEASE_URL="https://github.com/xmtp/libxmtp/releases/download/${{ steps.get_checksums.outputs.dynamic_release_tag }}/LibXMTPSwiftFFIDynamic.zip"
+          CHECKSUM="${{ steps.get_checksums.outputs.checksum }}"
+          DYNAMIC_CHECKSUM="${{ steps.get_checksums.outputs.dynamic_checksum }}"
 
-          # Update URL and checksum in Package.swift
-          sed -i '' "s|url: \"https://github.com/xmtp/libxmtp/releases/download/.*\"|url: \"${RELEASE_URL}\"|" Package.swift
-          sed -i '' "s|checksum: \"[a-f0-9]*\"|checksum: \"${CHECKSUM}\"|" Package.swift
+          # Create a temporary file for processing
+          TMP_FILE=$(mktemp)
+
+          # Read Package.swift and update both binary targets
+          awk -v static_url="$STATIC_RELEASE_URL" -v static_checksum="$CHECKSUM" \
+              -v dynamic_url="$DYNAMIC_RELEASE_URL" -v dynamic_checksum="$DYNAMIC_CHECKSUM" '
+          BEGIN { in_static_target = 0; in_dynamic_target = 0 }
+
+          # Detect when we enter LibXMTPSwiftFFI binary target
+          /name: "LibXMTPSwiftFFI"/ {
+            in_static_target = 1
+            in_dynamic_target = 0
+          }
+
+          # Detect when we enter LibXMTPSwiftFFIDynamic binary target
+          /name: "LibXMTPSwiftFFIDynamic"/ {
+            in_dynamic_target = 1
+            in_static_target = 0
+          }
+
+          # Update URL based on which target we are in
+          /url:/ {
+            if (in_static_target) {
+              sub(/url: "https:\/\/github\.com\/xmtp\/libxmtp\/releases\/download\/[^"]*"/, "url: \"" static_url "\"")
+            } else if (in_dynamic_target) {
+              sub(/url: "https:\/\/github\.com\/xmtp\/libxmtp\/releases\/download\/[^"]*"/, "url: \"" dynamic_url "\"")
+            }
+          }
+
+          # Update checksum based on which target we are in
+          /checksum:/ {
+            if (in_static_target) {
+              sub(/checksum: "[a-f0-9]*"/, "checksum: \"" static_checksum "\"")
+              in_static_target = 0
+            } else if (in_dynamic_target) {
+              sub(/checksum: "[a-f0-9]*"/, "checksum: \"" dynamic_checksum "\"")
+              in_dynamic_target = 0
+            }
+          }
+
+          { print }
+          ' Package.swift > "$TMP_FILE"
+
+          # Replace original file
+          mv "$TMP_FILE" Package.swift
+
+          # Verify both URLs were updated
+          if ! grep -q "$STATIC_RELEASE_URL" Package.swift; then
+            echo "Error: Static library URL not found in Package.swift"
+            cat Package.swift
+            exit 1
+          fi
+
+          if ! grep -q "$DYNAMIC_RELEASE_URL" Package.swift; then
+            echo "Error: Dynamic library URL not found in Package.swift"
+            cat Package.swift
+            exit 1
+          fi
+
+          echo "Successfully updated Package.swift with both library URLs and checksums"
+          echo "Static: $STATIC_RELEASE_URL (checksum: $CHECKSUM)"
+          echo "Dynamic: $DYNAMIC_RELEASE_URL (checksum: $DYNAMIC_CHECKSUM)"
 
       - name: Commit and push changes
         run: |
@@ -138,10 +220,10 @@ jobs:
             --base main \
             --head update-to-${{ steps.version_info.outputs.release_tag }} \
             --title "Update to libxmtp ${{ steps.version_info.outputs.version }}" \
-            --body "This PR updates the Swift bindings to libxmtp version ${{ steps.version_info.outputs.version }}. 
-            
+            --body "This PR updates the Swift bindings to libxmtp version ${{ steps.version_info.outputs.version }}.
+
           Changes:
           - Updated Sources directory with latest Swift bindings
           - Updated LibXMTP.podspec version to ${{ steps.version_info.outputs.version }}
-          - Updated binary URLs to point to the new release
-          - Updated checksum in Package.swift"
+          - Updated static library binary target (LibXMTPSwiftFFI) URL and checksum from release ${{ steps.version_info.outputs.release_tag }}
+          - Updated dynamic library binary target (LibXMTPSwiftFFIDynamic) URL and checksum from release ${{ steps.get_checksums.outputs.dynamic_release_tag }}"
