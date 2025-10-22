@@ -196,7 +196,6 @@ diesel::table! {
 }
 
 diesel::table! {
-
     refresh_state (entity_id, entity_kind, originator_id) {
         entity_id -> Binary,
         entity_kind -> Integer,
@@ -214,6 +213,25 @@ diesel::table! {
         commit_result -> Integer,
         applied_epoch_number -> BigInt,
         applied_epoch_authenticator -> Binary,
+    }
+}
+
+diesel::table! {
+    tasks (id) {
+        id -> Integer,
+        originating_message_sequence_id -> BigInt,
+        originating_message_originator_id -> Integer,
+        created_at_ns -> BigInt,
+        expires_at_ns -> BigInt,
+        attempts -> Integer,
+        max_attempts -> Integer,
+        last_attempted_at_ns -> BigInt,
+        backoff_scaling_factor -> Float,
+        max_backoff_duration_ns -> BigInt,
+        initial_backoff_duration_ns -> BigInt,
+        next_attempt_at_ns -> BigInt,
+        data_hash -> Binary,
+        data -> Binary,
     }
 }
 
@@ -248,5 +266,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     readd_status,
     refresh_state,
     remote_commit_log,
+    tasks,
     user_preferences,
 );

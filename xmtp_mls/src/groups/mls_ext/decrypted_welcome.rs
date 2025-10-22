@@ -79,12 +79,16 @@ impl DecryptedWelcome {
     async fn welcome_from_decrypted_welcome_pointer(
         decrypted_welcome_pointer: &DecryptedWelcomePointer,
         context: &impl crate::context::XmtpSharedContext,
-    ) -> Result<(openmls::messages::Welcome, Option<WelcomeMetadata>), GroupError> {
-        let v1 = super::super::welcome_pointer::resolve_welcome_pointer(
+    ) -> Result<Option<(openmls::messages::Welcome, Option<WelcomeMetadata>)>, GroupError> {
+        let Some(v1) = super::super::welcome_pointer::resolve_welcome_pointer(
             decrypted_welcome_pointer,
             context,
         )
-        .await?;
+        .await?
+        else {
+            // Message not found, this will be backgrounded and retried
+            return Ok(None);
+        };
 
         let aead_type = match decrypted_welcome_pointer.aead_type {
             xmtp_proto::xmtp::mls::message_contents::WelcomePointeeEncryptionAeadType::Chacha20Poly1305 => {
@@ -118,21 +122,64 @@ impl DecryptedWelcome {
             .map(deserialize_welcome_metadata)
             .transpose()?;
 
-        Ok((welcome, welcome_metadata))
+        Ok(Some((welcome, welcome_metadata)))
     }
     pub(crate) async fn from_welcome_proto(
         welcome: &WelcomeMessage,
         context: &impl crate::context::XmtpSharedContext,
     ) -> Result<Self, GroupError> {
+        use xmtp_common::r#const::{NS_IN_DAY, NS_IN_HOUR, NS_IN_MIN};
         let mls_storage = context.mls_storage();
         let (welcome, welcome_metadata) = match &welcome.variant {
             WelcomeMessageType::V1(v1) => Self::welcome_from_proto_v1(mls_storage, welcome, v1)?,
             WelcomeMessageType::WelcomePointer(w) => {
                 let welcome_pointer = decrypt_welcome_pointer(mls_storage, w)?;
-                Self::welcome_from_decrypted_welcome_pointer(&welcome_pointer, context).await?
+                let maybe_welcome =
+                    Self::welcome_from_decrypted_welcome_pointer(&welcome_pointer, context).await?;
+                match maybe_welcome {
+                    Some(welcome) => welcome,
+                    None => {
+                        let destination = hex::encode(welcome_pointer.destination.as_slice());
+                        let now = xmtp_common::time::now_ns();
+                        let backoff = if cfg!(test) {
+                            xmtp_common::r#const::NS_IN_SEC
+                        } else {
+                            NS_IN_MIN * 5
+                        };
+                        #[allow(clippy::unwrap_used)]
+                        let task = xmtp_db::tasks::NewTask::builder()
+                            .originating_message_sequence_id(welcome.cursor.sequence_id as i64)
+                            .originating_message_originator_id(welcome.cursor.originator_id as i32)
+                            // use created_ns from the welcome so we can reuse it when reprocessing
+                            .created_at_ns(welcome.timestamp())
+                            .expires_at_ns(now + NS_IN_DAY * 3)
+                            .attempts(0)
+                            .max_attempts(100)
+                            .last_attempted_at_ns(now)
+                            .backoff_scaling_factor(1.5)
+                            .max_backoff_duration_ns(NS_IN_HOUR * 2)
+                            .initial_backoff_duration_ns(backoff)
+                            .next_attempt_at_ns(now + backoff)
+                            .build(xmtp_proto::xmtp::mls::database::Task{
+                                task: Some(xmtp_proto::xmtp::mls::database::task::Task::ProcessWelcomePointer(welcome_pointer.to_proto())),
+                            })?;
+                        context.workers().task_channels().send(task);
+                        return Err(GroupError::WelcomeDataNotFound(destination));
+                    }
+                }
             }
+            // This branch should only be hit if this is from a reprocessing task
             WelcomeMessageType::DecryptedWelcomePointer(w) => {
-                Self::welcome_from_decrypted_welcome_pointer(w, context).await?
+                let maybe_welcome =
+                    Self::welcome_from_decrypted_welcome_pointer(w, context).await?;
+                match maybe_welcome {
+                    Some(welcome) => welcome,
+                    None => {
+                        let destination = hex::encode(w.destination.as_slice());
+                        // only reprocessing, so no need to create a new task
+                        return Err(GroupError::WelcomeDataNotFound(destination));
+                    }
+                }
             }
         };
 
