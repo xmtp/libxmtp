@@ -2,6 +2,7 @@ package org.xmtp.android.library
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.libxmtp.ConversationDebugInfo
@@ -21,7 +22,10 @@ sealed class Conversation {
         val dm: org.xmtp.android.library.Dm,
     ) : Conversation()
 
-    enum class Type { GROUP, DM }
+    enum class Type {
+        GROUP,
+        DM,
+    }
 
     val type: Type
         get() {
@@ -78,8 +82,8 @@ sealed class Conversation {
     val disappearingMessageSettings: DisappearingMessageSettings?
         get() {
             return when (this) {
-                is Group -> group.disappearingMessageSettings
-                is Dm -> dm.disappearingMessageSettings
+                is Group -> runBlocking { group.disappearingMessageSettings() }
+                is Dm -> runBlocking { dm.disappearingMessageSettings() }
             }
         }
 
@@ -98,8 +102,8 @@ sealed class Conversation {
     val isDisappearingMessagesEnabled: Boolean
         get() {
             return when (this) {
-                is Group -> group.isDisappearingMessagesEnabled
-                is Dm -> dm.isDisappearingMessagesEnabled
+                is Group -> runBlocking { group.isDisappearingMessagesEnabled() }
+                is Dm -> runBlocking { dm.isDisappearingMessagesEnabled() }
             }
         }
 
@@ -224,7 +228,8 @@ sealed class Conversation {
         beforeNs: Long? = null,
         afterNs: Long? = null,
         direction: DecodedMessage.SortDirection = DecodedMessage.SortDirection.DESCENDING,
-        deliveryStatus: DecodedMessage.MessageDeliveryStatus = DecodedMessage.MessageDeliveryStatus.ALL,
+        deliveryStatus: DecodedMessage.MessageDeliveryStatus =
+            DecodedMessage.MessageDeliveryStatus.ALL,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
@@ -233,17 +238,40 @@ sealed class Conversation {
             }
         }
 
+    suspend fun countMessages(
+        beforeNs: Long? = null,
+        afterNs: Long? = null,
+        deliveryStatus: DecodedMessage.MessageDeliveryStatus =
+            DecodedMessage.MessageDeliveryStatus.ALL,
+    ): Long =
+        withContext(Dispatchers.IO) {
+            when (this@Conversation) {
+                is Group -> group.countMessages(beforeNs, afterNs, deliveryStatus)
+                is Dm -> dm.countMessages(beforeNs, afterNs, deliveryStatus)
+            }
+        }
+
     suspend fun enrichedMessages(
         limit: Int? = null,
         beforeNs: Long? = null,
         afterNs: Long? = null,
         direction: DecodedMessage.SortDirection = DecodedMessage.SortDirection.DESCENDING,
-        deliveryStatus: DecodedMessage.MessageDeliveryStatus = DecodedMessage.MessageDeliveryStatus.ALL,
+        deliveryStatus: DecodedMessage.MessageDeliveryStatus =
+            DecodedMessage.MessageDeliveryStatus.ALL,
     ): List<DecodedMessageV2> =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
-                is Group -> group.enrichedMessages(limit, beforeNs, afterNs, direction, deliveryStatus)
-                is Dm -> dm.enrichedMessages(limit, beforeNs, afterNs, direction, deliveryStatus)
+                is Group ->
+                    group.enrichedMessages(
+                        limit,
+                        beforeNs,
+                        afterNs,
+                        direction,
+                        deliveryStatus,
+                    )
+
+                is Dm ->
+                    dm.enrichedMessages(limit, beforeNs, afterNs, direction, deliveryStatus)
             }
         }
 
@@ -252,7 +280,8 @@ sealed class Conversation {
         beforeNs: Long? = null,
         afterNs: Long? = null,
         direction: DecodedMessage.SortDirection = DecodedMessage.SortDirection.DESCENDING,
-        deliveryStatus: DecodedMessage.MessageDeliveryStatus = DecodedMessage.MessageDeliveryStatus.ALL,
+        deliveryStatus: DecodedMessage.MessageDeliveryStatus =
+            DecodedMessage.MessageDeliveryStatus.ALL,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
@@ -265,7 +294,14 @@ sealed class Conversation {
                         deliveryStatus,
                     )
 
-                is Dm -> dm.messagesWithReactions(limit, beforeNs, afterNs, direction, deliveryStatus)
+                is Dm ->
+                    dm.messagesWithReactions(
+                        limit,
+                        beforeNs,
+                        afterNs,
+                        direction,
+                        deliveryStatus,
+                    )
             }
         }
 
@@ -285,7 +321,8 @@ sealed class Conversation {
             }
         }
 
-    // Returns null if conversation is not paused, otherwise the min version required to unpause this conversation
+    // Returns null if conversation is not paused, otherwise the min version required to unpause
+    // this conversation
     suspend fun pausedForVersion(): String? =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
@@ -340,7 +377,8 @@ sealed class Conversation {
             }
         }
 
-    // Get the last read receipt timestamp (in nanoseconds) for each member of the conversation, keyed by inbox ID
+    // Get the last read receipt timestamp (in nanoseconds) for each member of the conversation,
+    // keyed by inbox ID
     suspend fun getLastReadTimes(): Map<InboxId, Long> =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {

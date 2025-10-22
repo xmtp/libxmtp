@@ -56,29 +56,26 @@ class Dm(
 
     @Deprecated(
         message = "Use suspend disappearingMessageSettings()",
+        replaceWith = ReplaceWith("disappearingMessageSettings()"),
     )
     val disappearingMessageSettings: DisappearingMessageSettings?
         get() =
             runCatching {
-                libXMTPGroup
-                    .takeIf { isDisappearingMessagesEnabled }
-                    ?.let { group ->
-                        group
-                            .conversationMessageDisappearingSettings()
-                            ?.let { DisappearingMessageSettings.createFromFfi(it) }
+                libXMTPGroup.takeIf { isDisappearingMessagesEnabled }?.let { group ->
+                    group.conversationMessageDisappearingSettings()?.let {
+                        DisappearingMessageSettings.createFromFfi(it)
                     }
+                }
             }.getOrNull()
 
     suspend fun disappearingMessageSettings(): DisappearingMessageSettings? =
         withContext(Dispatchers.IO) {
             runCatching {
-                libXMTPGroup
-                    .takeIf { isDisappearingMessagesEnabled() }
-                    ?.let { group ->
-                        group
-                            .conversationMessageDisappearingSettings()
-                            ?.let { DisappearingMessageSettings.createFromFfi(it) }
+                libXMTPGroup.takeIf { isDisappearingMessagesEnabled() }?.let { group ->
+                    group.conversationMessageDisappearingSettings()?.let {
+                        DisappearingMessageSettings.createFromFfi(it)
                     }
+                }
             }.getOrNull()
         }
 
@@ -89,19 +86,11 @@ class Dm(
         get() = libXMTPGroup.isConversationMessageDisappearingEnabled()
 
     suspend fun isDisappearingMessagesEnabled(): Boolean =
-        withContext(Dispatchers.IO) {
-            libXMTPGroup.isConversationMessageDisappearingEnabled()
-        }
+        withContext(Dispatchers.IO) { libXMTPGroup.isConversationMessageDisappearingEnabled() }
 
-    private suspend fun metadata(): FfiConversationMetadata =
-        withContext(Dispatchers.IO) {
-            libXMTPGroup.groupMetadata()
-        }
+    private suspend fun metadata(): FfiConversationMetadata = withContext(Dispatchers.IO) { libXMTPGroup.groupMetadata() }
 
-    suspend fun send(text: String): String =
-        withContext(Dispatchers.IO) {
-            send(encodeContent(content = text, options = null))
-        }
+    suspend fun send(text: String): String = withContext(Dispatchers.IO) { send(encodeContent(content = text, options = null)) }
 
     suspend fun <T> send(
         content: T,
@@ -133,12 +122,7 @@ class Dm(
             var encoded = encode(codec as ContentCodec<T>, content)
             val fallback = codec.fallback(content)
             if (!fallback.isNullOrBlank()) {
-                encoded =
-                    encoded
-                        .toBuilder()
-                        .also {
-                            it.fallback = fallback
-                        }.build()
+                encoded = encoded.toBuilder().also { it.fallback = fallback }.build()
             }
             val compression = options?.compression
             if (compression != null) {
@@ -164,15 +148,9 @@ class Dm(
             libXMTPGroup.sendOptimistic(encodeContent.toByteArray()).toHex()
         }
 
-    suspend fun publishMessages() =
-        withContext(Dispatchers.IO) {
-            libXMTPGroup.publishMessages()
-        }
+    suspend fun publishMessages() = withContext(Dispatchers.IO) { libXMTPGroup.publishMessages() }
 
-    suspend fun sync() =
-        withContext(Dispatchers.IO) {
-            libXMTPGroup.sync()
-        }
+    suspend fun sync() = withContext(Dispatchers.IO) { libXMTPGroup.sync() }
 
     suspend fun lastMessage(): DecodedMessage? =
         withContext(Dispatchers.IO) {
@@ -207,21 +185,58 @@ class Dm(
                             limit = limit?.toLong(),
                             deliveryStatus =
                                 when (deliveryStatus) {
-                                    MessageDeliveryStatus.PUBLISHED -> FfiDeliveryStatus.PUBLISHED
-                                    MessageDeliveryStatus.UNPUBLISHED -> FfiDeliveryStatus.UNPUBLISHED
-                                    MessageDeliveryStatus.FAILED -> FfiDeliveryStatus.FAILED
+                                    MessageDeliveryStatus.PUBLISHED ->
+                                        FfiDeliveryStatus.PUBLISHED
+
+                                    MessageDeliveryStatus.UNPUBLISHED ->
+                                        FfiDeliveryStatus.UNPUBLISHED
+
+                                    MessageDeliveryStatus.FAILED ->
+                                        FfiDeliveryStatus.FAILED
+
                                     else -> null
                                 },
                             direction =
                                 when (direction) {
-                                    SortDirection.ASCENDING -> FfiDirection.ASCENDING
+                                    SortDirection.ASCENDING ->
+                                        FfiDirection.ASCENDING
+
                                     else -> FfiDirection.DESCENDING
                                 },
                             contentTypes = null,
                         ),
-                ).mapNotNull {
-                    DecodedMessage.create(it)
-                }
+                ).mapNotNull { DecodedMessage.create(it) }
+        }
+
+    suspend fun countMessages(
+        beforeNs: Long? = null,
+        afterNs: Long? = null,
+        deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
+    ): Long =
+        withContext(Dispatchers.IO) {
+            libXMTPGroup.countMessages(
+                opts =
+                    FfiListMessagesOptions(
+                        sentBeforeNs = beforeNs,
+                        sentAfterNs = afterNs,
+                        limit = null,
+                        deliveryStatus =
+                            when (deliveryStatus) {
+                                MessageDeliveryStatus.PUBLISHED ->
+                                    FfiDeliveryStatus.PUBLISHED
+
+                                MessageDeliveryStatus.UNPUBLISHED ->
+                                    FfiDeliveryStatus.UNPUBLISHED
+
+                                MessageDeliveryStatus.FAILED ->
+                                    FfiDeliveryStatus.FAILED
+
+                                else -> null
+                            },
+                        direction = null,
+                        contentTypes = null,
+                    ),
+            )
         }
 
     suspend fun messagesWithReactions(
@@ -241,13 +256,21 @@ class Dm(
                             limit = limit?.toLong(),
                             deliveryStatus =
                                 when (deliveryStatus) {
-                                    MessageDeliveryStatus.PUBLISHED -> FfiDeliveryStatus.PUBLISHED
-                                    MessageDeliveryStatus.UNPUBLISHED -> FfiDeliveryStatus.UNPUBLISHED
-                                    MessageDeliveryStatus.FAILED -> FfiDeliveryStatus.FAILED
+                                    MessageDeliveryStatus.PUBLISHED ->
+                                        FfiDeliveryStatus.PUBLISHED
+
+                                    MessageDeliveryStatus.UNPUBLISHED ->
+                                        FfiDeliveryStatus.UNPUBLISHED
+
+                                    MessageDeliveryStatus.FAILED ->
+                                        FfiDeliveryStatus.FAILED
+
                                     else -> null
                                 },
                             when (direction) {
-                                SortDirection.ASCENDING -> FfiDirection.ASCENDING
+                                SortDirection.ASCENDING ->
+                                    FfiDirection.ASCENDING
+
                                 else -> FfiDirection.DESCENDING
                             },
                             contentTypes = null,
@@ -276,21 +299,27 @@ class Dm(
                             limit = limit?.toLong(),
                             deliveryStatus =
                                 when (deliveryStatus) {
-                                    MessageDeliveryStatus.PUBLISHED -> FfiDeliveryStatus.PUBLISHED
-                                    MessageDeliveryStatus.UNPUBLISHED -> FfiDeliveryStatus.UNPUBLISHED
-                                    MessageDeliveryStatus.FAILED -> FfiDeliveryStatus.FAILED
+                                    MessageDeliveryStatus.PUBLISHED ->
+                                        FfiDeliveryStatus.PUBLISHED
+
+                                    MessageDeliveryStatus.UNPUBLISHED ->
+                                        FfiDeliveryStatus.UNPUBLISHED
+
+                                    MessageDeliveryStatus.FAILED ->
+                                        FfiDeliveryStatus.FAILED
+
                                     else -> null
                                 },
                             direction =
                                 when (direction) {
-                                    SortDirection.ASCENDING -> FfiDirection.ASCENDING
+                                    SortDirection.ASCENDING ->
+                                        FfiDirection.ASCENDING
+
                                     else -> FfiDirection.DESCENDING
                                 },
                             contentTypes = null,
                         ),
-                ).mapNotNull {
-                    DecodedMessageV2.create(it)
-                }
+                ).mapNotNull { DecodedMessageV2.create(it) }
         }
 
     suspend fun processMessage(messageBytes: ByteArray): DecodedMessage? =
@@ -299,25 +328,13 @@ class Dm(
             DecodedMessage.create(message)
         }
 
-    suspend fun creatorInboxId(): InboxId =
-        withContext(Dispatchers.IO) {
-            metadata().creatorInboxId()
-        }
+    suspend fun creatorInboxId(): InboxId = withContext(Dispatchers.IO) { metadata().creatorInboxId() }
 
-    suspend fun isCreator(): Boolean =
-        withContext(Dispatchers.IO) {
-            metadata().creatorInboxId() == client.inboxId
-        }
+    suspend fun isCreator(): Boolean = withContext(Dispatchers.IO) { metadata().creatorInboxId() == client.inboxId }
 
-    suspend fun isActive(): Boolean =
-        withContext(Dispatchers.IO) {
-            libXMTPGroup.isActive()
-        }
+    suspend fun isActive(): Boolean = withContext(Dispatchers.IO) { libXMTPGroup.isActive() }
 
-    suspend fun members(): List<Member> =
-        withContext(Dispatchers.IO) {
-            libXMTPGroup.listMembers().map { Member(it) }
-        }
+    suspend fun members(): List<Member> = withContext(Dispatchers.IO) { libXMTPGroup.listMembers().map { Member(it) } }
 
     fun streamMessages(onClose: (() -> Unit)? = null): Flow<DecodedMessage> =
         callbackFlow {
@@ -406,10 +423,7 @@ class Dm(
         }
 
     // Returns null if dm is not paused, otherwise the min version required to unpause this dm
-    suspend fun pausedForVersion(): String? =
-        withContext(Dispatchers.IO) {
-            libXMTPGroup.pausedForVersion()
-        }
+    suspend fun pausedForVersion(): String? = withContext(Dispatchers.IO) { libXMTPGroup.pausedForVersion() }
 
     suspend fun getHmacKeys(): Keystore.GetConversationHmacKeysResponse =
         withContext(Dispatchers.IO) {
@@ -445,10 +459,7 @@ class Dm(
             ConversationDebugInfo(libXMTPGroup.conversationDebugInfo())
         }
 
-    suspend fun getLastReadTimes(): Map<InboxId, Long> =
-        withContext(Dispatchers.IO) {
-            libXMTPGroup.getLastReadTimes()
-        }
+    suspend fun getLastReadTimes(): Map<InboxId, Long> = withContext(Dispatchers.IO) { libXMTPGroup.getLastReadTimes() }
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

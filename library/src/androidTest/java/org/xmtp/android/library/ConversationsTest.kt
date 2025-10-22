@@ -1,6 +1,7 @@
 package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -18,6 +19,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.DecodedMessage
+import org.xmtp.android.library.messages.PrivateKeyBuilder
+import java.security.SecureRandom
 import kotlin.time.Duration.Companion.seconds
 
 @RunWith(AndroidJUnit4::class)
@@ -315,11 +318,37 @@ class ConversationsTest : BaseInstrumentedTest() {
 
     @Test
     fun testReturnsAllTopics() {
-        val eriWallet = createWallet()
-        val eriClient = runBlocking { createClient(eriWallet) }
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val eriWallet = PrivateKeyBuilder()
+
+        val eriClient =
+            runBlocking {
+                Client.create(
+                    account = eriWallet,
+                    options =
+                        ClientOptions(
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            appContext = context,
+                            dbEncryptionKey = key,
+                        ),
+                )
+            }
         val dm1 = runBlocking { eriClient.conversations.newConversation(boClient.inboxId) }
-        val group = runBlocking { boClient.conversations.newGroup(listOf(eriClient.inboxId)) }
-        val eriClient2 = runBlocking { createClient(eriWallet) }
+        runBlocking { boClient.conversations.newGroup(listOf(eriClient.inboxId)) }
+        val eriClient2 =
+            runBlocking {
+                Client.create(
+                    account = eriWallet,
+                    options =
+                        ClientOptions(
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            appContext = context,
+                            dbEncryptionKey = key,
+                            dbDirectory = context.filesDir.absolutePath.toString(),
+                        ),
+                )
+            }
         val dm2 = runBlocking { eriClient2.conversations.newConversation(boClient.inboxId) }
 
         runBlocking {
@@ -524,5 +553,85 @@ class ConversationsTest : BaseInstrumentedTest() {
             assertEquals(41, boGroup.messages().size)
             assertEquals(41, alixGroup.messages().size)
             assertEquals(41, caroGroup.messages().size)
+        }
+
+    @Test
+    fun testDeleteMessage() =
+        runBlocking {
+            val group = caroClient.conversations.newGroup(listOf(boClient.inboxId))
+
+            val messageID = group.send("Hi there")
+
+            val originalNumberOfMessages = group.messages().size
+
+            caroClient.conversations.deleteMessageLocally(messageID)
+
+            assertEquals(originalNumberOfMessages - 1, group.messages().size)
+        }
+
+    @Test
+    fun testCountMessages() =
+        runBlocking {
+            // Test with Group conversation
+            val group = boClient.conversations.newGroup(listOf(alixClient.inboxId))
+
+            // Send some messages
+            group.send("Message 1")
+            group.send("Message 2")
+            group.send("Message 3")
+
+            // Count all messages
+            val groupCount = group.countMessages()
+            assertEquals(4L, groupCount) // 3 messages + 1 member added message
+
+            // Test with DM conversation
+            val dm = boClient.conversations.findOrCreateDm(caroClient.inboxId)
+
+            // Send some messages
+            dm.send("DM Message 1")
+            val msg2ID = dm.send("DM Message 2")
+            val msg2 = boClient.conversations.findMessage(msg2ID)
+
+            val dmCount = dm.countMessages()
+            assertEquals(2L, dmCount)
+
+            // Test with Conversation wrapper
+            val conversation = Conversation.Dm(dm)
+            val conversationCount = conversation.countMessages()
+            assertEquals(2L, conversationCount)
+
+            val msg3ID = dm.send("DM Message 3")
+            val msg3 = boClient.conversations.findMessage(msg3ID)
+
+            val countBefore = dm.countMessages(beforeNs = msg3!!.sentAtNs)
+            assertEquals(2L, countBefore)
+
+            val countAfter = dm.countMessages(afterNs = msg2!!.sentAtNs)
+            assertEquals(1L, countAfter)
+
+            // Test with delivery status filtering
+            val unpublishedId = dm.prepareMessage("Unpublished message")
+
+            val allCount =
+                dm.countMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.ALL)
+            val publishedCount =
+                dm.countMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.PUBLISHED)
+            val unpublishedCount =
+                dm.countMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.UNPUBLISHED)
+
+            assertEquals(4L, allCount)
+            assertEquals(3L, publishedCount)
+            assertEquals(1L, unpublishedCount)
+
+            // Publish the message and verify counts
+            dm.publishMessages()
+
+            val publishedCountAfter =
+                dm.countMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.PUBLISHED)
+            val unpublishedCountAfter =
+                dm.countMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.UNPUBLISHED)
+
+            assertEquals(4L, publishedCountAfter)
+            assertEquals(0L, unpublishedCountAfter)
         }
 }

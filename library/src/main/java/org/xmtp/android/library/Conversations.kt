@@ -48,7 +48,7 @@ data class Conversations(
         LAST_ACTIVITY,
     }
 
-    fun ListConversationsOrderBy.toFfi(): FfiGroupQueryOrderBy =
+    private fun ListConversationsOrderBy.toFfi(): FfiGroupQueryOrderBy =
         when (this) {
             ListConversationsOrderBy.CREATED_AT -> FfiGroupQueryOrderBy.CREATED_AT
             ListConversationsOrderBy.LAST_ACTIVITY -> FfiGroupQueryOrderBy.LAST_ACTIVITY
@@ -568,7 +568,11 @@ data class Conversations(
             val stream =
                 when (type) {
                     ConversationFilterType.ALL -> ffiConversations.stream(conversationCallback)
-                    ConversationFilterType.GROUPS -> ffiConversations.streamGroups(conversationCallback)
+                    ConversationFilterType.GROUPS ->
+                        ffiConversations.streamGroups(
+                            conversationCallback,
+                        )
+
                     ConversationFilterType.DMS -> ffiConversations.streamDms(conversationCallback)
                 }
 
@@ -633,7 +637,8 @@ data class Conversations(
             conversations.iterator().forEach {
                 val hmacKeys = Keystore.GetConversationHmacKeysResponse.HmacKeys.newBuilder()
                 it.value.forEach { key ->
-                    val hmacKeyData = Keystore.GetConversationHmacKeysResponse.HmacKeyData.newBuilder()
+                    val hmacKeyData =
+                        Keystore.GetConversationHmacKeysResponse.HmacKeyData.newBuilder()
                     hmacKeyData.hmacKey = key.key.toByteString()
                     hmacKeyData.thirtyDayPeriodsSinceEpoch = key.epoch.toInt()
                     hmacKeys.addValues(hmacKeyData)
@@ -662,5 +667,10 @@ data class Conversations(
                     ),
                 )
             conversations.map { Topic.groupMessage(it.conversation().id().toHex()).description }
+        }
+
+    suspend fun deleteMessageLocally(messageId: String) =
+        withContext(Dispatchers.IO) {
+            ffiClient.deleteMessage(messageId.hexToByteArray())
         }
 }
