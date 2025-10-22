@@ -1266,7 +1266,7 @@ async fn test_non_member_cannot_leave_group() {
     );
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal() {
     let amal_wallet = generate_local_wallet();
     let bola_wallet = generate_local_wallet();
@@ -1385,7 +1385,7 @@ async fn test_self_removal() {
     assert_eq!(amal_group.members().await.unwrap().len(), 1);
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_simple() {
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1408,7 +1408,7 @@ async fn test_self_removal_simple() {
     assert!(!bola_group.is_active().unwrap());
     assert_eq!(amal_group.members().await.unwrap().len(), 1);
 }
-#[xmtp_common::test]
+#[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_group_update_message() {
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1446,7 +1446,7 @@ async fn test_self_removal_group_update_message() {
         bola.inbox_id().to_string()
     );
 }
-#[xmtp_common::test]
+#[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_single_installations() {
     let amal_wallet = generate_local_wallet();
     let bola_wallet = generate_local_wallet();
@@ -1528,7 +1528,7 @@ async fn test_self_removal_single_installations() {
     assert_eq!(amal_group_member_state, GroupMembershipState::Allowed);
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_with_multiple_initial_installations() {
     let amal_wallet = generate_local_wallet();
     let bola_wallet = generate_local_wallet();
@@ -1596,7 +1596,7 @@ async fn test_self_removal_with_multiple_initial_installations() {
     );
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(flavor = "current_thread")]
 #[ignore] // fix after consent sync
 async fn test_self_removal_with_late_installation() {
     let amal_wallet = generate_local_wallet();
@@ -1672,7 +1672,7 @@ async fn test_self_removal_with_late_installation() {
     );
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(flavor = "current_thread")]
 async fn test_clean_pending_remove_list_on_member_removal() {
     // Test that when a member is removed from the group, they are also removed from the pending_remove list
     let amal_wallet = generate_local_wallet();
