@@ -1,4 +1,3 @@
-
 public enum CommitLogForkStatus {
 	case forked
 	case notForked
@@ -24,13 +23,13 @@ public struct ConversationDebugInfo {
 		ffiConversationDebugInfo.forkDetails
 	}
 
-    public var localCommitLog: String {
-        ffiConversationDebugInfo.localCommitLog
-    }
-    
-    public var remoteCommitLog: String {
-        ffiConversationDebugInfo.remoteCommitLog
-    }
+	public var localCommitLog: String {
+		ffiConversationDebugInfo.localCommitLog
+	}
+
+	public var remoteCommitLog: String {
+		ffiConversationDebugInfo.remoteCommitLog
+	}
 
 	public var commitLogForkStatus: CommitLogForkStatus {
 		switch ffiConversationDebugInfo.isCommitLogForked {

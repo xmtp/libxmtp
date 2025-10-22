@@ -5,7 +5,6 @@
 //  Created by Naomi Plasterer on 2/9/25.
 //
 
-
 public struct DisappearingMessageSettings {
 	public let disappearStartingAtNs: Int64
 	public let retentionDurationInNs: Int64
@@ -16,7 +15,7 @@ public struct DisappearingMessageSettings {
 	}
 
 	static func createFromFfi(_ ffiSettings: FfiMessageDisappearingSettings) -> DisappearingMessageSettings {
-		return DisappearingMessageSettings(
+		DisappearingMessageSettings(
 			disappearStartingAtNs: ffiSettings.fromNs,
 			retentionDurationInNs: ffiSettings.inNs
 		)

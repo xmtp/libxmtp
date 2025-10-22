@@ -9,7 +9,9 @@ import SwiftUI
 import XMTPiOS
 
 class AppDelegate: NSObject, UIApplicationDelegate {
-	func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+	func application(_: UIApplication,
+	                 didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool
+	{
 		// Change this to the URL of where your https://github.com/xmtp/example-notification-server-go is hosted
 		XMTPPush.shared.setPushServer("YOUR PUSH SERVER HERE")
 

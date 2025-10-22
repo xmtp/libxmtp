@@ -24,7 +24,8 @@ final class CryptoTests: XCTestCase {
 				171, 100, 251, 171, 120, 137, 26, 19, 216, 215, 152,
 				167, 118, 59, 93, 177, 53, 242, 147, 10, 87, 143,
 				27, 245, 154, 169, 109,
-			]))
+			])
+		)
 
 		let decrypted = try Crypto.decrypt(secret, encrypted)
 		XCTAssertEqual(message, decrypted)
@@ -35,10 +36,12 @@ final class CryptoTests: XCTestCase {
 		let info = try Crypto.secureRandomBytes(count: 32)
 		let message = try Crypto.secureRandomBytes(count: 32)
 		let hmac = try Crypto.generateHmacSignature(
-			secret: secret, info: info, message: message)
+			secret: secret, info: info, message: message
+		)
 		let key = try Crypto.hkdfHmacKey(secret: secret, info: info)
 		let valid = Crypto.verifyHmacSignature(
-			key: key, signature: hmac, message: message)
+			key: key, signature: hmac, message: message
+		)
 
 		XCTAssertTrue(valid)
 	}
@@ -48,12 +51,14 @@ final class CryptoTests: XCTestCase {
 		let info = try Crypto.secureRandomBytes(count: 32)
 		let message = try Crypto.secureRandomBytes(count: 32)
 		let hmac = try Crypto.generateHmacSignature(
-			secret: secret, info: info, message: message)
+			secret: secret, info: info, message: message
+		)
 		let key = try Crypto.hkdfHmacKey(secret: secret, info: info)
 		let exportedKey = Crypto.exportHmacKey(key: key)
 		let importedKey = Crypto.importHmacKey(keyData: exportedKey)
 		let valid = Crypto.verifyHmacSignature(
-			key: importedKey, signature: hmac, message: message)
+			key: importedKey, signature: hmac, message: message
+		)
 
 		XCTAssertTrue(valid)
 	}
@@ -75,12 +80,13 @@ final class CryptoTests: XCTestCase {
 		let info = try Crypto.secureRandomBytes(count: 32)
 		let message = try Crypto.secureRandomBytes(count: 32)
 		let hmac = try Crypto.generateHmacSignature(
-			secret: secret, info: info, message: message)
+			secret: secret, info: info, message: message
+		)
 		let key = try Crypto.hkdfHmacKey(secret: secret, info: info)
-		let valid = Crypto.verifyHmacSignature(
+		let valid = try Crypto.verifyHmacSignature(
 			key: key,
 			signature: hmac,
-			message: try Crypto.secureRandomBytes(count: 32)
+			message: Crypto.secureRandomBytes(count: 32)
 		)
 
 		XCTAssertFalse(valid)
@@ -91,11 +97,13 @@ final class CryptoTests: XCTestCase {
 		let info = try Crypto.secureRandomBytes(count: 32)
 		let message = try Crypto.secureRandomBytes(count: 32)
 		let hmac = try Crypto.generateHmacSignature(
-			secret: secret, info: info, message: message)
-		let valid = Crypto.verifyHmacSignature(
-			key: try Crypto.hkdfHmacKey(
-				secret: try Crypto.secureRandomBytes(count: 32),
-				info: try Crypto.secureRandomBytes(count: 32)),
+			secret: secret, info: info, message: message
+		)
+		let valid = try Crypto.verifyHmacSignature(
+			key: Crypto.hkdfHmacKey(
+				secret: Crypto.secureRandomBytes(count: 32),
+				info: Crypto.secureRandomBytes(count: 32)
+			),
 			signature: hmac,
 			message: message
 		)

@@ -44,7 +44,7 @@ struct PreviewClientProvider<Content: View>: View {
 					do {
 						let key = try secureRandomBytes(count: 32)
 						Persistence().saveKeys(key)
-                        Persistence().saveAddress(wallet.identity.identifier)
+						Persistence().saveAddress(wallet.identity.identifier)
 						var options = ClientOptions(dbEncryptionKey: key)
 						options.api.env = .dev
 						options.api.isSecure = true
@@ -64,7 +64,7 @@ struct PreviewClientProvider_Previews: PreviewProvider {
 	static var previews: some View {
 		VStack {
 			PreviewClientProvider { client in
-                Text("Got our client: \(client.publicIdentity.identifier)")
+				Text("Got our client: \(client.publicIdentity.identifier)")
 			}
 		}
 	}

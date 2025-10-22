@@ -8,13 +8,13 @@ public enum SignerType {
 public protocol SigningKey {
 	/// The identity associated with the signing key (e.g., Ethereum address or Passkey identifier).
 	var identity: PublicIdentity { get }
-	
+
 	/// The signer type (default: EOA).
 	var type: SignerType { get }
-	
+
 	/// The blockchain chain ID (used for SCW, nil for others).
 	var chainId: Int64? { get }
-	
+
 	/// The block number for verification (optional).
 	var blockNumber: Int64? { get }
 
@@ -23,8 +23,8 @@ public protocol SigningKey {
 }
 
 /// Default implementations for properties
-extension SigningKey {
-	public var type: SignerType { .EOA }
-	public var chainId: Int64? { nil }
-	public var blockNumber: Int64? { nil }
+public extension SigningKey {
+	var type: SignerType { .EOA }
+	var chainId: Int64? { nil }
+	var blockNumber: Int64? { nil }
 }

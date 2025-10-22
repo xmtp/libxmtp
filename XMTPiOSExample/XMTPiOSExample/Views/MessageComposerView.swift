@@ -9,7 +9,7 @@ import SwiftUI
 import XMTPiOS
 
 struct MessageComposerView: View {
-	@State private var text: String = ""
+	@State private var text = ""
 	@State private var isSending = false
 	@FocusState var isFocused
 
@@ -21,7 +21,7 @@ struct MessageComposerView: View {
 				.textFieldStyle(.roundedBorder)
 				.focused($isFocused)
 				.onAppear {
-					self.isFocused = true
+					isFocused = true
 				}
 			Button(action: send) {
 				Label("Send", systemImage: "arrow.up.circle.fill")
@@ -43,9 +43,9 @@ struct MessageComposerView: View {
 		Task {
 			await onSend(text)
 			await MainActor.run {
-				self.text = ""
-				self.isSending = false
-				self.isFocused = true
+				text = ""
+				isSending = false
+				isFocused = true
 			}
 		}
 	}

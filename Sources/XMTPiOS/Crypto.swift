@@ -32,7 +32,7 @@ enum Crypto {
 		// with offsets like lowerBound=12, upperBound=224. Without copying, trying to index like payload[0] crashes
 		// up until payload[12]. This is mostly a problem for unit tests where we decrypt what we encrypt in memory, as
 		// serialization/deserialization acts as copying and avoids this issue.
-		var payloadData = Data(payload.ciphertext.subdata(in: 12 ..< payload.ciphertext.count+12))
+		var payloadData = Data(payload.ciphertext.subdata(in: 12 ..< payload.ciphertext.count + 12))
 		let startTag = 12 + payload.ciphertext.count
 		payloadData.append(payload.tag.subdata(in: startTag ..< startTag + payload.tag.count))
 		ciphertext.aes256GcmHkdfSha256.payload = payloadData
@@ -75,7 +75,8 @@ enum Crypto {
 			inputKeyMaterial: SymmetricKey(data: secret),
 			salt: nonce,
 			info: info,
-			outputByteCount: 32)
+			outputByteCount: 32
+		)
 		return key.withUnsafeBytes { body in
 			Data(body)
 		}
@@ -98,26 +99,27 @@ enum Crypto {
 			throw CryptoError.randomBytes
 		}
 	}
-	
+
 	static func hkdfHmacKey(secret: Data, info: Data) throws -> SymmetricKey {
 		let key = HKDF<SHA256>.deriveKey(
 			inputKeyMaterial: SymmetricKey(data: secret),
 			salt: Data(),
 			info: info,
-			outputByteCount: 32)
+			outputByteCount: 32
+		)
 		return key
 	}
-	
+
 	static func generateHmacSignature(secret: Data, info: Data, message: Data) throws -> Data {
 		do {
-		  let key = try hkdfHmacKey(secret: secret, info: info)
-		  let signature = HMAC<SHA256>.authenticationCode(for: message, using: key)
-		  return Data(signature)
-	  } catch {
-		  throw CryptoError.hmacSignatureError
-	  }
+			let key = try hkdfHmacKey(secret: secret, info: info)
+			let signature = HMAC<SHA256>.authenticationCode(for: message, using: key)
+			return Data(signature)
+		} catch {
+			throw CryptoError.hmacSignatureError
+		}
 	}
-	
+
 	static func exportHmacKey(key: SymmetricKey) -> Data {
 		var exportedData = Data(count: key.bitCount / 8)
 		exportedData.withUnsafeMutableBytes { buffer in
@@ -129,9 +131,9 @@ enum Crypto {
 	}
 
 	static func importHmacKey(keyData: Data) -> SymmetricKey {
-		return SymmetricKey(data: keyData)
+		SymmetricKey(data: keyData)
 	}
-	
+
 	static func verifyHmacSignature(key: SymmetricKey, signature: Data, message: Data) -> Bool {
 		let isValid = HMAC<SHA256>.isValidAuthenticationCode(
 			signature,

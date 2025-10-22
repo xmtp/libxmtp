@@ -1,5 +1,10 @@
+included:
+  - Sources
+  - XMTPiOSExample
 excluded:
-  - Sources/XMTP/Proto
+  - Tests
+  - Sources/XMTPiOS/Libxmtp/xmtpv3.swift
+  - Sources/XMTPiOS/Proto
 
 disabled_rules: # rule identifiers turned on by default to exclude from running
   - type_name
@@ -32,16 +37,11 @@ force_unwrapping:
 line_length: 500
 
 custom_rules:
-  no_optional_try: # rule identifier
+  no_optional_try:
     included:
-      - ".*\\.swift" # regex that defines paths to include during linting. optional.
-    excluded:
-      - ".*Tests?\\.swift" # regex that defines paths to exclude during linting. optional
-    name: "No optional try" # rule name. optional.
+      - ".*\\.swift"
+    name: "No optional try"
     regex: try[\\?]
-    capture_group: 0 # number of regex capture group to highlight the rule violation at. optional.
-    message: "Handle this error instead of doing this.." # violation message. optional.
-    severity: error # violation severity. optional.
-    #match_kinds:# SyntaxKinds to match. optional.
-    #   - comment
-    # - identifier
+    capture_group: 0
+    message: "Handle this error instead of doing this.."
+    severity: error

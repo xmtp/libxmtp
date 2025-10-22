@@ -2,16 +2,24 @@ name: Lint
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
 
 jobs:
-  build:
-    name: Run swiftlint
-    runs-on: macos-13
+  swiftlint:
+    name: SwiftLint
+    runs-on: macos-15
     steps:
-      - uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: '14'
       - uses: actions/checkout@v3
-      - run: swiftlint Sources/ example/
+      - name: Run SwiftLint
+        run: ./dev/lint
+
+  swiftformat:
+    name: SwiftFormat
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install SwiftFormat
+        run: brew install swiftformat
+      - name: Check SwiftFormat
+        run: ./dev/fmt --lint

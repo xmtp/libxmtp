@@ -13,7 +13,7 @@ struct NewConversationView: View {
 	var onCreate: (XMTPiOS.Conversation) -> Void
 
 	@Environment(\.dismiss) var dismiss
-	@State private var recipientAddress: String = ""
+	@State private var recipientAddress = ""
 	@State private var error: String?
 
 	@State private var groupMembers: [String] = []
@@ -45,7 +45,7 @@ struct NewConversationView: View {
 					TextField("Add member", text: $newGroupMember)
 					Button("Add") {
 						if newGroupMember.lowercased() == client.publicIdentity.identifier.lowercased() {
-							self.groupError = "You cannot add yourself to a group"
+							groupError = "You cannot add yourself to a group"
 							return
 						}
 
@@ -53,22 +53,22 @@ struct NewConversationView: View {
 
 						Task {
 							do {
-								if try await self.client.canMessage(identity: PublicIdentity(kind: .ethereum, identifier: newGroupMember)) {
+								if try await client.canMessage(identity: PublicIdentity(kind: .ethereum, identifier: newGroupMember)) {
 									await MainActor.run {
-										self.groupError = ""
-										self.groupMembers.append(newGroupMember)
-										self.newGroupMember = ""
-										self.isAddingMember = false
+										groupError = ""
+										groupMembers.append(newGroupMember)
+										newGroupMember = ""
+										isAddingMember = false
 									}
 								} else {
 									await MainActor.run {
-										self.groupError = "Member address not registered"
-										self.isAddingMember = false
+										groupError = "Member address not registered"
+										isAddingMember = false
 									}
 								}
 							} catch {
-								self.groupError = error.localizedDescription
-								self.isAddingMember = false
+								groupError = error.localizedDescription
+								isAddingMember = false
 							}
 						}
 					}
@@ -89,7 +89,7 @@ struct NewConversationView: View {
 				Button("Create Group") {
 					Task {
 						do {
-                            let identities = groupMembers.map { PublicIdentity(kind: .ethereum, identifier: $0) }
+							let identities = groupMembers.map { PublicIdentity(kind: .ethereum, identifier: $0) }
 							let group = try await client.conversations.newGroupWithIdentities(with: identities)
 							try await client.conversations.sync()
 							await MainActor.run {
@@ -98,7 +98,7 @@ struct NewConversationView: View {
 							}
 						} catch {
 							await MainActor.run {
-								self.groupError = error.localizedDescription
+								groupError = error.localizedDescription
 							}
 						}
 					}
@@ -131,7 +131,10 @@ struct NewConversationView: View {
 
 		Task {
 			do {
-                let conversation = try await client.conversations.newConversationWithIdentity(with: PublicIdentity(kind: .ethereum, identifier: address))
+				let conversation = try await client.conversations.newConversationWithIdentity(with: PublicIdentity(
+					kind: .ethereum,
+					identifier: address
+				))
 				await MainActor.run {
 					dismiss()
 					onCreate(conversation)

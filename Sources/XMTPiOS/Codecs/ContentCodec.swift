@@ -75,7 +75,6 @@ extension EncodedContent {
 
 		return copy
 	}
-
 }
 
 public protocol ContentCodec: Hashable, Equatable {
@@ -90,7 +89,7 @@ public protocol ContentCodec: Hashable, Equatable {
 
 public extension ContentCodec {
 	static func == (lhs: Self, rhs: Self) -> Bool {
-		return lhs.contentType.authorityID == rhs.contentType.authorityID && lhs.contentType.typeID == rhs.contentType.typeID
+		lhs.contentType.authorityID == rhs.contentType.authorityID && lhs.contentType.typeID == rhs.contentType.typeID
 	}
 
 	var id: String {

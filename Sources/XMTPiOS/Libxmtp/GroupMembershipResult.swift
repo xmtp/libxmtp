@@ -15,7 +15,7 @@ public struct GroupMembershipResult {
 	}
 
 	public var addedMembers: [InboxId] {
-		ffiGroupMembershipResult.addedMembers.map { $0.key }
+		ffiGroupMembershipResult.addedMembers.map(\.key)
 	}
 
 	public var removedMembers: [InboxId] {
@@ -23,6 +23,6 @@ public struct GroupMembershipResult {
 	}
 
 	public var failedInstallationIds: [String] {
-		ffiGroupMembershipResult.failedInstallations.map { $0.toHex }
+		ffiGroupMembershipResult.failedInstallations.map(\.toHex)
 	}
 }

@@ -1,6 +1,6 @@
 //
-//  GroupMembershipChanged.swift
-//  
+//  GroupUpdatedCodec.swift
+//
 //
 //  Created by Pat Nakajima on 2/1/24.
 //
@@ -9,12 +9,17 @@ import Foundation
 
 public typealias GroupUpdated = Xmtp_Mls_MessageContents_GroupUpdated
 
-public let ContentTypeGroupUpdated = ContentTypeID(authorityID: "xmtp.org", typeID: "group_updated", versionMajor: 1, versionMinor: 0)
+public let ContentTypeGroupUpdated = ContentTypeID(
+	authorityID: "xmtp.org",
+	typeID: "group_updated",
+	versionMajor: 1,
+	versionMinor: 0
+)
 
 public struct GroupUpdatedCodec: ContentCodec {
 	public typealias T = GroupUpdated
 
-	public init() {	}
+	public init() {}
 
 	public var contentType = ContentTypeGroupUpdated
 
@@ -28,14 +33,14 @@ public struct GroupUpdatedCodec: ContentCodec {
 	}
 
 	public func decode(content: EncodedContent) throws -> GroupUpdated {
-		return try GroupUpdated(serializedData: content.content)
+		try GroupUpdated(serializedData: content.content)
 	}
 
-	public func fallback(content: GroupUpdated) throws -> String? {
-		return nil
+	public func fallback(content _: GroupUpdated) throws -> String? {
+		nil
 	}
 
-	public func shouldPush(content: GroupUpdated) throws -> Bool {
+	public func shouldPush(content _: GroupUpdated) throws -> Bool {
 		false
 	}
 }

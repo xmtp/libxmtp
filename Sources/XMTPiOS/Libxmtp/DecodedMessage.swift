@@ -78,7 +78,8 @@ public struct DecodedMessage: Identifiable {
 	public var sentAt: Date {
 		Date(
 			timeIntervalSince1970: TimeInterval(ffiMessage.sentAtNs)
-				/ 1_000_000_000)
+				/ 1_000_000_000
+		)
 	}
 
 	public var sentAtNs: Int64 {
@@ -136,18 +137,21 @@ public struct DecodedMessage: Identifiable {
 	{
 		do {
 			let encodedContent = try EncodedContent(
-				serializedBytes: ffiMessage.content)
-			if encodedContent.type == ContentTypeGroupUpdated
-				&& ffiMessage.kind != .membershipChange
+				serializedBytes: ffiMessage.content
+			)
+			if encodedContent.type == ContentTypeGroupUpdated,
+			   ffiMessage.kind != .membershipChange
 			{
 				throw DecodedMessageError.decodeError(
-					"Error decoding group membership change")
+					"Error decoding group membership change"
+				)
 			}
 			// Decode the content once during creation
 			let decodedContent: Any = try encodedContent.decoded()
 			return DecodedMessage(
 				ffiMessage: ffiMessage, decodedContent: decodedContent,
-				childMessages: nil)
+				childMessages: nil
+			)
 		} catch {
 			print("Error creating Message: \(error)")
 			return nil
@@ -159,29 +163,34 @@ public struct DecodedMessage: Identifiable {
 	{
 		do {
 			let encodedContent = try EncodedContent(
-				serializedBytes: ffiMessage.message.content)
-			if encodedContent.type == ContentTypeGroupUpdated
-				&& ffiMessage.message.kind != .membershipChange
+				serializedBytes: ffiMessage.message.content
+			)
+			if encodedContent.type == ContentTypeGroupUpdated,
+			   ffiMessage.message.kind != .membershipChange
 			{
 				throw DecodedMessageError.decodeError(
-					"Error decoding group membership change")
+					"Error decoding group membership change"
+				)
 			}
 			// Decode the content once during creation
 			let decodedContent: Any = try encodedContent.decoded()
 
 			let childMessages = try ffiMessage.reactions.map { reaction in
 				let encodedContent = try EncodedContent(
-					serializedBytes: reaction.content)
+					serializedBytes: reaction.content
+				)
 				// Decode the content once during creation
 				let decodedContent: Any = try encodedContent.decoded()
 				return DecodedMessage(
 					ffiMessage: reaction, decodedContent: decodedContent,
-					childMessages: nil)
+					childMessages: nil
+				)
 			}
 
 			return DecodedMessage(
 				ffiMessage: ffiMessage.message, decodedContent: decodedContent,
-				childMessages: childMessages)
+				childMessages: childMessages
+			)
 		} catch {
 			print("Error creating Message: \(error)")
 			return nil

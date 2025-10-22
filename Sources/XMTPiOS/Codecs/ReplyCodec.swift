@@ -19,7 +19,7 @@ public struct Reply {
 		self.reference = reference
 		self.content = content
 		self.contentType = contentType
-		self.inReplyTo = nil
+		inReplyTo = nil
 	}
 
 	public init(reference: String, content: Any, contentType: ContentTypeID, inReplyTo: DecodedMessageV2?) {
@@ -72,11 +72,11 @@ public struct ReplyCodec: ContentCodec {
 		}
 	}
 
-    public func fallback(content: Reply) throws -> String? {
-        return "Replied with “\(content.content)” to an earlier message"
-    }
+	public func fallback(content: Reply) throws -> String? {
+		"Replied with “\(content.content)” to an earlier message"
+	}
 
-	public func shouldPush(content: Reply) throws -> Bool {
-		return true
+	public func shouldPush(content _: Reply) throws -> Bool {
+		true
 	}
 }

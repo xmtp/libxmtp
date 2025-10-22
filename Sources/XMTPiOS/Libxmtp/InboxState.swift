@@ -10,32 +10,31 @@ import Foundation
 public typealias SignatureKind = FfiSignatureKind
 
 public struct InboxState {
-    var ffiInboxState: FfiInboxState
+	var ffiInboxState: FfiInboxState
 
-    init(ffiInboxState: FfiInboxState) {
-        self.ffiInboxState = ffiInboxState
-    }
+	init(ffiInboxState: FfiInboxState) {
+		self.ffiInboxState = ffiInboxState
+	}
 
-    public var inboxId: InboxId {
-        ffiInboxState.inboxId
-    }
+	public var inboxId: InboxId {
+		ffiInboxState.inboxId
+	}
 
-    public var identities: [PublicIdentity] {
-        ffiInboxState.accountIdentities.map { PublicIdentity(ffiPrivate: $0) }
-    }
+	public var identities: [PublicIdentity] {
+		ffiInboxState.accountIdentities.map { PublicIdentity(ffiPrivate: $0) }
+	}
 
-    public var installations: [Installation] {
-        ffiInboxState.installations.map { Installation(ffiInstallation: $0) }
-    }
+	public var installations: [Installation] {
+		ffiInboxState.installations.map { Installation(ffiInstallation: $0) }
+	}
 
-    public var recoveryIdentity: PublicIdentity {
-        PublicIdentity(ffiPrivate: ffiInboxState.recoveryIdentity)
-    }
+	public var recoveryIdentity: PublicIdentity {
+		PublicIdentity(ffiPrivate: ffiInboxState.recoveryIdentity)
+	}
 
-    /// The type of signature that was used to create the inbox initially.
-    /// Future signatures from this identity must be of the same kind
-    public var creationSignatureKind: SignatureKind? {
-        ffiInboxState.creationSignatureKind
-    }
-
+	/// The type of signature that was used to create the inbox initially.
+	/// Future signatures from this identity must be of the same kind
+	public var creationSignatureKind: SignatureKind? {
+		ffiInboxState.creationSignatureKind
+	}
 }

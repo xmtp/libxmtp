@@ -7,7 +7,7 @@
 
 public enum Topic {
 	case userWelcome(String),
-		 groupMessage(String)
+	     groupMessage(String)
 
 	var description: String {
 		switch self {
@@ -17,12 +17,12 @@ public enum Topic {
 			return wrapMls("w-\(installationId)")
 		}
 	}
-	
+
 	private func wrapMls(_ value: String) -> String {
 		"/xmtp/mls/1/\(value)/proto"
 	}
 
-    static func isValidTopic(topic: String) -> Bool {
-        return topic.allSatisfy(\.isASCII)
-    }
+	static func isValidTopic(topic: String) -> Bool {
+		topic.allSatisfy(\.isASCII)
+	}
 }

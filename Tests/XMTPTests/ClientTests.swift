@@ -8,15 +8,17 @@ import XMTPTestHelpers
 class ClientTests: XCTestCase {
 	func testTakesAWallet() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
-		let clientOptions: ClientOptions = ClientOptions(
+		let clientOptions = ClientOptions(
 			api: ClientOptions.Api(
 				env: XMTPEnvironment.local, isSecure: false,
-				appVersion: "Testing/0.0.0"),
+				appVersion: "Testing/0.0.0"
+			),
 			dbEncryptionKey: key
 		)
 		let fakeWallet = try PrivateKey.generate()
 		let client = try await Client.create(
-			account: fakeWallet, options: clientOptions)
+			account: fakeWallet, options: clientOptions
+		)
 		try client.deleteLocalDatabase()
 	}
 
@@ -56,7 +58,8 @@ class ClientTests: XCTestCase {
 		for (address, expected) in expectedResults {
 			XCTAssertEqual(
 				canMessageList[address.lowercased()], expected,
-				"Failed for address: \(address)")
+				"Failed for address: \(address)"
+			)
 		}
 		try fixtures.cleanUpDatabases()
 	}
@@ -104,8 +107,7 @@ class ClientTests: XCTestCase {
 			)
 		)
 
-		_ = try await boClient.conversations.newGroup(with: [alixClient.inboxID]
-		)
+		_ = try await boClient.conversations.newGroup(with: [alixClient.inboxID])
 		try await boClient.conversations.sync()
 
 		var groupCount = try await boClient.conversations.listGroups().count
@@ -147,8 +149,7 @@ class ClientTests: XCTestCase {
 			)
 		)
 
-		_ = try await boClient.conversations.newGroup(with: [alixClient.inboxID]
-		)
+		_ = try await boClient.conversations.newGroup(with: [alixClient.inboxID])
 		try await boClient.conversations.sync()
 
 		var groupCount = try await boClient.conversations.listGroups().count
@@ -156,8 +157,9 @@ class ClientTests: XCTestCase {
 
 		try boClient.dropLocalDatabaseConnection()
 
-		await assertThrowsAsyncError(
-			try await boClient.conversations.listGroups())
+		try await assertThrowsAsyncError(
+			boClient.conversations.listGroups()
+		)
 
 		try await boClient.reconnectLocalDatabase()
 
@@ -172,9 +174,11 @@ class ClientTests: XCTestCase {
 		let notOnNetwork = try PrivateKey.generate()
 
 		let canMessage = try await fixtures.alixClient.canMessage(
-			identity: fixtures.bo.identity)
+			identity: fixtures.bo.identity
+		)
 		let cannotMessage = try await fixtures.alixClient.canMessage(
-			identity: notOnNetwork.identity)
+			identity: notOnNetwork.identity
+		)
 		XCTAssertTrue(canMessage)
 		XCTAssertFalse(cannotMessage)
 		try fixtures.cleanUpDatabases()
@@ -184,7 +188,8 @@ class ClientTests: XCTestCase {
 	func testPreAuthenticateToInboxCallback() async throws {
 		let fakeWallet = try PrivateKey.generate()
 		let expectation = XCTestExpectation(
-			description: "preAuthenticateToInboxCallback is called")
+			description: "preAuthenticateToInboxCallback is called"
+		)
 		let key = try Crypto.secureRandomBytes(count: 32)
 
 		let preAuthenticateToInboxCallback: () async throws -> Void = {
@@ -231,8 +236,8 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(client.dbPath, bundleClient.dbPath)
 		XCTAssert(!client.installationID.isEmpty)
 
-		await assertThrowsAsyncError(
-			_ = try await Client.build(
+		try await assertThrowsAsyncError(
+			_ = Client.build(
 				publicIdentity: bo.identity,
 				options: .init(
 					api: .init(env: .local, isSecure: false),
@@ -268,12 +273,12 @@ class ClientTests: XCTestCase {
 		)
 
 		_ = try await boClient.conversations.newGroup(with: [
-			alixClient.inboxID
+			alixClient.inboxID,
 		])
 
 		let key2 = try Crypto.secureRandomBytes(count: 32)
-		await assertThrowsAsyncError(
-			try await Client.create(
+		try await assertThrowsAsyncError(
+			Client.create(
 				account: bo,
 				options: .init(
 					api: .init(env: .local, isSecure: false),
@@ -306,7 +311,8 @@ class ClientTests: XCTestCase {
 			)
 		)
 		let boInboxId = try await alixClient.inboxIdFromIdentity(
-			identity: bo.identity)
+			identity: bo.identity
+		)
 		XCTAssertEqual(boClient.inboxID, boInboxId)
 		try alixClient.deleteLocalDatabase()
 		try boClient.deleteLocalDatabase()
@@ -315,13 +321,14 @@ class ClientTests: XCTestCase {
 	func testCreatesAClient() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
-		let options = ClientOptions.init(
+		let options = ClientOptions(
 			api: .init(env: .local, isSecure: false),
 			dbEncryptionKey: key
 		)
 
 		let inboxId = try await Client.getOrCreateInboxId(
-			api: options.api, publicIdentity: alix.identity)
+			api: options.api, publicIdentity: alix.identity
+		)
 		let alixClient = try await Client.create(
 			account: alix,
 			options: options
@@ -336,7 +343,8 @@ class ClientTests: XCTestCase {
 
 		XCTAssertEqual(
 			alixClient2.publicIdentity.identifier,
-			alixClient.publicIdentity.identifier)
+			alixClient.publicIdentity.identifier
+		)
 		XCTAssertEqual(alixClient2.inboxID, alixClient.inboxID)
 		try alixClient.deleteLocalDatabase()
 	}
@@ -347,7 +355,7 @@ class ClientTests: XCTestCase {
 
 		let alixClient = try await Client.create(
 			account: alix,
-			options: ClientOptions.init(
+			options: ClientOptions(
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key
 			)
@@ -355,7 +363,7 @@ class ClientTests: XCTestCase {
 
 		let alixClient2 = try await Client.create(
 			account: alix,
-			options: ClientOptions.init(
+			options: ClientOptions(
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db1"
@@ -364,7 +372,7 @@ class ClientTests: XCTestCase {
 
 		let alixClient3 = try await Client.create(
 			account: alix,
-			options: ClientOptions.init(
+			options: ClientOptions(
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db2"
@@ -375,10 +383,12 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(state.installations.count, 3)
 
 		try await alixClient3.revokeInstallations(
-			signingKey: alix, installationIds: [alixClient2.installationID])
+			signingKey: alix, installationIds: [alixClient2.installationID]
+		)
 
 		let newState = try await alixClient3.inboxState(
-			refreshFromNetwork: true)
+			refreshFromNetwork: true
+		)
 		XCTAssertEqual(newState.installations.count, 2)
 		try alixClient.deleteLocalDatabase()
 		try alixClient2.deleteLocalDatabase()
@@ -391,7 +401,7 @@ class ClientTests: XCTestCase {
 
 		let alixClient = try await Client.create(
 			account: alix,
-			options: ClientOptions.init(
+			options: ClientOptions(
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key
 			)
@@ -399,7 +409,7 @@ class ClientTests: XCTestCase {
 
 		let alixClient2 = try await Client.create(
 			account: alix,
-			options: ClientOptions.init(
+			options: ClientOptions(
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db1"
@@ -408,7 +418,7 @@ class ClientTests: XCTestCase {
 
 		let alixClient3 = try await Client.create(
 			account: alix,
-			options: ClientOptions.init(
+			options: ClientOptions(
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db2"
@@ -422,7 +432,8 @@ class ClientTests: XCTestCase {
 		try await alixClient3.revokeAllOtherInstallations(signingKey: alix)
 
 		let newState = try await alixClient3.inboxState(
-			refreshFromNetwork: true)
+			refreshFromNetwork: true
+		)
 		XCTAssertEqual(newState.installations.count, 1)
 		try alixClient.deleteLocalDatabase()
 		try alixClient2.deleteLocalDatabase()
@@ -437,10 +448,12 @@ class ClientTests: XCTestCase {
 		)
 		XCTAssertEqual(
 			states.first!.recoveryIdentity.identifier,
-			fixtures.bo.walletAddress.lowercased())
+			fixtures.bo.walletAddress.lowercased()
+		)
 		XCTAssertEqual(
 			states.last!.recoveryIdentity.identifier,
-			fixtures.caro.walletAddress.lowercased())
+			fixtures.caro.walletAddress.lowercased()
+		)
 		try fixtures.cleanUpDatabases()
 	}
 
@@ -453,14 +466,16 @@ class ClientTests: XCTestCase {
 		try await fixtures.alixClient.addAccount(newAccount: alix3Wallet)
 
 		let state = try await fixtures.alixClient.inboxState(
-			refreshFromNetwork: true)
+			refreshFromNetwork: true
+		)
 		XCTAssertEqual(state.installations.count, 1)
 		XCTAssertEqual(state.identities.count, 3)
 		XCTAssertEqual(
 			state.recoveryIdentity.identifier,
-			fixtures.alix.walletAddress.lowercased())
+			fixtures.alix.walletAddress.lowercased()
+		)
 		XCTAssertEqual(
-			state.identities.map { $0.identifier }.sorted(),
+			state.identities.map(\.identifier).sorted(),
 			[
 				alix2Wallet.walletAddress.lowercased(),
 				alix3Wallet.walletAddress.lowercased(),
@@ -473,19 +488,23 @@ class ClientTests: XCTestCase {
 	func testAddAccountsWithExistingInboxIds() async throws {
 		let fixtures = try await fixtures()
 
-		await assertThrowsAsyncError(
-			try await fixtures.alixClient.addAccount(newAccount: fixtures.bo))
+		try await assertThrowsAsyncError(
+			fixtures.alixClient.addAccount(newAccount: fixtures.bo)
+		)
 
 		XCTAssert(fixtures.boClient.inboxID != fixtures.alixClient.inboxID)
 		try await fixtures.alixClient.addAccount(
-			newAccount: fixtures.bo, allowReassignInboxId: true)
+			newAccount: fixtures.bo, allowReassignInboxId: true
+		)
 
 		let state = try await fixtures.alixClient.inboxState(
-			refreshFromNetwork: true)
+			refreshFromNetwork: true
+		)
 		XCTAssertEqual(state.identities.count, 2)
 
 		let inboxId = try await fixtures.alixClient.inboxIdFromIdentity(
-			identity: fixtures.bo.identity)
+			identity: fixtures.bo.identity
+		)
 		XCTAssertEqual(inboxId, fixtures.alixClient.inboxID)
 		try fixtures.cleanUpDatabases()
 	}
@@ -499,11 +518,13 @@ class ClientTests: XCTestCase {
 		try await fixtures.alixClient.addAccount(newAccount: alix3Wallet)
 
 		var state = try await fixtures.alixClient.inboxState(
-			refreshFromNetwork: true)
+			refreshFromNetwork: true
+		)
 		XCTAssertEqual(state.identities.count, 3)
 		XCTAssertEqual(
 			state.recoveryIdentity.identifier,
-			fixtures.alix.walletAddress.lowercased())
+			fixtures.alix.walletAddress.lowercased()
+		)
 
 		try await fixtures.alixClient.removeAccount(
 			recoveryAccount: fixtures.alix,
@@ -511,13 +532,15 @@ class ClientTests: XCTestCase {
 		)
 
 		state = try await fixtures.alixClient.inboxState(
-			refreshFromNetwork: true)
+			refreshFromNetwork: true
+		)
 		XCTAssertEqual(state.identities.count, 2)
 		XCTAssertEqual(
 			state.recoveryIdentity.identifier,
-			fixtures.alix.walletAddress.lowercased())
+			fixtures.alix.walletAddress.lowercased()
+		)
 		XCTAssertEqual(
-			state.identities.map { $0.identifier }.sorted(),
+			state.identities.map(\.identifier).sorted(),
 			[
 				alix3Wallet.walletAddress.lowercased(),
 				fixtures.alix.walletAddress.lowercased(),
@@ -526,11 +549,12 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(state.installations.count, 1)
 
 		// Cannot remove the recovery address
-		await assertThrowsAsyncError(
-			try await fixtures.alixClient.removeAccount(
+		try await assertThrowsAsyncError(
+			fixtures.alixClient.removeAccount(
 				recoveryAccount: alix3Wallet,
 				identityToRemove: fixtures.alix.identity
-			))
+			)
+		)
 		try fixtures.cleanUpDatabases()
 	}
 
@@ -539,13 +563,18 @@ class ClientTests: XCTestCase {
 
 		// Signing with installation key
 		let signature = try fixtures.alixClient.signWithInstallationKey(
-			message: "Testing")
+			message: "Testing"
+		)
 		XCTAssertTrue(
 			try fixtures.alixClient.verifySignature(
-				message: "Testing", signature: signature))
+				message: "Testing", signature: signature
+			)
+		)
 		XCTAssertFalse(
 			try fixtures.alixClient.verifySignature(
-				message: "Not Testing", signature: signature))
+				message: "Not Testing", signature: signature
+			)
+		)
 
 		let alixInstallationId = fixtures.alixClient.installationID
 
@@ -554,29 +583,33 @@ class ClientTests: XCTestCase {
 				message: "Testing",
 				signature: signature,
 				installationId: alixInstallationId
-			))
+			)
+		)
 		XCTAssertFalse(
 			try fixtures.alixClient.verifySignatureWithInstallationId(
 				message: "Not Testing",
 				signature: signature,
 				installationId: alixInstallationId
-			))
+			)
+		)
 		XCTAssertFalse(
 			try fixtures.alixClient.verifySignatureWithInstallationId(
 				message: "Testing",
 				signature: signature,
 				installationId: fixtures.boClient.installationID
-			))
+			)
+		)
 		XCTAssertTrue(
 			try fixtures.boClient.verifySignatureWithInstallationId(
 				message: "Testing",
 				signature: signature,
 				installationId: alixInstallationId
-			))
+			)
+		)
 
 		try fixtures.alixClient.deleteLocalDatabase()
 		let key = try Crypto.secureRandomBytes(count: 32)
-		let options = ClientOptions.init(
+		let options = ClientOptions(
 			api: .init(env: .local, isSecure: false),
 			dbEncryptionKey: key
 		)
@@ -592,37 +625,43 @@ class ClientTests: XCTestCase {
 				message: "Testing",
 				signature: signature,
 				installationId: alixInstallationId
-			))
+			)
+		)
 		XCTAssertFalse(
 			try alixClient2.verifySignatureWithInstallationId(
 				message: "Testing2",
 				signature: signature,
 				installationId: alixInstallationId
-			))
+			)
+		)
 		try fixtures.cleanUpDatabases()
 	}
 
 	func testCreatesAClientManually() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
-		let options = ClientOptions.init(
+		let options = ClientOptions(
 			api: .init(env: .local, isSecure: false),
 			dbEncryptionKey: key
 		)
 
 		let inboxId = try await Client.getOrCreateInboxId(
-			api: options.api, publicIdentity: alix.identity)
+			api: options.api, publicIdentity: alix.identity
+		)
 		let client = try await Client.ffiCreateClient(
-			identity: alix.identity, clientOptions: options)
+			identity: alix.identity, clientOptions: options
+		)
 		let sigRequest = client.ffiSignatureRequest()
 		try await sigRequest!.addEcdsaSignature(
-			signatureBytes: try alix.sign(sigRequest!.signatureText())
-				.rawData)
+			signatureBytes: alix.sign(sigRequest!.signatureText())
+				.rawData
+		)
 		try await client.ffiRegisterIdentity(signatureRequest: sigRequest!)
 		let state = try await client.inboxState(refreshFromNetwork: true)
 			.identities
 		let canMessage = try await client.canMessage(identities: state)[
-			state.first!.identifier]
+			state.first!.identifier
+		]
 
 		XCTAssertTrue(canMessage == true)
 		XCTAssertEqual(inboxId, client.inboxID)
@@ -639,13 +678,15 @@ class ClientTests: XCTestCase {
 		)
 
 		let alix = try await Client.create(
-			account: alixWallet, options: options)
+			account: alixWallet, options: options
+		)
 
 		var inboxState = try await alix.inboxState(refreshFromNetwork: true)
 		XCTAssertEqual(inboxState.identities.count, 1)
 
 		let sigRequest = try await alix.ffiAddIdentity(
-			identityToAdd: boWallet.identity)
+			identityToAdd: boWallet.identity
+		)
 		let signedMessage = try await boWallet.sign(sigRequest.signatureText())
 			.rawData
 
@@ -656,7 +697,8 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(inboxState.identities.count, 2)
 
 		let sigRequest2 = try await alix.ffiRevokeIdentity(
-			identityToRemove: boWallet.identity)
+			identityToRemove: boWallet.identity
+		)
 		let signedMessage2 = try await alixWallet.sign(
 			sigRequest2.signatureText()
 		).rawData
@@ -681,11 +723,14 @@ class ClientTests: XCTestCase {
 			.appendingPathComponent("xmtp_db3").path
 
 		try FileManager.default.createDirectory(
-			atPath: dbDirPath, withIntermediateDirectories: true)
+			atPath: dbDirPath, withIntermediateDirectories: true
+		)
 		try FileManager.default.createDirectory(
-			atPath: dbDirPath2, withIntermediateDirectories: true)
+			atPath: dbDirPath2, withIntermediateDirectories: true
+		)
 		try FileManager.default.createDirectory(
-			atPath: dbDirPath3, withIntermediateDirectories: true)
+			atPath: dbDirPath3, withIntermediateDirectories: true
+		)
 
 		let alix = try await Client.create(
 			account: alixWallet,
@@ -718,7 +763,7 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(inboxState.installations.count, 3)
 
 		let sigRequest = try await alix.ffiRevokeInstallations(ids: [
-			alix2.installationID.hexToData
+			alix2.installationID.hexToData,
 		])
 		let signedMessage = try await alixWallet.sign(
 			sigRequest.signatureText()
@@ -758,7 +803,8 @@ class ClientTests: XCTestCase {
 			try fileManager.removeItem(at: logDirectory)
 		}
 		try fileManager.createDirectory(
-			at: logDirectory, withIntermediateDirectories: true)
+			at: logDirectory, withIntermediateDirectories: true
+		)
 
 		// Clear any existing logs in this directory
 		Client.clearXMTPLogs(customLogDirectory: logDirectory)
@@ -798,7 +844,8 @@ class ClientTests: XCTestCase {
 
 		// Verify logs were created
 		let logFiles = Client.getXMTPLogFilePaths(
-			customLogDirectory: logDirectory)
+			customLogDirectory: logDirectory
+		)
 		XCTAssertFalse(logFiles.isEmpty, "No log files were created")
 
 		// Print log files content to console and check for inbox ID
@@ -826,14 +873,17 @@ class ClientTests: XCTestCase {
 		}
 
 		XCTAssertTrue(
-			foundInboxId, "Inbox ID \(client.inboxID) not found in logs")
+			foundInboxId, "Inbox ID \(client.inboxID) not found in logs"
+		)
 
 		// Test clearing logs
 		Client.clearXMTPLogs(customLogDirectory: logDirectory)
 		let logFilesAfterClear = Client.getXMTPLogFilePaths(
-			customLogDirectory: logDirectory)
+			customLogDirectory: logDirectory
+		)
 		XCTAssertEqual(
-			logFilesAfterClear.count, 0, "Logs were not cleared properly")
+			logFilesAfterClear.count, 0, "Logs were not cleared properly"
+		)
 		try client.deleteLocalDatabase()
 	}
 
@@ -859,7 +909,7 @@ class ClientTests: XCTestCase {
 		// Create a group and send a message
 		let group = try await alix.conversations.newGroup(with: [])
 		_ = try await group.send(content: "hi")
-		try await Task.sleep(nanoseconds: 2_000_000_000)  // 2 seconds
+		try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
 
 		let aggregateStats2 = alix.debugInformation.aggregateStatistics
 		print("Aggregate Stats Create:\n\(aggregateStats2)")
@@ -915,7 +965,7 @@ class ClientTests: XCTestCase {
 			return
 		}
 
-		let installationIds = inboxState.installations.map { $0.id }
+		let installationIds = inboxState.installations.map(\.id)
 
 		let keyPackageStatus =
 			try await Client.keyPackageStatusesForInstallationIds(
@@ -935,7 +985,7 @@ class ClientTests: XCTestCase {
 			if let notBefore = thisKPStatus.lifetime?.notBefore {
 				notBeforeDate =
 					Date(timeIntervalSince1970: TimeInterval(notBefore))
-					.description
+						.description
 			} else {
 				notBeforeDate = "null"
 			}
@@ -944,7 +994,7 @@ class ClientTests: XCTestCase {
 			if let notAfter = thisKPStatus.lifetime?.notAfter {
 				notAfterDate =
 					Date(timeIntervalSince1970: TimeInterval(notAfter))
-					.description
+						.description
 			} else {
 				notAfterDate = "null"
 			}
@@ -954,9 +1004,9 @@ class ClientTests: XCTestCase {
 			print("error code: \(thisKPStatus.validationError ?? "none")")
 
 			if let notBefore = thisKPStatus.lifetime?.notBefore,
-				let notAfter = thisKPStatus.lifetime?.notAfter
+			   let notAfter = thisKPStatus.lifetime?.notAfter
 			{
-				let expectedDuration: UInt64 = UInt64(3600 * 24 * 28 * 3 + 3600)
+				let expectedDuration = UInt64(3600 * 24 * 28 * 3 + 3600)
 				XCTAssertEqual(notAfter - notBefore, expectedDuration)
 			}
 		}
@@ -987,10 +1037,11 @@ class ClientTests: XCTestCase {
 		)
 		XCTAssertEqual(client.inboxID, builtClient.inboxID)
 
-		let fixtures = try await fixtures()  // Assuming this provides alixClient and boClient
+		let fixtures = try await fixtures() // Assuming this provides alixClient and boClient
 
 		let group = try await builtClient.conversations.newGroup(
-			with: [fixtures.alixClient.inboxID])
+			with: [fixtures.alixClient.inboxID]
+		)
 		try await group.send(content: "howdy")
 
 		let alixDm = try await fixtures.alixClient.conversations
@@ -999,7 +1050,8 @@ class ClientTests: XCTestCase {
 
 		let boGroup = try await fixtures.boClient.conversations
 			.newGroupWithIdentities(
-				with: [builtClient.publicIdentity])
+				with: [builtClient.publicIdentity]
+			)
 		try await boGroup.send(content: "howdy")
 
 		try await builtClient.conversations.syncAllConversations()
@@ -1015,7 +1067,7 @@ class ClientTests: XCTestCase {
 
 		var clients: [Client] = []
 
-		for i in 0..<10 {
+		for i in 0 ..< 10 {
 			let client = try await Client.create(
 				account: wallet,
 				options: ClientOptions(
@@ -1031,8 +1083,8 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(state.installations.count, 10)
 
 		// Attempt to create a 6th installation, should throw
-		await assertThrowsAsyncError(
-			_ = try await Client.create(
+		try await assertThrowsAsyncError(
+			_ = Client.create(
 				account: wallet,
 				options: ClientOptions(
 					api: .init(env: .local, isSecure: false),
@@ -1047,13 +1099,13 @@ class ClientTests: XCTestCase {
 			account: boWallet,
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: false),
-				dbEncryptionKey: try Crypto.secureRandomBytes(count: 32),
+				dbEncryptionKey: Crypto.secureRandomBytes(count: 32),
 				dbDirectory: "xmtp_bo"
 			)
 		)
 
 		let group = try await boClient.conversations.newGroup(with: [
-			clients[2].inboxID
+			clients[2].inboxID,
 		])
 		let members = try await group.members
 		let alixMember = members.first { $0.inboxId == clients[0].inboxID }
@@ -1071,7 +1123,8 @@ class ClientTests: XCTestCase {
 		)
 
 		let stateAfterRevoke = try await clients[0].inboxState(
-			refreshFromNetwork: true)
+			refreshFromNetwork: true
+		)
 		XCTAssertEqual(stateAfterRevoke.installations.count, 9)
 
 		let sixthClient = try await Client.create(
@@ -1084,7 +1137,8 @@ class ClientTests: XCTestCase {
 		)
 
 		let finalState = try await clients[0].inboxState(
-			refreshFromNetwork: true)
+			refreshFromNetwork: true
+		)
 
 		XCTAssertEqual(finalState.installations.count, 10)
 		try boClient.deleteLocalDatabase()
@@ -1096,7 +1150,7 @@ class ClientTests: XCTestCase {
 
 		var clients: [Client] = []
 
-		for i in 0..<5 {
+		for i in 0 ..< 5 {
 			let client = try await Client.create(
 				account: wallet,
 				options: ClientOptions(
@@ -1123,7 +1177,7 @@ class ClientTests: XCTestCase {
 		state = try await clients.last!.inboxState(refreshFromNetwork: true)
 		XCTAssertEqual(state.installations.count, 4)
 
-		let remainingIds = state.installations.map { $0.id }
+		let remainingIds = state.installations.map(\.id)
 		XCTAssertFalse(remainingIds.contains(toRevokeId))
 	}
 
@@ -1133,7 +1187,7 @@ class ClientTests: XCTestCase {
 
 		var clients: [Client] = []
 
-		for i in 0..<5 {
+		for i in 0 ..< 5 {
 			let client = try await Client.create(
 				account: wallet,
 				options: ClientOptions(
@@ -1147,13 +1201,13 @@ class ClientTests: XCTestCase {
 
 		var states = try await Client.inboxStatesForInboxIds(
 			inboxIds: [
-				clients.last!.inboxID
+				clients.last!.inboxID,
 			],
 			api: ClientOptions.Api(env: .local, isSecure: false)
 		)
 		XCTAssertEqual(states.first!.installations.count, 5)
 
-		let toRevokeIds = states.first!.installations.map { $0.id }
+		let toRevokeIds = states.first!.installations.map(\.id)
 
 		try await Client.revokeInstallations(
 			api: .init(env: .local, isSecure: false),
@@ -1164,7 +1218,7 @@ class ClientTests: XCTestCase {
 
 		states = try await Client.inboxStatesForInboxIds(
 			inboxIds: [
-				clients.last!.inboxID
+				clients.last!.inboxID,
 			],
 			api: ClientOptions.Api(env: .local, isSecure: false)
 		)
@@ -1183,11 +1237,14 @@ class ClientTests: XCTestCase {
 			.appendingPathComponent("xmtp_db3").path
 
 		try FileManager.default.createDirectory(
-			atPath: dbDirPath, withIntermediateDirectories: true)
+			atPath: dbDirPath, withIntermediateDirectories: true
+		)
 		try FileManager.default.createDirectory(
-			atPath: dbDirPath2, withIntermediateDirectories: true)
+			atPath: dbDirPath2, withIntermediateDirectories: true
+		)
 		try FileManager.default.createDirectory(
-			atPath: dbDirPath3, withIntermediateDirectories: true)
+			atPath: dbDirPath3, withIntermediateDirectories: true
+		)
 
 		let alix = try await Client.create(
 			account: alixWallet,
@@ -1224,8 +1281,9 @@ class ClientTests: XCTestCase {
 			publicIdentity: alixWallet.identity,
 			inboxId: alix.inboxID,
 			installationIds: [
-				alix2.installationID
-			])
+				alix2.installationID,
+			]
+		)
 		let signedMessage = try await alixWallet.sign(
 			sigRequest.signatureText()
 		).rawData
@@ -1233,7 +1291,8 @@ class ClientTests: XCTestCase {
 		try await sigRequest.addEcdsaSignature(signatureBytes: signedMessage)
 		try await Client.ffiApplySignatureRequest(
 			api: .init(env: .local, isSecure: false),
-			signatureRequest: sigRequest)
+			signatureRequest: sigRequest
+		)
 
 		inboxState = try await alix.inboxState(refreshFromNetwork: true)
 		XCTAssertEqual(inboxState.installations.count, 2)

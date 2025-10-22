@@ -1,9 +1,8 @@
-import Foundation
 import CryptoSwift
+import Foundation
 
-extension String {
-	public var hexToData: Data {
-		return Data(hex: self)
+public extension String {
+	var hexToData: Data {
+		Data(hex: self)
 	}
 }
-

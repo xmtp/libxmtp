@@ -2,10 +2,16 @@ import CryptoKit
 import CryptoSwift
 import Foundation
 
-public let ContentTypeRemoteAttachment = ContentTypeID(authorityID: "xmtp.org", typeID: "remoteStaticAttachment", versionMajor: 1, versionMinor: 0)
+public let ContentTypeRemoteAttachment = ContentTypeID(
+	authorityID: "xmtp.org",
+	typeID: "remoteStaticAttachment",
+	versionMajor: 1,
+	versionMinor: 0
+)
 
 public enum RemoteAttachmentError: Error, CustomStringConvertible {
-	case invalidURL, v1NotSupported, invalidParameters(String), invalidDigest(String), invalidScheme(String), payloadNotFound
+	case invalidURL, v1NotSupported, invalidParameters(String), invalidDigest(String), invalidScheme(String),
+	     payloadNotFound
 
 	public var description: String {
 		switch self {
@@ -13,11 +19,11 @@ public enum RemoteAttachmentError: Error, CustomStringConvertible {
 			return "RemoteAttachmentError.invalidURL"
 		case .v1NotSupported:
 			return "RemoteAttachmentError.v1NotSupported"
-		case .invalidParameters(let string):
+		case let .invalidParameters(string):
 			return "RemoteAttachmentError.invalidParameters: \(string)"
-		case .invalidDigest(let string):
+		case let .invalidDigest(string):
 			return "RemoteAttachmentError.invalidDigest: \(string)"
-		case .invalidScheme(let string):
+		case let .invalidScheme(string):
 			return "RemoteAttachmentError.invalidScheme: \(string)"
 		case .payloadNotFound:
 			return "RemoteAttachmentError.payloadNotFound"
@@ -41,7 +47,7 @@ struct HTTPFetcher: RemoteContentFetcher {
 
 public struct RemoteAttachment {
 	public enum Scheme: String {
-		case https = "https"
+		case https
 	}
 
 	public var url: String
@@ -56,7 +62,16 @@ public struct RemoteAttachment {
 	public var contentLength: Int?
 	public var filename: String?
 
-	public init(url: String, contentDigest: String, secret: Data, salt: Data, nonce: Data, scheme: Scheme, contentLength: Int? = nil, filename: String? = nil) throws {
+	public init(
+		url: String,
+		contentDigest: String,
+		secret: Data,
+		salt: Data,
+		nonce: Data,
+		scheme: Scheme,
+		contentLength _: Int? = nil,
+		filename _: String? = nil
+	) throws {
 		self.url = url
 		self.contentDigest = contentDigest
 		self.secret = secret
@@ -88,7 +103,9 @@ public struct RemoteAttachment {
 		}
 	}
 
-	public static func encodeEncrypted<Codec: ContentCodec, T>(content: T, codec: Codec) throws -> EncryptedEncodedContent where Codec.T == T {
+	public static func encodeEncrypted<Codec: ContentCodec, T>(content: T, codec: Codec) throws -> EncryptedEncodedContent
+		where Codec.T == T
+	{
 		let secret = try Crypto.secureRandomBytes(count: 32)
 		let encodedContent = try codec.encode(content: content).serializedData()
 		let ciphertext = try Crypto.encrypt(secret, encodedContent)
@@ -114,13 +131,16 @@ public struct RemoteAttachment {
 			salt: ciphertext.aes256GcmHkdfSha256.hkdfSalt,
 			nonce: ciphertext.aes256GcmHkdfSha256.gcmNonce,
 			payload: ciphertext.aes256GcmHkdfSha256.payload,
-            filename: filename
+			filename: filename
 		)
 	}
 
 	public static func decryptEncoded(encrypted: EncryptedEncodedContent) throws -> EncodedContent {
 		if RemoteAttachment.sha256(data: encrypted.payload) != encrypted.digest {
-			throw RemoteAttachmentError.invalidDigest("content digest does not match. expected: \(encrypted.digest), got: \(SHA256.hash(data: encrypted.payload).description)")
+			throw RemoteAttachmentError
+				.invalidDigest(
+					"content digest does not match. expected: \(encrypted.digest), got: \(SHA256.hash(data: encrypted.payload).description)"
+				)
 		}
 
 		let decrypted = try Crypto.decrypt(encrypted.secret, CipherText.with {
@@ -143,11 +163,11 @@ public struct RemoteAttachment {
 		}
 
 		return try RemoteAttachment.decryptEncoded(encrypted: EncryptedEncodedContent(
-				secret: secret,
-				digest: contentDigest,
-				salt: salt,
-				nonce: nonce,
-				payload: payload
+			secret: secret,
+			digest: contentDigest,
+			salt: salt,
+			nonce: nonce,
+			payload: payload
 		))
 	}
 
@@ -157,7 +177,6 @@ public struct RemoteAttachment {
 }
 
 public struct RemoteAttachmentCodec: ContentCodec {
-
 	public typealias T = RemoteAttachment
 
 	public init() {}
@@ -199,11 +218,18 @@ public struct RemoteAttachmentCodec: ContentCodec {
 			throw RemoteAttachmentError.invalidScheme("no scheme parameter")
 		}
 
-        if (!schemeString.hasPrefix(RemoteAttachment.Scheme.https.rawValue)) {
+		if !schemeString.hasPrefix(RemoteAttachment.Scheme.https.rawValue) {
 			throw RemoteAttachmentError.invalidScheme("invalid scheme value. must start with https")
 		}
 
-		var attachment = try RemoteAttachment(url: url, contentDigest: contentDigest, secret: secret, salt: salt, nonce: nonce, scheme: RemoteAttachment.Scheme.https)
+		var attachment = try RemoteAttachment(
+			url: url,
+			contentDigest: contentDigest,
+			secret: secret,
+			salt: salt,
+			nonce: nonce,
+			scheme: RemoteAttachment.Scheme.https
+		)
 
 		if let contentLength = content.parameters["contentLength"] {
 			attachment.contentLength = Int(contentLength)
@@ -216,9 +242,9 @@ public struct RemoteAttachmentCodec: ContentCodec {
 		return attachment
 	}
 
-    public func fallback(content: RemoteAttachment) throws -> String? {
-        return "Can’t display “\(String(describing: content.filename))”. This app doesn’t support attachments."
-    }
+	public func fallback(content: RemoteAttachment) throws -> String? {
+		"Can’t display “\(String(describing: content.filename))”. This app doesn’t support attachments."
+	}
 
 	private func getHexParameter(_ name: String, from parameters: [String: String]) throws -> Data {
 		guard let parameterHex = parameters[name] else {
@@ -228,7 +254,7 @@ public struct RemoteAttachmentCodec: ContentCodec {
 		return Data(parameterHex.hexToData)
 	}
 
-	public func shouldPush(content: RemoteAttachment) throws -> Bool {
-		return true
+	public func shouldPush(content _: RemoteAttachment) throws -> Bool {
+		true
 	}
 }

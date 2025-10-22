@@ -5,7 +5,6 @@
 //  Created by Naomi Plasterer on 8/5/25.
 //
 
-
 public struct ArchiveOptions {
 	public var startNs: Int64?
 	public var endNs: Int64?
@@ -22,7 +21,7 @@ public struct ArchiveOptions {
 	}
 
 	public func toFfi() -> FfiArchiveOptions {
-		return FfiArchiveOptions(
+		FfiArchiveOptions(
 			startNs: startNs,
 			endNs: endNs,
 			elements: archiveElements.map { $0.toFfi() }
@@ -63,22 +62,22 @@ public struct ArchiveMetadata {
 	}
 
 	public var archiveVersion: UInt16 {
-		return ffi.backupVersion
+		ffi.backupVersion
 	}
 
 	public var elements: [ArchiveElement] {
-		return ffi.elements.map { ArchiveElement.fromFfi($0) }
+		ffi.elements.map { ArchiveElement.fromFfi($0) }
 	}
 
 	public var exportedAtNs: Int64 {
-		return ffi.exportedAtNs
+		ffi.exportedAtNs
 	}
 
 	public var startNs: Int64? {
-		return ffi.startNs
+		ffi.startNs
 	}
 
 	public var endNs: Int64? {
-		return ffi.endNs
+		ffi.endNs
 	}
 }

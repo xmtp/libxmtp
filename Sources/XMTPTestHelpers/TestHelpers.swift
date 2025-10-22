@@ -83,7 +83,7 @@
 				env: XMTPEnvironment.local, isSecure: false
 			)
 		) async throws -> Fixtures {
-			return try await Fixtures(clientOptions: clientOptions)
+			try await Fixtures(clientOptions: clientOptions)
 		}
 	}
 #endif

@@ -30,10 +30,11 @@ public struct SignatureRequest {
 
 	public func addEcdsaSignature(signatureBytes: Data) async throws {
 		try await ffiSignatureRequest.addEcdsaSignature(
-			signatureBytes: signatureBytes)
+			signatureBytes: signatureBytes
+		)
 	}
 
 	public func signatureText() async throws -> String {
-		return try await ffiSignatureRequest.signatureText()
+		try await ffiSignatureRequest.signatureText()
 	}
 }

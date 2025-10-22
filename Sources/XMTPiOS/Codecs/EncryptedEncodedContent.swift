@@ -13,16 +13,24 @@ public struct EncryptedEncodedContent {
 	public var salt: Data
 	public var nonce: Data
 	public var payload: Data
-    public var filename: String?
-    public var contentLength: UInt32?
+	public var filename: String?
+	public var contentLength: UInt32?
 
-	public init(secret: Data, digest: String, salt: Data, nonce: Data, payload: Data, filename: String? = nil, contentLength: UInt32? = nil) {
+	public init(
+		secret: Data,
+		digest: String,
+		salt: Data,
+		nonce: Data,
+		payload: Data,
+		filename: String? = nil,
+		contentLength: UInt32? = nil
+	) {
 		self.secret = secret
 		self.digest = digest
 		self.salt = salt
 		self.nonce = nonce
 		self.payload = payload
-        self.filename = filename
-        self.contentLength = contentLength
+		self.filename = filename
+		self.contentLength = contentLength
 	}
 }

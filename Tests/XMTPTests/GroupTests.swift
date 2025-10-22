@@ -17,7 +17,8 @@ func assertThrowsAsyncError<T>(
 		if customMessage.isEmpty {
 			XCTFail(
 				"Asynchronous call did not throw an error.", file: file,
-				line: line)
+				line: line
+			)
 		} else {
 			XCTFail(customMessage, file: file, line: line)
 		}
@@ -31,7 +32,8 @@ class GroupTests: XCTestCase {
 	func testCanCreateAGroupWithDefaultPermissions() async throws {
 		let fixtures = try await fixtures()
 		let boGroup = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.alixClient.inboxID])
+			with: [fixtures.alixClient.inboxID]
+		)
 		try await fixtures.alixClient.conversations.sync()
 		let alixGroup = try await fixtures.alixClient.conversations
 			.listGroups().first!
@@ -49,7 +51,7 @@ class GroupTests: XCTestCase {
 		try await boGroup.addAdmin(inboxId: fixtures.alixClient.inboxID)
 
 		try await alixGroup.removeMembers(inboxIds: [
-			fixtures.caroClient.inboxID
+			fixtures.caroClient.inboxID,
 		])
 		try await boGroup.sync()
 
@@ -70,18 +72,24 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(boMembersCount, 3)
 
 		XCTAssertEqual(
-			try boGroup.permissionPolicySet().addMemberPolicy, .allow)
+			try boGroup.permissionPolicySet().addMemberPolicy, .allow
+		)
 		XCTAssertEqual(
-			try alixGroup.permissionPolicySet().addMemberPolicy, .allow)
+			try alixGroup.permissionPolicySet().addMemberPolicy, .allow
+		)
 
 		XCTAssert(
-			try boGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID))
+			try boGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID)
+		)
 		XCTAssert(
-			try !boGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID))
+			try !boGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID)
+		)
 		XCTAssert(
-			try alixGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID))
+			try alixGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID)
+		)
 		XCTAssert(
-			try !alixGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID))
+			try !alixGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID)
+		)
 		try fixtures.cleanUpDatabases()
 	}
 
@@ -92,8 +100,9 @@ class GroupTests: XCTestCase {
 				with: [
 					PublicIdentity(
 						kind: .ethereum, identifier: fixtures.alix.walletAddress
-					)
-				])
+					),
+				]
+			)
 		try await fixtures.alixClient.conversations.sync()
 		let alixGroup = try await fixtures.alixClient.conversations
 			.listGroups().first!
@@ -111,7 +120,7 @@ class GroupTests: XCTestCase {
 		try await boGroup.addAdmin(inboxId: fixtures.alixClient.inboxID)
 
 		try await alixGroup.removeMembers(inboxIds: [
-			fixtures.caroClient.inboxID
+			fixtures.caroClient.inboxID,
 		])
 		try await boGroup.sync()
 
@@ -132,18 +141,24 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(boMembersCount, 3)
 
 		XCTAssertEqual(
-			try boGroup.permissionPolicySet().addMemberPolicy, .allow)
+			try boGroup.permissionPolicySet().addMemberPolicy, .allow
+		)
 		XCTAssertEqual(
-			try alixGroup.permissionPolicySet().addMemberPolicy, .allow)
+			try alixGroup.permissionPolicySet().addMemberPolicy, .allow
+		)
 
 		XCTAssert(
-			try boGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID))
+			try boGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID)
+		)
 		XCTAssert(
-			try !boGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID))
+			try !boGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID)
+		)
 		XCTAssert(
-			try alixGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID))
+			try alixGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID)
+		)
 		XCTAssert(
-			try !alixGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID))
+			try !alixGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID)
+		)
 		try fixtures.cleanUpDatabases()
 	}
 
@@ -151,7 +166,8 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 		let boGroup = try await fixtures.boClient.conversations.newGroup(
 			with: [fixtures.alixClient.inboxID],
-			permissions: GroupPermissionPreconfiguration.adminOnly)
+			permissions: GroupPermissionPreconfiguration.adminOnly
+		)
 		try await fixtures.alixClient.conversations.sync()
 		let alixGroup = try await fixtures.alixClient.conversations
 			.listGroups().first!
@@ -173,9 +189,9 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(alixMembersCount, 3)
 		XCTAssertEqual(boMembersCount, 3)
 
-		await assertThrowsAsyncError(
-			try await alixGroup.removeMembers(inboxIds: [
-				fixtures.caroClient.inboxID
+		try await assertThrowsAsyncError(
+			alixGroup.removeMembers(inboxIds: [
+				fixtures.caroClient.inboxID,
 			])
 		)
 		try await boGroup.sync()
@@ -193,9 +209,9 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(alixMembersCount, 2)
 		XCTAssertEqual(boMembersCount, 2)
 
-		await assertThrowsAsyncError(
-			try await alixGroup.addMembers(inboxIds: [
-				fixtures.caroClient.inboxID
+		try await assertThrowsAsyncError(
+			alixGroup.addMembers(inboxIds: [
+				fixtures.caroClient.inboxID,
 			])
 		)
 		try await boGroup.sync()
@@ -206,29 +222,37 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(boMembersCount, 2)
 
 		XCTAssertEqual(
-			try boGroup.permissionPolicySet().addMemberPolicy, .admin)
+			try boGroup.permissionPolicySet().addMemberPolicy, .admin
+		)
 		XCTAssertEqual(
-			try alixGroup.permissionPolicySet().addMemberPolicy, .admin)
+			try alixGroup.permissionPolicySet().addMemberPolicy, .admin
+		)
 		XCTAssert(
-			try boGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID))
+			try boGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID)
+		)
 		XCTAssert(
-			try !boGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID))
+			try !boGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID)
+		)
 		XCTAssert(
-			try alixGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID))
+			try alixGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID)
+		)
 		XCTAssert(
-			try !alixGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID))
+			try !alixGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID)
+		)
 		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanListGroups() async throws {
 		let fixtures = try await fixtures()
 		_ = try await fixtures.alixClient.conversations.newGroup(with: [
-			fixtures.boClient.inboxID
+			fixtures.boClient.inboxID,
 		])
 		_ = try await fixtures.caroClient.conversations.findOrCreateDm(
-			with: fixtures.boClient.inboxID)
+			with: fixtures.boClient.inboxID
+		)
 		_ = try await fixtures.caroClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID)
+			with: fixtures.alixClient.inboxID
+		)
 
 		try await fixtures.alixClient.conversations.sync()
 		let alixGroupCount = try await fixtures.alixClient.conversations
@@ -246,13 +270,14 @@ class GroupTests: XCTestCase {
 	func testCanListGroupsFiltered() async throws {
 		let fixtures = try await fixtures()
 
-		let _ = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caroClient.inboxID)
+		_ = try await fixtures.boClient.conversations.findOrCreateDm(
+			with: fixtures.caroClient.inboxID
+		)
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
-			fixtures.caroClient.inboxID
+			fixtures.caroClient.inboxID,
 		])
-		let _ = try await fixtures.boClient.conversations.newGroup(with: [
-			fixtures.caroClient.inboxID
+		_ = try await fixtures.boClient.conversations.newGroup(with: [
+			fixtures.caroClient.inboxID,
 		])
 
 		let convoCount = try await fixtures.boClient.conversations
@@ -282,11 +307,14 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caroClient.inboxID)
+			with: fixtures.caroClient.inboxID
+		)
 		let group1 = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.caroClient.inboxID])
+			with: [fixtures.caroClient.inboxID]
+		)
 		let group2 = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.caroClient.inboxID])
+			with: [fixtures.caroClient.inboxID]
+		)
 
 		_ = try await dm.send(content: "Howdy")
 		_ = try await group2.send(content: "Howdy")
@@ -297,14 +325,16 @@ class GroupTests: XCTestCase {
 
 		XCTAssertEqual(conversations.count, 2)
 		XCTAssertEqual(
-			conversations.map { $0.id }, [group2.id, group1.id])
+			conversations.map(\.id), [group2.id, group1.id]
+		)
 		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanListGroupMembers() async throws {
 		let fixtures = try await fixtures()
 		let group = try await fixtures.alixClient.conversations.newGroup(
-			with: [fixtures.boClient.inboxID])
+			with: [fixtures.boClient.inboxID]
+		)
 
 		try await group.sync()
 		let members = try await group.members.map(\.inboxId).sorted()
@@ -312,7 +342,8 @@ class GroupTests: XCTestCase {
 
 		XCTAssertEqual(
 			[fixtures.boClient.inboxID, fixtures.alixClient.inboxID].sorted(),
-			members)
+			members
+		)
 		XCTAssertEqual([fixtures.boClient.inboxID].sorted(), peerMembers)
 		try fixtures.cleanUpDatabases()
 	}
@@ -321,7 +352,8 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 		Client.register(codec: GroupUpdatedCodec())
 		let group = try await fixtures.alixClient.conversations.newGroup(
-			with: [fixtures.boClient.inboxID])
+			with: [fixtures.boClient.inboxID]
+		)
 
 		let result = try await group.addMembers(inboxIds: [fixtures.caroClient.inboxID])
 
@@ -335,16 +367,18 @@ class GroupTests: XCTestCase {
 				fixtures.boClient.inboxID,
 				fixtures.alixClient.inboxID,
 				fixtures.caroClient.inboxID,
-			].sorted(), members)
+			].sorted(), members
+		)
 
 		let groupChangedMessage: GroupUpdated = try await group.messages()
 			.first!.content()
 		XCTAssertEqual(
 			groupChangedMessage.addedInboxes.map(\.inboxID),
-			[fixtures.caroClient.inboxID])
+			[fixtures.caroClient.inboxID]
+		)
 		try fixtures.cleanUpDatabases()
 	}
-	
+
 	func testCannotStartGroupOrAddMembersWithAddressWhenExpectingInboxId() async throws {
 		let fixtures = try await fixtures()
 
@@ -389,13 +423,15 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 		Client.register(codec: GroupUpdatedCodec())
 		let group = try await fixtures.alixClient.conversations.newGroup(
-			with: [fixtures.boClient.inboxID])
+			with: [fixtures.boClient.inboxID]
+		)
 
 		let result = try await group.addMembersByIdentity(identities: [
 			PublicIdentity(
-				kind: .ethereum, identifier: fixtures.caro.walletAddress)
+				kind: .ethereum, identifier: fixtures.caro.walletAddress
+			),
 		])
-		
+
 		XCTAssertEqual(result.addedMembers.first, fixtures.caroClient.inboxID)
 
 		try await group.sync()
@@ -406,13 +442,15 @@ class GroupTests: XCTestCase {
 				fixtures.boClient.inboxID,
 				fixtures.alixClient.inboxID,
 				fixtures.caroClient.inboxID,
-			].sorted(), members)
+			].sorted(), members
+		)
 
 		let groupChangedMessage: GroupUpdated = try await group.messages()
 			.first!.content()
 		XCTAssertEqual(
 			groupChangedMessage.addedInboxes.map(\.inboxID),
-			[fixtures.caroClient.inboxID])
+			[fixtures.caroClient.inboxID]
+		)
 		try fixtures.cleanUpDatabases()
 	}
 
@@ -420,7 +458,8 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 		Client.register(codec: GroupUpdatedCodec())
 		let group = try await fixtures.alixClient.conversations.newGroup(
-			with: [fixtures.boClient.inboxID, fixtures.caroClient.inboxID])
+			with: [fixtures.boClient.inboxID, fixtures.caroClient.inboxID]
+		)
 
 		try await group.sync()
 		let members = try await group.members.map(\.inboxId).sorted()
@@ -430,7 +469,8 @@ class GroupTests: XCTestCase {
 				fixtures.boClient.inboxID,
 				fixtures.alixClient.inboxID,
 				fixtures.caroClient.inboxID,
-			].sorted(), members)
+			].sorted(), members
+		)
 
 		try await group.removeMembers(inboxIds: [fixtures.caroClient.inboxID])
 
@@ -441,13 +481,15 @@ class GroupTests: XCTestCase {
 			[
 				fixtures.boClient.inboxID,
 				fixtures.alixClient.inboxID,
-			].sorted(), newMembers)
+			].sorted(), newMembers
+		)
 
 		let groupChangedMessage: GroupUpdated = try await group.messages()
 			.first!.content()
 		XCTAssertEqual(
 			groupChangedMessage.removedInboxes.map(\.inboxID),
-			[fixtures.caroClient.inboxID])
+			[fixtures.caroClient.inboxID]
+		)
 		try fixtures.cleanUpDatabases()
 	}
 
@@ -455,7 +497,8 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 		Client.register(codec: GroupUpdatedCodec())
 		let group = try await fixtures.alixClient.conversations.newGroup(
-			with: [fixtures.boClient.inboxID, fixtures.caroClient.inboxID])
+			with: [fixtures.boClient.inboxID, fixtures.caroClient.inboxID]
+		)
 
 		try await group.sync()
 		let members = try await group.members.map(\.inboxId).sorted()
@@ -465,7 +508,8 @@ class GroupTests: XCTestCase {
 				fixtures.boClient.inboxID,
 				fixtures.alixClient.inboxID,
 				fixtures.caroClient.inboxID,
-			].sorted(), members)
+			].sorted(), members
+		)
 
 		try await group.removeMembersByIdentity(identities: [fixtures.caro.identity])
 
@@ -476,13 +520,15 @@ class GroupTests: XCTestCase {
 			[
 				fixtures.boClient.inboxID,
 				fixtures.alixClient.inboxID,
-			].sorted(), newMembers)
+			].sorted(), newMembers
+		)
 
 		let groupChangedMessage: GroupUpdated = try await group.messages()
 			.first!.content()
 		XCTAssertEqual(
 			groupChangedMessage.removedInboxes.map(\.inboxID),
-			[fixtures.caroClient.inboxID])
+			[fixtures.caroClient.inboxID]
+		)
 		try fixtures.cleanUpDatabases()
 	}
 
@@ -490,23 +536,28 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 		let notOnNetwork = try PrivateKey.generate()
 		let canMessage = try await fixtures.alixClient.canMessage(
-			identity: fixtures.bo.identity)
+			identity: fixtures.bo.identity
+		)
 		let cannotMessage = try await fixtures.alixClient.canMessage(
 			identities: [
 				PublicIdentity(
-					kind: .ethereum, identifier: notOnNetwork.walletAddress),
+					kind: .ethereum, identifier: notOnNetwork.walletAddress
+				),
 				fixtures.bo.identity,
-			])
+			]
+		)
 		XCTAssert(canMessage)
 		XCTAssert(
-			!(cannotMessage[notOnNetwork.walletAddress.lowercased()] ?? true))
+			!(cannotMessage[notOnNetwork.walletAddress.lowercased()] ?? true)
+		)
 		try fixtures.cleanUpDatabases()
 	}
 
 	func testIsActive() async throws {
 		let fixtures = try await fixtures()
 		let group = try await fixtures.alixClient.conversations.newGroup(
-			with: [fixtures.boClient.inboxID, fixtures.caroClient.inboxID])
+			with: [fixtures.boClient.inboxID, fixtures.caroClient.inboxID]
+		)
 
 		try await group.sync()
 		let members = try await group.members.map(\.inboxId).sorted()
@@ -516,7 +567,8 @@ class GroupTests: XCTestCase {
 				fixtures.boClient.inboxID,
 				fixtures.alixClient.inboxID,
 				fixtures.caroClient.inboxID,
-			].sorted(), members)
+			].sorted(), members
+		)
 
 		try await fixtures.caroClient.conversations.sync()
 		let caroGroup = try await fixtures.caroClient.conversations.listGroups()
@@ -538,7 +590,8 @@ class GroupTests: XCTestCase {
 			[
 				fixtures.boClient.inboxID,
 				fixtures.alixClient.inboxID,
-			].sorted(), newMembers)
+			].sorted(), newMembers
+		)
 
 		try await caroGroup?.sync()
 
@@ -556,7 +609,7 @@ class GroupTests: XCTestCase {
 
 		// alix creates a group and adds bo to the group
 		_ = try await fixtures.alixClient.conversations.newGroup(with: [
-			fixtures.boClient.inboxID
+			fixtures.boClient.inboxID,
 		])
 
 		// bo syncs groups - this will decrypt the Welcome and then
@@ -577,7 +630,8 @@ class GroupTests: XCTestCase {
 	func testCanStartEmptyGroup() async throws {
 		let fixtures = try await fixtures()
 		let group = try await fixtures.alixClient.conversations.newGroup(
-			with: [])
+			with: []
+		)
 		XCTAssert(!group.id.isEmpty)
 		try fixtures.cleanUpDatabases()
 	}
@@ -592,7 +646,7 @@ class GroupTests: XCTestCase {
 				.newGroupWithIdentities(with: [
 					PublicIdentity(
 						kind: .ethereum, identifier: nonRegistered.walletAddress
-					)
+					),
 				])
 
 			XCTFail("did not throw error")
@@ -603,7 +657,8 @@ class GroupTests: XCTestCase {
 	func testGroupStartsWithAllowedState() async throws {
 		let fixtures = try await fixtures()
 		let boGroup = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.alixClient.inboxID])
+			with: [fixtures.alixClient.inboxID]
+		)
 
 		_ = try await boGroup.send(content: "howdy")
 		_ = try await boGroup.send(content: "gm")
@@ -618,18 +673,21 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 		Client.register(codec: GroupUpdatedCodec())
 		let alixGroup = try await fixtures.alixClient.conversations.newGroup(
-			with: [fixtures.boClient.inboxID])
+			with: [fixtures.boClient.inboxID]
+		)
 		let membershipChange = GroupUpdated()
 
 		try await fixtures.boClient.conversations.sync()
 		let boGroup = try await fixtures.boClient.conversations.listGroups()[
-			0]
+			0
+		]
 
 		_ = try await alixGroup.send(content: "sup gang original")
 		let messageId = try await alixGroup.send(content: "sup gang")
 		_ = try await alixGroup.send(
 			content: membershipChange,
-			options: SendOptions(contentType: ContentTypeGroupUpdated))
+			options: SendOptions(contentType: ContentTypeGroupUpdated)
+		)
 
 		try await alixGroup.sync()
 		let alixGroupsCount = try await alixGroup.messages().count
@@ -651,7 +709,8 @@ class GroupTests: XCTestCase {
 	func testCanListGroupMessages() async throws {
 		let fixtures = try await fixtures()
 		let alixGroup = try await fixtures.alixClient.conversations.newGroup(
-			with: [fixtures.boClient.inboxID])
+			with: [fixtures.boClient.inboxID]
+		)
 		_ = try await alixGroup.send(content: "howdy")
 		_ = try await alixGroup.send(content: "gm")
 
@@ -677,7 +736,8 @@ class GroupTests: XCTestCase {
 
 		try await fixtures.boClient.conversations.sync()
 		let boGroup = try await fixtures.boClient.conversations.listGroups()[
-			0]
+			0
+		]
 		try await boGroup.sync()
 
 		let boMessagesCount = try await boGroup.messages().count
@@ -691,14 +751,13 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(0, boMessagesUnpublishedCount)
 		XCTAssertEqual(3, boMessagesPublishedCount)
 		try fixtures.cleanUpDatabases()
-
 	}
 
 	func testCanStreamGroupMessages() async throws {
 		let fixtures = try await fixtures()
 		Client.register(codec: GroupUpdatedCodec())
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
-			fixtures.alixClient.inboxID
+			fixtures.alixClient.inboxID,
 		])
 		let membershipChange = GroupUpdated()
 		let expectation1 = XCTestExpectation(description: "got a message")
@@ -713,7 +772,8 @@ class GroupTests: XCTestCase {
 		_ = try await group.send(content: "hi")
 		_ = try await group.send(
 			content: membershipChange,
-			options: SendOptions(contentType: ContentTypeGroupUpdated))
+			options: SendOptions(contentType: ContentTypeGroupUpdated)
+		)
 
 		await fulfillment(of: [expectation1], timeout: 3)
 		try fixtures.cleanUpDatabases()
@@ -734,10 +794,11 @@ class GroupTests: XCTestCase {
 		}
 
 		_ = try await fixtures.boClient.conversations.newGroup(with: [
-			fixtures.alixClient.inboxID
+			fixtures.alixClient.inboxID,
 		])
 		_ = try await fixtures.caroClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID)
+			with: fixtures.alixClient.inboxID
+		)
 
 		await fulfillment(of: [expectation1], timeout: 3)
 		try fixtures.cleanUpDatabases()
@@ -766,7 +827,7 @@ class GroupTests: XCTestCase {
 		}
 
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
-			fixtures.alixClient.inboxID
+			fixtures.alixClient.inboxID,
 		])
 		_ = try await group.send(content: "hello")
 
@@ -789,7 +850,8 @@ class GroupTests: XCTestCase {
 		}
 
 		let alixGroup = try await fixtures.alixClient.conversations.newGroup(
-			with: [fixtures.boClient.inboxID])
+			with: [fixtures.boClient.inboxID]
+		)
 		try await alixGroup.updateName(name: "hello")
 		_ = try await alixGroup.send(content: "hello1")
 
@@ -812,9 +874,10 @@ class GroupTests: XCTestCase {
 
 		let alixMessages = try await alixGroup.messages()
 		for message in alixMessages {
-			print(
-				"message", try message.encodedContent.type,
-				try message.encodedContent.type.typeID)
+			try print(
+				"message", message.encodedContent.type,
+				message.encodedContent.type.typeID
+			)
 		}
 		XCTAssertEqual(
 			alixMessages.count, 5,
@@ -826,9 +889,10 @@ class GroupTests: XCTestCase {
 
 		let boMessages2 = try await boGroup.messages()
 		for message in boMessages2 {
-			print(
-				"message", try message.encodedContent.type,
-				try message.encodedContent.type.typeID)
+			try print(
+				"message", message.encodedContent.type,
+				message.encodedContent.type.typeID
+			)
 		}
 		XCTAssertEqual(
 			boMessages2.count, 6,
@@ -845,10 +909,11 @@ class GroupTests: XCTestCase {
 		let expectation1 = XCTestExpectation(description: "got a conversation")
 
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
-			fixtures.alixClient.inboxID
+			fixtures.alixClient.inboxID,
 		])
 		let dm = try await fixtures.caroClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID)
+			with: fixtures.alixClient.inboxID
+		)
 		try await fixtures.alixClient.conversations.sync()
 		Task(priority: .userInitiated) {
 			for try await _ in await fixtures.alixClient.conversations
@@ -869,7 +934,8 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 		let group = try await fixtures.alixClient.conversations.newGroup(
 			with: [fixtures.boClient.inboxID], name: "Start Name",
-			imageUrl: "starturl.com")
+			imageUrl: "starturl.com"
+		)
 
 		var groupName = try group.name()
 		var groupImageUrlSquare = try group.imageUrl()
@@ -888,7 +954,8 @@ class GroupTests: XCTestCase {
 
 		try await fixtures.boClient.conversations.sync()
 		let boGroup = try await fixtures.boClient.conversations.findGroup(
-			groupId: group.id)!
+			groupId: group.id
+		)!
 		groupName = try boGroup.name()
 		XCTAssertEqual(groupName, "Start Name")
 
@@ -904,7 +971,7 @@ class GroupTests: XCTestCase {
 	func testGroupConsent() async throws {
 		let fixtures = try await fixtures()
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
-			fixtures.alixClient.inboxID
+			fixtures.alixClient.inboxID,
 		])
 		XCTAssertEqual(try group.consentState(), .allowed)
 
@@ -922,18 +989,22 @@ class GroupTests: XCTestCase {
 	func testCanAllowAndDenyInboxId() async throws {
 		let fixtures = try await fixtures()
 		let boGroup = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.alixClient.inboxID])
+			with: [fixtures.alixClient.inboxID]
+		)
 		let inboxState = try await fixtures.boClient.preferences
 			.inboxIdState(
-				inboxId: fixtures.alixClient.inboxID)
+				inboxId: fixtures.alixClient.inboxID
+			)
 		XCTAssertEqual(inboxState, .unknown)
 
 		try await fixtures.boClient.preferences.setConsentState(
 			entries: [
 				ConsentRecord(
 					value: fixtures.alixClient.inboxID, entryType: .inbox_id,
-					consentType: .allowed)
-			])
+					consentType: .allowed
+				),
+			]
+		)
 		var alixMember = try await boGroup.members.first(where: { member in
 			member.inboxId == fixtures.alixClient.inboxID
 		})
@@ -941,15 +1012,18 @@ class GroupTests: XCTestCase {
 
 		let inboxState2 = try await fixtures.boClient.preferences
 			.inboxIdState(
-				inboxId: fixtures.alixClient.inboxID)
+				inboxId: fixtures.alixClient.inboxID
+			)
 		XCTAssertEqual(inboxState2, .allowed)
 
 		try await fixtures.boClient.preferences.setConsentState(
 			entries: [
 				ConsentRecord(
 					value: fixtures.alixClient.inboxID, entryType: .inbox_id,
-					consentType: .denied)
-			])
+					consentType: .denied
+				),
+			]
+		)
 		alixMember = try await boGroup.members.first(where: { member in
 			member.inboxId == fixtures.alixClient.inboxID
 		})
@@ -957,7 +1031,8 @@ class GroupTests: XCTestCase {
 
 		let inboxState3 = try await fixtures.boClient.preferences
 			.inboxIdState(
-				inboxId: fixtures.alixClient.inboxID)
+				inboxId: fixtures.alixClient.inboxID
+			)
 		XCTAssertEqual(inboxState3, .denied)
 		try fixtures.cleanUpDatabases()
 	}
@@ -966,10 +1041,12 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let boGroup = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.alixClient.inboxID])
+			with: [fixtures.alixClient.inboxID]
+		)
 		try await fixtures.alixClient.conversations.sync()
 		let alixGroup = try await fixtures.alixClient.conversations.findGroup(
-			groupId: boGroup.id)
+			groupId: boGroup.id
+		)
 
 		XCTAssertEqual(alixGroup?.id, boGroup.id)
 		try fixtures.cleanUpDatabases()
@@ -979,15 +1056,18 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let boGroup = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.alixClient.inboxID])
+			with: [fixtures.alixClient.inboxID]
+		)
 
 		let boMessageId = try await boGroup.send(content: "Hello")
 		try await fixtures.alixClient.conversations.sync()
 		let alixGroup = try await fixtures.alixClient.conversations.findGroup(
-			groupId: boGroup.id)
+			groupId: boGroup.id
+		)
 		try await alixGroup?.sync()
 		_ = try await fixtures.alixClient.conversations.findMessage(
-			messageId: boMessageId)
+			messageId: boMessageId
+		)
 
 		XCTAssertEqual(alixGroup?.id, boGroup.id)
 		try fixtures.cleanUpDatabases()
@@ -996,19 +1076,22 @@ class GroupTests: XCTestCase {
 	func testUnpublishedMessages() async throws {
 		let fixtures = try await fixtures()
 		let boGroup = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.alixClient.inboxID])
+			with: [fixtures.alixClient.inboxID]
+		)
 
 		try await fixtures.alixClient.conversations.sync()
 		let alixGroup = try await fixtures.alixClient.conversations.findGroup(
-			groupId: boGroup.id)!
+			groupId: boGroup.id
+		)!
 		let isGroupAllowed = try await fixtures.alixClient.preferences
 			.conversationState(conversationId: boGroup.id)
 		XCTAssertEqual(isGroupAllowed, .unknown)
 		let preparedMessageId = try await alixGroup.prepareMessage(
-			content: "Test text")
+			content: "Test text"
+		)
 
 		let messageCount = try await alixGroup.messages().count
-		XCTAssertEqual(messageCount,2)
+		XCTAssertEqual(messageCount, 2)
 		let messageCountPublished = try await alixGroup.messages(
 			deliveryStatus: .published
 		).count
@@ -1045,14 +1128,16 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 		var groups: [Group] = []
 
-		for _ in 0..<100 {
+		for _ in 0 ..< 100 {
 			let group = try await fixtures.alixClient.conversations.newGroup(
-				with: [fixtures.boClient.inboxID])
+				with: [fixtures.boClient.inboxID]
+			)
 			groups.append(group)
 		}
 		try await fixtures.boClient.conversations.sync()
 		let boGroup = try await fixtures.boClient.conversations.findGroup(
-			groupId: groups[0].id)
+			groupId: groups[0].id
+		)
 		_ = try await groups[0].send(content: "hi")
 		let messageCount = try await boGroup!.messages().count
 		XCTAssertEqual(messageCount, 1)
@@ -1066,7 +1151,7 @@ class GroupTests: XCTestCase {
 			XCTAssertEqual(numGroupsSynced, 101)
 		} catch {
 			print("Failed to list groups members: \(error)")
-			throw error  // Rethrow the error to fail the test if group creation fails
+			throw error // Rethrow the error to fail the test if group creation fails
 		}
 
 		let messageCount2 = try await boGroup!.messages().count
@@ -1078,7 +1163,7 @@ class GroupTests: XCTestCase {
 				return
 			}
 			try await alixGroup.removeMembers(inboxIds: [
-				fixtures.boClient.inboxID
+				fixtures.boClient.inboxID,
 			])
 		}
 
@@ -1098,20 +1183,21 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 		var groups: [Group] = []
 
-		for _ in 0..<100 {
+		for _ in 0 ..< 100 {
 			let group = try await fixtures.alixClient.conversations.newGroup(
-				with: [fixtures.boClient.inboxID])
+				with: [fixtures.boClient.inboxID]
+			)
 			groups.append(group)
 		}
 		do {
 			let start = Date()
-			let _ = try await listMembersInParallel(groups: groups)
+			_ = try await listMembersInParallel(groups: groups)
 			let end = Date()
 			print(end.timeIntervalSince(start))
 			XCTAssert(end.timeIntervalSince(start) < 1)
 		} catch {
 			print("Failed to list groups members: \(error)")
-			throw error  // Rethrow the error to fail the test if group creation fails
+			throw error // Rethrow the error to fail the test if group creation fails
 		}
 		try fixtures.cleanUpDatabases()
 	}
@@ -1120,7 +1206,7 @@ class GroupTests: XCTestCase {
 		await withThrowingTaskGroup(of: [Member].self) { taskGroup in
 			for group in groups {
 				taskGroup.addTask {
-					return try await group.members
+					try await group.members
 				}
 			}
 		}
@@ -1131,7 +1217,7 @@ class GroupTests: XCTestCase {
 
 		let initialSettings = DisappearingMessageSettings(
 			disappearStartingAtNs: 1_000_000_000,
-			retentionDurationInNs: 1_000_000_000  // 1s duration
+			retentionDurationInNs: 1_000_000_000 // 1s duration
 		)
 
 		// Create group with disappearing messages enabled
@@ -1143,24 +1229,25 @@ class GroupTests: XCTestCase {
 		_ = try await fixtures.alixClient.conversations.syncAllConversations()
 
 		let alixGroup = try await fixtures.alixClient.conversations.findGroup(
-			groupId: boGroup.id)
+			groupId: boGroup.id
+		)
 
 		let boGroupMessagesCount = try await boGroup.messages().count
 		let alixGroupMessagesCount = try await alixGroup?.messages().count
 		let boGroupSettings = boGroup.disappearingMessageSettings
 
 		// Validate messages exist and settings are applied
-		XCTAssertEqual(boGroupMessagesCount, 2)  // memberAdd, howdy
-		XCTAssertEqual(alixGroupMessagesCount, 2)  // memberAdd, howdy
+		XCTAssertEqual(boGroupMessagesCount, 2) // memberAdd, howdy
+		XCTAssertEqual(alixGroupMessagesCount, 2) // memberAdd, howdy
 		XCTAssertNotNil(boGroupSettings)
 
-		try await Task.sleep(nanoseconds: 5_000_000_000)  // Sleep for 5 seconds
+		try await Task.sleep(nanoseconds: 5_000_000_000) // Sleep for 5 seconds
 
 		let boGroupMessagesAfterSleep = try await boGroup.messages().count
 		let alixGroupMessagesAfterSleep = try await alixGroup?.messages().count
 
 		// Validate messages are deleted
-		XCTAssertEqual(boGroupMessagesAfterSleep, 1)  // memberAdd
+		XCTAssertEqual(boGroupMessagesAfterSleep, 1) // memberAdd
 		XCTAssertEqual(alixGroupMessagesAfterSleep, 1) // memberAdd
 
 		// Set message disappearing settings to nil
@@ -1178,40 +1265,44 @@ class GroupTests: XCTestCase {
 
 		// Send messages after disabling disappearing settings
 		_ = try await boGroup.send(
-			content: "message after disabling disappearing")
+			content: "message after disabling disappearing"
+		)
 		_ = try await alixGroup?.send(
-			content: "another message after disabling")
+			content: "another message after disabling"
+		)
 		try await boGroup.sync()
 
-		try await Task.sleep(nanoseconds: 5_000_000_000)  // Sleep for 5 seconds
+		try await Task.sleep(nanoseconds: 5_000_000_000) // Sleep for 5 seconds
 
 		let boGroupMessagesPersist = try await boGroup.messages().count
 		let alixGroupMessagesPersist = try await alixGroup?.messages().count
 
 		// Ensure messages persist
-		XCTAssertEqual(boGroupMessagesPersist, 5)  // memberAdd, settings 1, settings 2, boMessage, alixMessage
-		XCTAssertEqual(alixGroupMessagesPersist, 5)  // memberAdd, settings 1, settings 2, boMessage, alixMessage
+		XCTAssertEqual(boGroupMessagesPersist, 5) // memberAdd, settings 1, settings 2, boMessage, alixMessage
+		XCTAssertEqual(alixGroupMessagesPersist, 5) // memberAdd, settings 1, settings 2, boMessage, alixMessage
 
 		// Re-enable disappearing messages
-		let updatedSettings = await DisappearingMessageSettings(
-			disappearStartingAtNs: try boGroup.messages().first!.sentAtNs
-				+ 1_000_000_000,  // 1s from now
-			retentionDurationInNs: 1_000_000_000  // 2s duration
+		let updatedSettings = try await DisappearingMessageSettings(
+			disappearStartingAtNs: boGroup.messages().first!.sentAtNs
+				+ 1_000_000_000, // 1s from now
+			retentionDurationInNs: 1_000_000_000 // 2s duration
 		)
 		try await boGroup.updateDisappearingMessageSettings(updatedSettings)
 		try await boGroup.sync()
 		try await alixGroup?.sync()
-		try await Task.sleep(nanoseconds: 1_000_000_000)  // Sleep for 1 second
+		try await Task.sleep(nanoseconds: 1_000_000_000) // Sleep for 1 second
 
 		let boGroupUpdatedSettings = boGroup.disappearingMessageSettings
 		let alixGroupUpdatedSettings = alixGroup?.disappearingMessageSettings
 
 		XCTAssertEqual(
 			boGroupUpdatedSettings!.retentionDurationInNs,
-			updatedSettings.retentionDurationInNs)
+			updatedSettings.retentionDurationInNs
+		)
 		XCTAssertEqual(
 			alixGroupUpdatedSettings!.retentionDurationInNs,
-			updatedSettings.retentionDurationInNs)
+			updatedSettings.retentionDurationInNs
+		)
 
 		// Send new messages
 		_ = try await boGroup.send(content: "this will disappear soon")
@@ -1225,7 +1316,7 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(boGroupMessagesAfterNewSend, 9)
 		XCTAssertEqual(alixGroupMessagesAfterNewSend, 9)
 
-		try await Task.sleep(nanoseconds: 6_000_000_000)  // Sleep for 6 seconds to let messages disappear
+		try await Task.sleep(nanoseconds: 6_000_000_000) // Sleep for 6 seconds to let messages disappear
 
 		let boGroupMessagesFinal = try await boGroup.messages().count
 		let alixGroupMessagesFinal = try await alixGroup?.messages().count
@@ -1240,109 +1331,112 @@ class GroupTests: XCTestCase {
 
 		XCTAssertEqual(
 			boGroupFinalSettings!.retentionDurationInNs,
-			updatedSettings.retentionDurationInNs)
+			updatedSettings.retentionDurationInNs
+		)
 		XCTAssertEqual(
 			alixGroupFinalSettings!.retentionDurationInNs,
-			updatedSettings.retentionDurationInNs)
+			updatedSettings.retentionDurationInNs
+		)
 		XCTAssert(try boGroup.isDisappearingMessagesEnabled())
 		XCTAssert(try alixGroup!.isDisappearingMessagesEnabled())
 		try fixtures.cleanUpDatabases()
 	}
-    
-    func testGroupPausedForVersionReturnsNone() async throws {
-        let fixtures = try await fixtures()
-        
-        // Create group with disappearing messages enabled
-        let boGroup = try await fixtures.boClient.conversations.newGroup(
-            with: [fixtures.alixClient.inboxID]
-        )
-        
-        let pausedForVersionGroup = try boGroup.pausedForVersion()
-        XCTAssert(pausedForVersionGroup == nil)
-        
-        let boDm = try await fixtures.boClient.conversations.newConversation(with: fixtures.alixClient.inboxID)
-        let pausedForVersionDm = try await boDm.pausedForVersion()
-        XCTAssert(pausedForVersionDm == nil)
+
+	func testGroupPausedForVersionReturnsNone() async throws {
+		let fixtures = try await fixtures()
+
+		// Create group with disappearing messages enabled
+		let boGroup = try await fixtures.boClient.conversations.newGroup(
+			with: [fixtures.alixClient.inboxID]
+		)
+
+		let pausedForVersionGroup = try boGroup.pausedForVersion()
+		XCTAssert(pausedForVersionGroup == nil)
+
+		let boDm = try await fixtures.boClient.conversations.newConversation(with: fixtures.alixClient.inboxID)
+		let pausedForVersionDm = try await boDm.pausedForVersion()
+		XCTAssert(pausedForVersionDm == nil)
 		try fixtures.cleanUpDatabases()
-    }
-    
-    func testPaginationOfConversationsList() async throws {
-        let fixtures = try await fixtures()
-        
-        // Create 15 groups
-        var groups: [Group] = []
-        for i in 0...14 {
-            let group = try await fixtures.boClient.conversations.newGroup(
-                with: [fixtures.caroClient.inboxID],
-                name: "Test Group \(i)"
-            )
-            groups.append(group)
-        }
-        
-        let firstPage = try await fixtures.boClient.conversations.list(limit: 10)
-        let secondPage = try await fixtures.boClient.conversations.list(lastActivityBeforeNs: firstPage.last!.lastActivityAtNs, limit: 10)
-        
-        // Send a message to half the groups to ensure they're ordered by last message
-        // and not by created_at
-        for (index, group) in groups.enumerated() {
-            if index % 2 == 0 {
-                _ = try await group.send(content: "Sending a message to ensure filtering by last message time works")
-            }
-        }
-        
-        // Track all conversations retrieved through pagination
-        var allConversations = Set<String>()
-        var pageCount = 0
-        
-        // Get the first page
-        var page = try fixtures.boClient.conversations.listGroups(
-            limit: 5
-        )
-        
-        while !page.isEmpty {
-            pageCount += 1
-            
-            // Add new conversation IDs to our set
-            for conversation in page {
-                if allConversations.contains(conversation.id) {
-                    XCTFail("Duplicate conversation ID found: \(conversation.id)")
-                }
-                allConversations.insert(conversation.id)
-            }
-            
-            // If we got fewer than the limit, we've reached the end
-            if page.count < 5 {
-                break
-            }
-            
-            // Get the oldest (last) conversation's timestamp for the next page
-            let lastConversation = page.last!
-            
-            // Get the next page - subtract 1 nanosecond to avoid including the same conversation
-            page = try fixtures.boClient.conversations.listGroups(
-                lastActivityBeforeNs: lastConversation.lastActivityAtNs,
-                limit: 5
-            )
-            
-            // Safety check to prevent infinite loop
-            if pageCount > 10 {
-                XCTFail("Too many pages, possible infinite loop")
-            }
-        }
-        
-        // Validate results
-        XCTAssertEqual(allConversations.count, 15, "Should have retrieved all 15 groups")
-        
-        // Verify all created groups are in the results
-        for group in groups {
-            XCTAssert(
-                allConversations.contains(group.id),
-                "Group \(group.id) should be in paginated results"
-            )
-        }
-        
-        try fixtures.cleanUpDatabases()
-    }
-    
-    
+	}
+
+	func testPaginationOfConversationsList() async throws {
+		let fixtures = try await fixtures()
+
+		// Create 15 groups
+		var groups: [Group] = []
+		for i in 0 ... 14 {
+			let group = try await fixtures.boClient.conversations.newGroup(
+				with: [fixtures.caroClient.inboxID],
+				name: "Test Group \(i)"
+			)
+			groups.append(group)
+		}
+
+		let firstPage = try await fixtures.boClient.conversations.list(limit: 10)
+		let secondPage = try await fixtures.boClient.conversations.list(
+			lastActivityBeforeNs: firstPage.last!.lastActivityAtNs,
+			limit: 10
+		)
+
+		// Send a message to half the groups to ensure they're ordered by last message
+		// and not by created_at
+		for (index, group) in groups.enumerated() {
+			if index % 2 == 0 {
+				_ = try await group.send(content: "Sending a message to ensure filtering by last message time works")
+			}
+		}
+
+		// Track all conversations retrieved through pagination
+		var allConversations = Set<String>()
+		var pageCount = 0
+
+		// Get the first page
+		var page = try fixtures.boClient.conversations.listGroups(
+			limit: 5
+		)
+
+		while !page.isEmpty {
+			pageCount += 1
+
+			// Add new conversation IDs to our set
+			for conversation in page {
+				if allConversations.contains(conversation.id) {
+					XCTFail("Duplicate conversation ID found: \(conversation.id)")
+				}
+				allConversations.insert(conversation.id)
+			}
+
+			// If we got fewer than the limit, we've reached the end
+			if page.count < 5 {
+				break
+			}
+
+			// Get the oldest (last) conversation's timestamp for the next page
+			let lastConversation = page.last!
+
+			// Get the next page - subtract 1 nanosecond to avoid including the same conversation
+			page = try fixtures.boClient.conversations.listGroups(
+				lastActivityBeforeNs: lastConversation.lastActivityAtNs,
+				limit: 5
+			)
+
+			// Safety check to prevent infinite loop
+			if pageCount > 10 {
+				XCTFail("Too many pages, possible infinite loop")
+			}
+		}
+
+		// Validate results
+		XCTAssertEqual(allConversations.count, 15, "Should have retrieved all 15 groups")
+
+		// Verify all created groups are in the results
+		for group in groups {
+			XCTAssert(
+				allConversations.contains(group.id),
+				"Group \(group.id) should be in paginated results"
+			)
+		}
+
+		try fixtures.cleanUpDatabases()
+	}
 }

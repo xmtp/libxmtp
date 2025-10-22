@@ -49,21 +49,21 @@ class CodecRegistry {
 }
 
 extension CodecRegistry {
-    func isRegistered(codec: any ContentCodec) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return codecs[codec.id] != nil
-    }
+	func isRegistered(codec: any ContentCodec) -> Bool {
+		lock.lock()
+		defer { lock.unlock() }
+		return codecs[codec.id] != nil
+	}
 
-    func isRegistered(codecId: String) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return codecs[codecId] != nil
-    }
+	func isRegistered(codecId: String) -> Bool {
+		lock.lock()
+		defer { lock.unlock() }
+		return codecs[codecId] != nil
+	}
 
-    func removeCodec(for id: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        codecs.removeValue(forKey: id)
-    }
+	func removeCodec(for id: String) {
+		lock.lock()
+		defer { lock.unlock() }
+		codecs.removeValue(forKey: id)
+	}
 }

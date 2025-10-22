@@ -1,0 +1,32 @@
+# SwiftLint configuration for Tests folder
+# Inherits from parent config but with relaxed rules for testing
+
+excluded:
+  - XMTPTests/Fixtures
+
+disabled_rules:
+  - force_unwrapping
+  - function_body_length
+  - type_name
+  - identifier_name
+  - multiple_closures_with_trailing_closure
+  - cyclomatic_complexity
+  - trailing_comma
+  - opening_brace
+  - nesting
+  - type_body_length
+  - file_length
+  - todo
+  - control_statement
+  - switch_case_alignment
+  - empty_enum_arguments
+  - for_where
+  - private_over_fileprivate
+  - redundant_string_enum_value
+  - force_casts
+  - redundant_optional_initialization
+  - operator_whitespace
+  - comma
+  - force_cast
+
+line_length: 500

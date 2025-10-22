@@ -11,7 +11,7 @@ import XMTPiOS
 struct MessageTextView: View {
 	var myAddress: String
 	var message: DecodedMessage
-	var isGroup: Bool = false
+	var isGroup = false
 	@State private var isDebugging = false
 
 	var body: some View {
@@ -21,7 +21,7 @@ struct MessageTextView: View {
 					Spacer()
 				}
 				VStack(alignment: .leading) {
-					if isGroup && message.senderInboxId.lowercased() != myAddress.lowercased() {
+					if isGroup, message.senderInboxId.lowercased() != myAddress.lowercased() {
 						Text(message.senderInboxId)
 							.font(.caption)
 							.foregroundStyle(.secondary)
@@ -108,14 +108,13 @@ struct MessageGroupMembershipChangedView: View {
 		} catch {
 			return "Membership changed"
 		}
-
 	}
 }
 
 struct MessageCellView: View {
 	var myAddress: String
 	var message: DecodedMessage
-	var isGroup: Bool = false
+	var isGroup = false
 	@State private var isDebugging = false
 
 	var body: some View {
@@ -126,7 +125,7 @@ struct MessageCellView: View {
 			case ContentTypeGroupUpdated:
 				return AnyView(MessageGroupMembershipChangedView(message: message))
 			default:
-				return AnyView(Text(try message.fallback))
+				return try AnyView(Text(message.fallback))
 			}
 		} catch {
 			return AnyView(Text("Failed to load content"))

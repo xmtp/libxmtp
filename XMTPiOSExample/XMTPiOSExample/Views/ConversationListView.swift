@@ -41,7 +41,7 @@ struct ConversationListView: View {
 
 	// Helper function to compare conversations by createdAt date
 	private func compareConversations(_ lhs: XMTPiOS.Conversation, _ rhs: XMTPiOS.Conversation) -> Bool {
-		return lhs.createdAt > rhs.createdAt
+		lhs.createdAt > rhs.createdAt
 	}
 
 	// Extracted row view for each conversation
@@ -81,9 +81,9 @@ struct ConversationListView: View {
 	// Helper function to provide a display name based on the conversation type
 	private func conversationDisplayName(for item: XMTPiOS.Conversation) -> String {
 		switch item {
-		case .dm(let conversation):
+		case let .dm(conversation):
 			return (try? Util.abbreviate(address: conversation.peerInboxId)) ?? "Unknown Address"
-		case .group(let group):
+		case let .group(group):
 			let name = (try? group.name()) ?? ""
 			return name.isEmpty ? "Group Id: \(group.id)" : name
 		}
@@ -91,16 +91,16 @@ struct ConversationListView: View {
 
 	// Helper function to format the date
 	private func formattedDate(for date: Date) -> String {
-		return date.formatted()
+		date.formatted()
 	}
 
 	// Define destination view based on conversation type
 	@ViewBuilder
 	private func destinationView(for item: XMTPiOS.Conversation) -> some View {
 		switch item {
-		case .dm(let conversation):
+		case let .dm(conversation):
 			ConversationDetailView(client: client, conversation: .dm(conversation))
-		case .group(let group):
+		case let .group(group):
 			GroupDetailView(client: client, group: group)
 		}
 	}
@@ -111,7 +111,7 @@ struct ConversationListView: View {
 			try await client.conversations.sync()
 			let loadedConversations = try await client.conversations.list()
 			await MainActor.run {
-				self.conversations = loadedConversations
+				conversations = loadedConversations
 			}
 			await add(conversations: loadedConversations)
 		} catch {
@@ -136,10 +136,10 @@ struct ConversationListView: View {
 	// Helper function to add a conversation or group
 	private func addConversation(_ conversationOrGroup: XMTPiOS.Conversation) {
 		switch conversationOrGroup {
-		case .dm(let conversation):
+		case let .dm(conversation):
 			conversations.insert(.dm(conversation), at: 0)
 			coordinator.path.append(conversationOrGroup)
-		case .group(let group):
+		case let .group(group):
 			conversations.insert(.group(group), at: 0)
 			coordinator.path.append(conversationOrGroup)
 		}

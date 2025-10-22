@@ -13,6 +13,6 @@ extension Data {
 	}
 
 	var toHex: String {
-		return reduce("") { $0 + String(format: "%02x", $1) }
+		reduce("") { $0 + String(format: "%02x", $1) }
 	}
 }

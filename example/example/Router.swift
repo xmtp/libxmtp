@@ -15,63 +15,63 @@ import XMTPiOS
 //
 @Observable
 class Router {
-    var routes = [Route]()
+	var routes = [Route]()
 
-    func push(route: Route) {
-        routes.append(route)
-    }
+	func push(route: Route) {
+		routes.append(route)
+	}
 
-    func back() {
-        _ = routes.popLast()
-    }
+	func back() {
+		_ = routes.popLast()
+	}
 }
 
 // Navigable destinations for logged-in sessions.
 enum Route: Hashable, Identifiable, View {
-    case conversation(conversationId: String)
-    case createConversation
-    case user(inboxId: String)
+	case conversation(conversationId: String)
+	case createConversation
+	case user(inboxId: String)
 
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(self.hashValue)
-    }
+	func hash(into hasher: inout Hasher) {
+		hasher.combine(hashValue)
+	}
 
-    static func == (lhs: Route, rhs: Route) -> Bool {
-        switch (lhs, rhs) {
-        case (.conversation(let lId), .conversation(let rId)):
-            lId == rId
-        case (.createConversation, .createConversation):
-            true
-        case (.user(let lInboxId), .user(let rInboxId)):
-            lInboxId == rInboxId
-        default:
-            false
-        }
-    }
+	static func == (lhs: Route, rhs: Route) -> Bool {
+		switch (lhs, rhs) {
+		case let (.conversation(lId), .conversation(rId)):
+			lId == rId
+		case (.createConversation, .createConversation):
+			true
+		case let (.user(lInboxId), .user(rInboxId)):
+			lInboxId == rInboxId
+		default:
+			false
+		}
+	}
 
-    var id: String {
-        switch self {
-        case .conversation(let conversationId):
-            "conversation:\(conversationId)"
-        case .createConversation:
-            "create-conversation"
-        case .user(let inboxId):
-            "user:\(inboxId)"
-        }
-    }
+	var id: String {
+		switch self {
+		case let .conversation(conversationId):
+			"conversation:\(conversationId)"
+		case .createConversation:
+			"create-conversation"
+		case let .user(inboxId):
+			"user:\(inboxId)"
+		}
+	}
 
-    // Teach the Route how to render itself.
-    //
-    // This is what allow us to use this magical line in the HomeView:
-    //   .navigationDestination(for: Route.self) { $0 }
-    var body: some View {
-        switch self {
-        case .conversation(let conversationId):
-            ConversationView(conversationId: conversationId)
-        case .createConversation:
-            CreateConversationView()
-        case .user(let inboxId):
-            UserView(inboxId: inboxId)
-        }
-    }
+	// Teach the Route how to render itself.
+	//
+	// This is what allow us to use this magical line in the HomeView:
+	//   .navigationDestination(for: Route.self) { $0 }
+	var body: some View {
+		switch self {
+		case let .conversation(conversationId):
+			ConversationView(conversationId: conversationId)
+		case .createConversation:
+			CreateConversationView()
+		case let .user(inboxId):
+			UserView(inboxId: inboxId)
+		}
+	}
 }

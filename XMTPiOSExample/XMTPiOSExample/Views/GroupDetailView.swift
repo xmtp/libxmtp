@@ -17,7 +17,7 @@ struct GroupDetailView: View {
 
 	var body: some View {
 		VStack {
-            MessageListView(myAddress: client.publicIdentity.identifier, messages: messages, isGroup: true)
+			MessageListView(myAddress: client.publicIdentity.identifier, messages: messages, isGroup: true)
 				.refreshable {
 					await loadMessages()
 				}

@@ -12,14 +12,14 @@ env:
 
 jobs:
   ios-tests:
-    runs-on: macos-13
+    runs-on: macos-15
 
     steps:
       - uses: actions/checkout@v3
 
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '15.2'
+          xcode-version: "16.4"
 
       - name: Setup working Python for Colima
         run: |

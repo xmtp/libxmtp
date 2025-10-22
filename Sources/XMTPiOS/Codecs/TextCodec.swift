@@ -14,10 +14,9 @@ enum TextCodecError: Error {
 }
 
 public struct TextCodec: ContentCodec {
-
 	public typealias T = String
 
-	public init() {	}
+	public init() {}
 
 	public var contentType = ContentTypeText
 
@@ -43,11 +42,11 @@ public struct TextCodec: ContentCodec {
 		}
 	}
 
-    public func fallback(content: String) throws -> String? {
-        return nil
-    }
+	public func fallback(content _: String) throws -> String? {
+		nil
+	}
 
-	public func shouldPush(content: String) throws -> Bool {
-		return true
+	public func shouldPush(content _: String) throws -> Bool {
+		true
 	}
 }

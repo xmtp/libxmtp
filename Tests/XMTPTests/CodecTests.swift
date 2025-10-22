@@ -3,12 +3,12 @@ import XCTest
 @testable import XMTPiOS
 
 struct NumberCodec: ContentCodec {
-	func shouldPush(content: Double) throws -> Bool {
-		return false
+	func shouldPush(content _: Double) throws -> Bool {
+		false
 	}
 
-	func fallback(content: Double) throws -> String? {
-		return "pi"
+	func fallback(content _: Double) throws -> String? {
+		"pi"
 	}
 
 	typealias T = Double
@@ -16,7 +16,8 @@ struct NumberCodec: ContentCodec {
 	var contentType: XMTPiOS.ContentTypeID {
 		ContentTypeID(
 			authorityID: "example.com", typeID: "number", versionMajor: 1,
-			versionMinor: 1)
+			versionMinor: 1
+		)
 	}
 
 	func encode(content: Double) throws
@@ -26,7 +27,8 @@ struct NumberCodec: ContentCodec {
 
 		encodedContent.type = ContentTypeID(
 			authorityID: "example.com", typeID: "number", versionMajor: 1,
-			versionMinor: 1)
+			versionMinor: 1
+		)
 		encodedContent.content = try JSONEncoder().encode(content)
 
 		return encodedContent
@@ -35,7 +37,7 @@ struct NumberCodec: ContentCodec {
 	func decode(content: XMTPiOS.EncodedContent) throws
 		-> Double
 	{
-		return try JSONDecoder().decode(Double.self, from: content.content)
+		try JSONDecoder().decode(Double.self, from: content.content)
 	}
 }
 
@@ -43,8 +45,8 @@ struct NumberCodec: ContentCodec {
 class CodecTests: XCTestCase {
 	func testCanRoundTripWithCustomContentType() async throws {
 		let fixtures = try await fixtures()
-        
-        let expectedContent = 3.14
+
+		let expectedContent = 3.14
 
 		let alixClient = fixtures.alixClient!
 		let alixConversation = try await alixClient.conversations
@@ -54,7 +56,8 @@ class CodecTests: XCTestCase {
 
 		try await alixConversation.send(
 			content: expectedContent,
-			options: .init(contentType: NumberCodec().contentType))
+			options: .init(contentType: NumberCodec().contentType)
+		)
 
 		let messages = try await alixConversation.messages()
 		XCTAssertEqual(messages.count, 2)
@@ -63,13 +66,13 @@ class CodecTests: XCTestCase {
 			let content: Double = try messages[0].content()
 			XCTAssertEqual(expectedContent, content)
 		}
-        
-        let messagesV2 = try await alixConversation.enrichedMessages()
-        XCTAssertEqual(messagesV2.count, 2)
-        if messages.count == 2 {
-            let content: Double = try messages[0].content()
-            XCTAssertEqual(expectedContent, content)
-        }
+
+		let messagesV2 = try await alixConversation.enrichedMessages()
+		XCTAssertEqual(messagesV2.count, 2)
+		if messages.count == 2 {
+			let content: Double = try messages[0].content()
+			XCTAssertEqual(expectedContent, content)
+		}
 	}
 
 	func testFallsBackToFallbackContentWhenCannotDecode() async throws {
@@ -83,7 +86,8 @@ class CodecTests: XCTestCase {
 
 		try await alixConversation.send(
 			content: 3.14,
-			options: .init(contentType: NumberCodec().contentType))
+			options: .init(contentType: NumberCodec().contentType)
+		)
 
 		// Remove number codec from registry
 		Client.codecRegistry.removeCodec(for: NumberCodec().id)

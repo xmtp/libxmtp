@@ -22,7 +22,7 @@ enum PrivateKeyError: Error, CustomStringConvertible {
 
 extension PrivateKey: SigningKey {
 	public var identity: PublicIdentity {
-		return PublicIdentity(kind: .ethereum, identifier: walletAddress)
+		PublicIdentity(kind: .ethereum, identifier: walletAddress)
 	}
 
 	public func sign(_ message: String) async throws -> SignedData {
@@ -42,15 +42,15 @@ extension PrivateKey: SigningKey {
 	}
 }
 
-extension PrivateKey {
+public extension PrivateKey {
 	/// **Generate a new private key like in Kotlin**
-	public static func generate() throws -> PrivateKey {
-		let privateKeyData = Data(try Crypto.secureRandomBytes(count: 32))
+	static func generate() throws -> PrivateKey {
+		let privateKeyData = try Data(Crypto.secureRandomBytes(count: 32))
 		return try PrivateKey(privateKeyData)
 	}
 
 	/// **Initialize from raw private key data**
-	public init(_ privateKeyData: Data) throws {
+	init(_ privateKeyData: Data) throws {
 		self.init()
 		timestamp = UInt64(Date().timeIntervalSince1970 * 1000) // Match Kotlin's timestamp
 		secp256K1.bytes = privateKeyData
@@ -58,14 +58,14 @@ extension PrivateKey {
 		let publicData = try KeyUtilx.generatePublicKey(from: privateKeyData)
 		publicKey.secp256K1Uncompressed.bytes = publicData
 		publicKey.timestamp = timestamp
-		
+
 		// Validate that we can generate a wallet address - throw if invalid
 		_ = try KeyUtilx.generateAddress(from: publicData)
 	}
 
 	/// **Compute Ethereum wallet address from public key (matching Kotlin)**
 	internal var walletAddress: String {
-		return publicKey.walletAddress
+		publicKey.walletAddress
 	}
 }
 

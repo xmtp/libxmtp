@@ -83,12 +83,15 @@ public struct TransactionReferenceCodec: ContentCodec {
 		)
 		return try EncodedContent(
 			serializedBytes: encodeTransactionReference(
-				reference: ffi))
+				reference: ffi
+			)
+		)
 	}
 
 	public func decode(content: EncodedContent) throws -> TransactionReference {
 		let decoded = try decodeTransactionReference(
-			bytes: content.serializedData())
+			bytes: content.serializedData()
+		)
 
 		let metadata = decoded.metadata.map {
 			TransactionReference.Metadata(
@@ -110,11 +113,10 @@ public struct TransactionReferenceCodec: ContentCodec {
 	}
 
 	public func fallback(content: TransactionReference) throws -> String? {
-		return
-			"[Crypto transaction] Use a blockchain explorer to learn more using the transaction hash: \(content.reference)"
+		"[Crypto transaction] Use a blockchain explorer to learn more using the transaction hash: \(content.reference)"
 	}
 
-	public func shouldPush(content: TransactionReference) throws -> Bool {
-		return true
+	public func shouldPush(content _: TransactionReference) throws -> Bool {
+		true
 	}
 }

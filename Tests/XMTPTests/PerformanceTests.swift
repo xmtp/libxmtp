@@ -12,7 +12,9 @@ class PerformanceTests: XCTestCase {
 	func test1_CreateDM() async throws {
 		let fixtures = try await fixtures(
 			clientOptions: ClientOptions.Api(
-				env: XMTPEnvironment.dev, isSecure: true))
+				env: XMTPEnvironment.dev, isSecure: true
+			)
+		)
 
 		measure {
 			let expectation = expectation(description: "Async create DM")
@@ -22,13 +24,15 @@ class PerformanceTests: XCTestCase {
 				do {
 					PerformanceTests.dm = try await fixtures.alixClient
 						.conversations.findOrCreateDm(
-							with: fixtures.boClient.inboxID)
+							with: fixtures.boClient.inboxID
+						)
 
 					let elapsedTime =
 						(CFAbsoluteTimeGetCurrent() - startTime) * 1000
 					print("test1_CreateDM execution time: \(elapsedTime) ms")
 					XCTAssertLessThanOrEqual(
-						elapsedTime, 500, "CreateDM took too long!")
+						elapsedTime, 500, "CreateDM took too long!"
+					)
 
 					expectation.fulfill()
 				} catch {
@@ -44,13 +48,15 @@ class PerformanceTests: XCTestCase {
 	func test2_SendGm() async throws {
 		let fixtures = try await fixtures(
 			clientOptions: ClientOptions.Api(
-				env: XMTPEnvironment.dev, isSecure: true))
+				env: XMTPEnvironment.dev, isSecure: true
+			)
+		)
 
 		guard let dm = PerformanceTests.dm else {
 			XCTFail("DM is nil")
 			return
 		}
-		let gmMessage = "gm-\(Int.random(in: 1...999999))"
+		let gmMessage = "gm-\(Int.random(in: 1 ... 999_999))"
 
 		measure {
 			let expectation = expectation(description: "Async send GM")
@@ -64,7 +70,8 @@ class PerformanceTests: XCTestCase {
 						(CFAbsoluteTimeGetCurrent() - startTime) * 1000
 					print("test2_SendGm execution time: \(elapsedTime) ms")
 					XCTAssertLessThanOrEqual(
-						elapsedTime, 500, "SendGM took too long!")
+						elapsedTime, 500, "SendGM took too long!"
+					)
 
 					expectation.fulfill()
 				} catch {
@@ -78,7 +85,9 @@ class PerformanceTests: XCTestCase {
 	func test3_CreateGroup() async throws {
 		let fixtures = try await fixtures(
 			clientOptions: ClientOptions.Api(
-				env: XMTPEnvironment.dev, isSecure: true))
+				env: XMTPEnvironment.dev, isSecure: true
+			)
+		)
 
 		measure {
 			let expectation = expectation(description: "Async create group")
@@ -99,7 +108,8 @@ class PerformanceTests: XCTestCase {
 						(CFAbsoluteTimeGetCurrent() - startTime) * 1000
 					print("test3_CreateGroup execution time: \(elapsedTime) ms")
 					XCTAssertLessThanOrEqual(
-						elapsedTime, 500, "CreateGroup took too long!")
+						elapsedTime, 500, "CreateGroup took too long!"
+					)
 
 					expectation.fulfill()
 				} catch {
@@ -115,13 +125,15 @@ class PerformanceTests: XCTestCase {
 	func test4_SendGmInGroup() async throws {
 		let fixtures = try await fixtures(
 			clientOptions: ClientOptions.Api(
-				env: XMTPEnvironment.dev, isSecure: true))
+				env: XMTPEnvironment.dev, isSecure: true
+			)
+		)
 
 		guard let group = PerformanceTests.group else {
 			XCTFail("Group is nil")
 			return
 		}
-		let groupMessage = "gm-\(Int.random(in: 1...999999))"
+		let groupMessage = "gm-\(Int.random(in: 1 ... 999_999))"
 
 		measure {
 			let expectation = expectation(description: "Async send GM in group")
@@ -134,9 +146,11 @@ class PerformanceTests: XCTestCase {
 					let elapsedTime =
 						(CFAbsoluteTimeGetCurrent() - startTime) * 1000
 					print(
-						"test4_SendGmInGroup execution time: \(elapsedTime) ms")
+						"test4_SendGmInGroup execution time: \(elapsedTime) ms"
+					)
 					XCTAssertLessThanOrEqual(
-						elapsedTime, 500, "SendGmInGroup took too long!")
+						elapsedTime, 500, "SendGmInGroup took too long!"
+					)
 
 					expectation.fulfill()
 				} catch {
@@ -193,7 +207,8 @@ class PerformanceTests: XCTestCase {
 
 		// Measure time to build a client with an inboxId and apiClient
 		try await Client.connectToApiBackend(
-			api: ClientOptions.Api(env: .dev, isSecure: true))
+			api: ClientOptions.Api(env: .dev, isSecure: true)
+		)
 		let start4 = Date()
 		try await Client.create(
 			account: fakeWallet,
@@ -209,7 +224,8 @@ class PerformanceTests: XCTestCase {
 		// Assert performance comparisons
 		XCTAssertTrue(
 			time2 < time1,
-			"Building a client should be faster than creating one.")
+			"Building a client should be faster than creating one."
+		)
 		XCTAssertTrue(
 			time3 < time1,
 			"Building a client with inboxId should be faster than creating one."
@@ -233,5 +249,4 @@ class PerformanceTests: XCTestCase {
 			"Inbox ID of the created client and second built client should match."
 		)
 	}
-
 }

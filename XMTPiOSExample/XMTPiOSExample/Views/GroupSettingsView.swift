@@ -22,7 +22,7 @@ struct GroupSettingsView: View {
 		NavigationStack {
 			List {
 				membersSectionView
-				
+
 				if !groupError.isEmpty {
 					Text(groupError)
 						.foregroundStyle(.red)
@@ -41,7 +41,7 @@ struct GroupSettingsView: View {
 			ForEach(groupMembers, id: \.self) { member in
 				memberRowView(for: member)
 			}
-			
+
 			addMemberView
 		}
 	}
@@ -50,7 +50,7 @@ struct GroupSettingsView: View {
 		HStack {
 			Text(Util.abbreviate(address: member))
 			Spacer()
-            if client.publicIdentity.identifier.lowercased() == member.lowercased() {
+			if client.publicIdentity.identifier.lowercased() == member.lowercased() {
 				Text("You")
 					.foregroundStyle(.secondary)
 			}
@@ -65,7 +65,7 @@ struct GroupSettingsView: View {
 			} else {
 				Button("Remove", role: .destructive) {
 					Task {
-                        try await group.removeMembersByIdentity(identities: [PublicIdentity(kind: .ethereum, identifier: member)])
+						try await group.removeMembersByIdentity(identities: [PublicIdentity(kind: .ethereum, identifier: member)])
 						try await syncGroupMembers()
 					}
 				}
@@ -94,12 +94,12 @@ struct GroupSettingsView: View {
 		try await group.sync()
 		let inboxIds = try await group.members.map(\.inboxId)
 		await MainActor.run {
-			self.groupMembers = inboxIds
+			groupMembers = inboxIds
 		}
 	}
 
 	private func leaveGroup() async throws {
-        try await group.removeMembersByIdentity(identities: [PublicIdentity(kind: .ethereum, identifier: newGroupMember)])
+		try await group.removeMembersByIdentity(identities: [PublicIdentity(kind: .ethereum, identifier: newGroupMember)])
 		await MainActor.run {
 			coordinator.path = NavigationPath()
 			dismiss()
@@ -107,15 +107,15 @@ struct GroupSettingsView: View {
 	}
 
 	private func addMember() async {
-        guard newGroupMember.lowercased() != client.publicIdentity.identifier.lowercased() else {
+		guard newGroupMember.lowercased() != client.publicIdentity.identifier.lowercased() else {
 			groupError = "You cannot add yourself to a group"
 			return
 		}
 
 		isAddingMember = true
 		do {
-            if try await client.canMessage(identity: PublicIdentity(kind: .ethereum, identifier: newGroupMember)) {
-                try await group.addMembersByIdentity(identities: [PublicIdentity(kind: .ethereum, identifier: newGroupMember)])
+			if try await client.canMessage(identity: PublicIdentity(kind: .ethereum, identifier: newGroupMember)) {
+				try await group.addMembersByIdentity(identities: [PublicIdentity(kind: .ethereum, identifier: newGroupMember)])
 				try await syncGroupMembers()
 				await MainActor.run {
 					groupError = ""

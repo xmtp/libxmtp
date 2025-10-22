@@ -1,5 +1,5 @@
 //
-//  Environment.swift
+//  XMTPEnvironment.swift
 //
 //
 //  Created by Pat Nakajima on 11/17/22.
@@ -24,7 +24,7 @@ public enum XMTPEnvironment: String, Sendable {
 			return rawValue
 		}
 	}
-	
+
 	var legacyRawValue: String {
 		switch self {
 		case .local:

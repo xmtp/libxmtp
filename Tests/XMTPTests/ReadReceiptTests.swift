@@ -31,6 +31,5 @@ class ReadReceiptTests: XCTestCase {
 		let contentType2: String = try await convos.first!.lastMessage()!
 			.encodedContent.type.typeID
 		XCTAssertEqual("text", contentType2)
-
 	}
 }

@@ -6,7 +6,12 @@
 //
 import Foundation
 
-public let ContentTypeAttachment = ContentTypeID(authorityID: "xmtp.org", typeID: "attachment", versionMajor: 1, versionMinor: 0)
+public let ContentTypeAttachment = ContentTypeID(
+	authorityID: "xmtp.org",
+	typeID: "attachment",
+	versionMajor: 1,
+	versionMinor: 0
+)
 
 public enum AttachmentCodecError: Error {
 	case invalidParameters, unknownDecodingError
@@ -56,11 +61,11 @@ public struct AttachmentCodec: ContentCodec {
 		return attachment
 	}
 
-    public func fallback(content: Attachment) throws -> String? {
-        return "Can’t display “\(content.filename)”. This app doesn’t support attachments."
-    }
+	public func fallback(content: Attachment) throws -> String? {
+		"Can’t display “\(content.filename)”. This app doesn’t support attachments."
+	}
 
-	public func shouldPush(content: Attachment) throws -> Bool {
-		return true
+	public func shouldPush(content _: Attachment) throws -> Bool {
+		true
 	}
 }

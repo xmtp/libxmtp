@@ -13,7 +13,6 @@ struct ContentView: View {
 		case unknown, connecting, connected(Client), error(String)
 	}
 
-
 	@State private var status: Status = .unknown
 
 	@State private var isShowingQRCode = false
@@ -33,7 +32,7 @@ struct ContentView: View {
 							if let keysData = Persistence().loadKeys() {
 								if let address = Persistence().loadAddress() {
 									let client = try await Client.build(
-                                        publicIdentity: PublicIdentity(kind: IdentityKind.ethereum, identifier: address),
+										publicIdentity: PublicIdentity(kind: IdentityKind.ethereum, identifier: address),
 										options: .init(
 											api: .init(env: .dev, isSecure: true),
 											codecs: [GroupUpdatedCodec()],
@@ -41,7 +40,7 @@ struct ContentView: View {
 										)
 									)
 									await MainActor.run {
-										self.status = .connected(client)
+										status = .connected(client)
 									}
 								}
 							}
@@ -80,7 +79,7 @@ struct ContentView: View {
 				let wallet = try PrivateKey.generate()
 				let key = try secureRandomBytes(count: 32)
 				Persistence().saveKeys(key)
-                Persistence().saveAddress(wallet.identity.identifier)
+				Persistence().saveAddress(wallet.identity.identifier)
 				let client = try await Client.create(
 					account: wallet,
 					options: .init(
@@ -91,12 +90,12 @@ struct ContentView: View {
 				)
 
 				await MainActor.run {
-					self.status = .connected(client)
+					status = .connected(client)
 				}
 			} catch {
 				await MainActor.run {
 					print("ERROR: \(error.localizedDescription)")
-					self.status = .error("Error generating wallet: \(error)")
+					status = .error("Error generating wallet: \(error)")
 				}
 			}
 		}

@@ -11,7 +11,7 @@ import XMTPiOS
 struct MessageListView: View {
 	var myAddress: String
 	var messages: [DecodedMessage]
-	var isGroup: Bool = false
+	var isGroup = false
 
 	var body: some View {
 		ScrollViewReader { proxy in

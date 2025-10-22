@@ -10,7 +10,7 @@ public enum EncodedContentCompression {
 		case .deflate:
 			return compressData(content, using: COMPRESSION_ZLIB)
 		case .gzip:
-			return compressData(content, using: COMPRESSION_LZFSE)  // For GZIP, switch to COMPRESSION_ZLIB if needed.
+			return compressData(content, using: COMPRESSION_LZFSE) // For GZIP, switch to COMPRESSION_ZLIB if needed.
 		}
 	}
 
@@ -19,7 +19,7 @@ public enum EncodedContentCompression {
 		case .deflate:
 			return decompressData(content, using: COMPRESSION_ZLIB)
 		case .gzip:
-			return decompressData(content, using: COMPRESSION_LZFSE)  // For GZIP, switch to COMPRESSION_ZLIB if needed.
+			return decompressData(content, using: COMPRESSION_LZFSE) // For GZIP, switch to COMPRESSION_ZLIB if needed.
 		}
 	}
 
@@ -51,7 +51,7 @@ public enum EncodedContentCompression {
 		_ data: Data, using algorithm: compression_algorithm
 	) -> Data? {
 		let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(
-			capacity: data.count * 4  // Allocate enough memory for decompressed data
+			capacity: data.count * 4 // Allocate enough memory for decompressed data
 		)
 		defer { destinationBuffer.deallocate() }
 

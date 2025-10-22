@@ -11,9 +11,9 @@ extension FfiConversation {
 
 	func toConversation(client: Client) async throws -> Conversation {
 		if conversationType() == .dm {
-			return Conversation.dm(self.dmFromFFI(client: client))
+			return Conversation.dm(dmFromFFI(client: client))
 		} else {
-			return Conversation.group(self.groupFromFFI(client: client))
+			return Conversation.group(groupFromFFI(client: client))
 		}
 	}
 }
@@ -21,21 +21,23 @@ extension FfiConversation {
 extension FfiConversationListItem {
 	func groupFromFFI(client: Client) -> Group {
 		Group(
-			ffiGroup: self.conversation(), ffiLastMessage: self.lastMessage(),
-            ffiCommitLogForkStatus: self.isCommitLogForked(), client: client)
+			ffiGroup: conversation(), ffiLastMessage: lastMessage(),
+			ffiCommitLogForkStatus: isCommitLogForked(), client: client
+		)
 	}
 
 	func dmFromFFI(client: Client) -> Dm {
 		Dm(
-			ffiConversation: self.conversation(), ffiLastMessage: self.lastMessage(),
-            ffiCommitLogForkStatus: self.isCommitLogForked(), client: client)
+			ffiConversation: conversation(), ffiLastMessage: lastMessage(),
+			ffiCommitLogForkStatus: isCommitLogForked(), client: client
+		)
 	}
 
 	func toConversation(client: Client) async throws -> Conversation {
 		if conversation().conversationType() == .dm {
-			return Conversation.dm(self.dmFromFFI(client: client))
+			return Conversation.dm(dmFromFFI(client: client))
 		} else {
-			return Conversation.group(self.groupFromFFI(client: client))
+			return Conversation.group(groupFromFFI(client: client))
 		}
 	}
 }
@@ -48,7 +50,7 @@ extension FfiConversationMember {
 
 extension Array where Element == ConsentState {
 	var toFFI: [FfiConsentState] {
-		return self.map { $0.toFFI }
+		map(\.toFFI)
 	}
 }
 
@@ -101,7 +103,8 @@ extension ConsentRecord {
 extension FfiConsent {
 	var fromFfi: ConsentRecord {
 		ConsentRecord(
-			value: self.entity, entryType: self.entityType.fromFFI,
-			consentType: self.state.fromFFI)
+			value: entity, entryType: entityType.fromFFI,
+			consentType: state.fromFFI
+		)
 	}
 }
