@@ -1,13 +1,21 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -eou pipefail
 
-export RUSTFLAGS="-Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend=\"wasm_js\"${RUSTFLAGS:=}"
+# Setup required tools
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  CHROMEDRIVER="$(which chromedriver 2>/dev/null || true)"
+  if [[ -z "${CHROMEDRIVER}" ]]; then
+    echo "Installing chromedriver"
+    brew install chromedriver
+  fi
+fi
 
-WASM_BINDGEN_TEST_ONLY_WEB=1 \
-  WASM_BINDGEN_TEST_TIMEOUT=180 \
-  CHROMEDRIVER="chromedriver" \
-  cargo nextest run \
+export WASM_BINDGEN_TEST_ONLY_WEB=1
+export WASM_BINDGEN_TEST_TIMEOUT=180
+export CHROMEDRIVER="chromedriver"
+
+cargo nextest run \
   --profile ci \
-  --workspace -E 'platform(target) and not test(it_cannot_insert_message_without_group)' \
+  --workspace -E 'platform(target)' \
   --target wasm32-unknown-unknown --release \
   --exclude xdbg --exclude xmtpv3 --exclude bindings_node --exclude mls_validation_service --exclude xmtp_cli --exclude xmtp_api_grpc

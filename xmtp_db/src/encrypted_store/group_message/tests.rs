@@ -2,10 +2,7 @@
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 use super::*;
-use crate::{
-    EncryptedMessageStore, Store, group::tests::generate_group, prelude::*,
-    test_utils::with_connection,
-};
+use crate::{Store, group::tests::generate_group, prelude::*, test_utils::with_connection};
 use xmtp_common::{assert_err, assert_ok, rand_time, rand_vec};
 
 pub(crate) fn generate_message(
@@ -139,16 +136,17 @@ async fn it_gets_messages() {
 #[xmtp_common::test]
 async fn it_cannot_insert_message_without_group() {
     use diesel::result::DatabaseErrorKind::ForeignKeyViolation;
-    let store = EncryptedMessageStore::new_test().await;
-    let conn = DbConnection::new(store.conn());
-    let message = generate_message(None, None, None, None, None, None);
-    let result = message.store(&conn);
-    assert_err!(
-        result,
-        crate::StorageError::Connection(crate::ConnectionError::Database(
-            diesel::result::Error::DatabaseError(ForeignKeyViolation, _)
-        ))
-    );
+    with_connection(|conn| {
+        let message = generate_message(None, None, None, None, None, None);
+        let result = message.store(&conn);
+        assert_err!(
+            result,
+            crate::StorageError::Connection(crate::ConnectionError::Database(
+                diesel::result::Error::DatabaseError(ForeignKeyViolation, _)
+            ))
+        );
+    })
+    .await;
 }
 
 #[xmtp_common::test]
