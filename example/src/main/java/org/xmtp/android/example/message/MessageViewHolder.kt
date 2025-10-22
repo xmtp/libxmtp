@@ -18,7 +18,6 @@ import java.util.Locale
 class MessageViewHolder(
     private val binding: ListItemMessageBinding,
 ) : RecyclerView.ViewHolder(binding.root) {
-
     private val marginLarge = binding.root.resources.getDimensionPixelSize(R.dimen.message_margin)
     private val marginSmall = binding.root.resources.getDimensionPixelSize(R.dimen.padding)
     private val backgroundMe = Color.LTGRAY
@@ -48,12 +47,11 @@ class MessageViewHolder(
             binding.messageBody.text = item.message.body
             val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
             binding.messageDate.text = sdf.format(item.message.sentAt)
-
         } else if (item.message.content<Any>() is GroupUpdated) {
             val changes = item.message.content() as? GroupUpdated
             binding.messageBody.text =
                 "Membership Changed ${
-                    changes?.addedInboxesList?.mapNotNull { it.inboxId }.toString()
+                    changes?.addedInboxesList?.mapNotNull { it.inboxId }
                 }"
         }
     }

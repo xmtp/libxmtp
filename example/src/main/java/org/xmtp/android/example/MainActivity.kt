@@ -33,18 +33,17 @@ import org.xmtp.android.example.conversation.ConversationsClickListener
 import org.xmtp.android.example.conversation.NewConversationBottomSheet
 import org.xmtp.android.example.conversation.NewGroupBottomSheet
 import org.xmtp.android.example.databinding.ActivityMainBinding
+import org.xmtp.android.example.logs.LogViewerBottomSheet
 import org.xmtp.android.example.pushnotifications.PushNotificationTokenManager
 import org.xmtp.android.example.utils.KeyUtil
 import org.xmtp.android.library.Client
 import org.xmtp.android.library.Conversation
-import org.xmtp.android.example.logs.LogViewerBottomSheet
 import uniffi.xmtpv3.FfiLogLevel
 import uniffi.xmtpv3.FfiLogRotation
 
-
-class MainActivity : AppCompatActivity(),
+class MainActivity :
+    AppCompatActivity(),
     ConversationsClickListener {
-
     private val viewModel: MainViewModel by viewModels()
     private lateinit var binding: ActivityMainBinding
     private lateinit var accountManager: AccountManager
@@ -53,7 +52,7 @@ class MainActivity : AppCompatActivity(),
     private var groupBottomSheet: NewGroupBottomSheet? = null
     private var logsBottomSheet: LogViewerBottomSheet? = null
     private val REQUEST_CODE_POST_NOTIFICATIONS = 101
-    
+
     // Add constant for SharedPreferences
     companion object {
         private const val PREFS_NAME = "XMTPPreferences"
@@ -139,25 +138,27 @@ class MainActivity : AppCompatActivity(),
     private fun retryCreateClientWithBackoff() {
         if (retryJob?.isActive == true) return // Prevent duplicate retries
 
-        val keys = KeyUtil(this).loadKeys() ?: run {
-            showSignIn()
-            return
-        }
-
-        retryJob = lifecycleScope.launch(Dispatchers.IO) {
-            var delayTime = 1000L // start at 1 second
-            val maxDelay = 30000L // cap at 30 seconds
-
-            while (ClientManager.clientState.value is ClientManager.ClientState.Error && isActive) {
-                Log.d("RETRY", "Retrying client creation after ${delayTime}ms")
-                ClientManager.createClient(keys, this@MainActivity)
-
-                delay(delayTime)
-                delayTime = (delayTime * 2).coerceAtMost(maxDelay) // exponential backoff
+        val keys =
+            KeyUtil(this).loadKeys() ?: run {
+                showSignIn()
+                return
             }
 
-            Log.d("RETRY", "Retry stopped: current state=${ClientManager.clientState.value}")
-        }
+        retryJob =
+            lifecycleScope.launch(Dispatchers.IO) {
+                var delayTime = 1000L // start at 1 second
+                val maxDelay = 30000L // cap at 30 seconds
+
+                while (ClientManager.clientState.value is ClientManager.ClientState.Error && isActive) {
+                    Log.d("RETRY", "Retrying client creation after ${delayTime}ms")
+                    ClientManager.createClient(keys, this@MainActivity)
+
+                    delay(delayTime)
+                    delayTime = (delayTime * 2).coerceAtMost(maxDelay) // exponential backoff
+                }
+
+                Log.d("RETRY", "Retry stopped: current state=${ClientManager.clientState.value}")
+            }
     }
 
     override fun onResume() {
@@ -176,7 +177,6 @@ class MainActivity : AppCompatActivity(),
             }
             retryCreateClientWithBackoff()
         }
-
     }
 
     override fun onDestroy() {
@@ -191,8 +191,8 @@ class MainActivity : AppCompatActivity(),
         return true
     }
 
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return when (item.itemId) {
+    override fun onOptionsItemSelected(item: MenuItem): Boolean =
+        when (item.itemId) {
             R.id.disconnect -> {
                 disconnectWallet()
                 true
@@ -202,7 +202,12 @@ class MainActivity : AppCompatActivity(),
                 true
             }
             R.id.activate_logs -> {
-                Client.activatePersistentLibXMTPLogWriter(applicationContext, FfiLogLevel.DEBUG, FfiLogRotation.MINUTELY, 3)
+                Client.activatePersistentLibXMTPLogWriter(
+                    applicationContext,
+                    FfiLogLevel.DEBUG,
+                    FfiLogRotation.MINUTELY,
+                    3,
+                )
                 setLogsActivated(true)
                 Toast.makeText(this, "Persistent logs activated", Toast.LENGTH_SHORT).show()
                 true
@@ -215,15 +220,14 @@ class MainActivity : AppCompatActivity(),
             }
             else -> super.onOptionsItemSelected(item)
         }
-    }
 
     override fun onConversationClick(conversation: Conversation) {
         startActivity(
             ConversationDetailActivity.intent(
                 this,
                 topic = conversation.topic,
-                peerAddress = conversation.id
-            )
+                peerAddress = conversation.id,
+            ),
         )
     }
 
@@ -302,14 +306,15 @@ class MainActivity : AppCompatActivity(),
         bottomSheet = NewConversationBottomSheet.newInstance()
         bottomSheet?.show(
             supportFragmentManager,
-            NewConversationBottomSheet.TAG
+            NewConversationBottomSheet.TAG,
         )
     }
+
     private fun openGroupDetail() {
         groupBottomSheet = NewGroupBottomSheet.newInstance()
         groupBottomSheet?.show(
             supportFragmentManager,
-            NewGroupBottomSheet.TAG
+            NewGroupBottomSheet.TAG,
         )
     }
 
@@ -317,20 +322,20 @@ class MainActivity : AppCompatActivity(),
         logsBottomSheet = LogViewerBottomSheet.newInstance()
         logsBottomSheet?.show(
             supportFragmentManager,
-            LogViewerBottomSheet.TAG
+            LogViewerBottomSheet.TAG,
         )
     }
 
     private fun checkAndRequestPermissions() {
         if (ContextCompat.checkSelfPermission(
                 this,
-                Manifest.permission.POST_NOTIFICATIONS
+                Manifest.permission.POST_NOTIFICATIONS,
             ) != PackageManager.PERMISSION_GRANTED
         ) {
             ActivityCompat.requestPermissions(
                 this,
                 arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                REQUEST_CODE_POST_NOTIFICATIONS
+                REQUEST_CODE_POST_NOTIFICATIONS,
             )
         }
     }
@@ -340,7 +345,7 @@ class MainActivity : AppCompatActivity(),
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getBoolean(KEY_LOGS_ACTIVATED, false)
     }
-    
+
     private fun setLogsActivated(activated: Boolean) {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putBoolean(KEY_LOGS_ACTIVATED, activated).apply()

@@ -25,7 +25,6 @@ import org.xmtp.android.example.extension.truncatedAddress
 import org.xmtp.android.example.message.MessageAdapter
 
 class ConversationDetailActivity : AppCompatActivity() {
-
     private lateinit var binding: ActivityConversationDetailBinding
     private lateinit var adapter: MessageAdapter
 
@@ -38,12 +37,15 @@ class ConversationDetailActivity : AppCompatActivity() {
         const val EXTRA_CONVERSATION_TOPIC = "EXTRA_CONVERSATION_TOPIC"
         private const val EXTRA_PEER_ADDRESS = "EXTRA_PEER_ADDRESS"
 
-        fun intent(context: Context, topic: String, peerAddress: String): Intent {
-            return Intent(context, ConversationDetailActivity::class.java).apply {
+        fun intent(
+            context: Context,
+            topic: String,
+            peerAddress: String,
+        ): Intent =
+            Intent(context, ConversationDetailActivity::class.java).apply {
                 putExtra(EXTRA_CONVERSATION_TOPIC, topic)
                 putExtra(EXTRA_PEER_ADDRESS, peerAddress)
             }
-        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,14 +56,15 @@ class ConversationDetailActivity : AppCompatActivity() {
         setContentView(binding.root)
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.subtitle = if (peerAddress != null && peerAddress!!.contains(",")) {
-            val addresses = peerAddress?.split(",")?.toMutableList()
-            addresses?.joinToString(" & ") {
-                it.truncatedAddress()
+        supportActionBar?.subtitle =
+            if (peerAddress != null && peerAddress!!.contains(",")) {
+                val addresses = peerAddress?.split(",")?.toMutableList()
+                addresses?.joinToString(" & ") {
+                    it.truncatedAddress()
+                }
+            } else {
+                peerAddress?.truncatedAddress()
             }
-        } else {
-            peerAddress?.truncatedAddress()
-        }
 
         adapter = MessageAdapter()
         binding.list.layoutManager =
@@ -107,8 +110,8 @@ class ConversationDetailActivity : AppCompatActivity() {
         return true
     }
 
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return when (item.itemId) {
+    override fun onOptionsItemSelected(item: MenuItem): Boolean =
+        when (item.itemId) {
             home -> {
                 finish()
                 true
@@ -121,7 +124,6 @@ class ConversationDetailActivity : AppCompatActivity() {
 
             else -> super.onOptionsItemSelected(item)
         }
-    }
 
     private fun copyWalletAddress() {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

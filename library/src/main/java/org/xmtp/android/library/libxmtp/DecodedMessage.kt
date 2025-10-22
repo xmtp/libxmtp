@@ -73,7 +73,9 @@ class DecodedMessage private constructor(
         fun create(libXMTPMessage: FfiMessage): DecodedMessage? =
             try {
                 val encodedContent = EncodedContent.parseFrom(libXMTPMessage.content)
-                if (encodedContent.type == ContentTypeGroupUpdated && libXMTPMessage.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE) {
+                if (encodedContent.type == ContentTypeGroupUpdated &&
+                    libXMTPMessage.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE
+                ) {
                     throw XMTPException("Error decoding group membership change")
                 }
                 // Decode the content once during creation

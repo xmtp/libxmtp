@@ -12,9 +12,11 @@ import java.security.KeyStore
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 
-
-class KeyUtil(val context: Context) {
+class KeyUtil(
+    val context: Context,
+) {
     private val PREFS_NAME = "EncryptionPref"
+
     fun loadKeys(): String? {
         val accountManager = AccountManager.get(context)
         val accounts =
@@ -23,7 +25,10 @@ class KeyUtil(val context: Context) {
         return accountManager.getPassword(account)
     }
 
-    fun storeKey(address: String, dbEncryptionKey: ByteArray?) {
+    fun storeKey(
+        address: String,
+        dbEncryptionKey: ByteArray?,
+    ) {
         val alias = "xmtp-dev-${address.lowercase()}"
 
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -39,6 +44,8 @@ class KeyUtil(val context: Context) {
         val keyString = prefs.getString(alias, null)
         return if (keyString != null) {
             decode(keyString, NO_WRAP)
-        } else null
+        } else {
+            null
+        }
     }
 }

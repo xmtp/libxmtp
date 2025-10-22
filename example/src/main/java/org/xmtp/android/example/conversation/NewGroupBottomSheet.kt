@@ -18,7 +18,6 @@ import org.xmtp.android.example.databinding.BottomSheetNewGroupBinding
 import java.util.regex.Pattern
 
 class NewGroupBottomSheet : BottomSheetDialogFragment() {
-
     private val viewModel: NewConversationViewModel by viewModels()
     private var _binding: BottomSheetNewGroupBinding? = null
     private val addresses: MutableList<String> = mutableListOf()
@@ -29,21 +28,22 @@ class NewGroupBottomSheet : BottomSheetDialogFragment() {
 
         private val ADDRESS_PATTERN = Pattern.compile("^0x[a-fA-F0-9]{40}\$")
 
-        fun newInstance(): NewGroupBottomSheet {
-            return NewGroupBottomSheet()
-        }
+        fun newInstance(): NewGroupBottomSheet = NewGroupBottomSheet()
     }
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
-        savedInstanceState: Bundle?
+        savedInstanceState: Bundle?,
     ): View {
         _binding = BottomSheetNewGroupBinding.inflate(inflater, container, false)
         return binding.root
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+    override fun onViewCreated(
+        view: View,
+        savedInstanceState: Bundle?,
+    ) {
         super.onViewCreated(view, savedInstanceState)
 
         lifecycleScope.launch {
@@ -98,8 +98,8 @@ class NewGroupBottomSheet : BottomSheetDialogFragment() {
                     ConversationDetailActivity.intent(
                         requireContext(),
                         topic = uiState.conversation.topic,
-                        peerAddress = uiState.conversation.id
-                    )
+                        peerAddress = uiState.conversation.id,
+                    ),
                 )
                 dismiss()
             }

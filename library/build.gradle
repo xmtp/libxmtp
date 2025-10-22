@@ -4,18 +4,11 @@ plugins {
     id 'com.android.library'
     id 'org.jetbrains.kotlin.android'
     id 'com.google.protobuf' version '0.9.1'
-    id "org.jlleitschuh.gradle.ktlint" version "13.1.0"
     id "org.jetbrains.dokka" version "1.8.10"
 }
 
 dokkaGfmPartial {
     outputDirectory.set(file("build/docs/partial"))
-}
-
-ktlint {
-    filter {
-        exclude { it.file.path.contains("xmtpv3") }
-    }
 }
 
 android {
@@ -54,6 +47,8 @@ android {
     }
     lint {
         baseline = file("lint-baseline.xml")
+        checkTestSources = false
+        ignoreTestSources = true
     }
 }
 

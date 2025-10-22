@@ -8,9 +8,8 @@ import org.xmtp.android.example.databinding.ListItemConversationBinding
 import org.xmtp.android.example.databinding.ListItemConversationFooterBinding
 
 class ConversationsAdapter(
-    private val clickListener: ConversationsClickListener
+    private val clickListener: ConversationsClickListener,
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-
     init {
         setHasStableIds(true)
     }
@@ -28,7 +27,10 @@ class ConversationsAdapter(
         notifyDataSetChanged()
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+    override fun onCreateViewHolder(
+        parent: ViewGroup,
+        viewType: Int,
+    ): RecyclerView.ViewHolder {
         val inflater = LayoutInflater.from(parent.context)
         return when (viewType) {
             MainViewModel.MainListItem.ITEM_TYPE_CONVERSATION -> {
@@ -43,7 +45,10 @@ class ConversationsAdapter(
         }
     }
 
-    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+    override fun onBindViewHolder(
+        holder: RecyclerView.ViewHolder,
+        position: Int,
+    ) {
         val item = listItems[position]
         when (holder) {
             is ConversationViewHolder -> {

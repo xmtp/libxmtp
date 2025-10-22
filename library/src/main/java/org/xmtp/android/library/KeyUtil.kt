@@ -12,7 +12,8 @@ object KeyUtil {
         return Util.keccak256(input.toByteArray())
     }
 
-    fun getPublicKey(privateKey: ByteArray): ByteArray = Sign.publicKeyFromPrivate(BigInteger(1, privateKey)).toByteArray()
+    fun getPublicKey(privateKey: ByteArray): ByteArray =
+        Sign.publicKeyFromPrivate(BigInteger(1, privateKey)).toByteArray()
 
     fun addUncompressedByte(publicKey: ByteArray): ByteArray =
         if (publicKey.size >= 65) {

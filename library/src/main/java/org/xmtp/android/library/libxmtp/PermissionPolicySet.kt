@@ -65,9 +65,18 @@ data class PermissionPolicySet(
                 removeMemberPolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.removeMemberPolicy),
                 addAdminPolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.addAdminPolicy),
                 removeAdminPolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.removeAdminPolicy),
-                updateGroupNamePolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.updateGroupNamePolicy),
-                updateGroupDescriptionPolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.updateGroupDescriptionPolicy),
-                updateGroupImageUrlSquarePolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.updateGroupImagePolicy),
+                updateGroupNamePolicy =
+                    PermissionOption.toFfiPermissionPolicy(
+                        permissionPolicySet.updateGroupNamePolicy,
+                    ),
+                updateGroupDescriptionPolicy =
+                    PermissionOption.toFfiPermissionPolicy(
+                        permissionPolicySet.updateGroupDescriptionPolicy,
+                    ),
+                updateGroupImageUrlSquarePolicy =
+                    PermissionOption.toFfiPermissionPolicy(
+                        permissionPolicySet.updateGroupImagePolicy,
+                    ),
                 updateMessageDisappearingPolicy =
                     PermissionOption.toFfiPermissionPolicy(
                         permissionPolicySet.updateMessageDisappearingPolicy,
@@ -77,10 +86,16 @@ data class PermissionPolicySet(
         fun fromFfiPermissionPolicySet(ffiPermissionPolicySet: FfiPermissionPolicySet): PermissionPolicySet =
             PermissionPolicySet(
                 addMemberPolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.addMemberPolicy),
-                removeMemberPolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.removeMemberPolicy),
+                removeMemberPolicy =
+                    PermissionOption.fromFfiPermissionPolicy(
+                        ffiPermissionPolicySet.removeMemberPolicy,
+                    ),
                 addAdminPolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.addAdminPolicy),
                 removeAdminPolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.removeAdminPolicy),
-                updateGroupNamePolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.updateGroupNamePolicy),
+                updateGroupNamePolicy =
+                    PermissionOption.fromFfiPermissionPolicy(
+                        ffiPermissionPolicySet.updateGroupNamePolicy,
+                    ),
                 updateGroupDescriptionPolicy =
                     PermissionOption.fromFfiPermissionPolicy(
                         ffiPermissionPolicySet.updateGroupDescriptionPolicy,

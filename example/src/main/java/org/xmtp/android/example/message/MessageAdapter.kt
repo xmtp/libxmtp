@@ -7,7 +7,6 @@ import org.xmtp.android.example.conversation.ConversationDetailViewModel
 import org.xmtp.android.example.databinding.ListItemMessageBinding
 
 class MessageAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-
     init {
         setHasStableIds(true)
     }
@@ -25,7 +24,10 @@ class MessageAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
         notifyDataSetChanged()
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+    override fun onCreateViewHolder(
+        parent: ViewGroup,
+        viewType: Int,
+    ): RecyclerView.ViewHolder {
         val inflater = LayoutInflater.from(parent.context)
         return when (viewType) {
             ConversationDetailViewModel.MessageListItem.ITEM_TYPE_MESSAGE -> {
@@ -36,7 +38,10 @@ class MessageAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
         }
     }
 
-    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+    override fun onBindViewHolder(
+        holder: RecyclerView.ViewHolder,
+        position: Int,
+    ) {
         val item = listItems[position]
         when (holder) {
             is MessageViewHolder -> {

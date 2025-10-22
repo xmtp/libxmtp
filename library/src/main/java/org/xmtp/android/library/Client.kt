@@ -437,7 +437,12 @@ class Client(
                         nonce = 0.toULong(),
                         legacySignedPrivateKeyProto = null,
                         deviceSyncServerUrl = options.historySyncUrl,
-                        deviceSyncMode = if (!options.deviceSyncEnabled) FfiSyncWorkerMode.DISABLED else FfiSyncWorkerMode.ENABLED,
+                        deviceSyncMode =
+                            if (!options.deviceSyncEnabled) {
+                                FfiSyncWorkerMode.DISABLED
+                            } else {
+                                FfiSyncWorkerMode.ENABLED
+                            },
                         allowOffline = buildOffline,
                         disableEvents = options.debugEventsEnabled,
                     )
@@ -641,7 +646,8 @@ class Client(
     @DelicateApi(
         "This function is delicate and should be used with caution. Should only be used if trying to manage the signature flow independently otherwise use `revokeInstallations()` instead",
     )
-    suspend fun ffiRevokeInstallations(ids: List<ByteArray>): SignatureRequest = SignatureRequest(ffiClient.revokeInstallations(ids))
+    suspend fun ffiRevokeInstallations(ids: List<ByteArray>): SignatureRequest =
+        SignatureRequest(ffiClient.revokeInstallations(ids))
 
     @DelicateApi(
         "This function is delicate and should be used with caution. Should only be used if trying to manage the signature flow independently otherwise use `revokeAllOtherInstallations()` instead",

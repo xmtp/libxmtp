@@ -24,24 +24,25 @@ import org.xmtp.android.example.R
 import org.xmtp.android.example.databinding.FragmentConnectWalletBinding
 import timber.log.Timber
 
-
 class ConnectWalletFragment : Fragment() {
-
-
     private val viewModel: ConnectWalletViewModel by viewModels()
 
     private var _binding: FragmentConnectWalletBinding? = null
     private val binding get() = _binding!!
 
     override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
-        savedInstanceState: Bundle?
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?,
     ): View {
         _binding = FragmentConnectWalletBinding.inflate(inflater, container, false)
         return binding.root
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+    override fun onViewCreated(
+        view: View,
+        savedInstanceState: Bundle?,
+    ) {
         super.onViewCreated(view, savedInstanceState)
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -60,7 +61,6 @@ class ConnectWalletFragment : Fragment() {
             viewModel.generateWallet()
         }
     }
-
 
     private fun ensureUiState(uiState: ConnectWalletViewModel.ConnectUiState) {
         when (uiState) {
@@ -116,5 +116,4 @@ class ConnectWalletFragment : Fragment() {
         private const val WC_URI_SCHEME = "wc://wc?uri="
         private const val FRAGMENT_LOG_TAG = "ConnectWalletFragment"
     }
-
 }

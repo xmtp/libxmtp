@@ -15,24 +15,22 @@ import org.xmtp.android.example.R
 import java.io.File
 
 class LogViewerBottomSheet : BottomSheetDialogFragment() {
-
     companion object {
         const val TAG = "LogViewerBottomSheet"
 
-        fun newInstance(): LogViewerBottomSheet {
-            return LogViewerBottomSheet()
-        }
+        fun newInstance(): LogViewerBottomSheet = LogViewerBottomSheet()
     }
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View? {
-        return inflater.inflate(R.layout.bottom_sheet_log_viewer, container, false)
-    }
+        savedInstanceState: Bundle?,
+    ): View? = inflater.inflate(R.layout.bottom_sheet_log_viewer, container, false)
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+    override fun onViewCreated(
+        view: View,
+        savedInstanceState: Bundle?,
+    ) {
         super.onViewCreated(view, savedInstanceState)
 
         val logsList = view.findViewById<ListView>(R.id.logs_list)
@@ -51,11 +49,12 @@ class LogViewerBottomSheet : BottomSheetDialogFragment() {
 
             // Sort files by last modified date (newest first)
             val sortedFiles = logFiles.sortedByDescending { it.lastModified() }
-            
+
             // Create adapter with file names and sizes
-            val fileItems = sortedFiles.map { 
-                "${it.name} (${formatFileSize(it.length())})" 
-            }
+            val fileItems =
+                sortedFiles.map {
+                    "${it.name} (${formatFileSize(it.length())})"
+                }
             val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, fileItems)
             logsList.adapter = adapter
 
@@ -66,28 +65,29 @@ class LogViewerBottomSheet : BottomSheetDialogFragment() {
         }
     }
 
-    private fun formatFileSize(size: Long): String {
-        return when {
+    private fun formatFileSize(size: Long): String =
+        when {
             size < 1024 -> "$size B"
             size < 1024 * 1024 -> "${size / 1024} KB"
             else -> "${size / (1024 * 1024)} MB"
         }
-    }
 
     private fun shareLogFile(file: File) {
         try {
-            val uri = FileProvider.getUriForFile(
-                requireContext(),
-                "${requireContext().packageName}.fileprovider",
-                file
-            )
+            val uri =
+                FileProvider.getUriForFile(
+                    requireContext(),
+                    "${requireContext().packageName}.fileprovider",
+                    file,
+                )
 
-            val shareIntent = Intent().apply {
-                action = Intent.ACTION_SEND
-                putExtra(Intent.EXTRA_STREAM, uri)
-                type = "text/plain"
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
+            val shareIntent =
+                Intent().apply {
+                    action = Intent.ACTION_SEND
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    type = "text/plain"
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
 
             startActivity(Intent.createChooser(shareIntent, getString(R.string.share_log)))
         } catch (e: Exception) {

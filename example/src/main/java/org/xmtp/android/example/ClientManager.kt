@@ -17,19 +17,23 @@ import org.xmtp.android.library.libxmtp.PublicIdentity
 import java.security.SecureRandom
 
 object ClientManager {
-
-    fun clientOptions(appContext: Context, address: String): ClientOptions {
+    fun clientOptions(
+        appContext: Context,
+        address: String,
+    ): ClientOptions {
         val keyUtil = KeyUtil(appContext)
-        val encryptionKey = keyUtil.retrieveKey(address)?.takeUnless { it.isEmpty() }
-            ?: SecureRandom().generateSeed(32).also { keyUtil.storeKey(address, it) }
+        val encryptionKey =
+            keyUtil.retrieveKey(address)?.takeUnless { it.isEmpty() }
+                ?: SecureRandom().generateSeed(32).also { keyUtil.storeKey(address, it) }
 
         return ClientOptions(
-            api = ClientOptions.Api(
-                XMTPEnvironment.DEV,
-                isSecure = true
-            ),
+            api =
+                ClientOptions.Api(
+                    XMTPEnvironment.DEV,
+                    isSecure = true,
+                ),
             appContext = appContext,
-            dbEncryptionKey = encryptionKey
+            dbEncryptionKey = encryptionKey,
         )
     }
 
@@ -39,21 +43,25 @@ object ClientManager {
     private var _client: Client? = null
 
     val client: Client
-        get() = if (clientState.value == ClientState.Ready) {
-            _client!!
-        } else {
-            throw IllegalStateException("Client called before Ready state")
-        }
+        get() =
+            if (clientState.value == ClientState.Ready) {
+                _client!!
+            } else {
+                throw IllegalStateException("Client called before Ready state")
+            }
 
     @UiThread
-    fun createClient(address: String, appContext: Context) {
+    fun createClient(
+        address: String,
+        appContext: Context,
+    ) {
         if (clientState.value is ClientState.Ready) return
         GlobalScope.launch(Dispatchers.IO) {
             try {
                 _client =
                     Client.build(
                         PublicIdentity(IdentityKind.ETHEREUM, address),
-                        clientOptions(appContext, address)
+                        clientOptions(appContext, address),
                     )
                 Client.register(codec = GroupUpdatedCodec())
                 _clientState.value = ClientState.Ready
@@ -71,7 +79,11 @@ object ClientManager {
 
     sealed class ClientState {
         object Unknown : ClientState()
+
         object Ready : ClientState()
-        data class Error(val message: String) : ClientState()
+
+        data class Error(
+            val message: String,
+        ) : ClientState()
     }
 }

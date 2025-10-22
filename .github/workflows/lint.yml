@@ -19,14 +19,14 @@ jobs:
         with:
           distribution: "temurin"
           java-version: "17"
-      - name: Gradle Run ktlint
-        run: ./gradlew ktlintCheck --continue
+      - name: Gradle Run Spotless Check
+        run: ./gradlew spotlessCheck --continue
       - uses: actions/upload-artifact@v4
-        name: Upload ktlint report
+        name: Upload Spotless report
         if: ${{ failure() }}
         with:
-          name: ktlint
-          path: "**/build/reports/ktlint/"
+          name: spotless
+          path: "**/build/reports/spotless/"
 
       - name: Gradle Android lint library
         run: ./gradlew :library:lintDebug

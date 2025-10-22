@@ -21,12 +21,14 @@ import org.xmtp.android.example.extension.flowWhileShared
 import org.xmtp.android.example.extension.stateFlow
 import org.xmtp.android.library.Conversation
 
-class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel() {
-
-    private val conversationTopicFlow = savedStateHandle.getStateFlow<String?>(
-        ConversationDetailActivity.EXTRA_CONVERSATION_TOPIC,
-        null
-    )
+class ConversationDetailViewModel(
+    private val savedStateHandle: SavedStateHandle,
+) : ViewModel() {
+    private val conversationTopicFlow =
+        savedStateHandle.getStateFlow<String?>(
+            ConversationDetailActivity.EXTRA_CONVERSATION_TOPIC,
+            null,
+        )
 
     private val conversationTopic = conversationTopicFlow.value
 
@@ -58,7 +60,7 @@ class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle
                     listItems.addAll(
                         it.messages().map { message ->
                             MessageListItem.Message(message.id, message)
-                        }
+                        },
                     )
                 }
                 _uiState.value = UiState.Success(listItems)
@@ -78,17 +80,16 @@ class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle
                     }
             }
             if (conversation != null) {
-                conversation!!.streamMessages()
+                conversation!!
+                    .streamMessages()
                     .flowWhileShared(
                         subscriptionCount,
-                        SharingStarted.WhileSubscribed(1000L)
-                    )
-                    .flowOn(Dispatchers.IO)
+                        SharingStarted.WhileSubscribed(1000L),
+                    ).flowOn(Dispatchers.IO)
                     .distinctUntilChanged()
                     .mapLatest { message ->
                         MessageListItem.Message(message.id, message)
-                    }
-                    .catch { emptyFlow<MessageListItem>() }
+                    }.catch { emptyFlow<MessageListItem>() }
             } else {
                 emptyFlow()
             }
@@ -109,23 +110,40 @@ class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle
     }
 
     sealed class UiState {
-        data class Loading(val listItems: List<MessageListItem>?) : UiState()
-        data class Success(val listItems: List<MessageListItem>) : UiState()
-        data class Error(val message: String) : UiState()
+        data class Loading(
+            val listItems: List<MessageListItem>?,
+        ) : UiState()
+
+        data class Success(
+            val listItems: List<MessageListItem>,
+        ) : UiState()
+
+        data class Error(
+            val message: String,
+        ) : UiState()
     }
 
     sealed class SendMessageState {
         object Loading : SendMessageState()
+
         object Success : SendMessageState()
-        data class Error(val message: String) : SendMessageState()
+
+        data class Error(
+            val message: String,
+        ) : SendMessageState()
     }
 
-    sealed class MessageListItem(open val id: String, val itemType: Int) {
+    sealed class MessageListItem(
+        open val id: String,
+        val itemType: Int,
+    ) {
         companion object {
             const val ITEM_TYPE_MESSAGE = 1
         }
 
-        data class Message(override val id: String, val message: org.xmtp.android.library.libxmtp.DecodedMessage) :
-            MessageListItem(id, ITEM_TYPE_MESSAGE)
+        data class Message(
+            override val id: String,
+            val message: org.xmtp.android.library.libxmtp.DecodedMessage,
+        ) : MessageListItem(id, ITEM_TYPE_MESSAGE)
     }
 }

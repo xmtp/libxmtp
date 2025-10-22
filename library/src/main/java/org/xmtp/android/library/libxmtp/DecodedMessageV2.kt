@@ -175,7 +175,9 @@ class DecodedMessageV2 private constructor(
 
         // Helper functions for GroupUpdated proto mapping
 
-        private fun mapFfiInboxToProto(ffiInbox: FfiInbox): org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated.Inbox =
+        private fun mapFfiInboxToProto(
+            ffiInbox: FfiInbox,
+        ): org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated.Inbox =
             org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated.Inbox
                 .newBuilder()
                 .setInboxId(ffiInbox.inboxId)
@@ -192,7 +194,9 @@ class DecodedMessageV2 private constructor(
                     ffiChange.newValue?.let { setNewValue(it) }
                 }.build()
 
-        private fun mapGroupUpdated(ffiGroupUpdated: FfiGroupUpdated): org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated =
+        private fun mapGroupUpdated(
+            ffiGroupUpdated: FfiGroupUpdated,
+        ): org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated =
             org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated
                 .newBuilder()
                 .apply {

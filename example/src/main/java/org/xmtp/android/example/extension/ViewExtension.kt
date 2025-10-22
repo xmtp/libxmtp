@@ -7,7 +7,7 @@ fun View.margins(
     left: Int = 0,
     top: Int = 0,
     right: Int = 0,
-    bottom: Int = 0
+    bottom: Int = 0,
 ) {
     val layoutParams = layoutParams as MarginLayoutParams
     val marginLeft = left.let { if (it > 0) it else layoutParams.leftMargin }

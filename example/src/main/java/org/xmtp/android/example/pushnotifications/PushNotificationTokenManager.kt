@@ -15,7 +15,6 @@ import org.xmtp.android.example.R
 import org.xmtp.android.library.push.XMTPPush
 
 object PushNotificationTokenManager {
-
     private const val TAG = "PushTokenManager"
     private lateinit var applicationContext: Context
 
@@ -25,31 +24,37 @@ object PushNotificationTokenManager {
     private var _xmtpPush: XMTPPush? = null
 
     val xmtpPush: XMTPPush
-        get() = if (xmtpPushState.value == XMTPPushState.Ready) {
-            _xmtpPush!!
-        } else {
-            throw IllegalStateException("Push not setup")
-        }
+        get() =
+            if (xmtpPushState.value == XMTPPushState.Ready) {
+                _xmtpPush!!
+            } else {
+                throw IllegalStateException("Push not setup")
+            }
 
-    fun init(applicationContext: Context, pushServer: String) {
+    fun init(
+        applicationContext: Context,
+        pushServer: String,
+    ) {
         this.applicationContext = applicationContext
         createXMTPPush(pushServer)
     }
 
     fun ensurePushTokenIsConfigured() {
         try {
-            FirebaseMessaging.getInstance().token.addOnCompleteListener(OnCompleteListener { request ->
-                if (!request.isSuccessful) {
-                    Log.e(TAG, "Firebase getInstanceId() failed", request.exception)
-                    return@OnCompleteListener
-                }
-                request.result?.let {
-                    if (xmtpPushState.value is XMTPPushState.Ready) {
-                        xmtpPush.register(it)
-                        configureNotificationChannels()
+            FirebaseMessaging.getInstance().token.addOnCompleteListener(
+                OnCompleteListener { request ->
+                    if (!request.isSuccessful) {
+                        Log.e(TAG, "Firebase getInstanceId() failed", request.exception)
+                        return@OnCompleteListener
                     }
-                }
-            })
+                    request.result?.let {
+                        if (xmtpPushState.value is XMTPPushState.Ready) {
+                            xmtpPush.register(it)
+                            configureNotificationChannels()
+                        }
+                    }
+                },
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Firebase not setup", e)
         }
@@ -64,15 +69,17 @@ object PushNotificationTokenManager {
     }
 
     private fun configureNotificationChannels() {
-        val channel = NotificationChannel(
-            PushNotificationsService.CHANNEL_ID,
-            applicationContext.getString(R.string.xmtp_direct_message),
-            NotificationManager.IMPORTANCE_DEFAULT
-        )
+        val channel =
+            NotificationChannel(
+                PushNotificationsService.CHANNEL_ID,
+                applicationContext.getString(R.string.xmtp_direct_message),
+                NotificationManager.IMPORTANCE_DEFAULT,
+            )
 
-        val notificationManager = applicationContext.getSystemService(
-            FirebaseMessagingService.NOTIFICATION_SERVICE
-        ) as NotificationManager
+        val notificationManager =
+            applicationContext.getSystemService(
+                FirebaseMessagingService.NOTIFICATION_SERVICE,
+            ) as NotificationManager
         notificationManager.createNotificationChannel(channel)
     }
 
@@ -95,7 +102,11 @@ object PushNotificationTokenManager {
 
     sealed class XMTPPushState {
         object Unknown : XMTPPushState()
+
         object Ready : XMTPPushState()
-        data class Error(val message: String) : XMTPPushState()
+
+        data class Error(
+            val message: String,
+        ) : XMTPPushState()
     }
 }

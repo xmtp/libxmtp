@@ -21,8 +21,9 @@ import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.codecs.GroupUpdatedCodec
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 
-class ConnectWalletViewModel(application: Application) : AndroidViewModel(application) {
-
+class ConnectWalletViewModel(
+    application: Application,
+) : AndroidViewModel(application) {
     private val _showWalletState = MutableStateFlow(ShowWalletForSigningState(showWallet = false))
     val showWalletState: StateFlow<ShowWalletForSigningState>
         get() = _showWalletState.asStateFlow()
@@ -36,11 +37,16 @@ class ConnectWalletViewModel(application: Application) : AndroidViewModel(applic
             _uiState.value = ConnectUiState.Loading
             try {
                 val wallet = PrivateKeyBuilder()
-                val client = Client.create(wallet, ClientManager.clientOptions(getApplication(), wallet.publicIdentity.identifier))
+                val client =
+                    Client.create(
+                        wallet,
+                        ClientManager.clientOptions(getApplication(), wallet.publicIdentity.identifier),
+                    )
                 Client.register(codec = GroupUpdatedCodec())
-                _uiState.value = ConnectUiState.Success(
-                    wallet.publicIdentity.identifier
-                )
+                _uiState.value =
+                    ConnectUiState.Success(
+                        wallet.publicIdentity.identifier,
+                    )
             } catch (e: XMTPException) {
                 _uiState.value = ConnectUiState.Error(e.message.orEmpty())
             }
@@ -55,10 +61,20 @@ class ConnectWalletViewModel(application: Application) : AndroidViewModel(applic
 
     sealed class ConnectUiState {
         object Unknown : ConnectUiState()
+
         object Loading : ConnectUiState()
-        data class Success(val address: String) : ConnectUiState()
-        data class Error(val message: String) : ConnectUiState()
+
+        data class Success(
+            val address: String,
+        ) : ConnectUiState()
+
+        data class Error(
+            val message: String,
+        ) : ConnectUiState()
     }
 
-    data class ShowWalletForSigningState(val showWallet: Boolean, val uri: Uri? = null)
+    data class ShowWalletForSigningState(
+        val showWallet: Boolean,
+        val uri: Uri? = null,
+    )
 }

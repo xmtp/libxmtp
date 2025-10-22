@@ -25,7 +25,7 @@ Client.register(codec = AttachmentCodec())
 Client.register(codec = RemoteAttachmentCodec())
 ```
 
-### Create an attachment 
+### Create an attachment
 
 ```kotlin
 val attachment = Attachment(
@@ -74,7 +74,7 @@ val message = newConversation.messages().first()
 val loadedRemoteAttachment: RemoteAttachment = messages.content()
 loadedRemoteAttachment.fetcher = Fetcher()
 runBlocking {
-    val attachment: Attachment = loadedRemoteAttachment.load() 
+    val attachment: Attachment = loadedRemoteAttachment.load()
 }
 ```
 
@@ -82,5 +82,5 @@ runBlocking {
 
 If you want to send a content type other than plain text, attachments, and remote attachments, you can:
 
-- Propose a new [standard content type](https://github.com/orgs/xmtp/discussions/4) 
+- Propose a new [standard content type](https://github.com/orgs/xmtp/discussions/4)
 - Create a [custom content type](https://xmtp.org/docs/client-sdk/javascript/tutorials/use-content-types#build-a-custom-content-type)

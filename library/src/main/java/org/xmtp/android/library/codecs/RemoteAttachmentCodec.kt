@@ -209,7 +209,8 @@ data class RemoteAttachmentCodec(
         )
     }
 
-    override fun fallback(content: RemoteAttachment): String = "Can’t display \"${content.filename}”. This app doesn’t support attachments."
+    override fun fallback(content: RemoteAttachment): String =
+        "Can’t display \"${content.filename}”. This app doesn’t support attachments."
 
     override fun shouldPush(content: RemoteAttachment): Boolean = true
 }

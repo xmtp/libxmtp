@@ -46,7 +46,8 @@ data class AttachmentCodec(
         )
     }
 
-    override fun fallback(content: Attachment): String = "Can’t display \"${content.filename}”. This app doesn’t support attachments."
+    override fun fallback(content: Attachment): String =
+        "Can’t display \"${content.filename}”. This app doesn’t support attachments."
 
     override fun shouldPush(content: Attachment): Boolean = true
 }

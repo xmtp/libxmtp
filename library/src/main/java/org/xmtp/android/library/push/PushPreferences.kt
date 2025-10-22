@@ -9,7 +9,8 @@ class PushPreferences private constructor() {
         private const val PUSH_PREFERENCES = "push_preferences"
         private const val KEY_INSTALLATION_ID = "installation_id"
 
-        private fun pushPreferences(context: Context): SharedPreferences = context.getSharedPreferences(PUSH_PREFERENCES, MODE_PRIVATE)
+        private fun pushPreferences(context: Context): SharedPreferences =
+            context.getSharedPreferences(PUSH_PREFERENCES, MODE_PRIVATE)
 
         fun clearAll(context: Context) {
             pushPreferences(context).edit().clear().apply()

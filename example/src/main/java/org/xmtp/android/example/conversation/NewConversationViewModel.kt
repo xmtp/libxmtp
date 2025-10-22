@@ -13,7 +13,6 @@ import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.PublicIdentity
 
 class NewConversationViewModel : ViewModel() {
-
     private val _uiState = MutableStateFlow<UiState>(UiState.Unknown)
     val uiState: StateFlow<UiState> = _uiState
 
@@ -22,12 +21,13 @@ class NewConversationViewModel : ViewModel() {
         _uiState.value = UiState.Loading
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val conversation = ClientManager.client.conversations.newConversationWithIdentity(
-                    PublicIdentity(
-                        IdentityKind.ETHEREUM,
-                        address
+                val conversation =
+                    ClientManager.client.conversations.newConversationWithIdentity(
+                        PublicIdentity(
+                            IdentityKind.ETHEREUM,
+                            address,
+                        ),
                     )
-                )
                 _uiState.value = UiState.Success(conversation)
             } catch (e: Exception) {
                 _uiState.value = UiState.Error(e.localizedMessage.orEmpty())
@@ -41,12 +41,14 @@ class NewConversationViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val group =
-                    ClientManager.client.conversations.newGroupWithIdentities(addresses.map {
-                        PublicIdentity(
-                            IdentityKind.ETHEREUM,
-                            it
-                        )
-                    })
+                    ClientManager.client.conversations.newGroupWithIdentities(
+                        addresses.map {
+                            PublicIdentity(
+                                IdentityKind.ETHEREUM,
+                                it,
+                            )
+                        },
+                    )
                 _uiState.value = UiState.Success(Conversation.Group(group))
             } catch (e: Exception) {
                 _uiState.value = UiState.Error(e.localizedMessage.orEmpty())
@@ -56,8 +58,15 @@ class NewConversationViewModel : ViewModel() {
 
     sealed class UiState {
         object Unknown : UiState()
+
         object Loading : UiState()
-        data class Success(val conversation: Conversation) : UiState()
-        data class Error(val message: String) : UiState()
+
+        data class Success(
+            val conversation: Conversation,
+        ) : UiState()
+
+        data class Error(
+            val message: String,
+        ) : UiState()
     }
 }

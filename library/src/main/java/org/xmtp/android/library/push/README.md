@@ -14,11 +14,11 @@ For this tutorial, we'll use [Firebase Cloud Messaging](https://console.firebase
 
 3. Add the `google-services.json` file to the example app's project as described in the FCM project creation process.
 
-4. Generate FCM credentials, which you need to run the example notification server. To do this, from the FCM dashboard, click the gear icon next to **Project Overview** and select **Project settings**. Select **Service accounts**. Select **Go** and click **Generate new private key**. 
+4. Generate FCM credentials, which you need to run the example notification server. To do this, from the FCM dashboard, click the gear icon next to **Project Overview** and select **Project settings**. Select **Service accounts**. Select **Go** and click **Generate new private key**.
 
 ## Run an example notification server
 
-Now that you have an FCM server set up, take a look at the `kotlin` folder in the `example-notifications-server-go` repo. 
+Now that you have an FCM server set up, take a look at the `kotlin` folder in the `example-notifications-server-go` repo.
 
 These files can serve as the basis for what you might want to provide for your own notification server. This proto code from the example notification server has already been generated and add in the `xmtp-android` example app if you use the example notification server as is.
 
@@ -35,7 +35,7 @@ These files can serve as the basis for what you might want to provide for your o
    ```
 
     ```bash
-    dev/run \                                                                     
+    dev/run \
     --xmtp-listener-tls \
     --xmtp-listener \
     --api \
@@ -97,9 +97,9 @@ These files can serve as the basis for what you might want to provide for your o
             sub.isSilent = it.version == Conversation.Version.V1
         }.build()
     }.toMutableList()
-   
+
    // To get pushes for New Group (WelcomeMessages)
-   val welcomeTopic = Service.Subscription.newBuilder().also { sub -> 
+   val welcomeTopic = Service.Subscription.newBuilder().also { sub ->
        sub.topic = Topic.userWelcome(ClientManager.client.installationId).description
        sub.isSilent = false
    }.build()
@@ -111,5 +111,5 @@ These files can serve as the basis for what you might want to provide for your o
     ```kotlin
     XMTPPush(context, "10.0.2.2:8080").unsubscribe(conversations.map { it.topic })
     ```
-   
+
 8. See example in [PushNotificationsService](https://github.com/xmtp/xmtp-android/blob/main/example/src/main/java/org/xmtp/android/example/pushnotifications/PushNotificationsService.kt) for how to decrypt the different messages.

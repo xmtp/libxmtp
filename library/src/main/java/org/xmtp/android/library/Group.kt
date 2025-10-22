@@ -58,7 +58,8 @@ class Group(
     val lastActivityNs: Long
         get() = ffiLastMessage?.sentAtNs ?: createdAtNs
 
-    private suspend fun metadata(): FfiConversationMetadata = withContext(Dispatchers.IO) { libXMTPGroup.groupMetadata() }
+    private suspend fun metadata(): FfiConversationMetadata =
+        withContext(Dispatchers.IO) { libXMTPGroup.groupMetadata() }
 
     suspend fun permissions(): FfiGroupPermissions = withContext(Dispatchers.IO) { libXMTPGroup.groupPermissions() }
 
@@ -123,7 +124,10 @@ class Group(
     suspend fun isDisappearingMessagesEnabled(): Boolean =
         withContext(Dispatchers.IO) { libXMTPGroup.isConversationMessageDisappearingEnabled() }
 
-    suspend fun send(text: String): String = withContext(Dispatchers.IO) { send(encodeContent(content = text, options = null)) }
+    suspend fun send(text: String): String =
+        withContext(Dispatchers.IO) {
+            send(encodeContent(content = text, options = null))
+        }
 
     suspend fun <T> send(
         content: T,
@@ -528,7 +532,8 @@ class Group(
 
     suspend fun isAdmin(inboxId: InboxId): Boolean = withContext(Dispatchers.IO) { libXMTPGroup.isAdmin(inboxId) }
 
-    suspend fun isSuperAdmin(inboxId: InboxId): Boolean = withContext(Dispatchers.IO) { libXMTPGroup.isSuperAdmin(inboxId) }
+    suspend fun isSuperAdmin(inboxId: InboxId): Boolean =
+        withContext(Dispatchers.IO) { libXMTPGroup.isSuperAdmin(inboxId) }
 
     suspend fun addAdmin(inboxId: InboxId) =
         withContext(Dispatchers.IO) {

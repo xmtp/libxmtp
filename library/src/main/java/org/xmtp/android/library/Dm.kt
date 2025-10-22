@@ -88,9 +88,13 @@ class Dm(
     suspend fun isDisappearingMessagesEnabled(): Boolean =
         withContext(Dispatchers.IO) { libXMTPGroup.isConversationMessageDisappearingEnabled() }
 
-    private suspend fun metadata(): FfiConversationMetadata = withContext(Dispatchers.IO) { libXMTPGroup.groupMetadata() }
+    private suspend fun metadata(): FfiConversationMetadata =
+        withContext(Dispatchers.IO) { libXMTPGroup.groupMetadata() }
 
-    suspend fun send(text: String): String = withContext(Dispatchers.IO) { send(encodeContent(content = text, options = null)) }
+    suspend fun send(text: String): String =
+        withContext(Dispatchers.IO) {
+            send(encodeContent(content = text, options = null))
+        }
 
     suspend fun <T> send(
         content: T,

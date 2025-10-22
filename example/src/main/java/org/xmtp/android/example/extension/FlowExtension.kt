@@ -19,8 +19,9 @@ import kotlinx.coroutines.launch
 fun <T> Flow<T>.flowWhileShared(
     subscriptionCount: StateFlow<Int>,
     started: SharingStarted,
-): Flow<T> {
-    return started.command(subscriptionCount)
+): Flow<T> =
+    started
+        .command(subscriptionCount)
         .distinctUntilChanged()
         .flowOn(Dispatchers.IO)
         .flatMapLatest {
@@ -29,7 +30,6 @@ fun <T> Flow<T>.flowWhileShared(
                 SharingCommand.STOP, SharingCommand.STOP_AND_RESET_REPLAY_CACHE -> emptyFlow()
             }
         }
-}
 
 fun <T> stateFlow(
     scope: CoroutineScope,

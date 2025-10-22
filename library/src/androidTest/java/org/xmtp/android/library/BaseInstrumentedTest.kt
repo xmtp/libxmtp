@@ -83,7 +83,9 @@ abstract class BaseInstrumentedTest {
      * Creates a standard fixtures setup with automatic cleanup.
      * Returns the 5 standard test clients: alix, bo, caro, davon, eri.
      */
-    protected suspend fun createFixtures(api: ClientOptions.Api = ClientOptions.Api(XMTPEnvironment.LOCAL, false)): TestFixtures {
+    protected suspend fun createFixtures(
+        api: ClientOptions.Api = ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+    ): TestFixtures {
         //  Create accounts
         val alixAccount = PrivateKeyBuilder()
         val boAccount = PrivateKeyBuilder()

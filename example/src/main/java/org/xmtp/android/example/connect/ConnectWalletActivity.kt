@@ -19,7 +19,6 @@ import org.xmtp.android.example.R
 import org.xmtp.android.example.databinding.ActivityConnectWalletBinding
 
 class ConnectWalletActivity : AppCompatActivity() {
-
     private lateinit var binding: ActivityConnectWalletBinding
 
     override fun onCreate(savedInstanceState: Bundle?) {
