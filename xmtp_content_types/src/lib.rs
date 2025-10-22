@@ -71,6 +71,7 @@ impl TryFrom<&str> for ContentType {
                 Ok(Self::TransactionReference)
             }
             wallet_send_calls::WalletSendCallsCodec::TYPE_ID => Ok(Self::WalletSendCalls),
+            leave_request::LeaveRequestCodec::TYPE_ID => Ok(Self::LeaveRequest),
             _ => Err(format!("Unknown content type ID: {type_id}")),
         }
     }
