@@ -6,6 +6,7 @@ use crate::protocol::CollectionExtractor;
 use crate::protocol::EnvelopeError;
 use crate::protocol::GroupMessageExtractor;
 use crate::protocol::KeyPackagesExtractor;
+use crate::protocol::MessageMetadataExtractor;
 use crate::protocol::ProtocolEnvelope;
 use crate::protocol::SequencedExtractor;
 use crate::protocol::WelcomeMessageExtractor;
@@ -22,6 +23,7 @@ use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
 use xmtp_proto::mls_v1::BatchQueryCommitLogResponse;
 use xmtp_proto::types::GroupId;
+use xmtp_proto::types::GroupMessageMetadata;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::TopicKind;
 use xmtp_proto::types::WelcomeMessage;
@@ -204,5 +206,76 @@ where
     ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
         tracing::debug!("commit log disabled for d14n");
         Ok(BatchQueryCommitLogResponse { responses: vec![] })
+    }
+
+    async fn get_newest_group_message(
+        &self,
+        request: mls_v1::GetNewestGroupMessageRequest,
+    ) -> Result<Vec<Option<GroupMessageMetadata>>, Self::Error> {
+        let topics: Vec<Vec<u8>> = request
+            .group_ids
+            .into_iter()
+            .map(|id| TopicKind::GroupMessagesV1.build(id.as_slice()))
+            .collect();
+
+        let response = GetNewestEnvelopes::builder()
+            .topics(topics)
+            .build()?
+            .query(&self.message_client)
+            .await?;
+
+        let extractor = CollectionExtractor::new(response.results, MessageMetadataExtractor::new());
+        let responses = extractor.get()?;
+
+        Ok(responses)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::traits::{EnvelopeVisitor, Extractor};
+    use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
+
+    #[xmtp_common::test]
+    fn test_group_message_response_extractor_with_empty_envelope() {
+        let response = get_newest_envelope_response::Response {
+            originator_envelope: None,
+        };
+
+        let mut extractor = MessageMetadataExtractor::new();
+
+        // Test that the extractor handles empty responses gracefully
+        let result = extractor.visit_newest_envelope_response(&response);
+        assert!(
+            result.is_ok(),
+            "Extractor should handle empty response without error"
+        );
+
+        let responses = extractor.get();
+        assert_eq!(responses.len(), 1, "Should create exactly one response");
+
+        let extracted_response = &responses[0];
+        assert!(
+            extracted_response.is_none(),
+            "Should have no group message for empty envelope"
+        );
+    }
+
+    #[xmtp_common::test]
+    fn test_group_message_response_extractor_builder_pattern() {
+        // Test that the extractor can be built and used
+        let extractor = MessageMetadataExtractor::new();
+        let responses = extractor.get();
+        assert_eq!(responses.len(), 0, "New extractor should have no responses");
+
+        // Test default construction
+        let extractor2: MessageMetadataExtractor = Default::default();
+        let responses2 = extractor2.get();
+        assert_eq!(
+            responses2.len(),
+            0,
+            "Default extractor should have no responses"
+        );
     }
 }

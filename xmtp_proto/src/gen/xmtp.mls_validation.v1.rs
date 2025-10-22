@@ -278,8 +278,8 @@ impl ::prost::Name for GetAssociationStateRequest {
         "/xmtp.mls_validation.v1.GetAssociationStateRequest".into()
     }
 }
-/// Response to GetAssociationStateRequest, containing the final association state
-/// for an InboxID
+/// Response to GetAssociationStateRequest, containing the final association
+/// state for an InboxID
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetAssociationStateResponse {
     #[prost(message, optional, tag = "1")]
@@ -331,8 +331,9 @@ pub mod validation_api_server {
             tonic::Response<super::GetAssociationStateResponse>,
             tonic::Status,
         >;
-        /// Validates InboxID key packages and returns credential information for them, without checking
-        /// whether an InboxId \<\> InstallationPublicKey pair is really valid.
+        /// Validates InboxID key packages and returns credential information for them,
+        /// without checking whether an InboxId \<\> InstallationPublicKey pair is really
+        /// valid.
         async fn validate_inbox_id_key_packages(
             &self,
             request: tonic::Request<super::ValidateKeyPackagesRequest>,

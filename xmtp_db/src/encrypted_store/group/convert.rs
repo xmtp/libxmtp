@@ -12,7 +12,8 @@ impl TryFrom<GroupMembershipStateSave> for GroupMembershipState {
             GroupMembershipStateSave::Pending => Self::Pending,
             GroupMembershipStateSave::Rejected => Self::Rejected,
             GroupMembershipStateSave::Restored => Self::Restored,
-            GroupMembershipStateSave::Unspecified => {
+            GroupMembershipStateSave::PendingRemove => Self::Pending,
+            _ => {
                 return Err(ConversionError::Unspecified("group_membership_state"));
             }
         };

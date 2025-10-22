@@ -497,17 +497,17 @@ impl Conversations {
   pub async fn sync_all_conversations(
     &self,
     consent_states: Option<Vec<ConsentState>>,
-  ) -> Result<usize> {
+  ) -> Result<crate::client::GroupSyncSummary> {
     let consents: Option<Vec<XmtpConsentState>> =
       consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
 
-    let num_groups_synced = self
+    let summary = self
       .inner_client
       .sync_all_welcomes_and_groups(consents)
       .await
       .map_err(ErrorWrapper::from)?;
 
-    Ok(num_groups_synced)
+    Ok(summary.into())
   }
 
   #[napi]

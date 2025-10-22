@@ -733,11 +733,11 @@ impl FfiXmtpClient {
         )?)
     }
 
-    pub async fn sync_preferences(&self) -> Result<u64, GenericError> {
+    pub async fn sync_preferences(&self) -> Result<FfiGroupSyncSummary, GenericError> {
         let inner = self.inner_client.as_ref();
-        let num_groups_synced = inner.sync_all_welcomes_and_history_sync_groups().await?;
+        let summary = inner.sync_all_welcomes_and_history_sync_groups().await?;
 
-        Ok(num_groups_synced as u64)
+        Ok(summary.into())
     }
 
     pub fn signature_request(&self) -> Option<Arc<FfiSignatureRequest>> {
@@ -946,6 +946,21 @@ fn check_key(mut key: Vec<u8>) -> Result<Vec<u8>, GenericError> {
     }
     key.truncate(ENC_KEY_SIZE);
     Ok(key)
+}
+
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct FfiGroupSyncSummary {
+    pub num_eligible: u64,
+    pub num_synced: u64,
+}
+
+impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for FfiGroupSyncSummary {
+    fn from(summary: xmtp_mls::groups::welcome_sync::GroupSyncSummary) -> Self {
+        Self {
+            num_eligible: summary.num_eligible as u64,
+            num_synced: summary.num_synced as u64,
+        }
+    }
 }
 
 #[derive(uniffi::Record)]
@@ -1565,17 +1580,13 @@ impl FfiConversations {
     pub async fn sync_all_conversations(
         &self,
         consent_states: Option<Vec<FfiConsentState>>,
-    ) -> Result<u32, GenericError> {
+    ) -> Result<FfiGroupSyncSummary, GenericError> {
         let inner = self.inner_client.as_ref();
         let consents: Option<Vec<ConsentState>> =
             consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
-        let num_groups_synced: usize = inner.sync_all_welcomes_and_groups(consents).await?;
-        // Convert usize to u32 for compatibility with Uniffi
-        let num_groups_synced: u32 = num_groups_synced
-            .try_into()
-            .map_err(|_| GenericError::FailedToConvertToU32)?;
+        let summary = inner.sync_all_welcomes_and_groups(consents).await?;
 
-        Ok(num_groups_synced)
+        Ok(summary.into())
     }
 
     pub fn list(
@@ -4365,25 +4376,31 @@ mod tests {
 
         // Validate revocation
         let client_1_state_after_revoke = alix_client_1.inbox_state(true).await.unwrap();
-        let _client_2_state_after_revoke = alix_client_2.inbox_state(true).await.unwrap();
+        let client_2_state_after_revoke = alix_client_2.inbox_state(true).await.unwrap();
+        assert_eq!(client_1_state_after_revoke.installations.len(), 1);
+        assert_eq!(client_2_state_after_revoke.installations.len(), 1);
 
-        let alix_conversation_1 = alix_client_1.conversations();
-        alix_conversation_1
-            .sync_all_conversations(None)
+        alix_client_1
+            .conversation(group.id())
+            .unwrap()
+            .sync()
             .await
             .unwrap();
-        let alix_conversation_2 = alix_client_2.conversations();
-        alix_conversation_2
-            .sync_all_conversations(None)
+        alix_client_2.conversations().sync().await.unwrap();
+        alix_client_2
+            .conversation(group.id())
+            .unwrap()
+            .sync()
             .await
             .unwrap();
-        let bola_conversation_1 = bola_client_1.conversations();
-        bola_conversation_1
-            .sync_all_conversations(None)
+        bola_client_1.conversations().sync().await.unwrap();
+        bola_client_1
+            .conversation(group.id())
+            .unwrap()
+            .sync()
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        assert_eq!(client_1_state_after_revoke.installations.len(), 1);
 
         // Re-fetch group members
         let group_members = group.list_members().await.unwrap();
@@ -4393,7 +4410,8 @@ mod tests {
             .unwrap();
         assert_eq!(alix_member.installation_ids.len(), 1);
 
-        let alix_2_groups = alix_conversation_2
+        let alix_2_groups = alix_client_2
+            .conversations()
             .list(FfiListConversationsOptions::default())
             .unwrap();
 
@@ -4456,18 +4474,14 @@ mod tests {
         let client_1_state_after_revoke = alix_client_1.inbox_state(true).await.unwrap();
         let _client_2_state_after_revoke = alix_client_2.inbox_state(true).await.unwrap();
 
-        let alix_conversation_1 = alix_client_1.conversations();
-        alix_conversation_1
-            .sync_all_conversations(None)
-            .await
-            .unwrap();
-
-        let alix_conversation_2 = alix_client_2.conversations();
-        alix_conversation_2
-            .sync_all_conversations(None)
-            .await
-            .unwrap();
         assert_eq!(client_1_state_after_revoke.installations.len(), 1);
+
+        let alix_conversation_1 = alix_client_1.conversation(group.id()).unwrap();
+        alix_conversation_1.sync().await.unwrap();
+
+        alix_client_2.conversations().sync().await.unwrap();
+        let alix_conversation_2 = alix_client_2.conversation(group.id()).unwrap();
+        alix_conversation_2.sync().await.unwrap();
 
         // Re-fetch group members
         let group_members = group.list_members().await.unwrap();
@@ -4477,7 +4491,8 @@ mod tests {
             .unwrap();
         assert_eq!(alix_member.installation_ids.len(), 1);
 
-        let alix_2_groups = alix_conversation_2
+        let alix_2_groups = alix_client_2
+            .conversations()
             .list(FfiListConversationsOptions::default())
             .unwrap();
 
@@ -5081,12 +5096,12 @@ mod tests {
                 .unwrap();
         }
         bo.conversations().sync().await.unwrap();
-        let num_groups_synced_1: u32 = bo
+        let sync_summary_1 = bo
             .conversations()
             .sync_all_conversations(None)
             .await
             .unwrap();
-        assert_eq!(num_groups_synced_1, 30);
+        assert_eq!(sync_summary_1.num_eligible, 30);
 
         // Remove bo from all groups and sync
         for group in alix
@@ -5102,20 +5117,33 @@ mod tests {
         }
 
         // First sync after removal needs to process all groups and set them to inactive
-        let num_groups_synced_2: u32 = bo
+        let sync_summary_2 = bo
             .conversations()
             .sync_all_conversations(None)
             .await
             .unwrap();
-        assert_eq!(num_groups_synced_2, 30);
+        assert_eq!(sync_summary_2.num_synced, 30);
+
+        // Send a message to each group to make sure there is something to sync
+        for group in alix
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .unwrap()
+        {
+            group
+                .conversation
+                .send(vec![4, 5, 6], FfiSendMessageOpts::default())
+                .await
+                .unwrap();
+        }
 
         // Second sync after removal will not process inactive groups
-        let num_groups_synced_3: u32 = bo
+        let sync_summary_3 = bo
             .conversations()
             .sync_all_conversations(None)
             .await
             .unwrap();
-        assert_eq!(num_groups_synced_3, 0);
+        assert_eq!(sync_summary_3.num_synced, 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -7107,17 +7135,19 @@ mod tests {
             )
             .await
             .unwrap();
-        let alix_num_sync = alix_conversations
+        let alix_sync_summary = alix_conversations
             .sync_all_conversations(None)
             .await
             .unwrap();
         bola_conversations.sync().await.unwrap();
-        let bola_num_sync = bola_conversations
+        let bola_sync_summary = bola_conversations
             .sync_all_conversations(None)
             .await
             .unwrap();
-        assert_eq!(alix_num_sync, 1);
-        assert_eq!(bola_num_sync, 1);
+        assert_eq!(alix_sync_summary.num_eligible, 1);
+        assert_eq!(alix_sync_summary.num_synced, 0);
+        assert_eq!(bola_sync_summary.num_eligible, 1);
+        assert_eq!(bola_sync_summary.num_synced, 0);
 
         let alix_groups = alix_conversations
             .list_groups(FfiListConversationsOptions::default())
@@ -9049,7 +9079,6 @@ mod tests {
 
         // Send messages
         convo_bo.send_text("Bo hey").await.unwrap();
-        tokio::time::sleep(Duration::from_millis(500)).await;
         convo_alix.send_text("Alix hey").await.unwrap();
 
         let group_bo = bo_conn.find_group(&convo_bo.id()).unwrap().unwrap();
@@ -9315,15 +9344,9 @@ mod tests {
         let state = alix2.inbox_state(true).await.unwrap();
         assert_eq!(state.installations.len(), 2);
 
-        alix.conversations()
-            .sync_all_conversations(None)
-            .await
-            .unwrap();
-        alix2
-            .conversations()
-            .sync_all_conversations(None)
-            .await
-            .unwrap();
+        alix.sync_preferences().await.unwrap();
+        alix_group.sync().await.unwrap();
+        alix2.conversations().sync().await.unwrap();
 
         let sg1 = alix
             .inner_client

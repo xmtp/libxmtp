@@ -2758,6 +2758,7 @@ async fn get_keypackages_for_installation_ids(
 ) -> Result<(), GroupError> {
     let my_installation_id = context.installation_id().to_vec();
     let store = MlsStore::new(context.clone());
+    #[allow(unused)]
     let mut key_packages = store
         .get_key_packages_for_installation_ids(
             requested_installations

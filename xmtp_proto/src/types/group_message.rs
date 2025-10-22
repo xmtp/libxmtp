@@ -75,6 +75,7 @@ impl std::fmt::Display for GroupMessage {
         )
     }
 }
+
 #[cfg(test)]
 mod test {
     use openmls::prelude::ContentType;
