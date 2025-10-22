@@ -55,7 +55,6 @@ use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use futures::future::join_all;
 use rstest::*;
 use std::sync::Arc;
-use std::time::Duration;
 use wasm_bindgen_test::wasm_bindgen_test;
 use xmtp_common::RetryableError;
 use xmtp_common::StreamHandle as _;
@@ -1375,7 +1374,7 @@ async fn test_self_removal() {
         GroupMembershipState::PendingRemove
     );
 
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
 
     let _ = bola_i1_group.sync().await;
     let _ = bola_i2_group.sync().await;
