@@ -230,7 +230,7 @@ where
 
             if let Some(snapshot) = &self.snapshot {
                 db.conn()
-                    .raw_query_write(|c| c.deserialize_database_from_buffer(&***snapshot));
+                    .raw_query_write(|c| c.deserialize_database_from_buffer(snapshot));
             }
 
             client = client.store(db);
@@ -478,6 +478,7 @@ where
     }
 
     pub fn snapshot(mut self, snapshot: Arc<Vec<u8>>) -> Self {
+        self.ephemeral_db = true;
         self.snapshot = Some(snapshot);
         self
     }

@@ -239,6 +239,9 @@ async fn send_messages(
 
     info!("{:?}", bodashery.inbox_id());
 
+    // let dump = bodashery.dump_db();
+    // fs::write("test.db", dump).await.unwrap();
+
     Ok(async move {
         for i in 0..ctx.args.count {
             ctx.msg_tx.fetch_add(1, Ordering::SeqCst);
