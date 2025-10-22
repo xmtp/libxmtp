@@ -9,11 +9,53 @@ public enum MessageDeliveryStatus: String, Sendable {
 	case published
 	case unpublished
 	case failed
+
+	func toFfi() -> FfiDeliveryStatus? {
+		switch self {
+		case .all:
+			return nil
+		case .published:
+			return .published
+		case .unpublished:
+			return .unpublished
+		case .failed:
+			return .failed
+		}
+	}
+
+	static func fromFfi(_ ffiStatus: FfiDeliveryStatus) -> MessageDeliveryStatus {
+		switch ffiStatus {
+		case .published:
+			return .published
+		case .unpublished:
+			return .unpublished
+		case .failed:
+			return .failed
+		}
+	}
 }
 
 public enum SortDirection {
 	case ascending
 	case descending
+
+	func toFfi() -> FfiDirection {
+		switch self {
+		case .ascending:
+			return .ascending
+		case .descending:
+			return .descending
+		}
+	}
+
+	static func fromFfi(_ ffiDirection: FfiDirection) -> SortDirection {
+		switch ffiDirection {
+		case .ascending:
+			return .ascending
+		case .descending:
+			return .descending
+		}
+	}
 }
 
 public struct DecodedMessage: Identifiable {

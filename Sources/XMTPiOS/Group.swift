@@ -2,7 +2,7 @@ import Foundation
 
 final class MessageCallback: FfiMessageCallback {
 	func onClose() {
-		self.onCloseCallback()
+		onCloseCallback()
 	}
 
 	func onError(error: FfiSubscribeError) {
@@ -17,7 +17,7 @@ final class MessageCallback: FfiMessageCallback {
 		onClose: @escaping () -> Void
 	) {
 		self.callback = callback
-		self.onCloseCallback = onClose
+		onCloseCallback = onClose
 	}
 
 	func onMessage(message: FfiMessage) {
@@ -32,7 +32,7 @@ final class StreamHolder {
 public struct Group: Identifiable, Equatable, Hashable {
 	var ffiGroup: FfiConversation
 	var ffiLastMessage: FfiMessage? = nil
-    var ffiCommitLogForkStatus: Bool? = nil
+	var ffiCommitLogForkStatus: Bool? = nil
 	var client: Client
 	let streamHolder = StreamHolder()
 
@@ -117,8 +117,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	public func permissionPolicySet() throws -> PermissionPolicySet {
-		return PermissionPolicySet.fromFfiPermissionPolicySet(
-			try permissions().policySet())
+		return try PermissionPolicySet.fromFfiPermissionPolicySet(
+			permissions().policySet())
 	}
 
 	public func creatorInboxId() async throws -> InboxId {
@@ -150,14 +150,14 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public var createdAt: Date {
 		Date(millisecondsSinceEpoch: ffiGroup.createdAtNs())
 	}
-    
-    public var createdAtNs: Int64 {
-        ffiGroup.createdAtNs()
-    }
-    
-    public var lastActivityAtNs: Int64 {
-        ffiLastMessage?.sentAtNs ?? createdAtNs
-    }
+
+	public var createdAtNs: Int64 {
+		ffiGroup.createdAtNs()
+	}
+
+	public var lastActivityAtNs: Int64 {
+		ffiLastMessage?.sentAtNs ?? createdAtNs
+	}
 
 	public func addMembers(inboxIds: [InboxId]) async throws
 		-> GroupMembershipResult
@@ -219,7 +219,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 		try await ffiGroup.updatePermissionPolicy(
 			permissionUpdateType: FfiPermissionUpdateType.addMember,
 			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
-				option: newPermissionOption), metadataField: nil)
+				option: newPermissionOption), metadataField: nil
+		)
 	}
 
 	public func updateRemoveMemberPermission(
@@ -228,7 +229,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 		try await ffiGroup.updatePermissionPolicy(
 			permissionUpdateType: FfiPermissionUpdateType.removeMember,
 			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
-				option: newPermissionOption), metadataField: nil)
+				option: newPermissionOption), metadataField: nil
+		)
 	}
 
 	public func updateAddAdminPermission(newPermissionOption: PermissionOption)
@@ -237,7 +239,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 		try await ffiGroup.updatePermissionPolicy(
 			permissionUpdateType: FfiPermissionUpdateType.addAdmin,
 			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
-				option: newPermissionOption), metadataField: nil)
+				option: newPermissionOption), metadataField: nil
+		)
 	}
 
 	public func updateRemoveAdminPermission(
@@ -246,7 +249,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 		try await ffiGroup.updatePermissionPolicy(
 			permissionUpdateType: FfiPermissionUpdateType.removeAdmin,
 			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
-				option: newPermissionOption), metadataField: nil)
+				option: newPermissionOption), metadataField: nil
+		)
 	}
 
 	public func updateNamePermission(newPermissionOption: PermissionOption)
@@ -256,7 +260,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 			permissionUpdateType: FfiPermissionUpdateType.updateMetadata,
 			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
 				option: newPermissionOption),
-			metadataField: FfiMetadataField.groupName)
+			metadataField: FfiMetadataField.groupName
+		)
 	}
 
 	public func updateDescriptionPermission(
@@ -266,7 +271,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 			permissionUpdateType: FfiPermissionUpdateType.updateMetadata,
 			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
 				option: newPermissionOption),
-			metadataField: FfiMetadataField.description)
+			metadataField: FfiMetadataField.description
+		)
 	}
 
 	public func updateImageUrlPermission(
@@ -276,7 +282,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 			permissionUpdateType: FfiPermissionUpdateType.updateMetadata,
 			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
 				option: newPermissionOption),
-			metadataField: FfiMetadataField.imageUrlSquare)
+			metadataField: FfiMetadataField.imageUrlSquare
+		)
 	}
 
 	public func updateDisappearingMessageSettings(
@@ -323,7 +330,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 		-> String
 	{
 		let encodeContent = try await encodeContent(
-			content: content, options: options)
+			content: content, options: options
+		)
 		return try await send(encodedContent: encodeContent)
 	}
 
@@ -387,9 +395,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 		async throws -> String
 	{
 		let encodeContent = try await encodeContent(
-			content: content, options: options)
+			content: content, options: options
+		)
 		return try ffiGroup.sendOptimistic(
-			contentBytes: try encodeContent.serializedData()
+			contentBytes: encodeContent.serializedData()
 		).toHex
 	}
 
@@ -398,7 +407,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	public func endStream() {
-		self.streamHolder.stream?.end()
+		streamHolder.stream?.end()
 	}
 
 	public func streamMessages(onClose: (() -> Void)? = nil)
@@ -444,13 +453,13 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 	}
 
-    public func commitLogForkStatus() -> CommitLogForkStatus {
-        switch ffiCommitLogForkStatus {
-            case true: return .forked
-            case false: return .notForked
-            default: return .unknown
-        }
-    }
+	public func commitLogForkStatus() -> CommitLogForkStatus {
+		switch ffiCommitLogForkStatus {
+		case true: return .forked
+		case false: return .notForked
+		default: return .unknown
+		}
+	}
 
 	public func messages(
 		beforeNs: Int64? = nil,
@@ -508,7 +517,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 		return try await ffiGroup.findMessages(opts: options).compactMap {
 			ffiMessage in
-			return DecodedMessage.create(ffiMessage: ffiMessage)
+			DecodedMessage.create(ffiMessage: ffiMessage)
 		}
 	}
 
@@ -566,10 +575,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 		options.direction = direction
 
-		return try await ffiGroup.findMessagesWithReactions(opts: options)
+		return try ffiGroup.findMessagesWithReactions(opts: options)
 			.compactMap {
 				ffiMessageWithReactions in
-				return DecodedMessage.create(
+				DecodedMessage.create(
 					ffiMessage: ffiMessageWithReactions)
 			}
 	}
@@ -628,10 +637,21 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 		options.direction = direction
 
-		return try await ffiGroup.findMessagesV2(opts: options).compactMap {
+		return try ffiGroup.findMessagesV2(opts: options).compactMap {
 			ffiDecodedMessage in
-			return DecodedMessageV2(ffiMessage: ffiDecodedMessage)
+			DecodedMessageV2(ffiMessage: ffiDecodedMessage)
 		}
+	}
+
+	public func countMessages(beforeNs: Int64? = nil, afterNs: Int64? = nil, deliveryStatus: MessageDeliveryStatus = .all) throws -> Int64 {
+		return try ffiGroup.countMessages(opts: FfiListMessagesOptions(
+			sentBeforeNs: beforeNs,
+			sentAfterNs: afterNs,
+			limit: nil,
+			deliveryStatus: deliveryStatus.toFfi(),
+			direction: .descending,
+			contentTypes: nil
+		))
 	}
 
 	public func getHmacKeys() throws
@@ -646,14 +666,14 @@ public struct Group: Identifiable, Equatable, Hashable {
 			for key in convo.value {
 				var hmacKeyData =
 					Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse
-					.HmacKeyData()
+						.HmacKeyData()
 				hmacKeyData.hmacKey = key.key
 				hmacKeyData.thirtyDayPeriodsSinceEpoch = Int32(key.epoch)
 				hmacKeys.values.append(hmacKeyData)
-
 			}
 			hmacKeysResponse.hmacKeys[
-				Topic.groupMessage(convo.key.toHex).description] = hmacKeys
+				Topic.groupMessage(convo.key.toHex).description
+			] = hmacKeys
 		}
 
 		return hmacKeysResponse
@@ -664,12 +684,12 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	public func getDebugInformation() async throws -> ConversationDebugInfo {
-		return ConversationDebugInfo(
-			ffiConversationDebugInfo: try await ffiGroup.conversationDebugInfo()
+		return try ConversationDebugInfo(
+			ffiConversationDebugInfo: await ffiGroup.conversationDebugInfo()
 		)
 	}
-    
-    public func getLastReadTimes() throws -> Dictionary<String, Int64> {
-        return try ffiGroup.getLastReadTimes()
-    }
+
+	public func getLastReadTimes() throws -> [String: Int64] {
+		return try ffiGroup.getLastReadTimes()
+	}
 }

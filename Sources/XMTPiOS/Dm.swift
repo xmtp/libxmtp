@@ -358,20 +358,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			options.limit = Int64(limit)
 		}
 
-		let status: FfiDeliveryStatus? = {
-			switch deliveryStatus {
-			case .published:
-				return FfiDeliveryStatus.published
-			case .unpublished:
-				return FfiDeliveryStatus.unpublished
-			case .failed:
-				return FfiDeliveryStatus.failed
-			default:
-				return nil
-			}
-		}()
-
-		options.deliveryStatus = status
+		options.deliveryStatus = deliveryStatus.toFfi()
 
 		let direction: FfiDirection? = {
 			switch direction {
@@ -384,13 +371,25 @@ public struct Dm: Identifiable, Equatable, Hashable {
 
 		options.direction = direction
 
-		return try await ffiConversation.findMessagesWithReactions(
+		return try ffiConversation.findMessagesWithReactions(
 			opts: options
 		).compactMap {
 			ffiMessageWithReactions in
 			return DecodedMessage.create(ffiMessage: ffiMessageWithReactions)
 		}
 	}
+    
+    // Count the number of messages in the conversation according to the provided filters
+    public func countMessages(beforeNs: Int64? = nil, afterNs: Int64? = nil, deliveryStatus: MessageDeliveryStatus = .all) throws -> Int64 {
+        return try ffiConversation.countMessages(opts: FfiListMessagesOptions(
+            sentBeforeNs: beforeNs,
+            sentAfterNs: afterNs,
+            limit: nil,
+            deliveryStatus: deliveryStatus.toFfi(),
+            direction: .descending,
+            contentTypes: nil
+        ))
+    }
 
 	public func enrichedMessages(
 		beforeNs: Int64? = nil,

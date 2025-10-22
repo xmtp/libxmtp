@@ -843,6 +843,8 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
     
     func conversationType()  -> FfiConversationType
     
+    func countMessages(opts: FfiListMessagesOptions) throws  -> Int64
+    
     func createdAtNs()  -> Int64
     
     func dmPeerInboxId()  -> String?
@@ -1096,6 +1098,14 @@ open func conversationMessageDisappearingSettings()throws  -> FfiMessageDisappea
 open func conversationType() -> FfiConversationType  {
     return try!  FfiConverterTypeFfiConversationType_lift(try! rustCall() {
     uniffi_xmtpv3_fn_method_fficonversation_conversation_type(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+open func countMessages(opts: FfiListMessagesOptions)throws  -> Int64  {
+    return try  FfiConverterInt64.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    uniffi_xmtpv3_fn_method_fficonversation_count_messages(self.uniffiClonePointer(),
+        FfiConverterTypeFfiListMessagesOptions_lower(opts),$0
     )
 })
 }
@@ -3701,7 +3711,7 @@ public protocol FfiSignatureRequestProtocol: AnyObject, Sendable {
     func isReady() async  -> Bool
     
     /**
-     * missing signatures that are from [MemberKind::Address]
+     * missing signatures that are from `MemberKind::Address`
      */
     func missingAddressSignatures() async throws  -> [String]
     
@@ -3830,7 +3840,7 @@ open func isReady()async  -> Bool  {
 }
     
     /**
-     * missing signatures that are from [MemberKind::Address]
+     * missing signatures that are from `MemberKind::Address`
      */
 open func missingAddressSignatures()async throws  -> [String]  {
     return
@@ -4288,6 +4298,8 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
     
     func dbReconnect() async throws 
     
+    func deleteMessage(messageId: Data) throws  -> UInt32
+    
     func dmConversation(targetInboxId: String) throws  -> FfiConversation
     
     func findInboxId(identifier: FfiIdentifier) async throws  -> String?
@@ -4618,6 +4630,14 @@ open func dbReconnect()async throws   {
             liftFunc: { $0 },
             errorHandler: FfiConverterTypeGenericError_lift
         )
+}
+    
+open func deleteMessage(messageId: Data)throws  -> UInt32  {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    uniffi_xmtpv3_fn_method_ffixmtpclient_delete_message(self.uniffiClonePointer(),
+        FfiConverterData.lower(messageId),$0
+    )
+})
 }
     
 open func dmConversation(targetInboxId: String)throws  -> FfiConversation  {
@@ -7100,16 +7120,18 @@ public struct FfiListMessagesOptions {
     public var deliveryStatus: FfiDeliveryStatus?
     public var direction: FfiDirection?
     public var contentTypes: [FfiContentType]?
+    public var excludeContentTypes: [FfiContentType]?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(sentBeforeNs: Int64?, sentAfterNs: Int64?, limit: Int64?, deliveryStatus: FfiDeliveryStatus?, direction: FfiDirection?, contentTypes: [FfiContentType]?) {
+    public init(sentBeforeNs: Int64?, sentAfterNs: Int64?, limit: Int64?, deliveryStatus: FfiDeliveryStatus?, direction: FfiDirection?, contentTypes: [FfiContentType]?, excludeContentTypes: [FfiContentType]?) {
         self.sentBeforeNs = sentBeforeNs
         self.sentAfterNs = sentAfterNs
         self.limit = limit
         self.deliveryStatus = deliveryStatus
         self.direction = direction
         self.contentTypes = contentTypes
+        self.excludeContentTypes = excludeContentTypes
     }
 }
 
@@ -7138,6 +7160,9 @@ extension FfiListMessagesOptions: Equatable, Hashable {
         if lhs.contentTypes != rhs.contentTypes {
             return false
         }
+        if lhs.excludeContentTypes != rhs.excludeContentTypes {
+            return false
+        }
         return true
     }
 
@@ -7148,6 +7173,7 @@ extension FfiListMessagesOptions: Equatable, Hashable {
         hasher.combine(deliveryStatus)
         hasher.combine(direction)
         hasher.combine(contentTypes)
+        hasher.combine(excludeContentTypes)
     }
 }
 
@@ -7165,7 +7191,8 @@ public struct FfiConverterTypeFfiListMessagesOptions: FfiConverterRustBuffer {
                 limit: FfiConverterOptionInt64.read(from: &buf), 
                 deliveryStatus: FfiConverterOptionTypeFfiDeliveryStatus.read(from: &buf), 
                 direction: FfiConverterOptionTypeFfiDirection.read(from: &buf), 
-                contentTypes: FfiConverterOptionSequenceTypeFfiContentType.read(from: &buf)
+                contentTypes: FfiConverterOptionSequenceTypeFfiContentType.read(from: &buf), 
+                excludeContentTypes: FfiConverterOptionSequenceTypeFfiContentType.read(from: &buf)
         )
     }
 
@@ -7176,6 +7203,7 @@ public struct FfiConverterTypeFfiListMessagesOptions: FfiConverterRustBuffer {
         FfiConverterOptionTypeFfiDeliveryStatus.write(value.deliveryStatus, into: &buf)
         FfiConverterOptionTypeFfiDirection.write(value.direction, into: &buf)
         FfiConverterOptionSequenceTypeFfiContentType.write(value.contentTypes, into: &buf)
+        FfiConverterOptionSequenceTypeFfiContentType.write(value.excludeContentTypes, into: &buf)
     }
 }
 
@@ -13525,19 +13553,15 @@ public func isConnected(api: XmtpApiClient)async  -> Bool  {
 /**
  * * Static revoke a list of installations
  */
-public func revokeInstallations(api: XmtpApiClient, recoveryIdentifier: FfiIdentifier, inboxId: String, installationIds: [Data])async throws  -> FfiSignatureRequest  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_xmtpv3_fn_func_revoke_installations(FfiConverterTypeXmtpApiClient_lower(api),FfiConverterTypeFfiIdentifier_lower(recoveryIdentifier),FfiConverterString.lower(inboxId),FfiConverterSequenceData.lower(installationIds)
-                )
-            },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
-            liftFunc: FfiConverterTypeFfiSignatureRequest_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
-        )
+public func revokeInstallations(api: XmtpApiClient, recoveryIdentifier: FfiIdentifier, inboxId: String, installationIds: [Data])throws  -> FfiSignatureRequest  {
+    return try  FfiConverterTypeFfiSignatureRequest_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    uniffi_xmtpv3_fn_func_revoke_installations(
+        FfiConverterTypeXmtpApiClient_lower(api),
+        FfiConverterTypeFfiIdentifier_lower(recoveryIdentifier),
+        FfiConverterString.lower(inboxId),
+        FfiConverterSequenceData.lower(installationIds),$0
+    )
+})
 }
 
 private enum InitializationResult {
@@ -13642,7 +13666,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_is_connected() != 17295) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_revoke_installations() != 23629) {
+    if (uniffi_xmtpv3_checksum_func_revoke_installations() != 39546) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonsentcallback_on_consent_update() != 12532) {
@@ -13682,6 +13706,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_conversation_type() != 43322) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_fficonversation_count_messages() != 14036) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_created_at_ns() != 17973) {
@@ -13972,7 +13999,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_is_ready() != 65051) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_missing_address_signatures() != 34688) {
+    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_missing_address_signatures() != 55383) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_signature_text() != 60472) {
@@ -14033,6 +14060,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_db_reconnect() != 6707) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_delete_message() != 34289) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_dm_conversation() != 23917) {

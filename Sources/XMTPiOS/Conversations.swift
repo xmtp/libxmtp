@@ -192,6 +192,11 @@ public class Conversations {
 			return nil
 		}
 	}
+    
+    // Delete a message from your local database. Does not impact other devices or installations
+    public func deleteMessageLocally(messageId: String) throws {
+        let _ = try ffiClient.deleteMessage(messageId: messageId.hexToData)
+    }
 
 	public func sync() async throws {
 		try await ffiConversations.sync()

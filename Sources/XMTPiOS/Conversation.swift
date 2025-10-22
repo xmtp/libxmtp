@@ -340,6 +340,19 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			)
 		}
 	}
+    
+    public func countMessages(
+        beforeNs: Int64? = nil,
+        afterNs: Int64? = nil,
+        deliveryStatus: MessageDeliveryStatus = .all
+    ) throws -> Int64 {
+        switch self {
+        case let .group(group):
+            return try group.countMessages(beforeNs: beforeNs, afterNs: afterNs, deliveryStatus: deliveryStatus)
+        case let .dm(dm):
+            return try dm.countMessages(beforeNs: beforeNs, afterNs: afterNs, deliveryStatus: deliveryStatus)
+        }
+    }
 
 	public func getHmacKeys() throws -> Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse {
 		switch self {

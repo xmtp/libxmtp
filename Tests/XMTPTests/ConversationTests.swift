@@ -224,30 +224,30 @@ class ConversationTests: XCTestCase {
 		}
 		try fixtures.cleanUpDatabases()
 	}
-    
+
     func testMessagesDontDisappear() async throws {
             let fixtures = try await fixtures()
-            
+
             let alixGroup = try await fixtures.alixClient.conversations.newGroup(
                 with: [
                     fixtures.boClient.inboxID,
                 ])
-            
+
             _ = try await fixtures.alixClient.conversations.syncAllConversations()
-            
+
             _ = try await alixGroup.send(content: "hello world")
 
             let alixMessages = try await alixGroup.messages()
             XCTAssertEqual(alixMessages.count, 2)
-            
+
             try await Task.sleep(nanoseconds: 1_000_000_000)  // 1 seconds
-            
+
             try await alixGroup.sync()
-            
+
             let messages_2 = try await alixGroup.messages()
-			
+
             XCTAssertEqual(messages_2.count, 2)
-            
+
             try fixtures.cleanUpDatabases()
         }
 
@@ -367,21 +367,21 @@ class ConversationTests: XCTestCase {
 
 	func testCanCreateOptimisticGroup() async throws {
 		let fixtures = try await fixtures()
-		
+
 		let optimisticGroup = try await fixtures.boClient.conversations.newGroupOptimistic(
 			groupName: "Testing"
 		)
-		
+
 		XCTAssertEqual(try optimisticGroup.name(), "Testing")
-		
+
 		_ = try await optimisticGroup.prepareMessage(content: "testing")
         let messages = try await optimisticGroup.messages()
 		XCTAssertEqual(messages.count, 1)
-		
+
 		_ = try await optimisticGroup.addMembers(inboxIds: [fixtures.alixClient.inboxID])
 		try await optimisticGroup.sync()
 		try await optimisticGroup.publishMessages()
-		
+
         let messagesUpdated = try await optimisticGroup.messages()
         let members = try await optimisticGroup.members
         let name = try optimisticGroup.name()
@@ -393,7 +393,7 @@ class ConversationTests: XCTestCase {
 
 	func testCanStreamAllMessagesFilterConsent() async throws {
 		let fixtures = try await fixtures()
-		
+
 		// Create groups and conversations
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
 			fixtures.caroClient.inboxID
@@ -405,17 +405,17 @@ class ConversationTests: XCTestCase {
 		])
 		let blockedConversation = try await fixtures.boClient.conversations.findOrCreateDm(
 			with: fixtures.alixClient.inboxID)
-		
+
 		// Block some conversations
 		try await blockedGroup.updateConsentState(state: .denied)
 		try await blockedConversation.updateConsentState(state: .denied)
 		try await fixtures.boClient.conversations.sync()
-		
+
 		// Collect messages
 		var allMessages: [DecodedMessage] = []
 		let expectation = XCTestExpectation(description: "received allowed messages")
 		expectation.expectedFulfillmentCount = 2
-		
+
 		// Start streaming
 		let streamTask = Task {
 			for try await message in await fixtures.boClient.conversations.streamAllMessages(
@@ -423,28 +423,28 @@ class ConversationTests: XCTestCase {
 			) {
 				allMessages.append(message)
 				expectation.fulfill()
-				
+
 				if allMessages.count >= 2 {
 					break
 				}
 			}
 		}
-		
+
 		// Wait a bit before sending messages
 		try await Task.sleep(nanoseconds: 1_000_000_000)  // 1 second
-		
+
 		// Send messages to all conversations
 		_ = try await group.send(content: "hi")
 		_ = try await conversation.send(content: "hi")
 		_ = try await blockedGroup.send(content: "hi")
 		_ = try await blockedConversation.send(content: "hi")
-		
+
 		// Wait for expectation to be fulfilled or timeout
 		await fulfillment(of: [expectation], timeout: 3)
-		
+
 		// Cancel streaming task
 		streamTask.cancel()
-		
+
 		// Verify we only received messages from allowed conversations
 		XCTAssertEqual(allMessages.count, 2)
 		try fixtures.cleanUpDatabases()
@@ -455,63 +455,63 @@ class ConversationTests: XCTestCase {
 		let opts = ClientOptions(
 			api: ClientOptions.Api(env: .local, isSecure: false),
 			dbEncryptionKey: key)
-		
+
 		// Create a new private key for Eri
 		let eriWallet = try PrivateKey.generate()
-		
+
 		// Create first client for Eri
 		let eriClient = try await Client.create(
-			account: eriWallet, 
+			account: eriWallet,
 			options: opts)
-		
+
 		let fixtures = try await fixtures()
-		
+
 		// Create first DM
 		let dm1 = try await eriClient.conversations.findOrCreateDm(
 			with: fixtures.boClient.inboxID)
-		
+
 		// Create a group
 		_ = try await fixtures.boClient.conversations.newGroup(
 			with: [eriClient.inboxID])
-		
+
 		// Create a second client with the same key
 		let dbPath = FileManager.default.temporaryDirectory.appendingPathComponent(
 			UUID().uuidString).path
 		var opts2 = opts
         opts2.dbDirectory = dbPath
-		
+
 		let eriClient2 = try await Client.create(
-			account: eriWallet, 
+			account: eriWallet,
 			options: opts2)
-		
+
 		// Create a second DM using the second client
 		_ = try await eriClient2.conversations.findOrCreateDm(
 			with: fixtures.boClient.inboxID)
-		
+
 		// Sync all the clients
 		_ = try await fixtures.boClient.conversations.syncAllConversations()
 		_ = try await eriClient2.conversations.syncAllConversations()
 		_ = try await eriClient.conversations.syncAllConversations()
-		
+
 		// Get all the topics and HMAC keys
         let allTopics = try await eriClient.conversations.allPushTopics()
 		let conversations = try await eriClient.conversations.list()
 		let allHmacKeys = try await eriClient.conversations.getHmacKeys()
 		let dmHmacKeys = try dm1.getHmacKeys()
 		let dmTopics = try await dm1.getPushTopics()
-		
+
 		// Assertions
 		XCTAssertEqual(allTopics.count, 3)
 		XCTAssertEqual(conversations.count, 2)
-		
+
 		let hmacTopics = allHmacKeys.hmacKeys.keys
 		for topic in allTopics {
 			XCTAssertTrue(hmacTopics.contains(topic))
 		}
-		
+
 		XCTAssertEqual(dmTopics.count, 2)
 		XCTAssertTrue(Set(allTopics).isSuperset(of: Set(dmTopics)))
-		
+
 		let dmHmacTopics = dmHmacKeys.hmacKeys.keys
 		for topic in dmTopics {
 			XCTAssertTrue(dmHmacTopics.contains(topic))
@@ -521,22 +521,22 @@ class ConversationTests: XCTestCase {
 
 	func testCanListConversationsAndCheckCommitLogForkStatus() async throws {
 		let fixtures = try await fixtures()
-		
+
 		_ = try await fixtures.boClient.conversations.findOrCreateDm(
 			with: fixtures.caroClient.inboxID)
 		_ = try await fixtures.boClient.conversations.newGroup(with: [
 			fixtures.caroClient.inboxID
 		])
-		
+
 		try await fixtures.caroClient.conversations.sync()
 		let caroConversations = try await fixtures.caroClient.conversations.list()
-		
+
 		XCTAssertEqual(caroConversations.count, 2)
-		
+
 		var numForkStatusUnknown = 0
 		var numForkStatusForked = 0
 		var numForkStatusNotForked = 0
-		
+
 		for conversation in caroConversations {
 			let forkStatus =  conversation.commitLogForkStatus()
 			switch forkStatus {
@@ -548,12 +548,82 @@ class ConversationTests: XCTestCase {
 				numForkStatusUnknown += 1
 			}
 		}
-		
+
 		// Right now worker runs every 5 minutes so we'd need to wait that long to verify not forked
 		XCTAssertEqual(numForkStatusForked, 0)
 		XCTAssertEqual(numForkStatusNotForked, 0)
 		XCTAssertEqual(numForkStatusUnknown, 2)
-		
+
 		try fixtures.cleanUpDatabases()
 	}
+
+    func testDeleteMessage() async throws {
+        let fixtures = try await fixtures()
+
+        let dm = try await fixtures.boClient.conversations.findOrCreateDm(
+            with: fixtures.caroClient.inboxID)
+
+        let msgID = try await dm.send(content: "This will be deleted")
+
+        let originalNumberOfMessages = try await dm.messages().count
+        try fixtures.boClient.conversations.deleteMessageLocally(messageId: msgID)
+
+        let newMessageCount = try await dm.messages().count
+        XCTAssertEqual(newMessageCount, originalNumberOfMessages - 1)
+    }
+
+    func testCountMessages() async throws {
+        let fixtures = try await fixtures()
+
+        // Create a group and a DM
+        let group = try await fixtures.boClient.conversations.newGroup(with: [
+            fixtures.caroClient.inboxID
+        ])
+        let dm = try await fixtures.boClient.conversations.findOrCreateDm(
+            with: fixtures.caroClient.inboxID)
+
+        // Initially both should have 0 messages (or 1 for group with membership change)
+        let initialGroupCount = try group.countMessages()
+        let initialDmCount = try dm.countMessages()
+
+        // Group might have 1 initial membership change message
+        XCTAssertTrue(initialGroupCount == 0 || initialGroupCount == 1)
+        XCTAssertEqual(initialDmCount, 0)
+
+        // Send messages to the group
+        _ = try await group.send(content: "Group message 1")
+        _ = try await group.send(content: "Group message 2")
+        _ = try await group.send(content: "Group message 3")
+
+        // Send messages to the DM
+        _ = try await dm.send(content: "DM message 1")
+        _ = try await dm.send(content: "DM message 2")
+
+        // Count messages in both conversations
+        let groupCount = try group.countMessages()
+        let dmCount = try dm.countMessages()
+
+        // Verify counts (group may have +1 for membership change)
+        XCTAssertTrue(groupCount == 3 || groupCount == 4)
+        XCTAssertEqual(dmCount, 2)
+
+        // Test counting with delivery status filter
+        let publishedGroupCount = try group.countMessages(deliveryStatus: .published)
+        let publishedDmCount = try dm.countMessages(deliveryStatus: .published)
+
+        // All sent messages should be published
+        XCTAssertTrue(publishedGroupCount == 3 || publishedGroupCount == 4)
+        XCTAssertEqual(publishedDmCount, 2)
+
+        // Test counting with time-based filters
+        let now = Int64(Date().millisecondsSinceEpoch)
+        let futureGroupCount = try group.countMessages(afterNs: now * 1_000_000)
+        let futureDmCount = try dm.countMessages(afterNs: now * 1_000_000)
+
+        // No messages should be after current time
+        XCTAssertEqual(futureGroupCount, 0)
+        XCTAssertEqual(futureDmCount, 0)
+
+        try fixtures.cleanUpDatabases()
+    }
 }

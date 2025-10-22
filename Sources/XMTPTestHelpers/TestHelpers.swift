@@ -3,22 +3,22 @@
 	import XCTest
 	import XMTPiOS
 
-	public struct TestConfig {
+	public enum TestConfig {
 		static let TEST_SERVER_ENABLED = _env("TEST_SERVER_ENABLED") == "true"
 		// TODO: change Client constructor to accept these explicitly (so we can config CI):
 		// static let TEST_SERVER_HOST = _env("TEST_SERVER_HOST") ?? "127.0.0.1"
 		// static let TEST_SERVER_PORT = Int(_env("TEST_SERVER_PORT")) ?? 5556
 		// static let TEST_SERVER_IS_SECURE = _env("TEST_SERVER_IS_SECURE") == "true"
 
-		static private func _env(_ key: String) -> String? {
+		private static func _env(_ key: String) -> String? {
 			ProcessInfo.processInfo.environment[key]
 		}
 
-		static public func skipIfNotRunningLocalNodeTests() throws {
+		public static func skipIfNotRunningLocalNodeTests() throws {
 			try XCTSkipIf(!TEST_SERVER_ENABLED, "requires local node")
 		}
 
-		static public func skip(because: String) throws {
+		public static func skip(because: String) throws {
 			try XCTSkipIf(true, because)
 		}
 	}
@@ -49,22 +49,26 @@
 			caro = try PrivateKey.generate()
 			davon = try PrivateKey.generate()
 
-			let key = Data((0..<32).map { _ in UInt8.random(in: 0...255) })
-			let clientOptions: ClientOptions = ClientOptions(
+			let key = Data((0 ..< 32).map { _ in UInt8.random(in: 0 ... 255) })
+			let clientOptions = ClientOptions(
 				api: clientOptions,
 				dbEncryptionKey: key
 			)
 
 			alixClient = try await Client.create(
-				account: alix, options: clientOptions)
+				account: alix, options: clientOptions
+			)
 			boClient = try await Client.create(
-				account: bo, options: clientOptions)
+				account: bo, options: clientOptions
+			)
 			caroClient = try await Client.create(
-				account: caro, options: clientOptions)
+				account: caro, options: clientOptions
+			)
 			davonClient = try await Client.create(
-				account: davon, options: clientOptions)
+				account: davon, options: clientOptions
+			)
 		}
-		
+
 		public func cleanUpDatabases() throws {
 			for client in [alixClient, boClient, caroClient, davonClient] {
 				try client?.deleteLocalDatabase()
@@ -72,11 +76,12 @@
 		}
 	}
 
-	extension XCTestCase {
+	public extension XCTestCase {
 		@available(iOS 15, *)
-		public func fixtures(
+		func fixtures(
 			clientOptions: ClientOptions.Api = ClientOptions.Api(
-				env: XMTPEnvironment.local, isSecure: false)
+				env: XMTPEnvironment.local, isSecure: false
+			)
 		) async throws -> Fixtures {
 			return try await Fixtures(clientOptions: clientOptions)
 		}

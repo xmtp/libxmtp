@@ -31,7 +31,7 @@ swift test -v | grep -E "Test Case|XCTAssert|failures"
 
 ```bash
 # Run SwiftLint (must be installed separately)
-swiftlint Sources/ example/
+./dev/lint
 
 # Validate CocoaPods spec
 pod lib lint --allow-warnings
