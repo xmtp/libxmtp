@@ -1,11 +1,10 @@
 //! WebAssembly specific connection for a SQLite Database
-//! Stores a single connection behind a mutex that's used for every libxmtp operation
+//! Stores a single connection behind a RefCell that's used for every libxmtp operation
 use crate::DbConnection;
 use crate::PersistentOrMem;
 use crate::{ConnectionExt, StorageOption, XmtpDb};
 use diesel::prelude::SqliteConnection;
 use diesel::{connection::SimpleConnection, prelude::*};
-use parking_lot::Mutex;
 use sqlite_wasm_rs::sahpool_vfs::OpfsSAHPoolCfg;
 use std::cell::RefCell;
 use std::rc::Rc;

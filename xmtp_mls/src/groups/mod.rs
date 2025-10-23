@@ -1620,7 +1620,7 @@ where
     }
 
     /// Checks if the given inbox ID is a super admin of the group at the most recently synced epoch
-    pub fn is_super_admin_from_metadata(
+    pub fn is_super_admin_without_lock(
         &self,
         mls_group: &OpenMlsGroup,
         inbox_id: String,
