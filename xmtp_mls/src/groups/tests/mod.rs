@@ -1267,7 +1267,6 @@ async fn test_non_member_cannot_leave_group() {
 
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal() {
-    xmtp_common::logger();
     let amal_wallet = generate_local_wallet();
     let bola_wallet = generate_local_wallet();
     let amal = ClientBuilder::new_test_client(&amal_wallet).await;
