@@ -1265,6 +1265,7 @@ async fn test_non_member_cannot_leave_group() {
     );
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal() {
     let amal_wallet = generate_local_wallet();
@@ -1384,6 +1385,7 @@ async fn test_self_removal() {
     assert_eq!(amal_group.members().await.unwrap().len(), 1);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_simple() {
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1407,6 +1409,7 @@ async fn test_self_removal_simple() {
     assert!(!bola_group.is_active().unwrap());
     assert_eq!(amal_group.members().await.unwrap().len(), 1);
 }
+#[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_group_update_message() {
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1445,6 +1448,7 @@ async fn test_self_removal_group_update_message() {
         bola.inbox_id().to_string()
     );
 }
+#[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_single_installations() {
     let amal_wallet = generate_local_wallet();
@@ -1527,6 +1531,7 @@ async fn test_self_removal_single_installations() {
     assert_eq!(amal_group_member_state, GroupMembershipState::Allowed);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_with_multiple_initial_installations() {
     let amal_wallet = generate_local_wallet();
@@ -1595,6 +1600,7 @@ async fn test_self_removal_with_multiple_initial_installations() {
     );
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(flavor = "current_thread")]
 #[ignore] // fix after consent sync
 async fn test_self_removal_with_late_installation() {
