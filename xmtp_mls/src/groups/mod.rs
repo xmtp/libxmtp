@@ -1619,6 +1619,16 @@ where
         Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
     }
 
+    /// Checks if the given inbox ID is a super admin of the group at the most recently synced epoch
+    pub fn is_super_admin_from_metadata(
+        &self,
+        mls_group: &OpenMlsGroup,
+        inbox_id: String,
+    ) -> Result<bool, GroupMutableMetadataError> {
+        let mutable_metadata = GroupMutableMetadata::try_from(mls_group)?;
+        Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
+    }
+
     /// Retrieves the conversation type of the group from the group's metadata extension.
     pub async fn conversation_type(&self) -> Result<ConversationType, GroupError> {
         let conversation_type = self.context.db().get_conversation_type(&self.group_id)?;

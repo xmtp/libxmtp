@@ -1370,7 +1370,9 @@ where
 
         // Process admin actions based on current group state
         // If the current user is super-admin and there are pending remove requests, mark the group accordingly
-        let is_super_admin = match self.is_super_admin(self.context.inbox_id().to_string()) {
+        let is_super_admin = match self
+            .is_super_admin_from_metadata(mls_group, self.context.inbox_id().to_string())
+        {
             Ok(is_admin) => is_admin,
             Err(e) => {
                 debug!(
