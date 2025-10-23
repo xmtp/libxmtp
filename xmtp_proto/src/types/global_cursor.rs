@@ -25,7 +25,7 @@ impl GlobalCursor {
         Self { inner: map }
     }
 
-    /// Get the maximum sequence id for [`originator`]
+    /// Get the maximum sequence id for [`crate::xmtpv4::Originator`]
     pub fn get(&self, originator: &OriginatorId) -> SequenceId {
         self.inner.get(originator).copied().unwrap_or_default()
     }
