@@ -1,9 +1,8 @@
-use std::collections::HashMap;
-
 use super::ApiClientWrapper;
 use crate::ApiError;
 use crate::Result;
 use futures::future::try_join_all;
+use std::collections::HashMap;
 use xmtp_common::RetryableError;
 use xmtp_proto::prelude::XmtpIdentityClient;
 use xmtp_proto::types::ApiIdentifier;

@@ -57,7 +57,7 @@ async fn key_update_out_of_epoch() {
     tester!(ed);
     tester!(fester);
     tester!(greg);
-    tester!(bo, events);
+    tester!(bo, events, triggers);
 
     let g = alix
         .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)

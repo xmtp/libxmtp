@@ -870,7 +870,10 @@ pub(crate) mod tests {
 
         use xmtp_common::assert_logged;
 
-        use crate::{groups::device_sync::DeviceSyncClient, worker::metrics::WorkerMetrics};
+        use crate::{
+            groups::device_sync::DeviceSyncClient, utils::LocalTester,
+            worker::metrics::WorkerMetrics,
+        };
 
         xmtp_common::traced_test!(async {
             let client = Tester::new().await;
