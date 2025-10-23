@@ -12,7 +12,11 @@ rustflags = ["--cfg", "tracing_unstable"]
 
 [target.wasm32-unknown-unknown]
 runner = 'wasm-bindgen-test-runner'
-rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+rustflags = [
+  '--cfg',
+  'getrandom_backend="wasm_js"',
+  '-Ctarget-feature=+bulk-memory,+mutable-globals',
+]
 
 [target.aarch64-linux-android]
 rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384"]

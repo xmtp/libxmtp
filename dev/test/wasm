@@ -1,17 +1,20 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -eou pipefail
 
-export RUSTFLAGS="-Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend=\"wasm_js\"${RUSTFLAGS:+ $RUSTFLAGS}"
+PACKAGE="${1:-}"
+if [[ -n "${PACKAGE}" ]]; then
+  PACKAGE=" -p ${PACKAGE}"
+else
+  PACKAGE=" --workspace --exclude xdbg --exclude xmtpv3 --exclude bindings_node --exclude mls_validation_service --exclude xmtp_cli --exclude xmtp_api_grpc --exclude xmtp_proto"
+fi
 
-PACKAGE=${1:-}
-TESTS=${2:-}
+TESTS="${2:-}"
 
-RUST_LOG=off \
-WASM_BINDGEN_SPLIT_LINKED_MODULES=1 \
-WASM_BINDGEN_TEST_ONLY_WEB=1 \
-WASM_BINDGEN_TEST_TIMEOUT=180 \
-RSTEST_TIMEOUT=60 \
-cargo test --locked --release --target wasm32-unknown-unknown \
-  -p $PACKAGE -- \
-  --skip encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
+export RUST_LOG=off
+export WASM_BINDGEN_TEST_ONLY_WEB=1
+export WASM_BINDGEN_SPLIT_LINKED_MODULES=1
+export WASM_BINDGEN_TEST_TIMEOUT=180
+export RSTEST_TIMEOUT=60
+cargo test --locked --release --target wasm32-unknown-unknown --timings \
+  $PACKAGE -- \
   $TESTS
