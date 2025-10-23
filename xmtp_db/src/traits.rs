@@ -85,7 +85,6 @@ pub trait DbQuery:
     + QueryPendingRemove
     + Pragmas
     + crate::ConnectionExt
-    + QueryPendingRemove
 {
 }
 
