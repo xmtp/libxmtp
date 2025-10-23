@@ -6,7 +6,7 @@ use diesel::QueryableByName;
 use xmtp_api_d14n::protocol::InMemoryCursorStore;
 use xmtp_configuration::{DeviceSyncUrls, DockerUrls};
 use xmtp_db::{
-    ConnectionExt, ReadOnly,
+    ConnectionExt, ReadOnly, TestDb, XmtpTestDb,
     diesel::{self, Connection, RunQueryDsl, SqliteConnection, sql_query},
 };
 
@@ -219,11 +219,7 @@ where
 
         // Setup the database. Snapshots are always ephemeral.
         if self.ephemeral_db || self.snapshot.is_some() {
-            #[cfg(not(target_arch = "wasm32"))]
-            let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral).unwrap();
-            #[cfg(target_arch = "wasm32")]
-            let db = WasmDb::new(&StorageOption::Ephemeral).await.unwrap();
-            let db = EncryptedMessageStore::new(db).unwrap();
+            let db = TestDb::create_ephemeral_store().await;
 
             if let Some(snapshot) = &self.snapshot {
                 db.conn()

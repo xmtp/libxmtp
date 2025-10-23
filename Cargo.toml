@@ -74,8 +74,8 @@ const_format = "0.2"
 ctor = "0.6"
 criterion = { version = "0.7", features = ["html_reports", "async_tokio"] }
 derive_builder = "0.20"
-diesel = { git = "https://github.com/ephemerahq/diesel", branch = "codabrink/writable-deserialize", default-features = false }
-diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "codabrink/writable-deserialize", default-features = false }
+diesel = { version = "2.3", default-features = false }
+diesel_migrations = { version = "2.2", default-features = false }
 dyn-clone = "1"
 ed25519-dalek = { version = "2.2", features = ["zeroize"] }
 fdlimit = "0.3"
@@ -92,6 +92,7 @@ hpke-rs = { version = "0.3.0", features = [
   "serialization",
   "libcrux",
 ] }
+indicatif = "0.18"
 itertools = "0.14"
 js-sys = "0.3"
 mockall = { version = "0.13" }
@@ -200,6 +201,8 @@ lto = true
 # (cfg-specific patche support does not exist)
 [patch.crates-io]
 tracing-forest = { git = "https://github.com/QnnOkabayashi/tracing-forest", branch = "main" }
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "codabrink/writable-deserialize" }
+diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "codabrink/writable-deserialize" }
 
 [workspace.lints.clippy]
 uninlined_format_args = "allow"
