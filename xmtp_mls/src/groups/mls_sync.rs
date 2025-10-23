@@ -859,7 +859,6 @@ where
                 processing_error: GroupMessageProcessingError::Db(err),
                 next_intent_state: IntentState::Error,
             })?;
-        self.process_own_leave_request_message(mls_group, storage, &id);
         Ok(Some(id))
     }
 
@@ -1106,7 +1105,7 @@ where
                             }
                         }
                         if message.content_type == ContentType::LeaveRequest {
-                            self.process_leave_request_message(mls_group, storage, &message)?;
+                            self.process_leave_request_message(mls_group, &message)?;
                         }
 
                         Ok::<_, GroupMessageProcessingError>(())
@@ -1310,16 +1309,11 @@ where
         identifier.build()
     }
 
-    fn process_own_leave_request_message(
-        &self,
-        mls_group: &OpenMlsGroup,
-        storage: &impl XmtpMlsStorageProvider,
-        message_id: &[u8],
-    ) {
+    fn process_own_leave_request_message(&self, mls_group: &OpenMlsGroup, message_id: &[u8]) {
         if let Ok(Some(message)) = self.context.db().get_group_message(message_id)
             && message.content_type == ContentType::LeaveRequest
         {
-            match self.process_leave_request_message(mls_group, storage, &message) {
+            match self.process_leave_request_message(mls_group, &message) {
                 Ok(()) => {
                     debug!("Successfully processed leave request message");
                 }
@@ -1333,17 +1327,14 @@ where
     fn process_leave_request_message(
         &self,
         mls_group: &OpenMlsGroup,
-        storage: &impl XmtpMlsStorageProvider,
         message: &StoredGroupMessage,
     ) -> Result<(), GroupMessageProcessingError> {
         let current_inbox_id = self.context.inbox_id().to_string();
-
+        let db = &self.context.db();
         // Process leave-request messages - only if the actor is the current user
         // changes if they were made by the same inbox-id
         if message.sender_inbox_id == current_inbox_id {
-            storage
-                .db()
-                .update_group_membership(&self.group_id, GroupMembershipState::PendingRemove)?;
+            db.update_group_membership(&self.group_id, GroupMembershipState::PendingRemove)?;
         }
 
         // put the user in the pending-remove list
@@ -1352,11 +1343,11 @@ where
             inbox_id: message.sender_inbox_id.clone(),
             message_id: message.id.clone(),
         }
-        .store_or_ignore(&storage.db())?;
+        .store_or_ignore(db)?;
 
         // If we reach here, the action was by another user or no validated commit
         // Only process admin actions if we're admin/super-admin
-        self.process_admin_pending_remove_actions(mls_group, storage)?;
+        self.process_admin_pending_remove_actions(mls_group)?;
 
         Ok(())
     }
@@ -1364,10 +1355,9 @@ where
     fn process_admin_pending_remove_actions(
         &self,
         mls_group: &OpenMlsGroup,
-        storage: &impl XmtpMlsStorageProvider,
     ) -> Result<(), GroupMessageProcessingError> {
         let current_inbox_id = self.context.inbox_id().to_string();
-
+        let db = &self.context.db();
         // Process admin actions based on current group state
         // If the current user is super-admin and there are pending remove requests, mark the group accordingly
         let is_super_admin = match self.is_super_admin(self.context.inbox_id().to_string()) {
@@ -1384,16 +1374,14 @@ where
         if !is_super_admin {
             return Ok(());
         }
-        let pending_remove_users = storage
-            .db()
-            .get_pending_remove_users(&mls_group.group_id().to_vec())?;
+        let pending_remove_users = db.get_pending_remove_users(&mls_group.group_id().to_vec())?;
         if pending_remove_users.is_empty() {
             return Ok(());
         }
 
         // if the current user is in pending remove-users, then we should not mark it for the worker
         if !pending_remove_users.contains(&current_inbox_id) {
-            self.update_group_pending_status(storage, true)
+            self.update_group_pending_status(true)
         }
 
         Ok(())
@@ -1470,7 +1458,7 @@ where
                     if !pending_remove_users.is_empty()
                         && !pending_remove_users.contains(&current_inbox_id)
                     {
-                        self.update_group_pending_status(storage, true);
+                        self.update_group_pending_status(true);
                     }
                 }
                 Err(e) => {
@@ -1484,15 +1472,12 @@ where
             }
         } else if was_demoted {
             // Demoted from super_admin: clear the pending leave request status
-            self.update_group_pending_status(storage, false);
+            self.update_group_pending_status(false);
         }
     }
 
-    pub(crate) fn update_group_pending_status(
-        &self,
-        storage: &impl XmtpMlsStorageProvider,
-        has_pending_removes: bool,
-    ) {
+    pub(crate) fn update_group_pending_status(&self, has_pending_removes: bool) {
+        let db = &self.context.db();
         // This is where we would mark the group as having/not having pending remove requests
         if has_pending_removes {
             tracing::info!(
@@ -1501,9 +1486,8 @@ where
                 "Group has pending remove requests requiring admin action"
             );
 
-            if let Err(e) = storage
-                .db()
-                .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
+            if let Err(e) =
+                db.set_group_has_pending_leave_request_status(&self.group_id, Some(true))
             {
                 tracing::error!(
                     error = %e,
@@ -1519,9 +1503,8 @@ where
                 "Group has no pending remove requests"
             );
 
-            if let Err(e) = storage
-                .db()
-                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
+            if let Err(e) =
+                db.set_group_has_pending_leave_request_status(&self.group_id, Some(false))
             {
                 tracing::error!(
                     operation = "set_group_pending_status",
@@ -1873,6 +1856,9 @@ where
                     &envelope.group_id,
                     envelope.cursor
                 );
+                if let Some(id) = m.clone().internal_id {
+                    self.process_own_leave_request_message(mls_group, &id)
+                }
                 Ok(m)
             }
             Err(GroupMessageProcessingError::CommitValidation(
