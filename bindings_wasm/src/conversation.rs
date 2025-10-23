@@ -33,6 +33,16 @@ pub struct SendMessageOpts {
   pub should_push: bool,
 }
 
+#[wasm_bindgen]
+impl SendMessageOpts {
+  #[wasm_bindgen(constructor)]
+  pub fn new(should_push: bool) -> Self {
+    Self {
+        should_push,
+    }
+  }
+}
+
 impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
   fn from(opts: SendMessageOpts) -> Self {
     xmtp_mls::groups::send_message_opts::SendMessageOpts {
