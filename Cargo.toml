@@ -14,7 +14,7 @@ members = [
   "xmtp_debug",
   "xmtp_content_types",
   "common",
-  "performance",
+  "benches",
   "xmtp_api_d14n",
   "xmtp_macro",
   "xmtp_db",
