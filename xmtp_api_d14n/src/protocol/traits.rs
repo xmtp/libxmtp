@@ -40,6 +40,12 @@ pub use extractor::*;
 mod envelope_collection;
 pub use envelope_collection::*;
 
+mod dependency_resolution;
+pub use dependency_resolution::*;
+
+mod sort;
+pub use sort::*;
+
 #[derive(thiserror::Error, Debug)]
 pub enum EnvelopeError {
     #[error(transparent)]
