@@ -3,10 +3,11 @@ on:
   push:
     tags:
       - "swift-bindings-*"
+      - "swift-bindings-dynamic-*"
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to use (e.g. swift-bindings-0.1.0.abc1234)"
+        description: "Tag to use (e.g. swift-bindings-0.1.0.abc1234 or swift-bindings-dynamic-0.1.0.abc1234)"
         required: true
       xmtp_ios_branch:
         description: "xmtp-ios branch to base PR off of (default: main)"
@@ -49,22 +50,37 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             TAG="${{ github.event.inputs.tag }}"
           else
-            # Find the swift-bindings-* tag on the current commit
+            # Find swift-bindings tags on the current commit
             COMMIT_SHA=$(git rev-parse HEAD)
-            SWIFT_TAG=$(git tag --points-at $COMMIT_SHA | grep "^swift-bindings-" | head -n 1)
-            
-            # If no swift-bindings-* tag found, fall back to github.ref_name
-            if [[ -z "$SWIFT_TAG" ]]; then
-              TAG="${{ github.ref_name }}"
+            STATIC_TAG=$(git tag --points-at $COMMIT_SHA | grep "^swift-bindings-" | grep -v "dynamic" | head -n 1)
+            DYNAMIC_TAG=$(git tag --points-at $COMMIT_SHA | grep "^swift-bindings-dynamic-" | head -n 1)
+
+            # Determine which tag triggered the workflow
+            if [[ "${{ github.ref_name }}" == swift-bindings-dynamic-* ]]; then
+              TAG="$DYNAMIC_TAG"
             else
-              TAG="$SWIFT_TAG"
+              TAG="$STATIC_TAG"
+            fi
+
+            # Fall back to github.ref_name if needed
+            if [[ -z "$TAG" ]]; then
+              TAG="${{ github.ref_name }}"
             fi
           fi
 
+          # Determine both static and dynamic tags
+          if [[ "$TAG" == *"-dynamic-"* ]]; then
+            # This is a dynamic tag, derive the static tag
+            DYNAMIC_RELEASE_TAG="$TAG"
+            STATIC_RELEASE_TAG=$(echo $TAG | sed 's/-dynamic//')
+          else
+            # This is a static tag, derive the dynamic tag
+            STATIC_RELEASE_TAG="$TAG"
+            DYNAMIC_RELEASE_TAG=$(echo $TAG | sed 's/swift-bindings-/swift-bindings-dynamic-/')
+          fi
+
           # Extract version and SHA from tag
-          VERSION_INPUT=$(echo $TAG | sed 's/swift-bindings-//' | cut -d. -f1-3)
-          SHA7=$(echo $TAG | cut -d. -f4)
-          RELEASE_TAG="${TAG}"
+          SHA7=$(echo $TAG | rev | cut -d. -f1 | rev)
 
           # If version contains "dev", append the git commit SHA
           if [[ "$VERSION" == *"dev"* ]]; then
@@ -73,7 +89,8 @@ jobs:
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "sha7=${SHA7}" >> $GITHUB_OUTPUT
-          echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
+          echo "static_release_tag=${STATIC_RELEASE_TAG}" >> $GITHUB_OUTPUT
+          echo "dynamic_release_tag=${DYNAMIC_RELEASE_TAG}" >> $GITHUB_OUTPUT
 
       - name: Create branch in xmtp-ios
         run: |
@@ -93,63 +110,108 @@ jobs:
           # Verify podspec
           pod spec lint XMTP.podspec || echo "Podspec validation failed but continuing"
 
-      - name: Get checksum from release
-        id: get_checksum
+      - name: Get checksums from releases
+        id: get_checksums
         env:
           GH_TOKEN: ${{ secrets.LIBXMTP_SWIFT_PAT }}
         run: |
-          # Fetch the checksum from the release description
-          RELEASE_TAG="${{ steps.version_info.outputs.release_tag }}"
-          CHECKSUM=$(gh api repos/xmtp/libxmtp/releases/tags/$RELEASE_TAG --jq '.body' | grep -o 'Checksum of LibXMTPSwiftFFI.zip: [a-f0-9]*' | cut -d' ' -f4)
+          # Fetch the static checksum from the release description
+          STATIC_TAG="${{ steps.version_info.outputs.static_release_tag }}"
+          STATIC_CHECKSUM=$(gh api repos/xmtp/libxmtp/releases/tags/$STATIC_TAG --jq '.body' | grep -o 'Checksum of LibXMTPSwiftFFI.zip: [a-f0-9]*' | cut -d' ' -f4)
 
-          # Verify we got a valid checksum
-          if [[ ! $CHECKSUM =~ ^[a-f0-9]+$ ]]; then
-            echo "Failed to extract valid checksum from release description"
+          # Verify we got a valid static checksum
+          if [[ ! $STATIC_CHECKSUM =~ ^[a-f0-9]+$ ]]; then
+            echo "Failed to extract valid static checksum from release description"
             exit 1
           fi
 
-          echo "checksum=${CHECKSUM}" >> $GITHUB_OUTPUT
+          # Fetch the dynamic checksum from the release description
+          DYNAMIC_TAG="${{ steps.version_info.outputs.dynamic_release_tag }}"
+          DYNAMIC_CHECKSUM=$(gh api repos/xmtp/libxmtp/releases/tags/$DYNAMIC_TAG --jq '.body' | grep -o 'Checksum of LibXMTPSwiftFFIDynamic.zip: [a-f0-9]*' | cut -d' ' -f4)
+
+          # Verify we got a valid dynamic checksum
+          if [[ ! $DYNAMIC_CHECKSUM =~ ^[a-f0-9]+$ ]]; then
+            echo "Failed to extract valid dynamic checksum from release description"
+            exit 1
+          fi
+
+          echo "static_checksum=${STATIC_CHECKSUM}" >> $GITHUB_OUTPUT
+          echo "dynamic_checksum=${DYNAMIC_CHECKSUM}" >> $GITHUB_OUTPUT
 
       - name: Update Package.swift
         run: |
           cd xmtp-ios
-          RELEASE_URL="https://github.com/xmtp/libxmtp/releases/download/${{ steps.version_info.outputs.release_tag }}/LibXMTPSwiftFFI.zip"
-          CHECKSUM="${{ steps.get_checksum.outputs.checksum }}"
+          STATIC_RELEASE_URL="https://github.com/xmtp/libxmtp/releases/download/${{ steps.version_info.outputs.static_release_tag }}/LibXMTPSwiftFFI.zip"
+          STATIC_CHECKSUM="${{ steps.get_checksums.outputs.static_checksum }}"
+          DYNAMIC_RELEASE_URL="https://github.com/xmtp/libxmtp/releases/download/${{ steps.version_info.outputs.dynamic_release_tag }}/LibXMTPSwiftFFIDynamic.zip"
+          DYNAMIC_CHECKSUM="${{ steps.get_checksums.outputs.dynamic_checksum }}"
 
-          # Update URL and checksum in Package.swift
-          sed -i '' "s|url: \"https://github.com/xmtp/libxmtp/releases/download/.*\"|url: \"${RELEASE_URL}\"|" Package.swift
-          sed -i '' "s|checksum: \"[a-f0-9]*\"|checksum: \"${CHECKSUM}\"|" Package.swift
+          # Update static binary target (LibXMTPSwiftFFI)
+          # Find and replace the URL for LibXMTPSwiftFFI
+          sed -i '' "/name: \"LibXMTPSwiftFFI\"/,/checksum:/ {
+            s|url: *\"https://github.com/xmtp/libxmtp/releases/download/[^\"]*\"|url:\n            \"${STATIC_RELEASE_URL}\"|
+            s|checksum: *\"[a-f0-9]*\"|checksum: \"${STATIC_CHECKSUM}\"|
+          }" Package.swift
+
+          # Update dynamic binary target (LibXMTPSwiftFFIDynamic)
+          # Find and replace the URL for LibXMTPSwiftFFIDynamic
+          sed -i '' "/name: \"LibXMTPSwiftFFIDynamic\"/,/checksum:/ {
+            s|url: *\"https://github.com/xmtp/libxmtp/releases/download/[^\"]*\"|url:\n            \"${DYNAMIC_RELEASE_URL}\"|
+            s|checksum: *\"[a-f0-9]*\"|checksum: \"${DYNAMIC_CHECKSUM}\"|
+          }" Package.swift
 
       - name: Download and extract Swift sources
         run: |
-          # Download the LibXMTPSwiftFFI.zip file
-          RELEASE_URL="https://github.com/xmtp/libxmtp/releases/download/${{ steps.version_info.outputs.release_tag }}/LibXMTPSwiftFFI.zip"
-          curl -L -o LibXMTPSwiftFFI.zip "$RELEASE_URL"
-          
-          # Extract the zip file
-          unzip LibXMTPSwiftFFI.zip
-          
+          # Download the static LibXMTPSwiftFFI.zip file
+          STATIC_RELEASE_URL="https://github.com/xmtp/libxmtp/releases/download/${{ steps.version_info.outputs.static_release_tag }}/LibXMTPSwiftFFI.zip"
+          curl -L -o LibXMTPSwiftFFI.zip "$STATIC_RELEASE_URL"
+
+          # Extract the static zip file
+          unzip -q LibXMTPSwiftFFI.zip
+
           # Verify the expected structure exists
           if [[ ! -f "Sources/LibXMTP/xmtpv3.swift" ]]; then
-            echo "Error: Expected Swift source file not found in extracted archive"
+            echo "Error: Expected static Swift source file not found in extracted archive"
             echo "Archive contents:"
             find . -name "*.swift" -type f
             exit 1
           fi
-          
-          # Copy the Swift source file to xmtp-ios
+
+          # Copy the static Swift source file to xmtp-ios
           mkdir -p xmtp-ios/Sources/XMTPiOS/Libxmtp
           cp Sources/LibXMTP/xmtpv3.swift xmtp-ios/Sources/XMTPiOS/Libxmtp/
-          
-          # Clean up the downloaded and extracted files
+
+          # Clean up the static extracted files
           rm -rf LibXMTPSwiftFFI.zip Sources LibXMTPSwiftFFI.xcframework LICENSE
+
+          # Download the dynamic LibXMTPSwiftFFIDynamic.zip file
+          DYNAMIC_RELEASE_URL="https://github.com/xmtp/libxmtp/releases/download/${{ steps.version_info.outputs.dynamic_release_tag }}/LibXMTPSwiftFFIDynamic.zip"
+          curl -L -o LibXMTPSwiftFFIDynamic.zip "$DYNAMIC_RELEASE_URL"
+
+          # Extract the dynamic zip file
+          unzip -q LibXMTPSwiftFFIDynamic.zip
+
+          # Verify the expected structure exists for dynamic
+          if [[ ! -f "Sources/LibXMTP/Dynamic/xmtpv3.swift" ]]; then
+            echo "Error: Expected dynamic Swift source file not found in extracted archive"
+            echo "Archive contents:"
+            find . -name "*.swift" -type f
+            exit 1
+          fi
+
+          # Copy the dynamic Swift source file to xmtp-ios
+          mkdir -p xmtp-ios/Sources/XMTPiOSDynamic/Libxmtp
+          cp Sources/LibXMTP/Dynamic/xmtpv3.swift xmtp-ios/Sources/XMTPiOSDynamic/Libxmtp/
+
+          # Clean up the dynamic extracted files
+          rm -rf LibXMTPSwiftFFIDynamic.zip Sources LibXMTPSwiftFFIDynamic.xcframework LICENSE
 
       - name: Commit and push changes
         run: |
           cd xmtp-ios
           git add -A
           git commit -m "Update to libxmtp ${{ steps.version_info.outputs.version }}"
-          git push origin update-to-${{ steps.version_info.outputs.release_tag }}
+          git push origin update-to-${{ steps.version_info.outputs.static_release_tag }}
 
       - name: Create PR
         env:
@@ -158,14 +220,18 @@ jobs:
           BASE_BRANCH="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.xmtp_ios_branch || 'main' }}"
           gh pr create --repo xmtp/xmtp-ios \
             --base "${BASE_BRANCH}" \
-            --head update-to-${{ steps.version_info.outputs.release_tag }} \
+            --head update-to-${{ steps.version_info.outputs.static_release_tag }} \
             --title "Update to libxmtp ${{ steps.version_info.outputs.version }}" \
-            --body "This PR updates the iOS bindings to libxmtp version ${{ steps.version_info.outputs.version }}. 
-            
+            --body "This PR updates the iOS bindings to libxmtp version ${{ steps.version_info.outputs.version }}.
+
           Changes:
           - Updated XMTP.podspec version to ${{ steps.version_info.outputs.version }}
-          - Updated binary URLs in Package.swift to point to the new release
-          - Updated checksum in Package.swift
-          - Updated Swift source file (xmtpv3.swift) from the new release
-          
+          - Updated static binary (LibXMTPSwiftFFI) URL and checksum in Package.swift
+          - Updated dynamic binary (LibXMTPSwiftFFIDynamic) URL and checksum in Package.swift
+          - Updated Swift source files (xmtpv3.swift) for both static and dynamic bindings
+
+          Release Tags:
+          - Static: ${{ steps.version_info.outputs.static_release_tag }}
+          - Dynamic: ${{ steps.version_info.outputs.dynamic_release_tag }}
+
           Base branch: ${BASE_BRANCH}"

@@ -138,8 +138,8 @@ jobs:
       - name: Build dynamic archive
         working-directory: bindings_ffi
         run: |
-          mkdir -p Sources/LibXMTP
-          mv build/swift/dynamic/xmtpv3.swift Sources/LibXMTP/
+          mkdir -p Sources/LibXMTP/Dynamic
+          mv build/swift/dynamic/xmtpv3.swift Sources/LibXMTP/Dynamic
           make frameworkdyn
           cp ../LICENSE ./LICENSE
           zip -r LibXMTPSwiftFFIDynamic.zip Sources LibXMTPSwiftFFIDynamic.xcframework LICENSE

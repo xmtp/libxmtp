@@ -17,14 +17,17 @@ if [ ! -d $XMTP_ANDROID ]; then
 fi
 echo "Android Directory: $XMTP_ANDROID"
 
+LIBFILE=$([ "$(uname)" == "Darwin" ] && echo "lib${PROJECT_NAME}.dylib" || echo "lib${PROJECT_NAME}.so")
 cd $WORKSPACE_PATH
 cargo build --release -p xmtpv3
-rm -f $BINDINGS_PATH/src/uniffi/$PROJECT_NAME/$PROJECT_NAME.kt
+rm -rf $BINDINGS_PATH/src/uniffi
+mkdir -p $BINDINGS_PATH/src/uniffi/$PROJECT_NAME
 cargo run --bin ffi-uniffi-bindgen \
   --manifest-path $BINDINGS_MANIFEST \
   --features uniffi/cli --release -- \
   generate \
-  --library $TARGET_DIR/release/lib$PROJECT_NAME.dylib \
+  --library $TARGET_DIR/release/$LIBFILE \
+  --out-dir $BINDINGS_PATH/src \
   --language kotlin
 
 cd $BINDINGS_PATH
