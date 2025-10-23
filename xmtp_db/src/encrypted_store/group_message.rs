@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::{
-    attachment, group_updated, membership_change, reaction, read_receipt, remote_attachment, reply,
-    text, transaction_reference, wallet_send_calls,
+    attachment, group_updated, leave_request, membership_change, reaction, read_receipt,
+    remote_attachment, reply, text, transaction_reference, wallet_send_calls,
 };
 use xmtp_proto::types::Cursor;
 
@@ -143,6 +143,7 @@ pub enum ContentType {
     RemoteAttachment = 8,
     TransactionReference = 9,
     WalletSendCalls = 10,
+    LeaveRequest = 11,
 }
 
 impl ContentType {
@@ -159,6 +160,7 @@ impl ContentType {
             ContentType::RemoteAttachment,
             ContentType::TransactionReference,
             ContentType::WalletSendCalls,
+            ContentType::LeaveRequest,
         ]
     }
 }
@@ -177,6 +179,7 @@ impl std::fmt::Display for ContentType {
             Self::Reply => reply::ReplyCodec::TYPE_ID,
             Self::TransactionReference => transaction_reference::TransactionReferenceCodec::TYPE_ID,
             Self::WalletSendCalls => wallet_send_calls::WalletSendCallsCodec::TYPE_ID,
+            Self::LeaveRequest => leave_request::LeaveRequestCodec::TYPE_ID,
         };
 
         write!(f, "{}", as_string)
@@ -196,6 +199,7 @@ impl From<String> for ContentType {
             remote_attachment::RemoteAttachmentCodec::TYPE_ID => Self::RemoteAttachment,
             transaction_reference::TransactionReferenceCodec::TYPE_ID => Self::TransactionReference,
             wallet_send_calls::WalletSendCallsCodec::TYPE_ID => Self::WalletSendCalls,
+            leave_request::LeaveRequestCodec::TYPE_ID => Self::LeaveRequest,
             _ => Self::Unknown,
         }
     }
@@ -228,6 +232,7 @@ where
             8 => Ok(ContentType::RemoteAttachment),
             9 => Ok(ContentType::TransactionReference),
             10 => Ok(ContentType::WalletSendCalls),
+            11 => Ok(ContentType::LeaveRequest),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

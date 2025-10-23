@@ -89,6 +89,7 @@ diesel::table! {
         should_publish_commit_log -> Bool,
         commit_log_public_key -> Nullable<Binary>,
         is_commit_log_forked -> Nullable<Bool>,
+        has_pending_leave_request -> Nullable<Bool>,
     }
 }
 
@@ -168,6 +169,14 @@ diesel::table! {
         version -> Integer,
         key_bytes -> Binary,
         value_bytes -> Binary,
+    }
+}
+
+diesel::table! {
+    pending_remove (group_id, inbox_id) {
+        group_id -> Binary,
+        inbox_id -> Text,
+        message_id -> Binary,
     }
 }
 
@@ -252,6 +261,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     local_commit_log,
     openmls_key_store,
     openmls_key_value,
+    pending_remove,
     processed_device_sync_messages,
     readd_status,
     refresh_state,

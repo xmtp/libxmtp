@@ -22,6 +22,7 @@ pub use definitions::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test;
+mod traits;
 
 use crate::groups::GroupError;
 pub use client::{Client, Network};

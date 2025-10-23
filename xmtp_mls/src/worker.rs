@@ -15,6 +15,7 @@ pub enum WorkerKind {
     Event,
     CommitLog,
     TaskRunner,
+    PendingSelfRemove,
 }
 
 #[derive(Clone)]

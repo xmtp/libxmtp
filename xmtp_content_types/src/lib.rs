@@ -1,5 +1,6 @@
 pub mod attachment;
 pub mod group_updated;
+pub mod leave_request;
 pub mod membership_change;
 pub mod multi_remote_attachment;
 pub mod reaction;
@@ -45,6 +46,7 @@ pub enum ContentType {
     TransactionReference,
     WalletSendCalls,
     DeviceSyncMessage,
+    LeaveRequest,
 }
 
 impl TryFrom<&str> for ContentType {
@@ -69,6 +71,7 @@ impl TryFrom<&str> for ContentType {
                 Ok(Self::TransactionReference)
             }
             wallet_send_calls::WalletSendCallsCodec::TYPE_ID => Ok(Self::WalletSendCalls),
+            leave_request::LeaveRequestCodec::TYPE_ID => Ok(Self::LeaveRequest),
             _ => Err(format!("Unknown content type ID: {type_id}")),
         }
     }

@@ -405,6 +405,7 @@ where
                 let group_id = mls_group.group_id().to_vec();
                 events.add_worker_event(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
 
+                // Sync groups are always Allowed.
                 group
                     .membership_state(GroupMembershipState::Allowed)
                     .build()?

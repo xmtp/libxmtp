@@ -84,6 +84,8 @@ pub enum GroupError {
     WrappedApi(#[from] xmtp_api::ApiError),
     #[error("invalid group membership")]
     InvalidGroupMembership,
+    #[error(transparent)]
+    LeaveCantProcessed(#[from] GroupLeaveValidationError),
     #[error("storage error: {0}")]
     Storage(#[from] xmtp_db::StorageError),
     #[error("intent error: {0}")]
@@ -225,6 +227,28 @@ impl RetryableError for MetadataPermissionsError {
 }
 
 #[derive(Error, Debug)]
+pub enum GroupLeaveValidationError {
+    #[error("cannot leave a DM conversation")]
+    DmLeaveForbidden,
+    #[error("cannot leave a group that has only one member")]
+    SingleMemberLeaveRejected,
+    #[error("super-admin cannot leave a group; must be demoted first")]
+    SuperAdminLeaveForbidden,
+    #[error("inbox ID already exists in the pending leave list")]
+    InboxAlreadyInPendingList,
+    #[error("inbox ID does not exist in the pending leave list")]
+    InboxNotInPendingList,
+    #[error("only a member of the group can send a leave request or retract a leave request")]
+    NotAGroupMember,
+}
+
+impl RetryableError for GroupLeaveValidationError {
+    fn is_retryable(&self) -> bool {
+        false
+    }
+}
+
+#[derive(Error, Debug)]
 pub enum DmValidationError {
     #[error("DM group must have DmMembers set")]
     OurInboxMustBeMember,
@@ -283,6 +307,7 @@ impl RetryableError for GroupError {
             Self::UnwrapWelcome(e) => e.is_retryable(),
             Self::Diesel(e) => e.is_retryable(),
             Self::EnrichMessage(e) => e.is_retryable(),
+            Self::LeaveCantProcessed(e) => e.is_retryable(),
             Self::NotFound(_)
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership
