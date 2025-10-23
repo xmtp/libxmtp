@@ -2,8 +2,10 @@
 xdbg = "run --bin xdbg --"
 xli = "run --bin xmtp_cli --"
 update-schema = "run --bin update-schema --features update-schema"
+bindgen = "run --bin ffi-uniffi-bindgen --features uniffi/cli"
+bindgen-swift = "run --bin ffi-uniffi-bindgen-swift --features uniffi/cli"
 
-# see: https://github.com/rust-lang/cargo/issues/5376#issuecomment-2163350032 
+# see: https://github.com/rust-lang/cargo/issues/5376#issuecomment-2163350032
 # We use this instead of [build] because target.*.rustflags are merged by default
 [target."cfg(all())"]
 rustflags = ["--cfg", "tracing_unstable"]
