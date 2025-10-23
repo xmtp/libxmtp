@@ -35,6 +35,7 @@ pub mod remote_commit_log;
 pub mod schema;
 mod schema_gen;
 pub mod store;
+pub mod tasks;
 pub mod user_preferences;
 
 #[cfg(test)]

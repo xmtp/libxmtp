@@ -38,7 +38,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/libxmtpv3.a
+          path: |
+            target/${{ matrix.target }}/release/libxmtpv3.a
+            target/${{ matrix.target }}/release/libxmtpv3.dylib
           retention-days: 1
   swift:
     runs-on: warp-macos-13-arm64-6x
@@ -57,10 +59,16 @@ jobs:
             bindings_ffi
       - name: Install swift
         run: brew install swiftformat
-      - name: Generate bindings
+      - name: Generate static bindings
         working-directory: bindings_ffi
         run: |
+          make bindgenstatic
           make swift
+      - name: Generate dynamic bindings
+        working-directory: bindings_ffi
+        run: |
+          make bindgendynamic
+          make swiftdyn
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -77,11 +85,11 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           path: bindings_ffi/build
-      - name: Build archive
+      - name: Build static archive
         working-directory: bindings_ffi
         run: |
           mkdir -p Sources/LibXMTP
-          mv build/swift/xmtpv3.swift Sources/LibXMTP/
+          mv build/swift/static/xmtpv3.swift Sources/LibXMTP/
           make framework
           cp ../LICENSE ./LICENSE
           zip -r LibXMTPSwiftFFI.zip Sources LibXMTPSwiftFFI.xcframework LICENSE
@@ -116,4 +124,54 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./bindings_ffi/LibXMTPSwiftFFI.zip
           asset_name: LibXMTPSwiftFFI.zip
+          asset_content_type: application/zip
+  package-swift-dynamic:
+    needs: [build-macos, swift]
+    runs-on: warp-macos-13-arm64-6x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Download artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: bindings_ffi/build
+      - name: Build dynamic archive
+        working-directory: bindings_ffi
+        run: |
+          mkdir -p Sources/LibXMTP
+          mv build/swift/dynamic/xmtpv3.swift Sources/LibXMTP/
+          make frameworkdyn
+          cp ../LICENSE ./LICENSE
+          zip -r LibXMTPSwiftFFIDynamic.zip Sources LibXMTPSwiftFFIDynamic.xcframework LICENSE
+      - name: Calculate checksum
+        id: checksum
+        working-directory: bindings_ffi
+        run: |
+          echo "checksum=$(shasum -a 256 LibXMTPSwiftFFIDynamic.zip | awk '{ print $1 }')" >> $GITHUB_OUTPUT
+      - name: Get short SHA
+        id: slug
+        run: echo "sha7=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
+      - name: Get crate version
+        id: version
+        run: |
+          echo "value=$(cargo metadata --manifest-path bindings_ffi/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')" >> $GITHUB_OUTPUT
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: swift-bindings-dynamic-${{ steps.version.outputs.value }}.${{ steps.slug.outputs.sha7 }}
+          release_name: Swift-Bindings-dynamic-${{ steps.version.outputs.value }}.${{ steps.slug.outputs.sha7 }}
+          body: "Checksum of LibXMTPSwiftFFIDynamic.zip: ${{ steps.checksum.outputs.checksum }}"
+          draft: false
+          prerelease: true
+      - name: Upload release asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./bindings_ffi/LibXMTPSwiftFFIDynamic.zip
+          asset_name: LibXMTPSwiftFFIDynamic.zip
           asset_content_type: application/zip
