@@ -33,7 +33,7 @@ use xmtp_db::NativeDb;
 use xmtp_db::group::DmIdExt;
 use xmtp_db::group::{ConversationType, GroupQueryOrderBy};
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
-use xmtp_db::group_message::{SortDirection, StoredGroupMessageWithReactions};
+use xmtp_db::group_message::{SortBy, SortDirection, StoredGroupMessageWithReactions};
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::{
     EncryptedMessageStore, EncryptionKey, StorageOption,
@@ -2131,6 +2131,21 @@ impl From<FfiDirection> for SortDirection {
     }
 }
 
+#[derive(uniffi::Enum, Clone)]
+pub enum FfiSortBy {
+    SentAt,
+    InsertedAt,
+}
+
+impl From<FfiSortBy> for SortBy {
+    fn from(sort_by: FfiSortBy) -> Self {
+        match sort_by {
+            FfiSortBy::SentAt => SortBy::SentAt,
+            FfiSortBy::InsertedAt => SortBy::InsertedAt,
+        }
+    }
+}
+
 impl From<FfiMessageDisappearingSettings> for MessageDisappearingSettings {
     fn from(settings: FfiMessageDisappearingSettings) -> Self {
         MessageDisappearingSettings::new(settings.from_ns, settings.in_ns)
@@ -2147,6 +2162,9 @@ pub struct FfiListMessagesOptions {
     pub content_types: Option<Vec<FfiContentType>>,
     pub exclude_content_types: Option<Vec<FfiContentType>>,
     pub exclude_sender_inbox_ids: Option<Vec<String>>,
+    pub sort_by: Option<FfiSortBy>,
+    pub inserted_after: Option<i64>,
+    pub inserted_before: Option<i64>,
 }
 
 impl From<FfiListMessagesOptions> for MsgQueryArgs {
@@ -2165,6 +2183,9 @@ impl From<FfiListMessagesOptions> for MsgQueryArgs {
                 .exclude_content_types
                 .map(|types| types.into_iter().map(Into::into).collect()),
             exclude_sender_inbox_ids: opts.exclude_sender_inbox_ids,
+            sort_by: opts.sort_by.map(Into::into),
+            inserted_after: opts.inserted_after,
+            inserted_before: opts.inserted_before,
         }
     }
 }
@@ -2970,6 +2991,7 @@ pub struct FfiMessage {
     pub delivery_status: FfiDeliveryStatus,
     pub sequence_id: u64,
     pub originator_id: u32,
+    pub inserted_at_ns: i64,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -2984,6 +3006,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             delivery_status: msg.delivery_status.into(),
             sequence_id: msg.sequence_id as u64,
             originator_id: msg.originator_id as u32,
+            inserted_at_ns: msg.inserted_at_ns,
         }
     }
 }

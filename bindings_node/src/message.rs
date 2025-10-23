@@ -2,7 +2,8 @@ use napi::bindgen_prelude::Uint8Array;
 use prost::Message as ProstMessage;
 use xmtp_db::group_message::{
   DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs,
-  SortDirection as XmtpSortDirection, StoredGroupMessage, StoredGroupMessageWithReactions,
+  SortBy as XmtpMessageSortBy, SortDirection as XmtpSortDirection, StoredGroupMessage,
+  StoredGroupMessageWithReactions,
 };
 
 use napi_derive::napi;
@@ -76,6 +77,21 @@ impl From<SortDirection> for XmtpSortDirection {
   }
 }
 
+#[napi]
+pub enum MessageSortBy {
+  SentAt,
+  InsertedAt,
+}
+
+impl From<MessageSortBy> for XmtpMessageSortBy {
+  fn from(sort_by: MessageSortBy) -> Self {
+    match sort_by {
+      MessageSortBy::SentAt => XmtpMessageSortBy::SentAt,
+      MessageSortBy::InsertedAt => XmtpMessageSortBy::InsertedAt,
+    }
+  }
+}
+
 #[napi(object)]
 #[derive(Default)]
 pub struct ListMessagesOptions {
@@ -88,6 +104,9 @@ pub struct ListMessagesOptions {
   pub exclude_content_types: Option<Vec<ContentType>>,
   pub kind: Option<GroupMessageKind>,
   pub exclude_sender_inbox_ids: Option<Vec<String>>,
+  pub sort_by: Option<MessageSortBy>,
+  pub inserted_after: Option<i64>,
+  pub inserted_before: Option<i64>,
 }
 
 impl From<ListMessagesOptions> for MsgQueryArgs {
@@ -111,6 +130,9 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
       exclude_content_types,
       kind: opts.kind.map(Into::into),
       exclude_sender_inbox_ids: opts.exclude_sender_inbox_ids,
+      sort_by: opts.sort_by.map(Into::into),
+      inserted_after: opts.inserted_after,
+      inserted_before: opts.inserted_before,
     }
   }
 }

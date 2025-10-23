@@ -3,7 +3,8 @@ use prost::Message as ProstMessage;
 use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_db::group_message::{
   DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs,
-  SortDirection as XmtpSortDirection, StoredGroupMessage, StoredGroupMessageWithReactions,
+  SortBy as XmtpMessageSortBy, SortDirection as XmtpSortDirection, StoredGroupMessage,
+  StoredGroupMessageWithReactions,
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
@@ -78,6 +79,22 @@ impl From<SortDirection> for XmtpSortDirection {
   }
 }
 
+#[wasm_bindgen]
+#[derive(Clone)]
+pub enum MessageSortBy {
+  SentAt,
+  InsertedAt,
+}
+
+impl From<MessageSortBy> for XmtpMessageSortBy {
+  fn from(sort_by: MessageSortBy) -> Self {
+    match sort_by {
+      MessageSortBy::SentAt => XmtpMessageSortBy::SentAt,
+      MessageSortBy::InsertedAt => XmtpMessageSortBy::InsertedAt,
+    }
+  }
+}
+
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Default)]
 pub struct ListMessagesOptions {
@@ -96,6 +113,12 @@ pub struct ListMessagesOptions {
   pub kind: Option<GroupMessageKind>,
   #[wasm_bindgen(js_name = excludeSenderInboxIds)]
   pub exclude_sender_inbox_ids: Option<Vec<String>>,
+  #[wasm_bindgen(js_name = sortBy)]
+  pub sort_by: Option<MessageSortBy>,
+  #[wasm_bindgen(js_name = insertedAfter)]
+  pub inserted_after: Option<i64>,
+  #[wasm_bindgen(js_name = insertedBefore)]
+  pub inserted_before: Option<i64>,
 }
 
 impl From<ListMessagesOptions> for MsgQueryArgs {
@@ -114,6 +137,9 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
         .content_types
         .map(|t| t.into_iter().map(Into::into).collect()),
       exclude_sender_inbox_ids: opts.exclude_sender_inbox_ids,
+      sort_by: opts.sort_by.map(Into::into),
+      inserted_after: opts.inserted_after,
+      inserted_before: opts.inserted_before,
     }
   }
 }
@@ -132,6 +158,9 @@ impl ListMessagesOptions {
     exclude_content_types: Option<Vec<ContentType>>,
     kind: Option<GroupMessageKind>,
     exclude_sender_inbox_ids: Option<Vec<String>>,
+    sort_by: Option<MessageSortBy>,
+    inserted_after: Option<i64>,
+    inserted_before: Option<i64>,
   ) -> Self {
     Self {
       sent_before_ns,
@@ -143,6 +172,9 @@ impl ListMessagesOptions {
       exclude_content_types,
       kind,
       exclude_sender_inbox_ids,
+      sort_by,
+      inserted_after,
+      inserted_before,
     }
   }
 }
