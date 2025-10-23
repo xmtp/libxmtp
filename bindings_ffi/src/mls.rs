@@ -3262,7 +3262,7 @@ mod tests {
     use xmtp_mls::{
         InboxOwner,
         groups::{GroupError, device_sync::worker::SyncMetric},
-        utils::{PasskeyUser, Tester},
+        utils::{PasskeyUser, Tester, TesterBuilder},
     };
     use xmtp_proto::xmtp::mls::message_contents::{
         ContentTypeId, EncodedContent,
@@ -3874,7 +3874,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn radio_silence() {
-        let alex = Tester::builder()
+        let alex = TesterBuilder::new()
             .sync_worker()
             .sync_server()
             .stream()

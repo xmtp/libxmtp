@@ -115,7 +115,7 @@ url = { workspace = true, optional = true }
 # Test/Bench Utils
 criterion = { workspace = true, optional = true }
 hmac = "0.12.1"
-indicatif = { version = "0.18", optional = true }
+indicatif = { workspace = true, optional = true }
 toxiproxy_rust = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, features = [
   "env-filter",

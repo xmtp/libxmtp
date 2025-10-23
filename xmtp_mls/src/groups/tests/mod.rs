@@ -36,7 +36,7 @@ use crate::groups::{
 };
 use crate::tester;
 use crate::utils::fixtures::{alix, bola, caro};
-use crate::utils::{ClientTester, TestMlsGroup, Tester, VersionInfo};
+use crate::utils::{ClientTester, LocalTester, TestMlsGroup, Tester, VersionInfo};
 use crate::{
     builder::ClientBuilder,
     groups::{

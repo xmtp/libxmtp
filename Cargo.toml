@@ -14,6 +14,7 @@ members = [
   "xmtp_debug",
   "xmtp_content_types",
   "common",
+  "benches",
   "xmtp_api_d14n",
   "xmtp_macro",
   "xmtp_db",
@@ -91,6 +92,7 @@ hpke-rs = { version = "0.3.0", features = [
   "serialization",
   "libcrux",
 ] }
+indicatif = "0.18"
 itertools = "0.14"
 js-sys = "0.3"
 mockall = { version = "0.13" }
@@ -199,6 +201,8 @@ lto = true
 # (cfg-specific patche support does not exist)
 [patch.crates-io]
 tracing-forest = { git = "https://github.com/QnnOkabayashi/tracing-forest", branch = "main" }
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "codabrink/writable-deserialize" }
+diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "codabrink/writable-deserialize" }
 
 [workspace.lints.clippy]
 uninlined_format_args = "allow"

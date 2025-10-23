@@ -1,7 +1,7 @@
 //! Implementions of traits
 use crate::protocol::EnvelopeCollection;
 
-use super::traits::{EnvelopeError, EnvelopeVisitor, ProtocolEnvelope};
+use crate::protocol::traits::{EnvelopeError, EnvelopeVisitor, Extractor, ProtocolEnvelope};
 use prost::Message;
 use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::mls_v1::fetch_key_packages_response::KeyPackage;
@@ -33,7 +33,7 @@ use xmtp_proto::{
 impl<'env> ProtocolEnvelope<'env> for OriginatorEnvelope {
     type Nested<'a> = UnsignedOriginatorEnvelope;
 
-    fn accept<V: super::EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
     where
         EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
     {
@@ -52,7 +52,7 @@ impl<'env> ProtocolEnvelope<'env> for OriginatorEnvelope {
 
 impl<'env> ProtocolEnvelope<'env> for UnsignedOriginatorEnvelope {
     type Nested<'a> = PayerEnvelope;
-    fn accept<V: super::EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
     where
         EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
     {
@@ -70,7 +70,7 @@ impl<'env> ProtocolEnvelope<'env> for UnsignedOriginatorEnvelope {
 impl<'env> ProtocolEnvelope<'env> for PayerEnvelope {
     type Nested<'a> = ClientEnvelope;
 
-    fn accept<V: super::EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
     where
         EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
     {
@@ -108,7 +108,7 @@ impl<'env> ProtocolEnvelope<'env>
 impl<'env> ProtocolEnvelope<'env> for ClientEnvelope {
     type Nested<'a> = Option<&'a Payload>;
 
-    fn accept<V: super::EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
     where
         EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
     {
@@ -461,7 +461,7 @@ impl<'env> ProtocolEnvelope<'env> for IdentityUpdateLog {
 impl<'env> ProtocolEnvelope<'env> for () {
     type Nested<'a> = ();
 
-    fn accept<V: super::EnvelopeVisitor<'env>>(&self, _: &mut V) -> Result<(), EnvelopeError>
+    fn accept<V: EnvelopeVisitor<'env>>(&self, _: &mut V) -> Result<(), EnvelopeError>
     where
         EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
     {
@@ -494,9 +494,9 @@ impl EnvelopeCollection<'_> for SubscribeEnvelopesResponse {
         self.envelopes.is_empty()
     }
 
-    fn consume<E>(self) -> Result<Vec<<E as super::Extractor>::Output>, EnvelopeError>
+    fn consume<E>(self) -> Result<Vec<<E as Extractor>::Output>, EnvelopeError>
     where
-        for<'a> E: Default + super::Extractor + EnvelopeVisitor<'a>,
+        for<'a> E: Default + Extractor + EnvelopeVisitor<'a>,
         Self: Clone,
         for<'a> EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
         Self: Sized,
@@ -538,9 +538,9 @@ impl EnvelopeCollection<'_> for SubscribeGroupMessagesRequest {
         self.filters.is_empty()
     }
 
-    fn consume<E>(self) -> Result<Vec<<E as super::Extractor>::Output>, EnvelopeError>
+    fn consume<E>(self) -> Result<Vec<<E as Extractor>::Output>, EnvelopeError>
     where
-        for<'a> E: Default + super::Extractor + EnvelopeVisitor<'a>,
+        for<'a> E: Default + Extractor + EnvelopeVisitor<'a>,
         for<'a> EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
         Self: Sized,
     {
@@ -581,9 +581,9 @@ impl EnvelopeCollection<'_> for SubscribeWelcomeMessagesRequest {
         self.filters.is_empty()
     }
 
-    fn consume<E>(self) -> Result<Vec<<E as super::Extractor>::Output>, EnvelopeError>
+    fn consume<E>(self) -> Result<Vec<<E as Extractor>::Output>, EnvelopeError>
     where
-        for<'a> E: Default + super::Extractor + EnvelopeVisitor<'a>,
+        for<'a> E: Default + Extractor + EnvelopeVisitor<'a>,
         for<'a> EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
         Self: Sized,
     {

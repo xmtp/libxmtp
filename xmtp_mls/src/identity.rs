@@ -85,7 +85,7 @@ pub enum IdentityStrategy {
     /// Identity that is already in the disk store
     CachedOnly,
     /// An already-built Identity for testing purposes
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     ExternalIdentity(Identity),
 }
 
@@ -141,7 +141,7 @@ impl IdentityStrategy {
             .map(|i: StoredIdentity| i.try_into())
             .transpose()?;
 
-        debug!("identity in store: {:?}", stored_identity);
+        debug!("identity strategy: {self:?}, identity in store: {stored_identity:?}");
         match self {
             CachedOnly => stored_identity.ok_or(IdentityError::RequiredIdentityNotFound),
             CreateIfNotFound {
@@ -178,7 +178,7 @@ impl IdentityStrategy {
                     .await
                 }
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-utils"))]
             ExternalIdentity(identity) => Ok(identity),
         }
     }

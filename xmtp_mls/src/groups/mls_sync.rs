@@ -3089,9 +3089,9 @@ pub(crate) mod tests {
     )]
     #[cfg(not(target_family = "wasm"))]
     async fn publish_intents_worst_case_scenario() {
-        use crate::utils::Tester;
+        use crate::tester;
 
-        let amal_a = Tester::new().await;
+        tester!(amal_a, triggers);
         let amal_group_a: Arc<MlsGroup<_>> =
             Arc::new(amal_a.create_group(None, Default::default()).unwrap());
 

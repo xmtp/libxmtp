@@ -1,8 +1,14 @@
 #![allow(unused)]
 
 use super::FullXmtpClient;
+use async_trait::async_trait;
+use diesel::QueryableByName;
 use xmtp_api_d14n::protocol::InMemoryCursorStore;
 use xmtp_configuration::{DeviceSyncUrls, DockerUrls};
+use xmtp_db::{
+    ConnectionExt, ReadOnly, TestDb, XmtpTestDb,
+    diesel::{self, Connection, RunQueryDsl, SqliteConnection, sql_query},
+};
 
 use crate::{
     Client,
@@ -10,8 +16,9 @@ use crate::{
     client::ClientError,
     context::XmtpSharedContext,
     groups::device_sync::worker::SyncMetric,
+    identity::{Identity, IdentityStrategy},
     subscriptions::SubscribeError,
-    utils::{TestClient, TestMlsStorage, VersionInfo, register_client},
+    utils::{TestClient, TestMlsStorage, VersionInfo, register_client, test::identity_setup},
     worker::metrics::WorkerMetrics,
 };
 use alloy::signers::local::PrivateKeySigner;
@@ -39,9 +46,13 @@ use xmtp_common::StreamHandle;
 use xmtp_common::TestLogReplace;
 use xmtp_configuration::LOCALHOST;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
+#[cfg(not(target_arch = "wasm32"))]
+use xmtp_db::NativeDb;
+#[cfg(target_arch = "wasm32")]
+use xmtp_db::WasmDb;
 use xmtp_db::{
-    MlsProviderExt, XmtpOpenMlsProvider, group_message::StoredGroupMessage,
-    sql_key_store::SqlKeyStore,
+    EncryptedMessageStore, MlsProviderExt, StorageOption, XmtpOpenMlsProvider,
+    group_message::StoredGroupMessage, sql_key_store::SqlKeyStore,
 };
 use xmtp_id::{
     InboxOwner,
@@ -52,26 +63,50 @@ use xmtp_id::{
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
-use xmtp_proto::api_client::ApiBuilder;
 use xmtp_proto::prelude::XmtpTestClient;
 use xmtp_proto::{TestApiBuilder, ToxicProxies};
+use xmtp_proto::{api_client::ApiBuilder, xmtp::message_contents::PrivateKey};
 
 type XmtpMlsProvider = XmtpOpenMlsProvider<Arc<TestMlsStorage>>;
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
-pub struct Tester<Owner, Client>
+pub struct Tester<Owner = PrivateKeySigner, Client = FullXmtpClient>
 where
     Owner: InboxOwner,
 {
     pub builder: TesterBuilder<Owner>,
     pub client: Client,
     pub worker: Option<Arc<WorkerMetrics<SyncMetric>>>,
+    #[cfg(target_arch = "wasm32")]
     pub stream_handle: Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>>>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub stream_handle:
+        Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>> + Send>>,
     pub proxy: Option<ToxicProxies>,
     /// Replacement names for this tester
     /// Replacements are removed on drop
     pub replace: TestLogReplace,
+}
+
+impl<Owner> Tester<Owner, FullXmtpClient>
+where
+    Owner: InboxOwner,
+{
+    pub fn dump_db(&self) -> Vec<u8> {
+        self.db()
+            .raw_query_write(|conn| {
+                let buff = conn.serialize_database_to_buffer();
+                Ok(buff.to_vec())
+            })
+            .unwrap()
+    }
+}
+
+#[derive(QueryableByName)]
+struct TableName {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    name: String,
 }
 
 #[macro_export]
@@ -81,13 +116,14 @@ macro_rules! tester {
     };
 
     ($name:ident $(, $k:ident $(: $v:expr)?)*) => {
-        let builder = $crate::utils::Tester::builder();
+        let builder = $crate::utils::TesterBuilder::new();
         tester!(@process builder ; $name $(, $k $(: $v)?)*)
     };
 
     (@process $builder:expr ; $name:ident) => {
         let $name = {
             use tracing::Instrument;
+
             use $crate::utils::LocalTesterBuilder;
             let span = tracing::info_span!(stringify!($name));
             $builder.build().instrument(span).await
@@ -103,23 +139,34 @@ macro_rules! tester {
     };
 }
 
-impl Tester<PrivateKeySigner, FullXmtpClient> {
-    pub(crate) async fn new() -> Tester<PrivateKeySigner, FullXmtpClient> {
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+pub trait LocalTester {
+    async fn new() -> Self;
+    async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient>;
+    fn builder() -> TesterBuilder<PrivateKeySigner>;
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl LocalTester for Tester<PrivateKeySigner, FullXmtpClient> {
+    async fn new() -> Self {
         let wallet = generate_local_wallet();
         Tester::new_with_owner(wallet).await
     }
 
-    pub(crate) async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient> {
+    async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient> {
         let passkey_user = PasskeyUser::new().await;
         Tester::new_with_owner(passkey_user).await
     }
 
-    pub(crate) fn builder() -> TesterBuilder<PrivateKeySigner> {
+    fn builder() -> TesterBuilder<PrivateKeySigner> {
         TesterBuilder::new()
     }
 }
 
-pub(crate) trait LocalTesterBuilder<Owner, C>
+#[allow(async_fn_in_trait)]
+pub trait LocalTesterBuilder<Owner, C>
 where
     Owner: InboxOwner,
 {
@@ -138,37 +185,69 @@ where
             let ident = self.owner.get_identifier().unwrap();
             replace.add(&ident.to_string(), &format!("{name}_ident"));
         }
-        let mut local_client = TestClient::create_local();
-        let mut sync_api_client = TestClient::create_local();
-        let mut proxy = None;
 
+        let (mut local_client, mut sync_api_client) = match self.api_endpoint {
+            ApiEndpoint::Local => (TestClient::create_local(), TestClient::create_local()),
+            ApiEndpoint::Dev => (TestClient::create_dev(), TestClient::create_dev()),
+        };
+
+        let mut proxy = None;
         if self.proxy {
             proxy = Some(local_client.with_toxiproxy().await);
             sync_api_client.with_existing_toxi(local_client.host().unwrap());
         }
-        tracing::info!(
-            "building with hosts = {:?}:{:?}",
-            local_client.host(),
-            sync_api_client.host()
-        );
+
         let api_client = local_client.build().unwrap();
         let sync_api_client = sync_api_client.build().unwrap();
-        let mut client = ClientBuilder::new_test_builder(&self.owner)
-            .await
+
+        let strategy = match (&self.external_identity, &self.snapshot) {
+            (Some(identity), _) => IdentityStrategy::ExternalIdentity(identity.clone()),
+            (_, Some(snapshot)) => IdentityStrategy::CachedOnly,
+            _ => identity_setup(&self.owner),
+        };
+
+        let mut client = Client::builder(strategy.clone())
             .api_clients(api_client, sync_api_client)
+            .with_disable_events(Some(!self.events))
+            .with_disable_workers(self.disable_workers)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .with_device_sync_worker_mode(Some(self.sync_mode))
             .with_device_sync_server_url(self.sync_url.clone())
             .maybe_version(self.version.clone())
-            .with_disable_events(Some(!self.events))
             .with_commit_log_worker(self.commit_log_worker)
             .fork_recovery_opts(self.fork_recovery_opts.clone().unwrap_or_default());
+
+        // Setup the database. Snapshots are always ephemeral.
+        if self.ephemeral_db || self.snapshot.is_some() {
+            let db = TestDb::create_ephemeral_store().await;
+
+            if let Some(snapshot) = &self.snapshot {
+                db.conn()
+                    .raw_query_write(|conn| conn.deserialize_database_from_buffer(snapshot))
+                    .unwrap();
+
+                client.allow_offline = true;
+            }
+
+            client = client.store(db);
+        } else {
+            client = client.temp_store().await;
+        }
 
         if self.in_memory_cursors {
             client = client.cursor_store(Arc::new(InMemoryCursorStore::new()) as Arc<_>);
         }
 
-        let client = client.build().await.unwrap();
-        register_client(&client, &self.owner).await;
+        if self.triggers {
+            client = client.enable_sqlite_triggers();
+        }
+
+        let client = client.default_mls_store().unwrap().build().await.unwrap();
+
+        if let IdentityStrategy::CreateIfNotFound { .. } = &strategy {
+            register_client(&client, &self.owner).await;
+        }
+
         if let Some(name) = &self.name {
             replace.add(
                 &client.installation_public_key().to_string(),
@@ -205,7 +284,7 @@ impl<Owner> Tester<Owner, FullXmtpClient>
 where
     Owner: InboxOwner + Clone + 'static,
 {
-    pub(crate) async fn new_with_owner(owner: Owner) -> Self {
+    pub async fn new_with_owner(owner: Owner) -> Self {
         TesterBuilder::new().owner(owner).build().await
     }
 
@@ -290,8 +369,20 @@ where
     pub proxy: bool,
     pub commit_log_worker: bool,
     pub in_memory_cursors: bool,
+    pub ephemeral_db: bool,
+    pub api_endpoint: ApiEndpoint,
+    pub triggers: bool,
+    pub external_identity: Option<Identity>,
+    pub snapshot: Option<Arc<Vec<u8>>>,
     /// whether this builder represents a second installation
-    installation: bool,
+    pub installation: bool,
+    pub disable_workers: bool,
+}
+
+#[derive(Clone)]
+pub enum ApiEndpoint {
+    Local,
+    Dev,
 }
 
 impl TesterBuilder<PrivateKeySigner> {
@@ -316,6 +407,12 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             commit_log_worker: true, // Default to enabled to match production
             installation: false,
             in_memory_cursors: false,
+            ephemeral_db: false,
+            triggers: false,
+            api_endpoint: ApiEndpoint::Local,
+            external_identity: None,
+            snapshot: None,
+            disable_workers: false,
         }
     }
 }
@@ -342,6 +439,12 @@ where
             commit_log_worker: self.commit_log_worker,
             installation: self.installation,
             in_memory_cursors: self.in_memory_cursors,
+            ephemeral_db: self.ephemeral_db,
+            api_endpoint: self.api_endpoint,
+            triggers: self.triggers,
+            external_identity: self.external_identity,
+            snapshot: self.snapshot,
+            disable_workers: self.disable_workers,
         }
     }
 
@@ -366,25 +469,49 @@ where
         self.owner(block_on(async { PasskeyUser::new().await }))
     }
 
-    pub fn sync_worker(self) -> Self {
-        Self {
-            sync_mode: SyncWorkerMode::Enabled,
-            ..self
-        }
+    pub fn dev(mut self) -> Self {
+        self.api_endpoint = ApiEndpoint::Dev;
+        self
     }
 
-    pub fn sync_server(self) -> Self {
-        Self {
-            sync_url: Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
-            ..self
-        }
+    pub fn with_dev(mut self, dev: bool) -> Self {
+        self.api_endpoint = match dev {
+            true => ApiEndpoint::Dev,
+            false => ApiEndpoint::Local,
+        };
+        self
     }
 
-    pub fn in_memory_cursors(self) -> Self {
-        Self {
-            in_memory_cursors: true,
-            ..self
+    pub fn external_identity(mut self, identity: Identity) -> Self {
+        self.external_identity = Some(identity);
+        self
+    }
+
+    pub fn with_external_identity(mut self, identity: Option<Identity>) -> Self {
+        self.external_identity = identity;
+        self
+    }
+
+    pub fn snapshot(mut self, snapshot: Arc<Vec<u8>>) -> Self {
+        self.snapshot = Some(snapshot);
+        self.ephemeral_db()
+    }
+
+    pub fn disable_workers(mut self) -> Self {
+        self.disable_workers = true;
+        self
+    }
+
+    pub fn with_snapshot(mut self, snapshot: Option<Arc<Vec<u8>>>) -> Self {
+        if let Some(snapshot) = snapshot {
+            self = self.snapshot(snapshot);
         }
+        self
+    }
+
+    pub fn triggers(mut self) -> Self {
+        self.triggers = true;
+        self
     }
 
     pub fn enable_fork_recovery_requests(self) -> Self {
@@ -430,39 +557,49 @@ where
         }
     }
 
-    pub fn proxy(self) -> Self {
-        Self {
-            proxy: true,
-            ..self
-        }
+    pub fn sync_worker(mut self) -> Self {
+        self.sync_mode = SyncWorkerMode::Enabled;
+        self
     }
 
-    pub fn with_commit_log_worker(self, enabled: bool) -> Self {
-        Self {
-            commit_log_worker: enabled,
-            ..self
-        }
+    pub fn sync_server(mut self) -> Self {
+        self.sync_url = Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string());
+        self
     }
 
-    pub fn events(self) -> Self {
-        Self {
-            events: true,
-            ..self
-        }
+    pub fn ephemeral_db(mut self) -> Self {
+        self.ephemeral_db = true;
+        self
     }
 
-    pub fn installation(self) -> Self {
-        Self {
-            installation: true,
-            ..self
-        }
+    pub fn in_memory_cursors(mut self) -> Self {
+        self.in_memory_cursors = true;
+        self
     }
 
-    pub fn do_not_wait_for_init(self) -> Self {
-        Self {
-            wait_for_init: false,
-            ..self
-        }
+    pub fn proxy(mut self) -> Self {
+        self.proxy = true;
+        self
+    }
+
+    pub fn with_commit_log_worker(mut self, enabled: bool) -> Self {
+        self.commit_log_worker = enabled;
+        self
+    }
+
+    pub fn events(mut self) -> Self {
+        self.events = true;
+        self
+    }
+
+    pub fn installation(mut self) -> Self {
+        self.installation = true;
+        self
+    }
+
+    pub fn do_not_wait_for_init(mut self) -> Self {
+        self.wait_for_init = false;
+        self
     }
 
     pub fn sync_mode(self, sync_mode: SyncWorkerMode) -> Self {

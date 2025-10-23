@@ -2,7 +2,7 @@ use xmtp_cryptography::utils::generate_local_wallet;
 
 use crate::{
     builder::ClientBuilder,
-    utils::{ClientTester, LocalTesterBuilder, Tester},
+    utils::{ClientTester, LocalTesterBuilder, TesterBuilder},
 };
 
 use super::FullXmtpClient;
@@ -10,27 +10,27 @@ use rstest::*;
 
 #[fixture]
 pub async fn alix() -> ClientTester {
-    Tester::builder().with_name("alix").build().await
+    TesterBuilder::new().with_name("alix").build().await
 }
 
 #[fixture]
 pub async fn bo() -> ClientTester {
-    Tester::builder().with_name("bo").build().await
+    TesterBuilder::new().with_name("bo").build().await
 }
 
 #[fixture]
 pub async fn bola() -> ClientTester {
-    Tester::builder().with_name("bo").build().await
+    TesterBuilder::new().with_name("bo").build().await
 }
 
 #[fixture]
 pub async fn caro() -> ClientTester {
-    Tester::builder().with_name("caro").build().await
+    TesterBuilder::new().with_name("caro").build().await
 }
 
 #[fixture]
 pub async fn eve() -> ClientTester {
-    Tester::builder().with_name("eve").build().await
+    TesterBuilder::new().with_name("eve").build().await
 }
 
 #[fixture]

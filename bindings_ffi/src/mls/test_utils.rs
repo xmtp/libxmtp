@@ -5,7 +5,7 @@ use alloy::signers::local::PrivateKeySigner;
 use xmtp_common::{TestLogReplace, tmp_path};
 use xmtp_configuration::GrpcUrls;
 use xmtp_id::InboxOwner;
-use xmtp_mls::utils::test::tester_utils::*;
+use xmtp_mls::utils::{PasskeyUser, Tester, TesterBuilder};
 
 use crate::inbox_owner::FfiInboxOwner;
 
@@ -125,20 +125,18 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
 
 #[allow(async_fn_in_trait)]
 pub trait LocalTester {
-    async fn new() -> Tester<PrivateKeySigner, FfiXmtpClient>;
+    async fn new() -> Self;
     #[allow(unused)]
     async fn new_passkey() -> Tester<PasskeyUser, FfiXmtpClient>;
-
     fn builder() -> TesterBuilder<PrivateKeySigner>;
 }
 impl LocalTester for Tester<PrivateKeySigner, FfiXmtpClient> {
-    async fn new() -> Tester<PrivateKeySigner, FfiXmtpClient> {
+    async fn new() -> Self {
         TesterBuilder::new().build().await
     }
     async fn new_passkey() -> Tester<PasskeyUser, FfiXmtpClient> {
         TesterBuilder::new().passkey().build().await
     }
-
     fn builder() -> TesterBuilder<PrivateKeySigner> {
         TesterBuilder::new()
     }
