@@ -310,7 +310,7 @@ impl Retry {
 ///     Err(MyError::Retryable)
 /// }
 ///
-/// #[tokio::main]
+/// #[tokio::main(flavor = "current_thread")]
 /// async fn main() -> Result<(), MyError> {
 ///
 ///     let (tx, mut rx) = mpsc::channel(3);
