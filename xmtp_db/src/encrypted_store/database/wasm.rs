@@ -7,11 +7,11 @@ use diesel::prelude::SqliteConnection;
 use diesel::{connection::SimpleConnection, prelude::*};
 use parking_lot::Mutex;
 use sqlite_wasm_rs::sahpool_vfs::OpfsSAHPoolCfg;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 use thiserror::Error;
 use web_sys::wasm_bindgen::JsCast;
-use std::cell::RefCell;
-use std::rc::Rc;
 #[derive(Debug, Error)]
 pub enum PlatformStorageError {
     #[error("OPFS {0}")]
