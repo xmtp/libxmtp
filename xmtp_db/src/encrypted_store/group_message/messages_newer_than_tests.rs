@@ -26,6 +26,7 @@ fn generate_message_with_cursor(
         version_minor: 0,
         authority_id: "unknown".to_string(),
         reference_id: None,
+        inserted_at_ns: sent_at_ns,
         sequence_id,
         originator_id,
         expire_at_ns: None,
