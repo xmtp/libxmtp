@@ -25,20 +25,71 @@ use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
 
 use super::EnvelopeError;
 
-/// Envelope Visitor type for ergonomic handling of serialized nested envelope types.
+/// Envelope Visitor type for handling of serialized nested envelope types.
 ///
-/// The blanket implementation on `Vec<T>` enables combining an arbitrary number of visitors into one,
+/// Envelope visitors allow implementors to define data needed from
+/// a [`ProtocolEnvelope`](super::ProtocolEnvelope).
+/// It is designed such that like-kinded types may be extracted in the same module. For instance,
+/// V3 and D14n Group Messages. A visitor is given to
+/// a ProtocolEnvelope implementation
+/// via the [`ProtocolEnvelope::accept`](super::ProtocolEnvelope::accept) method. The implementation of
+/// ProtocolEnvelope
+/// defines how the protobuf data structure is traversed. it is the responsibility of
+/// ProtocolEnvelope to call all relevent visitor methods defined on this trait.
+/// if a visitor is not called, it must not be present in the given input data of
+/// a ProtocolEnvelope
 ///
-/// process = vec![ValidateMessage::new(), ExtractMessage::new()];
-/// Each step is ran in sequence, and if one of the steps fail, the entire process is
-/// short-circuited.
-/// This has the advantage of not re-doing deserialization for each processing step.
+/// The [`Envelope`](super::Envelope) and [`EnvelopeCollection`](super::EnvelopeCollection) makes handling collections of
+/// [`ProtocolEnvelope`](super::ProtocolEnvelope) and applying their extractors more convenient, as
+/// it provides a blanket implementation on all [`ProtocolEnvelope`](super::ProtocolEnvelope)
+/// types.
 ///
-// NOTE: A new type wrapping Vec<T> can be created in order to avoid short-circuiting if that is
-// desired.
+/// The Aggregate Extractors, [`CollectionExtractor`](crate::protocol::extractors::CollectionExtractor) and
+/// [`SequencedExtractor`](crate::protocol::extractors::SequencedExtractor) applies an extractor to
+/// collections (Vec::<T>) of [`ProtocolEnvelope`](super::ProtocolEnvelope)'s.
+///
+/// # Examples
+///
+///### Run a single visitor
+/// ```
+/// # use xmtp_proto::mls_v1;
+/// # use xmtp_api_d14n::protocol::extractors::V3GroupMessageExtractor;
+/// # use xmtp_api_d14n::protocol::{ProtocolEnvelope, Extractor};
+/// // [`mls_v1::GroupMessage`] has a [`ProtocolEnvelope`] implemention.
+/// fn get_group_message(response: mls_v1::GroupMessage) -> xmtp_proto::types::GroupMessage {
+///     // our Extractor which has an implementation of [`EnvelopeVisitor`]
+///     let mut visitor = V3GroupMessageExtractor::default();
+///     response.accept(&mut visitor);
+///     let msg = visitor.get().unwrap();
+///     msg.unwrap()
+/// }
+/// ```
+/// ## Run multiple visitors
+/// Running multiple visitors is useful when you want to extract multiple things
+/// from an envelope, or it's uncertain whether the envelopes contains a certain type of message.
+/// Visitors chained as a tuple should always run through the protobuf message exactly once O(n).
+///
+/// _NOTE:_ the blanket implementation of [`Envelope`](super::Envelope) on all [`ProtocolEnvelope`](super::ProtocolEnvelope) types
+/// removes much of the boilerplate here, and can have functions added if needed.
+/// ```
+/// # use xmtp_proto::mls_v1;
+/// # use xmtp_proto::types::GroupMessage;
+/// # use xmtp_api_d14n::protocol::extractors::{TopicExtractor, PayloadExtractor};
+/// # use xmtp_api_d14n::protocol::{ProtocolEnvelope, Extractor};
+/// # use xmtp_proto::xmtp::xmtpv4::envelopes::OriginatorEnvelope;
+/// # fn get_topic_and_payload(envelope: OriginatorEnvelope) {
+///     let topic = TopicExtractor::default();
+///     let payload = PayloadExtractor::default();
+///     let mut visitor = (topic, payload);
+///     envelope.accept(&mut visitor);
+///     // unwrap the visitor from its tuple
+///     let (topic, payload) = visitor;
+///     let topic = topic.get().unwrap();
+///     let payload = payload.get().unwrap();
+/// # }
+/// ```
 pub trait EnvelopeVisitor<'env> {
     type Error: Into<EnvelopeError>;
-
     /// Visit the OriginatorEnvelope Type
     fn visit_originator(&mut self, _e: &OriginatorEnvelope) -> Result<(), Self::Error> {
         tracing::trace!("noop_visit_originator");
