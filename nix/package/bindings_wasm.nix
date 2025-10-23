@@ -44,7 +44,6 @@ let
     buildInputs = [ zstd sqlite ];
     doCheck = false;
     cargoExtraArgs = "--workspace --exclude xmtpv3 --exclude bindings_node --exclude xmtp_cli --exclude xdbg --exclude mls_validation_service --exclude xmtp_api_grpc";
-    RUSTFLAGS = [ "--cfg" "tracing_unstable" "--cfg" "getrandom_backend=\"wasm_js\"" "-C" "target-feature=+bulk-memory,+mutable-globals" ];
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
     hardeningDisable = [ "zerocallusedregs" "stackprotector" ];
     NIX_DEBUG = 1;
