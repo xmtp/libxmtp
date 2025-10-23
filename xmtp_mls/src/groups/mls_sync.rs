@@ -1316,7 +1316,7 @@ where
         storage: &impl XmtpMlsStorageProvider,
         message_id: &[u8],
     ) {
-        if let Ok(Some(message)) = self.context.db().get_group_message(message_id)
+        if let Ok(Some(message)) = storage.db().get_group_message(message_id)
             && message.content_type == ContentType::LeaveRequest
         {
             match self.process_leave_request_message(mls_group, storage, &message) {

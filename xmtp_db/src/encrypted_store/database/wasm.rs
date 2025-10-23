@@ -10,7 +10,8 @@ use sqlite_wasm_rs::sahpool_vfs::OpfsSAHPoolCfg;
 use std::sync::Arc;
 use thiserror::Error;
 use web_sys::wasm_bindgen::JsCast;
-
+use std::cell::RefCell;
+use std::rc::Rc;
 #[derive(Debug, Error)]
 pub enum PlatformStorageError {
     #[error("OPFS {0}")]
@@ -138,7 +139,7 @@ impl WasmDb {
 }
 
 pub struct WasmDbConnection {
-    conn: Arc<Mutex<SqliteConnection>>,
+    conn: Rc<RefCell<SqliteConnection>>,
     path: String,
 }
 
@@ -147,7 +148,7 @@ impl WasmDbConnection {
         let mut conn = SqliteConnection::establish(path)?;
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
         Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
+            conn: Rc::new(RefCell::new(conn)),
             path: path.to_string(),
         })
     }
@@ -159,7 +160,7 @@ impl WasmDbConnection {
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
 
         Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
+            conn: Rc::new(RefCell::new(conn)),
             path,
         })
     }
@@ -175,7 +176,7 @@ impl ConnectionExt for WasmDbConnection {
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        let mut conn = self.conn.lock();
+        let mut conn = self.conn.borrow_mut();
         Ok(fun(&mut conn)?)
     }
 
@@ -184,7 +185,7 @@ impl ConnectionExt for WasmDbConnection {
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        let mut conn = self.conn.lock();
+        let mut conn = self.conn.borrow_mut();
         Ok(fun(&mut conn)?)
     }
 
@@ -196,6 +197,9 @@ impl ConnectionExt for WasmDbConnection {
         Ok(())
     }
 }
+
+unsafe impl Send for WasmDbConnection {}
+unsafe impl Sync for WasmDbConnection {}
 
 impl XmtpDb for WasmDb {
     type Connection = Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>;
