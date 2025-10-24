@@ -57,11 +57,6 @@ name = "ffi-uniffi-bindgen"
 path = "bindgen/bin.rs"
 required-features = ["uniffi/cli"]
 
-[[bin]]
-name = "ffi-uniffi-bindgen-swift"
-path = "bindgen/bin-swift.rs"
-required-features = ["uniffi/cli"]
-
 [dev-dependencies]
 alloy.workspace = true
 async-trait.workspace = true
