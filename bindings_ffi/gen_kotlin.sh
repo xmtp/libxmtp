@@ -24,7 +24,7 @@ cargo run --bin ffi-uniffi-bindgen \
   --manifest-path $BINDINGS_MANIFEST \
   --features uniffi/cli --release -- \
   generate \
-  --library $TARGET_DIR/release/lib$PROJECT_NAME.dylib \
+  --lib-file $TARGET_DIR/release/lib$PROJECT_NAME.dylib $BINDINGS_PATH/src/$PROJECT_NAME.udl \
   --language kotlin
 
 cd $BINDINGS_PATH

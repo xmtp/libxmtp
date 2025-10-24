@@ -7,7 +7,6 @@ TARGET_DIR=$(WORKSPACE_PATH)/target
 ARCHS_IOS = x86_64-apple-ios aarch64-apple-ios-sim
 ARCHS_MAC = x86_64-apple-darwin aarch64-apple-darwin
 LIB=libxmtpv3.a
-DYLIB=libxmtpv3.dylib
 JAR_DIR=$(shell pwd)/tests/jar
 SQLCIPHER_DIR=$(shell pwd)/sqlcipher
 SQLCIPHER_LIB=$(SQLCIPHER_DIR)/.libs/libsqlcipher.a
@@ -32,31 +31,35 @@ download-toolchains:
 	rustup target add $(ARCHS_MAC)
 	rustup target add aarch64-apple-ios
 
+download-sqlcipher:
+	git clone https://github.com/sqlcipher/sqlcipher.git $(SQLCIPHER_DIR)
+
+build-sqlcipher:
+	cd $(SQLCIPHER_DIR) && \
+	./configure --enable-tempstore=yes CFLAGS="-DSQLITE_HAS_CODEC" && \
+	make
+
 all: framework
 
 libxmtp-version:
 	echo "Version: $(GIT_COMMIT_HASH)\nBranch: $(GIT_BRANCH)\nDate: $(GIT_COMMIT_DATE)" > libxmtp-version.txt
 
-$(ARCHS_IOS): %:
-	IPHONEOS_DEPLOYMENT_TARGET=10 cargo build --target $@ --target-dir $(TARGET_DIR) --release --no-default-features
-	mkdir -p build/$@
-	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
-	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)
-
-$(ARCHS_MAC): %:
+$(ARCHS_IOS): %: build-sqlcipher
 	cargo build --target $@ --target-dir $(TARGET_DIR) --release --no-default-features
 	mkdir -p build/$@
 	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
-	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)
 
-aarch64-apple-ios:
-	IPHONEOS_DEPLOYMENT_TARGET=10 cargo build --target $@ --target-dir $(TARGET_DIR) --release
+$(ARCHS_MAC): %: build-sqlcipher
+	cargo build --target $@ --target-dir $(TARGET_DIR) --release --no-default-features
 	mkdir -p build/$@
 	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
-	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)
+
+aarch64-apple-ios: build-sqlcipher
+	cargo build --target $@ --target-dir $(TARGET_DIR) --release
+	mkdir -p build/$@
+	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 
 $(LIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
-$(DYLIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
 
 # lipo combines libs for different architectures (aarch64, x86_64, ...) into one fat lib
 lipo:
@@ -64,68 +67,33 @@ lipo:
 	lipo -create -output build/lipo_ios_sim/$(LIB) $(foreach arch,$(ARCHS_IOS),$(wildcard build/$(arch)/$(LIB)))
 	lipo -create -output build/lipo_macos/$(LIB) $(foreach arch,$(ARCHS_MAC),$(wildcard build/$(arch)/$(LIB)))
 
-# lipo combines libs for different architectures (aarch64, x86_64, ...) into one fat lib
-lipodyn:
-	mkdir -p build/lipo_macos build/lipo_ios_sim
-	lipo -create -output build/lipo_ios_sim/$(DYLIB) $(foreach arch,$(ARCHS_IOS),$(wildcard build/$(arch)/$(DYLIB)))
-	lipo -create -output build/lipo_macos/$(DYLIB) $(foreach arch,$(ARCHS_MAC),$(wildcard build/$(arch)/$(DYLIB)))
-
 # xcframework combines libs for different platforms (iOS, iOS-simulator, macOS, ...) into one framework that can be used in Xcode
 framework: lipo
 	rm -rf LibXMTPSwiftFFI.xcframework
 	xcodebuild -create-xcframework \
 		-library build/aarch64-apple-ios/$(LIB) \
-		-headers build/swift/static/include/libxmtp/ \
+		-headers build/swift/include/libxmtp/ \
 		-library build/lipo_ios_sim/$(LIB) \
-		-headers build/swift/static/include/libxmtp/ \
+		-headers build/swift/include/libxmtp/ \
 		-library build/lipo_macos/$(LIB) \
-		-headers build/swift/static/include/libxmtp/ \
+		-headers build/swift/include/libxmtp/ \
 		-output LibXMTPSwiftFFI.xcframework
 
-frameworkdyn: lipodyn
-	rm -rf LibXMTPSwiftFFIDynamic.xcframework
-	xcodebuild -create-xcframework \
-		-library build/aarch64-apple-ios/$(DYLIB) \
-		-headers build/swift/dynamic/include/libxmtp/ \
-		-library build/lipo_ios_sim/$(DYLIB) \
-		-headers build/swift/dynamic/include/libxmtp/ \
-		-library build/lipo_macos/$(DYLIB) \
-		-headers build/swift/dynamic/include/libxmtp/ \
-		-output LibXMTPSwiftFFIDynamic.xcframework
-
-bindgenstatic:
-	cargo build --release -p xmtpv3
-	rm -rf build/swift/static
-	cargo run --bin ffi-uniffi-bindgen --release --features uniffi/cli generate \
-		--library $(TARGET_DIR)/release/$(LIB) \
-		--out-dir build/swift/static \
-		--language swift
-
-bindgendynamic:
-	cargo build --release -p xmtpv3
-	rm -rf build/swift/dynamic
-	cargo run --bin ffi-uniffi-bindgen --release --features uniffi/cli generate \
-		--library $(TARGET_DIR)/release/$(DYLIB) \
-		--out-dir build/swift/dynamic \
-		--language swift
-
 # build uniffi bindings for swift
-swiftdyn: libxmtp-version
-	# https://mozilla.github.io/uniffi-rs/swift/module.html#compiling-a-swift-module
-	mkdir -p build/swift/dynamic/include/libxmtp
-	mv build/swift/dynamic/$(PROJECT_NAME)FFI.h build/swift/dynamic/include/libxmtp/  # Move header
-	mv build/swift/dynamic/$(PROJECT_NAME)FFI.modulemap build/swift/dynamic/include/libxmtp/module.modulemap  # Move modulemap
-	cp libxmtp-version.txt build/swift/dynamic
-
 swift: libxmtp-version
+	cargo build --release -p xmtpv3
+	rm -rf build/swift
+	cargo run --bin ffi-uniffi-bindgen --release --features uniffi/cli generate \
+		--lib-file $(TARGET_DIR)/release/$(LIB) \
+		src/$(PROJECT_NAME).udl \
+		--out-dir build/swift \
+		--language swift
 	# https://mozilla.github.io/uniffi-rs/swift/module.html#compiling-a-swift-module
-	mkdir -p build/swift/static/include/libxmtp
-	mv build/swift/static/$(PROJECT_NAME)FFI.h build/swift/static/include/libxmtp/  # Move header
-	mv build/swift/static/$(PROJECT_NAME)FFI.modulemap build/swift/static/include/libxmtp/module.modulemap  # Move modulemap
-	cp libxmtp-version.txt build/swift/static
+	mkdir -p build/swift/include/libxmtp
+	mv build/swift/$(PROJECT_NAME)FFI.h build/swift/include/libxmtp/  # Move header
+	mv build/swift/$(PROJECT_NAME)FFI.modulemap build/swift/include/libxmtp/module.modulemap  # Move modulemap
+	cp libxmtp-version.txt build/swift/
 
-swiftlocal: libxmtpv3.a bindgenstatic swift framework
+swiftlocal: libxmtpv3.a swift framework
 
-swiftdynamic: libxmtpv3.dylib bindgendynamic swiftdyn frameworkdyn
-
-.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift bindgendynamic bindgenstatic frameworkdyn lipo lipodyn download-sqlcipher build-sqlcipher
+.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift lipo download-sqlcipher build-sqlcipher
