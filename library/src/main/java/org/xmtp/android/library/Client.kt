@@ -51,6 +51,7 @@ data class ClientOptions(
         val env: XMTPEnvironment = XMTPEnvironment.DEV,
         val isSecure: Boolean = true,
         val appVersion: String? = null,
+        val gatewayHost: String? = null,
     )
 }
 
@@ -86,6 +87,9 @@ class Client(
                 registry.register(codec = TextCodec())
                 registry
             }
+
+        private fun ClientOptions.Api.toCacheKey(): String =
+            "${env.getUrl()}|$isSecure|${appVersion ?: "nil"}|${gatewayHost ?: "nil"}"
 
         private val apiClientCache = mutableMapOf<String, XmtpApiClient>()
         private val cacheLock = Mutex()
@@ -150,7 +154,7 @@ class Client(
         }
 
         suspend fun connectToApiBackend(api: ClientOptions.Api): XmtpApiClient {
-            val cacheKey = api.env.getUrl()
+            val cacheKey = api.toCacheKey()
             return cacheLock.withLock {
                 val cached = apiClientCache[cacheKey]
 
@@ -166,7 +170,7 @@ class Client(
         }
 
         suspend fun connectToSyncApiBackend(api: ClientOptions.Api): XmtpApiClient {
-            val cacheKey = api.env.getUrl()
+            val cacheKey = api.toCacheKey()
             return syncCacheLock.withLock {
                 val cached = syncApiClientCache[cacheKey]
 
