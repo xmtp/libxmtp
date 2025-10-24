@@ -62,21 +62,31 @@ impl WorkerRunner {
         self.factories.push(Arc::new(factory))
     }
 
-    pub fn spawn(&self) {
-        for factory in &self.factories {
-            let metric = self.metrics.lock().get(&factory.kind()).cloned();
-            let (worker, metrics) = factory.create(metric);
-
-            if let Some(metrics) = metrics {
-                self.metrics.lock().insert(factory.kind(), metrics);
+    pub fn spawn<Context>(self: &Arc<Self>, ctx: Context)
+    where
+        Context: XmtpSharedContext + 'static,
+    {
+        let this = self.clone();
+        xmtp_common::spawn(None, async move {
+            while !ctx.identity().is_ready() {
+                xmtp_common::task::yield_now().await;
             }
 
-            if let Some(metrics) = worker.metrics() {
-                let mut m = self.metrics.lock();
-                m.insert(worker.kind(), metrics);
+            for factory in &this.factories {
+                let metric = this.metrics.lock().get(&factory.kind()).cloned();
+                let (worker, metrics) = factory.create(metric);
+
+                if let Some(metrics) = metrics {
+                    this.metrics.lock().insert(factory.kind(), metrics);
+                }
+
+                if let Some(metrics) = worker.metrics() {
+                    let mut m = this.metrics.lock();
+                    m.insert(worker.kind(), metrics);
+                }
+                worker.spawn()
             }
-            worker.spawn()
-        }
+        });
     }
 
     pub async fn wait_for_sync_worker_init(&self) {

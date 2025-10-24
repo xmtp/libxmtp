@@ -162,7 +162,7 @@ impl From<&str> for ClientError {
 pub struct Client<Context> {
     pub context: Context,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
-    pub(crate) workers: WorkerRunner,
+    pub(crate) workers: Arc<WorkerRunner>,
 }
 
 #[derive(Clone)]
@@ -246,7 +246,7 @@ where
     /// Reconnect to the client's database if it has previously been released
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
         self.context.db().reconnect().map_err(StorageError::from)?;
-        self.workers.spawn();
+        self.workers.spawn(self.context.clone());
         Ok(())
     }
 
