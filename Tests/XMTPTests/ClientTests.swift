@@ -1308,4 +1308,149 @@ class ClientTests: XCTestCase {
 		try alix2.deleteLocalDatabase()
 		try alix3.deleteLocalDatabase()
 	}
+
+	func testApiClientCacheKeysDifferentConfigurations() async throws {
+		// Test that the API client cache correctly differentiates between different configurations
+		// Cache key format: "\(env.url)|\(isSecure)|\(appVersion ?? "nil")|\(gatewayHost ?? "nil")"
+
+		// Test 1: Different environment URLs
+		let key1 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: nil, gatewayHost: nil))
+		let key2 = ApiCacheKey(api: .init(env: .dev, isSecure: true, appVersion: nil, gatewayHost: nil))
+		let key3 = ApiCacheKey(api: .init(env: .production, isSecure: true, appVersion: nil, gatewayHost: nil))
+		XCTAssertNotEqual(
+			key1.stringValue,
+			key2.stringValue,
+			"Cache keys should differ for different environments (local vs dev)"
+		)
+		XCTAssertNotEqual(
+			key2.stringValue,
+			key3.stringValue,
+			"Cache keys should differ for different environments (dev vs production)"
+		)
+		XCTAssertNotEqual(
+			key1.stringValue,
+			key3.stringValue,
+			"Cache keys should differ for different environments (local vs production)"
+		)
+
+		// Test 2: Different isSecure values (same env)
+		let key4 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: nil, gatewayHost: nil))
+		let key5 = ApiCacheKey(api: .init(env: .local, isSecure: false, appVersion: nil, gatewayHost: nil))
+		XCTAssertNotEqual(key4.stringValue, key5.stringValue, "Cache keys should differ when isSecure differs")
+
+		// Test 3: Different appVersion values (same env, same isSecure)
+		let key6 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: "1.0.0", gatewayHost: nil))
+		let key7 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: "2.0.0", gatewayHost: nil))
+		XCTAssertNotEqual(key6.stringValue, key7.stringValue, "Cache keys should differ for different appVersion values")
+
+		// Test 4: appVersion present vs absent
+		let key8 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: nil, gatewayHost: nil))
+		let key9 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: "1.0.0", gatewayHost: nil))
+		XCTAssertNotEqual(
+			key8.stringValue,
+			key9.stringValue,
+			"Cache keys should differ when one has appVersion and other doesn't"
+		)
+
+		// Test 5: Different gatewayHost values (same env, same isSecure, same appVersion)
+		let key10 = ApiCacheKey(api: .init(
+			env: .local,
+			isSecure: true,
+			appVersion: nil,
+			gatewayHost: "https://gateway1.example.com"
+		))
+		let key11 = ApiCacheKey(api: .init(
+			env: .local,
+			isSecure: true,
+			appVersion: nil,
+			gatewayHost: "https://gateway2.example.com"
+		))
+		XCTAssertNotEqual(key10.stringValue, key11.stringValue, "Cache keys should differ for different gatewayHost values")
+
+		// Test 6: gatewayHost present vs absent
+		let key12 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: nil, gatewayHost: nil))
+		let key13 = ApiCacheKey(api: .init(
+			env: .local,
+			isSecure: true,
+			appVersion: nil,
+			gatewayHost: "https://gateway.example.com"
+		))
+		XCTAssertNotEqual(
+			key12.stringValue,
+			key13.stringValue,
+			"Cache keys should differ when one has gatewayHost and other doesn't"
+		)
+
+		// Test 7: Multiple parameters different
+		let key14 = ApiCacheKey(api: .init(
+			env: .dev,
+			isSecure: true,
+			appVersion: "1.0.0",
+			gatewayHost: "https://gateway.example.com"
+		))
+		let key15 = ApiCacheKey(api: .init(
+			env: .local,
+			isSecure: false,
+			appVersion: "2.0.0",
+			gatewayHost: "https://other-gateway.example.com"
+		))
+		XCTAssertNotEqual(
+			key14.stringValue,
+			key15.stringValue,
+			"Cache keys should differ when multiple parameters are different"
+		)
+
+		// Test 8: Completely identical configurations should produce same key
+		let key16 = ApiCacheKey(api: .init(
+			env: .local,
+			isSecure: true,
+			appVersion: "1.0.0",
+			gatewayHost: "https://gateway.example.com"
+		))
+		let key17 = ApiCacheKey(api: .init(
+			env: .local,
+			isSecure: true,
+			appVersion: "1.0.0",
+			gatewayHost: "https://gateway.example.com"
+		))
+		XCTAssertEqual(key16.stringValue, key17.stringValue, "Cache keys should be identical for identical configurations")
+
+		// Test 9: All parameters nil/default should produce same key
+		let key18 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: nil, gatewayHost: nil))
+		let key19 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: nil, gatewayHost: nil))
+		XCTAssertEqual(
+			key18.stringValue,
+			key19.stringValue,
+			"Cache keys should be identical when all optional params are nil"
+		)
+
+		// Test 10: Edge case - same gatewayHost but different other params should still differ
+		let key20 = ApiCacheKey(api: .init(
+			env: .dev,
+			isSecure: true,
+			appVersion: nil,
+			gatewayHost: "https://gateway.example.com"
+		))
+		let key21 = ApiCacheKey(api: .init(
+			env: .dev,
+			isSecure: false,
+			appVersion: nil,
+			gatewayHost: "https://gateway.example.com"
+		))
+		XCTAssertNotEqual(
+			key20.stringValue,
+			key21.stringValue,
+			"Cache keys should differ even when gatewayHost is same but isSecure differs"
+		)
+
+		// Test 11: Edge case - same everything except gatewayHost
+		let key22 = ApiCacheKey(api: .init(env: .production, isSecure: true, appVersion: "3.0.0", gatewayHost: nil))
+		let key23 = ApiCacheKey(api: .init(
+			env: .production,
+			isSecure: true,
+			appVersion: "3.0.0",
+			gatewayHost: "https://gateway.example.com"
+		))
+		XCTAssertNotEqual(key22.stringValue, key23.stringValue, "Cache keys should differ when only gatewayHost differs")
+	}
 }
