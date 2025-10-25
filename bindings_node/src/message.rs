@@ -111,6 +111,9 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
       exclude_content_types,
       kind: opts.kind.map(Into::into),
       exclude_sender_inbox_ids: opts.exclude_sender_inbox_ids,
+      sort_by: None,
+      inserted_after: None,
+      inserted_before: None,
     }
   }
 }
