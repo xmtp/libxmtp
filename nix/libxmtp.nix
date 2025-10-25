@@ -1,7 +1,6 @@
 { stdenv
 , darwin
 , lib
-, mkToolchain
 , pkg-config
 , mktemp
 , jdk21
@@ -28,6 +27,7 @@
 , protobuf
 , protolint
 , mkShell
+, wasm-bindgen-cli
 , wasm-pack
 , binaryen
 , emscripten
@@ -36,14 +36,15 @@
 , lcov
 , cargo-llvm-cov
 , cargo-machete
-, wasm-bindgen-cli_0_2_104
 , zlib
+, xmtp
+, omnix
 , ...
 }:
 
 let
   inherit (stdenv) isDarwin isLinux;
-  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
+  rust-toolchain = xmtp.mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
 in
 mkShell {
   OPENSSL_DIR = "${openssl.dev}";
@@ -89,7 +90,8 @@ mkShell {
       jq
       curl
       lcov
-      wasm-bindgen-cli_0_2_104
+      wasm-bindgen-cli
+      binaryen
       wasm-pack
       binaryen
 
@@ -97,6 +99,7 @@ mkShell {
       buf
       protobuf
       protolint
+      omnix
 
 
       # lint
