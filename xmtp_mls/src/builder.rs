@@ -339,7 +339,12 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 .register_new_worker::<crate::tasks::TaskWorker<ContextParts<ApiClient, S, Db>>, _>(
                     context.clone(),
                 );
-            workers.spawn();
+        }
+
+        let workers = Arc::new(workers);
+
+        if !disable_workers {
+            workers.spawn(context.clone());
         }
 
         let client = Client {
