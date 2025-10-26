@@ -1,5 +1,4 @@
 on:
-  pull_request:
   workflow_dispatch:
   push:
     branches:
@@ -39,6 +38,7 @@ jobs:
       - run: om ci run --include-all-dependencies
       - uses: DeterminateSystems/flakehub-push@main
         with:
-          name: DeterminateSystems/flakehub-push
+          visibility: "public"
           rolling: true
-          visibility: public
+          name: "xmtp/libxmtp"
+          include-output-paths: true
