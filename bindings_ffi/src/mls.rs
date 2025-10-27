@@ -9345,9 +9345,13 @@ mod tests {
         let initial_consent = alix_group.consent_state().unwrap();
         assert_eq!(initial_consent, FfiConsentState::Allowed);
 
-        let alix2 = alix.builder.build().await;
+        let alix2 = alix.builder.clone().build().await;
         let state = alix2.inbox_state(true).await.unwrap();
         assert_eq!(state.installations.len(), 2);
+
+        while alix2.worker.is_none() {
+            xmtp_common::time::sleep(Duration::from_millis(10)).await;
+        }
 
         alix.sync_preferences().await.unwrap();
         alix_group.sync().await.unwrap();

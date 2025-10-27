@@ -3,10 +3,6 @@ use super::{
     group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
     mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension},
 };
-use xmtp_configuration::{
-    GROUP_KEY_ROTATION_INTERVAL_NS, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
-};
-
 use crate::{
     groups::mls_ext::WelcomePointersExtension,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
@@ -19,6 +15,9 @@ use prost::{Message, bytes::Bytes};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::types::Address;
+use xmtp_configuration::{
+    GROUP_KEY_ROTATION_INTERVAL_NS, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+};
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 use xmtp_proto::{
     ConversionError,
