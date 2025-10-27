@@ -1182,7 +1182,7 @@ checksum = "d86b93f97252c47b41663388e6d155714a9d0c398b99f1005cbc5f978b29f445"
 
 [[package]]
 name = "benches"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "anyhow",
  "clap",
@@ -1229,7 +1229,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_node"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "chrono",
  "const-hex",
@@ -1256,7 +1256,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_wasm"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "alloy",
  "chrono",
@@ -4100,7 +4100,7 @@ dependencies = [
 
 [[package]]
 name = "mls_validation_service"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "alloy",
  "async-trait",
@@ -8286,7 +8286,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "async-trait",
  "chrono",
@@ -8310,7 +8310,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_d14n"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -8347,7 +8347,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_grpc"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "async-trait",
  "futures",
@@ -8377,7 +8377,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_archive"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "aes-gcm",
  "async-compression",
@@ -8403,7 +8403,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cli"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "alloy",
  "chrono",
@@ -8436,7 +8436,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_common"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "async-trait",
  "console_error_panic_hook",
@@ -8471,7 +8471,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_configuration"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "openmls",
  "url",
@@ -8481,7 +8481,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_content_types"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "base64 0.22.1",
  "const-hex",
@@ -8497,7 +8497,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cryptography"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "alloy",
  "bincode",
@@ -8521,7 +8521,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_db"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "arc-swap",
  "bincode",
@@ -8563,7 +8563,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_db_test"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "derive_builder",
  "diesel",
@@ -8576,7 +8576,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_id"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "alloy",
  "async-trait",
@@ -8611,7 +8611,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_macro"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "num_cpus",
  "proc-macro2",
@@ -8623,7 +8623,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "aes-gcm",
  "alloy",
@@ -8704,7 +8704,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls_common"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "const-hex",
  "openmls",
@@ -8722,7 +8722,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_proto"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "async-trait",
  "bytes",
@@ -8761,7 +8761,7 @@ dependencies = [
 
 [[package]]
 name = "xmtpv3"
-version = "1.6.1-rc1"
+version = "1.6.1-dev"
 dependencies = [
  "alloy",
  "async-trait",
