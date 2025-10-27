@@ -47,6 +47,8 @@ pub enum ApiClientError<E: std::error::Error> {
     Expired(#[from] xmtp_common::time::Expired),
     #[error("{0}")]
     Other(Box<dyn RetryableError + Send + Sync>),
+    #[error("{0}")]
+    OtherUnretryable(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl<E> ApiClientError<E>
@@ -88,6 +90,7 @@ where
             InvalidUri(_) => false,
             Expired(_) => true,
             Other(r) => retryable!(r),
+            OtherUnretryable(_) => false,
         }
     }
 }

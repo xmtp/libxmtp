@@ -32,7 +32,7 @@ crate::if_native! {
     impl<T: Send> MaybeSend for T {}
 
     /// Marker trait to determine whether a type implements `Sync` or not.
-    pub trait MaybeSync {}
+    pub trait MaybeSync: Sync {}
     impl<T: Sync> MaybeSync for T {}
 
     pub struct StreamWrapper<'a, I> {

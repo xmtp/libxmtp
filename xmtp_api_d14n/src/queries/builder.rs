@@ -14,7 +14,10 @@ use xmtp_proto::prelude::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
 use xmtp_proto::{api::ApiClientError, types::AppVersion};
 
 use crate::protocol::{CursorStore, InMemoryCursorStore, XmtpQuery};
-use crate::{D14nClient, MiddlewareBuilder, MultiNodeClientBuilderError, V3Client};
+use crate::{
+    AuthCallback, AuthHandle, AuthMiddleware, D14nClient, MiddlewareBuilder,
+    MultiNodeClientBuilderError, V3Client,
+};
 mod impls;
 
 /// Builder to access the backend XMTP API
@@ -25,6 +28,8 @@ pub struct MessageBackendBuilder {
     gateway_host: Option<String>,
     app_version: Option<AppVersion>,
     cursor_store: Option<Arc<dyn CursorStore>>,
+    auth_callback: Option<Arc<dyn AuthCallback + Send + Sync + 'static>>,
+    auth_handle: Option<AuthHandle>,
     is_secure: bool,
 }
 
@@ -133,6 +138,19 @@ impl MessageBackendBuilder {
         self
     }
 
+    pub fn maybe_auth_callback(
+        &mut self,
+        callback: Option<Arc<dyn AuthCallback + Send + Sync + 'static>>,
+    ) -> &mut Self {
+        self.auth_callback = callback;
+        self
+    }
+
+    pub fn maybe_auth_handle(&mut self, handle: Option<AuthHandle>) -> &mut Self {
+        self.auth_handle = handle;
+        self
+    }
+
     /// Build the client
     pub fn build(
         &mut self,
@@ -142,6 +160,8 @@ impl MessageBackendBuilder {
             gateway_host,
             app_version,
             is_secure,
+            auth_callback,
+            auth_handle,
             cursor_store,
         } = self.clone();
         let v3_host = v3_host.ok_or(MessageBackendBuilderError::MissingV3Host)?;
@@ -164,8 +184,13 @@ impl MessageBackendBuilder {
 
             let gateway_client = gateway_client_builder.build()?;
             let multi_node = multi_node.build()?;
-
-            Ok(D14nClient::new(multi_node, gateway_client, cursor_store)?.arced())
+            if auth_callback.is_some() || auth_handle.is_some() {
+                let auth_middleware =
+                    AuthMiddleware::new(gateway_client, auth_callback, auth_handle);
+                Ok(D14nClient::new(multi_node, auth_middleware, cursor_store)?.arced())
+            } else {
+                Ok(D14nClient::new(multi_node, gateway_client, cursor_store)?.arced())
+            }
         } else {
             let mut v3_client = GrpcClient::builder();
             v3_client.set_host(v3_host);
