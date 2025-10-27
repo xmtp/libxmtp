@@ -45,7 +45,7 @@ jobs:
           mkdir -p bindings_ffi/jniLibs/${{ matrix.output_target }}/ && \
           cp target/${{ matrix.target }}/release/libxmtpv3.so bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.output_target }}
           path: bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
@@ -57,7 +57,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
       - name: Download artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: bindings_ffi/jniLibs
       - name: Build archive
