@@ -38,11 +38,7 @@ pub trait BoxClientT<Err>:
 }
 
 impl<T, Err> BoxClientT<Err> for T where
-    T: ?Sized
-        + MaybeSend
-        + MaybeSync
-        + IsConnectedCheck
-        + Client<Error = Err, Stream = BoxedStreamT<Err>>
+    T: ?Sized + IsConnectedCheck + Client<Error = Err, Stream = BoxedStreamT<Err>>
 {
 }
 
@@ -101,7 +97,7 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<T> IsConnectedCheck for BoxedClient<T>
 where
-    T: ?Sized + MaybeSend + MaybeSync + IsConnectedCheck,
+    T: ?Sized + IsConnectedCheck,
 {
     /// Check if a client is connected
     async fn is_connected(&self) -> bool {

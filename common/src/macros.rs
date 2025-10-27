@@ -92,3 +92,11 @@ macro_rules! if_only_test {
         $item
     )*}
 }
+
+#[macro_export]
+macro_rules! if_not_test {
+    ($($item:item)*) => {$(
+        #[cfg(not(any(test, feature = "test-utils")))]
+        $item
+    )*}
+}

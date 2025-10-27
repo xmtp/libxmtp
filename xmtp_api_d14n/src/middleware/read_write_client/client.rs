@@ -73,11 +73,16 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<R, W> IsConnectedCheck for ReadWriteClient<R, W>
 where
-    R: IsConnectedCheck + Send + Sync,
-    W: IsConnectedCheck + Send + Sync,
+    R: IsConnectedCheck,
+    W: IsConnectedCheck,
 {
     async fn is_connected(&self) -> bool {
-        self.read.is_connected().await && self.write.is_connected().await
+        // This implementation gives concurrent execution with early return.
+        let to_result = |connected: bool| if connected { Ok(()) } else { Err(()) };
+        let read = async { to_result(self.read.is_connected().await) };
+        let write = async { to_result(self.write.is_connected().await) };
+        let result = futures::future::try_join(read, write).await;
+        result.is_ok()
     }
 }
 
