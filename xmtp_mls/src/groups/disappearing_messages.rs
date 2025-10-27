@@ -102,8 +102,18 @@ where
     async fn delete_expired_messages(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
         let db = self.context.db();
         match db.delete_expired_messages() {
-            Ok(deleted_count) if deleted_count > 0 => {
-                tracing::info!("Successfully deleted {} expired messages", deleted_count);
+            Ok(deleted_message_ids) if !deleted_message_ids.is_empty() => {
+                tracing::info!(
+                    "Successfully deleted {} expired messages",
+                    deleted_message_ids.len()
+                );
+
+                // Emit an event for each deleted message
+                for message_id in deleted_message_ids {
+                    let _ = self.context.local_events().send(
+                        crate::subscriptions::LocalEvents::MessageDeleted(message_id),
+                    );
+                }
             }
             Ok(_) => {}
             Err(e) => {
