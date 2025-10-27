@@ -7,7 +7,6 @@ mod xmtp_query;
 mod client;
 use std::sync::Arc;
 
-use crate::definitions::FullD14nClient;
 use crate::definitions::FullV3Client;
 use crate::protocol::AnyClient;
 use crate::{
@@ -38,9 +37,5 @@ where
 impl AnyClient for FullV3Client {
     fn downcast_ref_v3client(&self) -> Option<&'_ FullV3Client> {
         Some(self)
-    }
-
-    fn downcast_ref_d14nclient(&self) -> Option<&'_ FullD14nClient> {
-        None
     }
 }

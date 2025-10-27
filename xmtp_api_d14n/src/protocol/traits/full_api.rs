@@ -7,7 +7,7 @@ use xmtp_proto::{
 };
 
 use crate::{
-    definitions::{FullD14nClient, FullV3Client},
+    definitions::{FullD14nAuthClient, FullD14nClient, FullV3Client},
     protocol::XmtpQuery,
 };
 
@@ -57,6 +57,13 @@ impl<T, Err> FullXmtpApiT<Err> for T where
 
 // TEMP trait
 pub trait AnyClient: Any + 'static {
-    fn downcast_ref_v3client(&self) -> Option<&'_ FullV3Client>;
-    fn downcast_ref_d14nclient(&self) -> Option<&'_ FullD14nClient>;
+    fn downcast_ref_v3client(&self) -> Option<&'_ FullV3Client> {
+        None
+    }
+    fn downcast_ref_d14nclient(&self) -> Option<&'_ FullD14nClient> {
+        None
+    }
+    fn downcast_ref_d14nauthclient(&self) -> Option<&'_ FullD14nAuthClient> {
+        None
+    }
 }

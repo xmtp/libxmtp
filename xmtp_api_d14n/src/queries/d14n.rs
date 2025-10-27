@@ -6,8 +6,8 @@ mod to_dyn_api;
 mod xmtp_query;
 
 mod client;
+use crate::definitions::FullD14nAuthClient;
 use crate::definitions::FullD14nClient;
-use crate::definitions::FullV3Client;
 use crate::protocol::AnyClient;
 pub use client::*;
 use std::sync::Arc;
@@ -40,11 +40,13 @@ where
 }
 
 impl AnyClient for FullD14nClient {
-    fn downcast_ref_v3client(&self) -> Option<&'_ FullV3Client> {
-        None
-    }
-
     fn downcast_ref_d14nclient(&self) -> Option<&'_ FullD14nClient> {
+        Some(self)
+    }
+}
+
+impl AnyClient for FullD14nAuthClient {
+    fn downcast_ref_d14nauthclient(&self) -> Option<&'_ FullD14nAuthClient> {
         Some(self)
     }
 }
