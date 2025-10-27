@@ -763,4 +763,32 @@ impl Conversations {
 
     Ok(StreamCloser::new(stream_closer))
   }
+
+  #[napi(ts_args_type = "callback: (err: null | Error, result: Uint8Array) => void")]
+  pub fn stream_message_deletions(&self, callback: JsFunction) -> Result<StreamCloser> {
+    tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
+    let tsfn: ThreadsafeFunction<Vec<u8>, ErrorStrategy::CalleeHandled> = callback
+      .create_threadsafe_function(0, |ctx| {
+        let env = ctx.env;
+        env
+          .create_buffer_with_data(ctx.value)
+          .map(|b| vec![b.into_raw()])
+      })?;
+    let stream_closer = RustXmtpClient::stream_message_deletions_with_callback(
+      self.inner_client.clone(),
+      move |message| match message {
+        Ok(message_id) => {
+          let _ = tsfn.call(Ok(message_id), ThreadsafeFunctionCallMode::Blocking);
+        }
+        Err(e) => {
+          let _ = tsfn.call(
+            Err(Error::from(ErrorWrapper::from(e))),
+            ThreadsafeFunctionCallMode::Blocking,
+          );
+        }
+      },
+    );
+
+    Ok(StreamCloser::new(stream_closer))
+  }
 }
