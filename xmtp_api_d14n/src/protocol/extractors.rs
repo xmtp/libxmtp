@@ -23,6 +23,8 @@ mod data;
 pub use data::*;
 mod cursor;
 pub use cursor::*;
+mod timestamp;
+pub use timestamp::*;
 
 #[cfg(test)]
 pub mod test_utils;

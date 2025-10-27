@@ -56,11 +56,18 @@ xmtp_proto = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true
+proptest = { workspace = true, features = [
+  "std",
+  "fork",
+  "timeout",
+  "bit-set",
+] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true
 # needed for rstest
 futures-timer = { workspace = true, features = ["wasm-bindgen"] }
+proptest = { workspace = true, features = ["std"] }
 
 
 [features]

@@ -1,4 +1,8 @@
 //! Traits representing un-processed (extracted) and processed (extracted) protobuf types
+use chrono::Utc;
+
+use crate::protocol::TimestampExtractor;
+
 use super::*;
 /// An low-level envelope from the network gRPC interface
 /*
@@ -18,6 +22,9 @@ pub trait ProtocolEnvelope<'env> {
     fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError>;
 }
 
+//TODO: https://github.com/xmtp/libxmtp/issues/2691
+// will improve usage of timestamp/sorting/resolution, so that earlier
+// networking layers do not deserialize more than necessary.
 /// Represents a Single High-Level Envelope
 /// An [`Envelope`] is a [`ProtocolEnvelope`] with some [`Extractor`](super::Extractor)
 /// applied to it.
@@ -32,6 +39,8 @@ pub trait Envelope<'env> {
     fn topic(&self) -> Result<Topic, EnvelopeError>;
     /// Extract the payload for this envelope
     fn payload(&self) -> Result<Payload, EnvelopeError>;
+    /// Get the timestamp of this envelope
+    fn timestamp(&self) -> Option<chrono::DateTime<Utc>>;
     /// Extract the client envelope (envelope containing message payload & AAD, if any) for this
     /// envelope.
     fn client_envelope(&self) -> Result<ClientEnvelope, EnvelopeError>;
@@ -63,6 +72,17 @@ where
         let mut extractor = PayloadExtractor::new();
         self.accept(&mut extractor)?;
         Ok(extractor.get()?)
+    }
+
+    // TODO: Currently the only "unexpected" way for this to fail
+    // would be a deserialization error, or if timestamp is
+    // > 2262 A.D.
+    // Deserializing/failing earlier: https://github.com/xmtp/libxmtp/issues/2691
+    // would encode more invariants into these extractor types
+    fn timestamp(&self) -> Option<chrono::DateTime<Utc>> {
+        let mut extractor = TimestampExtractor::default();
+        self.accept(&mut extractor).ok()?;
+        extractor.maybe_get()
     }
 
     fn client_envelope(&self) -> Result<ClientEnvelope, EnvelopeError> {
