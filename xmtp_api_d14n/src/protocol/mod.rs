@@ -14,5 +14,4 @@ mod impls;
 mod resolution;
 pub use resolution::*;
 
-mod sort;
-pub use sort::*;
+pub mod sort;

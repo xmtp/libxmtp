@@ -2,6 +2,7 @@ use xmtp_proto::types::Cursor;
 
 use crate::protocol::{Envelope, EnvelopeError};
 
+#[allow(async_fn_in_trait)]
 pub trait ResolveDependencies<'a> {
     type ResolvedEnvelope: Envelope<'a>;
     /// Resolve dependencies, starting with a list of dependencies. Should try to resolve
