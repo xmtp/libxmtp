@@ -77,6 +77,11 @@ where
                 ],
             )?
             .max();
+        tracing::info!(
+            "Querying group messages for group ID: {} with cursor: {:?}",
+            group_id,
+            cursor
+        );
         let endpoint = QueryGroupMessages::builder()
             .group_id(group_id.to_vec())
             .paging_info(PagingInfo {
