@@ -179,9 +179,9 @@ panic = "unwind"
 strip = "none"
 
 [profile.dev]
-# Disabling debug info speeds up builds a bunch,
-# and we don't rely on it for debugging that much.
-debug = 0
+# Disabling full debug info speeds up builds
+# and this only affects local crates, all dependencies have this disabled.
+debug = "line-tables-only"
 
 [profile.bench]
 debug = true
