@@ -1480,7 +1480,7 @@ pub(crate) mod tests {
             let test_group_2 = generate_group(Some(GroupMembershipState::Allowed));
             test_group_2.store(&conn).unwrap();
             wait_in_wasm().await;
-            let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed));
+            let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed), None);
             test_group_3.store(&conn).unwrap();
 
             let other_inbox_id = test_group_3
@@ -1610,9 +1610,9 @@ pub(crate) mod tests {
             test_group_1.store(conn).unwrap();
             let test_group_2 = generate_group(Some(GroupMembershipState::Allowed));
             test_group_2.store(conn).unwrap();
-            let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed));
+            let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed), None);
             test_group_3.store(conn).unwrap();
-            let test_group_4 = generate_dm(Some(GroupMembershipState::Allowed));
+            let test_group_4 = generate_dm(Some(GroupMembershipState::Allowed), None);
             test_group_4.store(conn).unwrap();
 
             let test_group_1_consent = generate_consent_record(

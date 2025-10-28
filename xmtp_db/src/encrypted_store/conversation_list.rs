@@ -254,6 +254,7 @@ pub(crate) mod tests {
     };
     use crate::group::{GroupMembershipState, GroupQueryArgs, GroupQueryOrderBy};
     use crate::group_message::ContentType;
+    use crate::group_message::tests::generate_message;
     use crate::prelude::*;
     use crate::test_utils::with_connection;
 
@@ -400,9 +401,9 @@ pub(crate) mod tests {
             test_group_1.store(conn).unwrap();
             let test_group_2 = generate_group(Some(GroupMembershipState::Allowed));
             test_group_2.store(conn).unwrap();
-            let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed));
+            let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed), None);
             test_group_3.store(conn).unwrap();
-            let test_group_4 = generate_dm(Some(GroupMembershipState::Allowed));
+            let test_group_4 = generate_dm(Some(GroupMembershipState::Allowed), None);
             test_group_4.store(conn).unwrap();
 
             let test_group_1_consent = generate_consent_record(
@@ -527,6 +528,49 @@ pub(crate) mod tests {
             assert!(!returned_ids.contains(&&denied_group.id));
         })
         .await
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_message_id_with_dms() {
+        // This test is to make sure
+        with_connection(|conn| {
+            // Create a back and forth DM between two users
+            let dm1 = generate_dm(None, Some("other_guy"));
+            let dm2 = generate_dm(None, Some("other_guy"));
+            dm1.store(conn)?;
+            dm2.store(conn)?;
+
+            // Create two messages from each side in each dm
+            let m1 = generate_message(
+                None,
+                Some(&dm1.id),
+                Some(5000),
+                Some(ContentType::Unknown),
+                None,
+                None,
+            );
+            let m2 = generate_message(
+                None,
+                Some(&dm2.id),
+                Some(5001),
+                Some(ContentType::Unknown),
+                None,
+                None,
+            );
+
+            m1.store(conn)?;
+            m2.store(conn)?;
+
+            let conv = conn.fetch_conversation_list(GroupQueryArgs {
+                ..Default::default()
+            })?;
+
+            // Should be stitched
+            assert_eq!(conv.len(), 1);
+            // Message id should be present
+            assert!(conv[0].message_id.is_some());
+        })
+        .await;
     }
 
     #[xmtp_common::test]

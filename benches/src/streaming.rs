@@ -18,6 +18,7 @@ use tokio::{
         Mutex as TokioMutex, Notify,
         oneshot::{self, Sender},
     },
+    task::JoinHandle,
     time::{sleep, timeout},
 };
 use tracing::{error, info};
@@ -83,7 +84,7 @@ async fn main() -> Result<()> {
         }),
     };
 
-    let (fut, monitor_ready) = {
+    let (fut, monitor_ready, inbox_id) = {
         let _barrier = app.ctx.barrier.lock().await;
         let (inbox_id, ready) = setup_monitor(app.ctx.clone()).await?;
         info!("Receiver inbox_id: {inbox_id}");
@@ -92,11 +93,14 @@ async fn main() -> Result<()> {
         // Sleep to allow tx to send welcomes
         sleep(Duration::from_secs(1)).await;
 
-        (fut, ready)
+        (fut, ready, inbox_id)
     };
 
     // Wait for the monitor thread to notify that the stream is ready.
     monitor_ready.notified().await;
+
+    let new_welcomes_handle =
+        continuous_new_welcomes(inbox_id.clone(), Duration::from_millis(100)).await?;
 
     info!("Sending messages...");
     let start = Instant::now();
@@ -120,6 +124,8 @@ async fn main() -> Result<()> {
         rx_rate = Some(received as f32 / elapsed);
     }
 
+    new_welcomes_handle.abort();
+
     let rx_elapsed = rx_elapsed
         .map(|rx| rx.to_string())
         .unwrap_or("Unknown".to_string());
@@ -136,6 +142,29 @@ async fn main() -> Result<()> {
     );
 
     Ok(())
+}
+
+async fn continuous_new_welcomes(
+    inbox_id: String,
+    freq: Duration,
+) -> Result<JoinHandle<Result<()>>> {
+    let handle = tokio::spawn(async move {
+        tester!(new_guy);
+        let mut start = Instant::now();
+        loop {
+            new_guy
+                .create_group_with_inbox_ids(&[&inbox_id], None, None)
+                .await?;
+            info!("Sent welcome");
+            tokio::time::sleep(freq.saturating_sub(start.elapsed())).await;
+            start = Instant::now();
+        }
+
+        #[allow(unreachable_code)]
+        Ok(())
+    });
+
+    Ok(handle)
 }
 
 async fn setup_monitor(ctx: Arc<Context>) -> Result<(String, Arc<Notify>)> {
@@ -172,16 +201,7 @@ async fn monitor_messages(tx: Sender<String>, ctx: Arc<Context>, ready: Arc<Noti
     ready.notify_one();
 
     #[allow(unused)]
-    while let Some(msg) = timeout(grace_period, stream.next())
-        .await
-        .inspect_err(|_| {
-            if let Some(start) = start {
-                let elapsed = start.elapsed() - grace_period;
-                *ctx.receive_duration.lock() = Some(elapsed);
-            }
-            error!("Timed out")
-        })?
-    {
+    while let Ok(Some(msg)) = timeout(grace_period, stream.next()).await {
         let msg = match msg {
             Ok(msg) => msg,
             Err(err) => {
