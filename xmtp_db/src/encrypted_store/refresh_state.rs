@@ -336,6 +336,10 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
 
         // Insert missing states
         for missing_state in &missing_states {
+            tracing::info!(
+                "inserting missing state for originator {}",
+                missing_state.originator_id
+            );
             missing_state.store_or_ignore(self)?;
         }
 
