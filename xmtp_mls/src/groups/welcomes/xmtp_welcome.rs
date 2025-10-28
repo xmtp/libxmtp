@@ -509,6 +509,7 @@ where
         let cursor = welcome_metadata
             .map(|m| m.message_cursor as i64)
             .unwrap_or_default();
+        tracing::info!("setting cursor from welcome to {}", cursor);
         db.update_cursor(
             &group.group_id,
             EntityKind::CommitMessage,

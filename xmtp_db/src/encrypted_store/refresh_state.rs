@@ -419,6 +419,8 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
             sequence_id: cursor.sequence_id as i64,
             originator_id: cursor.originator_id as i32,
         };
+        tracing::info!("storing refresh state {:?}", state);
+
         let num_updated = self.raw_query_write(|conn| {
             diesel::insert_into(dsl::refresh_state)
                 .values(&state)

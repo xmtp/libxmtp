@@ -69,6 +69,10 @@ where
         topic: &Topic,
         originators: &[&OriginatorId],
     ) -> Result<GlobalCursor, CursorStoreError> {
+        tracing::info!(
+            "getting latest per originator for originators {:?}",
+            originators
+        );
         match topic.kind() {
             TopicKind::WelcomeMessagesV1 => {
                 let entities = vec![EntityKind::Welcome];
