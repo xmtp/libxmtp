@@ -2006,7 +2006,7 @@ where
         let before_sync = db.latest_cursor_for_id(
             &self.group_id,
             &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
-            None,
+            Some(&[&0, &10]),
         )?;
         tracing::info!("cursor before sync: {:?}", before_sync);
         let messages = MlsStore::new(self.context.clone())
