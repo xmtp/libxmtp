@@ -636,50 +636,36 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         entities: &[EntityKind],
         originators: Option<&[&OriginatorId]>,
     ) -> Result<GlobalCursor, StorageError> {
+        use super::schema::refresh_state::dsl;
+        use diesel::dsl::max;
+
         let entity_ref = entity_id.as_ref();
 
-        // Build the base query with entity_id and entity_kind filters
-        let entity_kind_placeholders = entities.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-
-        let mut query = format!(
-            "SELECT originator_id, MAX(sequence_id) AS sequence_id
-            FROM refresh_state
-            WHERE entity_id = ? AND entity_kind IN ({})",
-            entity_kind_placeholders
-        );
-
-        // Add originator filter if provided
-        if let Some(oids) = originators {
-            let originator_placeholders = oids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-            query.push_str(&format!(
-                " AND originator_id IN ({})",
-                originator_placeholders
-            ));
-        }
-
-        query.push_str(" GROUP BY originator_id");
-
         let cursor_map = self.raw_query_read(|conn| {
-            let mut q = diesel::sql_query(query).into_boxed();
+            // Build base query with entity_id and entity_kind filters
+            let base_query = dsl::refresh_state
+                .filter(dsl::entity_id.eq(entity_ref))
+                .filter(dsl::entity_kind.eq_any(entities));
 
-            // Bind entity_id
-            q = q.bind::<Binary, _>(entity_ref);
+            // Add originator filter if provided, then group and select
+            let results = if let Some(oids) = originators {
+                let originator_ids_i32: Vec<i32> = oids.iter().map(|o| **o as i32).collect();
+                base_query
+                    .filter(dsl::originator_id.eq_any(originator_ids_i32))
+                    .group_by(dsl::originator_id)
+                    .select((dsl::originator_id, max(dsl::sequence_id)))
+                    .load::<(i32, Option<i64>)>(conn)?
+            } else {
+                base_query
+                    .group_by(dsl::originator_id)
+                    .select((dsl::originator_id, max(dsl::sequence_id)))
+                    .load::<(i32, Option<i64>)>(conn)?
+            };
 
-            // Bind entity_kinds
-            for kind in entities {
-                q = q.bind::<Integer, _>(*kind);
-            }
-
-            // Bind originators if provided
-            if let Some(oids) = originators {
-                for oid in oids {
-                    q = q.bind::<Integer, _>(**oid as i32);
-                }
-            }
-
-            q.load_iter::<SingleCursor, DefaultLoadingMode>(conn)?
-                .map_ok(|c| (c.originator_id as u32, c.sequence_id as u64))
-                .collect::<QueryResult<HashMap<_, _>>>()
+            Ok(results
+                .into_iter()
+                .filter_map(|(orig_id, seq_id)| seq_id.map(|seq| (orig_id as u32, seq as u64)))
+                .collect::<HashMap<_, _>>())
         })?;
 
         Ok(GlobalCursor::new(cursor_map))
