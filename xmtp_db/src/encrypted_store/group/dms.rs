@@ -111,15 +111,17 @@ pub(super) mod tests {
     static TARGET_INBOX_ID: AtomicU16 = AtomicU16::new(2);
 
     /// Generate a test dm group
-    pub fn generate_dm(state: Option<GroupMembershipState>) -> StoredGroup {
+    pub fn generate_dm(state: Option<GroupMembershipState>, target: Option<&str>) -> StoredGroup {
+        let target = target
+            .map(str::to_string)
+            .unwrap_or_else(|| TARGET_INBOX_ID.fetch_add(1, Ordering::SeqCst).to_string());
         StoredGroup::builder()
             .id(rand_vec::<24>())
             .created_at_ns(now_ns())
             .membership_state(state.unwrap_or(GroupMembershipState::Allowed))
             .added_by_inbox_id("placeholder_address")
             .dm_id(format!(
-                "dm:placeholder_inbox_id_1:placeholder_inbox_id_{}",
-                TARGET_INBOX_ID.fetch_add(1, Ordering::SeqCst)
+                "dm:placeholder_inbox_id_1:placeholder_inbox_id_{target}",
             ))
             .build()
             .unwrap()
