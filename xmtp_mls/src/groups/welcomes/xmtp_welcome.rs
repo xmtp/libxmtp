@@ -462,6 +462,10 @@ where
             }
         });
 
+        let new_cursor = welcome_metadata
+            .map(|meta| meta.message_cursor)
+            .unwrap_or(0);
+
         let added_msg = StoredGroupMessage {
             id: added_message_id,
             group_id: stored_group.id.clone(),
@@ -476,8 +480,8 @@ where
             version_minor: added_content_type.version_minor as i32,
             authority_id: added_content_type.authority_id,
             reference_id: None,
-            sequence_id: welcome.sequence_id() as i64,
-            originator_id: welcome.originator_id() as i64,
+            sequence_id: new_cursor as i64,
+            originator_id: 0,
             expire_at_ns: None,
         };
 
