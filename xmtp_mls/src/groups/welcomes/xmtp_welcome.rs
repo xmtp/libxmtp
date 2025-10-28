@@ -509,7 +509,16 @@ where
         let cursor = welcome_metadata
             .map(|m| m.message_cursor as i64)
             .unwrap_or_default();
-        tracing::info!("setting cursor from welcome to {}", cursor);
+        let before_update = db.latest_cursor_for_id(
+            &group.group_id,
+            &[EntityKind::CommitMessage, EntityKind::ApplicationMessage],
+            None,
+        );
+        tracing::info!(
+            "setting cursor from welcome to {}. Before update: {:?}",
+            cursor,
+            before_update
+        );
         db.update_cursor(
             &group.group_id,
             EntityKind::CommitMessage,
@@ -517,6 +526,12 @@ where
             //Originator must be included in welcome
             Cursor::mls_commits(cursor as u64),
         )?;
+        let after_update = db.latest_cursor_for_id(
+            &group.group_id,
+            &[EntityKind::CommitMessage, EntityKind::ApplicationMessage],
+            None,
+        );
+        tracing::info!("after update: {:?}", after_update);
         MlsGroup::<C>::mark_readd_requests_as_responded(
             &storage,
             &group.group_id,
