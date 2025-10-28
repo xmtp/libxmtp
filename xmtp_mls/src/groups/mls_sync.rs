@@ -52,6 +52,7 @@ use xmtp_db::{
     group::{ConversationType, StoredGroup},
     group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    refresh_state::EntityKind,
     remote_commit_log::CommitResult,
     sql_key_store,
     user_preferences::StoredUserPreferences,
@@ -2001,6 +2002,13 @@ where
     /// cursor ids, so that streams do not unintentially retry O(n^2) messages.
     #[tracing::instrument(skip_all, level = "trace")]
     pub async fn receive(&self) -> Result<ProcessSummary, GroupError> {
+        let db = self.context.db();
+        let before_sync = db.latest_cursor_for_id(
+            &self.group_id,
+            &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
+            None,
+        )?;
+        tracing::info!("cursor before sync: {:?}", before_sync);
         let messages = MlsStore::new(self.context.clone())
             .query_group_messages(&self.group_id)
             .await?;
