@@ -46,9 +46,13 @@ where
             }
             TopicKind::GroupMessagesV1 => {
                 let ids = vec![EntityKind::ApplicationMessage, EntityKind::CommitMessage];
-                self.db
+                let new_cursor = self
+                    .db
                     .latest_cursor_for_id(topic.identifier(), &ids, None)
-                    .map_err(|e| CursorStoreError::Other(Box::new(e) as Box<_>))
+                    .map_err(|e| CursorStoreError::Other(Box::new(e) as Box<_>))?;
+
+                tracing::info!("fetched latest cursor for group messages {}", new_cursor);
+                Ok(new_cursor)
             }
             TopicKind::IdentityUpdatesV1 => {
                 let sid = self
