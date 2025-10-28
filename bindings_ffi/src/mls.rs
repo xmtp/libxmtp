@@ -107,11 +107,11 @@ pub use crate::message::{
     FfiTransactionReference,
 };
 
-#[cfg(any(test, feature = "bench"))]
-pub mod test_utils;
-
+pub mod gateway_auth;
 #[cfg(any(test, feature = "bench"))]
 pub mod inbox_owner;
+#[cfg(any(test, feature = "bench"))]
+pub mod test_utils;
 
 pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
 pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
@@ -130,6 +130,8 @@ pub async fn connect_to_backend(
     gateway_host: Option<String>,
     is_secure: bool,
     app_version: Option<String>,
+    auth_callback: Option<Arc<dyn gateway_auth::FfiAuthCallback>>,
+    auth_handle: Option<Arc<gateway_auth::FfiAuthHandle>>,
 ) -> Result<Arc<XmtpApiClient>, GenericError> {
     init_logger();
 
@@ -147,6 +149,11 @@ pub async fn connect_to_backend(
         .maybe_gateway_host(gateway_host)
         .app_version(app_version.clone().unwrap_or_default())
         .is_secure(is_secure)
+        .maybe_auth_callback(
+            auth_callback
+                .map(|callback| Arc::new(gateway_auth::FfiAuthCallbackBridge::new(callback)) as _),
+        )
+        .maybe_auth_handle(auth_handle.map(|handle| handle.as_ref().clone().into()))
         .build()?;
     Ok(Arc::new(XmtpApiClient(backend)))
 }
