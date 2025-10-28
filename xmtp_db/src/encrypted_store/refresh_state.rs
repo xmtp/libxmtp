@@ -650,6 +650,25 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         let entity_ref = entity_id.as_ref();
 
         let cursor_map = self.raw_query_read(|conn| {
+            let all_refresh_state = dsl::refresh_state
+                .select((
+                    dsl::entity_id,
+                    dsl::entity_kind,
+                    dsl::sequence_id,
+                    dsl::originator_id,
+                ))
+                .load::<(Vec<u8>, EntityKind, i64, i32)>(conn)?;
+
+            for (entity_id, entity_kind, sequence_id, originator_id) in &all_refresh_state {
+                tracing::info!(
+                    "refresh_state: entity_id={}, entity_kind={}, sequence_id={}, originator_id={}",
+                    hex::encode(entity_id),
+                    entity_kind,
+                    sequence_id,
+                    originator_id
+                );
+            }
+
             // Build base query with entity_id and entity_kind filters
             let base_query = dsl::refresh_state
                 .filter(dsl::entity_id.eq(entity_ref))
