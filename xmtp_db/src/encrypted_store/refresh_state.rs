@@ -430,6 +430,8 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
                 .filter(dsl::sequence_id.lt(excluded(dsl::sequence_id)))
                 .execute(conn)
         })?;
+
+        tracing::info!("updated {} rows", num_updated);
         Ok(num_updated >= 1)
     }
 
