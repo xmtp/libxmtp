@@ -55,7 +55,7 @@ $CARGO run --bin ffi-uniffi-bindgen \
   --features uniffi/cli --release -- \
   generate \
   --library $TARGET_DIR/release/$LIB_FILE \
-  --language kotlin
+  --language kotlin $TARGET_DIR/release/$LIB_FILE
 
 cd $BINDINGS_PATH
 make libxmtp-version
