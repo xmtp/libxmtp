@@ -35,7 +35,7 @@ jobs:
         run: |
           cross build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.target }}
           path: |
@@ -70,7 +70,7 @@ jobs:
           make bindgendynamic
           make swiftdyn
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: swift
           path: bindings_ffi/build/swift/
@@ -82,7 +82,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
       - name: Download artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: bindings_ffi/build
       - name: Build static archive
@@ -132,7 +132,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
       - name: Download artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: bindings_ffi/build
       - name: Build dynamic archive
