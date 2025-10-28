@@ -74,8 +74,9 @@ where
         originators: &[&OriginatorId],
     ) -> Result<GlobalCursor, CursorStoreError> {
         tracing::info!(
-            "getting latest per originator for originators {:?}",
-            originators
+            "getting latest per originator for originators {:?} for topic of kind {:?}",
+            originators,
+            topic.kind()
         );
         match topic.kind() {
             TopicKind::WelcomeMessagesV1 => {
@@ -86,9 +87,13 @@ where
             }
             TopicKind::GroupMessagesV1 => {
                 let entities = vec![EntityKind::ApplicationMessage, EntityKind::CommitMessage];
-                self.db
+                let cursor = self
+                    .db
                     .latest_cursor_for_id(topic.identifier(), &entities, Some(originators))
-                    .map_err(|e| CursorStoreError::Other(Box::new(e) as Box<_>))
+                    .map_err(|e| CursorStoreError::Other(Box::new(e) as Box<_>))?;
+
+                tracing::info!("got cursor for group messages {:?}", cursor);
+                Ok(cursor)
             }
             TopicKind::IdentityUpdatesV1 => {
                 let sid = self
