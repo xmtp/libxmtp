@@ -10,9 +10,10 @@ workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
-# Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
+async-trait.workspace = true
 futures.workspace = true
 hex.workspace = true
+# Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
 napi = { version = "3.4.0", default-features = false, features = [
   "napi6",
   "async",

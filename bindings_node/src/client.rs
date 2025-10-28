@@ -20,6 +20,8 @@ use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_proto::api_client::AggregateStats;
 
+mod gateway_auth;
+
 pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
 pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
 static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
@@ -165,6 +167,8 @@ pub async fn create_client(
   allow_offline: Option<bool>,
   disable_events: Option<bool>,
   app_version: Option<String>,
+  auth_callback: Option<&gateway_auth::FfiAuthCallback>,
+  auth_handle: Option<&gateway_auth::FfiAuthHandle>,
 ) -> Result<Client> {
   let root_identifier = account_identifier.clone();
   init_logging(log_options.unwrap_or_default())?;
@@ -172,6 +176,8 @@ pub async fn create_client(
   backend
     .v3_host(&v3_host)
     .maybe_gateway_host(gateway_host)
+    .maybe_auth_callback(auth_callback.map(|c| Arc::new(c.clone()) as _))
+    .maybe_auth_handle(auth_handle.map(|h| h.clone().into()))
     .app_version(app_version.clone().unwrap_or_default())
     .is_secure(is_secure);
 

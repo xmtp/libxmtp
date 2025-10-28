@@ -1231,6 +1231,7 @@ dependencies = [
 name = "bindings_node"
 version = "1.6.1-rc2"
 dependencies = [
+ "async-trait",
  "chrono",
  "const-hex",
  "futures",
@@ -1258,6 +1259,7 @@ name = "bindings_wasm"
 version = "1.6.1-rc2"
 dependencies = [
  "alloy",
+ "async-trait",
  "chrono",
  "console_error_panic_hook",
  "const-hex",

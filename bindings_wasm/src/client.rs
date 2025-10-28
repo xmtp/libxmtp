@@ -25,6 +25,8 @@ use crate::inbox_state::InboxState;
 pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
 pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
 
+pub mod gateway_auth;
+
 #[wasm_bindgen]
 pub struct Client {
   account_identifier: Identifier,
@@ -179,6 +181,8 @@ pub async fn create_client(
   disable_events: Option<bool>,
   app_version: Option<String>,
   gateway_host: Option<String>,
+  auth_callback: Option<gateway_auth::AuthCallback>,
+  auth_handle: Option<gateway_auth::AuthHandle>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
   let mut backend = MessageBackendBuilder::default();
@@ -186,7 +190,9 @@ pub async fn create_client(
     .v3_host(&host)
     .maybe_gateway_host(gateway_host)
     .app_version(app_version.clone().unwrap_or_default())
-    .is_secure(true);
+    .is_secure(true)
+    .maybe_auth_callback(auth_callback.map(|c| Arc::new(c) as _))
+    .maybe_auth_handle(auth_handle.map(|h| h.handle));
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),

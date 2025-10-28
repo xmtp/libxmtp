@@ -8,6 +8,7 @@ license.workspace = true
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
+async-trait.workspace = true
 futures.workspace = true
 hex.workspace = true
 parking_lot.workspace = true
