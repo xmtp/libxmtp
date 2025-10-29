@@ -85,17 +85,12 @@ impl CursorStore for InMemoryCursorStore {
             .collect())
     }
 
-    fn latest_maybe_missing_per(
+    fn latest_for_topics(
         &self,
-        topic: &Topic,
-        originators: &[&OriginatorId],
-    ) -> Result<GlobalCursor, super::CursorStoreError> {
-        Ok(self
-            .get_latest(topic)
-            .unwrap_or(&Default::default())
-            .iter()
-            .filter(|(k, _)| originators.contains(k))
-            .map(|(&k, &v)| (k, v))
+        topics: &mut dyn Iterator<Item = &Topic>,
+    ) -> Result<HashMap<Topic, GlobalCursor>, super::CursorStoreError> {
+        Ok(topics
+            .map(|topic| (topic.clone(), self.latest(topic).unwrap_or_default()))
             .collect())
     }
 }

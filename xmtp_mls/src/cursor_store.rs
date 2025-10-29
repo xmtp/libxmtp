@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use std::collections::HashMap;
 use xmtp_api_d14n::protocol::{CursorStore, CursorStoreError};
 use xmtp_configuration::Originators;
@@ -96,35 +97,70 @@ where
         }
     }
 
-    fn latest_maybe_missing_per(
+    fn latest_for_topics(
         &self,
-        topic: &Topic,
-        originators: &[&OriginatorId],
-    ) -> Result<GlobalCursor, CursorStoreError> {
-        match topic.kind() {
-            TopicKind::WelcomeMessagesV1 => {
-                let entities = vec![EntityKind::Welcome];
-                self.db
-                    .latest_cursor_combined(topic.identifier(), &entities, Some(originators))
-                    .map_err(|e| CursorStoreError::Other(Box::new(e) as Box<_>))
-            }
-            TopicKind::GroupMessagesV1 => {
-                let entities = vec![EntityKind::ApplicationMessage, EntityKind::CommitMessage];
-                self.db
-                    .latest_cursor_combined(topic.identifier(), &entities, Some(originators))
-                    .map_err(|e| CursorStoreError::Other(Box::new(e) as Box<_>))
-            }
-            TopicKind::IdentityUpdatesV1 => {
-                let sid = self
-                    .db
-                    .get_latest_sequence_id_for_inbox(&hex::encode(topic.identifier()))
-                    .map_err(|e| CursorStoreError::Other(Box::new(e) as Box<_>))?;
-                let mut map = HashMap::new();
-                map.insert(Originators::INBOX_LOG, sid as u64);
-                Ok(GlobalCursor::new(map))
-            }
-            TopicKind::KeyPackagesV1 => Ok(GlobalCursor::default()),
-            _ => Err(CursorStoreError::UnhandledTopicKind(topic.kind())),
-        }
+        topics: &mut dyn Iterator<Item = &Topic>,
+    ) -> Result<HashMap<Topic, GlobalCursor>, CursorStoreError> {
+        // Partition topics by kind
+        let partitions = topics.into_group_map_by(|t| t.kind());
+
+        partitions
+            .into_iter()
+            .map(|(kind, topics_of_kind)| match kind {
+                TopicKind::WelcomeMessagesV1 => {
+                    let identifiers: Vec<_> =
+                        topics_of_kind.iter().map(|t| t.identifier()).collect();
+                    let mut cursors = self
+                        .db
+                        .get_last_cursor_for_ids(&identifiers, &[EntityKind::Welcome])
+                        .map_err(|e| CursorStoreError::Other(Box::new(e) as Box<_>))?;
+
+                    Ok(topics_of_kind
+                        .into_iter()
+                        .map(|topic| {
+                            let cursor = cursors.remove(topic.identifier()).unwrap_or_default();
+                            (topic.clone(), cursor)
+                        })
+                        .collect())
+                }
+                TopicKind::GroupMessagesV1 => {
+                    let identifiers: Vec<_> =
+                        topics_of_kind.iter().map(|t| t.identifier()).collect();
+                    let mut cursors = self
+                        .db
+                        .get_last_cursor_for_ids(
+                            &identifiers,
+                            &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
+                        )
+                        .map_err(|e| CursorStoreError::Other(Box::new(e) as Box<_>))?;
+
+                    Ok(topics_of_kind
+                        .into_iter()
+                        .map(|topic| {
+                            let cursor = cursors.remove(topic.identifier()).unwrap_or_default();
+                            (topic.clone(), cursor)
+                        })
+                        .collect())
+                }
+                TopicKind::IdentityUpdatesV1 => topics_of_kind
+                    .into_iter()
+                    .map(|topic| {
+                        let sid = self
+                            .db
+                            .get_latest_sequence_id_for_inbox(&hex::encode(topic.identifier()))
+                            .map_err(|e| CursorStoreError::Other(Box::new(e) as Box<_>))?;
+                        let mut map = HashMap::new();
+                        map.insert(Originators::INBOX_LOG, sid as u64);
+                        Ok((topic.clone(), GlobalCursor::new(map)))
+                    })
+                    .collect(),
+                TopicKind::KeyPackagesV1 => Ok(topics_of_kind
+                    .into_iter()
+                    .map(|topic| (topic.clone(), GlobalCursor::default()))
+                    .collect()),
+                _ => Err(CursorStoreError::UnhandledTopicKind(kind)),
+            })
+            .collect::<Result<Vec<HashMap<Topic, GlobalCursor>>, _>>()
+            .map(|results| results.into_iter().flatten().collect())
     }
 }

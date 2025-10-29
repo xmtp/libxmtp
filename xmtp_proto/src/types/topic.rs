@@ -5,7 +5,7 @@ use std::{
 
 use crate::{ConversionError, xmtp::xmtpv4::envelopes::AuthenticatedData};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 #[non_exhaustive]
 pub enum TopicKind {
