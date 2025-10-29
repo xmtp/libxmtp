@@ -1,4 +1,9 @@
+#[cfg(any(test, feature = "test-utils"))]
+mod test_utils;
 mod types;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use test_utils::*;
 
 use types::GroupList;
 pub(super) use types::MessagePosition;
@@ -15,7 +20,6 @@ use futures::Stream;
 use pin_project_lite::pin_project;
 use std::{
     borrow::Cow,
-    collections::VecDeque,
     future::Future,
     pin::Pin,
     task::{Poll, ready},
@@ -35,6 +39,7 @@ impl xmtp_common::RetryableError for MessageStreamError {
     }
 }
 
+#[cfg(not(any(test, feature = "test-utils")))]
 pin_project! {
     pub struct StreamGroupMessages<'a, Context: Clone, Subscription, Factory = ProcessMessageFuture<Context>> {
         #[pin] inner: Subscription,
@@ -44,7 +49,7 @@ pin_project! {
         groups: GroupList,
         add_queue: VecDeque<MlsGroup<Context>>,
         returned: Vec<Cursor>,
-        got: Vec<Cursor>
+        got: Vec<Cursor>,
     }
 }
 
@@ -55,12 +60,13 @@ pin_project! {
         /// State that indicates the stream is waiting on the next message from the network
         #[default]
         Waiting,
-        /// state that indicates the stream is waiting on a IO/Network future to finish processing
+        /// State that indicates the stream is waiting on a IO/Network future to finish processing
         /// the current message before moving on to the next one
         Processing {
             #[pin] future: FutureWrapper<'a, Result<ProcessedMessage>>,
             message: Cursor
         },
+        // State that indicates that the stream is adding a new group to the stream.
         Adding {
             #[pin] future: FutureWrapper<'a, Result<(Out, Vec<u8>, Option<Cursor>)>>
         }
@@ -149,6 +155,8 @@ where
             returned: Default::default(),
             add_queue: Default::default(),
             factory,
+            #[cfg(any(test, feature = "test-utils"))]
+            stats: StatsInner::new(),
         })
     }
 
@@ -308,6 +316,10 @@ where
                         cursor
                     );
                 }
+
+                #[cfg(any(test, feature = "test-utils"))]
+                this.stats.finish_reconnect();
+
                 this.state.as_mut().set(State::Waiting);
                 cx.waker().wake_by_ref();
                 Poll::Pending
@@ -403,8 +415,13 @@ where
         let this = self.as_mut().project();
         this.groups
             .add(&group.group_id, MessagePosition::new(Cursor::new(1, 0u32)));
+
         let future = Self::subscribe(self.context.clone(), self.groups.ids(), group.group_id);
         let mut this = self.as_mut().project();
+
+        #[cfg(any(test, feature = "test-utils"))]
+        this.stats.start_reconnect();
+
         this.state.set(State::Adding {
             future: FutureWrapper::new(future),
         });
