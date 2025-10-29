@@ -64,6 +64,11 @@ impl App {
 
     /// All data stored here
     fn data_directory() -> Result<PathBuf> {
+        // Allow overriding the data directory via environment variable
+        if let Some(env_dir) = std::env::var_os("DATA_DIR") {
+            return Ok(PathBuf::from(env_dir));
+        }
+
         let data = if let Some(dir) = ProjectDirs::from("org", "xmtp", "xdbg") {
             Ok::<_, eyre::Report>(dir.data_dir().to_path_buf())
         } else {
