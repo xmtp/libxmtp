@@ -5,7 +5,6 @@ use xmtp_common::RetryableError;
 use xmtp_proto::api::HasStats;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
-use xmtp_proto::api_client::CursorAwareApi;
 use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::mls_v1::GetNewestGroupMessageRequest;
 use xmtp_proto::mls_v1::{
@@ -304,14 +303,6 @@ where
             || self.inner.aggregate_stats(),
         )
         .await
-    }
-}
-
-impl<A: CursorAwareApi> CursorAwareApi for ApiDebugWrapper<A> {
-    type CursorStore = A::CursorStore;
-
-    fn set_cursor_store(&self, store: Self::CursorStore) {
-        <A as CursorAwareApi>::set_cursor_store(&self.inner, store);
     }
 }
 

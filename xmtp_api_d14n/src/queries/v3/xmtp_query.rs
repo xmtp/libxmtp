@@ -1,6 +1,6 @@
 use crate::{
     V3Client,
-    protocol::{XmtpEnvelope, XmtpQuery},
+    protocol::{CursorStore, XmtpEnvelope, XmtpQuery},
     v3::{FetchKeyPackages, GetIdentityUpdatesV2, QueryGroupMessages, QueryWelcomeMessages},
 };
 use xmtp_common::RetryableError;
@@ -16,11 +16,12 @@ use xmtp_proto::{
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, E> XmtpQuery for V3Client<C>
+impl<C, Store, E> XmtpQuery for V3Client<C, Store>
 where
     C: Client<Error = E>,
     E: std::error::Error + RetryableError + Send + Sync,
     ApiClientError<E>: From<ApiClientError<<C as Client>::Error>> + Send + Sync + 'static,
+    Store: CursorStore,
 {
     type Error = ApiClientError<E>;
     async fn query_at(

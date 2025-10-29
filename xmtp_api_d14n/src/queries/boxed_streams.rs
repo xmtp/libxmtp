@@ -3,7 +3,6 @@ use std::pin::Pin;
 use xmtp_proto::api::HasStats;
 use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api_client::ApiStats;
-use xmtp_proto::api_client::CursorAwareApi;
 use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::identity_v1;
@@ -14,6 +13,7 @@ use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::types::{GroupId, GroupMessage};
 
+use crate::protocol::AnyClient;
 use crate::protocol::XmtpQuery;
 
 /// Wraps an ApiClient to allow turning
@@ -218,10 +218,15 @@ impl<C: XmtpQuery> XmtpQuery for BoxedStreamsClient<C> {
     }
 }
 
-impl<A: CursorAwareApi> CursorAwareApi for BoxedStreamsClient<A> {
-    type CursorStore = A::CursorStore;
+impl<C> AnyClient for BoxedStreamsClient<C>
+where
+    C: AnyClient,
+{
+    fn downcast_ref_v3client(&self) -> Option<&'_ crate::definitions::FullV3Client> {
+        <C as AnyClient>::downcast_ref_v3client(&self.inner)
+    }
 
-    fn set_cursor_store(&self, store: Self::CursorStore) {
-        <A as CursorAwareApi>::set_cursor_store(&self.inner, store);
+    fn downcast_ref_d14nclient(&self) -> Option<&'_ crate::definitions::FullD14nClient> {
+        <C as AnyClient>::downcast_ref_d14nclient(&self.inner)
     }
 }

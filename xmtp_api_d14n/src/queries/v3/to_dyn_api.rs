@@ -1,18 +1,22 @@
+use std::error::Error;
 use std::sync::Arc;
 
-use crate::{FullXmtpApiArc, FullXmtpApiBox, ToDynApi};
-use xmtp_api_grpc::error::GrpcError;
+use crate::protocol::{AnyClient, FullXmtpApiArc, FullXmtpApiBox};
+use crate::{ToDynApi, protocol::CursorStore};
+use xmtp_common::RetryableError;
 use xmtp_proto::api::{ApiClientError, Client, IsConnectedCheck};
 
 use crate::{BoxedStreamsClient, V3Client};
 
-impl<C> ToDynApi for V3Client<C>
+impl<C, Store, E> ToDynApi for V3Client<C, Store>
 where
-    C: Send + Sync + Client<Error = GrpcError> + IsConnectedCheck + 'static,
+    E: Error + RetryableError + Send + Sync + 'static,
+    C: Send + Sync + Client<Error = E> + IsConnectedCheck + 'static,
     <C as Client>::Stream: 'static,
+    Store: CursorStore + 'static,
+    Self: AnyClient,
 {
-    type Error = ApiClientError<GrpcError>;
-
+    type Error = ApiClientError<E>;
     fn boxed(self) -> FullXmtpApiBox<Self::Error> {
         Box::new(BoxedStreamsClient::new(self))
     }

@@ -1,12 +1,9 @@
 use std::pin::Pin;
 
-use crate::protocol::CursorStore;
 use crate::protocol::XmtpQuery;
 use futures::Stream;
 use mockall::mock;
-use std::sync::Arc;
 use xmtp_proto::api::mock::MockApiBuilder;
-use xmtp_proto::api_client::CursorAwareApi;
 use xmtp_proto::api_client::XmtpTestClient;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
@@ -132,11 +129,6 @@ mod not_wasm {
             fn create_d14n() -> MockApiBuilder { MockApiBuilder }
             fn create_gateway() -> MockApiBuilder { MockApiBuilder }
         }
-
-        impl CursorAwareApi for ApiClient {
-            type CursorStore = Arc<dyn CursorStore>;
-            fn set_cursor_store(&self, store: <Self as CursorAwareApi>::CursorStore);
-        }
     }
 
     #[async_trait::async_trait]
@@ -212,12 +204,6 @@ mod wasm {
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
             fn create_d14n() -> MockApiBuilder { MockApiBuilder }
             fn create_gateway() -> MockApiBuilder { MockApiBuilder }
-        }
-
-
-        impl CursorAwareApi for ApiClient {
-            type CursorStore = Arc<dyn CursorStore>;
-            fn set_cursor_store(&self, store: <Self as CursorAwareApi>::CursorStore);
         }
     }
 
