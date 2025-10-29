@@ -1,6 +1,6 @@
 use crate::TryExtractorStream;
 use crate::d14n::SubscribeEnvelopes;
-use crate::protocol::{GroupMessageExtractor, WelcomeMessageExtractor};
+use crate::protocol::{CursorStore, GroupMessageExtractor, WelcomeMessageExtractor};
 use crate::queries::stream;
 
 use super::D14nClient;
@@ -12,12 +12,13 @@ use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse;
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, G, E> XmtpMlsStreams for D14nClient<C, G>
+impl<C, G, Store, E> XmtpMlsStreams for D14nClient<C, G, Store>
 where
     C: Send + Sync + Client<Error = E>,
     <C as Client>::Stream: MaybeSend + 'static,
     G: Send + Sync + Client<Error = E>,
     E: std::error::Error + RetryableError + Send + Sync + 'static,
+    Store: CursorStore,
 {
     type Error = ApiClientError<E>;
 
@@ -41,7 +42,6 @@ where
             .collect::<Vec<_>>();
         let lcc = self
             .cursor_store
-            .load()
             .lcc_maybe_missing(&topics.iter().collect::<Vec<_>>())?;
         tracing::info!("subscribing to messages @cursor={}", lcc);
         let s = SubscribeEnvelopes::builder()
@@ -63,7 +63,6 @@ where
             .collect::<Vec<_>>();
         let lcc = self
             .cursor_store
-            .load()
             .lowest_common_cursor(&topics.iter().collect::<Vec<_>>())?;
         let s = SubscribeEnvelopes::builder()
             .topics(topics)
