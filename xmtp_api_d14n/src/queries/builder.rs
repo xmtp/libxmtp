@@ -5,6 +5,8 @@ use std::time::Duration;
 use thiserror::Error;
 use xmtp_api_grpc::GrpcClient;
 use xmtp_api_grpc::error::GrpcBuilderError;
+-use xmtp_api_grpc::GrpcClient;
+ use xmtp_common::RetryableError;
 use xmtp_configuration::MULTI_NODE_TIMEOUT_MS;
 use xmtp_id::scw_verifier::VerifierError;
 use xmtp_proto::api_client::ApiBuilder;
@@ -138,4 +140,19 @@ impl MessageBackendBuilder {
             Ok(V3Client::new(v3_client, cursor_store).arced())
         }
     }
+}
+
+// TODO:d14n: Remove once D14n-only
+/// Temporary standalone to produce a new ApiClient with a cached store
+pub fn new_with_store(
+    api: Arc<dyn FullXmtpApiT>,
+    store: Arc<dyn CursorStore>,
+) -> Result<Arc<dyn FullXmtpApiT>, Box<dyn std::error::Error>> {
+    if let Some(c) = super::d14n::new_with_store(api.clone(), store.clone())? {
+        return Ok(c);
+    }
+    if let Some(c) = super::v3::new_with_store(api.clone(), store) {
+        return Ok(c);
+    }
+    return Err(Box::new(MessageBackendBuilderError::CursorStoreNotReplaced));
 }
