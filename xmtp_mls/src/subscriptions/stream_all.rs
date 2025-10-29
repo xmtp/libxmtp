@@ -1,12 +1,16 @@
 #[cfg(test)]
 mod tests;
 
+#[cfg(any(test, feature = "test-utils"))]
+use std::sync::Arc;
 use std::{
     borrow::Cow,
     pin::Pin,
     task::{Poll, ready},
 };
 
+#[cfg(any(test, feature = "test-utils"))]
+use crate::subscriptions::stream_messages::StreamStats;
 use crate::{context::XmtpSharedContext, subscriptions::stream_messages::MessagesApiSubscription};
 use crate::{groups::welcome_sync::WelcomeService, track};
 
@@ -57,6 +61,11 @@ where
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
         Self::from_cow(Cow::Owned(context), conversation_type, consent_states).await
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn stats(&self) -> Arc<StreamStats> {
+        self.messages.stats()
     }
 }
 

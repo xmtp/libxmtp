@@ -1,17 +1,11 @@
-use super::{Cursor, GroupList, ProcessMessageFuture, State};
-use crate::groups::MlsGroup;
+use super::{Cursor, GroupList, MessagesApiSubscription, ProcessMessageFuture, State};
+use crate::{context::XmtpSharedContext, groups::MlsGroup};
 use pin_project_lite::pin_project;
 use rstest::*;
-use std::{
-    borrow::Cow,
-    collections::VecDeque,
-    ops::Range,
-    sync::{
-        Arc,
-        mpsc::{Receiver, Sender, channel},
-    },
-};
+use std::{borrow::Cow, collections::VecDeque, ops::Range, sync::Arc};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use xmtp_common::time::now_ns;
+use xmtp_proto::prelude::XmtpMlsStreams;
 
 pin_project! {
     pub struct StreamGroupMessages<'a, Context: Clone, Subscription, Factory = ProcessMessageFuture<Context>> {
@@ -27,9 +21,20 @@ pin_project! {
     }
 }
 
+impl<C> StreamGroupMessages<'static, C, MessagesApiSubscription<'static, C::ApiClient>>
+where
+    C: XmtpSharedContext + 'static,
+    C::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
+    C::Db: Send + 'static,
+{
+    pub fn stats(&self) -> Arc<StreamStats> {
+        self.stats.stats()
+    }
+}
+
 pub(super) struct StatsInner {
     pub(super) reconnect_start: Option<u64>,
-    pub(super) stats_tx: Sender<StreamStat>,
+    pub(super) stats_tx: UnboundedSender<StreamStat>,
     pub(super) stats: Arc<StreamStats>,
 }
 
@@ -39,16 +44,18 @@ impl StatsInner {
     }
     pub(super) fn finish_reconnect(&mut self) {
         if let Some(start) = self.reconnect_start.take() {
-            self.stats_tx.send(StreamStat::Reconnection {
-                duration: start..(now_ns() as u64),
-            });
+            self.stats_tx
+                .send(StreamStat::Reconnection {
+                    duration: start..(now_ns() as u64),
+                })
+                .unwrap();
         }
     }
 }
 
 impl StatsInner {
     pub(super) fn new() -> Self {
-        let (stats_tx, stats_rx) = channel();
+        let (stats_tx, stats_rx) = unbounded_channel();
         Self {
             stats_tx,
             reconnect_start: None,
@@ -63,7 +70,7 @@ impl StatsInner {
 }
 
 pub struct StreamStats {
-    pub(super) rx: Receiver<StreamStat>,
+    pub(super) rx: UnboundedReceiver<StreamStat>,
 }
 
 pub enum StreamStat {
