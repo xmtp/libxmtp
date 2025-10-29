@@ -1,7 +1,6 @@
 use xmtp_proto::api::HasStats;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
-use xmtp_proto::api_client::CursorAwareApi;
 use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::identity_v1;
@@ -211,6 +210,7 @@ impl<C> HasStats for TrackedStatsClient<C> {
     }
 }
 
+#[derive(Clone)]
 pub struct StatsBuilder<Builder> {
     client: Builder,
 }
@@ -274,28 +274,6 @@ where
     }
 }
 
-impl<C> CursorAwareApi for TrackedStatsClient<C>
-where
-    C: CursorAwareApi,
-{
-    type CursorStore = <C as CursorAwareApi>::CursorStore;
-
-    fn set_cursor_store(&self, store: Self::CursorStore) {
-        <C as CursorAwareApi>::set_cursor_store(&self.inner, store);
-    }
-}
-
-impl<Builder> CursorAwareApi for StatsBuilder<Builder>
-where
-    Builder: CursorAwareApi,
-{
-    type CursorStore = <Builder as CursorAwareApi>::CursorStore;
-
-    fn set_cursor_store(&self, store: Self::CursorStore) {
-        <Builder as CursorAwareApi>::set_cursor_store(&self.client, store);
-    }
-}
-
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C: XmtpQuery> XmtpQuery for TrackedStatsClient<C> {
@@ -313,10 +291,31 @@ impl<C: XmtpQuery> XmtpQuery for TrackedStatsClient<C> {
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
     #![allow(clippy::unwrap_used)]
+    use crate::XmtpTestClientExt;
+
     use super::*;
     use xmtp_configuration::LOCALHOST;
     use xmtp_proto::ToxicProxies;
     use xmtp_proto::{TestApiBuilder, prelude::XmtpTestClient};
+
+    impl<C> XmtpTestClientExt for TrackedStatsClient<C>
+    where
+        C: XmtpTestClientExt,
+    {
+        fn with_cursor_store(
+            f: impl Fn() -> <Self as XmtpTestClient>::Builder,
+            store: std::sync::Arc<dyn crate::protocol::CursorStore>,
+        ) -> <Self as XmtpTestClient>::Builder {
+            let f = || {
+                let b = f();
+                b.client
+            };
+            StatsBuilder {
+                client: <C as XmtpTestClientExt>::with_cursor_store(f, store),
+            }
+        }
+    }
+
     impl<C> XmtpTestClient for TrackedStatsClient<C>
     where
         C: XmtpTestClient,

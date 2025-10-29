@@ -3,7 +3,6 @@ use std::pin::Pin;
 use xmtp_proto::api::HasStats;
 use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api_client::ApiStats;
-use xmtp_proto::api_client::CursorAwareApi;
 use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::identity_v1;
@@ -215,13 +214,5 @@ impl<C: XmtpQuery> XmtpQuery for BoxedStreamsClient<C> {
         at: Option<xmtp_proto::types::GlobalCursor>,
     ) -> Result<crate::protocol::XmtpEnvelope, Self::Error> {
         <C as XmtpQuery>::query_at(&self.inner, topic, at).await
-    }
-}
-
-impl<A: CursorAwareApi> CursorAwareApi for BoxedStreamsClient<A> {
-    type CursorStore = A::CursorStore;
-
-    fn set_cursor_store(&self, store: Self::CursorStore) {
-        <A as CursorAwareApi>::set_cursor_store(&self.inner, store);
     }
 }
