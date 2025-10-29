@@ -22,7 +22,7 @@ use xmtp_common::time::Expired;
 use xmtp_db::{ConnectionExt, DbConnection, XmtpTestDb};
 use xmtp_db::{XmtpMlsStorageProvider, sql_key_store::SqlKeyStore};
 use xmtp_id::associations::{Identifier, test_utils::MockSmartContractSignatureVerifier};
-use xmtp_proto::api_client::{ApiBuilder, CursorAwareApi, XmtpTestClient};
+use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 use xmtp_proto::types::ApiIdentifier;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -68,12 +68,7 @@ impl<A, S> ClientBuilder<A, S> {
 
 impl<Api, Storage, Db> ClientBuilder<Api, Storage, Db>
 where
-    Api: XmtpApi
-        + CursorAwareApi<CursorStore = Arc<dyn CursorStore>>
-        + XmtpQuery
-        + 'static
-        + Send
-        + Sync,
+    Api: XmtpApi + XmtpQuery + 'static + Send + Sync,
     Storage: XmtpMlsStorageProvider + 'static + Send + Sync,
     Db: xmtp_db::XmtpDb + 'static + Send + Sync,
 {

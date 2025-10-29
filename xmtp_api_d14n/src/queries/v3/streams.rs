@@ -1,6 +1,7 @@
+use crate::protocol::CursorStore;
 use crate::{V3Client, v3::*};
-use xmtp_api_grpc::error::GrpcError;
 use xmtp_api_grpc::streams::{TryFromItem, try_from_stream};
+use xmtp_common::RetryableError;
 use xmtp_configuration::Originators;
 use xmtp_proto::api::{ApiClientError, Client, QueryStream, XmtpStream};
 use xmtp_proto::api_client::XmtpMlsStreams;
@@ -10,9 +11,11 @@ use xmtp_proto::types::{GroupId, GroupMessage, InstallationId, TopicKind, Welcom
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C> XmtpMlsStreams for V3Client<C>
+impl<C, Store, E> XmtpMlsStreams for V3Client<C, Store>
 where
-    C: Send + Sync + Client<Error = GrpcError>,
+    C: Send + Sync + Client<Error = E>,
+    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    Store: CursorStore,
 {
     type GroupMessageStream =
         TryFromItem<XmtpStream<<C as Client>::Stream, V3ProtoGroupMessage>, GroupMessage>;
@@ -20,7 +23,7 @@ where
     type WelcomeMessageStream =
         TryFromItem<XmtpStream<<C as Client>::Stream, V3ProtoWelcomeMessage>, WelcomeMessage>;
 
-    type Error = ApiClientError<GrpcError>;
+    type Error = ApiClientError<E>;
 
     async fn subscribe_group_messages(
         &self,
@@ -34,7 +37,6 @@ where
         for topic in topics {
             let cursor = self
                 .cursor_store
-                .read()
                 .latest_maybe_missing_per(
                     &topic,
                     &[
@@ -70,7 +72,6 @@ where
         for topic in topics {
             let id_cursor = self
                 .cursor_store
-                .read()
                 .latest_maybe_missing_per(&topic, &[&Originators::WELCOME_MESSAGES])?
                 .v3_welcome();
             filters.push(WelcomeSubscribeFilter {

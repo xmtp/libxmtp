@@ -3,18 +3,16 @@
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
+use xmtp_api_grpc::GrpcClient;
 use xmtp_api_grpc::error::GrpcBuilderError;
-use xmtp_api_grpc::{GrpcClient, error::GrpcError};
 use xmtp_configuration::MULTI_NODE_TIMEOUT_MS;
 use xmtp_id::scw_verifier::VerifierError;
-use xmtp_proto::api::IsConnectedCheck;
-use xmtp_proto::api_client::CursorAwareApi;
-use xmtp_proto::api_client::{ApiBuilder, BoxedGroupS, BoxedWelcomeS};
-use xmtp_proto::prelude::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
-use xmtp_proto::{api::ApiClientError, types::AppVersion};
+use xmtp_proto::api_client::ApiBuilder;
+use xmtp_proto::types::AppVersion;
 
-use crate::protocol::{CursorStore, InMemoryCursorStore, XmtpQuery};
+use crate::protocol::{CursorStore, FullXmtpApiArc, FullXmtpApiBox, InMemoryCursorStore};
 use crate::{D14nClient, MiddlewareBuilder, MultiNodeClientBuilderError, V3Client};
+
 mod impls;
 
 /// Builder to access the backend XMTP API
@@ -38,51 +36,15 @@ pub enum MessageBackendBuilderError {
     MultiNode(#[from] MultiNodeClientBuilderError),
     #[error(transparent)]
     Scw(#[from] VerifierError),
-}
-
-/// A type-erased version of the Xmtp Api in a [`Box`]
-pub type FullXmtpApiBox<E> = Box<dyn FullXmtpApiT<E>>;
-/// A type-erased version of the Xntp Api in a [`Arc`]
-pub type FullXmtpApiArc<E> = Arc<dyn FullXmtpApiT<E>>;
-
-pub trait FullXmtpApiT<Err>
-where
-    Self: XmtpMlsClient<Error = Err>
-        + XmtpIdentityClient<Error = Err>
-        + XmtpMlsStreams<
-            Error = Err,
-            WelcomeMessageStream = BoxedWelcomeS<Err>,
-            GroupMessageStream = BoxedGroupS<Err>,
-        > + IsConnectedCheck
-        + XmtpQuery<Error = Err>
-        + CursorAwareApi<CursorStore = Arc<dyn CursorStore>>
-        + Send
-        + Sync,
-{
-}
-
-impl<T, Err> FullXmtpApiT<Err> for T where
-    T: XmtpMlsClient<Error = Err>
-        + XmtpIdentityClient<Error = Err>
-        + XmtpMlsStreams<
-            Error = Err,
-            WelcomeMessageStream = BoxedWelcomeS<Err>,
-            GroupMessageStream = BoxedGroupS<Err>,
-        > + IsConnectedCheck
-        + CursorAwareApi<CursorStore = Arc<dyn CursorStore>>
-        + XmtpQuery<Error = Err>
-        + Send
-        + Sync
-        + ?Sized
-{
+    #[error("failed to build stateful local client, cursor store not replaced")]
+    CursorStoreNotReplaced,
 }
 
 /// Indicates this api implementation can be type-erased
 /// and coerced into a [`Box`] or [`Arc`]
 pub trait ToDynApi {
-    type Error;
-    fn boxed(self) -> FullXmtpApiBox<Self::Error>;
-    fn arced(self) -> FullXmtpApiArc<Self::Error>;
+    fn boxed(self) -> FullXmtpApiBox;
+    fn arced(self) -> FullXmtpApiArc;
 }
 
 impl MessageBackendBuilder {
@@ -134,9 +96,7 @@ impl MessageBackendBuilder {
     }
 
     /// Build the client
-    pub fn build(
-        &mut self,
-    ) -> Result<FullXmtpApiArc<ApiClientError<GrpcError>>, MessageBackendBuilderError> {
+    pub fn build(&mut self) -> Result<FullXmtpApiArc, MessageBackendBuilderError> {
         let Self {
             v3_host,
             gateway_host,

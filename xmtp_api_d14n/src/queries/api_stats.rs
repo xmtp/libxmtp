@@ -1,7 +1,6 @@
 use xmtp_proto::api::HasStats;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
-use xmtp_proto::api_client::CursorAwareApi;
 use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::identity_v1;
@@ -271,28 +270,6 @@ where
 
     fn set_retry(&mut self, retry: xmtp_common::Retry) {
         <Builder as ApiBuilder>::set_retry(&mut self.client, retry)
-    }
-}
-
-impl<C> CursorAwareApi for TrackedStatsClient<C>
-where
-    C: CursorAwareApi,
-{
-    type CursorStore = <C as CursorAwareApi>::CursorStore;
-
-    fn set_cursor_store(&self, store: Self::CursorStore) {
-        <C as CursorAwareApi>::set_cursor_store(&self.inner, store);
-    }
-}
-
-impl<Builder> CursorAwareApi for StatsBuilder<Builder>
-where
-    Builder: CursorAwareApi,
-{
-    type CursorStore = <Builder as CursorAwareApi>::CursorStore;
-
-    fn set_cursor_store(&self, store: Self::CursorStore) {
-        <Builder as CursorAwareApi>::set_cursor_store(&self.client, store);
     }
 }
 
