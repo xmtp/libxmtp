@@ -179,3 +179,4 @@ result
 archive.xmtp
 coverage_diff_html/**
 .direnv/**
+om.json

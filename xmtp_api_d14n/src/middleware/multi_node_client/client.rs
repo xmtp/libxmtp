@@ -7,6 +7,7 @@ use xmtp_proto::api::{ApiClientError, Client, IsConnectedCheck};
 
 /* MultiNodeClient struct and its implementations */
 
+#[derive(Clone)]
 pub struct MultiNodeClient {
     pub gateway_client: GrpcClient,
     pub inner: OnceCell<GrpcClient>,
@@ -79,7 +80,7 @@ mod tests {
     use super::*;
     use crate::{
         middleware::{MiddlewareBuilder, MultiNodeClientBuilder},
-        protocol::InMemoryCursorStore,
+        protocol::{InMemoryCursorStore, NoCursorStore},
         queries::D14nClient,
     };
     use std::sync::Arc;
@@ -124,11 +125,11 @@ mod tests {
         multi_node_builder.into_client().unwrap()
     }
 
-    fn create_d14n_client() -> D14nClient<MultiNodeClient, GrpcClient> {
+    fn create_d14n_client() -> D14nClient<MultiNodeClient, GrpcClient, NoCursorStore> {
         D14nClient::new(
             create_multinode_client_builder().into_client().unwrap(),
             create_gateway_builder().build().unwrap(),
-            create_in_memory_cursor_store(),
+            NoCursorStore,
         )
         .unwrap()
     }
