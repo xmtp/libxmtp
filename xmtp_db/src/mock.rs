@@ -484,6 +484,11 @@ mock! {
             group_id: GroupId,
             allowed_content_types: &[crate::group_message::ContentType],
         ) -> Result<crate::group_message::LatestMessageTimeBySender, crate::ConnectionError>;
+
+        fn messages_newer_than(
+            &self,
+            cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
+        ) -> Result<Vec<Cursor>, crate::ConnectionError>;
     }
 
     impl QueryIdentity for DbQuery {

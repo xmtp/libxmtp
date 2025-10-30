@@ -581,3 +581,64 @@ async fn test_stream_all_messages_filters_new_group_when_dm_only() {
         "Should not receive messages from group conversations when filtering for DMs"
     );
 }
+
+#[rstest::rstest]
+#[xmtp_common::test]
+#[timeout(Duration::from_secs(20))]
+async fn test_stream_all_messages_respects_cursor_between_streams() {
+    tester!(sender, with_name: "sender");
+    tester!(receiver, with_name: "receiver");
+
+    // Step 1: Sender invites receiver to a group
+    let group = sender.create_group(None, None).unwrap();
+    group
+        .add_members_by_inbox_id(&[receiver.inbox_id()])
+        .await
+        .unwrap();
+
+    {
+        // Step 2: Create initial stream with no filters
+        let stream = receiver.stream_all_messages(None, None).await.unwrap();
+        futures::pin_mut!(stream);
+
+        // Step 3: Sender sends message 1
+        group
+            .send_message("message 1".as_bytes(), SendMessageOpts::default())
+            .await
+            .unwrap();
+
+        // Step 4: Receiver gets message 1 from the stream
+        assert_msg!(stream, "message 1");
+
+        // Step 5: Close the stream by dropping it
+    }
+
+    // Step 6: Sender sends message 2 while stream is closed
+    group
+        .send_message("message 2".as_bytes(), SendMessageOpts::default())
+        .await
+        .unwrap();
+
+    {
+        // Step 7: Open a new stream
+        let new_stream = receiver.stream_all_messages(None, None).await.unwrap();
+        futures::pin_mut!(new_stream);
+
+        // Step 8: Sender sends message 3
+        group
+            .send_message("message 3".as_bytes(), SendMessageOpts::default())
+            .await
+            .unwrap();
+
+        // Verify: The new stream should receive messages 2 and 3
+        assert_msg!(new_stream, "message 2");
+        assert_msg!(new_stream, "message 3");
+
+        // Verify that message 1 is not received a second time
+        let result = xmtp_common::time::timeout(Duration::from_secs(2), new_stream.next()).await;
+        assert!(
+            result.is_err(),
+            "Should not receive message 1 which was previously processed"
+        );
+    }
+}
