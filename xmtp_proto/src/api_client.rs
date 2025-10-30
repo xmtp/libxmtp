@@ -205,7 +205,7 @@ pub trait XmtpIdentityClient {
 /// Build an API from its parts for the XMTP Backend
 pub trait ApiBuilder {
     type Output;
-    type Error;
+    type Error: std::fmt::Debug;
 
     /// set the libxmtp version (required)
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error>;
