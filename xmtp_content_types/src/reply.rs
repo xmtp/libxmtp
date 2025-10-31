@@ -6,12 +6,12 @@ use serde::{Deserialize, Serialize};
 
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
-pub struct ReplyCodec {}
+pub struct ReplyCodec;
 
 /// Legacy content type id at <https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reply/src/Reply.ts>
 impl ReplyCodec {
-    const AUTHORITY_ID: &'static str = "xmtp.org";
-    pub const TYPE_ID: &'static str = "reply";
+    const AUTHORITY_ID: &str = "xmtp.org";
+    pub const TYPE_ID: &str = "reply";
     pub const MAJOR_VERSION: u32 = 1;
     pub const MINOR_VERSION: u32 = 0;
 }
@@ -21,8 +21,8 @@ impl ContentCodec<Reply> for ReplyCodec {
         ContentTypeId {
             authority_id: Self::AUTHORITY_ID.to_string(),
             type_id: Self::TYPE_ID.to_string(),
-            version_major: ReplyCodec::MAJOR_VERSION,
-            version_minor: ReplyCodec::MINOR_VERSION,
+            version_major: Self::MAJOR_VERSION,
+            version_minor: Self::MINOR_VERSION,
         }
     }
 
@@ -52,9 +52,8 @@ impl ContentCodec<Reply> for ReplyCodec {
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
             parameters,
-            fallback: None,
-            compression: None,
             content: content_bytes,
+            ..Default::default()
         })
     }
 

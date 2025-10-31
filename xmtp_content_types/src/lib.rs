@@ -1,5 +1,7 @@
+pub mod actions;
 pub mod attachment;
 pub mod group_updated;
+pub mod intent;
 pub mod leave_request;
 pub mod membership_change;
 pub mod multi_remote_attachment;
@@ -40,7 +42,9 @@ pub enum ContentType {
     Reaction,
     ReadReceipt,
     Reply,
+    Action,
     Attachment,
+    Intent,
     RemoteAttachment,
     MultiRemoteAttachment,
     TransactionReference,
