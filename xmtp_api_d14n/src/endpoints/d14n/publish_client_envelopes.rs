@@ -41,7 +41,7 @@ mod test {
     use xmtp_proto::types::TopicKind;
 
     use super::*;
-    use xmtp_api_grpc::error::GrpcError;
+    use xmtp_api_grpc::{error::GrpcError, test::GatewayClient};
     use xmtp_common::rand_vec;
     use xmtp_proto::{
         api,
@@ -70,7 +70,7 @@ mod test {
     async fn test_publish_client_envelopes() {
         use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 
-        let client = crate::TestGrpcClient::create_gateway();
+        let client = GatewayClient::create();
         let client = client.build().unwrap();
 
         let aad = AuthenticatedData {

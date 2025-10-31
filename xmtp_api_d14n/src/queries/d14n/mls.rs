@@ -34,12 +34,11 @@ use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, G, Store, E> XmtpMlsClient for D14nClient<C, G, Store>
+impl<C, Store, E> XmtpMlsClient for D14nClient<C, Store>
 where
     E: RetryableError + 'static,
-    G: Client,
     C: Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<G as xmtp_proto::api::Client>::Error>> + 'static,
+    ApiClientError<E>: From<ApiClientError<<C as xmtp_proto::api::Client>::Error>> + 'static,
     Store: CursorStore,
 {
     type Error = ApiClientError<E>;
@@ -55,7 +54,7 @@ where
                 .envelope(envelopes)
                 .build()?,
         )
-        .query(&self.gateway_client)
+        .query(&self.client)
         .await?;
 
         Ok::<_, Self::Error>(())
@@ -75,7 +74,7 @@ where
         let result: GetNewestEnvelopeResponse = GetNewestEnvelopes::builder()
             .topics(topics)
             .build()?
-            .query(&self.message_client)
+            .query(&self.client)
             .await?;
         let extractor = CollectionExtractor::new(result.results, KeyPackagesExtractor::new());
         let key_packages = extractor.get()?;
@@ -94,7 +93,7 @@ where
                 .envelope(e)
                 .build()?
                 .ignore_response()
-                .query(&self.gateway_client)
+                .query(&self.client)
                 .await?;
         }
 
@@ -113,7 +112,7 @@ where
                 .envelope(e)
                 .build()?
                 .ignore_response()
-                .query(&self.gateway_client)
+                .query(&self.client)
                 .await?;
         }
         Ok(())
@@ -131,7 +130,7 @@ where
             .last_seen(lcc)
             .limit(MAX_PAGE_SIZE)
             .build()?
-            .query(&self.message_client)
+            .query(&self.client)
             .await?;
 
         let messages = SequencedExtractor::builder()
@@ -152,7 +151,7 @@ where
         let response: GetNewestEnvelopeResponse = GetNewestEnvelopes::builder()
             .topic(TopicKind::GroupMessagesV1.build(group_id))
             .build()?
-            .query(&self.message_client)
+            .query(&self.client)
             .await?;
         // expect at most a single message
         let mut extractor = GroupMessageExtractor::default();
@@ -181,7 +180,7 @@ where
             .last_seen(lcc)
             .limit(MAX_PAGE_SIZE)
             .build()?
-            .query(&self.message_client)
+            .query(&self.client)
             .await?;
 
         let messages = SequencedExtractor::builder()
@@ -223,7 +222,7 @@ where
         let response = GetNewestEnvelopes::builder()
             .topics(topics)
             .build()?
-            .query(&self.message_client)
+            .query(&self.client)
             .await?;
 
         let extractor = CollectionExtractor::new(response.results, MessageMetadataExtractor::new());
