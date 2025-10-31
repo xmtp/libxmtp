@@ -250,6 +250,23 @@ where
             .map_err(crate::dyn_err)
     }
 
+    pub async fn subscribe_group_messages_with_cursors(
+        &self,
+        groups_with_cursors: &[(&GroupId, xmtp_proto::types::GlobalCursor)],
+    ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream>
+    where
+        ApiClient: XmtpMlsStreams,
+    {
+        tracing::debug!(
+            inbox_id = self.inbox_id,
+            "subscribing to group messages with cursors"
+        );
+        self.api_client
+            .subscribe_group_messages_with_cursors(groups_with_cursors)
+            .await
+            .map_err(crate::dyn_err)
+    }
+
     pub async fn subscribe_welcome_messages(
         &self,
         installation_key: &InstallationId,
