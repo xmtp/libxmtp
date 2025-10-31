@@ -1,11 +1,14 @@
+mod client;
 mod identity;
 mod mls;
 mod streams;
 mod to_dyn_api;
 mod xmtp_query;
 
-mod client;
-use std::{error::Error, sync::Arc};
+xmtp_common::if_test! {
+    mod test_client;
+}
+pub use client::*;
 
 use crate::definitions::FullD14nClient;
 use crate::definitions::FullV3Client;
@@ -14,7 +17,7 @@ use crate::{
     ToDynApi,
     protocol::{CursorStore, FullXmtpApiT},
 };
-pub use client::*;
+use std::{error::Error, sync::Arc};
 use xmtp_api_grpc::error::GrpcError;
 use xmtp_common::RetryableError;
 use xmtp_proto::api::ApiClientError;

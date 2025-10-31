@@ -79,12 +79,13 @@ impl IsConnectedCheck for MultiNodeClient {
 mod tests {
     use super::*;
     use crate::{
+        ReadWriteClient,
         middleware::{MiddlewareBuilder, MultiNodeClientBuilder},
         protocol::{InMemoryCursorStore, NoCursorStore},
         queries::D14nClient,
     };
     use std::sync::Arc;
-    use xmtp_configuration::GrpcUrls;
+    use xmtp_configuration::{GrpcUrls, PAYER_WRITE_FILTER};
     use xmtp_proto::api::Query;
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::prelude::XmtpMlsClient;
@@ -125,13 +126,15 @@ mod tests {
         multi_node_builder.into_client().unwrap()
     }
 
-    fn create_d14n_client() -> D14nClient<MultiNodeClient, GrpcClient, NoCursorStore> {
-        D14nClient::new(
-            create_multinode_client_builder().into_client().unwrap(),
-            create_gateway_builder().build().unwrap(),
-            NoCursorStore,
-        )
-        .unwrap()
+    fn create_d14n_client()
+    -> D14nClient<ReadWriteClient<MultiNodeClient, GrpcClient>, NoCursorStore> {
+        let rw = ReadWriteClient::builder()
+            .read(create_multinode_client_builder().into_client().unwrap())
+            .write(create_gateway_builder().build().unwrap())
+            .filter(PAYER_WRITE_FILTER)
+            .build()
+            .unwrap();
+        D14nClient::new(rw, NoCursorStore).unwrap()
     }
 
     fn create_node_client_template(tls: bool) -> xmtp_api_grpc::ClientBuilder {
@@ -210,8 +213,14 @@ mod tests {
         let multi_node_client = multi_node_builder.into_client().unwrap();
         let gateway_client = gateway_builder.build().unwrap();
 
+        let rw = ReadWriteClient::builder()
+            .read(multi_node_client)
+            .write(gateway_client)
+            .filter(PAYER_WRITE_FILTER)
+            .build()
+            .unwrap();
         // 3) Build D14n client with both clients
-        let _d14n = D14nClient::new(multi_node_client, gateway_client, cursor_store).unwrap();
+        let _d14n = D14nClient::new(rw, cursor_store).unwrap();
     }
 
     /// This test also serves as an example of how to use the MultiNodeClientBuilder standalone.

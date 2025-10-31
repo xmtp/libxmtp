@@ -9,14 +9,12 @@ use crate::protocol::FullXmtpApiBox;
 use crate::protocol::{AnyClient, FullXmtpApiArc};
 use crate::{BoxedStreamsClient, D14nClient, ToDynApi, protocol::CursorStore};
 
-impl<M, G, Store, E> ToDynApi for D14nClient<M, G, Store>
+impl<M, Store, E> ToDynApi for D14nClient<M, Store>
 where
     E: Error + RetryableError + Send + Sync + 'static,
-    G: Send + Sync + Client<Error = E> + IsConnectedCheck + 'static,
     M: Send + Sync + Client<Error = E> + IsConnectedCheck + 'static,
     Store: CursorStore + 'static,
     <M as Client>::Stream: 'static,
-    <G as Client>::Stream: 'static,
     Self: AnyClient,
 {
     type Error = ApiClientError<E>;

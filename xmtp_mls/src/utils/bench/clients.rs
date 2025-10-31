@@ -1,5 +1,7 @@
 use crate::utils::TestXmtpMlsContext;
-use crate::utils::test::TestClient as TestApiClient;
+use crate::utils::test::{
+    DefaultTestClientCreator, DevOnlyTestClientCreator, LocalOnlyTestClientCreator,
+};
 use crate::{client::Client, identity::IdentityStrategy};
 use alloy::signers::local::PrivateKeySigner;
 use xmtp_configuration::DeviceSyncUrls;
@@ -23,26 +25,18 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, Privat
 
     let api_client = if is_dev_network {
         tracing::info!("Using Dev GRPC");
-        <TestApiClient as XmtpTestClient>::create_dev()
-            .build()
-            .unwrap()
+        DevOnlyTestClientCreator::create().build().unwrap()
     } else {
         tracing::info!("Using Local GRPC");
-        <TestApiClient as XmtpTestClient>::create_local()
-            .build()
-            .unwrap()
+        LocalOnlyTestClientCreator::create().build().unwrap()
     };
 
     let sync_api_client = if is_dev_network {
         tracing::info!("Using Dev GRPC");
-        <TestApiClient as XmtpTestClient>::create_dev()
-            .build()
-            .unwrap()
+        DevOnlyTestClientCreator::create().build().unwrap()
     } else {
         tracing::info!("Using Local GRPC");
-        <TestApiClient as XmtpTestClient>::create_local()
-            .build()
-            .unwrap()
+        LocalOnlyTestClientCreator::create().build().unwrap()
     };
 
     let client = crate::Client::builder(IdentityStrategy::new(
@@ -102,26 +96,18 @@ pub async fn create_client_from_identity(
 
     let api_client = if is_dev_network {
         tracing::info!("Using Dev GRPC");
-        <TestApiClient as XmtpTestClient>::create_dev()
-            .build()
-            .unwrap()
+        DefaultTestClientCreator::create().build().unwrap()
     } else {
         tracing::info!("Using Local GRPC");
-        <TestApiClient as XmtpTestClient>::create_local()
-            .build()
-            .unwrap()
+        DefaultTestClientCreator::create().build().unwrap()
     };
 
     let sync_api_client = if is_dev_network {
         tracing::info!("Using Dev GRPC");
-        <TestApiClient as XmtpTestClient>::create_dev()
-            .build()
-            .unwrap()
+        DefaultTestClientCreator::create().build().unwrap()
     } else {
         tracing::info!("Using Local GRPC");
-        <TestApiClient as XmtpTestClient>::create_local()
-            .build()
-            .unwrap()
+        DefaultTestClientCreator::create().build().unwrap()
     };
 
     let client = crate::Client::builder(IdentityStrategy::new(

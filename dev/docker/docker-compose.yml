@@ -1,3 +1,6 @@
+networks:
+  proxynet:
+    name: libxmtp-backend
 services:
   node:
     image: ghcr.io/xmtp/node-go:main
@@ -17,6 +20,8 @@ services:
     ports:
       - 5555:5555
       - 5556:5556
+    networks:
+      - proxynet
     depends_on:
       - db
   node-web:
@@ -29,6 +34,8 @@ services:
       - 5557:5557
       - 5051:5051
       - 9901:9901
+    networks:
+      - proxynet
     build:
       context: ../..
       dockerfile: ./dev/docker/envoy/Dockerfile
@@ -40,29 +47,48 @@ services:
       dockerfile: ./dev/validation_service/local.Dockerfile
     environment:
       ANVIL_URL: "http://anvil:8545"
+    networks:
+      - proxynet
   anvil:
     build:
       dockerfile: ./anvil.Dockerfile
     platform: linux/amd64
+    networks:
+      - proxynet
     ports:
       - 8545:8545
   history-server:
     image: ghcr.io/xmtp/message-history-server:main
     platform: linux/amd64
+    networks:
+      - proxynet
     ports:
       - 5558:5558
   db:
     image: postgres:13
     environment:
       POSTGRES_PASSWORD: xmtp
+    networks:
+      - proxynet
   mlsdb:
     image: postgres:13
     environment:
       POSTGRES_PASSWORD: xmtp
+    networks:
+      - proxynet
   toxiproxy:
     image: ghcr.io/shopify/toxiproxy:2.12.0
     ports:
       - 8474:8474
-      - 21100-21200:21100-21200
+      - 40000-40100:40000-40100
+    networks:
+      - proxynet
     depends_on:
       - node
+      - node-web
+      - xmtpd
+      - anvil
+      - history-server
+    build:
+      context: ../..
+      dockerfile: ./dev/docker/toxiproxy/Dockerfile

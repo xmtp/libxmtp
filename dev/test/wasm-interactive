@@ -27,10 +27,13 @@ if [[ -z "${WASM_BINDGEN_CLI}" ]]; then
   cargo install wasm-bindgen-cli
 fi
 
-WASM_TARGET="$(rustup target list --installed | grep wasm32-unknown-unknown 2>/dev/null || true)"
-if [[ -z "${WASM_TARGET}" ]]; then
-  echo "Adding wasm32-unknown-unknown target"
-  rustup target add wasm32-unknown-unknown
+# Skip target check in Nix environments (targets are managed by Nix)
+if [[ -z "${IN_NIX_SHELL:-}" ]]; then
+  WASM_TARGET="$(rustup target list --installed | grep wasm32-unknown-unknown 2>/dev/null || true)"
+  if [[ -z "${WASM_TARGET}" ]]; then
+    echo "Adding wasm32-unknown-unknown target"
+    rustup target add wasm32-unknown-unknown
+  fi
 fi
 
 export WASM_BINDGEN_TEST_ONLY_WEB=1

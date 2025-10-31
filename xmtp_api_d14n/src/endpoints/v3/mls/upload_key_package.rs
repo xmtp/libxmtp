@@ -38,6 +38,7 @@ impl Endpoint for UploadKeyPackage {
 #[cfg(test)]
 mod test {
     use crate::v3::UploadKeyPackage;
+    use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::xmtp::mls::api::v1::*;
     use xmtp_proto::{api, prelude::*};
 
@@ -58,7 +59,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_upload_key_package() {
-        let client = crate::TestGrpcClient::create_local();
+        let client = NodeGoClient::create();
         let client = client.build().unwrap();
         let endpoint = UploadKeyPackage::builder()
             .key_package(Some(KeyPackageUpload {
