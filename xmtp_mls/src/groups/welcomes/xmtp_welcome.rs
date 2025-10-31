@@ -514,6 +514,7 @@ where
         )?;
         MlsGroup::<C>::mark_readd_requests_as_responded(
             &storage,
+            &context.installation_id().to_vec(),
             &group.group_id,
             &HashSet::from([context.installation_id().to_vec()]),
             cursor,

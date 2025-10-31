@@ -200,7 +200,8 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
     }
 
     // Local commit log entries are sorted by `rowid`
-    // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
+    // Entries of type 'Welcome' should be considered as 'resetting' the commit log, so we
+    // do not surface entries from before the latest welcome.
     fn get_local_commit_log_after_cursor(
         &self,
         group_id: &[u8],
@@ -213,17 +214,27 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
                 diesel::result::Error::QueryBuilderError("Cursor value exceeds i32::MAX".into()),
             ));
         }
-        let after_cursor = after_cursor as i32;
+        let latest_welcome_rowid: Option<i32> = self.raw_query_read(|db| {
+            dsl::local_commit_log
+                .select(diesel::dsl::max(dsl::rowid))
+                .filter(dsl::group_id.eq(group_id))
+                .filter(dsl::rowid.gt(after_cursor as i32))
+                .filter(dsl::commit_type.eq(Some("Welcome".to_string())))
+                .first(db)
+        })?;
+        let gte_cursor = latest_welcome_rowid.unwrap_or(after_cursor as i32 + 1);
 
         let query = dsl::local_commit_log
             .filter(dsl::group_id.eq(group_id))
-            .filter(dsl::rowid.gt(after_cursor))
+            .filter(dsl::rowid.ge(gte_cursor))
             .filter(dsl::commit_sequence_id.ne(0));
 
-        self.raw_query_read(|db| match order {
+        let rows = self.raw_query_read(|db| match order {
             LocalCommitLogOrder::AscendingByRowid => query.order_by(dsl::rowid.asc()).load(db),
             LocalCommitLogOrder::DescendingByRowid => query.order_by(dsl::rowid.desc()).load(db),
-        })
+        })?;
+
+        Ok(rows)
     }
 
     fn get_latest_log_for_group(
