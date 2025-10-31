@@ -162,6 +162,10 @@ pub trait XmtpMlsStreams {
         &self,
         group_ids: &[&GroupId],
     ) -> Result<Self::GroupMessageStream, Self::Error>;
+    async fn subscribe_group_messages_with_cursors(
+        &self,
+        groups_with_cursors: &[(&GroupId, crate::types::GlobalCursor)],
+    ) -> Result<Self::GroupMessageStream, Self::Error>;
     async fn subscribe_welcome_messages(
         &self,
         installations: &[&InstallationId],

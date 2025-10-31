@@ -215,33 +215,40 @@ where
     ///
     /// # Arguments
     /// * `context` - Reference to the client used for API communication
-    /// * `filters` - Current list of group filters
+    /// * `groups_with_positions` - List of tuples containing group IDs and their current positions
     /// * `new_group` - ID of the new group to add
     ///
     /// # Returns
-    /// * `Result<(MessagesApiSubscription<'a, C>, Vec<u8>, Option<u64>)>` - A tuple containing:
+    /// * `Result<(MessagesApiSubscription<'a, C>, Vec<u8>, Option<Cursor>)>` - A tuple containing:
     ///   - The new message subscription
     ///   - The ID of the newly added group
     ///   - The cursor position for the new group (if available)
     ///
     /// # Errors
     /// May return errors if:
-    /// - Querying the database for the last cursor fails
     /// - Creating the new subscription fails
     #[tracing::instrument(level = "trace", skip(context, new_group), fields(new_group = hex::encode(&new_group)))]
     #[allow(clippy::type_complexity)]
     async fn subscribe(
         context: Cow<'a, C>,
-        filters: Vec<GroupId>,
+        groups_with_positions: Vec<(GroupId, MessagePosition)>,
         new_group: Vec<u8>,
     ) -> Result<(
         MessagesApiSubscription<'a, C::ApiClient>,
         Vec<u8>,
         Option<Cursor>,
     )> {
+        use xmtp_proto::types::GlobalCursor;
+
+        let groups_with_cursors: Vec<(&GroupId, GlobalCursor)> = groups_with_positions
+            .iter()
+            .map(|(group_id, position)| (group_id, GlobalCursor::new(position.last_streamed())))
+            .collect();
+
         let stream = context
+            .as_ref()
             .api()
-            .subscribe_group_messages(&filters.iter().collect::<Vec<_>>())
+            .subscribe_group_messages_with_cursors(&groups_with_cursors)
             .await?;
         Ok((
             stream,
@@ -419,7 +426,8 @@ where
         let this = self.as_mut().project();
         this.groups
             .add(&group.group_id, MessagePosition::new(Cursor::new(1, 0u32)));
-        let future = Self::subscribe(self.context.clone(), self.groups.ids(), group.group_id);
+        let groups_with_positions = self.groups.groups_with_positions();
+        let future = Self::subscribe(self.context.clone(), groups_with_positions, group.group_id);
         let mut this = self.as_mut().project();
         this.state.set(State::Adding {
             future: FutureWrapper::new(future),
