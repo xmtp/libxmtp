@@ -211,14 +211,10 @@ where
             client = client.temp_store().await;
         }
 
-        let f = match self.api_endpoint {
-            ApiEndpoint::Local => TestClient::create_local,
-            ApiEndpoint::Dev => TestClient::create_dev,
+        let (mut local_client, mut sync_api_client) = match self.api_endpoint {
+            ApiEndpoint::Local => (TestClient::create_local(), TestClient::create_local()),
+            ApiEndpoint::Dev => (TestClient::create_dev(), TestClient::create_dev()),
         };
-        let store = Arc::new(SqliteCursorStore::new(client.store.as_ref().unwrap().db()));
-        let mut local_client = TestClient::with_cursor_store(f, store.clone());
-        let mut sync_api_client = TestClient::with_cursor_store(f, store);
-
         let mut proxy = None;
         if self.proxy {
             proxy = Some(local_client.with_toxiproxy().await);
