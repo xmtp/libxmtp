@@ -581,3 +581,204 @@ async fn test_stream_all_messages_filters_new_group_when_dm_only() {
         "Should not receive messages from group conversations when filtering for DMs"
     );
 }
+
+#[rstest::rstest]
+#[xmtp_common::test(flavor = "multi_thread")]
+#[timeout(Duration::from_secs(60))]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn test_stream_all_concurrent_writes() {
+    use xmtp_db::group_message::MsgQueryArgs;
+
+
+    // Create test clients
+    tester!(alix, with_name: "alix");
+    tester!(bo, with_name: "bo");
+    tester!(caro, with_name: "caro");
+    tester!(davon, with_name: "davon");
+
+
+    // Create two groups
+    let alix_group = alix
+        .create_group_with_inbox_ids(&[caro.inbox_id(), bo.inbox_id()], None, None)
+        .await
+        .unwrap();
+
+
+    let caro_group_2 = caro
+        .create_group_with_inbox_ids(&[alix.inbox_id(), bo.inbox_id()], None, None)
+        .await
+        .unwrap();
+
+
+    // Sync welcomes for all clients
+    alix.sync_welcomes().await.unwrap();
+    caro.sync_welcomes().await.unwrap();
+    bo.sync_welcomes().await.unwrap();
+
+
+    // Get group references for each client
+    let bo_group = bo.group(&alix_group.group_id).unwrap();
+    let bo_group_2 = bo.group(&caro_group_2.group_id).unwrap();
+    let caro_group = caro.group(&alix_group.group_id).unwrap();
+    let alix_group_2 = alix.group(&caro_group_2.group_id).unwrap();
+
+
+    // Start Caro's message stream
+    let stream = caro.stream_all_messages(None, None).await.unwrap();
+    let mut stream = Box::pin(stream);
+
+
+    // Give the stream a moment to initialize
+    xmtp_common::time::sleep(Duration::from_millis(100)).await;
+
+
+    // Spawn Alix's message sending task
+    let alix_group_clone = alix_group.clone();
+    let alix_group_2_clone = alix_group_2.clone();
+    xmtp_common::spawn(None, async move {
+        for i in 0..20 {
+            let message = format!("Alix Message {}", i);
+            alix_group_clone
+                .send_message(message.as_bytes(), SendMessageOpts::default())
+                .await
+                .unwrap();
+            alix_group_2_clone
+                .send_message(message.as_bytes(), SendMessageOpts::default())
+                .await
+                .unwrap();
+        }
+    });
+
+
+    // Spawn Bo's message sending task
+    let bo_group_clone = bo_group.clone();
+    let bo_group_2_clone = bo_group_2.clone();
+    xmtp_common::spawn(None, async move {
+        for i in 0..10 {
+            let message = format!("Bo Message {}", i);
+            bo_group_clone
+                .send_message(message.as_bytes(), SendMessageOpts::default())
+                .await
+                .unwrap();
+            bo_group_2_clone
+                .send_message(message.as_bytes(), SendMessageOpts::default())
+                .await
+                .unwrap();
+            xmtp_common::time::sleep(Duration::from_millis(50)).await;
+        }
+    });
+
+
+    // Spawn Davon's spam group creation task
+    let caro_inbox_id = caro.inbox_id().to_string();
+    let davon_clone = davon.clone();
+    tokio::spawn(async move {
+        for i in 0..10 {
+            let spam_message = format!("Davon Spam Message {}", i);
+            let group = davon_clone.create_group(None, None).unwrap();
+            group
+                .add_members_by_inbox_id(&[&caro_inbox_id])
+                .await
+                .unwrap();
+            group
+                .send_message(spam_message.as_bytes(), SendMessageOpts::default())
+                .await
+                .unwrap();
+        }
+    });            
+
+    // Spawn Caro's message sending task
+    let caro_group_clone = caro_group.clone();
+    let caro_group_2_clone = caro_group_2.clone();
+    xmtp_common::spawn(None, async move {
+        for i in 0..10 {
+            let message = format!("Caro Message {}", i);
+            caro_group_clone
+                .send_message(message.as_bytes(), SendMessageOpts::default())
+                .await
+                .unwrap();
+            caro_group_2_clone
+                .send_message(message.as_bytes(), SendMessageOpts::default())
+                .await
+                .unwrap();
+        }
+    });
+
+
+    // Collect messages from the stream
+    let mut messages = Vec::new();
+    let timeout = if cfg!(target_arch = "wasm32") {
+        Duration::from_secs(30)
+    } else {
+        Duration::from_secs(25)
+    };
+    loop {
+        tokio::select! {
+            Some(msg) = stream.next() => {
+                match msg {
+                    Ok(m) => {
+                        tracing::info!(
+                            "Received message {}: {}",
+                            messages.len(),
+                            String::from_utf8_lossy(&m.decrypted_message_bytes)
+                        );
+                        messages.push(m);
+                    }
+                    Err(e) => {
+                        tracing::error!("error in stream test {e}");
+                    }
+                }
+            },
+            _ = xmtp_common::time::sleep(timeout) => break
+        }
+    }
+
+
+    // Verify total message count
+    // Alix sends 20 messages to 2 groups = 40 messages
+    // Bo sends 10 messages to 2 groups = 20 messages
+    // Caro sends 10 messages to 2 groups = 20 messages
+    // Davon creates 10 groups and sends 1 message each = 10 messages
+    // Total = 90 messages
+    assert_eq!(
+        messages.len(),
+        90,
+        "Expected 90 messages (40 from Alix + 20 from Bo + 10 from Davon + 20 from Caro)"
+    );
+
+
+    // Sync all groups and verify message counts
+    bo_group.sync().await.unwrap();
+    alix_group.sync().await.unwrap();
+    caro_group.sync().await.unwrap();
+
+
+    assert_eq!(
+        caro_group
+            .find_messages(&MsgQueryArgs::default())
+            .unwrap()
+            .len(),
+        41,
+        "Caro's group should have 41 messages (40 messages + 1 membership change)"
+    );
+
+
+    assert_eq!(
+        bo_group
+            .find_messages(&MsgQueryArgs::default())
+            .unwrap()
+            .len(),
+        41,
+        "Bo's group should have 41 messages (40 messages + 1 membership change)"
+    );
+
+
+    assert_eq!(
+        alix_group
+            .find_messages(&MsgQueryArgs::default())
+            .unwrap()
+            .len(),
+        41,
+        "Alix's group should have 41 messages (40 messages + 1 membership change)"
+    );
+}
