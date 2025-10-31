@@ -1,0 +1,17 @@
+[38;5;3mModified regular file ../xmtp_mls/src/utils/test/tester_utils.rs:[39m
+    ...
+[38;5;1m 211[39m [38;5;2m 211[39m:             client = client.temp_store().await;
+[38;5;1m 212[39m [38;5;2m 212[39m:         }
+[38;5;1m 213[39m [38;5;2m 213[39m: 
+[38;5;1m 214[39m [38;5;2m 214[39m:         let [4m[38;5;1mf[38;5;2m(mut local_client, mut sync_api_client)[24m[39m = match self.api_endpoint {
+[38;5;1m 215[39m [38;5;2m 215[39m:             ApiEndpoint::Local => [4m[38;5;2m([24m[39mTestClient::create_local[4m[38;5;2m(), TestClient::create_local())[24m[39m,
+[38;5;1m 216[39m [38;5;2m 216[39m:             ApiEndpoint::Dev => [4m[38;5;2m([24m[39mTestClient::create_dev[4m[38;5;2m(), TestClient::create_dev())[24m[39m,
+[38;5;1m 217[39m [38;5;2m 217[39m:         };
+[38;5;1m 218[39m     : [4m[38;5;1m        let store = Arc::new(SqliteCursorStore::new(client.store.as_ref().unwrap().db()));[24m[39m
+[38;5;1m 219[39m     : [4m[38;5;1m        let mut local_client = TestClient::with_cursor_store(f, store.clone());[24m[39m
+[38;5;1m 220[39m     : [4m[38;5;1m        let mut sync_api_client = TestClient::with_cursor_store(f, store);[24m[39m
+[38;5;1m 221[39m     : [4m[38;5;1m[24m[39m
+[38;5;1m 222[39m [38;5;2m 218[39m:         let mut proxy = None;
+[38;5;1m 223[39m [38;5;2m 219[39m:         if self.proxy {
+[38;5;1m 224[39m [38;5;2m 220[39m:             proxy = Some(local_client.with_toxiproxy().await);
+    ...
