@@ -49,6 +49,7 @@ openmls = { workspace = true, features = ["js"] }
 futures-test.workspace = true
 hex.workspace = true
 mockall.workspace = true
+proptest = { workspace = true }
 rstest.workspace = true
 tokio.workspace = true
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }

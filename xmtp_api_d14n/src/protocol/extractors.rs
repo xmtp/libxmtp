@@ -21,6 +21,8 @@ mod topics;
 pub use topics::*;
 mod data;
 pub use data::*;
+mod timestamp;
+pub use timestamp::*;
 
 #[cfg(test)]
 pub mod test_utils;
