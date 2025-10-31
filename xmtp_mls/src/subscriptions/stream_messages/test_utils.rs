@@ -1,8 +1,17 @@
 use super::{Cursor, GroupList, MessagesApiSubscription, ProcessMessageFuture, State};
 use crate::{context::XmtpSharedContext, groups::MlsGroup};
+use parking_lot::Mutex;
 use pin_project_lite::pin_project;
 use rstest::*;
-use std::{borrow::Cow, collections::VecDeque, ops::Range, sync::Arc};
+use std::{
+    borrow::Cow,
+    collections::VecDeque,
+    ops::Range,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use xmtp_common::time::now_ns;
 use xmtp_proto::prelude::XmtpMlsStreams;
@@ -34,21 +43,36 @@ where
 
 pub(super) struct StatsInner {
     pub(super) reconnect_start: Option<u64>,
+    // Enables tracking - true if a stats handle has been handed out.
+    pub(super) enabled: AtomicBool,
     pub(super) stats_tx: UnboundedSender<StreamStat>,
     pub(super) stats: Arc<StreamStats>,
+    pub(super) state: StreamState,
 }
 
 impl StatsInner {
     pub(super) fn start_reconnect(&mut self) {
         self.reconnect_start = Some(now_ns() as u64);
     }
-    pub(super) fn finish_reconnect(&mut self) {
+    pub(super) fn finish_reconnect(&mut self, num_groups: usize) {
+        if !self.enabled.load(Ordering::Relaxed) {
+            return;
+        }
+
         if let Some(start) = self.reconnect_start.take() {
-            self.stats_tx
-                .send(StreamStat::Reconnection {
-                    duration: start..(now_ns() as u64),
-                })
-                .unwrap();
+            let _ = self.stats_tx.send(StreamStat::Reconnection {
+                duration: start..(now_ns() as u64),
+                num_groups: num_groups as u64,
+            });
+        }
+    }
+
+    pub(super) fn set_state(&mut self, state: StreamState) {
+        if self.state != state {
+            self.state = state;
+            let _ = self
+                .stats_tx
+                .send(StreamStat::ChangeState { state: self.state });
         }
     }
 }
@@ -59,23 +83,42 @@ impl StatsInner {
         Self {
             stats_tx,
             reconnect_start: None,
-            stats: Arc::new(StreamStats { rx: stats_rx }),
+            stats: Arc::new(StreamStats {
+                rx: Mutex::new(stats_rx),
+            }),
+            enabled: AtomicBool::new(false),
+            state: StreamState::Unknown,
         }
     }
 
     // Give a reference to the stats handle
     pub(super) fn stats(&self) -> Arc<StreamStats> {
+        self.enabled.store(true, Ordering::SeqCst);
         self.stats.clone()
     }
 }
 
 pub struct StreamStats {
-    pub(super) rx: UnboundedReceiver<StreamStat>,
+    pub rx: Mutex<UnboundedReceiver<StreamStat>>,
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum StreamState {
+    Unknown,
+    Waiting,
+    Processing,
+    Adding,
 }
 
 pub enum StreamStat {
     // the duration is a range of two timestamps in nanos
-    Reconnection { duration: Range<u64> },
+    Reconnection {
+        duration: Range<u64>,
+        num_groups: u64,
+    },
+    ChangeState {
+        state: StreamState,
+    },
 }
 
 pub mod cases {

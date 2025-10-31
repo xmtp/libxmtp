@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::Parser;
 use futures::{StreamExt, TryStreamExt, future::join_all};
 use parking_lot::Mutex;
@@ -9,6 +9,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Style, Stylize},
     symbols::Marker,
+    text,
     widgets::{self, Axis, Dataset, GraphType, LegendPosition},
 };
 use rlimit::{Resource, setrlimit};
@@ -25,7 +26,7 @@ use std::{
 };
 use tokio::{
     fs,
-    runtime::Runtime,
+    runtime::{Handle, Runtime},
     sync::{
         Mutex as TokioMutex, Notify,
         oneshot::{self, Sender},
@@ -38,7 +39,13 @@ use tui_logger::{
     LevelFilter, TuiLoggerFile, TuiLoggerLevelOutput, TuiLoggerWidget, TuiWidgetState, init_logger,
     set_default_level, set_env_filter_from_string, set_log_file,
 };
-use xmtp_mls::{tester, utils::Tester, xmtp_db::group_message::ContentType};
+use xmtp_mls::{
+    common::time::now_ns,
+    db::group_message::ContentType,
+    subscriptions::stream_messages::{StreamStat, StreamState, StreamStats},
+    tester,
+    utils::Tester,
+};
 
 #[derive(Parser)]
 struct Args {
@@ -79,9 +86,16 @@ impl ExpAvg {
 struct App {
     terminal_rx: mpsc::Receiver<UiUpdate>,
     data: Data,
+    graph_window: Duration,
     config: Config,
-
     ctx: Arc<Context>,
+    stats_rx: Promise<Arc<StreamStats>>,
+    stream_state: StreamState,
+}
+
+enum Promise<T> {
+    Receiver(oneshot::Receiver<T>),
+    Item(T),
 }
 
 struct Config {
@@ -92,8 +106,10 @@ struct Config {
 struct Data {
     rx_process_time: Vec<u64>,
     rx_process_running_average: ExpAvg,
-    rx_process_time_rolling_average: Vec<u64>,
+    rx_process_time_rolling_average: Vec<(f64, f64)>,
+    reconnection_time: Vec<(f64, f64)>,
     rx_process_rolling_last_push: Instant,
+    reconnection_duration: Option<Duration>,
     gauges: HashMap<Gauge, u64>,
 }
 
@@ -111,6 +127,13 @@ struct Context {
     num_sent: AtomicU64,
     receive_duration: Mutex<Option<Duration>>,
     ui: mpsc::Sender<UiUpdate>,
+
+    target_inbox_id: Mutex<Option<String>>,
+    tokio_handle: Handle,
+
+    welcome_sender: Mutex<Option<JoinHandle<Result<()>>>>,
+    welcome_sender_freq_ms: AtomicU64,
+    welcome_sender_jitter_ms: AtomicU64,
 }
 
 impl Context {
@@ -145,37 +168,55 @@ fn main() -> Result<()> {
 
     let (terminal_tx, terminal_rx) = mpsc::channel();
 
+    let runtime = Runtime::new()?;
+    let handle = runtime.handle().to_owned();
+
+    let ctx = Arc::new(Context {
+        args,
+        barrier: TokioMutex::default(),
+        msg_rx: AtomicU64::default(),
+        num_sent: AtomicU64::default(),
+        num_registered: AtomicU64::default(),
+        receive_duration: Mutex::default(),
+        welcome_sender: Mutex::default(),
+        target_inbox_id: Mutex::default(),
+        welcome_sender_freq_ms: AtomicU64::new(10),
+        welcome_sender_jitter_ms: AtomicU64::new(100),
+        ui: terminal_tx,
+        tokio_handle: handle,
+    });
+
+    let (stats_tx, stats_rx) = oneshot::channel();
+
+    std::thread::spawn({
+        let ctx = ctx.clone();
+        move || {
+            runtime
+                .block_on(async { tokio::spawn(benchmark(ctx, stats_tx)).await })
+                .unwrap()
+                .unwrap();
+        }
+    });
+
     let mut app = App {
         terminal_rx,
+        graph_window: Duration::from_secs(10),
+        stream_state: StreamState::Unknown,
         data: Data {
             gauges: HashMap::default(),
             rx_process_rolling_last_push: Instant::now(),
             rx_process_running_average: ExpAvg::new(0.001),
             rx_process_time: vec![],
             rx_process_time_rolling_average: vec![],
+            reconnection_time: vec![],
+            reconnection_duration: None,
         },
         config: Config {
             send_welcomes: None,
         },
-        ctx: Arc::new(Context {
-            args,
-            barrier: TokioMutex::default(),
-            msg_rx: AtomicU64::default(),
-            num_sent: AtomicU64::default(),
-            num_registered: AtomicU64::default(),
-            receive_duration: Mutex::default(),
-            ui: terminal_tx,
-        }),
+        ctx,
+        stats_rx: Promise::Receiver(stats_rx),
     };
-
-    let ctx = app.ctx.clone();
-    std::thread::spawn(move || {
-        let runtime = Runtime::new().unwrap();
-        runtime
-            .block_on(async { tokio::spawn(benchmark(ctx)).await })
-            .unwrap()
-            .unwrap();
-    });
 
     let mut terminal = ratatui::init();
     app.run(&mut terminal)?;
@@ -197,15 +238,77 @@ impl App {
 
             if event::poll(frame_timeout)? {
                 if let Event::Key(key) = event::read()? {
-                    if key.code == KeyCode::Char('q') {
+                    if let Err(err) = self.keypress(key.code) {
+                        error!("{err:?}");
                         return Ok(());
-                    }
+                    };
                 }
             }
         }
     }
 
+    fn keypress(&mut self, code: KeyCode) -> Result<()> {
+        match code {
+            KeyCode::Char('q') => {
+                bail!("Quit");
+            }
+            KeyCode::Char('-') => {
+                self.graph_window = self.graph_window + Duration::from_secs(1);
+            }
+            KeyCode::Char('=') => {
+                self.graph_window = self.graph_window.saturating_sub(Duration::from_secs(1));
+            }
+            KeyCode::Char('w') => {
+                let mut welcome_sender = self.ctx.welcome_sender.lock();
+                match &*welcome_sender {
+                    Some(handle) => {
+                        handle.abort();
+                        *welcome_sender = None;
+                        info!("Disabled welcome sender.");
+                    }
+                    None => {
+                        let (handle, _) = self
+                            .ctx
+                            .tokio_handle
+                            .block_on(continuous_new_welcomes(self.ctx.clone(), None))
+                            .unwrap();
+                        *welcome_sender = Some(handle);
+                        info!("Enabled welcome sender");
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     fn tick(&mut self) {
+        let now_ns = now_ns() as f64;
+
+        // Try to resolve the StreamStats promise
+        if let Promise::Receiver(rx) = &mut self.stats_rx {
+            if let Ok(stats) = rx.try_recv() {
+                self.stats_rx = Promise::Item(stats);
+            }
+        }
+        // Try to receive information from StreamStats
+        if let Promise::Item(stats) = &mut self.stats_rx {
+            let mut rx = stats.rx.lock();
+            while let Ok(stat) = rx.try_recv() {
+                match stat {
+                    StreamStat::Reconnection { duration, .. } => {
+                        let duration = Duration::from_nanos(duration.end - duration.start);
+                        self.data.reconnection_duration = Some(duration);
+                    }
+                    StreamStat::ChangeState { state } => self.stream_state = state,
+                }
+            }
+        }
+        if let Some(duration) = self.data.reconnection_duration {
+            let duration = duration.as_nanos() as f64;
+            self.data.reconnection_time.push((now_ns, duration));
+        }
+
         while let Ok(item) = self.terminal_rx.try_recv() {
             match item {
                 UiUpdate::MessageReceiveNs(rx_process_ns) => {
@@ -218,9 +321,10 @@ impl App {
                     if self.data.rx_process_rolling_last_push.elapsed() > Duration::from_millis(20)
                     {
                         self.data.rx_process_rolling_last_push = Instant::now();
-                        self.data
-                            .rx_process_time_rolling_average
-                            .push(self.data.rx_process_running_average.avg as u64);
+                        self.data.rx_process_time_rolling_average.push((
+                            now_ns as f64,
+                            self.data.rx_process_running_average.avg as f64,
+                        ));
                     }
                 }
                 UiUpdate::Gauge((gauge, percent)) => match percent {
@@ -239,18 +343,34 @@ impl App {
         let [left, right] =
             Layout::horizontal([Constraint::Percentage(70), Constraint::Percentage(30)])
                 .areas(f.area());
-        let [rolling_avg_rect, process_time_rect, gauges_rect] = Layout::vertical([
+        let [rolling_avg_rect, text_info, process_time_rect, gauges_rect] = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Length(7),
             Constraint::Length(self.data.gauges.len() as u16),
         ])
         .areas(left);
 
         self.render_rx_process_time(f, process_time_rect);
         self.render_rolling_avg(f, rolling_avg_rect);
-
         self.render_logs(f, right);
         self.render_gauges(f, gauges_rect);
+        self.render_text_info(f, text_info);
+    }
+
+    fn render_text_info(&mut self, f: &mut Frame, area: Rect) {
+        let [state_rect, _] =
+            Layout::horizontal([Constraint::Length(8), Constraint::Fill(1)]).areas(area);
+
+        let color = match self.stream_state {
+            StreamState::Unknown => Color::DarkGray,
+            StreamState::Waiting => Color::Green,
+            StreamState::Processing => Color::Yellow,
+            StreamState::Adding => Color::Red,
+        };
+        let state_label = text::Line::from(format!("{:?}", self.stream_state)).bg(color);
+
+        f.render_widget(state_label, state_rect);
     }
 
     fn render_gauges(&mut self, f: &mut Frame, area: Rect) {
@@ -265,34 +385,47 @@ impl App {
     }
 
     fn render_rolling_avg(&mut self, f: &mut Frame, area: Rect) {
-        let data_start = self
-            .data
-            .rx_process_time_rolling_average
-            .len()
-            .saturating_sub(area.width as usize);
-        let mut data = vec![];
-
         let mut min = f64::MAX;
         let mut max = f64::MIN;
 
-        for (i, val) in self.data.rx_process_time_rolling_average[data_start..]
-            .iter()
-            .enumerate()
-        {
-            let val = *val as f64;
-
-            min = min.min(val);
-            max = max.max(val);
-
-            data.push((i as f64, val));
-        }
-
-        let mut last_val = *self
+        let end_ns = self
             .data
             .rx_process_time_rolling_average
             .last()
-            .unwrap_or(&0) as f64;
-        last_val = last_val / 1_000_000.; // milliseconds
+            .map(|l| l.0)
+            .unwrap_or_else(|| now_ns() as f64);
+        let start_ns = end_ns - self.graph_window.as_nanos() as f64;
+
+        for (ns, val) in self.data.rx_process_time_rolling_average.iter().rev() {
+            if *ns < start_ns {
+                break;
+            }
+            min = min.min(*val);
+            max = max.max(*val);
+        }
+        for (ns, val) in self.data.reconnection_time.iter().rev() {
+            if *ns < start_ns {
+                break;
+            }
+            min = min.min(*val);
+            max = max.max(*val);
+        }
+
+        let last_val = self
+            .data
+            .rx_process_time_rolling_average
+            .last()
+            .map(|&l| l.1)
+            .unwrap_or(0.)
+            / 1_000_000.;
+
+        let last_reconnect_val = self
+            .data
+            .reconnection_time
+            .last()
+            .map(|l| l.1)
+            .unwrap_or_default()
+            / 1_000_000.;
 
         let datasets = vec![
             Dataset::default()
@@ -300,7 +433,13 @@ impl App {
                 .marker(Marker::Braille)
                 .style(Style::default().fg(Color::Yellow))
                 .graph_type(GraphType::Line)
-                .data(&data),
+                .data(&self.data.rx_process_time_rolling_average),
+            Dataset::default()
+                .name(format!("Reconnection: {last_reconnect_val:.3}ms"))
+                .marker(Marker::Braille)
+                .style(Style::default().fg(Color::Green))
+                .graph_type(GraphType::Line)
+                .data(&self.data.reconnection_time),
         ];
 
         let chart = widgets::Chart::new(datasets)
@@ -309,7 +448,7 @@ impl App {
                 Axis::default()
                     .title("X Axis")
                     .style(Style::default().gray())
-                    .bounds([0.0, area.width as f64]),
+                    .bounds([start_ns, end_ns]),
             )
             .y_axis(
                 Axis::default()
@@ -359,39 +498,41 @@ impl App {
     }
 }
 
-async fn benchmark(ctx: Arc<Context>) -> Result<()> {
-    let (fut, monitor_ready, inbox_id) = {
+async fn benchmark(ctx: Arc<Context>, stats_tx: Sender<Arc<StreamStats>>) -> Result<()> {
+    let (fut, stats_rx, inbox_id) = {
         let _barrier = ctx.barrier.lock().await;
-        let (inbox_id, ready) = setup_monitor(ctx.clone()).await?;
+        let (inbox_id, stats_rx) = setup_monitor(ctx.clone()).await?;
         info!("Receiver inbox_id: {inbox_id}");
         let fut = setup_send_messages(inbox_id.clone(), &ctx).await?;
 
         // Sleep to allow tx to send welcomes
         sleep(Duration::from_secs(1)).await;
 
-        (fut, ready, inbox_id)
+        (fut, stats_rx, inbox_id)
     };
 
-    // Wait for the monitor thread to notify that the stream is ready.
-    monitor_ready.notified().await;
+    *ctx.target_inbox_id.lock() = Some(inbox_id.clone());
 
-    let mut new_welcomes_handle: Option<JoinHandle<Result<()>>> = None;
-    new_welcomes_handle = Some(
-        continuous_new_welcomes(
-            inbox_id.clone(),
-            Duration::from_millis(10),
-            Duration::from_millis(100),
-        )
-        .await?,
-    );
+    // Wait for the monitor thread to notify that the stream is ready.
+    let _ = stats_tx.send(stats_rx.await?);
+
+    let bench_start = Arc::new(Notify::new());
+    let (handle, sender_ready) =
+        continuous_new_welcomes(ctx.clone(), Some(bench_start.clone())).await?;
+    *ctx.welcome_sender.lock() = Some(handle);
+    sender_ready.notified().await;
 
     info!("Sending messages...");
     let start = Instant::now();
+    bench_start.notify_waiters();
     fut.await;
     let elapsed = start.elapsed();
 
+    ctx.welcome_sender.lock().as_ref().inspect(|h| h.abort());
+    // This gets freed when the receiver is done.
     let _ = ctx.barrier.lock().await;
 
+    // Compile the data
     let sent = ctx.num_sent.load(Ordering::SeqCst) as i64;
     let senders = ctx.args.senders;
     let received = ctx.msg_rx.load(Ordering::SeqCst) as i64;
@@ -405,8 +546,6 @@ async fn benchmark(ctx: Arc<Context>) -> Result<()> {
         rx_elapsed = Some(elapsed);
         rx_rate = Some(received as f32 / elapsed);
     }
-
-    new_welcomes_handle.inspect(|h| h.abort());
 
     let rx_elapsed = rx_elapsed
         .map(|rx| rx.to_string())
@@ -427,51 +566,72 @@ async fn benchmark(ctx: Arc<Context>) -> Result<()> {
 }
 
 async fn continuous_new_welcomes(
-    inbox_id: String,
-    freq: Duration,
-    jitter: Duration,
-) -> Result<JoinHandle<Result<()>>> {
-    let jitter = jitter.as_nanos() as u64;
+    ctx: Arc<Context>,
+    notify: Option<Arc<Notify>>,
+) -> Result<(JoinHandle<Result<()>>, Arc<Notify>)> {
+    let Some(inbox_id) = ctx.target_inbox_id.lock().clone() else {
+        bail!("Missing target inbox id.");
+    };
+    let jitter = ctx.welcome_sender_jitter_ms.load(Ordering::Relaxed) * 1_000_000;
+    let freq = Duration::from_millis(ctx.welcome_sender_freq_ms.load(Ordering::Relaxed));
 
-    let handle = tokio::spawn(async move {
-        tester!(new_guy);
-        let mut start = Instant::now();
-        let mut rng = StdRng::from_entropy();
+    let ready_notify = Arc::new(Notify::new());
 
-        loop {
-            new_guy
-                .create_group_with_inbox_ids(&[&inbox_id], None, None)
-                .await?;
+    let handle = tokio::spawn({
+        let ready_notify = ready_notify.clone();
+        async move {
+            tester!(new_guy);
 
-            let jitter = rng.gen_range(0..=jitter);
-            let freq = freq + Duration::from_nanos(jitter as u64);
-            tokio::time::sleep(freq.saturating_sub(start.elapsed())).await;
-            start = Instant::now();
+            let notified = notify.as_ref().map(|n| n.notified());
+            ready_notify.notify_waiters();
+            if let Some(notified) = notified {
+                notified.await;
+            }
+
+            let mut start = Instant::now();
+            let mut rng = StdRng::from_entropy();
+
+            loop {
+                new_guy
+                    .create_group_with_inbox_ids(&[&inbox_id], None, None)
+                    .await?;
+
+                let jitter = rng.gen_range(0..=jitter);
+                let freq = freq + Duration::from_nanos(jitter as u64);
+                tokio::time::sleep(freq.saturating_sub(start.elapsed())).await;
+                start = Instant::now();
+            }
+
+            #[allow(unreachable_code)]
+            Ok(())
         }
-
-        #[allow(unreachable_code)]
-        Ok(())
     });
 
-    Ok(handle)
+    Ok((handle, ready_notify))
 }
 
-async fn setup_monitor(ctx: Arc<Context>) -> Result<(String, Arc<Notify>)> {
+async fn setup_monitor(ctx: Arc<Context>) -> Result<(String, oneshot::Receiver<Arc<StreamStats>>)> {
     let (tx, rx) = oneshot::channel();
+    let (stats_tx, stats_rx) = oneshot::channel();
     let ready = Arc::new(Notify::new());
     tokio::spawn({
         let ready = ready.clone();
         async move {
-            if let Err(err) = monitor_messages(tx, ctx, ready).await {
+            if let Err(err) = monitor_messages(tx, stats_tx, ctx.clone(), ready.clone()).await {
                 error!("{err:?}");
             };
         }
     });
 
-    Ok((rx.await?, ready))
+    Ok((rx.await?, stats_rx))
 }
 
-async fn monitor_messages(tx: Sender<String>, ctx: Arc<Context>, ready: Arc<Notify>) -> Result<()> {
+async fn monitor_messages(
+    tx: Sender<String>,
+    stats_tx: oneshot::Sender<Arc<StreamStats>>,
+    ctx: Arc<Context>,
+    ready: Arc<Notify>,
+) -> Result<()> {
     tester!(andre, with_dev: ctx.args.dev, disable_workers);
     tx.send(andre.inbox_id().to_string())
         .expect("Failed to share inbox_id");
@@ -483,7 +643,11 @@ async fn monitor_messages(tx: Sender<String>, ctx: Arc<Context>, ready: Arc<Noti
 
     let total = ctx.total();
 
-    let mut stream = andre.stream_all_messages(None, None).await?;
+    let (mut stream, stats) = andre
+        .stream_all_messages_owned_with_stats_handle(None, None)
+        .await?;
+    stats_tx.send(stats);
+
     let mut monitoring_start: Option<Instant> = None;
     let grace_period = Duration::from_secs(ctx.args.timeout);
 
@@ -492,24 +656,19 @@ async fn monitor_messages(tx: Sender<String>, ctx: Arc<Context>, ready: Arc<Noti
     #[allow(unused)]
     loop {
         let processing_start = Instant::now();
-        let next_result = timeout(grace_period, async {
-            loop {
-                let next = stream.next().await?;
-                if let Ok(msg) = &next {
-                    if msg.content_type != ContentType::Unknown {}
-                }
-                return Some(next);
-            }
-        })
-        .await;
+        let next_result = timeout(grace_period, stream.next()).await;
 
         let msg = match next_result {
             Ok(Some(Ok(msg))) => msg,
             Ok(Some(Err(err))) => {
-                tracing::error!("{err:?}");
+                error!("{err:?}");
                 break;
             }
-            Ok(None) | Err(_) => break,
+            Err(err) => {
+                error!("Timeout: {err:?}");
+                break;
+            }
+            Ok(None) => break,
         };
         ctx.ui.send(UiUpdate::MessageReceiveNs(
             processing_start.elapsed().as_nanos() as u64,

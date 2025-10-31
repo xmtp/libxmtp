@@ -86,6 +86,11 @@ impl GroupList {
         self.seen.contains(&cursor)
     }
 
+    /// get the size of the group list
+    pub(super) fn len(&self) -> usize {
+        self.list.len()
+    }
+
     pub(super) fn ids(&self) -> Vec<GroupId> {
         self.list.keys().cloned().collect()
     }

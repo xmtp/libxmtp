@@ -265,6 +265,9 @@ where
         let state = this.state.as_mut().project();
         match state {
             Waiting => {
+                #[cfg(any(test, feature = "test-utils"))]
+                this.stats.set_state(StreamState::Waiting);
+
                 tracing::trace!("stream messages in waiting state");
                 if let Some(group) = this.add_queue.pop_front() {
                     self.as_mut().resolve_group_additions(group);
@@ -279,6 +282,9 @@ where
                 r
             }
             Processing { message, .. } => {
+                #[cfg(any(test, feature = "test-utils"))]
+                this.stats.set_state(StreamState::Processing);
+
                 tracing::trace!(
                     "stream messages in processing state. Processing future for envelope @cursor=[{}]",
                     message
@@ -301,6 +307,9 @@ where
                 r
             }
             Adding { future } => {
+                #[cfg(any(test, feature = "test-utils"))]
+                this.stats.set_state(StreamState::Adding);
+
                 tracing::trace!("stream messages in adding state");
                 let (stream, group, cursor) = ready!(future.poll(cx))?;
                 let this = self.as_mut();
@@ -318,7 +327,7 @@ where
                 }
 
                 #[cfg(any(test, feature = "test-utils"))]
-                this.stats.finish_reconnect();
+                this.stats.finish_reconnect(this.groups.len());
 
                 this.state.as_mut().set(State::Waiting);
                 cx.waker().wake_by_ref();

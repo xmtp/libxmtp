@@ -2,7 +2,6 @@ use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use std::collections::HashMap;
 use xmtp_mls::{
-  common::group_mutable_metadata::MetadataField as XmtpMetadataField,
   groups::{
     PreconfiguredPolicies,
     group_permissions::{
@@ -12,6 +11,7 @@ use xmtp_mls::{
     },
     intents::{PermissionPolicyOption, PermissionUpdateType as XmtpPermissionUpdateType},
   },
+  mls_common::group_mutable_metadata::MetadataField as XmtpMetadataField,
 };
 
 #[napi]

@@ -14,11 +14,11 @@ use process_welcome::ProcessWelcomeResult;
 use stream_all::StreamAllMessages;
 use stream_conversations::{StreamConversations, WelcomeOrGroup};
 
-pub(super) mod process_message;
-pub(super) mod process_welcome;
+pub mod process_message;
+pub mod process_welcome;
 mod stream_all;
 mod stream_conversations;
-pub(crate) mod stream_messages;
+pub mod stream_messages;
 mod stream_utils;
 
 #[cfg(any(test, feature = "test-utils"))]
