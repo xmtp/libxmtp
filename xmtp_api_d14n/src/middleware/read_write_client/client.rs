@@ -4,6 +4,7 @@
 //! to filter with regex, or let the consumer pass in a closure instead of a static
 //! string filter.
 
+use derive_builder::Builder;
 use prost::bytes::Bytes;
 use xmtp_proto::api::{ApiClientError, Client};
 
@@ -12,19 +13,17 @@ use xmtp_proto::api::{ApiClientError, Client};
 /// if the query path contains a match for the given filter,
 /// the client will write with the write client.
 /// For all other queries it does a read.
+#[derive(Debug, Builder, Default, Clone)]
 pub struct ReadWriteClient<Read, Write> {
-    read: Read,
-    write: Write,
+    pub(super) read: Read,
+    pub(super) write: Write,
+    #[builder(setter(into))]
     filter: String,
 }
 
-impl<Read, Write> ReadWriteClient<Read, Write> {
-    pub fn new(read: Read, write: Write, filter: String) -> Self {
-        Self {
-            read,
-            write,
-            filter,
-        }
+impl<Read: Clone, Write: Clone> ReadWriteClient<Read, Write> {
+    pub fn builder() -> ReadWriteClientBuilder<Read, Write> {
+        ReadWriteClientBuilder::default()
     }
 }
 

@@ -3,6 +3,23 @@
 /// the max page size for queries
 pub const MAX_PAGE_SIZE: u32 = 20;
 
+pub struct ToxicUrls;
+
+impl ToxicUrls {
+    /// URL to ToxiProxy version of NODE-GO
+    pub const NODE: &'static str = "http://localhost:40556";
+    /// URL to ToxiProxy version of NODE-GO Grpc Web
+    pub const NODE_WEB: &'static str = "http://localhost:40557";
+    /// URL to ToxiProxy version of XMTPD
+    pub const XMTPD: &'static str = "http://localhost:40050";
+    /// URL to ToxiProxy version of Payer Gateway
+    pub const GATEWAY: &'static str = "http://localhost:40052";
+    /// Url to ToxiProxy version of History Server
+    pub const HISTORY_SERVER: &'static str = "http://localhost:40558";
+    /// Url to ToxiProxy version of Anvil
+    pub const ANVIL: &'static str = "http://localhost:40545";
+}
+
 /// poor-mans dns docker resolution
 /// Resolves a host docker address to an internal docker address
 /// based on hard-coded port values.

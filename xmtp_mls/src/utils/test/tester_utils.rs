@@ -63,8 +63,8 @@ use xmtp_id::{
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
+use xmtp_proto::ToxicProxies;
 use xmtp_proto::prelude::XmtpTestClient;
-use xmtp_proto::{TestApiBuilder, ToxicProxies};
 use xmtp_proto::{api_client::ApiBuilder, xmtp::message_contents::PrivateKey};
 
 type XmtpMlsProvider = XmtpOpenMlsProvider<Arc<TestMlsStorage>>;

@@ -291,40 +291,14 @@ impl<C: XmtpQuery> XmtpQuery for TrackedStatsClient<C> {
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
-    use xmtp_configuration::LOCALHOST;
-    use xmtp_proto::ToxicProxies;
-    use xmtp_proto::{TestApiBuilder, prelude::XmtpTestClient};
+    use xmtp_proto::prelude::XmtpTestClient;
     impl<C> XmtpTestClient for TrackedStatsClient<C>
     where
         C: XmtpTestClient,
     {
         type Builder = StatsBuilder<C::Builder>;
-        fn create_local() -> Self::Builder {
-            StatsBuilder::new(<C as XmtpTestClient>::create_local())
-        }
-        fn create_dev() -> Self::Builder {
-            StatsBuilder::new(<C as XmtpTestClient>::create_dev())
-        }
-        fn create_gateway() -> Self::Builder {
-            StatsBuilder::new(<C as XmtpTestClient>::create_gateway())
-        }
-        fn create_d14n() -> Self::Builder {
-            StatsBuilder::new(<C as XmtpTestClient>::create_d14n())
-        }
-    }
-
-    impl<Builder> TestApiBuilder for StatsBuilder<Builder>
-    where
-        Builder: ApiBuilder,
-    {
-        async fn with_toxiproxy(&mut self) -> ToxicProxies {
-            let host = <Builder as ApiBuilder>::host(&self.client).unwrap();
-            let proxies = xmtp_proto::init_toxi(&[host]).await;
-            <Builder as ApiBuilder>::set_host(
-                &mut self.client,
-                format!("{LOCALHOST}:{}", proxies.ports()[0]),
-            );
-            proxies
+        fn create() -> Self::Builder {
+            StatsBuilder::new(<C as XmtpTestClient>::create())
         }
     }
 }

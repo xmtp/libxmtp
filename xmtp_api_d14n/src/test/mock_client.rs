@@ -1,10 +1,8 @@
 use std::pin::Pin;
 
-use crate::protocol::CursorStore;
 use crate::protocol::XmtpQuery;
 use futures::Stream;
 use mockall::mock;
-use std::sync::Arc;
 use xmtp_proto::api::mock::MockApiBuilder;
 use xmtp_proto::api_client::XmtpTestClient;
 use xmtp_proto::{
@@ -126,10 +124,7 @@ mod not_wasm {
 
         impl XmtpTestClient for ApiClient {
             type Builder = MockApiBuilder;
-            fn create_local() -> MockApiBuilder { MockApiBuilder }
-            fn create_dev() -> MockApiBuilder { MockApiBuilder }
-            fn create_d14n() -> MockApiBuilder { MockApiBuilder }
-            fn create_gateway() -> MockApiBuilder { MockApiBuilder }
+            fn create() -> MockApiBuilder { MockApiBuilder }
         }
     }
 
@@ -202,10 +197,7 @@ mod wasm {
         #[async_trait::async_trait(?Send)]
         impl XmtpTestClient for ApiClient {
             type Builder = MockApiBuilder;
-            fn create_local() -> MockApiBuilder { MockApiBuilder }
-            fn create_dev() -> MockApiBuilder { MockApiBuilder }
-            fn create_d14n() -> MockApiBuilder { MockApiBuilder }
-            fn create_gateway() -> MockApiBuilder { MockApiBuilder }
+            fn create() -> MockApiBuilder { MockApiBuilder }
         }
     }
 

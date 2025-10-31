@@ -5,6 +5,10 @@ x-xmtpd-contracts-image: &x-xmtpd-contracts-image ghcr.io/xmtp/contracts:v0.5.5
 x-postgres-image: &x-postgres-image postgres:16
 x-redis-image: &x-redis-image redis:7-alpine
 
+networks:
+  libxmtp-proxynet:
+    external: true
+    name: libxmtp-backend
 services:
   redis:
     image: *x-redis-image
@@ -14,6 +18,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    networks:
+      - libxmtp-proxynet
 
   replicationdb:
     image: *x-postgres-image
@@ -24,10 +30,14 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - libxmtp-proxynet
 
   chain:
     platform: linux/amd64
     image: *x-xmtpd-contracts-image
+    networks:
+      - libxmtp-proxynet
 
   register-node-native:
     platform: linux/amd64
@@ -47,6 +57,8 @@ services:
         "--signing-key-pub=${REGISTER_NODE_NATIVE_PUBKEY}",
         "--http-address=${REGISTER_NODE_NATIVE_HTTP_ADDRESS}",
       ]
+    networks:
+      - libxmtp-proxynet
     depends_on:
       chain:
         condition: service_started
@@ -69,6 +81,8 @@ services:
         "--add",
         "--node-id=100",
       ]
+    networks:
+      - libxmtp-proxynet
     depends_on:
       chain:
         condition: service_started
@@ -94,6 +108,8 @@ services:
         "--signing-key-pub=${REGISTER_NODE_WASM_PUBKEY}",
         "--http-address=${REGISTER_NODE_WASM_HTTP_ADDRESS}",
       ]
+    networks:
+      - libxmtp-proxynet
     depends_on:
       chain:
         condition: service_started
@@ -118,6 +134,8 @@ services:
         "--add",
         "--node-id=200",
       ]
+    networks:
+      - libxmtp-proxynet
     depends_on:
       chain:
         condition: service_started
@@ -144,6 +162,8 @@ services:
     ports:
       - 5050:5050
       - 5052:5052
+    networks:
+      - libxmtp-proxynet
 
   # Gateway runs on the same network namespace as xmtpd.
   # That means it can access xmtpd on localhost:5050, but docker

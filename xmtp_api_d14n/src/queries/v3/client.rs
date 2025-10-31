@@ -91,27 +91,3 @@ where
         self.client.is_connected().await
     }
 }
-
-#[cfg(any(test, feature = "test-utils"))]
-mod test {
-    #![allow(clippy::unwrap_used)]
-    use xmtp_configuration::LOCALHOST;
-    use xmtp_proto::{TestApiBuilder, ToxicProxies};
-
-    use super::*;
-    impl<Builder> TestApiBuilder for V3ClientBuilder<Builder>
-    where
-        Builder: ApiBuilder,
-        <Builder as ApiBuilder>::Output: xmtp_proto::api::Client,
-    {
-        async fn with_toxiproxy(&mut self) -> ToxicProxies {
-            let host = <Builder as ApiBuilder>::host(&self.client).unwrap();
-            let proxies = xmtp_proto::init_toxi(&[host]).await;
-            <Builder as ApiBuilder>::set_host(
-                &mut self.client,
-                format!("{LOCALHOST}:{}", proxies.ports()[0]),
-            );
-            proxies
-        }
-    }
-}

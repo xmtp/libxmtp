@@ -30,14 +30,9 @@ mod stats;
 pub use stats::*;
 
 xmtp_common::if_test! {
-    pub mod tests;
-
     pub trait XmtpTestClient {
         type Builder: ApiBuilder;
-        fn create_local() -> Self::Builder;
-        fn create_d14n() -> Self::Builder;
-        fn create_gateway() -> Self::Builder;
-        fn create_dev() -> Self::Builder;
+        fn create() -> Self::Builder;
     }
 }
 
@@ -208,9 +203,6 @@ pub trait ApiBuilder {
 
     /// Set the libxmtp host (required)
     fn set_host(&mut self, host: String);
-
-    /// Set the payer URL (optional)
-    fn set_gateway(&mut self, _host: String) {}
 
     /// indicate tls (default: false)
     fn set_tls(&mut self, tls: bool);

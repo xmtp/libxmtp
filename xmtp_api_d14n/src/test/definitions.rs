@@ -1,8 +1,9 @@
 //! type definitions for different backends (mock/v3/d14n)
 
+use xmtp_api_grpc::test::{GatewayClient, XmtpdClient};
 use xmtp_proto::api::mock::MockNetworkClient;
 
-use crate::{D14nClient, TrackedStatsClient, V3Client};
+use crate::{D14nClient, ReadWriteClient, TrackedStatsClient, V3Client, protocol::NoCursorStore};
 
 /// The Native/Wasm tonic gRPC client
 pub type TestGrpcClient = xmtp_api_grpc::GrpcClient;
@@ -10,12 +11,13 @@ pub type TestGrpcClient = xmtp_api_grpc::GrpcClient;
 pub type ApiError = xmtp_api_grpc::error::GrpcError;
 
 /// test client that speaks only v3
-pub type TestV3Client = TrackedStatsClient<V3Client<TestGrpcClient>>;
+pub type TestV3Client = TrackedStatsClient<V3Client<TestGrpcClient, NoCursorStore>>;
 /// test client that speaks only d14n
-pub type TestD14nClient = TrackedStatsClient<D14nClient<TestGrpcClient, TestGrpcClient>>;
+pub type TestD14nClient =
+    TrackedStatsClient<D14nClient<ReadWriteClient<XmtpdClient, GatewayClient>, NoCursorStore>>;
 
 /// V3 client with mock network
-pub type MockV3Client = V3Client<MockNetworkClient>;
+pub type MockV3Client = V3Client<MockNetworkClient, NoCursorStore>;
 
 /// D14n client with mocked networks
 pub type MockD14nClient = D14nClient<MockNetworkClient, MockNetworkClient>;

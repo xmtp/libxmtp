@@ -48,6 +48,7 @@ impl Endpoint for SubscribeEnvelopes {
 #[cfg(test)]
 mod test {
     use super::*;
+    use xmtp_api_grpc::test::XmtpdClient;
     use xmtp_proto::{api::QueryStreamExt as _, prelude::*};
 
     #[xmtp_common::test]
@@ -70,7 +71,7 @@ mod test {
     async fn test_subscribe_envelopes() {
         use crate::d14n::SubscribeEnvelopes;
 
-        let client = crate::TestGrpcClient::create_d14n();
+        let client = XmtpdClient::create();
         let client = client.build().unwrap();
 
         let mut endpoint = SubscribeEnvelopes::builder()

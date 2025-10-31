@@ -10,26 +10,18 @@ mod generated {
     pub const FILE_DESCRIPTOR_SET: &'static [u8] = include_bytes!("gen/proto_descriptor.bin");
 }
 
-pub use generated::*;
-
+pub mod api_client;
+pub mod codec;
+mod convert;
 mod error;
 mod impls;
-
 mod proto_cache;
-pub use proto_cache::*;
-
+mod traits;
 pub mod types;
 
 pub use error::*;
-
-pub mod api_client;
-#[cfg(any(test, feature = "test-utils"))]
-pub use api_client::tests::*;
-
-mod convert;
-
-pub mod codec;
-mod traits;
+pub use generated::*;
+pub use proto_cache::*;
 
 pub mod api {
     pub use super::traits::combinators::*;
