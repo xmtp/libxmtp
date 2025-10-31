@@ -1,20 +1,20 @@
-use xmtp_api_grpc::GrpcClient;
-use xmtp_proto::prelude::XmtpMlsStreams;
+use std::sync::Arc;
 
-use crate::{D14nClient, V3Client};
+use xmtp_api_grpc::GrpcClient;
+
+use crate::{
+    D14nClient, MultiNodeClient, V3Client,
+    protocol::{CursorStore, NoCursorStore},
+};
 
 xmtp_common::if_v3! {
-    pub type ApiClient = crate::V3Client<GrpcClient>;
+    pub type ApiClient = crate::V3Client<GrpcClient, NoCursorStore>;
 }
 
 xmtp_common::if_d14n! {
-    pub type ApiClient = crate::D14nClient<GrpcClient, GrpcClient>;
+    pub type ApiClient = crate::D14nClient<GrpcClient, GrpcClient, NoCursorStore>;
 }
 
-pub type D14nGroupStream =
-    <D14nClient<GrpcClient, GrpcClient> as XmtpMlsStreams>::GroupMessageStream;
-pub type D14nWelcomeStream =
-    <D14nClient<GrpcClient, GrpcClient> as XmtpMlsStreams>::WelcomeMessageStream;
+pub type FullD14nClient = D14nClient<MultiNodeClient, GrpcClient, Arc<dyn CursorStore>>;
 
-pub type V3GroupStream = <V3Client<GrpcClient> as XmtpMlsStreams>::GroupMessageStream;
-pub type V3WelcomeStream = <V3Client<GrpcClient> as XmtpMlsStreams>::WelcomeMessageStream;
+pub type FullV3Client = V3Client<GrpcClient, Arc<dyn CursorStore>>;

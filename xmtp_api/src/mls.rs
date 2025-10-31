@@ -352,6 +352,7 @@ pub mod tests {
     use xmtp_api_d14n::MockApiClient;
     use xmtp_api_d14n::MockError;
     use xmtp_api_d14n::V3Client;
+    use xmtp_api_d14n::protocol::NoCursorStore;
     use xmtp_common::FakeMlsApplicationMessage;
     use xmtp_common::Generate;
     use xmtp_common::rand_vec;
@@ -458,7 +459,7 @@ pub mod tests {
     #[xmtp_common::test]
     async fn test_read_group_messages_single_page() {
         let mock_api = MockNetworkClient::default();
-        let mut v3_client = V3Client::new_stateless(mock_api);
+        let mut v3_client = V3Client::new(mock_api, NoCursorStore);
         let group_id = rand_vec::<16>();
         let group_id_clone = group_id.clone();
         // Set expectation for first request with no cursor
@@ -495,7 +496,7 @@ pub mod tests {
     #[xmtp_common::test]
     async fn test_read_group_messages_single_page_xactly_100_results() {
         let mock_api = MockNetworkClient::default();
-        let mut v3_client = V3Client::new_stateless(mock_api);
+        let mut v3_client = V3Client::new(mock_api, NoCursorStore);
         let group_id = rand_vec::<16>();
         let group_id_clone = group_id.clone();
         // Set expectation for first request with no cursor
@@ -532,7 +533,7 @@ pub mod tests {
     #[xmtp_common::test]
     async fn test_read_topic_multi_page() {
         let mock_api = MockNetworkClient::new();
-        let mut v3_client = V3Client::new_stateless(mock_api);
+        let mut v3_client = V3Client::new(mock_api, NoCursorStore);
         let group_id = vec![1, 2, 3, 4];
         let group_id_clone = group_id.clone();
         let group_id_clone2 = group_id.clone();

@@ -14,6 +14,7 @@ use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb, StorageOption};
 use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
+use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
@@ -169,9 +170,6 @@ pub async fn create_client(
     .app_version(app_version.clone().unwrap_or_default())
     .is_secure(is_secure);
 
-  let api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
-  let sync_api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
-
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
     None => StorageOption::Ephemeral,
@@ -203,6 +201,11 @@ pub async fn create_client(
     1,
     None,
   );
+
+  let cursor_store = SqliteCursorStore::new(store.db());
+  backend.cursor_store(cursor_store);
+  let api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
+  let sync_api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
     .api_clients(api_client, sync_api_client)

@@ -53,10 +53,10 @@ use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::groups::device_sync_legacy::DeviceSyncContent;
 use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
 use xmtp_mls::groups::GroupError;
+use xmtp_mls::XmtpApi;
 use xmtp_mls::XmtpApiClient;
 use xmtp_mls::{builder::ClientBuilderError, client::ClientError};
 use xmtp_mls::{identity::IdentityStrategy, InboxOwner};
-use xmtp_mls::{CursorAwareApi, XmtpApi};
 use xmtp_proto::types::ApiIdentifier;
 
 #[macro_use]
@@ -498,9 +498,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
     Ok(())
 }
 
-async fn create_client<
-    C: XmtpApi + Clone + XmtpQuery + CursorAwareApi<CursorStore = Arc<dyn CursorStore>> + 'static,
->(
+async fn create_client<C: XmtpApi + Clone + XmtpQuery + 'static>(
     cli: &Cli,
     account: IdentityStrategy,
     grpc: C,
@@ -536,7 +534,7 @@ async fn register<C>(
     client: C,
 ) -> Result<(), CliError>
 where
-    C: Clone + XmtpApi + XmtpQuery + CursorAwareApi<CursorStore = Arc<dyn CursorStore>> + 'static,
+    C: Clone + XmtpApi + XmtpQuery + 'static,
 {
     let w: Wallet = if let Some(seed_phrase) = maybe_seed_phrase {
         Wallet::LocalWallet(

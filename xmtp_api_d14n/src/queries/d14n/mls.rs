@@ -3,6 +3,7 @@ use crate::d14n::GetNewestEnvelopes;
 use crate::d14n::PublishClientEnvelopes;
 use crate::d14n::QueryEnvelope;
 use crate::protocol::CollectionExtractor;
+use crate::protocol::CursorStore;
 use crate::protocol::EnvelopeError;
 use crate::protocol::GroupMessageExtractor;
 use crate::protocol::KeyPackagesExtractor;
@@ -33,12 +34,13 @@ use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, G, E> XmtpMlsClient for D14nClient<C, G>
+impl<C, G, Store, E> XmtpMlsClient for D14nClient<C, G, Store>
 where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
     G: Send + Sync + Client,
     C: Send + Sync + Client<Error = E>,
     ApiClientError<E>: From<ApiClientError<<G as xmtp_proto::api::Client>::Error>> + 'static,
+    Store: CursorStore,
 {
     type Error = ApiClientError<E>;
 
@@ -123,7 +125,7 @@ where
         group_id: GroupId,
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
         let topic = TopicKind::GroupMessagesV1.create(&group_id);
-        let lcc = self.cursor_store.load().lowest_common_cursor(&[&topic])?;
+        let lcc = self.cursor_store.lowest_common_cursor(&[&topic])?;
         let response: QueryEnvelopesResponse = QueryEnvelope::builder()
             .topic(topic)
             .last_seen(lcc)
@@ -172,7 +174,7 @@ where
         installation_key: InstallationId,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         let topic = TopicKind::WelcomeMessagesV1.create(installation_key);
-        let lcc = self.cursor_store.load().lowest_common_cursor(&[&topic])?;
+        let lcc = self.cursor_store.lowest_common_cursor(&[&topic])?;
         tracing::info!("querying welcomes @{:?}", lcc);
         let response = QueryEnvelope::builder()
             .topic(topic)

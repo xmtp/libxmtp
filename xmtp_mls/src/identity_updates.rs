@@ -785,7 +785,7 @@ pub(crate) mod tests {
 
         // Check that the second wallet is associated with our new static helper
         let is_member = is_member_of_association_state(
-            api_client,
+            &api_client,
             client.inbox_id(),
             &wallet2.member_identifier(),
             None,
