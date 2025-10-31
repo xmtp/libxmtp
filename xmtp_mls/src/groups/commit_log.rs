@@ -418,7 +418,7 @@ where
 
         // Skip API call if there are no requests to make
         if query_log_requests.is_empty() {
-            tracing::info!("No commit log requests to query");
+            tracing::info!("No remote commit logs to query");
             return Ok(HashMap::new());
         }
 
