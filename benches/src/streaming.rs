@@ -16,7 +16,7 @@ use rlimit::{Resource, setrlimit};
 use std::{
     collections::HashMap,
     f64,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -41,7 +41,6 @@ use tui_logger::{
 };
 use xmtp_mls::{
     common::time::now_ns,
-    db::group_message::ContentType,
     subscriptions::stream_messages::{StreamStat, StreamState, StreamStats},
     tester,
     utils::Tester,
@@ -53,7 +52,7 @@ struct Args {
     count: u64,
     #[arg(short, long, default_value = "10")]
     senders: u64,
-    #[arg(short, long, default_value = "2")]
+    #[arg(short, long, default_value = "4")]
     timeout: u64,
     #[arg(short, long, default_value = "false")]
     dev: bool,
@@ -304,7 +303,9 @@ impl App {
                 }
             }
         }
-        if let Some(duration) = self.data.reconnection_duration {
+        if let Some(duration) = self.data.reconnection_duration
+            && self.ctx.welcome_sender.lock().is_some()
+        {
             let duration = duration.as_nanos() as f64;
             self.data.reconnection_time.push((now_ns, duration));
         }
@@ -646,7 +647,7 @@ async fn monitor_messages(
     let (mut stream, stats) = andre
         .stream_all_messages_owned_with_stats_handle(None, None)
         .await?;
-    stats_tx.send(stats);
+    let _ = stats_tx.send(stats);
 
     let mut monitoring_start: Option<Instant> = None;
     let grace_period = Duration::from_secs(ctx.args.timeout);
@@ -697,11 +698,17 @@ async fn setup_send_messages(
     ctx: &Arc<Context>,
 ) -> Result<impl Future<Output = ()>> {
     info!("Registering {} senders...", ctx.args.senders);
-    let _ = tokio::fs::create_dir_all("snapshots").await;
+    let mut snapshot_path = PathBuf::from("snapshots");
+    if ctx.args.dev {
+        snapshot_path = snapshot_path.join("dev")
+    } else {
+        snapshot_path = snapshot_path.join("local")
+    };
+    let _ = tokio::fs::create_dir_all(&snapshot_path).await;
 
     let mut futs = vec![];
     for i in 0..ctx.args.senders {
-        futs.push(create_client(i, ctx));
+        futs.push(create_client(i, ctx, &snapshot_path));
     }
     let testers: Vec<Tester> = futures::stream::iter(futs)
         .buffer_unordered(100)
@@ -725,8 +732,8 @@ async fn setup_send_messages(
     })
 }
 
-async fn create_client(i: u64, ctx: &Context) -> Result<Tester> {
-    let snapshot_path = PathBuf::from(format!("snapshots/{i}.db3"));
+async fn create_client(i: u64, ctx: &Context, snapshot_path: &Path) -> Result<Tester> {
+    let snapshot_path = snapshot_path.join(format!("{i}.db3"));
     let snapshot = fs::read(&snapshot_path).await.ok().map(Arc::new);
 
     tester!(bo, with_dev: ctx.args.dev, ephemeral_db, with_snapshot: snapshot.clone(), disable_workers);
