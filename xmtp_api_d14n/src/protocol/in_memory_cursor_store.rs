@@ -63,26 +63,28 @@ impl CursorStore for InMemoryCursorStore {
 
     fn latest(
         &self,
-        topic: &xmtp_proto::types::Topic,
+        _topic: &xmtp_proto::types::Topic,
     ) -> Result<GlobalCursor, crate::protocol::CursorStoreError> {
-        Ok(self
-            .get_latest(topic)
-            .cloned()
-            .unwrap_or_else(GlobalCursor::default))
+        panic!("using in memory store");
+        // Ok(self
+        //     .get_latest(topic)
+        //     .cloned()
+        //     .unwrap_or_else(GlobalCursor::default))
     }
 
     fn latest_per_originator(
         &self,
-        topic: &xmtp_proto::types::Topic,
-        originators: &[&OriginatorId],
+        _topic: &xmtp_proto::types::Topic,
+        _originators: &[&OriginatorId],
     ) -> Result<GlobalCursor, crate::protocol::CursorStoreError> {
-        Ok(self
-            .get_latest(topic)
-            .unwrap_or(&Default::default())
-            .iter()
-            .filter(|(k, _)| originators.contains(k))
-            .map(|(&k, &v)| (k, v))
-            .collect())
+        panic!("using in memory store");
+        // Ok(self
+        //     .get_latest(topic)
+        //     .unwrap_or(&Default::default())
+        //     .iter()
+        //     .filter(|(k, _)| originators.contains(k))
+        //     .map(|(&k, &v)| (k, v))
+        //     .collect())
     }
 
     fn latest_maybe_missing_per(
