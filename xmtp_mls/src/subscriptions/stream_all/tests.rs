@@ -8,10 +8,11 @@ use crate::tester;
 use crate::{assert_msg, builder::ClientBuilder};
 use futures::StreamExt;
 use rstest::*;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
-
 use xmtp_cryptography::utils::generate_local_wallet;
+use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_id::associations::test_utils::WalletTestExt;
 
 #[rstest::rstest]
@@ -648,13 +649,13 @@ async fn test_stream_all_messages_respects_cursor_between_streams() {
 #[timeout(Duration::from_secs(60))]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_stream_all_concurrent_writes() {
-    use xmtp_db::group_message::MsgQueryArgs;
-
     // Create test clients
     tester!(alix, with_name: "alix");
     tester!(bo, with_name: "bo");
     tester!(caro, with_name: "caro");
     tester!(davon, with_name: "davon");
+
+    let spacing_time = Duration::from_millis(50);
 
     // Create two groups
     let alix_group = alix
@@ -678,78 +679,101 @@ async fn test_stream_all_concurrent_writes() {
     let caro_group = caro.group(&alix_group.group_id).unwrap();
     let alix_group_2 = alix.group(&caro_group_2.group_id).unwrap();
 
+    // Track all sent messages
+    let sent_messages = Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+
     // Start Caro's message stream
     let mut stream = caro.stream_all_messages(None, None).await.unwrap();
 
     // Give the stream a moment to initialize
-    xmtp_common::time::sleep(Duration::from_millis(100)).await;
+    xmtp_common::time::sleep(Duration::from_millis(250)).await;
 
     // Spawn Alix's message sending task
     let alix_group_clone = alix_group.clone();
     let alix_group_2_clone = alix_group_2.clone();
+    let sent_messages_alix = sent_messages.clone();
     xmtp_common::spawn(None, async move {
         for i in 0..20 {
             let message = format!("Alix Message {}", i);
+            sent_messages_alix.lock().await.insert(message.clone());
             alix_group_clone
                 .send_message(message.as_bytes(), SendMessageOpts::default())
                 .await
                 .unwrap();
+            let message = format!("Alix2 Message {}", i);
+            sent_messages_alix.lock().await.insert(message.clone());
+
             alix_group_2_clone
                 .send_message(message.as_bytes(), SendMessageOpts::default())
                 .await
                 .unwrap();
+            xmtp_common::time::sleep(spacing_time).await;
         }
     });
 
     // Spawn Bo's message sending task
     let bo_group_clone = bo_group.clone();
     let bo_group_2_clone = bo_group_2.clone();
+    let sent_messages_bo = sent_messages.clone();
     xmtp_common::spawn(None, async move {
         for i in 0..10 {
             let message = format!("Bo Message {}", i);
+            sent_messages_bo.lock().await.insert(message.clone());
             bo_group_clone
                 .send_message(message.as_bytes(), SendMessageOpts::default())
                 .await
                 .unwrap();
+
+            let message = format!("Bo2 Message {}", i);
+            sent_messages_bo.lock().await.insert(message.clone());
             bo_group_2_clone
                 .send_message(message.as_bytes(), SendMessageOpts::default())
                 .await
                 .unwrap();
-            xmtp_common::time::sleep(Duration::from_millis(50)).await;
+            xmtp_common::time::sleep(spacing_time).await;
         }
     });
 
     // Spawn Davon's spam group creation task
     let caro_inbox_id = caro.inbox_id().to_string();
+    let sent_messages_davon = sent_messages.clone();
     xmtp_common::spawn(None, async move {
-        for i in 0..10 {
+        for i in 0..20 {
             let spam_message = format!("Davon Spam Message {}", i);
-            let group = davon.create_group(None, None).unwrap();
-            group
-                .add_members_by_inbox_id(&[&caro_inbox_id])
+            let group = davon
+                .create_group_with_inbox_ids(&[&caro_inbox_id], None, None)
                 .await
                 .unwrap();
+
             group
                 .send_message(spam_message.as_bytes(), SendMessageOpts::default())
                 .await
                 .unwrap();
+
+            sent_messages_davon.lock().await.insert(spam_message);
+            xmtp_common::time::sleep(spacing_time).await;
         }
     });
 
     // Spawn Caro's message sending task
     let caro_group_clone = caro_group.clone();
     let caro_group_2_clone = caro_group_2.clone();
+    let sent_messages_caro = sent_messages.clone();
     xmtp_common::spawn(None, async move {
         for i in 0..10 {
             let message = format!("Caro Message {}", i);
+            sent_messages_caro.lock().await.insert(message.clone());
             caro_group_clone
                 .send_message(message.as_bytes(), SendMessageOpts::default())
                 .await
                 .unwrap();
+            let message = format!("Caro2 Message {}", i);
+            sent_messages_caro.lock().await.insert(message.clone());
             caro_group_2_clone
                 .send_message(message.as_bytes(), SendMessageOpts::default())
                 .await
                 .unwrap();
+            xmtp_common::time::sleep(spacing_time).await;
         }
     });
 
@@ -758,19 +782,21 @@ async fn test_stream_all_concurrent_writes() {
     let timeout = if cfg!(target_arch = "wasm32") {
         Duration::from_secs(30)
     } else {
-        Duration::from_secs(25)
+        Duration::from_secs(10)
     };
     loop {
         tokio::select! {
             Some(msg) = stream.next() => {
                 match msg {
                     Ok(m) => {
-                        tracing::info!(
-                            "Received message {}: {}",
-                            messages.len(),
-                            String::from_utf8_lossy(&m.decrypted_message_bytes)
-                        );
-                        messages.push(m);
+                        if m.kind == GroupMessageKind::Application {
+                            tracing::info!(
+                                "Received message {} (#{})",
+                                String::from_utf8_lossy(&m.decrypted_message_bytes),
+                                messages.len()
+                            );
+                            messages.push(m);
+                        }
                     }
                     Err(e) => {
                         tracing::error!("error in stream test {e}");
@@ -781,47 +807,78 @@ async fn test_stream_all_concurrent_writes() {
         }
     }
 
-    // Verify total message count
-    // Alix sends 20 messages to 2 groups = 40 messages
-    // Bo sends 10 messages to 2 groups = 20 messages
-    // Caro sends 10 messages to 2 groups = 20 messages
-    // Davon creates 10 groups and sends 1 message each = 10 messages
-    // Total = 90 messages
+    let groups = [
+        ("bo", &bo_group),
+        ("alix", &alix_group),
+        ("caro", &caro_group),
+    ];
+    let each_group_message_count = 41;
+
+    for (name, group) in groups {
+        group.sync().await.unwrap();
+        assert_eq!(
+            group.find_messages(&MsgQueryArgs::default()).unwrap().len(),
+            each_group_message_count,
+            "{}'s group should have {} messages (40 messages + 1 membership change)",
+            name,
+            each_group_message_count
+        );
+    }
+
+    // Compare sent vs received messages
+    let sent_messages = sent_messages.lock().await;
+    let received_messages: HashSet<String> = messages
+        .iter()
+        .map(|m| String::from_utf8_lossy(&m.decrypted_message_bytes).to_string())
+        .collect();
+
     assert_eq!(
-        messages.len(),
-        90,
-        "Expected 90 messages (40 from Alix + 20 from Bo + 10 from Davon + 20 from Caro)"
+        sent_messages.len(),
+        100,
+        "100 messages should have been sent"
     );
 
-    // Sync all groups and verify message counts
-    bo_group.sync().await.unwrap();
-    alix_group.sync().await.unwrap();
-    caro_group.sync().await.unwrap();
+    // Find missing messages (sent but not received)
+    let missing_messages: Vec<_> = sent_messages.difference(&received_messages).collect();
 
-    assert_eq!(
-        caro_group
-            .find_messages(&MsgQueryArgs::default())
-            .unwrap()
-            .len(),
-        41,
-        "Caro's group should have 41 messages (40 messages + 1 membership change)"
+    // Find unexpected messages (received but not sent)
+    let unexpected_messages: Vec<_> = received_messages.difference(&*sent_messages).collect();
+
+    if !missing_messages.is_empty() {
+        tracing::error!(
+            "Missing {} messages that were sent but not received:",
+            missing_messages.len()
+        );
+        for msg in &missing_messages {
+            tracing::error!("  - {}", msg);
+        }
+    }
+
+    if !unexpected_messages.is_empty() {
+        tracing::error!(
+            "Found {} unexpected messages that were received but not sent:",
+            unexpected_messages.len()
+        );
+        for msg in &unexpected_messages {
+            tracing::error!("  - {}", msg);
+        }
+    }
+
+    // Verify all sent messages were received
+    assert!(
+        missing_messages.is_empty(),
+        "Missing {} messages: {:?}",
+        missing_messages.len(),
+        missing_messages
     );
 
-    assert_eq!(
-        bo_group
-            .find_messages(&MsgQueryArgs::default())
-            .unwrap()
-            .len(),
-        41,
-        "Bo's group should have 41 messages (40 messages + 1 membership change)"
-    );
+    let num_received = received_messages.len();
+    let num_sent = sent_messages.len();
 
-    assert_eq!(
-        alix_group
-            .find_messages(&MsgQueryArgs::default())
-            .unwrap()
-            .len(),
-        41,
-        "Alix's group should have 41 messages (40 messages + 1 membership change)"
+    assert!(
+        num_received == num_sent,
+        "Received {} messages. Expected {} (40 from Alix + 20 from Bo + 10 from Davon + 20 from Caro)",
+        num_received,
+        num_sent
     );
 }

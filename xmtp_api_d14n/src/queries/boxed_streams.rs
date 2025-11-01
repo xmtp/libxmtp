@@ -167,6 +167,17 @@ where
         Ok(Box::pin(s) as Pin<Box<_>>)
     }
 
+    async fn subscribe_group_messages_with_cursors(
+        &self,
+        groups_with_cursors: &[(&GroupId, xmtp_proto::types::GlobalCursor)],
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
+        let s = self
+            .inner
+            .subscribe_group_messages_with_cursors(groups_with_cursors)
+            .await?;
+        Ok(Box::pin(s) as Pin<Box<_>>)
+    }
+
     async fn subscribe_welcome_messages(
         &self,
         installations: &[&InstallationId],
