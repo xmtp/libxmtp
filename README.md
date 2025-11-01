@@ -1,7 +1,7 @@
 # LibXMTP
 
-![https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg](https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg)
-![https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg)
+[![Lint](https://github.com/xmtp/libxmtp/actions/workflows/lint-workspace.yaml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/lint-workspace.yaml)
+[![Test](https://github.com/xmtp/libxmtp/actions/workflows/test-workspace.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/test-workspace.yml)
 ![Status](https://img.shields.io/badge/Project_status-Alpha-orange)
 
 LibXMTP is a shared library encapsulating the core functionality of the XMTP
