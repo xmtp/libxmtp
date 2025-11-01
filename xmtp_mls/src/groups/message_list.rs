@@ -88,6 +88,7 @@ mod tests {
             sequence_id: 0,
             originator_id: Originators::APPLICATION_MESSAGES.into(),
             expire_at_ns: None,
+            inserted_at_ns: 0,
         }
     }
 
@@ -130,6 +131,7 @@ mod tests {
             sequence_id: 0,
             originator_id: Originators::APPLICATION_MESSAGES.into(),
             expire_at_ns: None,
+            inserted_at_ns: 0,
         }
     }
 
