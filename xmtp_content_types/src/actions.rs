@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::{CodecError, ContentCodec};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
@@ -30,6 +32,19 @@ impl ContentCodec<Actions> for ActionsCodec {
         if actions.actions.len() > 10 {
             return Err(CodecError::Encode(
                 "Actions cannot exceed 10 actions for UX reasons.".to_string(),
+            ));
+        }
+
+        if actions
+            .actions
+            .iter()
+            .map(|a| &a.id)
+            .collect::<HashSet<_>>()
+            .len()
+            != actions.actions.len()
+        {
+            return Err(CodecError::Encode(
+                "Action keys must be unique.".to_string(),
             ));
         }
 
@@ -77,12 +92,12 @@ pub enum ActionStyle {
 #[cfg(test)]
 mod tests {
     use super::{Action, ActionStyle, Actions, ActionsCodec};
-    use crate::ContentCodec;
+    use crate::{CodecError, ContentCodec};
     use chrono::NaiveDateTime;
 
     #[xmtp_common::test(unwrap_try = true)]
     fn encode_decode_actions() {
-        let actions = Actions {
+        let mut actions = Actions {
             id: "thanksgiving_selection".to_string(),
             description: "Grandma is asking for your input on Thanksgiving".to_string(),
             actions: vec![
@@ -108,5 +123,19 @@ mod tests {
         let decoded = ActionsCodec::decode(encoded)?;
 
         assert_eq!(decoded, actions);
+
+        actions.actions.push(Action {
+            id: "pork_loin".to_string(),
+            label: "More Pork Loin".to_string(),
+            image_url: None,
+            style: None,
+            expires_at: None,
+        });
+
+        let encoded_result = ActionsCodec::encode(actions);
+        let Err(CodecError::Encode(reason)) = encoded_result else {
+            panic!("Expected an uniqueness encoding error.");
+        };
+        assert!(reason.contains("unique"));
     }
 }
