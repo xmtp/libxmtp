@@ -40,9 +40,12 @@ impl ContentCodec<Intent> for IntentCodec {
         let intent_json = serde_json::to_vec(&intent)
             .map_err(|e| CodecError::Encode(format!("Unable to serialize intent. {e:?}")))?;
 
+        let fallback = format!("User selected action: {}", intent.action_id);
+
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
             content: intent_json,
+            fallback: Some(fallback),
             ..Default::default()
         })
     }
@@ -87,6 +90,10 @@ mod tests {
         };
 
         let encoded = IntentCodec::encode(intent.clone())?;
+        assert_eq!(
+            encoded.fallback(),
+            "User selected action: the_turkey_of_course"
+        );
         let decoded = IntentCodec::decode(encoded)?;
 
         assert_eq!(decoded, intent);

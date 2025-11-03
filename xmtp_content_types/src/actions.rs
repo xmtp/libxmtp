@@ -48,10 +48,19 @@ impl ContentCodec<Actions> for ActionsCodec {
             ));
         }
 
+        let fallback = actions
+            .actions
+            .iter()
+            .enumerate()
+            .map(|(i, a)| format!("{} {}", i + 1, a.label))
+            .collect::<Vec<_>>()
+            .join("\n");
+
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
             content: serde_json::to_vec(&actions)
                 .map_err(|e| CodecError::Encode(format!("Unable to serialize actions. {e:?}")))?,
+            fallback: Some(fallback),
             ..Default::default()
         })
     }
@@ -120,6 +129,7 @@ mod tests {
         };
 
         let encoded = ActionsCodec::encode(actions.clone())?;
+        assert_eq!(encoded.fallback(), "1 The Turkey (of course)\n2 Pork Loin");
         let decoded = ActionsCodec::decode(encoded)?;
 
         assert_eq!(decoded, actions);
