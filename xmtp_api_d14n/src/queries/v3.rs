@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api_client::CursorAwareApi;
 use xmtp_proto::prelude::ApiBuilder;
@@ -116,7 +117,7 @@ where
     }
 }
 
-impl<C> CursorAwareApi for V3Client<C> {
+impl<C: MaybeSend + MaybeSync> CursorAwareApi for V3Client<C> {
     type CursorStore = Arc<dyn CursorStore>;
     fn set_cursor_store(&self, store: Self::CursorStore) {
         let mut cstore = self.cursor_store.write();
@@ -137,7 +138,7 @@ impl<B1: ApiBuilder> CursorAwareApi for V3ClientBuilder<B1> {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C> IsConnectedCheck for V3Client<C>
 where
-    C: IsConnectedCheck + Send + Sync,
+    C: IsConnectedCheck,
 {
     async fn is_connected(&self) -> bool {
         self.client.is_connected().await

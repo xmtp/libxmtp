@@ -25,7 +25,6 @@ use xmtp_api_d14n::{
     protocol::{CursorStore, XmtpQuery},
 };
 use xmtp_common::Retry;
-use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{
@@ -194,14 +193,10 @@ where
 impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     pub async fn build(self) -> Result<Client<ContextParts<ApiClient, S, Db>>, ClientBuilderError>
     where
-        ApiClient: XmtpApi
-            + CursorAwareApi<CursorStore = Arc<dyn CursorStore>>
-            + XmtpQuery
-            + 'static
-            + Send
-            + Sync,
-        Db: xmtp_db::XmtpDb + 'static + Send + Sync,
-        S: XmtpMlsStorageProvider + 'static + Send + Sync,
+        ApiClient:
+            XmtpApi + CursorAwareApi<CursorStore = Arc<dyn CursorStore>> + XmtpQuery + 'static,
+        Db: xmtp_db::XmtpDb + 'static,
+        S: XmtpMlsStorageProvider + 'static,
     {
         let ClientBuilder {
             mut api_client,
@@ -707,7 +702,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     /// requires the 'api' to be set.
     pub fn with_remote_verifier(self) -> Result<ClientBuilder<ApiClient, S, Db>, ClientBuilderError>
     where
-        ApiClient: Clone + XmtpApi + MaybeSend + MaybeSync + 'static,
+        ApiClient: Clone + XmtpApi + 'static,
     {
         let api = self
             .api_client
@@ -716,14 +711,11 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 parameter: "api_client",
             })?;
 
-        #[allow(clippy::arc_with_non_send_sync)]
         Ok(ClientBuilder {
             api_client: self.api_client,
             identity: self.identity,
             identity_strategy: self.identity_strategy,
-            scw_verifier: Some(Arc::new(
-                Box::new(api) as Box<dyn SmartContractSignatureVerifier>
-            )),
+            scw_verifier: Some(Arc::new(Box::new(api))),
             store: self.store,
 
             device_sync_server_url: self.device_sync_server_url,

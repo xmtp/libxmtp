@@ -252,7 +252,6 @@ pub async fn create_client(
 
   Ok(Client {
     account_identifier,
-    #[allow(clippy::arc_with_non_send_sync)]
     inner_client: Arc::new(xmtp_client),
     app_version,
   })

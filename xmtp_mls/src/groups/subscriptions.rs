@@ -19,7 +19,7 @@ use xmtp_proto::{types::GroupId, xmtp::mls::api::v1::GroupMessage};
 
 impl<Context> MlsGroup<Context>
 where
-    Context: Send + Sync + XmtpSharedContext,
+    Context: XmtpSharedContext,
 {
     /// External proxy for `process_stream_entry`
     /// Converts some `SubscribeError` variants to an Option, if they are inconsequential.
@@ -56,7 +56,7 @@ where
     where
         Context: 'static,
         Context::ApiClient: XmtpMlsStreams + 'static,
-        Context::Db: Send + Sync + 'static,
+        Context::Db: 'static,
     {
         StreamGroupMessages::new_owned(self.context.clone(), vec![self.group_id.clone().into()])
             .await
@@ -69,9 +69,8 @@ where
         on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>>
     where
-        Context: Send + Sync + 'static,
+        Context: 'static,
         Context::ApiClient: XmtpMlsStreams + 'static,
-        Context::MlsStorage: Send + Sync,
     {
         stream_messages_with_callback(
             context.clone(),
@@ -92,9 +91,8 @@ pub(crate) fn stream_messages_with_callback<Context>(
     on_close: impl FnOnce() + MaybeSend + 'static,
 ) -> impl StreamHandle<StreamOutput = Result<()>>
 where
-    Context: Sync + Send + XmtpSharedContext + 'static,
+    Context: XmtpSharedContext + 'static,
     Context::ApiClient: XmtpMlsStreams + 'static,
-    Context::MlsStorage: Send + Sync,
 {
     let (tx, rx) = oneshot::channel();
 

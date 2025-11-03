@@ -8,7 +8,7 @@ mod xmtp_query;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use xmtp_common::RetryableError;
+use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
 use xmtp_id::scw_verifier::MultiSmartContractSignatureVerifier;
 use xmtp_id::scw_verifier::VerifierError;
 use xmtp_proto::{
@@ -174,22 +174,24 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C, G> IsConnectedCheck for D14nClient<C, G>
 where
-    G: IsConnectedCheck + Send + Sync,
-    C: IsConnectedCheck + Send + Sync,
+    G: IsConnectedCheck,
+    C: IsConnectedCheck,
 {
     async fn is_connected(&self) -> bool {
         self.message_client.is_connected().await && self.gateway_client.is_connected().await
     }
 }
 
-impl<C1, C2> CursorAwareApi for D14nClient<C1, C2> {
+impl<C1: MaybeSend + MaybeSync, C2: MaybeSend + MaybeSync> CursorAwareApi for D14nClient<C1, C2> {
     type CursorStore = Arc<dyn CursorStore>;
     fn set_cursor_store(&self, store: Self::CursorStore) {
         self.cursor_store.store(store.into());
     }
 }
 
-impl<B1, B2> CursorAwareApi for D14nClientBuilder<B1, B2> {
+impl<B1: MaybeSend + MaybeSync, B2: MaybeSend + MaybeSync> CursorAwareApi
+    for D14nClientBuilder<B1, B2>
+{
     type CursorStore = Arc<dyn CursorStore>;
 
     fn set_cursor_store(&self, store: Self::CursorStore) {

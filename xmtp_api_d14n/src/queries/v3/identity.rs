@@ -9,8 +9,8 @@ use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C, E> XmtpIdentityClient for V3Client<C>
 where
-    C: Send + Sync + Client<Error = E>,
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    C: Client<Error = E>,
+    E: RetryableError + 'static,
 {
     type Error = ApiClientError<E>;
 

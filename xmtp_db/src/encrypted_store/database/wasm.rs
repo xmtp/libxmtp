@@ -20,8 +20,6 @@ pub enum PlatformStorageError {
     #[error(transparent)]
     DieselResult(#[from] diesel::result::Error),
 }
-unsafe impl Send for PlatformStorageError {}
-unsafe impl Sync for PlatformStorageError {}
 
 impl xmtp_common::RetryableError for PlatformStorageError {
     fn is_retryable(&self) -> bool {
@@ -196,9 +194,6 @@ impl ConnectionExt for WasmDbConnection {
         Ok(())
     }
 }
-
-unsafe impl Send for WasmDbConnection {}
-unsafe impl Sync for WasmDbConnection {}
 
 impl XmtpDb for WasmDb {
     type Connection = Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>;

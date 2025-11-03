@@ -24,7 +24,7 @@ impl<ApiClient> RemoteSignatureVerifier<ApiClient> {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<C> SmartContractSignatureVerifier for RemoteSignatureVerifier<C>
 where
-    C: XmtpIdentityClient + Send + Sync,
+    C: XmtpIdentityClient,
 {
     async fn is_valid_signature(
         &self,

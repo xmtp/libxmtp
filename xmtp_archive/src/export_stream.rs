@@ -1,4 +1,5 @@
 use std::{marker::PhantomData, sync::Arc};
+use xmtp_common::{MaybeSend, if_native, if_wasm};
 use xmtp_db::{StorageError, prelude::*};
 use xmtp_proto::xmtp::device_sync::{
     BackupElement, BackupElementSelection, BackupOptions, consent_backup::ConsentSave,
@@ -10,8 +11,12 @@ pub(crate) mod event_save;
 pub(crate) mod group_save;
 pub(crate) mod message_save;
 
-type BackupInputStream = Box<dyn Iterator<Item = Result<Vec<BackupElement>, StorageError>> + Send>;
-
+if_native! {
+    type BackupInputStream = Box<dyn Iterator<Item = Result<Vec<BackupElement>, StorageError>> + Send>;
+}
+if_wasm! {
+    type BackupInputStream = Box<dyn Iterator<Item = Result<Vec<BackupElement>, StorageError>>>;
+}
 /// A stream that curates a collection of streams for backup.
 pub(super) struct BatchExportStream {
     pub(super) buffer: Vec<BackupElement>,
@@ -21,7 +26,7 @@ pub(super) struct BatchExportStream {
 impl BatchExportStream {
     pub(super) fn new<D>(opts: &BackupOptions, db: Arc<D>) -> Self
     where
-        D: DbQuery + Send + Sync + 'static,
+        D: DbQuery + 'static,
     {
         let input_streams = opts
             .elements()
@@ -90,7 +95,7 @@ impl Iterator for BatchExportStream {
     }
 }
 
-pub(crate) trait BackupRecordProvider: Send {
+pub(crate) trait BackupRecordProvider: MaybeSend {
     const BATCH_SIZE: i64;
     fn backup_records<D>(
         db: Arc<D>,
@@ -114,7 +119,7 @@ pub(crate) struct BackupRecordStreamer<R, D> {
 impl<R, D> BackupRecordStreamer<R, D>
 where
     R: BackupRecordProvider + 'static,
-    D: DbQuery + Send + Sync + 'static,
+    D: DbQuery + 'static,
 {
     pub(super) fn new_stream(db: Arc<D>, opts: &BackupOptions) -> BackupInputStream {
         Box::new(Self {
@@ -129,7 +134,7 @@ where
 
 impl<R, D> Iterator for BackupRecordStreamer<R, D>
 where
-    R: BackupRecordProvider + Send,
+    R: BackupRecordProvider,
     D: DbQuery + 'static,
 {
     type Item = Result<Vec<BackupElement>, StorageError>;

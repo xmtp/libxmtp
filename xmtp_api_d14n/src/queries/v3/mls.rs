@@ -14,9 +14,9 @@ use xmtp_proto::types::{GroupId, GroupMessageMetadata, InstallationId, TopicKind
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C, E> XmtpMlsClient for V3Client<C>
 where
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
-    C: Send + Sync + Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<C as Client>::Error>> + Send + Sync + 'static,
+    E: RetryableError + 'static,
+    C: Client<Error = E>,
+    ApiClientError<E>: From<ApiClientError<<C as Client>::Error>> + 'static,
 {
     type Error = ApiClientError<E>;
 

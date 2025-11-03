@@ -1,5 +1,5 @@
+use crate::protocol::XmtpQuery;
 use std::pin::Pin;
-
 use xmtp_proto::api::HasStats;
 use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api_client::ApiStats;
@@ -13,8 +13,6 @@ use xmtp_proto::prelude::XmtpMlsStreams;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::types::{GroupId, GroupMessage};
-
-use crate::protocol::XmtpQuery;
 
 /// Wraps an ApiClient to allow turning
 /// a concretely-typed client into type-erased a [`BoxableXmtpApi`]
@@ -34,7 +32,7 @@ impl<C> BoxedStreamsClient<C> {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C> XmtpMlsClient for BoxedStreamsClient<C>
 where
-    C: Send + Sync + XmtpMlsClient,
+    C: XmtpMlsClient,
 {
     type Error = <C as XmtpMlsClient>::Error;
 
@@ -112,7 +110,7 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C> XmtpIdentityClient for BoxedStreamsClient<C>
 where
-    C: Send + Sync + XmtpIdentityClient,
+    C: XmtpIdentityClient,
 {
     type Error = <C as XmtpIdentityClient>::Error;
 
@@ -151,7 +149,7 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C> XmtpMlsStreams for BoxedStreamsClient<C>
 where
-    C: Send + Sync + XmtpMlsStreams,
+    C: XmtpMlsStreams,
     C::GroupMessageStream: 'static,
     C::WelcomeMessageStream: 'static,
 {
@@ -208,7 +206,7 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C> IsConnectedCheck for BoxedStreamsClient<C>
 where
-    C: IsConnectedCheck + Send + Sync,
+    C: IsConnectedCheck,
 {
     async fn is_connected(&self) -> bool {
         self.inner.is_connected().await

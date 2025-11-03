@@ -7,9 +7,9 @@ use crate::{BoxedStreamsClient, D14nClient, FullXmtpApiArc, FullXmtpApiBox, ToDy
 
 impl<M, G, E> ToDynApi for D14nClient<M, G>
 where
-    E: Error + RetryableError + Send + Sync + 'static,
-    G: Send + Sync + Client<Error = E> + IsConnectedCheck + 'static,
-    M: Send + Sync + Client<Error = E> + IsConnectedCheck + 'static,
+    E: Error + RetryableError + 'static,
+    G: Client<Error = E> + IsConnectedCheck + 'static,
+    M: Client<Error = E> + IsConnectedCheck + 'static,
     <M as Client>::Stream: 'static,
     <G as Client>::Stream: 'static,
 {

@@ -22,7 +22,7 @@ use crate::xmtp::mls::api::v1::{
 use futures::Stream;
 use std::pin::Pin;
 use std::sync::Arc;
-use xmtp_common::MaybeSend;
+use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_common::{Retry, RetryableError};
 
 mod impls;
@@ -65,8 +65,8 @@ where
             WelcomeMessageStream = BoxedWelcomeS<Err>,
             GroupMessageStream = BoxedGroupS<Err>,
         > + IsConnectedCheck
-        + Send
-        + Sync,
+        + MaybeSend
+        + MaybeSync,
 {
 }
 
@@ -78,24 +78,24 @@ impl<T, Err> BoxableXmtpApi<Err> for T where
             WelcomeMessageStream = BoxedWelcomeS<Err>,
             GroupMessageStream = BoxedGroupS<Err>,
         > + IsConnectedCheck
-        + Send
-        + Sync
+        + MaybeSend
+        + MaybeSync
         + ?Sized
 {
 }
 
 pub trait XmtpApi
 where
-    Self: XmtpMlsClient + XmtpIdentityClient + Send + Sync,
+    Self: XmtpMlsClient + XmtpIdentityClient,
 {
 }
 
-impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + Send + Sync + ?Sized {}
+impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ?Sized {}
 
 /// Trait which for protobuf-generated type
 /// which can be paged.
-pub trait Paged {
-    type Message;
+pub trait Paged: MaybeSend + MaybeSync {
+    type Message: MaybeSend + MaybeSync;
     fn info(&self) -> &Option<PagingInfo>;
     fn messages(self) -> Vec<Self::Message>;
 }
@@ -105,8 +105,8 @@ pub trait Paged {
 #[allow(async_fn_in_trait)]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait XmtpMlsClient {
-    type Error: RetryableError + Send + Sync + 'static;
+pub trait XmtpMlsClient: MaybeSend + MaybeSync {
+    type Error: RetryableError + MaybeSend + MaybeSync + 'static;
     async fn upload_key_package(&self, request: UploadKeyPackageRequest)
     -> Result<(), Self::Error>;
     async fn fetch_key_packages(
@@ -151,12 +151,12 @@ pub trait XmtpMlsClient {
 /// to be compatible with XMTP streaming
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait XmtpMlsStreams {
+pub trait XmtpMlsStreams: MaybeSend + MaybeSync {
     type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>> + MaybeSend;
 
     type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>> + MaybeSend;
 
-    type Error: RetryableError + Send + Sync + 'static;
+    type Error: RetryableError + 'static;
 
     async fn subscribe_group_messages(
         &self,
@@ -176,8 +176,8 @@ pub trait XmtpMlsStreams {
 /// Identity Service described by [XIP-46 Multi-Wallet Identity](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-46-multi-wallet-identity.md)
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait XmtpIdentityClient {
-    type Error: RetryableError + Send + Sync + 'static;
+pub trait XmtpIdentityClient: MaybeSend + MaybeSync {
+    type Error: RetryableError + MaybeSend + MaybeSync + 'static;
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
@@ -200,9 +200,9 @@ pub trait XmtpIdentityClient {
 }
 
 /// Build an API from its parts for the XMTP Backend
-pub trait ApiBuilder {
-    type Output;
-    type Error;
+pub trait ApiBuilder: MaybeSend + MaybeSync {
+    type Output: MaybeSend + MaybeSync;
+    type Error: MaybeSend + MaybeSync;
 
     /// set the libxmtp version (required)
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error>;
@@ -240,7 +240,7 @@ pub trait ApiBuilder {
 /// for instance, v3 clients may make assumptions about the centralization of a backend.
 /// d14n clients may be more careful or strategic when choosing cursors.
 /// etc.
-pub trait CursorAwareApi {
+pub trait CursorAwareApi: MaybeSend + MaybeSync {
     type CursorStore;
 
     /// set the cursor store for this api

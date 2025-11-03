@@ -53,7 +53,7 @@ pub enum EnvelopeError {
     // for extractors defined outside of this crate or
     // generic implementations like Tuples
     #[error("{0}")]
-    DynError(Box<dyn RetryableError + Send + Sync>),
+    DynError(Box<dyn RetryableError>),
 }
 
 impl RetryableError for EnvelopeError {
