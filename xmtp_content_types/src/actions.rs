@@ -43,9 +43,7 @@ impl ContentCodec<Actions> for ActionsCodec {
             .len()
             != actions.actions.len()
         {
-            return Err(CodecError::Encode(
-                "Action keys must be unique.".to_string(),
-            ));
+            return Err(CodecError::Encode("Action ids must be unique.".to_string()));
         }
 
         let fallback = actions
