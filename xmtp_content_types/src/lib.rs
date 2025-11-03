@@ -1,5 +1,7 @@
+pub mod actions;
 pub mod attachment;
 pub mod group_updated;
+pub mod intent;
 pub mod leave_request;
 pub mod membership_change;
 pub mod multi_remote_attachment;
@@ -40,7 +42,9 @@ pub enum ContentType {
     Reaction,
     ReadReceipt,
     Reply,
+    Actions,
     Attachment,
+    Intent,
     RemoteAttachment,
     MultiRemoteAttachment,
     TransactionReference,
@@ -72,6 +76,8 @@ impl TryFrom<&str> for ContentType {
             }
             wallet_send_calls::WalletSendCallsCodec::TYPE_ID => Ok(Self::WalletSendCalls),
             leave_request::LeaveRequestCodec::TYPE_ID => Ok(Self::LeaveRequest),
+            actions::ActionsCodec::TYPE_ID => Ok(Self::Actions),
+            intent::IntentCodec::TYPE_ID => Ok(Self::Intent),
             _ => Err(format!("Unknown content type ID: {type_id}")),
         }
     }

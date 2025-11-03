@@ -30,6 +30,8 @@ use xmtp_proto::types::Cursor;
 
 mod convert;
 #[cfg(test)]
+pub mod messages_newer_than_tests;
+#[cfg(test)]
 pub mod tests;
 
 #[derive(
@@ -437,6 +439,11 @@ pub trait QueryGroupMessage {
         &self,
         message_id: MessageId,
     ) -> Result<usize, crate::ConnectionError>;
+
+    fn messages_newer_than(
+        &self,
+        cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
+    ) -> Result<Vec<Cursor>, crate::ConnectionError>;
 }
 
 impl<T> QueryGroupMessage for &T
@@ -578,6 +585,13 @@ where
         message_id: MessageId,
     ) -> Result<usize, crate::ConnectionError> {
         (**self).delete_message_by_id(message_id)
+    }
+
+    fn messages_newer_than(
+        &self,
+        cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
+    ) -> Result<Vec<Cursor>, crate::ConnectionError> {
+        (**self).messages_newer_than(cursors_by_group)
     }
 }
 
@@ -1088,6 +1102,92 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             diesel::delete(dsl::group_messages.filter(dsl::id.eq(message_id.as_ref())))
                 .execute(conn)
         })
+    }
+
+    fn messages_newer_than(
+        &self,
+        cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
+    ) -> Result<Vec<Cursor>, crate::ConnectionError> {
+        use diesel::BoolExpressionMethods;
+        use diesel::ExpressionMethods;
+        use diesel::prelude::*;
+
+        let mut all_cursors = Vec::new();
+
+        // Convert the HashMap into a Vec for batching
+        let groups: Vec<_> = cursors_by_group.iter().collect();
+
+        // Process groups in batches of 100
+        for batch in groups.chunks(100) {
+            // Build the WHERE clause using Diesel's query builder
+            // Start with a false condition that we'll OR with real conditions
+            let mut batch_filter = Box::new(dsl::group_id.eq(&[] as &[u8]))
+                as Box<
+                    dyn BoxableExpression<
+                            group_messages::table,
+                            Sqlite,
+                            SqlType = diesel::sql_types::Bool,
+                        >,
+                >;
+
+            for (group_id, global_cursor) in batch {
+                if global_cursor.is_empty() {
+                    // No cursor for this group - include all messages
+                    batch_filter = Box::new(batch_filter.or(dsl::group_id.eq(group_id.as_slice())));
+                } else {
+                    // Build condition for this group: group_id matches AND (originator conditions)
+                    let known_originators: Vec<i64> =
+                        global_cursor.keys().map(|k| *k as i64).collect();
+
+                    // Start with false condition for originator checks
+                    let mut originator_filter = Box::new(dsl::originator_id.eq(-1i64))
+                        as Box<
+                            dyn BoxableExpression<
+                                    group_messages::table,
+                                    Sqlite,
+                                    SqlType = diesel::sql_types::Bool,
+                                >,
+                        >;
+
+                    // For each known originator, add: originator_id = X AND sequence_id > Y
+                    for (orig_id, seq_id) in global_cursor.iter() {
+                        originator_filter = Box::new(
+                            originator_filter.or(dsl::originator_id
+                                .eq(*orig_id as i64)
+                                .and(dsl::sequence_id.gt(*seq_id as i64))),
+                        );
+                    }
+
+                    // Also include messages from unknown originators
+                    originator_filter = Box::new(
+                        originator_filter.or(dsl::originator_id.ne_all(known_originators)),
+                    );
+
+                    // Combine: this group AND (originator conditions)
+                    batch_filter = Box::new(
+                        batch_filter
+                            .or(dsl::group_id.eq(group_id.as_slice()).and(originator_filter)),
+                    );
+                }
+            }
+
+            // Execute the query
+            let messages: Vec<(i64, i64)> = self.raw_query_read(|conn| {
+                dsl::group_messages
+                    .select((dsl::originator_id, dsl::sequence_id))
+                    .filter(batch_filter)
+                    .load(conn)
+            })?;
+
+            for (originator_id, sequence_id) in messages {
+                all_cursors.push(Cursor {
+                    sequence_id: sequence_id as u64,
+                    originator_id: originator_id as u32,
+                });
+            }
+        }
+
+        Ok(all_cursors)
     }
 }
 

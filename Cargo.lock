@@ -8484,6 +8484,7 @@ name = "xmtp_content_types"
 version = "1.7.0-dev"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "const-hex",
  "prost",
  "serde",
