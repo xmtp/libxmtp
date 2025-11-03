@@ -1,12 +1,10 @@
+mod stream_stats;
 #[cfg(any(test, feature = "test-utils"))]
 mod test_utils;
 mod types;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub use test_utils::*;
-
-#[cfg(not(any(test, feature = "test-utils")))]
-use std::collections::VecDeque;
 
 use types::GroupList;
 pub(super) use types::MessagePosition;
@@ -23,6 +21,7 @@ use futures::Stream;
 use pin_project_lite::pin_project;
 use std::{
     borrow::Cow,
+    collections::VecDeque,
     future::Future,
     pin::Pin,
     task::{Poll, ready},
@@ -42,7 +41,6 @@ impl xmtp_common::RetryableError for MessageStreamError {
     }
 }
 
-#[cfg(not(any(test, feature = "test-utils")))]
 pin_project! {
     pub struct StreamGroupMessages<'a, Context: Clone, Subscription, Factory = ProcessMessageFuture<Context>> {
         #[pin] inner: Subscription,
@@ -175,8 +173,6 @@ where
             returned: Default::default(),
             add_queue: Default::default(),
             factory,
-            #[cfg(any(test, feature = "test-utils"))]
-            stats: StatsInner::new(),
         })
     }
 
@@ -291,9 +287,6 @@ where
         let state = this.state.as_mut().project();
         match state {
             Waiting => {
-                #[cfg(any(test, feature = "test-utils"))]
-                this.stats.set_state(StreamState::Waiting);
-
                 tracing::trace!("stream messages in waiting state");
                 if let Some(group) = this.add_queue.pop_front() {
                     self.as_mut().resolve_group_additions(group);
@@ -308,9 +301,6 @@ where
                 r
             }
             Processing { message, .. } => {
-                #[cfg(any(test, feature = "test-utils"))]
-                this.stats.set_state(StreamState::Processing);
-
                 tracing::trace!(
                     "stream messages in processing state. Processing future for envelope @cursor=[{}]",
                     message
@@ -333,9 +323,6 @@ where
                 r
             }
             Adding { future } => {
-                #[cfg(any(test, feature = "test-utils"))]
-                this.stats.set_state(StreamState::Adding);
-
                 tracing::trace!("stream messages in adding state");
                 let (stream, group, cursor) = ready!(future.poll(cx))?;
                 let this = self.as_mut();
@@ -351,9 +338,6 @@ where
                         cursor
                     );
                 }
-
-                #[cfg(any(test, feature = "test-utils"))]
-                this.stats.finish_reconnect(this.groups.len());
 
                 this.state.as_mut().set(State::Waiting);
                 cx.waker().wake_by_ref();
@@ -453,9 +437,6 @@ where
         let groups_with_positions = self.groups.groups_with_positions();
         let future = Self::subscribe(self.context.clone(), groups_with_positions, group.group_id);
         let mut this = self.as_mut().project();
-
-        #[cfg(any(test, feature = "test-utils"))]
-        this.stats.start_reconnect();
 
         this.state.set(State::Adding {
             future: FutureWrapper::new(future),
