@@ -76,11 +76,9 @@ pub enum ActionStyle {
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDateTime;
-
-    use crate::ContentCodec;
-
     use super::{Action, ActionStyle, Actions, ActionsCodec};
+    use crate::ContentCodec;
+    use chrono::NaiveDateTime;
 
     #[xmtp_common::test(unwrap_try = true)]
     fn encode_decode_actions() {

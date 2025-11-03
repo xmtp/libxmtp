@@ -42,7 +42,7 @@ pub enum ContentType {
     Reaction,
     ReadReceipt,
     Reply,
-    Action,
+    Actions,
     Attachment,
     Intent,
     RemoteAttachment,
@@ -76,6 +76,8 @@ impl TryFrom<&str> for ContentType {
             }
             wallet_send_calls::WalletSendCallsCodec::TYPE_ID => Ok(Self::WalletSendCalls),
             leave_request::LeaveRequestCodec::TYPE_ID => Ok(Self::LeaveRequest),
+            actions::ActionsCodec::TYPE_ID => Ok(Self::Actions),
+            intent::IntentCodec::TYPE_ID => Ok(Self::Intent),
             _ => Err(format!("Unknown content type ID: {type_id}")),
         }
     }

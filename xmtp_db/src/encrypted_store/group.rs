@@ -1697,7 +1697,7 @@ pub(crate) mod tests {
     #[xmtp_common::test]
     async fn test_get_sequence_ids() {
         with_connection(|conn| {
-            let mls_groups = vec![
+            let mls_groups = [
                 generate_group_with_welcome(None, Some(30)),
                 generate_group(None),
                 generate_group(None),
