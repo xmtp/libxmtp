@@ -241,7 +241,7 @@ pub async fn inbox_addresses_with_verifier<ApiClient: XmtpApi>(
 
 impl<Context> Client<Context>
 where
-    Context: XmtpSharedContext + Send + Sync + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     /// Reconnect to the client's database if it has previously been released
     pub fn reconnect_db(&self) -> Result<(), ClientError> {

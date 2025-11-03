@@ -16,7 +16,7 @@ use std::{
     task::{Poll, ready},
 };
 use tokio_stream::wrappers::BroadcastStream;
-use xmtp_common::FutureWrapper;
+use xmtp_common::{FutureWrapper, MaybeSend};
 use xmtp_db::prelude::*;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::{Cursor, WelcomeMessage};
@@ -116,8 +116,8 @@ impl<S, E> SubscriptionStream<S, E> {
 
 impl<S, E> Stream for SubscriptionStream<S, E>
 where
-    S: Stream<Item = std::result::Result<WelcomeMessage, E>>,
-    E: xmtp_common::RetryableError + Send + Sync + 'static,
+    S: Stream<Item = std::result::Result<WelcomeMessage, E>> + MaybeSend,
+    E: xmtp_common::RetryableError + 'static,
 {
     type Item = Result<WelcomeOrGroup>;
 

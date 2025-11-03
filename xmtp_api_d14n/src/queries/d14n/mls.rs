@@ -35,9 +35,9 @@ use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C, G, E> XmtpMlsClient for D14nClient<C, G>
 where
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
-    G: Send + Sync + Client,
-    C: Send + Sync + Client<Error = E>,
+    E: RetryableError + 'static,
+    G: Client,
+    C: Client<Error = E>,
     ApiClientError<E>: From<ApiClientError<<G as xmtp_proto::api::Client>::Error>> + 'static,
 {
     type Error = ApiClientError<E>;

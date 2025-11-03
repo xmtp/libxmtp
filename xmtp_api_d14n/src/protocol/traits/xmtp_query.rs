@@ -1,12 +1,14 @@
 //! XmtpQuery allows accessing the network while bypassing any local cursor cache.
+use xmtp_common::{MaybeSend, MaybeSync};
+
 use super::*;
 
 // XMTP Query queries the network for any envelopes
 /// matching the cursor criteria given.
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait XmtpQuery: Send + Sync {
-    type Error: RetryableError + Send + Sync + 'static;
+pub trait XmtpQuery: MaybeSend + MaybeSync {
+    type Error: RetryableError + 'static;
     /// Query every [`Topic`] at [`GlobalCursor`]
     async fn query_at(
         &self,
@@ -18,11 +20,11 @@ pub trait XmtpQuery: Send + Sync {
 // hides implementation detail of XmtpEnvelope/traits
 /// Envelopes from the XMTP Network received from a general [`XmtpQuery`]
 pub struct XmtpEnvelope {
-    inner: Box<dyn EnvelopeCollection<'static> + Send + Sync>,
+    inner: Box<dyn EnvelopeCollection<'static>>,
 }
 
 impl XmtpEnvelope {
-    pub fn new(envelope: impl EnvelopeCollection<'static> + Send + Sync + 'static) -> Self {
+    pub fn new(envelope: impl EnvelopeCollection<'static> + 'static) -> Self {
         Self {
             inner: Box::new(envelope) as Box<_>,
         }
