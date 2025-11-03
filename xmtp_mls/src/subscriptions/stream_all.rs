@@ -48,8 +48,8 @@ impl<Context>
         StreamGroupMessages<'static, Context, MessagesApiSubscription<'static, Context::ApiClient>>,
     >
 where
-    Context: Clone + XmtpSharedContext + Send + Sync + 'static,
-    Context::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
+    Context: Clone + XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams + 'static,
 {
     pub async fn new_owned(
         context: Context,
@@ -68,8 +68,8 @@ impl<'a, Context>
         StreamGroupMessages<'a, Context, MessagesApiSubscription<'a, Context::ApiClient>>,
     >
 where
-    Context: Clone + XmtpSharedContext + Send + Sync + 'a,
-    Context::ApiClient: XmtpMlsStreams + Send + Sync + 'a,
+    Context: Clone + XmtpSharedContext + 'a,
+    Context::ApiClient: XmtpMlsStreams + 'a,
 {
     pub async fn new(
         context: &'a Context,

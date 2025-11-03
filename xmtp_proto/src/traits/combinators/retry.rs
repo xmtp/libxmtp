@@ -1,7 +1,8 @@
 use std::marker::PhantomData;
 
 use xmtp_common::{
-    ExponentialBackoff, Retry, RetryableError, Strategy as RetryStrategy, retry_async,
+    ExponentialBackoff, MaybeSend, MaybeSync, Retry, RetryableError, Strategy as RetryStrategy,
+    retry_async,
 };
 
 use crate::api::{ApiClientError, Client, Endpoint, Pageable, Query, QueryRaw};
@@ -39,7 +40,7 @@ where
     E: Query<C>,
     C: Client,
     C::Error: RetryableError,
-    S: RetryStrategy + Send + Sync,
+    S: RetryStrategy,
 {
     type Output = E::Output;
     async fn query(&mut self, client: &C) -> Result<Self::Output, ApiClientError<C::Error>> {
@@ -57,7 +58,7 @@ where
     E: Endpoint,
     C: Client,
     C::Error: RetryableError,
-    S: RetryStrategy + Send + Sync,
+    S: RetryStrategy,
 {
     async fn query_raw(&mut self, client: &C) -> Result<bytes::Bytes, ApiClientError<C::Error>> {
         retry_async!(
@@ -74,7 +75,7 @@ pub struct RetrySpecialized<Spec> {
 impl<E, Spec> Endpoint<RetrySpecialized<Spec>> for RetryQuery<E>
 where
     E: Endpoint<Spec>,
-    Spec: Send + Sync,
+    Spec: MaybeSend + MaybeSync,
 {
     type Output = <E as Endpoint<Spec>>::Output;
 

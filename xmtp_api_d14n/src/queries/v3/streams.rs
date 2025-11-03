@@ -13,7 +13,7 @@ use xmtp_proto::types::{
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C> XmtpMlsStreams for V3Client<C>
 where
-    C: Send + Sync + Client<Error = GrpcError>,
+    C: Client<Error = GrpcError>,
 {
     type GroupMessageStream =
         TryFromItem<XmtpStream<<C as Client>::Stream, V3ProtoGroupMessage>, GroupMessage>;

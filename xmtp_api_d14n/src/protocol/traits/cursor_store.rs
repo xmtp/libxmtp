@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use xmtp_common::RetryableError;
+use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
 use xmtp_proto::{
     api::ApiClientError,
     types::{ClockOrdering, Cursor, GlobalCursor, OriginatorId, Topic, TopicKind},
@@ -14,7 +14,7 @@ pub enum CursorStoreError {
     #[error("the store cannot handle topic of kind {0}")]
     UnhandledTopicKind(TopicKind),
     #[error("{0}")]
-    Other(Box<dyn RetryableError + Send + Sync>),
+    Other(Box<dyn RetryableError>),
 }
 
 impl RetryableError for CursorStoreError {
@@ -36,7 +36,7 @@ impl<E: std::error::Error> From<CursorStoreError> for ApiClientError<E> {
 /// Trait defining how cursors should be stored, updated, and fetched
 /// _NOTE:_, implementations decide retry strategy. the exact implementation of persistence (or lack)
 /// is up to implementors. functions are assumed to be idempotent & atomic.
-pub trait CursorStore: Send + Sync {
+pub trait CursorStore: MaybeSend + MaybeSync {
     // /// Get the last seen cursor per originator
     // fn last_seen(&self, topic: &Topic) -> Result<GlobalCursor, Self::Error>;
 

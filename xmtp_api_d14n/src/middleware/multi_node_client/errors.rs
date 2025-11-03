@@ -1,6 +1,6 @@
 use thiserror::Error;
 use xmtp_api_grpc::error::GrpcError;
-use xmtp_common::RetryableError;
+use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
 use xmtp_proto::api::{ApiClientError, BodyError};
 
 /// Errors that can occur during multi-node client operations.
@@ -31,7 +31,7 @@ pub enum MultiNodeClientError {
 /// Required by the Client trait implementation, as request and stream can return MultiNodeClientError.
 impl<E> From<MultiNodeClientError> for ApiClientError<E>
 where
-    E: std::error::Error + Send + Sync + 'static,
+    E: std::error::Error + MaybeSend + MaybeSync + 'static,
 {
     fn from(value: MultiNodeClientError) -> ApiClientError<E> {
         ApiClientError::<E>::Other(Box::new(value))

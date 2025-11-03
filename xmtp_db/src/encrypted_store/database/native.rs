@@ -15,7 +15,7 @@ use diesel::{
 use parking_lot::Mutex;
 use std::sync::Arc;
 use thiserror::Error;
-use xmtp_common::{RetryableError, retryable};
+use xmtp_common::{BoxDynError, RetryableError, retryable};
 use xmtp_configuration::BUSY_TIMEOUT;
 
 use pool::*;
@@ -177,7 +177,7 @@ pub enum PlatformStorageError {
     #[error(transparent)]
     DieselConnect(#[from] diesel::ConnectionError),
     #[error(transparent)]
-    Boxed(#[from] Box<dyn std::error::Error + Send + Sync>),
+    Boxed(#[from] BoxDynError),
 }
 
 impl RetryableError for PlatformStorageError {

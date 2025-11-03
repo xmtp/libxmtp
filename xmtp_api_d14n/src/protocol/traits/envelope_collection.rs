@@ -1,10 +1,12 @@
 //! Traits and blanket implementations representing a collection of [`Envelope`]'s
+use xmtp_common::{MaybeSend, MaybeSync};
+
 use super::*;
 
 // TODO: Maybe we can do something with Iterators and Extractors
 // to avoid the Combinators like `CollectionExtractor`?
 /// A Generic Higher-Level Collection of Envelopes
-pub trait EnvelopeCollection<'env> {
+pub trait EnvelopeCollection<'env>: MaybeSend + MaybeSync {
     /// Get the topic for an envelope
     fn topics(&self) -> Result<Vec<Topic>, EnvelopeError>;
     /// Get the payload for an envelope
@@ -29,7 +31,7 @@ pub trait EnvelopeCollection<'env> {
 
 impl<'env, T> EnvelopeCollection<'env> for Vec<T>
 where
-    T: ProtocolEnvelope<'env> + std::fmt::Debug,
+    T: ProtocolEnvelope<'env> + std::fmt::Debug + MaybeSend + MaybeSync,
 {
     fn topics(&self) -> Result<Vec<Topic>, EnvelopeError> {
         self.iter()

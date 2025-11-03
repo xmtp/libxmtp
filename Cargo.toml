@@ -206,3 +206,4 @@ diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "co
 
 [workspace.lints.clippy]
 uninlined_format_args = "allow"
+arc_with_non_send_sync = "allow"
