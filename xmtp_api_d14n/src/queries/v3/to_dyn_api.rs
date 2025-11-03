@@ -8,7 +8,7 @@ use crate::{BoxedStreamsClient, V3Client};
 
 impl<C> ToDynApi for V3Client<C>
 where
-    C: Send + Sync + Client<Error = GrpcError> + IsConnectedCheck + 'static,
+    C: Client<Error = GrpcError> + IsConnectedCheck + 'static,
     <C as Client>::Stream: 'static,
 {
     type Error = ApiClientError<GrpcError>;

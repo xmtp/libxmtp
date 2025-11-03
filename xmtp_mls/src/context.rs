@@ -14,6 +14,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_api_d14n::protocol::XmtpQuery;
+use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_db::XmtpDb;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProviderRef;
@@ -51,7 +52,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S>
 where
     Db: XmtpDb,
     ApiClient: XmtpApi,
-    S: XmtpMlsStorageProvider + Send + Sync,
+    S: XmtpMlsStorageProvider,
 {
     /// get a reference to the monolithic Database object where
     /// higher-level queries are defined
@@ -158,12 +159,12 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
 
 pub trait XmtpSharedContext
 where
-    Self: Send + Sync + Sized + Clone,
+    Self: MaybeSend + MaybeSync + Sized + Clone,
 {
     type Db: XmtpDb;
     type ApiClient: XmtpApi + XmtpQuery;
-    type MlsStorage: Send + Sync + XmtpMlsStorageProvider;
-    type ContextReference: Clone + Sized;
+    type MlsStorage: XmtpMlsStorageProvider;
+    type ContextReference: MaybeSend + MaybeSync + Clone + Sized;
 
     fn context_ref(&self) -> &Self::ContextReference;
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery;
@@ -215,7 +216,7 @@ impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiCl
 where
     XApiClient: XmtpApi + XmtpQuery,
     XDb: XmtpDb,
-    XMls: Send + Sync + XmtpMlsStorageProvider,
+    XMls: XmtpMlsStorageProvider,
 {
     type Db = XDb;
     type ApiClient = XApiClient;

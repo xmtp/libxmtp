@@ -38,7 +38,7 @@ impl<C> TrackedStatsClient<C> {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C> XmtpMlsClient for TrackedStatsClient<C>
 where
-    C: Send + Sync + XmtpMlsClient,
+    C: XmtpMlsClient,
 {
     type Error = <C as XmtpMlsClient>::Error;
 
@@ -126,7 +126,7 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C> XmtpIdentityClient for TrackedStatsClient<C>
 where
-    C: Send + Sync + XmtpIdentityClient,
+    C: XmtpIdentityClient,
 {
     type Error = <C as XmtpIdentityClient>::Error;
 
@@ -171,7 +171,7 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C> XmtpMlsStreams for TrackedStatsClient<C>
 where
-    C: Send + Sync + XmtpMlsStreams,
+    C: XmtpMlsStreams,
 {
     type GroupMessageStream = <C as XmtpMlsStreams>::GroupMessageStream;
     type WelcomeMessageStream = <C as XmtpMlsStreams>::WelcomeMessageStream;

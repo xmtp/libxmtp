@@ -29,14 +29,14 @@ pub mod strategies {
 }
 
 // Erases Api Error type (which may be Http or Grpc)
-pub fn dyn_err(e: impl RetryableError + Send + Sync + 'static) -> ApiError {
+pub fn dyn_err(e: impl RetryableError + 'static) -> ApiError {
     ApiError::Api(Box::new(e))
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
     #[error("api client error {0}")]
-    Api(Box<dyn RetryableError + Send + Sync>),
+    Api(Box<dyn RetryableError>),
     #[error(
         "mismatched number of results, key packages {} != installation_keys {}",
         .key_packages,

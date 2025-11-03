@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_configuration::MAX_PAGE_SIZE;
 
 use crate::{
@@ -24,7 +25,6 @@ where
     C: Client,
     C::Error: std::error::Error,
     T: Default + prost::Message + Paged + 'static,
-    <T as Paged>::Message: Send + Sync,
 {
     type Output = Vec<<T as Paged>::Message>;
     async fn query(
@@ -59,7 +59,9 @@ pub struct V3PagedSpecialized<S> {
     _marker: PhantomData<S>,
 }
 
-impl<S, E: Endpoint<S>, T: Send + Sync> Endpoint<V3PagedSpecialized<S>> for V3Paged<E, T> {
+impl<S, E: Endpoint<S>, T: MaybeSend + MaybeSync> Endpoint<V3PagedSpecialized<S>>
+    for V3Paged<E, T>
+{
     type Output = <E as Endpoint<S>>::Output;
 
     fn grpc_endpoint(&self) -> std::borrow::Cow<'static, str> {

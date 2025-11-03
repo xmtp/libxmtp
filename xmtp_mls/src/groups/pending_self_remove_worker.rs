@@ -39,7 +39,7 @@ struct Factory<Context> {
 
 impl<Context> WorkerFactory for Factory<Context>
 where
-    Context: XmtpSharedContext + Send + Sync + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::PendingSelfRemove
@@ -71,7 +71,7 @@ where
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
         Self: Sized,
-        C: XmtpSharedContext + Send + Sync + 'static,
+        C: XmtpSharedContext + 'static,
     {
         Factory {
             context: context.clone(),

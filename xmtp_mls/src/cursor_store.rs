@@ -1,6 +1,7 @@
 use itertools::Itertools;
 use std::collections::HashMap;
 use xmtp_api_d14n::protocol::{CursorStore, CursorStoreError};
+use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_configuration::Originators;
 use xmtp_db::{
     identity_update::QueryIdentityUpdates, prelude::QueryRefreshState, refresh_state::EntityKind,
@@ -20,7 +21,7 @@ impl<Db> SqliteCursorStore<Db> {
 
 impl<Db> CursorStore for SqliteCursorStore<Db>
 where
-    Db: QueryRefreshState + QueryIdentityUpdates + Send + Sync,
+    Db: QueryRefreshState + QueryIdentityUpdates + MaybeSend + MaybeSync,
 {
     fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
         self.db

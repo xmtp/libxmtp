@@ -3,6 +3,7 @@ use metrics::WorkerMetrics;
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::{any::Any, collections::HashMap, hash::Hash, sync::Arc};
+use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_configuration::WORKER_RESTART_DELAY;
 
 pub mod metrics;
@@ -96,33 +97,29 @@ pub type WorkerResult<T> = Result<T, Box<dyn NeedsDbReconnect>>;
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait Worker {
+pub trait Worker: MaybeSend + MaybeSync + 'static {
     fn kind(&self) -> WorkerKind;
 
     async fn run_tasks(&mut self) -> Result<(), Box<dyn NeedsDbReconnect>>;
 
-    fn metrics(&self) -> Option<Arc<dyn Any + Send + Sync>> {
+    fn metrics(&self) -> Option<DynMetrics> {
         None
     }
 
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
         Self: Sized,
-        C: XmtpSharedContext + Send + Sync + 'static;
+        C: XmtpSharedContext + 'static;
 
     /// Box the worker, erasing its type
     fn boxed(self) -> Box<dyn Worker>
     where
-        Self: Sized + 'static,
+        Self: Sized,
     {
         Box::new(self) as Box<_>
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    fn spawn(mut self: Box<Self>)
-    where
-        Self: Send + Sync + 'static,
-    {
+    fn spawn(mut self: Box<Self>) {
         xmtp_common::spawn(None, async move {
             loop {
                 if let Err(err) = self.run_tasks().await {
@@ -139,28 +136,6 @@ pub trait Worker {
             }
         });
     }
-
-    #[cfg(target_arch = "wasm32")]
-    fn spawn(mut self: Box<Self>)
-    where
-        Self: 'static,
-    {
-        xmtp_common::spawn(None, async move {
-            loop {
-                if let Err(err) = self.run_tasks().await {
-                    if err.needs_db_reconnect() {
-                        // drop the worker
-                        tracing::warn!("Pool disconnected. task will restart on reconnect");
-                        break;
-                    } else {
-                        tracing::error!("Worker error: {err:?}");
-                        xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
-                        tracing::info!("Restarting {:?} worker...", self.kind());
-                    }
-                }
-            }
-        });
-    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(NeedsDbReconnect: Send + Sync))]
@@ -169,18 +144,14 @@ pub trait LocalNeedsDbReconnect: std::error::Error {
     fn needs_db_reconnect(&self) -> bool;
 }
 
-// #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(WorkerFactory: Send + Sync))]
-// #[cfg_attr(target_arch = "wasm32", trait_variant::make(WorkerFactory: xmtp_common::Wasm))]
-pub trait WorkerFactory: Send + Sync {
+pub trait WorkerFactory: MaybeSend + MaybeSync {
     fn kind(&self) -> WorkerKind;
     /// Create a new worker
     fn create(&self, metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>);
 }
 
-#[cfg(target_arch = "wasm32")]
 pub type BoxedWorker = Box<dyn Worker>;
-#[cfg(not(target_arch = "wasm32"))]
-pub type BoxedWorker = Box<dyn Worker + Send + Sync>;
+pub type DynFactory = Arc<dyn WorkerFactory>;
 
 pub type DynMetrics = Arc<dyn Any + Send + Sync>;
 
@@ -193,8 +164,3 @@ impl MetricsCasting for DynMetrics {
         self.clone().downcast().ok()
     }
 }
-
-#[cfg(target_arch = "wasm32")]
-pub type DynFactory = Arc<dyn WorkerFactory>;
-#[cfg(not(target_arch = "wasm32"))]
-pub type DynFactory = Arc<dyn WorkerFactory + Send + Sync>;

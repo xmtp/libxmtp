@@ -93,7 +93,7 @@ impl std::fmt::Debug for AggregateStats {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<T> XmtpMlsClient for Box<T>
 where
-    T: XmtpMlsClient + Sync + ?Sized,
+    T: XmtpMlsClient + ?Sized,
 {
     type Error = <T as XmtpMlsClient>::Error;
 
@@ -172,7 +172,7 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<T> XmtpMlsClient for Arc<T>
 where
-    T: XmtpMlsClient + Sync + ?Sized + Send,
+    T: XmtpMlsClient + ?Sized,
 {
     type Error = <T as XmtpMlsClient>::Error;
 
@@ -287,7 +287,7 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<T> XmtpMlsStreams for Arc<T>
 where
-    T: XmtpMlsStreams + Sync + ?Sized + Send,
+    T: XmtpMlsStreams + ?Sized,
 {
     type Error = <T as XmtpMlsStreams>::Error;
 
@@ -323,7 +323,7 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<T> XmtpIdentityClient for Box<T>
 where
-    T: XmtpIdentityClient + Send + Sync + ?Sized,
+    T: XmtpIdentityClient + ?Sized,
 {
     type Error = <T as XmtpIdentityClient>::Error;
 
@@ -362,7 +362,7 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<T> XmtpIdentityClient for Arc<T>
 where
-    T: XmtpIdentityClient + Send + Sync + ?Sized,
+    T: XmtpIdentityClient + ?Sized,
 {
     type Error = <T as XmtpIdentityClient>::Error;
 
