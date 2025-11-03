@@ -266,6 +266,15 @@ where
         (**self).subscribe_group_messages(group_ids).await
     }
 
+    async fn subscribe_group_messages_with_cursors(
+        &self,
+        groups_with_cursors: &[(&GroupId, crate::types::GlobalCursor)],
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
+        (**self)
+            .subscribe_group_messages_with_cursors(groups_with_cursors)
+            .await
+    }
+
     async fn subscribe_welcome_messages(
         &self,
         installations: &[&InstallationId],
@@ -291,6 +300,15 @@ where
         group_ids: &[&GroupId],
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         (**self).subscribe_group_messages(group_ids).await
+    }
+
+    async fn subscribe_group_messages_with_cursors(
+        &self,
+        groups_with_cursors: &[(&GroupId, crate::types::GlobalCursor)],
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
+        (**self)
+            .subscribe_group_messages_with_cursors(groups_with_cursors)
+            .await
     }
 
     async fn subscribe_welcome_messages(
