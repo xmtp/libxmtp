@@ -1,7 +1,12 @@
-use super::{
-    MessagesApiSubscription, ProcessFutureFactory, ProcessMessageFuture, State, StreamGroupMessages,
+use super::{MessagesApiSubscription, State, StreamGroupMessages};
+use crate::{
+    context::XmtpSharedContext,
+    groups::MlsGroup,
+    subscriptions::{
+        Result, StreamAllMessages,
+        stream_conversations::{StreamConversations, WelcomesApiSubscription},
+    },
 };
-use crate::{context::XmtpSharedContext, subscriptions::Result};
 use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
 use pin_project_lite::pin_project;
@@ -12,7 +17,6 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    task::Context,
 };
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use xmtp_common::time::now_ns;
@@ -20,8 +24,8 @@ use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::prelude::XmtpMlsStreams;
 
 pin_project! {
-    pub struct StreamWithStats<'a, Context: Clone, Subscription, Factory = ProcessMessageFuture<Context>> {
-        #[pin] inner: StreamGroupMessages<'a, Context, Subscription, Factory>,
+    pub struct StreamWithStats<'a, Context: Clone, Conversations, Messages> {
+        #[pin] inner: StreamAllMessages<'a, Context, Conversations, Messages>,
         #[pin] old_state: StreamState,
         stats: StatsInner
     }
@@ -40,6 +44,7 @@ impl StatsInner {
         self.reconnect_start = Some(now_ns() as u64);
     }
     fn finish_reconnect(&mut self, num_groups: usize) {
+        tracing::info!("?");
         if let Some(start) = self.reconnect_start.take() {
             let _ = self.stats_tx.send(StreamStat::Reconnection {
                 duration: start..(now_ns() as u64),
@@ -49,12 +54,10 @@ impl StatsInner {
     }
 
     fn set_state(&mut self, state: StreamState) {
-        if self.state != state {
-            self.state = state;
-            let _ = self
-                .stats_tx
-                .send(StreamStat::ChangeState { state: self.state });
-        }
+        self.state = state;
+        let _ = self
+            .stats_tx
+            .send(StreamStat::ChangeState { state: self.state });
     }
 }
 
@@ -112,41 +115,75 @@ pub enum StreamStat {
     },
 }
 
-impl<'a, C, Factory> StreamWithStats<'a, C, MessagesApiSubscription<'a, C::ApiClient>, Factory>
+impl<'a, Context>
+    StreamWithStats<
+        'a,
+        Context,
+        StreamConversations<'static, Context, WelcomesApiSubscription<'static, Context::ApiClient>>,
+        StreamGroupMessages<'static, Context, MessagesApiSubscription<'static, Context::ApiClient>>,
+    >
 where
-    C: XmtpSharedContext + 'a,
-    C::ApiClient: XmtpMlsStreams + 'a,
-    Factory: ProcessFutureFactory<'a> + 'a,
+    Context: Clone + XmtpSharedContext + Send + Sync + 'static,
+    Context::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
 {
+    pub fn new(
+        inner: StreamAllMessages<
+            'a,
+            Context,
+            StreamConversations<
+                'static,
+                Context,
+                WelcomesApiSubscription<'static, Context::ApiClient>,
+            >,
+            StreamGroupMessages<
+                'static,
+                Context,
+                MessagesApiSubscription<'static, Context::ApiClient>,
+            >,
+        >,
+    ) -> Self {
+        Self {
+            inner,
+            old_state: StreamState::Unknown,
+            stats: StatsInner::new(),
+        }
+    }
+
     pub fn stats(&self) -> Arc<StreamStats> {
         self.stats.stats()
     }
 }
 
-impl<'a, C, Factory> Stream
-    for StreamWithStats<'a, C, MessagesApiSubscription<'a, C::ApiClient>, Factory>
+impl<'a, Context, Conversations> Stream
+    for StreamWithStats<
+        'a,
+        Context,
+        Conversations,
+        StreamGroupMessages<'a, Context, MessagesApiSubscription<'a, Context::ApiClient>>,
+    >
 where
-    C: XmtpSharedContext + 'a,
-    C::ApiClient: XmtpMlsStreams + 'a,
-    Factory: ProcessFutureFactory<'a> + 'a,
+    Context: XmtpSharedContext + 'a,
+    Context::ApiClient: XmtpMlsStreams + 'a,
+    Conversations: Stream<Item = Result<MlsGroup<Context>>>,
 {
     type Item = Result<StoredGroupMessage>;
 
     fn poll_next(
         mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
+        cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         let mut this = self.as_mut().project();
 
-        let inner_poll = this.inner.poll_next_unpin(cx);
-        let inner_state: StreamState = (&this.inner.state).into();
+        let inner_poll = this.inner.as_mut().poll_next(cx);
+        let inner_state: StreamState = (&this.inner.messages.state).into();
 
         if *this.old_state != inner_state {
-            if matches!(inner_state, StreamState::Adding) {
+            if *this.old_state != StreamState::Adding && inner_state == StreamState::Adding {
                 this.stats.start_reconnect();
             }
-            if matches!(*this.old_state, StreamState::Adding) {
-                this.stats.finish_reconnect(this.inner.groups.len());
+            if *this.old_state == StreamState::Adding && inner_state != StreamState::Adding {
+                this.stats
+                    .finish_reconnect(this.inner.messages.groups.len());
             }
 
             this.stats.set_state(inner_state.into());

@@ -1,4 +1,5 @@
-mod stream_stats;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod stream_stats;
 #[cfg(any(test, feature = "test-utils"))]
 mod test_utils;
 mod types;

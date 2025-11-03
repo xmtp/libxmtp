@@ -29,11 +29,11 @@ use xmtp_proto::types::GroupId;
 
 pin_project! {
     pub(super) struct StreamAllMessages<'a, Context: Clone, Conversations, Messages> {
-        #[pin] conversations: Conversations,
-        #[pin] messages: Messages,
-        context: Cow<'a, Context>,
-        sync_groups: Vec<Vec<u8>>,
-        conversation_type: Option<ConversationType>,
+        #[pin] pub(super) conversations: Conversations,
+        #[pin] pub(super) messages: Messages,
+        pub(super) context: Cow<'a, Context>,
+        pub(super) sync_groups: Vec<Vec<u8>>,
+        pub(super) conversation_type: Option<ConversationType>,
     }
 }
 
