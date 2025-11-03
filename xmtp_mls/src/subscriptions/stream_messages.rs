@@ -135,7 +135,24 @@ where
     ) -> Result<Self> {
         tracing::debug!("setting up messages subscription");
         let api = context.api();
-        let groups_list = GroupList::new(groups.clone());
+
+        // Get the last sync cursor for each group to populate seen messages
+        use xmtp_db::encrypted_store::refresh_state::{EntityKind, QueryRefreshState};
+        use xmtp_db::group_message::QueryGroupMessage;
+
+        let db = context.db();
+        let cursors_by_group = db.get_last_cursor_for_ids(
+            &groups,
+            &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
+        )?;
+
+        // Get all cursors of messages newer than last sync for each group
+        // to populate seen messages
+        let seen_cursors_vec = db.messages_newer_than(&cursors_by_group)?;
+
+        let seen_cursors: std::collections::HashSet<_> = seen_cursors_vec.into_iter().collect();
+
+        let groups_list = GroupList::new(groups.clone(), seen_cursors);
         let subscription = api
             .subscribe_group_messages(&groups.iter().collect::<Vec<_>>())
             .await?;
@@ -222,7 +239,6 @@ where
         Vec<u8>,
         Option<Cursor>,
     )> {
-        // get the last synced cursor
         let stream = context
             .api()
             .subscribe_group_messages(&filters.iter().collect::<Vec<_>>())
