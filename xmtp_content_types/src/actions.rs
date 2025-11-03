@@ -1,10 +1,7 @@
-use std::collections::HashMap;
-
-use chrono::{DateTime, Utc};
+use crate::{CodecError, ContentCodec};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
-
-use crate::{CodecError, ContentCodec};
 
 pub struct ActionsCodec;
 impl ActionsCodec {
@@ -44,34 +41,74 @@ impl ContentCodec<Actions> for ActionsCodec {
         })
     }
 
-    fn decode(content: EncodedContent) -> Result<Actions, CodecError> {
-        let actions: Actions = serde_json::from_slice(&content.content)
+    fn decode(actions: EncodedContent) -> Result<Actions, CodecError> {
+        let actions: Actions = serde_json::from_slice(&actions.content)
             .map_err(|e| CodecError::Decode(format!("Unable to deserialize actions. {e:?}")))?;
 
         Ok(actions)
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct Actions {
     id: String,
     description: String,
     actions: Vec<Action>,
-    expires_at: Option<DateTime<Utc>>,
+    expires_at: Option<NaiveDateTime>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct Action {
     id: String,
     label: String,
     image_url: Option<String>,
     style: Option<ActionStyle>,
-    expires_at: Option<DateTime<Utc>>,
+    expires_at: Option<NaiveDateTime>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
 pub enum ActionStyle {
     Primary,
     Secondary,
     Danger,
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::NaiveDateTime;
+
+    use crate::ContentCodec;
+
+    use super::{Action, ActionStyle, Actions, ActionsCodec};
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn encode_decode_actions() {
+        let actions = Actions {
+            id: "thanksgiving_selection".to_string(),
+            description: "Grandma is asking for your input on Thanksgiving".to_string(),
+            actions: vec![
+                Action {
+                    id: "the_turkey_of_course".to_string(),
+                    label: "The Turkey (of course)".to_string(),
+                    image_url: Some("http://turkey-images.biz/the-one.jpg".to_string()),
+                    style: Some(ActionStyle::Primary),
+                    expires_at: None,
+                },
+                Action {
+                    id: "pork_loin".to_string(),
+                    label: "Pork Loin".to_string(),
+                    image_url: None,
+                    style: None,
+                    expires_at: Some(NaiveDateTime::MIN),
+                },
+            ],
+            expires_at: Some(NaiveDateTime::MAX),
+        };
+
+        let encoded = ActionsCodec::encode(actions.clone())?;
+        let decoded = ActionsCodec::decode(encoded)?;
+
+        assert_eq!(decoded, actions);
+    }
 }
