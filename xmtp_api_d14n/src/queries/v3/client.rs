@@ -1,7 +1,6 @@
 use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::prelude::ApiBuilder;
-use xmtp_proto::types::AppVersion;
 
 #[derive(Clone)]
 pub struct V3Client<C, Store> {
@@ -47,44 +46,11 @@ where
     type Output = V3Client<<Builder as ApiBuilder>::Output, Store>;
 
     type Error = <Builder as ApiBuilder>::Error;
-
-    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
-        <Builder as ApiBuilder>::set_libxmtp_version(&mut self.client, version)
-    }
-
-    fn set_app_version(&mut self, version: AppVersion) -> Result<(), Self::Error> {
-        <Builder as ApiBuilder>::set_app_version(&mut self.client, version)
-    }
-
-    fn set_host(&mut self, host: String) {
-        <Builder as ApiBuilder>::set_host(&mut self.client, host)
-    }
-
-    fn set_tls(&mut self, tls: bool) {
-        <Builder as ApiBuilder>::set_tls(&mut self.client, tls)
-    }
-
-    fn rate_per_minute(&mut self, limit: u32) {
-        <Builder as ApiBuilder>::rate_per_minute(&mut self.client, limit)
-    }
-
-    fn port(&self) -> Result<Option<String>, Self::Error> {
-        <Builder as ApiBuilder>::port(&self.client)
-    }
-
-    fn host(&self) -> Option<&str> {
-        <Builder as ApiBuilder>::host(&self.client)
-    }
-
     fn build(self) -> Result<Self::Output, Self::Error> {
         Ok(V3Client {
             client: <Builder as ApiBuilder>::build(self.client)?,
             cursor_store: self.store,
         })
-    }
-
-    fn set_retry(&mut self, retry: xmtp_common::Retry) {
-        <Builder as ApiBuilder>::set_retry(&mut self.client, retry)
     }
 }
 

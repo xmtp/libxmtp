@@ -10,7 +10,7 @@ use xmtp_common::{
     time::{Duration, Instant},
 };
 use xmtp_proto::api::Query;
-use xmtp_proto::api_client::ApiBuilder;
+use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig};
 use xmtp_proto::{ApiEndpoint, api::ApiClientError};
 
 /// Get the nodes from the gateway server and build the clients for each node.

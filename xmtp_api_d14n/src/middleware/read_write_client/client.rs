@@ -83,7 +83,7 @@ where
 
 xmtp_common::if_test! {
     use derive_builder::UninitializedFieldError;
-    use xmtp_proto::prelude::{ApiBuilder};
+    use xmtp_proto::prelude::ApiBuilder;
     #[allow(clippy::unwrap_used)]
     impl<R, W> ReadWriteClientBuilder<R, W>
     where

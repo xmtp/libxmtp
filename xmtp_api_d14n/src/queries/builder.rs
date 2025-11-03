@@ -10,7 +10,7 @@ use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_configuration::{MULTI_NODE_TIMEOUT_MS, PAYER_WRITE_FILTER};
 use xmtp_id::scw_verifier::VerifierError;
 use xmtp_proto::api::ApiClientError;
-use xmtp_proto::api_client::ApiBuilder;
+use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig};
 use xmtp_proto::types::AppVersion;
 
 use crate::protocol::{CursorStore, FullXmtpApiArc, FullXmtpApiBox, FullXmtpApiT, NoCursorStore};
@@ -129,8 +129,10 @@ impl MessageBackendBuilder {
 
             let mut multi_node = crate::middleware::MultiNodeClientBuilder::default();
             multi_node.set_timeout(Duration::from_millis(MULTI_NODE_TIMEOUT_MS))?;
-            multi_node.set_tls(is_secure);
             multi_node.set_gateway_builder(gateway_client_builder.clone())?;
+            let mut template = GrpcClient::builder();
+            template.set_tls(is_secure);
+            multi_node.set_node_client_builder(template)?;
 
             let gateway_client = gateway_client_builder.build()?;
             let multi_node = multi_node.build()?;

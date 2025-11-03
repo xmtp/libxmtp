@@ -2,7 +2,7 @@ use toxiproxy_rust::TOXIPROXY;
 use xmtp_configuration::{GrpcUrls, GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsToxic};
 use xmtp_proto::{
     api_client::{ToxicProxies, ToxicTestClient, XmtpTestClient},
-    prelude::ApiBuilder,
+    prelude::NetConnectConfig,
 };
 
 use crate::{ClientBuilder, GrpcClient};

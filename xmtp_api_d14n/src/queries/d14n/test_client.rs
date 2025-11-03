@@ -8,7 +8,6 @@ use xmtp_proto::api_client::ToxicProxies;
 use xmtp_proto::api_client::ToxicTestClient;
 use xmtp_proto::prelude::ApiBuilder;
 use xmtp_proto::prelude::XmtpTestClient;
-use xmtp_proto::types::AppVersion;
 
 use crate::ReadWriteClientBuilder;
 use crate::{ReadWriteClient, XmtpTestClientExt, protocol::NoCursorStore};
@@ -82,37 +81,6 @@ where
 {
     type Output = D14nClient<ReadWriteClient<BRead::Output, BWrite::Output>, Store>;
     type Error = <BRead as ApiBuilder>::Error;
-    fn set_libxmtp_version(&mut self, _: String) -> Result<(), Self::Error> {
-        unimplemented!("no way to set host for a client that needs 2 hosts")
-    }
-
-    fn set_app_version(&mut self, _: AppVersion) -> Result<(), Self::Error> {
-        unimplemented!("no way to set host for a client that needs 2 hosts")
-    }
-
-    fn set_host(&mut self, _host: String) {
-        unimplemented!("no way to set host for a client that needs 2 hosts")
-    }
-
-    fn set_tls(&mut self, _: bool) {
-        unimplemented!("no way to set host for a client that needs 2 hosts")
-    }
-
-    fn set_retry(&mut self, _: xmtp_common::Retry) {
-        unimplemented!("no way to set host for a client that needs 2 hosts")
-    }
-
-    fn rate_per_minute(&mut self, _: u32) {
-        unimplemented!("no way to set host for a client that needs 2 hosts")
-    }
-
-    fn port(&self) -> Result<Option<String>, Self::Error> {
-        unimplemented!("no way to set host for a client that needs 2 hosts")
-    }
-
-    fn host(&self) -> Option<&str> {
-        unimplemented!("no way to set host for a client that needs 2 hosts")
-    }
 
     fn build(self) -> Result<Self::Output, Self::Error> {
         Ok(D14nClient {
