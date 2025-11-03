@@ -113,6 +113,8 @@ mod not_wasm {
             #[mockall::concretize]
             async fn subscribe_group_messages(&self, group_ids: &[&GroupId]) -> Result<MockGroupStream, MockError>;
             #[mockall::concretize]
+            async fn subscribe_group_messages_with_cursors(&self, groups_with_cursors: &[(&GroupId, xmtp_proto::types::GlobalCursor)]) -> Result<MockGroupStream, MockError>;
+            #[mockall::concretize]
             async fn subscribe_welcome_messages(&self, installations: &[&InstallationId]) -> Result<MockWelcomeStream, MockError>;
         }
 
@@ -191,6 +193,8 @@ mod wasm {
 
             #[mockall::concretize]
             async fn subscribe_group_messages(&self, group_ids: &[&GroupId]) -> Result<MockGroupStream, MockError>;
+            #[mockall::concretize]
+            async fn subscribe_group_messages_with_cursors(&self, groups_with_cursors: &[(&GroupId, xmtp_proto::types::GlobalCursor)]) -> Result<MockGroupStream, MockError>;
             #[mockall::concretize]
             async fn subscribe_welcome_messages(&self, installations: &[&InstallationId]) -> Result<MockWelcomeStream, MockError>;
         }

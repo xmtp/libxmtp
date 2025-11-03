@@ -254,6 +254,7 @@ pub(crate) mod tests {
     };
     use crate::group::{GroupMembershipState, GroupQueryArgs, GroupQueryOrderBy};
     use crate::group_message::ContentType;
+    use crate::group_message::tests::generate_message;
     use crate::prelude::*;
     use crate::test_utils::with_connection;
 
@@ -527,6 +528,32 @@ pub(crate) mod tests {
             assert!(!returned_ids.contains(&&denied_group.id));
         })
         .await
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_unknown_content_type_is_present() {
+        with_connection(|conn| {
+            let dm = generate_dm(None);
+            dm.store(conn)?;
+
+            let m = generate_message(
+                None,
+                Some(&dm.id),
+                Some(5000),
+                Some(ContentType::Unknown),
+                None,
+                None,
+            );
+            m.store(conn)?;
+
+            let conv = conn.fetch_conversation_list(GroupQueryArgs {
+                ..Default::default()
+            })?;
+
+            // Message id should be present
+            assert!(conv[0].message_id.is_some());
+        })
+        .await;
     }
 
     #[xmtp_common::test]

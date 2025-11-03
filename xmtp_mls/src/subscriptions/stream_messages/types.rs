@@ -75,10 +75,10 @@ pub(super) struct GroupList {
 }
 
 impl GroupList {
-    pub(super) fn new(list: Vec<GroupId>) -> Self {
+    pub(super) fn new(list: Vec<GroupId>, seen: HashSet<Cursor>) -> Self {
         Self {
             list: list.into_iter().map(|g| (g, Default::default())).collect(),
-            seen: HashSet::new(),
+            seen,
         }
     }
 
@@ -91,8 +91,12 @@ impl GroupList {
         self.list.len()
     }
 
-    pub(super) fn ids(&self) -> Vec<GroupId> {
-        self.list.keys().cloned().collect()
+    /// get all groups with their positions
+    pub(super) fn groups_with_positions(&self) -> Vec<(GroupId, MessagePosition)> {
+        self.list
+            .iter()
+            .map(|(id, pos)| (id.clone(), pos.clone()))
+            .collect()
     }
 
     /// get the `MessagePosition` for `group_id`, if any
