@@ -5,6 +5,7 @@ use std::time::Duration;
 use thiserror::Error;
 use xmtp_api_grpc::error::GrpcBuilderError;
 use xmtp_api_grpc::{GrpcClient, error::GrpcError};
+use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_configuration::MULTI_NODE_TIMEOUT_MS;
 use xmtp_id::scw_verifier::VerifierError;
 use xmtp_proto::api::IsConnectedCheck;
@@ -55,9 +56,7 @@ where
             GroupMessageStream = BoxedGroupS<Err>,
         > + IsConnectedCheck
         + XmtpQuery<Error = Err>
-        + CursorAwareApi<CursorStore = Arc<dyn CursorStore>>
-        + Send
-        + Sync,
+        + CursorAwareApi<CursorStore = Arc<dyn CursorStore>>,
 {
 }
 
@@ -71,16 +70,14 @@ impl<T, Err> FullXmtpApiT<Err> for T where
         > + IsConnectedCheck
         + CursorAwareApi<CursorStore = Arc<dyn CursorStore>>
         + XmtpQuery<Error = Err>
-        + Send
-        + Sync
         + ?Sized
 {
 }
 
 /// Indicates this api implementation can be type-erased
 /// and coerced into a [`Box`] or [`Arc`]
-pub trait ToDynApi {
-    type Error;
+pub trait ToDynApi: MaybeSend + MaybeSync {
+    type Error: MaybeSend + MaybeSync;
     fn boxed(self) -> FullXmtpApiBox<Self::Error>;
     fn arced(self) -> FullXmtpApiArc<Self::Error>;
 }

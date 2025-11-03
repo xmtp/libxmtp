@@ -5,7 +5,7 @@ use crate::queries::stream;
 
 use super::D14nClient;
 use std::collections::HashMap;
-use xmtp_common::{MaybeSend, RetryableError};
+use xmtp_common::RetryableError;
 use xmtp_proto::api::{ApiClientError, Client, QueryStream, XmtpStream};
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::{GlobalCursor, GroupId, InstallationId, TopicKind};
@@ -15,10 +15,10 @@ use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse;
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C, G, E> XmtpMlsStreams for D14nClient<C, G>
 where
-    C: Send + Sync + Client<Error = E>,
-    <C as Client>::Stream: MaybeSend + 'static,
-    G: Send + Sync + Client<Error = E>,
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    C: Client<Error = E>,
+    <C as Client>::Stream: 'static,
+    G: Client<Error = E>,
+    E: RetryableError + 'static,
 {
     type Error = ApiClientError<E>;
 

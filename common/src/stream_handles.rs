@@ -1,11 +1,14 @@
 //! Consistent Stream behavior between WebAssembly and Native utilizing `tokio::task::spawn` in native and
 //! `wasm_bindgen_futures::spawn` for web.
 
-#[cfg(target_arch = "wasm32")]
-pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O>;
+use crate::{MaybeSend, MaybeSync, if_native, if_wasm};
 
-#[cfg(not(target_arch = "wasm32"))]
-pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O> + Send + Sync;
+if_wasm! {
+    pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O>;
+}
+if_native! {
+    pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O> + Send + Sync;
+}
 
 #[derive(thiserror::Error, Debug)]
 pub enum StreamHandleError {
@@ -27,7 +30,7 @@ pub enum StreamHandleError {
 #[allow(async_fn_in_trait)]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait StreamHandle {
+pub trait StreamHandle: MaybeSend + MaybeSync {
     /// The Output type for the stream
     type StreamOutput;
 
@@ -57,20 +60,14 @@ pub trait StreamHandle {
 }
 
 /// A handle that can be moved/cloned/sent, but can only close the stream.
-pub trait AbortHandle: Send + Sync {
+pub trait AbortHandle: crate::MaybeSend + crate::MaybeSync {
     /// Send a signal to end the stream, without waiting for a result.
     fn end(&self);
     fn is_finished(&self) -> bool;
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use native::*;
-
-#[cfg(target_arch = "wasm32")]
-#[allow(unused)]
+if_wasm! {
 pub use wasm::*;
-
-#[cfg(target_arch = "wasm32")]
 mod wasm {
     use std::{
         future::Future,
@@ -209,9 +206,10 @@ mod wasm {
             }
         }
     }
-}
+}}
 
-#[cfg(not(target_arch = "wasm32"))]
+if_native! {
+pub use native::*;
 mod native {
     use super::*;
     use std::future::Future;
@@ -309,4 +307,4 @@ mod native {
             ready,
         }
     }
-}
+}}

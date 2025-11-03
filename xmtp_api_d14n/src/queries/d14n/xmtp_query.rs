@@ -17,9 +17,9 @@ use crate::{
 impl<C, G, E> XmtpQuery for D14nClient<C, G>
 where
     C: Client<Error = E>,
-    G: Client<Error = <C as Client>::Error>,
-    ApiClientError<E>: From<ApiClientError<<C as Client>::Error>> + Send + Sync + 'static,
-    E: RetryableError,
+    G: Client<Error = E>,
+    ApiClientError<E>: From<ApiClientError<<C as Client>::Error>>,
+    E: RetryableError + 'static,
 {
     type Error = ApiClientError<E>;
 

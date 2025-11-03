@@ -19,8 +19,8 @@ use xmtp_proto::{
 impl<C, E> XmtpQuery for V3Client<C>
 where
     C: Client<Error = E>,
-    E: std::error::Error + RetryableError + Send + Sync,
-    ApiClientError<E>: From<ApiClientError<<C as Client>::Error>> + Send + Sync + 'static,
+    E: RetryableError + 'static,
+    ApiClientError<E>: From<ApiClientError<<C as Client>::Error>>,
 {
     type Error = ApiClientError<E>;
     async fn query_at(

@@ -11,7 +11,7 @@ use xmtp_proto::xmtp::identity::api::v1::VerifySmartContractWalletSignaturesResp
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<C> SmartContractSignatureVerifier for ApiClientWrapper<C>
 where
-    C: Send + Sync + XmtpIdentityClient,
+    C: XmtpIdentityClient,
 {
     /// Verifies an ERC-6492<https://eips.ethereum.org/EIPS/eip-6492> signature.
     ///

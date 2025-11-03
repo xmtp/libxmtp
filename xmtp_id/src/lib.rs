@@ -13,6 +13,7 @@ use associations::{
 };
 use openmls_traits::types::CryptoError;
 use thiserror::Error;
+use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_cryptography::signature::{IdentifierValidationError, SignatureError, h160addr_to_string};
 
 #[derive(Debug, Error)]
@@ -66,7 +67,7 @@ impl TryFrom<IdentityUpdateLog> for InboxUpdate {
     }
 }
 
-pub trait AsIdRef: Send + Sync {
+pub trait AsIdRef: MaybeSend + MaybeSync {
     fn as_ref(&'_ self) -> InboxIdRef<'_>;
 }
 

@@ -68,14 +68,9 @@ impl<A, S> ClientBuilder<A, S> {
 
 impl<Api, Storage, Db> ClientBuilder<Api, Storage, Db>
 where
-    Api: XmtpApi
-        + CursorAwareApi<CursorStore = Arc<dyn CursorStore>>
-        + XmtpQuery
-        + 'static
-        + Send
-        + Sync,
-    Storage: XmtpMlsStorageProvider + 'static + Send + Sync,
-    Db: xmtp_db::XmtpDb + 'static + Send + Sync,
+    Api: XmtpApi + CursorAwareApi<CursorStore = Arc<dyn CursorStore>> + XmtpQuery + 'static,
+    Storage: XmtpMlsStorageProvider + 'static,
+    Db: xmtp_db::XmtpDb + 'static,
 {
     pub async fn build_unchecked(self) -> Client<Arc<XmtpMlsLocalContext<Api, Db, Storage>>> {
         self.build().await.unwrap()

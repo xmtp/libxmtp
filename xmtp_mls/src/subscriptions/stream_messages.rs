@@ -113,8 +113,8 @@ where
 impl<C> StreamGroupMessages<'static, C, MessagesApiSubscription<'static, C::ApiClient>>
 where
     C: XmtpSharedContext + 'static,
-    C::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
-    C::Db: Send + 'static,
+    C::ApiClient: XmtpMlsStreams + 'static,
+    C::Db: 'static,
 {
     pub async fn new_owned(context: C, groups: Vec<GroupId>) -> Result<Self> {
         let f = ProcessMessageFuture::new(context.clone());

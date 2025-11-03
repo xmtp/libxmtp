@@ -46,7 +46,7 @@ use diesel::result::DatabaseErrorKind;
 pub use diesel::sqlite::{Sqlite, SqliteConnection};
 use openmls::storage::OpenMlsProvider;
 use prost::DecodeError;
-use xmtp_common::RetryableError;
+use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
 
 use super::StorageError;
 use crate::sql_key_store::SqlKeyStoreError;
@@ -114,7 +114,7 @@ impl RetryableError for ConnectionError {
     }
 }
 
-pub trait ConnectionExt {
+pub trait ConnectionExt: MaybeSend + MaybeSync {
     /// in order to track transaction context
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
@@ -227,11 +227,11 @@ pub type BoxedDatabase = Box<
 >;
 
 #[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Connection = crate::mock::MockConnection; type DbQuery = crate::mock::MockDbQuery;))]
-pub trait XmtpDb: Send + Sync {
+pub trait XmtpDb: MaybeSend + MaybeSync {
     /// The Connection type for this database
-    type Connection: ConnectionExt + Send + Sync;
+    type Connection: ConnectionExt + MaybeSend + MaybeSync;
 
-    type DbQuery: crate::DbQuery + Send + Sync;
+    type DbQuery: crate::DbQuery + MaybeSend + MaybeSync;
 
     fn init(&self) -> Result<(), ConnectionError> {
         self.conn().raw_query_write(|conn| {
