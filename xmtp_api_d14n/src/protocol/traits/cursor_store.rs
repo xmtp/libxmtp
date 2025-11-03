@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use xmtp_common::RetryableError;
 use xmtp_proto::{
     api::ApiClientError,
@@ -67,28 +68,12 @@ pub trait CursorStore: Send + Sync {
         })
     }
 
-    /// A temporary function to get the latest cursor for
-    /// a topic & originator. it may be missing updates.
-    fn latest_maybe_missing_per(
+    /// Get the latest cursor for multiple topics at once.
+    /// Returns a HashMap mapping each topic to its GlobalCursor.
+    fn latest_for_topics(
         &self,
-        topic: &Topic,
-        originator: &[&OriginatorId],
-    ) -> Result<GlobalCursor, CursorStoreError>;
-
-    /// Temporary until reliable streams
-    fn latest_maybe_missing(
-        &self,
-        topic: &Topic,
-        originator: &OriginatorId,
-    ) -> Result<Cursor, CursorStoreError> {
-        let sid = self
-            .latest_maybe_missing_per(topic, &[originator])?
-            .get(originator);
-        Ok(Cursor {
-            originator_id: *originator,
-            sequence_id: sid,
-        })
-    }
+        topics: &mut dyn Iterator<Item = &Topic>,
+    ) -> Result<HashMap<Topic, GlobalCursor>, CursorStoreError>;
 
     // temp until reliable streams
     fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError>;
