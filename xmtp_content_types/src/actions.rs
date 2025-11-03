@@ -53,6 +53,10 @@ impl ContentCodec<Actions> for ActionsCodec {
             .map(|(i, a)| format!("{} {}", i + 1, a.label))
             .collect::<Vec<_>>()
             .join("\n");
+        let fallback = format!(
+            "{}\n\n{fallback}\n\nReply with the number to select",
+            actions.description
+        );
 
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
@@ -127,7 +131,11 @@ mod tests {
         };
 
         let encoded = ActionsCodec::encode(actions.clone())?;
-        assert_eq!(encoded.fallback(), "1 The Turkey (of course)\n2 Pork Loin");
+        assert!(
+            encoded
+                .fallback()
+                .contains("1 The Turkey (of course)\n2 Pork Loin"),
+        );
         let decoded = ActionsCodec::decode(encoded)?;
 
         assert_eq!(decoded, actions);
