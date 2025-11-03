@@ -5,7 +5,9 @@ use xmtp_proto::api::{ApiClientError, Client, QueryStream, XmtpStream};
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1::subscribe_group_messages_request::Filter as GroupSubscribeFilter;
 use xmtp_proto::mls_v1::subscribe_welcome_messages_request::Filter as WelcomeSubscribeFilter;
-use xmtp_proto::types::{GroupId, GroupMessage, InstallationId, TopicKind, WelcomeMessage};
+use xmtp_proto::types::{
+    GlobalCursor, GroupId, GroupMessage, InstallationId, TopicKind, WelcomeMessage,
+};
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -38,10 +40,37 @@ where
         let mut filters = vec![];
         for topic in &topics {
             let cursor = cursors.get(topic).cloned().unwrap_or_default().max();
-            tracing::info!("subscribing to {topic} @ {cursor}");
+            tracing::debug!("subscribing to {topic} @ {cursor}");
             filters.push(GroupSubscribeFilter {
                 group_id: topic.identifier().to_vec(),
                 id_cursor: cursor,
+            })
+        }
+
+        Ok(try_from_stream(
+            SubscribeGroupMessages::builder()
+                .filters(filters)
+                .build()?
+                .stream(&self.client)
+                .await?,
+        ))
+    }
+
+    async fn subscribe_group_messages_with_cursors(
+        &self,
+        groups_with_cursors: &[(&GroupId, GlobalCursor)],
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
+        let mut filters = vec![];
+        for (group_id, cursor) in groups_with_cursors {
+            let id_cursor = cursor.max();
+            tracing::debug!(
+                "subscribing to group {} @ cursor {}",
+                hex::encode(group_id),
+                id_cursor
+            );
+            filters.push(GroupSubscribeFilter {
+                group_id: group_id.to_vec(),
+                id_cursor,
             })
         }
 

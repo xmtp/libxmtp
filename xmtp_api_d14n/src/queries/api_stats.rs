@@ -185,6 +185,16 @@ where
         self.inner.subscribe_group_messages(group_ids).await
     }
 
+    async fn subscribe_group_messages_with_cursors(
+        &self,
+        groups_with_cursors: &[(&GroupId, xmtp_proto::types::GlobalCursor)],
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
+        self.stats.subscribe_messages.count_request();
+        self.inner
+            .subscribe_group_messages_with_cursors(groups_with_cursors)
+            .await
+    }
+
     async fn subscribe_welcome_messages(
         &self,
         installations: &[&InstallationId],

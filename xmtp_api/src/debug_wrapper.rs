@@ -240,6 +240,20 @@ where
         .await
     }
 
+    async fn subscribe_group_messages_with_cursors(
+        &self,
+        groups_with_cursors: &[(&GroupId, GlobalCursor)],
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
+        wrap_err(
+            || {
+                self.inner
+                    .subscribe_group_messages_with_cursors(groups_with_cursors)
+            },
+            || self.inner.aggregate_stats(),
+        )
+        .await
+    }
+
     async fn subscribe_welcome_messages(
         &self,
         installations: &[&InstallationId],
