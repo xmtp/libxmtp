@@ -75,10 +75,10 @@ pub(super) struct GroupList {
 }
 
 impl GroupList {
-    pub(super) fn new(list: Vec<GroupId>) -> Self {
+    pub(super) fn new(list: Vec<GroupId>, seen: HashSet<Cursor>) -> Self {
         Self {
             list: list.into_iter().map(|g| (g, Default::default())).collect(),
-            seen: HashSet::new(),
+            seen,
         }
     }
 
