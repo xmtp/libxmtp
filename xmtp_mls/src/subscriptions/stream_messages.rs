@@ -5,6 +5,9 @@ mod types;
 #[cfg(any(test, feature = "test-utils"))]
 pub use test_utils::*;
 
+#[cfg(not(any(test, feature = "test-utils")))]
+use std::collections::VecDeque;
+
 use types::GroupList;
 pub(super) use types::MessagePosition;
 pub use types::MessageStreamError;

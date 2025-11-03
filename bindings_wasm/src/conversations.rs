@@ -16,9 +16,9 @@ use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group::{ConversationType as XmtpConversationType, GroupQueryOrderBy};
 use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
-use xmtp_mls::common::group::{DMMetadataOptions, GroupMetadataOptions};
-use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_mls::groups::PreconfiguredPolicies;
+use xmtp_mls::mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
+use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_proto::types::Cursor;
 
 #[wasm_bindgen]
