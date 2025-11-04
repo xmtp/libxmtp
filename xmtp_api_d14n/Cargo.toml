@@ -8,7 +8,6 @@ version.workspace = true
 workspace = true
 
 [dependencies]
-arc-swap.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 derive_builder.workspace = true

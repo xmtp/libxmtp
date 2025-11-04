@@ -396,29 +396,3 @@ where
             .await
     }
 }
-
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<T> CursorAwareApi for Box<T>
-where
-    T: CursorAwareApi + ?Sized,
-{
-    type CursorStore = T::CursorStore;
-
-    fn set_cursor_store(&self, store: Self::CursorStore) {
-        <T as CursorAwareApi>::set_cursor_store(self, store)
-    }
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<T> CursorAwareApi for Arc<T>
-where
-    T: CursorAwareApi + ?Sized,
-{
-    type CursorStore = T::CursorStore;
-
-    fn set_cursor_store(&self, store: Self::CursorStore) {
-        <T as CursorAwareApi>::set_cursor_store(self, store)
-    }
-}
