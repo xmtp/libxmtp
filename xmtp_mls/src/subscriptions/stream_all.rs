@@ -192,10 +192,7 @@ where
         if let Some(group) = ready!(this.conversations.poll_next(cx)) {
             let group_result = group?;
             this.messages.as_mut().add(group_result);
-
             cx.waker().wake_by_ref();
-
-            return Poll::Pending;
         }
         Poll::Pending
     }
