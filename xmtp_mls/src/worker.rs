@@ -1,3 +1,4 @@
+use crate::tasks::TaskWorkerChannels;
 use crate::{context::XmtpSharedContext, groups::device_sync::worker::SyncMetric};
 use futures::{StreamExt, stream::FuturesUnordered};
 use metrics::WorkerMetrics;
@@ -21,13 +22,12 @@ pub enum WorkerKind {
     PendingSelfRemove,
 }
 
-#[derive(Clone)]
 pub struct WorkerRunner {
     // When this is cloned into the Context this is empty, so the Context and Client have different views
     factories: Vec<DynFactory>,
     metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
-    task_channels: crate::tasks::TaskWorkerChannels,
-    handle: Arc<Mutex<Option<Box<dyn StreamHandle<StreamOutput = ()>>>>>,
+    task_channels: TaskWorkerChannels,
+    handle: Mutex<Option<Box<dyn StreamHandle<StreamOutput = ()>>>>,
 }
 
 impl Default for WorkerRunner {
@@ -41,9 +41,13 @@ impl WorkerRunner {
         Self {
             factories: Vec::new(),
             metrics: Arc::default(),
-            task_channels: crate::tasks::TaskWorkerChannels::new(),
-            handle: Arc::default(),
+            task_channels: TaskWorkerChannels::default(),
+            handle: Mutex::default(),
         }
+    }
+
+    pub fn metrics(&self) -> &Arc<Mutex<HashMap<WorkerKind, DynMetrics>>> {
+        &self.metrics
     }
 
     pub fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
@@ -53,7 +57,7 @@ impl WorkerRunner {
             .as_sync_metrics()
     }
 
-    pub fn task_channels(&self) -> &crate::tasks::TaskWorkerChannels {
+    pub fn task_channels(&self) -> &TaskWorkerChannels {
         &self.task_channels
     }
 }
@@ -115,6 +119,11 @@ impl WorkerRunner {
 
 pub type WorkerResult<T> = Result<T, Box<dyn NeedsDbReconnect>>;
 
+#[cfg(not(target_arch = "wasm32"))]
+type SpawnWorkerFut = dyn Future<Output = ()> + Send;
+#[cfg(target_arch = "wasm32")]
+type SpawnWorkerFut = dyn Future<Output = ()>;
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait Worker: MaybeSend + MaybeSync + 'static {
@@ -139,7 +148,7 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
         Box::new(self) as Box<_>
     }
 
-    fn spawn(mut self: Box<Self>) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+    fn spawn(mut self: Box<Self>) -> Pin<Box<SpawnWorkerFut>> {
         let fut = async move {
             loop {
                 if let Err(err) = self.run_tasks().await {

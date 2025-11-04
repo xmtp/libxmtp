@@ -288,7 +288,7 @@ where
     }
 
     pub fn device_sync_client(&self) -> DeviceSyncClient<Context> {
-        let metrics = self.context.workers().sync_metrics();
+        let metrics = self.context.sync_metrics();
         DeviceSyncClient::new(
             self.context.clone(),
             metrics.unwrap_or(Arc::new(WorkerMetrics::new(self.context.installation_id()))),
