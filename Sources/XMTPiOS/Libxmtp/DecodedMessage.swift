@@ -75,6 +75,10 @@ public struct DecodedMessage: Identifiable {
 		ffiMessage.senderInboxId
 	}
 
+	public var kind: FfiConversationMessageKind {
+		ffiMessage.kind
+	}
+
 	public var sentAt: Date {
 		Date(
 			timeIntervalSince1970: TimeInterval(ffiMessage.sentAtNs)
