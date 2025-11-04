@@ -66,3 +66,17 @@ async fn test_dm_welcome_with_preexisting_consent() {
         a_group.group_id
     );
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn dm_stitch_with_new_installation() {
+    tester!(alix1);
+    tester!(bo);
+
+    let (bo_dm, _) = bo.test_talk_in_dm_with(&alix1).await?;
+
+    tester!(alix2, from: alix1);
+    drop(alix1);
+
+    alix2.test_talk_in_dm_with(&bo).await?;
+    bo.test_talk_in_dm_with(&alix2).await?;
+}

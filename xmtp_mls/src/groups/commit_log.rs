@@ -216,7 +216,7 @@ where
     async fn run(&mut self) -> Result<(), CommitLogError> {
         let mut worker_interval = DEFAULT_INTERVAL_DURATION;
         if let Some(interval) = self.context.fork_recovery_opts().worker_interval_ns {
-            worker_interval = Duration::from_nanos(interval);
+            worker_interval = Duration::from_nanos(interval).max(Duration::from_secs(1));
         }
         let mut intervals = xmtp_common::time::interval_stream(worker_interval);
         while (intervals.next().await).is_some() {
@@ -566,7 +566,6 @@ where
             );
             return true;
         }
-
         let Some(latest_saved_remote_log) = latest_saved_remote_log else {
             return false;
         };
@@ -683,7 +682,7 @@ where
         Ok(())
     }
 
-    /// Send readd requests for all forked conversations  
+    /// Send readd requests for all forked conversations
     async fn send_outgoing_readd_requests(&mut self) -> Result<(), CommitLogError> {
         if self.context.fork_recovery_opts().enable_recovery_requests == ForkRecoveryPolicy::None {
             return Ok(());
