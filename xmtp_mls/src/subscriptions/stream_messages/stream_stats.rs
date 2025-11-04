@@ -7,7 +7,7 @@ use crate::{
         stream_conversations::{StreamConversations, WelcomesApiSubscription},
     },
 };
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use parking_lot::Mutex;
 use pin_project_lite::pin_project;
 use std::{
@@ -190,5 +190,19 @@ where
         }
 
         inner_poll
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn stream_stats() {
+        tester!(alix);
+
+        let stream = alix
+            .stream_all_messages_owned_with_stats(None, None)
+            .await?;
     }
 }

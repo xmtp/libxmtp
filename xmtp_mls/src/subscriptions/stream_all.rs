@@ -28,7 +28,7 @@ use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::GroupId;
 
 pin_project! {
-    pub(super) struct StreamAllMessages<'a, Context: Clone, Conversations, Messages> {
+    pub struct StreamAllMessages<'a, Context: Clone, Conversations, Messages> {
         #[pin] pub(super) conversations: Conversations,
         #[pin] pub(super) messages: Messages,
         pub(super) context: Cow<'a, Context>,

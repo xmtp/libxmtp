@@ -22,7 +22,7 @@ pub mod stream_messages;
 mod stream_utils;
 
 #[cfg(any(test, feature = "test-utils"))]
-use crate::subscriptions::stream_messages::stream_stats::{StreamStats, StreamWithStats};
+use crate::subscriptions::stream_messages::stream_stats::StreamWithStats;
 
 use crate::{
     Client,
@@ -30,6 +30,10 @@ use crate::{
     groups::{
         GroupError, MlsGroup, device_sync::preference_sync::PreferenceUpdate,
         mls_sync::GroupMessageProcessingError,
+    },
+    subscriptions::{
+        stream_conversations::WelcomesApiSubscription,
+        stream_messages::{MessagesApiSubscription, StreamGroupMessages},
     },
 };
 use thiserror::Error;
@@ -390,10 +394,22 @@ where
         &self,
         conversation_type: Option<ConversationType>,
         consent_state: Option<Vec<ConsentState>>,
-    ) -> Result<(
-        impl Stream<Item = Result<StoredGroupMessage>> + 'static,
-        Arc<StreamStats>,
-    )> {
+    ) -> Result<
+        StreamWithStats<
+            'static,
+            Context,
+            StreamConversations<
+                'static,
+                Context,
+                WelcomesApiSubscription<'static, Context::ApiClient>,
+            >,
+            StreamGroupMessages<
+                'static,
+                Context,
+                MessagesApiSubscription<'static, Context::ApiClient>,
+            >,
+        >,
+    > {
         tracing::debug!(
             inbox_id = self.inbox_id(),
             installation_id = %self.context.installation_id(),
@@ -404,10 +420,8 @@ where
         let stream =
             StreamAllMessages::new_owned(self.context.clone(), conversation_type, consent_state)
                 .await?;
-        let stream = StreamWithStats::new(stream);
-        let stats = stream.stats();
 
-        Ok((stream, stats))
+        Ok(StreamWithStats::new(stream))
     }
 
     pub fn stream_all_messages_with_callback(

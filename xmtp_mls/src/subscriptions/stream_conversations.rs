@@ -57,7 +57,7 @@ impl std::fmt::Debug for WelcomeOrGroup {
 
 pin_project! {
     /// Broadcast stream filtered + mapped to WelcomeOrGroup
-    pub(super) struct BroadcastGroupStream {
+    pub struct BroadcastGroupStream {
         #[pin] inner: BroadcastStream<LocalEvents>,
     }
 }
@@ -99,7 +99,7 @@ impl Stream for BroadcastGroupStream {
 
 pin_project! {
     /// Subscription Stream mapped to WelcomeOrGroup
-    pub(super) struct SubscriptionStream<S, E> {
+    pub struct SubscriptionStream<S, E> {
         #[pin] inner: S,
         _marker: std::marker::PhantomData<E>
     }
