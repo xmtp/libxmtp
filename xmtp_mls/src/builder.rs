@@ -275,7 +275,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         let (tx, _) = broadcast::channel(32);
         let (worker_tx, _) = broadcast::channel(32);
-        let mut workers = Arc::new(WorkerRunner::new());
+        let mut workers = WorkerRunner::new();
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
             mls_storage,
@@ -300,8 +300,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         // register workers
         if !disable_workers {
-            let workers = Arc::get_mut(&mut workers).expect("Arc is not shared");
-
             if context.device_sync_worker_enabled() {
                 workers.register_new_worker::<SyncWorker<ContextParts<ApiClient, S, Db>>, _>(
                     context.clone(),
@@ -337,6 +335,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     context.clone(),
                 );
         }
+
+        let workers = Arc::new(workers);
 
         if !disable_workers {
             workers.spawn();
