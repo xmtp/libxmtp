@@ -48,9 +48,13 @@ where
             }
             TopicKind::GroupMessagesV1 => {
                 let ids = vec![EntityKind::ApplicationMessage, EntityKind::CommitMessage];
-                self.db
+                let new_cursor = self
+                    .db
                     .latest_cursor_for_id(topic.identifier(), &ids, None)
-                    .map_err(|e| CursorStoreError::Other(Box::new(e) as Box<_>))
+                    .map_err(|e| CursorStoreError::Other(Box::new(e) as Box<_>))?;
+
+                tracing::info!("fetched latest cursor for group messages {}", new_cursor);
+                Ok(new_cursor)
             }
             TopicKind::IdentityUpdatesV1 => {
                 let sid = self
@@ -71,6 +75,11 @@ where
         topic: &Topic,
         originators: &[&OriginatorId],
     ) -> Result<GlobalCursor, CursorStoreError> {
+        tracing::info!(
+            "getting latest per originator for originators {:?} for topic of kind {:?}",
+            originators,
+            topic.kind()
+        );
         match topic.kind() {
             TopicKind::WelcomeMessagesV1 => {
                 let entities = vec![EntityKind::Welcome];
@@ -80,9 +89,13 @@ where
             }
             TopicKind::GroupMessagesV1 => {
                 let entities = vec![EntityKind::ApplicationMessage, EntityKind::CommitMessage];
-                self.db
+                let cursor = self
+                    .db
                     .latest_cursor_for_id(topic.identifier(), &entities, Some(originators))
-                    .map_err(|e| CursorStoreError::Other(Box::new(e) as Box<_>))
+                    .map_err(|e| CursorStoreError::Other(Box::new(e) as Box<_>))?;
+
+                tracing::info!("got cursor for group messages {:?}", cursor);
+                Ok(cursor)
             }
             TopicKind::IdentityUpdatesV1 => {
                 let sid = self

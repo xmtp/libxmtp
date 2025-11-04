@@ -40,7 +40,7 @@ pub const SUPER_ADMIN_METADATA_PREFIX: &str = "_";
 pub const HMAC_SALT: &[u8] = b"libXMTP HKDF salt!";
 
 pub const ENABLE_COMMIT_LOG: bool = true;
-pub const MIN_RECOVERY_REQUEST_VERSION: &str = "1.6.0";
+pub const MIN_RECOVERY_REQUEST_VERSION: &str = "1.6.1";
 
 // Welcome pointers are mostly the hpke public key and less than 100 bytes for the welcome pointer
 // so as long as we have 2 installations that need a single welcome it will result in less data being
