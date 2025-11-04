@@ -96,7 +96,7 @@ impl WorkerRunner {
                 futs.push(worker.spawn());
             }
 
-            while let Some(_) = futs.next().await {
+            while futs.next().await.is_some() {
                 tracing::warn!("Worker completed unexpectedly")
             }
         });
