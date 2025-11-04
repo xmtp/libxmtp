@@ -9,7 +9,7 @@ use thiserror::Error;
 use xmtp_db::{StorageError, prelude::*};
 
 /// Interval at which the PendingSelfRemoveWorker runs to remove the members want requested SelfRemove.
-pub const INTERVAL_DURATION: Duration = Duration::from_secs(1);
+pub const INTERVAL_DURATION: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Error)]
 pub enum PendingSelfRemoveWorkerError {
