@@ -1,4 +1,5 @@
 use super::D14nClient;
+use crate::protocol::CursorStore;
 use crate::protocol::IdentityUpdateExtractor;
 use crate::protocol::SequencedExtractor;
 use crate::protocol::traits::{Envelope, EnvelopeCollection, Extractor};
@@ -26,12 +27,13 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, G, E> XmtpIdentityClient for D14nClient<C, G>
+impl<C, G, Store, E> XmtpIdentityClient for D14nClient<C, G, Store>
 where
     E: std::error::Error + RetryableError + 'static,
     G: Client<Error = E>,
     C: Client<Error = E>,
     ApiClientError<E>: From<ApiClientError<<G as xmtp_proto::api::Client>::Error>> + 'static,
+    Store: CursorStore,
 {
     type Error = ApiClientError<E>;
 

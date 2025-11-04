@@ -35,9 +35,16 @@ xmtp_common::if_test! {
     pub trait XmtpTestClient {
         type Builder: ApiBuilder;
         fn create_local() -> Self::Builder;
-        fn create_d14n() -> Self::Builder;
-        fn create_gateway() -> Self::Builder;
-        fn create_dev() -> Self::Builder;
+
+        fn create_d14n() -> Self::Builder {
+            unimplemented!("d14n not implemented for this test client")
+        }
+        fn create_gateway() -> Self::Builder {
+            unimplemented!("gateway not implemented for this test client")
+        }
+        fn create_dev() -> Self::Builder {
+            unimplemented!("dev not implemented for this test client")
+        }
     }
 }
 
@@ -233,17 +240,4 @@ pub trait ApiBuilder: MaybeSend + MaybeSync {
 
     /// Build the api client
     fn build(self) -> Result<Self::Output, Self::Error>;
-}
-
-/// trait indicating this type may be built in a way that can manage network cursors.
-/// Api Clients may choose their own strategy for managing cursors.
-/// for instance, v3 clients may make assumptions about the centralization of a backend.
-/// d14n clients may be more careful or strategic when choosing cursors.
-/// etc.
-pub trait CursorAwareApi: MaybeSend + MaybeSync {
-    type CursorStore;
-
-    /// set the cursor store for this api
-    /// a cursor indicates a position in a backend network topic
-    fn set_cursor_store(&self, store: Self::CursorStore);
 }

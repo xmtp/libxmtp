@@ -36,7 +36,6 @@ fn setup() -> (Arc<BenchClient>, Vec<Identity>, Runtime) {
                 ClientBuilder::new_test_builder(&wallet)
                     .await
                     .dev()
-                    .await
                     .build_unchecked()
                     .await,
             )
@@ -45,7 +44,6 @@ fn setup() -> (Arc<BenchClient>, Vec<Identity>, Runtime) {
                 ClientBuilder::new_test_builder(&wallet)
                     .await
                     .local()
-                    .await
                     .build_unchecked()
                     .await,
             )
