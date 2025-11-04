@@ -1,4 +1,3 @@
-use napi::bindgen_prelude::Uint8Array;
 use prost::Message as ProstMessage;
 use xmtp_db::group_message::{
   DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs,
@@ -11,6 +10,7 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedConten
 use crate::{content_types::ContentType, encoded_content::EncodedContent};
 
 #[napi]
+#[derive(Clone)]
 pub enum GroupMessageKind {
   Application,
   MembershipChange,
@@ -35,6 +35,7 @@ impl From<GroupMessageKind> for XmtpGroupMessageKind {
 }
 
 #[napi]
+#[derive(Clone)]
 pub enum DeliveryStatus {
   Unpublished,
   Published,
@@ -141,7 +142,7 @@ impl From<StoredGroupMessage> for Message {
           parameters: Default::default(),
           fallback: None,
           compression: None,
-          content: Uint8Array::new(vec![]),
+          content: vec![].into(),
         }
       }
     };
@@ -159,7 +160,6 @@ impl From<StoredGroupMessage> for Message {
 }
 
 #[napi(object)]
-#[derive(Clone)]
 pub struct MessageWithReactions {
   pub message: Message,
   pub reactions: Vec<Message>,

@@ -1,9 +1,8 @@
 use std::{collections::HashMap, ops::Deref};
 
 use napi::{
-  JsFunction,
   bindgen_prelude::{Result, Uint8Array},
-  threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode},
+  threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode},
 };
 use xmtp_db::{
   group::{ConversationType, DmIdExt},
@@ -85,10 +84,18 @@ pub enum PermissionLevel {
 #[napi]
 pub struct GroupMember {
   pub inbox_id: String,
-  pub account_identifiers: Vec<Identifier>,
+  account_identifiers: Vec<Identifier>,
   pub installation_ids: Vec<String>,
   pub permission_level: PermissionLevel,
   pub consent_state: ConsentState,
+}
+
+#[napi]
+impl GroupMember {
+  #[napi(getter)]
+  pub fn account_identifiers(&self) -> Vec<Identifier> {
+    self.account_identifiers.clone()
+  }
 }
 
 #[napi]
@@ -513,16 +520,16 @@ impl Conversation {
   #[napi(
     ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, onClose: () => void"
   )]
-  pub fn stream(&self, callback: JsFunction, on_close: JsFunction) -> Result<StreamCloser> {
-    let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
-      callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
-      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+  pub async fn stream(
+    &self,
+    callback: ThreadsafeFunction<Message, ()>,
+    on_close: ThreadsafeFunction<(), ()>,
+  ) -> Result<StreamCloser> {
     let stream_closer = MlsGroup::stream_with_callback(
       self.inner_group.context.clone(),
       self.group_id.clone(),
       move |message| {
-        let status = tsfn.call(
+        let status = callback.call(
           message
             .map(Message::from)
             .map_err(ErrorWrapper::from)
@@ -532,7 +539,7 @@ impl Conversation {
         tracing::info!("Stream status: {:?}", status);
       },
       move || {
-        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+        on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
       },
     );
 
