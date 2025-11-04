@@ -1,9 +1,11 @@
 use crate::{context::XmtpSharedContext, groups::device_sync::worker::SyncMetric};
+use futures::{StreamExt, stream::FuturesUnordered};
 use metrics::WorkerMetrics;
 use parking_lot::Mutex;
 use std::fmt::Debug;
+use std::pin::Pin;
 use std::{any::Any, collections::HashMap, hash::Hash, sync::Arc};
-use xmtp_common::{MaybeSend, MaybeSync};
+use xmtp_common::{MaybeSend, MaybeSync, StreamHandle};
 use xmtp_configuration::WORKER_RESTART_DELAY;
 
 pub mod metrics;
@@ -25,6 +27,7 @@ pub struct WorkerRunner {
     factories: Vec<DynFactory>,
     metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
     task_channels: crate::tasks::TaskWorkerChannels,
+    handle: Arc<Mutex<Option<Box<dyn StreamHandle<StreamOutput = ()>>>>>,
 }
 
 impl Default for WorkerRunner {
@@ -37,8 +40,9 @@ impl WorkerRunner {
     pub fn new() -> Self {
         Self {
             factories: Vec::new(),
-            metrics: Arc::new(Mutex::new(HashMap::new())),
+            metrics: Arc::default(),
             task_channels: crate::tasks::TaskWorkerChannels::new(),
+            handle: Arc::default(),
         }
     }
 
@@ -63,21 +67,37 @@ impl WorkerRunner {
         self.factories.push(Arc::new(factory))
     }
 
-    pub fn spawn(&self) {
-        for factory in &self.factories {
-            let metric = self.metrics.lock().get(&factory.kind()).cloned();
-            let (worker, metrics) = factory.create(metric);
-
-            if let Some(metrics) = metrics {
-                self.metrics.lock().insert(factory.kind(), metrics);
-            }
-
-            if let Some(metrics) = worker.metrics() {
-                let mut m = self.metrics.lock();
-                m.insert(worker.kind(), metrics);
-            }
-            worker.spawn()
+    pub fn spawn(self: &Arc<Self>) {
+        let mut handle_lock = self.handle.lock();
+        if let Some(handle) = handle_lock.take() {
+            handle.abort_handle().end();
         }
+
+        let this = self.clone();
+        let handle = xmtp_common::spawn(None, async move {
+            let mut futs = FuturesUnordered::new();
+
+            for factory in &this.factories {
+                let metric = this.metrics.lock().get(&factory.kind()).cloned();
+                let (worker, metrics) = factory.create(metric);
+
+                if let Some(metrics) = metrics {
+                    this.metrics.lock().insert(factory.kind(), metrics);
+                }
+
+                if let Some(metrics) = worker.metrics() {
+                    let mut m = this.metrics.lock();
+                    m.insert(worker.kind(), metrics);
+                }
+                futs.push(worker.spawn());
+            }
+
+            while let Some(_) = futs.next().await {
+                tracing::warn!("Worker completed unexpectedly")
+            }
+        });
+
+        *handle_lock = Some(Box::new(handle));
     }
 
     pub async fn wait_for_sync_worker_init(&self) {
@@ -119,8 +139,8 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
         Box::new(self) as Box<_>
     }
 
-    fn spawn(mut self: Box<Self>) {
-        xmtp_common::spawn(None, async move {
+    fn spawn(mut self: Box<Self>) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let fut = async move {
             loop {
                 if let Err(err) = self.run_tasks().await {
                     if err.needs_db_reconnect() {
@@ -134,7 +154,9 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
                     }
                 }
             }
-        });
+        };
+
+        Box::pin(fut)
     }
 }
 

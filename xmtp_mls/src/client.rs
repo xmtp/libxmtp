@@ -162,7 +162,7 @@ impl From<&str> for ClientError {
 pub struct Client<Context> {
     pub context: Context,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
-    pub(crate) workers: WorkerRunner,
+    pub(crate) workers: Arc<WorkerRunner>,
 }
 
 #[derive(Clone)]
