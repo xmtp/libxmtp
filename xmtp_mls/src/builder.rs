@@ -339,7 +339,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         let workers = Arc::new(workers);
 
         if !disable_workers {
-            workers.spawn();
+            workers.spawn(context.clone());
         }
 
         let client = Client {

@@ -71,7 +71,10 @@ impl WorkerRunner {
         self.factories.push(Arc::new(factory))
     }
 
-    pub fn spawn(self: &Arc<Self>) {
+    pub fn spawn<C>(self: &Arc<Self>, ctx: C)
+    where
+        C: XmtpSharedContext + 'static,
+    {
         let mut handle_lock = self.handle.lock();
         if let Some(handle) = handle_lock.take() {
             handle.abort_handle().end();
@@ -79,6 +82,10 @@ impl WorkerRunner {
 
         let this = self.clone();
         let handle = xmtp_common::spawn(None, async move {
+            while !ctx.identity().is_ready() {
+                xmtp_common::task::yield_now().await;
+            }
+
             let mut futs = FuturesUnordered::new();
 
             for factory in &this.factories {
