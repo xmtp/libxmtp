@@ -25,6 +25,51 @@ public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 	}
 }
 
+public enum ForkRecoveryPolicy {
+	case none
+	case allowlistedGroups
+	case all
+
+	func toFfi() -> FfiForkRecoveryPolicy {
+		switch self {
+		case .none:
+			return .none
+		case .allowlistedGroups:
+			return .allowlistedGroups
+		case .all:
+			return .all
+		}
+	}
+}
+
+public struct ForkRecoveryOptions {
+	public var enableRecoveryRequests: ForkRecoveryPolicy
+	public var groupsToRequestRecovery: [String]
+	public var disableRecoveryResponses: Bool?
+	public var workerIntervalNs: UInt64?
+
+	public init(
+		enableRecoveryRequests: ForkRecoveryPolicy,
+		groupsToRequestRecovery: [String],
+		disableRecoveryResponses: Bool? = nil,
+		workerIntervalNs: UInt64? = nil
+	) {
+		self.enableRecoveryRequests = enableRecoveryRequests
+		self.groupsToRequestRecovery = groupsToRequestRecovery
+		self.disableRecoveryResponses = disableRecoveryResponses
+		self.workerIntervalNs = workerIntervalNs
+	}
+
+	func toFfi() -> FfiForkRecoveryOpts {
+		FfiForkRecoveryOpts(
+			enableRecoveryRequests: enableRecoveryRequests.toFfi(),
+			groupsToRequestRecovery: groupsToRequestRecovery,
+			disableRecoveryResponses: disableRecoveryResponses,
+			workerIntervalNs: workerIntervalNs
+		)
+	}
+}
+
 /// Specify configuration options for creating a ``Client``.
 public struct ClientOptions {
 	// Specify network options
@@ -65,6 +110,7 @@ public struct ClientOptions {
 	public var historySyncUrl: String?
 	public var deviceSyncEnabled: Bool
 	public var debugEventsEnabled: Bool
+	public var forkRecoveryOptions: ForkRecoveryOptions?
 
 	public init(
 		api: Api = Api(),
@@ -75,8 +121,8 @@ public struct ClientOptions {
 		historySyncUrl: String? = nil,
 		useDefaultHistorySyncUrl: Bool = true,
 		deviceSyncEnabled: Bool = true,
-		debugEventsEnabled: Bool = false
-
+		debugEventsEnabled: Bool = false,
+		forkRecoveryOptions: ForkRecoveryOptions? = nil
 	) {
 		self.api = api
 		self.codecs = codecs
@@ -90,6 +136,7 @@ public struct ClientOptions {
 		}
 		self.deviceSyncEnabled = deviceSyncEnabled
 		self.debugEventsEnabled = debugEventsEnabled
+		self.forkRecoveryOptions = forkRecoveryOptions
 	}
 }
 
@@ -361,7 +408,8 @@ public final class Client {
 			deviceSyncServerUrl: options.historySyncUrl,
 			deviceSyncMode: deviceSyncMode,
 			allowOffline: buildOffline,
-			disableEvents: options.debugEventsEnabled
+			disableEvents: options.debugEventsEnabled,
+			forkRecoveryOpts: options.forkRecoveryOptions?.toFfi()
 		)
 
 		return (ffiClient, dbURL)
@@ -409,7 +457,8 @@ public final class Client {
 
 		// Either not cached or not connected; create new client
 		let newClient = try await connectToBackend(
-			host: api.env.url,
+			v3Host: api.env.url,
+			gatewayHost: api.gatewayHost,
 			isSecure: api.isSecure,
 			appVersion: api.appVersion
 		)
@@ -432,7 +481,8 @@ public final class Client {
 
 		// Either not cached or not connected; create new client
 		let newClient = try await connectToBackend(
-			host: api.env.url,
+			v3Host: api.env.url,
+			gatewayHost: api.gatewayHost,
 			isSecure: api.isSecure,
 			appVersion: api.appVersion
 		)
@@ -576,7 +626,8 @@ public final class Client {
 			deviceSyncServerUrl: nil,
 			deviceSyncMode: nil,
 			allowOffline: false,
-			disableEvents: false
+			disableEvents: false,
+			forkRecoveryOpts: nil
 		)
 	}
 

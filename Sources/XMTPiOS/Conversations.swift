@@ -29,6 +29,21 @@ public enum ConversationError: Error, CustomStringConvertible, LocalizedError {
 	}
 }
 
+public struct GroupSyncSummary {
+	public var numEligible: UInt64
+	public var numSynced: UInt64
+
+	public init(numEligible: UInt64, numSynced: UInt64) {
+		self.numEligible = numEligible
+		self.numSynced = numSynced
+	}
+
+	init(ffiGroupSyncSummary: FfiGroupSyncSummary) {
+		numEligible = ffiGroupSyncSummary.numEligible
+		numSynced = ffiGroupSyncSummary.numSynced
+	}
+}
+
 public enum ConversationFilterType {
 	case all, groups, dms
 }
@@ -217,11 +232,12 @@ public class Conversations {
 	}
 
 	public func syncAllConversations(consentStates: [ConsentState]? = nil)
-		async throws -> UInt32
+		async throws -> GroupSyncSummary
 	{
-		try await ffiConversations.syncAllConversations(
+		let ffiResult = try await ffiConversations.syncAllConversations(
 			consentStates: consentStates?.toFFI
 		)
+		return GroupSyncSummary(ffiGroupSyncSummary: ffiResult)
 	}
 
 	public func listGroups(
