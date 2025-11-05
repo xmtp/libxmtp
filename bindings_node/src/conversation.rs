@@ -517,9 +517,10 @@ impl Conversation {
     Ok(group_description)
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, onClose: () => void"
-  )]
+  // #[napi(
+  //   ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, onClose: () => void"
+  // )]
+  #[napi]
   pub async fn stream(
     &self,
     callback: ThreadsafeFunction<Message, ()>,

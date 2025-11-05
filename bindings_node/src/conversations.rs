@@ -540,10 +540,11 @@ impl Conversations {
     Ok(hmac_map)
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: Error | null, result: Conversation | undefined) => void, onClose: () => void, conversationType?: ConversationType"
-  )]
-  pub fn stream(
+  // #[napi(
+  //   ts_args_type = "callback: (err: Error | null, result: Conversation | undefined) => void, onClose: () => void, conversationType?: ConversationType"
+  // )]
+  #[napi]
+  pub async fn stream(
     &self,
     callback: ThreadsafeFunction<Conversation, ()>,
     on_close: ThreadsafeFunction<(), ()>,
@@ -571,10 +572,11 @@ impl Conversations {
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, onClose: () => void, conversationType?: ConversationType, consentStates?: ConsentState[]"
-  )]
-  pub fn stream_all_messages(
+  // #[napi(
+  //   ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, onClose: () => void, conversationType?: ConversationType, consentStates?: ConsentState[]"
+  // )]
+  #[napi]
+  pub async fn stream_all_messages(
     &self,
     callback: ThreadsafeFunction<Message, ()>,
     on_close: ThreadsafeFunction<(), ()>,
@@ -648,10 +650,11 @@ impl Conversations {
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Consent[] | undefined) => void, onClose: () => void"
-  )]
-  pub fn stream_consent(
+  // #[napi(
+  //   ts_args_type = "callback: (err: null | Error, result: Consent[] | undefined) => void, onClose: () => void"
+  // )]
+  #[napi]
+  pub async fn stream_consent(
     &self,
     callback: ThreadsafeFunction<Vec<Consent>, ()>,
     on_close: ThreadsafeFunction<(), ()>,
@@ -685,10 +688,11 @@ impl Conversations {
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: null | Error, result: UserPreferenceUpdate[] | undefined) => void, onClose: () => void"
-  )]
-  pub fn stream_preferences(
+  // #[napi(
+  //   ts_args_type = "callback: (err: null | Error, result: UserPreferenceUpdate[] | undefined) => void, onClose: () => void"
+  // )]
+  #[napi]
+  pub async fn stream_preferences(
     &self,
     callback: ThreadsafeFunction<Vec<UserPreferenceUpdate>, ()>,
     on_close: ThreadsafeFunction<(), ()>,
