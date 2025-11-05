@@ -86,6 +86,17 @@ pub struct StreamStats {
     pub rx: Mutex<UnboundedReceiver<StreamStat>>,
 }
 
+impl StreamStats {
+    pub fn new_stats(&self) -> Vec<StreamStat> {
+        let mut stats = vec![];
+        let mut stats_rx = self.rx.lock();
+        while let Ok(stat) = stats_rx.try_recv() {
+            stats.push(stat);
+        }
+        stats
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum StreamState {
     Unknown,
@@ -189,20 +200,45 @@ where
             this.stats.set_state(inner_state.into());
         }
 
+        *this.old_state = inner_state;
+
         inner_poll
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::tester;
+    use std::time::Duration;
+
+    use tokio_stream::StreamExt;
+
+    use crate::{subscriptions::stream_messages::stream_stats::StreamStat, tester};
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn stream_stats() {
         tester!(alix);
+        tester!(bo);
 
-        let stream = alix
+        let mut stream = alix
             .stream_all_messages_owned_with_stats(None, None)
             .await?;
+        let stream_stats = stream.stats();
+        tokio::task::spawn(async move { while let Some(_) = stream.next().await {} });
+        xmtp_common::time::sleep(Duration::from_millis(100)).await;
+
+        bo.test_talk_in_dm_with(&alix).await?;
+
+        xmtp_common::time::sleep(Duration::from_millis(100)).await;
+        let stats = stream_stats.new_stats();
+        assert!(
+            stats
+                .iter()
+                .any(|s| matches!(s, StreamStat::Reconnection { .. }))
+        );
+        assert!(
+            stats
+                .iter()
+                .any(|s| matches!(s, StreamStat::ChangeState { .. }))
+        );
     }
 }

@@ -644,9 +644,10 @@ async fn monitor_messages(
 
     let total = ctx.total();
 
-    let (mut stream, stats) = andre
+    let mut stream = andre
         .stream_all_messages_owned_with_stats(None, None)
         .await?;
+    let stats = stream.stats();
     let _ = stats_tx.send(stats);
 
     let mut monitoring_start: Option<Instant> = None;
