@@ -24,10 +24,28 @@ use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::prelude::XmtpMlsStreams;
 
 pin_project! {
-    pub struct StreamWithStats<'a, Context: Clone, Conversations, Messages> {
+    pub struct StreamStatsWrapper<'a, Context: Clone, Conversations, Messages> {
         #[pin] inner: StreamAllMessages<'a, Context, Conversations, Messages>,
         #[pin] old_state: StreamState,
         stats: StatsInner
+    }
+}
+
+pub trait StreamWithStats: Stream {
+    type Item;
+
+    fn stats(&self) -> Arc<StreamStats>;
+}
+
+impl<'a, Context: Clone, Conversations, Messages> StreamWithStats
+    for StreamStatsWrapper<'a, Context, Conversations, Messages>
+where
+    Self: Stream,
+{
+    type Item = Result<StoredGroupMessage>;
+
+    fn stats(&self) -> Arc<StreamStats> {
+        self.stats.stats()
     }
 }
 
@@ -59,6 +77,11 @@ impl StatsInner {
             .stats_tx
             .send(StreamStat::ChangeState { state: self.state });
     }
+
+    fn stats(&self) -> Arc<StreamStats> {
+        self.enabled.store(true, Ordering::SeqCst);
+        self.stats.clone()
+    }
 }
 
 impl StatsInner {
@@ -73,12 +96,6 @@ impl StatsInner {
             enabled: AtomicBool::new(false),
             state: StreamState::Unknown,
         }
-    }
-
-    // Give a reference to the stats handle
-    fn stats(&self) -> Arc<StreamStats> {
-        self.enabled.store(true, Ordering::SeqCst);
-        self.stats.clone()
     }
 }
 
@@ -127,7 +144,7 @@ pub enum StreamStat {
 }
 
 impl<'a, Context>
-    StreamWithStats<
+    StreamStatsWrapper<
         'a,
         Context,
         StreamConversations<'static, Context, WelcomesApiSubscription<'static, Context::ApiClient>>,
@@ -159,14 +176,10 @@ where
             stats: StatsInner::new(),
         }
     }
-
-    pub fn stats(&self) -> Arc<StreamStats> {
-        self.stats.stats()
-    }
 }
 
 impl<'a, Context, Conversations> Stream
-    for StreamWithStats<
+    for StreamStatsWrapper<
         'a,
         Context,
         Conversations,
@@ -212,7 +225,10 @@ mod tests {
 
     use tokio_stream::StreamExt;
 
-    use crate::{subscriptions::stream_messages::stream_stats::StreamStat, tester};
+    use crate::{
+        subscriptions::stream_messages::stream_stats::{StreamStat, StreamWithStats},
+        tester,
+    };
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn stream_stats() {
