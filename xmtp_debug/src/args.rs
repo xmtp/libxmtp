@@ -3,10 +3,14 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use color_eyre::eyre;
 use std::path::PathBuf;
+use xmtp_configuration::MULTI_NODE_TIMEOUT_MS;
 use xxhash_rust::xxh3;
 mod types;
+use std::time::Duration;
 pub use types::*;
-use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_api_d14n::{MessageBackendBuilder, MiddlewareBuilder};
+use xmtp_api_grpc::GrpcClient;
+use xmtp_proto::{api::Client, prelude::ApiBuilder};
 
 /// Debug & Generate data on the XMTP Network
 #[derive(Parser, Debug)]
@@ -273,6 +277,13 @@ pub struct BackendOpts {
     /// Enable the decentralization backend
     #[arg(short, long)]
     pub d14n: bool,
+    /// Timeout for reading writes to the decentralized backend
+    #[arg(long, short, default_value_t = default_ryow_timeout())]
+    pub ryow_timeout: humantime::Duration,
+}
+
+fn default_ryow_timeout() -> humantime::Duration {
+    "5s".parse::<humantime::Duration>().unwrap()
 }
 
 impl BackendOpts {
@@ -328,6 +339,22 @@ impl BackendOpts {
             trace!(url = %network, is_secure, "create grpc");
             Ok(builder.build()?)
         }
+    }
+
+    pub fn xmtpd(&self) -> eyre::Result<impl Client> {
+        let network = self.network_url();
+        let is_secure = network.scheme() == "https";
+
+        let mut gateway_client_builder = GrpcClient::builder();
+        gateway_client_builder.set_host(self.xmtpd_gateway_url()?.to_string());
+        gateway_client_builder.set_tls(is_secure);
+
+        let mut multi_node = xmtp_api_d14n::middleware::MultiNodeClientBuilder::default();
+        multi_node.set_timeout(Duration::from_millis(MULTI_NODE_TIMEOUT_MS))?;
+        multi_node.set_tls(is_secure);
+        multi_node.set_gateway_builder(gateway_client_builder.clone())?;
+
+        Ok(multi_node.build()?)
     }
 }
 
