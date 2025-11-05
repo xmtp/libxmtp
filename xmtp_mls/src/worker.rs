@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::pin::Pin;
 use std::{any::Any, collections::HashMap, hash::Hash, sync::Arc};
-use xmtp_common::{MaybeSend, MaybeSync, StreamHandle};
+use xmtp_common::{MaybeSend, MaybeSync, StreamHandle, if_native, if_wasm};
 use xmtp_configuration::WORKER_RESTART_DELAY;
 
 pub mod metrics;
@@ -96,8 +96,8 @@ impl WorkerRunner {
                 futs.push(worker.spawn());
             }
 
-            while futs.next().await.is_some() {
-                tracing::warn!("Worker completed unexpectedly")
+            while let Some(kind) = futs.next().await {
+                tracing::warn!("Worker {kind:?} completed unexpectedly")
             }
         });
 
@@ -118,11 +118,12 @@ impl WorkerRunner {
 }
 
 pub type WorkerResult<T> = Result<T, Box<dyn NeedsDbReconnect>>;
-
-#[cfg(not(target_arch = "wasm32"))]
-type SpawnWorkerFut = dyn Future<Output = ()> + Send;
-#[cfg(target_arch = "wasm32")]
-type SpawnWorkerFut = dyn Future<Output = ()>;
+if_native! {
+    type SpawnWorkerFut = dyn Future<Output = WorkerKind> + Send;
+}
+if_wasm! {
+    type SpawnWorkerFut = dyn Future<Output = WorkerKind>;
+}
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -163,6 +164,8 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
                     }
                 }
             }
+
+            self.kind()
         };
 
         Box::pin(fut)
