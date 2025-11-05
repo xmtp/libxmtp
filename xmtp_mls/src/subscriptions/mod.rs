@@ -382,6 +382,7 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub async fn stream_all_messages_owned_with_stats(
         &self,
         conversation_type: Option<ConversationType>,
