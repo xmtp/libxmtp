@@ -63,7 +63,7 @@ where
     ) -> Result<impl Iterator<Item = (String, Vec<T>)>>
     where
         T: TryFrom<IdentityUpdateLog>,
-        <T as TryFrom<IdentityUpdateLog>>::Error: RetryableError + Send + Sync + 'static,
+        <T as TryFrom<IdentityUpdateLog>>::Error: RetryableError + 'static,
     {
         if filters.is_empty() {
             return Ok(vec![].into_iter());

@@ -299,7 +299,7 @@ pub struct Factory<Context> {
 
 impl<Context> WorkerFactory for Factory<Context>
 where
-    Context: XmtpSharedContext + Send + Sync + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     fn create(
         &self,
@@ -344,7 +344,7 @@ where
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
         Self: Sized,
-        C: XmtpSharedContext + Send + Sync + 'static,
+        C: XmtpSharedContext + 'static,
     {
         Factory { context }
     }
@@ -359,7 +359,7 @@ where
 }
 
 pub async fn upload_debug_archive(
-    db: impl DbQuery + Send + Sync + 'static,
+    db: impl DbQuery + 'static,
     device_sync_server_url: Option<impl AsRef<str>>,
 ) -> Result<String, DeviceSyncError> {
     let device_sync_server_url = device_sync_server_url

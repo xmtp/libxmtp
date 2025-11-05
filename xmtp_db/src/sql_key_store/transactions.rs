@@ -1,6 +1,5 @@
 use super::*;
 use crate::DbConnection;
-use std::cell::RefCell;
 
 /// wrapper around a mutable connection (&mut SqliteConnection)
 /// Requires that all execution/transaction happens in one thread on one connection.
@@ -10,13 +9,13 @@ pub struct MutableTransactionConnection<'a> {
     // because raw_query methods require &self, as do MlsStorage trait methods.
     // Since we no longer have async transactions, once a transaction is started
     // we can ensure it occurs all on one thread.
-    pub(crate) conn: RefCell<&'a mut SqliteConnection>,
+    pub(crate) conn: parking_lot::Mutex<&'a mut SqliteConnection>,
 }
 
 impl<'a> MutableTransactionConnection<'a> {
     pub fn new(conn: &'a mut SqliteConnection) -> Self {
         Self {
-            conn: RefCell::new(conn),
+            conn: parking_lot::Mutex::new(conn),
         }
     }
 }
@@ -27,7 +26,7 @@ impl<'a> ConnectionExt for MutableTransactionConnection<'a> {
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        let mut conn = self.conn.borrow_mut();
+        let mut conn = self.conn.try_lock().expect("Lock is held somewhere else");
         fun(&mut conn).map_err(crate::ConnectionError::from)
     }
 
@@ -36,7 +35,7 @@ impl<'a> ConnectionExt for MutableTransactionConnection<'a> {
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        let mut conn = self.conn.borrow_mut();
+        let mut conn = self.conn.try_lock().expect("Lock is held somewhere else");
         fun(&mut conn).map_err(crate::ConnectionError::from)
     }
 

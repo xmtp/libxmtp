@@ -40,6 +40,12 @@ pub use extractor::*;
 mod envelope_collection;
 pub use envelope_collection::*;
 
+mod vector_clock;
+pub use vector_clock::*;
+
+mod full_api;
+pub use full_api::*;
+
 #[derive(thiserror::Error, Debug)]
 pub enum EnvelopeError {
     #[error(transparent)]
@@ -53,7 +59,7 @@ pub enum EnvelopeError {
     // for extractors defined outside of this crate or
     // generic implementations like Tuples
     #[error("{0}")]
-    DynError(Box<dyn RetryableError + Send + Sync>),
+    DynError(Box<dyn RetryableError>),
 }
 
 impl RetryableError for EnvelopeError {

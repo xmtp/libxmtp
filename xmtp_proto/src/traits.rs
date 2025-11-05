@@ -7,7 +7,7 @@ use crate::{
 use http::{request, uri::PathAndQuery};
 use prost::bytes::Bytes;
 use std::borrow::Cow;
-use xmtp_common::{MaybeSend, Retry};
+use xmtp_common::{MaybeSend, MaybeSync, Retry};
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod mock;
@@ -26,8 +26,8 @@ pub trait HasStats {
 
 /// provides the necessary information for a backend API call.
 /// Indicates the Output type
-pub trait Endpoint<Specialized = ()>: Send + Sync {
-    type Output: Send + Sync;
+pub trait Endpoint<Specialized = ()>: MaybeSend + MaybeSync {
+    type Output: MaybeSend + MaybeSync;
     fn grpc_endpoint(&self) -> Cow<'static, str>;
 
     fn body(&self) -> Result<Bytes, BodyError>;
@@ -93,8 +93,8 @@ pub type BoxedClient = Box<
 /// an http response is easily derived from a grpc, jsonrpc or rest api.
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait Client: Send + Sync {
-    type Error: std::error::Error + Send + Sync + 'static;
+pub trait Client: MaybeSend + MaybeSync {
+    type Error: std::error::Error + MaybeSend + MaybeSync + 'static;
 
     type Stream: futures::Stream<Item = Result<Bytes, Self::Error>> + MaybeSend;
 
@@ -115,7 +115,7 @@ pub trait Client: Send + Sync {
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait IsConnectedCheck {
+pub trait IsConnectedCheck: MaybeSend + MaybeSync {
     /// Check if a client is connected
     async fn is_connected(&self) -> bool;
 }
@@ -124,14 +124,14 @@ pub trait IsConnectedCheck {
 /// these are extensions to the behavior of specific endpoints.
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait Query<C: Client>: Send + Sync {
-    type Output: Send + Sync;
+pub trait Query<C: Client>: MaybeSend + MaybeSync {
+    type Output: MaybeSend + MaybeSync;
     async fn query(&mut self, client: &C) -> Result<Self::Output, ApiClientError<C::Error>>;
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait QueryRaw<C: Client>: Send + Sync {
+pub trait QueryRaw<C: Client>: MaybeSend + MaybeSync {
     async fn query_raw(&mut self, client: &C) -> Result<bytes::Bytes, ApiClientError<C::Error>>;
 }
 
@@ -170,10 +170,8 @@ pub trait QueryStreamExt<T, C: Client> {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<T, C, E> QueryStreamExt<T, C> for E
 where
-    C: Client + Send + Sync,
-    E: Endpoint<Output = T> + Send + Sync,
-    C: Client + Sync + Send,
-    C::Error: std::error::Error,
+    C: Client,
+    E: Endpoint<Output = T>,
 {
     async fn subscribe(
         &mut self,

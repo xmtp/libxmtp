@@ -9,7 +9,7 @@ use thiserror::Error;
 use xmtp_db::{StorageError, prelude::*};
 
 /// Interval at which the PendingSelfRemoveWorker runs to remove the members want requested SelfRemove.
-pub const INTERVAL_DURATION: Duration = Duration::from_secs(1);
+pub const INTERVAL_DURATION: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Error)]
 pub enum PendingSelfRemoveWorkerError {
@@ -39,7 +39,7 @@ struct Factory<Context> {
 
 impl<Context> WorkerFactory for Factory<Context>
 where
-    Context: XmtpSharedContext + Send + Sync + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::PendingSelfRemove
@@ -71,7 +71,7 @@ where
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
         Self: Sized,
-        C: XmtpSharedContext + Send + Sync + 'static,
+        C: XmtpSharedContext + 'static,
     {
         Factory {
             context: context.clone(),

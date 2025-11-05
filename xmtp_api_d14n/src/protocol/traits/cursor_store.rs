@@ -1,8 +1,9 @@
 use std::collections::HashMap;
-use xmtp_common::RetryableError;
+use std::sync::Arc;
+use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
 use xmtp_proto::{
     api::ApiClientError,
-    types::{ClockOrdering, Cursor, GlobalCursor, OriginatorId, Topic, TopicKind},
+    types::{Cursor, GlobalCursor, OriginatorId, Topic, TopicKind},
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -14,7 +15,7 @@ pub enum CursorStoreError {
     #[error("the store cannot handle topic of kind {0}")]
     UnhandledTopicKind(TopicKind),
     #[error("{0}")]
-    Other(Box<dyn RetryableError + Send + Sync>),
+    Other(Box<dyn RetryableError>),
 }
 
 impl RetryableError for CursorStoreError {
@@ -36,7 +37,7 @@ impl<E: std::error::Error> From<CursorStoreError> for ApiClientError<E> {
 /// Trait defining how cursors should be stored, updated, and fetched
 /// _NOTE:_, implementations decide retry strategy. the exact implementation of persistence (or lack)
 /// is up to implementors. functions are assumed to be idempotent & atomic.
-pub trait CursorStore: Send + Sync {
+pub trait CursorStore: MaybeSend + MaybeSync {
     // /// Get the last seen cursor per originator
     // fn last_seen(&self, topic: &Topic) -> Result<GlobalCursor, Self::Error>;
 
@@ -79,14 +80,143 @@ pub trait CursorStore: Send + Sync {
     fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError>;
 }
 
-/// common functions w.r.t vector clock types
-pub trait VectorClock {
-    /// Merges another clock into this one by taking the max ordering per node
-    fn dominates(&self, other: &Self) -> bool;
+impl<T: CursorStore> CursorStore for Option<T> {
+    fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
+        if let Some(c) = self {
+            c.lowest_common_cursor(topics)
+        } else {
+            NoCursorStore.lowest_common_cursor(topics)
+        }
+    }
 
-    /// Returns true if this clock dominates (has seen all updates of) the other
-    fn merge(&mut self, other: &Self);
+    fn latest(&self, topic: &Topic) -> Result<GlobalCursor, CursorStoreError> {
+        if let Some(c) = self {
+            c.latest(topic)
+        } else {
+            NoCursorStore.latest(topic)
+        }
+    }
 
-    /// Compares this clock to another to determine their relative ordering
-    fn compare(&self, other: &Self) -> ClockOrdering;
+    fn latest_per_originator(
+        &self,
+        topic: &Topic,
+        originators: &[&OriginatorId],
+    ) -> Result<GlobalCursor, CursorStoreError> {
+        if let Some(c) = self {
+            c.latest_per_originator(topic, originators)
+        } else {
+            NoCursorStore.latest_per_originator(topic, originators)
+        }
+    }
+
+    fn latest_for_topics(
+        &self,
+        topics: &mut dyn Iterator<Item = &Topic>,
+    ) -> Result<HashMap<Topic, GlobalCursor>, CursorStoreError> {
+        if let Some(c) = self {
+            c.latest_for_topics(topics)
+        } else {
+            NoCursorStore.latest_for_topics(topics)
+        }
+    }
+
+    fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
+        if let Some(c) = self {
+            c.lcc_maybe_missing(topic)
+        } else {
+            NoCursorStore.lcc_maybe_missing(topic)
+        }
+    }
+}
+
+impl<T: CursorStore + ?Sized> CursorStore for Arc<T> {
+    fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
+        (**self).lowest_common_cursor(topics)
+    }
+
+    fn latest(&self, topic: &Topic) -> Result<GlobalCursor, CursorStoreError> {
+        (**self).latest(topic)
+    }
+
+    fn latest_per_originator(
+        &self,
+        topic: &Topic,
+        originators: &[&OriginatorId],
+    ) -> Result<GlobalCursor, CursorStoreError> {
+        (**self).latest_per_originator(topic, originators)
+    }
+
+    fn latest_for_topics(
+        &self,
+        topics: &mut dyn Iterator<Item = &Topic>,
+    ) -> Result<HashMap<Topic, GlobalCursor>, CursorStoreError> {
+        (**self).latest_for_topics(topics)
+    }
+
+    fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
+        (**self).lcc_maybe_missing(topic)
+    }
+}
+
+impl<T: CursorStore + ?Sized> CursorStore for Box<T> {
+    fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
+        (**self).lowest_common_cursor(topics)
+    }
+
+    fn latest(&self, topic: &Topic) -> Result<GlobalCursor, CursorStoreError> {
+        (**self).latest(topic)
+    }
+
+    fn latest_per_originator(
+        &self,
+        topic: &Topic,
+        originators: &[&OriginatorId],
+    ) -> Result<GlobalCursor, CursorStoreError> {
+        (**self).latest_per_originator(topic, originators)
+    }
+
+    fn latest_for_topics(
+        &self,
+        topics: &mut dyn Iterator<Item = &Topic>,
+    ) -> Result<HashMap<Topic, GlobalCursor>, CursorStoreError> {
+        (**self).latest_for_topics(topics)
+    }
+
+    fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
+        (**self).lcc_maybe_missing(topic)
+    }
+}
+/// This cursor store always returns 0
+#[derive(Default)]
+pub struct NoCursorStore;
+
+impl CursorStore for NoCursorStore {
+    fn lowest_common_cursor(&self, _: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
+        Ok(GlobalCursor::default())
+    }
+
+    fn latest(&self, _: &Topic) -> Result<GlobalCursor, CursorStoreError> {
+        Ok(GlobalCursor::default())
+    }
+
+    fn latest_per_originator(
+        &self,
+        _: &Topic,
+        _: &[&OriginatorId],
+    ) -> Result<GlobalCursor, CursorStoreError> {
+        Ok(GlobalCursor::default())
+    }
+
+    fn latest_for_topics(
+        &self,
+        topics: &mut dyn Iterator<Item = &Topic>,
+    ) -> Result<HashMap<Topic, GlobalCursor>, CursorStoreError> {
+        Ok(HashMap::from_iter(
+            topics.map(|t| (t.clone(), GlobalCursor::default())),
+        ))
+    }
+
+    fn lcc_maybe_missing(&self, _: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
+        Ok(GlobalCursor::default())
+    }
 }

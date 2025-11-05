@@ -5,7 +5,6 @@ use xmtp_common::RetryableError;
 use xmtp_proto::api::HasStats;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
-use xmtp_proto::api_client::CursorAwareApi;
 use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::mls_v1::GetNewestGroupMessageRequest;
 use xmtp_proto::mls_v1::{
@@ -54,7 +53,7 @@ async fn wrap_err<T, R, F, E>(
 where
     R: FnOnce() -> F,
     F: Future<Output = Result<T, ApiClientError<E>>>,
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    E: RetryableError + 'static,
 {
     let res = req().await;
     if let Err(e) = res {
@@ -98,8 +97,8 @@ where
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<A, E> XmtpMlsClient for ApiDebugWrapper<A>
 where
-    A: XmtpMlsClient<Error = ApiClientError<E>> + Send + Sync,
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    A: XmtpMlsClient<Error = ApiClientError<E>>,
+    E: RetryableError + 'static,
     A: HasStats,
 {
     type Error = ApiClientError<E>;
@@ -219,8 +218,8 @@ where
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<A, E> XmtpMlsStreams for ApiDebugWrapper<A>
 where
-    A: XmtpMlsStreams<Error = ApiClientError<E>> + Send + Sync + 'static,
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    A: XmtpMlsStreams<Error = ApiClientError<E>>,
+    E: RetryableError + 'static,
     A: HasStats,
 {
     type GroupMessageStream = <A as XmtpMlsStreams>::GroupMessageStream;
@@ -270,8 +269,8 @@ where
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<A, E> XmtpIdentityClient for ApiDebugWrapper<A>
 where
-    A: XmtpIdentityClient<Error = ApiClientError<E>> + Send + Sync,
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    A: XmtpIdentityClient<Error = ApiClientError<E>>,
+    E: RetryableError + 'static,
     A: HasStats,
 {
     type Error = ApiClientError<E>;
@@ -318,14 +317,6 @@ where
             || self.inner.aggregate_stats(),
         )
         .await
-    }
-}
-
-impl<A: CursorAwareApi> CursorAwareApi for ApiDebugWrapper<A> {
-    type CursorStore = A::CursorStore;
-
-    fn set_cursor_store(&self, store: Self::CursorStore) {
-        <A as CursorAwareApi>::set_cursor_store(&self.inner, store);
     }
 }
 

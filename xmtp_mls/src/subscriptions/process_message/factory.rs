@@ -108,6 +108,7 @@ where
             msg.cursor,
             epoch,
         );
+
         group
             .process_message(msg, false)
             .instrument(tracing::debug_span!("process_message"))

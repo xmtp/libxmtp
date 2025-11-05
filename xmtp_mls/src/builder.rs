@@ -2,7 +2,6 @@ use crate::{
     GroupCommitLock, StorageError, XmtpApi,
     client::{Client, DeviceSync},
     context::XmtpMlsLocalContext,
-    cursor_store::SqliteCursorStore,
     groups::{
         device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
         key_package_cleaner_worker::KeyPackagesCleanerWorker,
@@ -25,7 +24,6 @@ use xmtp_api_d14n::{
     protocol::{CursorStore, XmtpQuery},
 };
 use xmtp_common::Retry;
-use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{
@@ -34,7 +32,6 @@ use xmtp_db::{
     sql_key_store::SqlKeyStore,
 };
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::api_client::CursorAwareApi;
 
 type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
 
@@ -71,11 +68,11 @@ impl From<crate::groups::GroupError> for ClientBuilderError {
 }
 
 pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
-    pub(crate) api_client: Option<ApiClientWrapper<ApiClient>>,
+    pub(crate) api_client: Option<ApiClient>,
     pub(crate) identity: Option<Identity>,
     pub(crate) store: Option<Db>,
     pub(crate) identity_strategy: IdentityStrategy,
-    pub(crate) scw_verifier: Option<Arc<Box<dyn SmartContractSignatureVerifier>>>,
+    pub(crate) scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync_server_url: Option<String>,
     pub(crate) device_sync_worker_mode: SyncWorkerMode,
     pub(crate) fork_recovery_opts: Option<ForkRecoveryOpts>,
@@ -84,7 +81,7 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) disable_events: bool,
     pub(crate) disable_commit_log_worker: bool,
     pub(crate) mls_storage: Option<S>,
-    pub(crate) sync_api_client: Option<ApiClientWrapper<ApiClient>>,
+    pub(crate) sync_api_client: Option<ApiClient>,
     pub(crate) cursor_store: Option<Arc<dyn CursorStore>>,
     pub(crate) disable_workers: bool,
 }
@@ -165,14 +162,14 @@ where
     pub fn from_client(
         client: Client<ContextParts<ApiClient, S, Db>>,
     ) -> ClientBuilder<ApiClient, S, Db> {
-        let cloned_api: ApiClientWrapper<ApiClient> = client.context.api_client.clone();
-        let cloned_sync_api: ApiClientWrapper<ApiClient> = client.context.sync_api_client.clone();
+        let cloned_api: ApiClient = client.context.api_client.clone().api_client;
+        let cloned_sync_api: ApiClient = client.context.sync_api_client.clone().api_client;
         ClientBuilder {
             api_client: Some(cloned_api),
             identity: Some(client.context.identity.clone()),
             store: Some(client.context.store.clone()),
             identity_strategy: IdentityStrategy::CachedOnly,
-            scw_verifier: Some(client.context.scw_verifier.clone()),
+            scw_verifier: Some(Box::new(client.context.scw_verifier.clone())),
             device_sync_server_url: client.context.device_sync.server_url.clone(),
             device_sync_worker_mode: client.context.device_sync.mode,
             fork_recovery_opts: Some(client.context.fork_recovery_opts.clone()),
@@ -191,17 +188,14 @@ where
     }
 }
 
+// TODO: the return type is temp and
+// will be modified in subsequent PRs
 impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     pub async fn build(self) -> Result<Client<ContextParts<ApiClient, S, Db>>, ClientBuilderError>
     where
-        ApiClient: XmtpApi
-            + CursorAwareApi<CursorStore = Arc<dyn CursorStore>>
-            + XmtpQuery
-            + 'static
-            + Send
-            + Sync,
-        Db: xmtp_db::XmtpDb + 'static + Send + Sync,
-        S: XmtpMlsStorageProvider + 'static + Send + Sync,
+        ApiClient: XmtpApi + XmtpQuery + 'static,
+        Db: xmtp_db::XmtpDb + 'static,
+        S: XmtpMlsStorageProvider + 'static,
     {
         let ClientBuilder {
             mut api_client,
@@ -219,8 +213,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_commit_log_worker,
             mut mls_storage,
             mut sync_api_client,
-            cursor_store,
+            // cursor_store,
             disable_workers,
+            ..
         } = self;
 
         let api_client = api_client
@@ -252,10 +247,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 parameter: "mls_storage",
             })?;
 
-        let cursor_store =
-            cursor_store.unwrap_or(Arc::new(SqliteCursorStore::new(store.db())) as Arc<_>);
-        api_client.set_cursor_store(cursor_store.clone());
-        sync_api_client.set_cursor_store(cursor_store.clone());
+        let api_client = ApiClientWrapper::new(api_client, Retry::default());
+        let sync_api_client = ApiClientWrapper::new(sync_api_client, Retry::default());
         let conn = store.db();
         let identity = if let Some(identity) = identity {
             identity
@@ -289,7 +282,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             store,
             api_client,
             version_info,
-            scw_verifier,
+            scw_verifier: Arc::new(scw_verifier),
             mutexes: MutexRegistry::new(),
             mls_commit_lock: Arc::new(GroupCommitLock::new()),
             local_events: tx.clone(),
@@ -299,8 +292,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 mode: device_sync_worker_mode,
             },
             fork_recovery_opts: fork_recovery_opts.unwrap_or_default(),
-            workers: workers.clone(),
+
             sync_api_client,
+            worker_metrics: workers.metrics().clone(),
+            task_channels: workers.task_channels().clone(),
         });
 
         // register workers
@@ -339,6 +334,11 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 .register_new_worker::<crate::tasks::TaskWorker<ContextParts<ApiClient, S, Db>>, _>(
                     context.clone(),
                 );
+        }
+
+        let workers = Arc::new(workers);
+
+        if !disable_workers {
             workers.spawn();
         }
 
@@ -484,9 +484,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     }
 
     pub fn api_clients<A>(self, api_client: A, sync_api_client: A) -> ClientBuilder<A, S, Db> {
-        let api_retry = Retry::builder().build();
-        let api_client = ApiClientWrapper::new(api_client, api_retry.clone());
-        let sync_api_client = ApiClientWrapper::new(sync_api_client, api_retry.clone());
+        // let api_retry = Retry::builder().build();
+        // let api_client = ApiClientWrapper::new(api_client, api_retry.clone());
+        // let sync_api_client = ApiClientWrapper::new(sync_api_client, api_retry.clone());
         ClientBuilder {
             api_client: Some(api_client),
             identity: self.identity,
@@ -612,11 +612,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
 
         Ok(ClientBuilder {
-            api_client: Some(
-                self.api_client
-                    .expect("checked for none")
-                    .attach_debug_wrapper(),
-            ),
+            api_client: Some(ApiDebugWrapper::new(
+                self.api_client.expect("checked for none"),
+            )),
             identity: self.identity,
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
@@ -630,11 +628,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_events: self.disable_events,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            sync_api_client: Some(
-                self.sync_api_client
-                    .expect("checked for none")
-                    .attach_debug_wrapper(),
-            ),
+            sync_api_client: Some(ApiDebugWrapper::new(
+                self.sync_api_client.expect("checked for none"),
+            )),
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
         })
@@ -650,11 +646,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
 
         Ok(ClientBuilder {
-            api_client: Some(
-                self.api_client
-                    .expect("checked for none")
-                    .map(|a| TrackedStatsClient::new(a)),
-            ),
+            api_client: Some(TrackedStatsClient::new(
+                self.api_client.expect("checked for none"),
+            )),
             identity: self.identity,
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
@@ -668,11 +662,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_events: self.disable_events,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            sync_api_client: Some(
-                self.sync_api_client
-                    .expect("checked for none")
-                    .map(|a| TrackedStatsClient::new(a)),
-            ),
+            sync_api_client: Some(TrackedStatsClient::new(
+                self.sync_api_client.expect("checked for none"),
+            )),
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
         })
@@ -686,7 +678,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             api_client: self.api_client,
             identity: self.identity,
             identity_strategy: self.identity_strategy,
-            scw_verifier: Some(Arc::new(Box::new(verifier))),
+            scw_verifier: Some(Box::new(verifier)),
             store: self.store,
 
             device_sync_server_url: self.device_sync_server_url,
@@ -707,7 +699,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     /// requires the 'api' to be set.
     pub fn with_remote_verifier(self) -> Result<ClientBuilder<ApiClient, S, Db>, ClientBuilderError>
     where
-        ApiClient: Clone + XmtpApi + MaybeSend + MaybeSync + 'static,
+        ApiClient: Clone + XmtpApi + 'static,
     {
         let api = self
             .api_client
@@ -716,16 +708,13 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 parameter: "api_client",
             })?;
 
-        #[allow(clippy::arc_with_non_send_sync)]
         Ok(ClientBuilder {
             api_client: self.api_client,
             identity: self.identity,
             identity_strategy: self.identity_strategy,
-            scw_verifier: Some(Arc::new(
-                Box::new(api) as Box<dyn SmartContractSignatureVerifier>
-            )),
+            scw_verifier: Some(Box::new(ApiClientWrapper::new(api, Retry::default()))
+                as Box<dyn SmartContractSignatureVerifier>),
             store: self.store,
-
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,

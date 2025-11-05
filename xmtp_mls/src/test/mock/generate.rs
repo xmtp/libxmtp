@@ -6,7 +6,7 @@ use xmtp_proto::types::Cursor;
 
 use crate::{
     groups::{mls_sync::GroupMessageProcessingError, summary::ProcessSummary},
-    worker::WorkerRunner,
+    tasks::TaskWorkerChannels,
 };
 
 use super::*;
@@ -31,9 +31,10 @@ pub fn context() -> NewMockContext {
             mode: SyncWorkerMode::Disabled,
         },
         fork_recovery_opts: Default::default(),
-        workers: WorkerRunner::new(),
         mls_storage: SqlKeyStore::new(MemoryStorage::new()),
         sync_api_client: ApiClientWrapper::new(MockApiClient::new(), Default::default()),
+        task_channels: TaskWorkerChannels::default(),
+        worker_metrics: Arc::default(),
     }
 }
 
