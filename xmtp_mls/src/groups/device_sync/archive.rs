@@ -79,7 +79,8 @@ fn insert(element: BackupElement, context: &impl XmtpSharedContext) -> Result<()
 mod tests {
     #![allow(unused)]
     use super::*;
-    use crate::utils::Tester;
+    use crate::groups::send_message_opts::SendMessageOpts;
+    use crate::utils::{LocalTester, Tester};
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::wait_for_min_intents,
     };
@@ -111,7 +112,10 @@ mod tests {
             .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
-        alix_group.send_message(b"hello there").await.unwrap();
+        alix_group
+            .send_message(b"hello there", SendMessageOpts::default())
+            .await
+            .unwrap();
 
         let opts = BackupOptions {
             start_ns: None,
@@ -161,11 +165,11 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_file_backup() {
-        use crate::tester;
+        use crate::{groups::send_message_opts::SendMessageOpts, tester};
         use diesel::QueryDsl;
         use xmtp_db::group::{ConversationType, GroupQueryArgs};
 
-        tester!(alix, sync_worker, sync_server);
+        tester!(alix, sync_worker, sync_server, triggers);
         tester!(bo);
 
         let alix_group = alix.create_group(None, None)?;
@@ -182,7 +186,9 @@ mod tests {
         // wait for add member intent/commit
         wait_for_min_intents(&alix.context.db(), 1).await?;
 
-        alix_group.send_message(b"hello there").await?;
+        alix_group
+            .send_message(b"hello there", SendMessageOpts::default())
+            .await?;
 
         // wait for send message intent/commit publish
         // Wait for Consent state update
@@ -298,7 +304,9 @@ mod tests {
         assert!(old_msg_exists);
 
         // Bo should see the new message from alix2
-        alix2_group.send_message(b"this should send").await?;
+        alix2_group
+            .send_message(b"this should send", SendMessageOpts::default())
+            .await?;
         bo_group.sync().await?;
         let msgs = bo_group.find_messages(&MsgQueryArgs::default())?;
         let new_msg_exists = msgs

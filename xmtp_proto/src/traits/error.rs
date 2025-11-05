@@ -1,7 +1,7 @@
 use crate::api_client::AggregateStats;
 use crate::{ApiEndpoint, ProtoError};
 use thiserror::Error;
-use xmtp_common::{RetryableError, retryable};
+use xmtp_common::{BoxDynError, RetryableError, retryable};
 
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -19,7 +19,7 @@ pub enum ApiClientError<E: std::error::Error> {
     },
     #[error("API Error {}, \n {:?} \n", e, stats)]
     ErrorWithStats {
-        e: Box<dyn RetryableError + Send + Sync>,
+        e: Box<dyn RetryableError>,
         stats: AggregateStats,
     },
     /// The client encountered an error.
@@ -43,8 +43,12 @@ pub enum ApiClientError<E: std::error::Error> {
     ProtoError(#[from] ProtoError),
     #[error(transparent)]
     InvalidUri(#[from] http::uri::InvalidUri),
+    #[error(transparent)]
+    Expired(#[from] xmtp_common::time::Expired),
     #[error("{0}")]
-    Other(Box<dyn RetryableError + Send + Sync>),
+    Other(Box<dyn RetryableError>),
+    #[error("{0}")]
+    OtherUnretryable(BoxDynError),
 }
 
 impl<E> ApiClientError<E>
@@ -84,7 +88,9 @@ where
             Conversion(_) => false,
             ProtoError(_) => false,
             InvalidUri(_) => false,
+            Expired(_) => true,
             Other(r) => retryable!(r),
+            OtherUnretryable(_) => false,
         }
     }
 }
@@ -100,6 +106,8 @@ impl<E: std::error::Error> From<std::convert::Infallible> for ApiClientError<E> 
 pub enum BodyError {
     #[error(transparent)]
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
+    #[error(transparent)]
+    Conversion(#[from] crate::ConversionError),
 }
 
 impl RetryableError for BodyError {

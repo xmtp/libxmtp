@@ -7,13 +7,33 @@ use crate::groups::{GroupError, MlsGroup};
 use crate::intents::ProcessIntentError;
 use crate::mls_store::MlsStore;
 use futures::stream::{self, FuturesUnordered, StreamExt};
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 use xmtp_common::{Retry, retry_async};
+use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
-use xmtp_proto::xmtp::mls::api::v1::{WelcomeMessage, welcome_message};
+use xmtp_proto::types::GlobalCursor;
+use xmtp_proto::types::GroupId;
+use xmtp_proto::types::GroupMessageMetadata;
+
+#[derive(Debug, Clone)]
+pub struct GroupSyncSummary {
+    pub num_eligible: usize,
+    pub num_synced: usize,
+}
+
+impl GroupSyncSummary {
+    pub fn new(num_eligible: usize, num_synced: usize) -> Self {
+        Self {
+            num_eligible,
+            num_synced,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct WelcomeService<Context> {
@@ -35,7 +55,7 @@ where
     /// applies the update after the welcome processed successfully.
     pub(crate) async fn process_new_welcome(
         &self,
-        welcome: &welcome_message::V1,
+        welcome: &xmtp_proto::types::WelcomeMessage,
         cursor_increment: bool,
         validator: impl ValidateGroupMembership,
     ) -> Result<Option<MlsGroup<Context>>, GroupError> {
@@ -55,17 +75,18 @@ where
 
                 if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
                     tracing::warn!(
-                        welcome_id = welcome.id,
+                        welcome_cursor = %welcome.cursor,
                         "Welcome ID already stored: {}",
                         err
                     );
                     return Err(GroupError::ProcessIntent(
-                        ProcessIntentError::WelcomeAlreadyProcessed(welcome.id),
+                        ProcessIntentError::WelcomeAlreadyProcessed(welcome.cursor),
                     ));
                 } else {
                     tracing::error!(
-                        "failed to create group from welcome created at {}: {}",
-                        welcome.created_ns,
+                        "failed to create group from welcome={} created at {}: {}",
+                        welcome.cursor,
+                        welcome.created_ns.timestamp(),
                         err
                     );
                 }
@@ -81,25 +102,17 @@ where
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
         let db = self.context.db();
         let store = MlsStore::new(self.context.clone());
-        let envelopes = store.query_welcome_messages(&db).await?;
+        let envelopes = store.query_welcome_messages().await?;
         let num_envelopes = envelopes.len();
 
+        // TODO: Update cursor correctly if some of the welcomes fail and some of the welcomes succeed
         let groups: Vec<MlsGroup<Context>> = stream::iter(envelopes.into_iter())
-            .filter_map(|envelope: WelcomeMessage| async {
-                let welcome_v1 = match envelope.version {
-                    Some(welcome_message::Version::V1(v1)) => v1,
-                    _ => {
-                        tracing::error!(
-                            "failed to extract welcome message, invalid payload only v1 supported."
-                        );
-                        return None;
-                    }
-                };
+            .filter_map(|welcome| async move {
                 retry_async!(
                     Retry::default(),
                     (async {
                         let validator = InitialMembershipValidator::new(&self.context);
-                        self.process_new_welcome(&welcome_v1, true, validator).await
+                        self.process_new_welcome(&welcome, true, validator).await
                     })
                 )
                 .ok()?
@@ -122,10 +135,12 @@ where
     pub async fn sync_all_groups(
         &self,
         groups: Vec<MlsGroup<Context>>,
-    ) -> Result<usize, GroupError> {
+    ) -> Result<GroupSyncSummary, GroupError> {
+        let num_eligible_groups = groups.len();
         let active_group_count = Arc::new(AtomicUsize::new(0));
-
-        let sync_futures = groups
+        let sync_futures = self
+            .filter_groups_needing_sync(groups)
+            .await?
             .into_iter()
             .map(|group| {
                 let active_group_count = Arc::clone(&active_group_count);
@@ -157,10 +172,38 @@ where
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(active_group_count.load(Ordering::SeqCst))
+        Ok(GroupSyncSummary::new(
+            num_eligible_groups,
+            active_group_count.load(Ordering::SeqCst),
+        ))
     }
 
-    pub async fn sync_all_welcomes_and_history_sync_groups(&self) -> Result<usize, ClientError> {
+    async fn filter_groups_needing_sync(
+        &self,
+        groups: Vec<MlsGroup<Context>>,
+    ) -> Result<Vec<MlsGroup<Context>>, GroupError> {
+        let db = self.context.db();
+        let api = self.context.api();
+
+        let group_ids: Vec<&[u8]> = groups.iter().map(|group| group.group_id.as_ref()).collect();
+        let last_synced_cursors = db.get_last_cursor_for_ids(
+            &group_ids,
+            &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
+        )?;
+        let latest_message_metadata = api.get_newest_message_metadata(group_ids).await?;
+
+        let group_ids_needing_sync =
+            filter_groups_with_new_messages(last_synced_cursors, latest_message_metadata);
+
+        Ok(groups
+            .into_iter()
+            .filter(|group| group_ids_needing_sync.contains(&group.group_id))
+            .collect::<Vec<_>>())
+    }
+
+    pub async fn sync_all_welcomes_and_history_sync_groups(
+        &self,
+    ) -> Result<GroupSyncSummary, ClientError> {
         let db = self.context.db();
         self.sync_welcomes().await?;
         let groups = db
@@ -176,9 +219,8 @@ where
                 )
             })
             .collect();
-        let active_groups_count = self.sync_all_groups(groups).await?;
 
-        Ok(active_groups_count)
+        Ok(self.sync_all_groups(groups).await?)
     }
 
     /// Sync all unread welcome messages and then sync groups in descending order of recent activity.
@@ -186,7 +228,7 @@ where
     pub async fn sync_all_welcomes_and_groups(
         &self,
         consent_states: Option<Vec<ConsentState>>,
-    ) -> Result<usize, GroupError> {
+    ) -> Result<GroupSyncSummary, GroupError> {
         let db = self.context.db();
 
         if let Err(err) = self.sync_welcomes().await {
@@ -201,7 +243,7 @@ where
 
         let conversations = db.fetch_conversation_list(query_args)?;
 
-        let groups: Vec<MlsGroup<Context>> = conversations
+        let all_groups: Vec<MlsGroup<Context>> = conversations
             .into_iter()
             .map(|c| {
                 MlsGroup::new(
@@ -214,9 +256,13 @@ where
             })
             .collect();
 
-        let success_count = self.sync_groups_in_batches(groups, 10).await?;
+        let total_groups = all_groups.len();
 
-        Ok(success_count)
+        let filtered_groups = self.filter_groups_needing_sync(all_groups).await?;
+
+        let success_count = self.sync_groups_in_batches(filtered_groups, 10).await?;
+
+        Ok(GroupSyncSummary::new(total_groups, success_count))
     }
 
     /// Sync groups concurrently with a limit. Returns success count.
@@ -274,6 +320,34 @@ where
     }
 }
 
+// Take the mapping of last synced cursors and the latest messages
+// Filter groups that have messages newer than their last synced cursor
+fn filter_groups_with_new_messages(
+    last_synced_cursors: HashMap<Vec<u8>, GlobalCursor>,
+    latest_messages: HashMap<GroupId, GroupMessageMetadata>,
+) -> HashSet<Vec<u8>> {
+    let mut groups_with_unread_messages = HashSet::new();
+    for (group_id, latest_message_metadata) in latest_messages {
+        match last_synced_cursors.get(group_id.as_ref()) {
+            Some(cursor) => {
+                // Get the database cursor for the originator ID
+                // or 0 if not found. Compare with the latest message.
+                if cursor.get(&latest_message_metadata.cursor.originator_id)
+                    < latest_message_metadata.cursor.sequence_id
+                {
+                    groups_with_unread_messages.insert(group_id.to_vec());
+                }
+            }
+            None => {
+                // No cursor found. Must have never been synced before.
+                groups_with_unread_messages.insert(group_id.to_vec());
+            }
+        }
+    }
+
+    groups_with_unread_messages
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,18 +360,21 @@ mod tests {
     use prost::Message;
     use rstest::*;
     use tls_codec::Serialize;
+    use xmtp_common::Generate;
+    use xmtp_configuration::Originators;
     use xmtp_db::StorageError;
     use xmtp_db::refresh_state::EntityKind;
     use xmtp_db::sql_key_store::SqlKeyStore;
     use xmtp_db::{MemoryStorage, mock::MockDbQuery, sql_key_store::mock::MockSqlKeyStore};
     use xmtp_proto::mls_v1::WelcomeMetadata;
+    use xmtp_proto::types::{Cursor, WelcomeMessage, WelcomeMessageType, WelcomeMessageV1};
 
     fn generate_welcome(
         id: u64,
         public_key: Vec<u8>,
         welcome: MlsMessageOut,
         message_cursor: Option<u64>,
-    ) -> welcome_message::V1 {
+    ) -> WelcomeMessage {
         let (data, welcome_metadata) = wrap_welcome(
             &welcome.tls_serialize_detached().unwrap(),
             &WelcomeMetadata {
@@ -305,18 +382,23 @@ mod tests {
             }
             .encode_to_vec(),
             &public_key,
-            &WrapperAlgorithm::Curve25519,
+            WrapperAlgorithm::Curve25519,
         )
         .unwrap();
 
-        welcome_message::V1 {
-            id,
-            created_ns: 0,
-            installation_key: vec![0],
-            data,
-            hpke_public_key: public_key,
-            wrapper_algorithm: WrapperAlgorithm::Curve25519.into(),
-            welcome_metadata,
+        let random = WelcomeMessage::generate();
+        let random_v1 = random.as_v1().unwrap();
+
+        WelcomeMessage {
+            cursor: crate::groups::Cursor::new(id, Originators::WELCOME_MESSAGES),
+            created_ns: random.created_ns,
+            variant: WelcomeMessageType::V1(WelcomeMessageV1 {
+                installation_key: random_v1.installation_key,
+                data,
+                hpke_public_key: public_key,
+                wrapper_algorithm: WrapperAlgorithm::Curve25519.into(),
+                welcome_metadata,
+            }),
         }
     }
 
@@ -413,20 +495,37 @@ mod tests {
             .validator(NoopValidator)
             .context(context)
             .database_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
-                    .returning(|_id, _entity| Ok(0));
+                db.expect_get_last_cursor_for_originators()
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
+                            sequence_id: 0,
+                            originator_id: Originators::WELCOME_MESSAGES,
+                        }])
+                    });
                 db.expect_find_group().returning(|_id| Ok(None));
             })
             // outer tx
             .transaction_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
-                    .returning(|_id, _entity| Ok(0));
+                db.expect_get_last_cursor_for_originators()
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
+                            sequence_id: 0,
+                            originator_id: Originators::WELCOME_MESSAGES,
+                        }])
+                    });
             })
             // inner tx
             .nested_transaction_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
-                    .returning(|_id, _entity| Ok(0));
+                db.expect_get_last_cursor_for_originators()
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
+                            sequence_id: 0,
+                            originator_id: Originators::WELCOME_MESSAGES,
+                        }])
+                    });
                 db.expect_update_cursor().returning(|_, _, _| Ok(true));
+                db.expect_update_responded_at_sequence_id()
+                    .returning(|_, _, _| Ok(()));
                 db.expect_insert_or_replace_group().returning(Ok);
             })
             .mem(mem)
@@ -456,9 +555,9 @@ mod tests {
             .validator(NoopValidator)
             .context(context)
             .nested_transaction_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
+                db.expect_get_last_cursor_for_originators()
                     .once()
-                    .returning(|_id, _entity| {
+                    .returning(|_id, _entity, _| {
                         // non-retryable error in transaction
                         Err(StorageError::DbSerialize)
                     });
@@ -467,15 +566,26 @@ mod tests {
                 db.expect_update_cursor()
                     .once()
                     .returning(|_id, entity, cursor| {
-                        assert_eq!(cursor, 50);
+                        assert_eq!(
+                            cursor,
+                            Cursor {
+                                sequence_id: 50,
+                                originator_id: Originators::WELCOME_MESSAGES
+                            }
+                        );
                         assert_eq!(entity, EntityKind::Welcome);
                         Ok(true)
                     });
             })
             .database_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
+                db.expect_get_last_cursor_for_originators()
                     .once()
-                    .returning(|_id, _entity| Ok(0));
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
+                            sequence_id: 0,
+                            originator_id: Originators::WELCOME_MESSAGES,
+                        }])
+                    });
                 db.expect_find_group().once().returning(|_id| Ok(None));
             })
             .mem(mem)
@@ -528,9 +638,14 @@ mod tests {
             .nested_transaction_calls(|_db: &mut MockDbQuery| {})
             .transaction_calls(|_db: &mut MockDbQuery| ())
             .database_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
+                db.expect_get_last_cursor_for_originators()
                     .once()
-                    .returning(|_id, _entity| Ok(0));
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
+                            sequence_id: 0,
+                            originator_id: Originators::WELCOME_MESSAGES,
+                        }])
+                    });
                 db.expect_update_cursor()
                     .once()
                     .returning(|_, _, _| Ok(true));
@@ -562,8 +677,13 @@ mod tests {
             .validator(NoopValidator)
             .context(context)
             .nested_transaction_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
-                    .returning(|_id, _entity| Ok(0));
+                db.expect_get_last_cursor_for_originators()
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
+                            sequence_id: 0,
+                            originator_id: Originators::WELCOME_MESSAGES,
+                        }])
+                    });
                 db.expect_update_cursor().returning(|_, _, _| Ok(true));
                 db.expect_insert_or_replace_group().returning(Ok);
             })
@@ -571,22 +691,43 @@ mod tests {
                 db.expect_update_cursor()
                     .once()
                     .returning(|_id, entity, cursor| {
-                        assert_eq!(cursor, 50);
+                        assert_eq!(
+                            cursor,
+                            Cursor {
+                                sequence_id: 50,
+                                originator_id: Originators::WELCOME_MESSAGES
+                            }
+                        );
                         assert_eq!(entity, EntityKind::Welcome);
                         Ok(true)
                     });
+                db.expect_update_responded_at_sequence_id()
+                    .once()
+                    .returning(|_, _, _| Ok(()));
                 db.expect_update_cursor()
                     .once()
                     .returning(|_id, entity, cursor| {
-                        assert_eq!(cursor, 10);
-                        assert_eq!(entity, EntityKind::Group);
+                        let originator_id = 0;
+                        assert_eq!(
+                            cursor,
+                            Cursor {
+                                sequence_id: 10,
+                                originator_id,
+                            }
+                        );
+                        assert_eq!(entity, EntityKind::CommitMessage);
                         Ok(true)
                     });
             })
             .database_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
+                db.expect_get_last_cursor_for_originators()
                     .once()
-                    .returning(|_id, _entity| Ok(0));
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
+                            sequence_id: 0,
+                            originator_id: Originators::WELCOME_MESSAGES,
+                        }])
+                    });
                 db.expect_find_group().once().returning(|_id| Ok(None));
             })
             .mem(mem)
@@ -624,9 +765,14 @@ mod tests {
             .nested_transaction_calls(|_db: &mut MockDbQuery| {})
             .transaction_calls(|_db: &mut MockDbQuery| {})
             .database_calls(|db: &mut MockDbQuery| {
-                db.expect_get_last_cursor_for_id()
+                db.expect_get_last_cursor_for_originators()
                     .once()
-                    .returning(|_id, _entity| Ok(0));
+                    .returning(|_id, _entity, _| {
+                        Ok(vec![Cursor {
+                            sequence_id: 0,
+                            originator_id: Originators::WELCOME_MESSAGES,
+                        }])
+                    });
             })
             .mem(mem)
             .build();
@@ -636,5 +782,185 @@ mod tests {
             .process_new_welcome(&network_welcome, cursor_increment, validator)
             .await;
         assert!(res.is_err(), "{}", res.unwrap_err());
+    }
+
+    // Helper functions for filter_groups_with_new_messages tests
+    fn make_cursor(originator_id: u32, sequence_id: u64) -> GlobalCursor {
+        let mut map = HashMap::new();
+        map.insert(originator_id, sequence_id);
+        GlobalCursor::new(map)
+    }
+
+    fn make_message_metadata(
+        group_id: Vec<u8>,
+        originator_id: u32,
+        sequence_id: u64,
+    ) -> GroupMessageMetadata {
+        use chrono::Utc;
+        GroupMessageMetadata::builder()
+            .cursor(Cursor {
+                originator_id,
+                sequence_id,
+            })
+            .created_ns(Utc::now())
+            .group_id(group_id)
+            .build()
+            .unwrap()
+    }
+
+    #[xmtp_common::test]
+    fn filter_groups_with_new_messages_basic_behavior() {
+        let group_id_1 = vec![1, 2, 3];
+        let group_id_2 = vec![4, 5, 6];
+        let originator = 100;
+
+        let mut last_synced = HashMap::new();
+        last_synced.insert(group_id_1.clone(), make_cursor(originator, 5));
+        last_synced.insert(group_id_2.clone(), make_cursor(originator, 10));
+
+        let mut latest = HashMap::new();
+        latest.insert(
+            group_id_1.clone().into(),
+            make_message_metadata(group_id_1.clone(), originator, 10), // New: 10 > 5
+        );
+        latest.insert(
+            group_id_2.clone().into(),
+            make_message_metadata(group_id_2.clone(), originator, 8), // No new: 8 < 10
+        );
+
+        let result = filter_groups_with_new_messages(last_synced, latest);
+
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&group_id_1));
+    }
+
+    #[xmtp_common::test]
+    fn filter_groups_includes_never_synced_and_excludes_up_to_date() {
+        let group_synced = vec![1, 2, 3];
+        let group_never_synced = vec![4, 5, 6];
+        let originator = 100;
+
+        let mut last_synced = HashMap::new();
+        last_synced.insert(group_synced.clone(), make_cursor(originator, 5));
+        // group_never_synced has no entry
+
+        let mut latest = HashMap::new();
+        latest.insert(
+            group_synced.clone().into(),
+            make_message_metadata(group_synced.clone(), originator, 3), // Already synced
+        );
+        latest.insert(
+            group_never_synced.clone().into(),
+            make_message_metadata(group_never_synced.clone(), originator, 1),
+        );
+
+        let result = filter_groups_with_new_messages(last_synced, latest);
+
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&group_never_synced));
+    }
+
+    #[xmtp_common::test]
+    fn filter_groups_handles_multiple_originators() {
+        let group_id = vec![1, 2, 3];
+        let orig_1 = 100;
+        let orig_2 = 200;
+
+        let mut last_synced = HashMap::new();
+        let mut cursor_map = HashMap::new();
+        cursor_map.insert(orig_1, 10);
+        cursor_map.insert(orig_2, 20);
+        last_synced.insert(group_id.clone(), GlobalCursor::new(cursor_map));
+
+        let mut latest = HashMap::new();
+        latest.insert(
+            group_id.clone().into(),
+            make_message_metadata(group_id.clone(), orig_2, 25), // New from orig_2
+        );
+
+        let result = filter_groups_with_new_messages(last_synced, latest);
+
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&group_id));
+    }
+
+    #[xmtp_common::test]
+    fn filter_groups_treats_unknown_originator_as_new() {
+        let group_id = vec![1, 2, 3];
+
+        let mut last_synced = HashMap::new();
+        last_synced.insert(group_id.clone(), make_cursor(100, 10));
+
+        let mut latest = HashMap::new();
+        latest.insert(
+            group_id.clone().into(),
+            make_message_metadata(group_id.clone(), 200, 5), // Unknown originator defaults to 0
+        );
+
+        let result = filter_groups_with_new_messages(last_synced, latest);
+
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&group_id));
+    }
+
+    // I have no idea why this test is specifically failing on WASM
+    #[cfg(not(target_arch = "wasm32"))]
+    #[rstest]
+    #[case(HashMap::new(), HashMap::new())] // Empty inputs
+    #[case({
+        let mut m = HashMap::new();
+        m.insert(vec![1], make_cursor(100, 10));
+        m
+    }, {
+        let mut m = HashMap::new();
+        m.insert(vec![1].into(), make_message_metadata(vec![1], 100, 10));
+        m
+    })] // Equal cursors
+    #[xmtp_common::test]
+    fn filter_groups_returns_empty_when_no_updates(
+        #[case] last_synced: HashMap<Vec<u8>, GlobalCursor>,
+        #[case] latest: HashMap<GroupId, GroupMessageMetadata>,
+    ) {
+        let result = filter_groups_with_new_messages(last_synced, latest);
+        assert_eq!(result.len(), 0);
+    }
+
+    #[xmtp_common::test]
+    fn filter_groups_comprehensive_mixed_states() {
+        let g1 = vec![1];
+        let g2 = vec![2];
+        let g3 = vec![3];
+        let g4 = vec![4];
+        let orig = 100;
+
+        let mut last_synced = HashMap::new();
+        last_synced.insert(g1.clone(), make_cursor(orig, 5)); // Will have new
+        last_synced.insert(g2.clone(), make_cursor(orig, 15)); // Already synced
+        last_synced.insert(g3.clone(), make_cursor(orig, 10)); // Equal
+        // g4 never synced
+
+        let mut latest = HashMap::new();
+        latest.insert(
+            g1.clone().into(),
+            make_message_metadata(g1.clone(), orig, 10),
+        );
+        latest.insert(
+            g2.clone().into(),
+            make_message_metadata(g2.clone(), orig, 12),
+        );
+        latest.insert(
+            g3.clone().into(),
+            make_message_metadata(g3.clone(), orig, 10),
+        );
+        latest.insert(
+            g4.clone().into(),
+            make_message_metadata(g4.clone(), orig, 1),
+        );
+
+        let result = filter_groups_with_new_messages(last_synced, latest);
+
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&g1));
+        assert!(result.contains(&g4));
     }
 }

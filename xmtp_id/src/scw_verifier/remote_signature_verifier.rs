@@ -1,7 +1,6 @@
 use super::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
 use crate::associations::AccountId;
 use alloy::primitives::{BlockNumber, Bytes};
-use xmtp_api::ApiClientWrapper;
 
 use xmtp_proto::{
     prelude::XmtpIdentityClient,
@@ -12,11 +11,11 @@ use xmtp_proto::{
 };
 
 pub struct RemoteSignatureVerifier<C> {
-    api: ApiClientWrapper<C>,
+    api: C,
 }
 
 impl<ApiClient> RemoteSignatureVerifier<ApiClient> {
-    pub fn new(api: ApiClientWrapper<ApiClient>) -> Self {
+    pub fn new(api: ApiClient) -> Self {
         Self { api }
     }
 }
@@ -25,7 +24,7 @@ impl<ApiClient> RemoteSignatureVerifier<ApiClient> {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<C> SmartContractSignatureVerifier for RemoteSignatureVerifier<C>
 where
-    C: XmtpIdentityClient + Send + Sync,
+    C: XmtpIdentityClient,
 {
     async fn is_valid_signature(
         &self,
@@ -44,7 +43,8 @@ where
                     hash: hash.to_vec(),
                 }],
             })
-            .await?;
+            .await
+            .map_err(|e| VerifierError::Other(Box::new(e) as Box<_>))?;
 
         let VerifySmartContractWalletSignaturesResponse { responses } = result;
 

@@ -1,17 +1,17 @@
 use super::{Cursor, GroupId};
 use crate::ConversionError;
-use chrono::Local;
+use chrono::Utc;
 use derive_builder::Builder;
 use openmls::prelude::ContentType;
 
 /// A GroupMessage from the network
-#[derive(Clone, Builder)]
+#[derive(Clone, Builder, Debug)]
 #[builder(setter(into), build_fn(error = "ConversionError"))]
 pub struct GroupMessage {
     /// Cursor of this message
     pub cursor: Cursor,
     /// server timestamp indicating when this message was created
-    pub created_ns: chrono::DateTime<Local>,
+    pub created_ns: chrono::DateTime<Utc>,
     /// GroupId of the message
     pub group_id: GroupId,
     // MLS Group Message
@@ -48,18 +48,31 @@ impl GroupMessage {
         self.cursor.sequence_id
     }
 }
+
 #[cfg(any(test, feature = "test-utils"))]
 impl xmtp_common::Generate for GroupMessage {
     fn generate() -> Self {
         GroupMessage {
             cursor: Default::default(),
-            created_ns: chrono::DateTime::from_timestamp_nanos(xmtp_common::rand_i64()).into(),
+            created_ns: chrono::DateTime::from_timestamp_nanos(xmtp_common::rand_i64()),
             group_id: GroupId::generate(),
             message: openmls::prelude::PublicMessage::generate().into(),
             sender_hmac: xmtp_common::rand_vec::<2>(),
             should_push: true,
             payload_hash: xmtp_common::rand_vec::<32>(),
         }
+    }
+}
+
+impl std::fmt::Display for GroupMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "GroupMessage {{ cursor {}, created at {}, group {} }}",
+            self.cursor,
+            self.created_ns.time(),
+            self.group_id
+        )
     }
 }
 
@@ -81,7 +94,7 @@ mod test {
 
     #[xmtp_common::test]
     fn test_timestamp() {
-        let test_time = chrono::Local::now();
+        let test_time = chrono::Utc::now();
         let mut group_message = GroupMessage::generate();
         group_message.created_ns = test_time;
         assert_eq!(

@@ -1,18 +1,24 @@
+use crate::builder::ForkRecoveryPolicy;
 use crate::groups::MlsGroup;
 use crate::groups::commit_log_key::CommitLogKeyCrypto;
-use crate::groups::commit_log_key::derive_consensus_public_key;
 use crate::groups::oneshot::Oneshot;
+use crate::groups::summary::SyncSummary;
 use futures::StreamExt;
-use openmls::prelude::OpenMlsCrypto;
-use openmls::prelude::SignatureScheme;
+use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
+use std::collections::HashSet;
 use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
 use xmtp_api::ApiError;
+use xmtp_common::RetryableError;
+use xmtp_common::hex::NormalizeHex;
 use xmtp_configuration::MAX_PAGE_SIZE;
+use xmtp_configuration::Originators;
+use xmtp_db::consent_record::ConsentState;
 use xmtp_db::group::ConversationType;
 use xmtp_db::group::DmIdExt;
+use xmtp_db::group::StoredGroupForRespondingReadds;
 use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
 use xmtp_db::{
@@ -24,6 +30,7 @@ use xmtp_db::{
     remote_commit_log::{CommitResult, NewRemoteCommitLog},
 };
 use xmtp_proto::mls_v1::PublishCommitLogRequest;
+use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
 use xmtp_proto::xmtp::mls::message_contents::{CommitLogEntry, CommitResult as ProtoCommitResult};
 use xmtp_proto::{
@@ -31,6 +38,7 @@ use xmtp_proto::{
     xmtp::{message_api::v1::SortDirection, mls::message_contents::PlaintextCommitLogEntry},
 };
 
+use crate::groups::commit_log_key::derive_consensus_public_key;
 use crate::groups::commit_log_key::get_or_create_signing_key;
 use crate::{
     context::XmtpSharedContext,
@@ -42,7 +50,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 /// Interval at which the CommitLogWorker runs to publish commit log entries.
-pub const INTERVAL_DURATION: Duration = Duration::from_secs(60 * 5); // 5 minutes
+pub const DEFAULT_INTERVAL_DURATION: Duration = Duration::from_secs(60 * 5); // 5 minutes
 
 #[derive(Clone)]
 pub struct Factory<Context> {
@@ -51,7 +59,7 @@ pub struct Factory<Context> {
 
 impl<Context> WorkerFactory for Factory<Context>
 where
-    Context: XmtpSharedContext + Send + Sync + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::CommitLog
@@ -88,8 +96,31 @@ pub enum CommitLogError {
     CryptoError(#[from] openmls_traits::types::CryptoError),
     #[error("try from slice error: {0}")]
     TryFromSliceError(#[from] std::array::TryFromSliceError),
+    #[error("Group did not pass readd validation: {0}")]
+    GroupReaddValidationError(String),
+    #[error("sync error: {0}")]
+    SyncError(#[from] SyncSummary),
     #[error("error: {0}")]
     GenericError(String),
+}
+
+impl RetryableError for CommitLogError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Storage(storage_error) => storage_error.is_retryable(),
+            Self::Diesel(diesel_error) => diesel_error.is_retryable(),
+            Self::Api(api_error) => api_error.is_retryable(),
+            Self::Connection(connection_error) => connection_error.is_retryable(),
+            Self::Prost(_prost_error) => false,
+            Self::KeystoreError(keystore_error) => keystore_error.is_retryable(),
+            Self::GroupError(group_error) => group_error.is_retryable(),
+            Self::CryptoError(_crypto_error) => false,
+            Self::TryFromSliceError(_try_from_slice_error) => false,
+            Self::GroupReaddValidationError(_group_readd_validation_error) => false,
+            Self::SyncError(sync_error) => sync_error.is_retryable(),
+            Self::GenericError(_generic_error) => false,
+        }
+    }
 }
 
 impl NeedsDbReconnect for CommitLogError {
@@ -104,6 +135,8 @@ impl NeedsDbReconnect for CommitLogError {
             Self::GroupError(_group_error) => false,       // TODO(rich): What does this method do?
             Self::CryptoError(_crypto_error) => false,
             Self::TryFromSliceError(_try_from_slice_error) => false,
+            Self::GroupReaddValidationError(_group_readd_validation_error) => false,
+            Self::SyncError(_sync_error) => false,
             Self::GenericError(_generic_error) => false,
         }
     }
@@ -125,8 +158,7 @@ where
 
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
-        Self: Sized,
-        C: XmtpSharedContext + Send + Sync + 'static,
+        C: XmtpSharedContext + 'static,
     {
         Factory { context }
     }
@@ -181,7 +213,11 @@ where
     Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), CommitLogError> {
-        let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
+        let mut worker_interval = DEFAULT_INTERVAL_DURATION;
+        if let Some(interval) = self.context.fork_recovery_opts().worker_interval_ns {
+            worker_interval = Duration::from_nanos(interval).max(Duration::from_secs(2));
+        }
+        let mut intervals = xmtp_common::time::interval_stream(worker_interval);
         while (intervals.next().await).is_some() {
             self.tick().await?;
         }
@@ -192,9 +228,8 @@ where
         self.save_remote_commit_log().await?;
         self.update_forked_state().await?;
         self.publish_commit_logs_to_remote().await?;
-        if xmtp_configuration::ENABLE_RECOVERY_REQUESTS {
-            self.send_readd_requests().await?;
-        }
+        self.send_outgoing_readd_requests().await?;
+        self.handle_incoming_pending_readds().await?;
         Ok(())
     }
 
@@ -216,16 +251,27 @@ where
             return Ok(conversation_cursor_info);
         }
 
+        tracing::info!(
+            "Publishing {} commit log entries to remote commit log",
+            all_entries.len()
+        );
+
         // Step 3 is to publish commit log entries to the API and update cursors
         let api = self.context.api();
         match api.publish_commit_log(all_entries).await {
             Ok(_) => {
                 // Publishing was successful, let's update every group's cursor
                 for conversation_cursor_info in &conversation_cursor_info {
+                    tracing::info!(
+                        "Updating publish cursor for conversation {}",
+                        hex::encode(&conversation_cursor_info.conversation_id)
+                    );
                     conn.update_cursor(
                         &conversation_cursor_info.conversation_id,
                         xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-                        conversation_cursor_info.last_entry_published_rowid,
+                        Cursor::commit_log(
+                            conversation_cursor_info.last_entry_published_rowid as u64,
+                        ),
                     )?;
                 }
             }
@@ -257,13 +303,15 @@ where
                 .flatten()
                 .unwrap_or(0);
             let published_commit_log_cursor = conn
-                .get_last_cursor_for_id(
+                .get_last_cursor_for_originator(
                     &conversation.id,
                     xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+                    Originators::REMOTE_COMMIT_LOG,
                 )
-                .unwrap_or(0);
+                .unwrap_or_default()
+                .sequence_id;
 
-            if local_commit_log_cursor as i64 <= published_commit_log_cursor {
+            if local_commit_log_cursor <= published_commit_log_cursor as i32 {
                 // We have no new commits to publish for this conversation
                 continue;
             }
@@ -274,7 +322,7 @@ where
             let (plaintext_commit_log_entries, rowids): (Vec<PlaintextCommitLogEntry>, Vec<i32>) =
                 conn.get_local_commit_log_after_cursor(
                     &conversation.id,
-                    published_commit_log_cursor,
+                    published_commit_log_cursor as i64,
                     LocalCommitLogOrder::AscendingByRowid,
                 )?
                 .iter()
@@ -361,7 +409,7 @@ where
                 group_id: conversation_id.clone(),
                 paging_info: Some(PagingInfo {
                     direction: SortDirection::Ascending as i32,
-                    id_cursor: *cursor as u64,
+                    id_cursor: cursor.sequence_id,
                     limit: MAX_PAGE_SIZE,
                 }),
             })
@@ -391,6 +439,10 @@ where
                 consensus_public_key =
                     derive_consensus_public_key(&self.context, &response).await?;
             }
+            tracing::info!(
+                group_id = hex::encode(&response.group_id),
+                "Saving remote commit log entries and updating cursors for group",
+            );
             let num_entries = self.save_remote_commit_log_entries_and_update_cursors(
                 conn,
                 response,
@@ -473,7 +525,7 @@ where
             conn.update_cursor(
                 &group_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogDownload,
-                last_entry.sequence_id as i64,
+                Cursor::commit_log(last_entry.sequence_id),
             )?;
         }
 
@@ -630,12 +682,38 @@ where
         Ok(())
     }
 
-    /// Send readd requests for all forked conversations  
-    async fn send_readd_requests(&mut self) -> Result<(), CommitLogError> {
+    /// Send readd requests for all forked conversations
+    async fn send_outgoing_readd_requests(&mut self) -> Result<(), CommitLogError> {
+        if self.context.fork_recovery_opts().enable_recovery_requests == ForkRecoveryPolicy::None {
+            return Ok(());
+        }
         let conn = self.context.db();
 
         // Fetch all forked groups with their latest epoch
-        let forked_groups = conn.get_conversation_ids_for_requesting_readds()?;
+        let mut forked_groups = conn.get_conversation_ids_for_requesting_readds()?;
+        if self.context.fork_recovery_opts().enable_recovery_requests
+            == ForkRecoveryPolicy::AllowlistedGroups
+        {
+            let groups_to_request_recovery = self
+                .context
+                .fork_recovery_opts()
+                .groups_to_request_recovery
+                .iter()
+                .map(|group_id| group_id.normalize_hex())
+                .collect::<HashSet<String>>();
+            tracing::info!(
+                "Forked groups: {:?}, allowlisted groups for sending recovery requests: {:?}",
+                forked_groups
+                    .iter()
+                    .map(|group_info| hex::encode(&group_info.group_id))
+                    .collect::<Vec<String>>(),
+                groups_to_request_recovery
+            );
+            forked_groups.retain(|group_info| {
+                groups_to_request_recovery
+                    .contains(&hex::encode(&group_info.group_id).normalize_hex())
+            });
+        }
 
         for group_info in forked_groups {
             let group_id = group_info.group_id.clone();
@@ -645,7 +723,7 @@ where
                 tracing::error!(
                     group_id = hex::encode(&group_id),
                     error = ?e,
-                    "Failed to process readd request for group"
+                    "Failed to send readd request for group"
                 );
                 // Continue processing other groups even if one fails
                 continue;
@@ -655,30 +733,163 @@ where
         Ok(())
     }
 
+    async fn handle_incoming_pending_readds(&self) -> Result<(), CommitLogError> {
+        if self.context.fork_recovery_opts().disable_recovery_responses {
+            return Ok(());
+        }
+        let conn = self.context.db();
+        let groups_for_readd = conn.get_conversation_ids_for_responding_readds()?;
+
+        tracing::info!(
+            "Processing readd requests for {} groups",
+            groups_for_readd.len()
+        );
+
+        for group in groups_for_readd {
+            match self.validate_pending_readds(&conn, &group).await {
+                Ok(validated_installations) => {
+                    if validated_installations.is_empty() {
+                        continue;
+                    }
+                    let mls_group = MlsGroup::new(
+                        self.context.clone(),
+                        group.group_id.clone(),
+                        group.dm_id.clone(),
+                        group.conversation_type,
+                        group.created_at_ns,
+                    );
+                    mls_group
+                        .readd_installations(
+                            validated_installations.into_iter().collect::<Vec<_>>(),
+                        )
+                        .await?;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        group_id = hex::encode(&group.group_id),
+                        "Failed to validate readd requests for group: {}",
+                        e
+                    );
+                    if !e.is_retryable() {
+                        tracing::warn!(
+                            group_id = hex::encode(&group.group_id),
+                            "Deleting readd statuses for group because it failed validation: {}",
+                            e
+                        );
+                        conn.delete_other_readd_statuses(
+                            &group.group_id,
+                            self.context.installation_id().as_slice(),
+                        )?;
+                    }
+                    continue;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn validate_pending_readds(
+        &self,
+        conn: &impl DbQuery,
+        group: &StoredGroupForRespondingReadds,
+    ) -> Result<HashSet<Vec<u8>>, CommitLogError> {
+        let (mls_group, _) = MlsGroup::new_cached(self.context.clone(), &group.group_id)?;
+        tracing::debug!(
+            group_id = hex::encode(&mls_group.group_id),
+            "Processing readd requests for group"
+        );
+
+        mls_group.sync_with_conn().await?;
+
+        if mls_group.consent_state()? != ConsentState::Allowed {
+            return Err(CommitLogError::GroupReaddValidationError(
+                "Group is not consented".to_string(),
+            ));
+        }
+        if !mls_group.is_active()? {
+            return Err(CommitLogError::GroupReaddValidationError(
+                "Group is not active".to_string(),
+            ));
+        }
+        let is_super_admin = mls_group.is_super_admin(self.context.inbox_id().to_string())?;
+        if !is_super_admin {
+            return Err(CommitLogError::GroupReaddValidationError(
+                "No longer super admin of group".to_string(),
+            ));
+        }
+
+        let fork_state = self.check_conversation_fork_state(conn, &mls_group.group_id)?;
+        if let Some(true) = fork_state {
+            return Err(CommitLogError::GroupReaddValidationError(
+                "Group is forked".to_string(),
+            ));
+        } else if fork_state.is_none() {
+            tracing::info!(
+                group_id = hex::encode(&mls_group.group_id),
+                "Local commit log ahead of remote, skipping group"
+            );
+            return Ok(HashSet::new());
+        }
+
+        let readd_statuses = conn.get_readds_awaiting_response(
+            &mls_group.group_id,
+            self.context.installation_id().as_slice(),
+        )?;
+        let mut unverified = readd_statuses
+            .iter()
+            .map(|readd_status| readd_status.installation_id.clone())
+            .collect::<HashSet<_>>();
+
+        let (unverified, verified) = mls_group
+            .load_mls_group_with_lock_async(|openmls_group| async move {
+                let mut verified = HashSet::new();
+                for member in openmls_group.members() {
+                    if unverified.contains(&member.signature_key) {
+                        unverified.remove(&member.signature_key);
+                        verified.insert(member.signature_key);
+                    }
+                }
+                Ok::<_, GroupError>((unverified, verified))
+            })
+            .await?;
+        tracing::debug!(
+            group_id = hex::encode(&mls_group.group_id),
+            "{} readd requests were for non-members, while {} were for members",
+            unverified.len(),
+            verified.len()
+        );
+        conn.delete_readd_statuses(&mls_group.group_id, unverified)?;
+
+        Ok(verified)
+    }
+
     fn check_conversation_fork_state(
         &self,
         conn: &impl DbQuery,
         conversation_id: &[u8],
     ) -> Result<Option<bool>, CommitLogError> {
         // Get cursors for this conversation
-        let fork_check_local_cursor = conn.get_last_cursor_for_id(
+        let fork_check_local_cursor = conn.get_last_cursor_for_originator(
             conversation_id,
             xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
+            Originators::REMOTE_COMMIT_LOG,
         )?;
-        let fork_check_remote_cursor = conn.get_last_cursor_for_id(
+        let fork_check_remote_cursor = conn.get_last_cursor_for_originator(
             conversation_id,
             xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
+            Originators::REMOTE_COMMIT_LOG,
         )?;
 
         // Get local and remote commit logs
         let local_logs = conn.get_local_commit_log_after_cursor(
             conversation_id,
-            fork_check_local_cursor,
+            fork_check_local_cursor.sequence_id as i64,
             LocalCommitLogOrder::DescendingByRowid,
         )?;
         let remote_logs = conn.get_remote_commit_log_after_cursor(
             conversation_id,
-            fork_check_remote_cursor,
+            fork_check_remote_cursor.sequence_id as i64,
             RemoteCommitLogOrder::DescendingByRowid,
         )?;
 
@@ -711,16 +922,17 @@ where
                 );
             }
 
+            // TODO: d14n needs correct originator/double check
             // Update cursors regardless of fork status (we found a match)
             conn.update_cursor(
                 conversation_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-                local_log.rowid as i64,
+                Cursor::commit_log(local_log.rowid as u64),
             )?;
             conn.update_cursor(
                 conversation_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-                matching_remote_log.rowid as i64,
+                Cursor::commit_log(matching_remote_log.rowid as u64),
             )?;
 
             if is_mismatched {

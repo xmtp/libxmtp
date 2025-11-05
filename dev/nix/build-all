@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ARCHS=("x86_64-linux" "aarch64-linux")
+SHELLS=("default" "android" "js" "wasmBuild")
+PACKAGES=("wasm-bindings" "wasm-bindgen-cli")
+
+for arch in "${ARCHS[@]}"; do
+    for shell in "${SHELLS[@]}"; do
+        echo "Building devShells.${arch}.${shell}..."
+        nix build ".#devShells.${arch}.${shell}" --no-link
+    done
+
+    for pkg in "${PACKAGES[@]}"; do
+        echo "Building packages.${arch}.${pkg}..."
+        nix build ".#packages.${arch}.${pkg}" --no-link
+    done
+done
+
+echo "All builds completed successfully!"

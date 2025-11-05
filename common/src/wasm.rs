@@ -11,7 +11,11 @@ pub use tokio::*;
 crate::if_wasm! {
     /// Marker trait to determine whether a type implements `Send` or not.
     pub trait MaybeSend {}
-    impl<T> MaybeSend for T {}
+    impl<T: ?Sized> MaybeSend for T {}
+
+    /// Marker trait to determine whether a type implements `Send` or not.
+    pub trait MaybeSync {}
+    impl<T: ?Sized> MaybeSync for T {}
 
     /// Global Marker trait for WebAssembly
     pub trait Wasm {}
@@ -20,16 +24,26 @@ crate::if_wasm! {
     pub struct StreamWrapper<'a, I> {
         inner: Pin<Box<dyn Stream<Item = I> + 'a>>,
     }
+
+    pub type BoxDynError = Box<dyn std::error::Error>;
+
 }
 
 crate::if_native! {
     /// Marker trait to determine whether a type implements `Send` or not.
     pub trait MaybeSend: Send {}
-    impl<T: Send> MaybeSend for T {}
+    impl<T: Send + ?Sized> MaybeSend for T {}
+
+    /// Marker trait to determine whether a type implements `Sync` or not.
+    pub trait MaybeSync: Sync {}
+    impl<T: Sync + ?Sized> MaybeSync for T {}
 
     pub struct StreamWrapper<'a, I> {
         inner: Pin<Box<dyn Stream<Item = I> + Send + 'a>>,
     }
+
+    pub type BoxDynError = Box<dyn std::error::Error + Send + Sync>;
+
 }
 
 impl<I> Stream for StreamWrapper<'_, I> {

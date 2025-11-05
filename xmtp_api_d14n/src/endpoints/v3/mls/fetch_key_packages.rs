@@ -9,7 +9,7 @@ use xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest;
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct FetchKeyPackages {
-    #[builder(setter(into))]
+    #[builder(setter(into, each = "installation_key"))]
     installation_keys: Vec<Vec<u8>>,
 }
 
@@ -57,7 +57,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_fetch_key_packages() {
-        let client = crate::TestClient::create_local();
+        let client = crate::TestGrpcClient::create_local();
         let client = client.build().unwrap();
         let mut endpoint = FetchKeyPackages::builder()
             .installation_keys(vec![vec![1, 2, 3]])

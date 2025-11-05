@@ -5,6 +5,7 @@ use crate::client::ClientError;
 use crate::context::{XmtpMlsLocalContext, XmtpSharedContext};
 use crate::groups::device_sync::DeviceSyncClient;
 use crate::groups::device_sync::worker::SyncMetric;
+use crate::groups::send_message_opts;
 use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
 use xmtp_db::{ConnectionExt, StorageError, XmtpDb, XmtpOpenMlsProvider};
@@ -92,7 +93,7 @@ pub(crate) fn process_incoming_preference_update(
         updates.extend(changed);
     }
 
-    if let Some(handle) = context.workers().sync_metrics() {
+    if let Some(handle) = context.sync_metrics() {
         updates.iter().for_each(|u| match u {
             PreferenceUpdate::Consent(_) => handle.increment_metric(SyncMetric::V1ConsentReceived),
             PreferenceUpdate::Hmac { .. } => handle.increment_metric(SyncMetric::V1HmacReceived),
@@ -129,12 +130,16 @@ impl LegacyUserPreferenceUpdate {
         let update_proto = UserPreferenceUpdateProto { contents };
         let content_bytes =
             serde_json::to_vec(&update_proto).map_err(|e| ClientError::Generic(e.to_string()))?;
-        sync_group.prepare_message(&content_bytes, |now| PlaintextEnvelopeProto {
-            content: Some(Content::V2(V2 {
-                message_type: Some(MessageType::UserPreferenceUpdate(update_proto)),
-                idempotency_key: now.to_string(),
-            })),
-        })?;
+        sync_group.prepare_message(
+            &content_bytes,
+            send_message_opts::SendMessageOpts { should_push: true },
+            |now| PlaintextEnvelopeProto {
+                content: Some(Content::V2(V2 {
+                    message_type: Some(MessageType::UserPreferenceUpdate(update_proto)),
+                    idempotency_key: now.to_string(),
+                })),
+            },
+        )?;
 
         // sync_group.publish_intents(&provider).await?;
         sync_group.sync_until_last_intent_resolved().await?;

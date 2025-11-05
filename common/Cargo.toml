@@ -6,7 +6,6 @@ license.workspace = true
 
 [dependencies]
 async-trait.workspace = true
-bytes.workspace = true
 futures = { workspace = true, features = ["std"] }
 hex.workspace = true
 rand.workspace = true
@@ -29,7 +28,6 @@ tracing-subscriber = { workspace = true, features = [
 ], optional = true }
 xmtp_cryptography.workspace = true
 xmtp_macro = { workspace = true, optional = true }
-
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }

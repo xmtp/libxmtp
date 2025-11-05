@@ -1,16 +1,24 @@
 use crate::identity::Identifier;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
-use xmtp_api::{ApiClientWrapper, ApiIdentifier, strategies};
-use xmtp_api_grpc::v3::Client as TonicApiClient;
+use xmtp_api::{ApiClientWrapper, strategies};
+use xmtp_api_d14n::{MessageBackendBuilder, TrackedStatsClient};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
+use xmtp_proto::types::ApiIdentifier;
 
 #[wasm_bindgen(js_name = getInboxIdForIdentifier)]
 pub async fn get_inbox_id_for_identifier(
-  host: String,
+  v3_host: String,
+  gateway_host: Option<String>,
   #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
 ) -> Result<Option<String>, JsError> {
+  let backend = MessageBackendBuilder::default()
+    .v3_host(&v3_host)
+    .maybe_gateway_host(gateway_host)
+    .is_secure(true)
+    .build()
+    .map_err(|e| JsError::new(&e.to_string()))?;
   let api_client = ApiClientWrapper::new(
-    TonicApiClient::create(host.clone(), true, "0.0.0".into())?,
+    TrackedStatsClient::new(backend),
     strategies::exponential_cooldown(),
   );
 

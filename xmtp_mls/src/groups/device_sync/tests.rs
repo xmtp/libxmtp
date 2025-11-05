@@ -1,4 +1,5 @@
 use super::*;
+use crate::groups::send_message_opts::SendMessageOpts;
 use crate::tester;
 use xmtp_db::{
     consent_record::ConsentState,
@@ -56,7 +57,7 @@ async fn only_one_payload_sent() {
     let result = tokio::select! {
         _r1 = wait1.wait() => "alix1",
         _r2 = wait2.wait() => "alix2",
-        _ = sleep(Duration::from_secs(15)) => "timeout",
+        _ = sleep(Duration::from_secs(10)) => "timeout",
     };
 
     // Register interest for next PayloadSent events
@@ -250,7 +251,9 @@ async fn test_only_added_to_correct_groups() {
     let old_group = alix1
         .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
         .await?;
-    old_group.send_message(b"hi there").await?;
+    old_group
+        .send_message(b"hi there", SendMessageOpts::default())
+        .await?;
     alix1.context.db().raw_query_write(|conn| {
         diesel::update(dsl::groups.find(&old_group.group_id))
             .set((dsl::last_message_ns.eq(0), dsl::created_at_ns.eq(0)))
@@ -278,7 +281,9 @@ async fn test_only_added_to_correct_groups() {
     let new_group = alix1
         .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
         .await?;
-    new_group.send_message(b"hi there").await?;
+    new_group
+        .send_message(b"hi there", SendMessageOpts::default())
+        .await?;
 
     tester!(alix2, from: alix1);
 

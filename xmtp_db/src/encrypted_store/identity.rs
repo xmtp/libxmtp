@@ -3,12 +3,13 @@ use crate::schema::identity::dsl;
 use crate::{ConnectionExt, DbConnection, StorageError, impl_fetch, impl_store};
 use derive_builder::Builder;
 use diesel::prelude::*;
+use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
 use xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
 
 /// Identity of this installation
 /// There can only be one.
-#[derive(Insertable, Queryable, Debug, Clone, Builder)]
+#[derive(Insertable, Queryable, Debug, Clone, Builder, Serialize, Deserialize)]
 #[diesel(table_name = identity)]
 #[builder(setter(into), build_fn(error = "crate::StorageError"))]
 pub struct StoredIdentity {

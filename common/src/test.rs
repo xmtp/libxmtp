@@ -1,7 +1,5 @@
 //! Common Test Utilites
 use crate::time::Expired;
-use once_cell::sync::Lazy;
-use parking_lot::Mutex;
 use rand::distributions::DistString;
 use rand::{Rng, distributions::Alphanumeric, seq::IteratorRandom};
 use std::collections::HashMap;
@@ -12,7 +10,6 @@ pub mod traced_test;
 #[cfg(not(target_arch = "wasm32"))]
 pub use traced_test::TestWriter;
 
-mod logger;
 mod macros;
 
 mod openmls;
@@ -20,7 +17,13 @@ pub use openmls::*;
 
 static INIT: OnceLock<()> = OnceLock::new();
 
-static REPLACE_IDS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+crate::if_native! {
+    use once_cell::sync::Lazy;
+    use parking_lot::Mutex;
+
+    static REPLACE_IDS: once_cell::sync::Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+    mod logger;
+}
 
 pub trait Generate {
     /// generate a struct containing random data

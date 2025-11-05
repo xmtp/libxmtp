@@ -1,0 +1,44 @@
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - v?[0-9]+.[0-9]+.[0-9]+*
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  flakehub-publish:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest] # Define the operating systems for the matrix
+    runs-on: ${{ matrix.os }} # Use the 'os' variable from the matrix for the runner
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: wimpysworld/nothing-but-nix@main
+        if: runner.os == 'Linux'
+        with:
+          hatchet-protocol: "cleave"
+      - uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Install omnix
+        run: nix profile install nixpkgs#omnix
+      - name: build all flake outputs
+        run: om ci run --include-all-dependencies --results=om.json
+      - name: push to cachix
+        if: env.BRANCH_NAME == 'main'
+        run: nix run github:juspay/cachix-push -- --cache xmtp --subflake ROOT --prefix "$BRANCH_NAME" < om.json
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+      - uses: DeterminateSystems/flakehub-cache-action@main
+      - run: om ci run --include-all-dependencies
+      - uses: DeterminateSystems/flakehub-push@main
+        with:
+          visibility: "public"
+          rolling: true
+          name: "xmtp/libxmtp"
+          include-output-paths: true

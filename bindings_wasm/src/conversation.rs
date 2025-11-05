@@ -5,7 +5,9 @@ use crate::identity::{Identifier, IdentityExt};
 use crate::messages::{ListMessagesOptions, Message, MessageWithReactions};
 use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
 use crate::streams::{StreamCallback, StreamCloser};
-use crate::{consent_state::ConsentState, permissions::GroupPermissions};
+use crate::{
+  consent_state::ConsentState, enriched_message::DecodedMessage, permissions::GroupPermissions,
+};
 use std::collections::HashMap;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
@@ -24,6 +26,28 @@ use xmtp_mls::{
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use prost::Message as ProstMessage;
+
+#[wasm_bindgen]
+pub struct SendMessageOpts {
+  #[wasm_bindgen(js_name = shouldPush)]
+  pub should_push: bool,
+}
+
+#[wasm_bindgen]
+impl SendMessageOpts {
+  #[wasm_bindgen(constructor)]
+  pub fn new(should_push: bool) -> Self {
+    Self { should_push }
+  }
+}
+
+impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
+  fn from(opts: SendMessageOpts) -> Self {
+    xmtp_mls::groups::send_message_opts::SendMessageOpts {
+      should_push: opts.should_push,
+    }
+  }
+}
 
 #[wasm_bindgen]
 pub struct GroupMetadata {
@@ -150,12 +174,16 @@ impl Conversation {
   }
 
   #[wasm_bindgen]
-  pub async fn send(&self, encoded_content: EncodedContent) -> Result<String, JsError> {
+  pub async fn send(
+    &self,
+    encoded_content: EncodedContent,
+    opts: SendMessageOpts,
+  ) -> Result<String, JsError> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.to_mls_group();
 
     let message_id = group
-      .send_message(encoded_content.encode_to_vec().as_slice())
+      .send_message(encoded_content.encode_to_vec().as_slice(), opts.into())
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -164,12 +192,16 @@ impl Conversation {
 
   /// send a message without immediately publishing to the delivery service.
   #[wasm_bindgen(js_name = sendOptimistic)]
-  pub fn send_optimistic(&self, encoded_content: EncodedContent) -> Result<String, JsError> {
+  pub fn send_optimistic(
+    &self,
+    encoded_content: EncodedContent,
+    opts: SendMessageOpts,
+  ) -> Result<String, JsError> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.to_mls_group();
 
     let id = group
-      .send_message_optimistic(encoded_content.encode_to_vec().as_slice())
+      .send_message_optimistic(encoded_content.encode_to_vec().as_slice(), opts.into())
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
     Ok(hex::encode(id.clone()))
@@ -229,6 +261,18 @@ impl Conversation {
       .collect();
 
     Ok(messages)
+  }
+
+  #[wasm_bindgen(js_name = countMessages)]
+  pub async fn count_messages(&self, opts: Option<ListMessagesOptions>) -> Result<i64, JsError> {
+    let opts = opts.unwrap_or_default();
+    let group = self.to_mls_group();
+    let query_args = opts.into();
+    let count = group
+      .count_messages(&query_args)
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(count)
   }
 
   #[wasm_bindgen(js_name = findMessagesWithReactions)]
@@ -693,7 +737,7 @@ impl Conversation {
       is_commit_log_forked: debug_info.is_commit_log_forked,
       local_commit_log: debug_info.local_commit_log,
       remote_commit_log: debug_info.remote_commit_log,
-      cursor: debug_info.cursor,
+      cursor: debug_info.cursor.into_iter().map(Into::into).collect(),
     })?)
   }
 
@@ -708,6 +752,33 @@ impl Conversation {
     let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();
 
     Ok(conversations)
+  }
+
+  #[wasm_bindgen(js_name = findMessagesV2)]
+  pub async fn enriched_messages(
+    &self,
+    opts: Option<ListMessagesOptions>,
+  ) -> Result<Vec<DecodedMessage>, JsError> {
+    let opts = opts.unwrap_or_default();
+    let group = self.to_mls_group();
+    let messages: Vec<DecodedMessage> = group
+      .find_messages_v2(&opts.into())
+      .map_err(|e| JsError::new(&format!("{e}")))?
+      .into_iter()
+      .map(|msg| msg.into())
+      .collect();
+
+    Ok(messages)
+  }
+
+  #[wasm_bindgen(js_name = getLastReadTimes)]
+  pub async fn get_last_read_times(&self) -> Result<JsValue, JsError> {
+    let group = self.to_mls_group();
+    let times = group
+      .get_last_read_times()
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(crate::to_value(&times)?)
   }
 }
 
@@ -733,8 +804,8 @@ mod tests {
       version_minor: 123,
       authority_id: String::from("test"),
       reference_id: None,
-      originator_id: None,
-      sequence_id: None,
+      originator_id: 0,
+      sequence_id: 0,
       expire_at_ns: None,
     };
     crate::to_value(&stored_message).unwrap();

@@ -19,6 +19,8 @@ mod query;
 mod send;
 /// Local storage
 mod store;
+/// Message/Conversation Streaming
+mod stream;
 /// Types shared between App Functions
 mod types;
 
@@ -37,7 +39,6 @@ pub use clients::*;
 #[derive(Debug)]
 pub struct App {
     /// Local K/V Store/Cache for values
-    db: Arc<redb::Database>,
     opts: AppOpts,
 }
 
@@ -50,10 +51,15 @@ impl App {
             sqlite_stores = %Self::db_directory(&opts.backend)?.display(),
             "created project directories",
         );
-        Ok(Self {
-            db: Arc::new(redb::Database::create(Self::redb()?)?),
-            opts,
-        })
+        Ok(Self { opts })
+    }
+
+    fn readonly_db() -> Result<Arc<redb::ReadOnlyDatabase>> {
+        Ok(Arc::new(redb::ReadOnlyDatabase::open(Self::redb()?)?))
+    }
+
+    fn db() -> Result<Arc<redb::Database>> {
+        Ok(Arc::new(redb::Database::create(Self::redb()?)?))
     }
 
     /// All data stored here
@@ -82,7 +88,7 @@ impl App {
     }
 
     pub async fn run(self) -> Result<()> {
-        let App { db, opts } = self;
+        let App { opts } = self;
         use args::Commands::*;
         let AppOpts {
             cmd,
@@ -99,13 +105,14 @@ impl App {
 
         if let Some(cmd) = cmd {
             match cmd {
-                Generate(g) => generate::Generate::new(g, backend, db).run().await,
-                Send(s) => send::Send::new(s, backend, db).run().await,
-                Inspect(i) => inspect::Inspect::new(i, backend, db).run().await,
-                Query(q) => query::Query::new(q, backend, db).run().await,
-                Info(i) => info::Info::new(i, backend, db).run().await,
-                Export(e) => export::Export::new(e, db, backend).run(),
-                Modify(m) => modify::Modify::new(m, backend, db).run().await,
+                Generate(g) => generate::Generate::new(g, backend).run().await,
+                Send(s) => send::Send::new(s, backend)?.run().await,
+                Inspect(i) => inspect::Inspect::new(i, backend)?.run().await,
+                Query(q) => query::Query::new(q, backend)?.run().await,
+                Info(i) => info::Info::new(i, backend)?.run().await,
+                Export(e) => export::Export::new(e, backend)?.run(),
+                Modify(m) => modify::Modify::new(m, backend)?.run().await,
+                Stream(s) => stream::Stream::new(s, backend)?.run().await,
             }?;
         }
 

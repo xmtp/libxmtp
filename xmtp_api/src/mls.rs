@@ -3,19 +3,18 @@ use std::collections::HashMap;
 use super::ApiClientWrapper;
 use crate::{Result, XmtpApi};
 use xmtp_common::retry_async;
-use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1::{
-    BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, PublishCommitLogRequest,
-    QueryCommitLogRequest, QueryCommitLogResponse,
+    BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, GetNewestGroupMessageRequest,
+    PublishCommitLogRequest, QueryCommitLogRequest, QueryCommitLogResponse,
+};
+use xmtp_proto::types::{
+    GroupId, GroupMessage, GroupMessageMetadata, InstallationId, WelcomeMessage,
 };
 use xmtp_proto::xmtp::mls::api::v1::{
-    FetchKeyPackagesRequest, GroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo,
-    QueryGroupMessagesRequest, QueryWelcomeMessagesRequest, SendGroupMessagesRequest,
-    SendWelcomeMessagesRequest, SortDirection, SubscribeGroupMessagesRequest,
-    SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
+    FetchKeyPackagesRequest, GroupMessageInput, KeyPackageUpload, SendGroupMessagesRequest,
+    SendWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessageInput,
     subscribe_group_messages_request::Filter as GroupFilterProto,
-    subscribe_welcome_messages_request::Filter as WelcomeFilterProto,
 };
 
 /// A filter for querying group messages
@@ -73,57 +72,18 @@ pub enum IdentityUpdate {
 }
 
 type KeyPackageMap = HashMap<Vec<u8>, Vec<u8>>;
+type MessageMetadataMap = HashMap<GroupId, GroupMessageMetadata>;
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpApi,
 {
     #[tracing::instrument(level = "trace", skip_all, fields(group_id = hex::encode(&group_id)))]
-    pub async fn query_group_messages(
-        &self,
-        group_id: Vec<u8>,
-        id_cursor: Option<u64>,
-    ) -> Result<Vec<GroupMessage>> {
-        tracing::debug!(
-            group_id = hex::encode(&group_id),
-            id_cursor,
-            inbox_id = self.inbox_id,
-            "query group messages"
-        );
-        let mut out: Vec<GroupMessage> = vec![];
-        let mut id_cursor = id_cursor;
-        loop {
-            let mut result = retry_async!(
-                self.retry_strategy,
-                (async {
-                    self.api_client
-                        .query_group_messages(QueryGroupMessagesRequest {
-                            group_id: group_id.clone(),
-                            paging_info: Some(PagingInfo {
-                                id_cursor: id_cursor.unwrap_or(0),
-                                limit: MAX_PAGE_SIZE,
-                                direction: SortDirection::Ascending as i32,
-                            }),
-                        })
-                        .await
-                })
-            )
-            .map_err(crate::dyn_err)?;
-            let num_messages = result.messages.len();
-            out.append(&mut result.messages);
-
-            if num_messages < MAX_PAGE_SIZE as usize || result.paging_info.is_none() {
-                break;
-            }
-
-            let paging_info = result.paging_info.expect("Empty paging info");
-            if paging_info.id_cursor == 0 {
-                break;
-            }
-
-            id_cursor = Some(paging_info.id_cursor);
-        }
-        Ok(out)
+    pub async fn query_group_messages(&self, group_id: GroupId) -> Result<Vec<GroupMessage>> {
+        self.api_client
+            .query_group_messages(group_id)
+            .await
+            .map_err(crate::dyn_err)
     }
 
     /// Query for the latest message on a group
@@ -137,75 +97,26 @@ where
             inbox_id = self.inbox_id,
             "query latest group message"
         );
-        let result = retry_async!(
-            self.retry_strategy,
-            (async {
-                self.api_client
-                    .query_group_messages(QueryGroupMessagesRequest {
-                        group_id: group_id.as_ref().to_vec(),
-                        paging_info: Some(PagingInfo {
-                            id_cursor: 0,
-                            limit: 1,
-                            direction: SortDirection::Descending as i32,
-                        }),
-                    })
-                    .await
-            })
-        )
-        .map_err(crate::dyn_err)?;
-
-        Ok(result.messages.into_iter().next())
+        self.api_client
+            .query_latest_group_message(group_id.as_ref().into())
+            .await
+            .map_err(crate::dyn_err)
     }
 
     #[tracing::instrument(level = "trace", skip_all, fields(installation_id = hex::encode(installation_id)))]
     pub async fn query_welcome_messages<Id: AsRef<[u8]> + Copy>(
         &self,
         installation_id: Id,
-        id_cursor: Option<u64>,
     ) -> Result<Vec<WelcomeMessage>> {
         tracing::debug!(
             installation_id = hex::encode(installation_id),
-            cursor = id_cursor,
             inbox_id = self.inbox_id,
             "query welcomes"
         );
-        let mut out: Vec<WelcomeMessage> = vec![];
-        let page_size = 100;
-        let mut id_cursor = id_cursor;
-        loop {
-            let mut result = retry_async!(
-                self.retry_strategy,
-                (async {
-                    self.api_client
-                        .query_welcome_messages(QueryWelcomeMessagesRequest {
-                            installation_key: installation_id.as_ref().to_vec(),
-                            paging_info: Some(PagingInfo {
-                                id_cursor: id_cursor.unwrap_or(0),
-                                limit: page_size,
-                                direction: SortDirection::Ascending as i32,
-                            }),
-                        })
-                        .await
-                })
-            )
-            .map_err(crate::dyn_err)?;
-
-            let num_messages = result.messages.len();
-            out.append(&mut result.messages);
-
-            if num_messages < page_size as usize || result.paging_info.is_none() {
-                break;
-            }
-
-            let paging_info = result.paging_info.expect("Empty paging info");
-            if paging_info.id_cursor == 0 {
-                break;
-            }
-
-            id_cursor = Some(paging_info.id_cursor);
-        }
-
-        Ok(out)
+        self.api_client
+            .query_welcome_messages(installation_id.as_ref().try_into()?)
+            .await
+            .map_err(crate::dyn_err)
     }
 
     /// Upload a KeyPackage to the network
@@ -327,24 +238,38 @@ where
 
     pub async fn subscribe_group_messages(
         &self,
-        filters: Vec<GroupFilter>,
+        group_ids: &[&GroupId],
     ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream>
     where
         ApiClient: XmtpMlsStreams,
     {
         tracing::debug!(inbox_id = self.inbox_id, "subscribing to group messages");
         self.api_client
-            .subscribe_group_messages(SubscribeGroupMessagesRequest {
-                filters: filters.into_iter().map(|f| f.into()).collect(),
-            })
+            .subscribe_group_messages(group_ids)
+            .await
+            .map_err(crate::dyn_err)
+    }
+
+    pub async fn subscribe_group_messages_with_cursors(
+        &self,
+        groups_with_cursors: &[(&GroupId, xmtp_proto::types::GlobalCursor)],
+    ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream>
+    where
+        ApiClient: XmtpMlsStreams,
+    {
+        tracing::debug!(
+            inbox_id = self.inbox_id,
+            "subscribing to group messages with cursors"
+        );
+        self.api_client
+            .subscribe_group_messages_with_cursors(groups_with_cursors)
             .await
             .map_err(crate::dyn_err)
     }
 
     pub async fn subscribe_welcome_messages(
         &self,
-        installation_key: &[u8],
-        id_cursor: Option<u64>,
+        installation_key: &InstallationId,
     ) -> Result<<ApiClient as XmtpMlsStreams>::WelcomeMessageStream>
     where
         ApiClient: XmtpMlsStreams,
@@ -354,12 +279,7 @@ where
         // Default ID Cursor should be one
         // else we miss welcome messages
         self.api_client
-            .subscribe_welcome_messages(SubscribeWelcomeMessagesRequest {
-                filters: vec![WelcomeFilterProto {
-                    installation_key: installation_key.to_vec(),
-                    id_cursor: id_cursor.unwrap_or(1),
-                }],
-            })
+            .subscribe_welcome_messages(&[installation_key])
             .await
             .map_err(crate::dyn_err)
     }
@@ -407,6 +327,34 @@ where
 
         Ok(all_responses)
     }
+
+    pub async fn get_newest_message_metadata(
+        &self,
+        group_ids: Vec<&[u8]>,
+    ) -> Result<MessageMetadataMap> {
+        const BATCH_SIZE: usize = 1000;
+
+        let res =
+            futures::future::try_join_all(group_ids.chunks(BATCH_SIZE).map(|chunk| async move {
+                self.api_client
+                    .get_newest_group_message(GetNewestGroupMessageRequest {
+                        group_ids: chunk.to_vec().iter().map(|id| id.to_vec()).collect(),
+                        include_content: false,
+                    })
+                    .await
+                    .map_err(crate::dyn_err)
+            }))
+            .await?;
+
+        // Functionally process responses into metadata map
+        let metadata_map = res
+            .into_iter()
+            .flatten()
+            .filter_map(|response| response.map(|msg| (msg.group_id.clone(), msg)))
+            .collect();
+
+        Ok(metadata_map)
+    }
 }
 
 #[cfg(test)]
@@ -417,21 +365,57 @@ pub mod tests {
     use crate::test_utils::*;
     use crate::*;
 
-    use crate::test_utils::MockError;
+    use prost::Message;
+    use xmtp_api_d14n::MockApiClient;
+    use xmtp_api_d14n::MockError;
+    use xmtp_api_d14n::V3Client;
+    use xmtp_api_d14n::protocol::NoCursorStore;
+    use xmtp_common::FakeMlsApplicationMessage;
+    use xmtp_common::Generate;
     use xmtp_common::rand_vec;
+    use xmtp_cryptography::openmls::prelude::MlsMessageOut;
+    use xmtp_proto::api::mock::MockNetworkClient;
     use xmtp_proto::api_client::ApiBuilder;
-    use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
+    use xmtp_proto::api_client::XmtpTestClient;
+    use xmtp_proto::mls_v1::PagingInfo;
+    use xmtp_proto::mls_v1::QueryGroupMessagesRequest;
+    use xmtp_proto::mls_v1::QueryGroupMessagesResponse;
     use xmtp_proto::mls_v1::{
-        WelcomeMessageInput,
+        self, WelcomeMessageInput,
         welcome_message_input::{V1 as WelcomeV1, Version as WelcomeVersion},
     };
+    use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
+    use xmtp_proto::xmtp::mls::api::v1::group_message::{
+        V1 as GroupMessageV1, Version as GroupMessageVersion,
+    };
     use xmtp_proto::xmtp::mls::api::v1::{
-        FetchKeyPackagesResponse, PagingInfo, QueryGroupMessagesResponse,
-        fetch_key_packages_response::KeyPackage,
+        FetchKeyPackagesResponse, fetch_key_packages_response::KeyPackage,
     };
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
+    pub fn build_group_messages(
+        num_messages: usize,
+        group_id: Vec<u8>,
+    ) -> Vec<mls_v1::GroupMessage> {
+        let mut out: Vec<mls_v1::GroupMessage> = vec![];
+        for i in 0..num_messages {
+            out.push(mls_v1::GroupMessage {
+                version: Some(GroupMessageVersion::V1(GroupMessageV1 {
+                    id: i as u64,
+                    created_ns: i as u64,
+                    group_id: group_id.clone(),
+                    data: MlsMessageOut::from(FakeMlsApplicationMessage::generate())
+                        .to_bytes()
+                        .unwrap(),
+                    sender_hmac: vec![],
+                    should_push: true,
+                    is_commit: false,
+                })),
+            })
+        }
+        out
+    }
+
+    #[xmtp_common::test]
     async fn test_upload_key_package() {
         tracing::debug!("test_upload_key_package");
         let mut mock_api = MockApiClient::new();
@@ -453,8 +437,7 @@ pub mod tests {
         assert!(result.is_ok());
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_fetch_key_packages() {
         tracing::debug!("test_fetch_key_packages");
         let mut mock_api = MockApiClient::new();
@@ -487,177 +470,200 @@ pub mod tests {
         }
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    // TODO
+    // make the clients generic
+    // so that tests work for both v3 and d14n
+    #[xmtp_common::test]
     async fn test_read_group_messages_single_page() {
-        let mut mock_api = MockApiClient::new();
-        let group_id = vec![1, 2, 3, 4];
+        let mock_api = MockNetworkClient::default();
+        let mut v3_client = V3Client::new(mock_api, NoCursorStore);
+        let group_id = rand_vec::<16>();
         let group_id_clone = group_id.clone();
         // Set expectation for first request with no cursor
-        mock_api
-            .expect_query_group_messages()
-            .returning(move |req| {
+        v3_client
+            .client_mut()
+            .expect_request()
+            .returning(move |_, _, mut body| {
+                let req = QueryGroupMessagesRequest::decode(&mut body).unwrap();
                 assert_eq!(req.group_id, group_id.clone());
 
-                Ok(QueryGroupMessagesResponse {
+                let msgs = build_group_messages(10, group_id.clone());
+                let mut bytes = prost::bytes::BytesMut::new();
+                let res = QueryGroupMessagesResponse {
+                    messages: msgs,
                     paging_info: Some(PagingInfo {
                         id_cursor: 0,
                         limit: 100,
                         direction: 0,
                     }),
-                    messages: build_group_messages(10, group_id.clone()),
-                })
+                };
+                res.encode(&mut bytes).unwrap();
+                Ok(http::Response::new(bytes.into()))
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
+        let wrapper = ApiClientWrapper::new(v3_client, exponential().build());
 
         let result = wrapper
-            .query_group_messages(group_id_clone, None)
+            .query_group_messages(group_id_clone.into())
             .await
             .unwrap();
         assert_eq!(result.len(), 10);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn test_read_group_messages_single_page_exactly_100_results() {
-        let mut mock_api = MockApiClient::new();
-        let group_id = vec![1, 2, 3, 4];
+    #[xmtp_common::test]
+    async fn test_read_group_messages_single_page_xactly_100_results() {
+        let mock_api = MockNetworkClient::default();
+        let mut v3_client = V3Client::new(mock_api, NoCursorStore);
+        let group_id = rand_vec::<16>();
         let group_id_clone = group_id.clone();
         // Set expectation for first request with no cursor
-        mock_api
-            .expect_query_group_messages()
-            .times(1)
-            .returning(move |req| {
+        v3_client
+            .client_mut()
+            .expect_request()
+            .returning(move |_, _, mut body| {
+                let req = QueryGroupMessagesRequest::decode(&mut body).unwrap();
                 assert_eq!(req.group_id, group_id.clone());
 
-                Ok(QueryGroupMessagesResponse {
+                let msgs = build_group_messages(100, group_id.clone());
+                let mut bytes = prost::bytes::BytesMut::new();
+                let res = QueryGroupMessagesResponse {
+                    messages: msgs,
                     paging_info: Some(PagingInfo {
-                        direction: 0,
-                        limit: 100,
                         id_cursor: 0,
+                        limit: 100,
+                        direction: 0,
                     }),
-                    messages: build_group_messages(100, group_id.clone()),
-                })
+                };
+                res.encode(&mut bytes).unwrap();
+                Ok(http::Response::new(bytes.into()))
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
+        let wrapper = ApiClientWrapper::new(v3_client, exponential().build());
 
         let result = wrapper
-            .query_group_messages(group_id_clone, None)
+            .query_group_messages(group_id_clone.into())
             .await
             .unwrap();
         assert_eq!(result.len(), 100);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_read_topic_multi_page() {
-        let mut mock_api = MockApiClient::new();
+        let mock_api = MockNetworkClient::new();
+        let mut v3_client = V3Client::new(mock_api, NoCursorStore);
         let group_id = vec![1, 2, 3, 4];
         let group_id_clone = group_id.clone();
         let group_id_clone2 = group_id.clone();
         // Set expectation for first request with no cursor
-        mock_api
-            .expect_query_group_messages()
-            .withf(move |req| match req.paging_info {
-                Some(paging_info) => paging_info.id_cursor == 0,
-                None => true,
+        v3_client
+            .client_mut()
+            .expect_request()
+            .withf(move |_, _, body| {
+                let req = QueryGroupMessagesRequest::decode(&mut body.clone()).unwrap();
+                match req.paging_info {
+                    Some(paging_info) => paging_info.id_cursor == 0,
+                    None => true,
+                }
             })
-            .returning(move |req| {
+            .returning(move |_, _, mut body| {
+                let req = QueryGroupMessagesRequest::decode(&mut body).unwrap();
                 assert_eq!(req.group_id, group_id.clone());
 
-                Ok(QueryGroupMessagesResponse {
-                    paging_info: Some(PagingInfo {
-                        id_cursor: 10,
-                        limit: 100,
-                        direction: 0,
-                    }),
-                    messages: build_group_messages(100, group_id.clone()),
-                })
+                Ok(http::Response::new(
+                    QueryGroupMessagesResponse {
+                        paging_info: Some(PagingInfo {
+                            id_cursor: 10,
+                            limit: 100,
+                            direction: 0,
+                        }),
+                        messages: build_group_messages(100, group_id.clone()),
+                    }
+                    .encode_to_vec()
+                    .into(),
+                ))
             });
         // Set expectation for requests with a cursor
-        mock_api
-            .expect_query_group_messages()
-            .withf(|req| match req.paging_info {
-                Some(paging_info) => paging_info.id_cursor > 0,
-                None => false,
+        v3_client
+            .client_mut()
+            .expect_request()
+            .withf(|_, _, body| {
+                let req = QueryGroupMessagesRequest::decode(&mut body.clone()).unwrap();
+                match req.paging_info {
+                    Some(paging_info) => paging_info.id_cursor > 0,
+                    None => false,
+                }
             })
-            .returning(move |req| {
+            .returning(move |_, _, mut body| {
+                let req = QueryGroupMessagesRequest::decode(&mut body).unwrap();
                 assert_eq!(req.group_id, group_id_clone.clone());
 
-                Ok(QueryGroupMessagesResponse {
-                    paging_info: None,
-                    messages: build_group_messages(100, group_id_clone.clone()),
-                })
+                Ok(http::Response::new(
+                    QueryGroupMessagesResponse {
+                        paging_info: None,
+                        messages: build_group_messages(100, group_id_clone.clone()),
+                    }
+                    .encode_to_vec()
+                    .into(),
+                ))
             });
-
-        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
+        tracing::info!("wrapper");
+        let wrapper = ApiClientWrapper::new(v3_client, exponential().build());
 
         let result = wrapper
-            .query_group_messages(group_id_clone2, None)
+            .query_group_messages(group_id_clone2.into())
             .await
             .unwrap();
         assert_eq!(result.len(), 200);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn it_retries_twice_then_succeeds() {
         let mut mock_api = MockApiClient::new();
-        let group_id = vec![1, 2, 3];
-        let group_id_clone = group_id.clone();
+        let kp = vec![1, 2, 3];
+        let kp_clone = kp.clone();
 
         mock_api
-            .expect_query_group_messages()
+            .expect_upload_key_package()
             .times(1)
             .returning(move |_| Err(MockError::MockQuery));
         mock_api
-            .expect_query_group_messages()
+            .expect_upload_key_package()
             .times(1)
             .returning(move |_| Err(MockError::MockQuery));
         mock_api
-            .expect_query_group_messages()
+            .expect_upload_key_package()
             .times(1)
-            .returning(move |_| {
-                Ok(QueryGroupMessagesResponse {
-                    paging_info: None,
-                    messages: build_group_messages(50, group_id.clone()),
-                })
-            });
+            .returning(move |_| Ok(()));
 
         let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
 
-        let result = wrapper
-            .query_group_messages(group_id_clone, None)
-            .await
-            .unwrap();
-        assert_eq!(result.len(), 50);
+        assert!(
+            wrapper
+                .upload_key_package(kp_clone, Default::default())
+                .await
+                .is_ok()
+        );
     }
 
     // test is ignored not b/c it doesn't work, but because it takes a minimum of a minute
     #[xmtp_common::test]
     #[ignore]
     async fn it_should_rate_limit() {
-        let mut client = crate::tests::TestClient::builder();
-        client.set_host("http://localhost:5556".into());
-        client.set_tls(false);
+        let mut client = crate::test_utils::TestClient::create_local();
         client.rate_per_minute(1);
         let _ = client.set_app_version("999.999.999".into());
         let c = client.build().unwrap();
         let wrapper = ApiClientWrapper::new(c, Retry::default());
-        let _first = wrapper.query_group_messages(vec![0, 0], None).await;
+        let _first = wrapper.query_group_messages(vec![0, 0].into()).await;
         let now = std::time::Instant::now();
-        let _second = wrapper.query_group_messages(vec![0, 0], None).await;
+        let _second = wrapper.query_group_messages(vec![0, 0].into()).await;
         assert!(now.elapsed() > std::time::Duration::from_secs(60));
     }
 
     #[xmtp_common::test]
     #[cfg_attr(any(target_arch = "wasm32"), ignore)]
     async fn it_should_allow_large_payloads() {
-        let mut client = crate::tests::TestClient::builder();
-        client.set_host("http://localhost:5556".into());
-        client.set_tls(false);
+        let mut client = crate::test_utils::TestClient::create_local();
         client.set_app_version("0.0.0".into()).unwrap();
         let installation_key = rand_vec::<32>();
         let hpke_public_key = rand_vec::<32>();
@@ -685,7 +691,7 @@ pub mod tests {
             .unwrap();
 
         let messages = wrapper
-            .query_welcome_messages(&installation_key, None)
+            .query_welcome_messages(&installation_key)
             .await
             .unwrap();
         assert_eq!(messages.len(), 1);
@@ -696,9 +702,7 @@ pub mod tests {
     async fn test_publish_commit_log_batching_with_local_server() {
         // This test verifies that publish batching works correctly with a local server
         // It should handle 11 publish requests without hitting API limits
-        let mut client = crate::tests::TestClient::builder();
-        client.set_host("http://localhost:5556".into());
-        client.set_tls(false);
+        let mut client = crate::test_utils::TestClient::create_local();
         client.set_app_version("0.0.0".into()).unwrap();
 
         let c = client.build().unwrap();
@@ -741,9 +745,7 @@ pub mod tests {
     async fn test_query_commit_log_batching_with_local_server() {
         // This test verifies that query batching works correctly with a local server
         // It should handle 21 query requests without hitting API limits
-        let mut client = crate::tests::TestClient::builder();
-        client.set_host("http://localhost:5556".into());
-        client.set_tls(false);
+        let mut client = crate::test_utils::TestClient::create_local();
         client.set_app_version("0.0.0".into()).unwrap();
 
         let c = client.build().unwrap();

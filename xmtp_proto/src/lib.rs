@@ -26,6 +26,8 @@ pub mod api_client;
 #[cfg(any(test, feature = "test-utils"))]
 pub use api_client::tests::*;
 
+mod convert;
+
 pub mod codec;
 mod traits;
 
@@ -35,17 +37,13 @@ pub mod api {
     pub use super::traits::*;
 }
 
-#[cfg(feature = "convert")]
-pub mod convert;
-#[cfg(feature = "convert")]
-pub mod v4_utils;
-
 #[cfg(test)]
 pub mod test {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     xmtp_common::if_native! {
+        #[cfg(test)]
         #[ctor::ctor]
         fn _setup() {
             xmtp_common::logger()

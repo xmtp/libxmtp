@@ -1,8 +1,9 @@
+use crate::app::App;
 use crate::app::identity_lock::get_identity_lock;
 use crate::{
     app::{
         self,
-        store::{Database, GroupStore, IdentityStore, MetadataStore, RandomDatabase},
+        store::{Database, GroupStore, IdentityStore, RandomDatabase},
     },
     args,
 };
@@ -10,6 +11,7 @@ use color_eyre::eyre::{self, Result, eyre};
 use indicatif::{ProgressBar, ProgressStyle};
 use rand::{Rng, SeedableRng, rngs::SmallRng, seq::SliceRandom};
 use std::sync::Arc;
+use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
 use xmtp_mls::groups::summary::SyncSummary;
 
 mod content_type;
@@ -31,18 +33,24 @@ enum MessageSendError {
 }
 
 pub struct GenerateMessages {
-    db: Arc<redb::Database>,
     network: args::BackendOpts,
     opts: args::MessageGenerateOpts,
+    identity_store: IdentityStore<'static>,
+    group_store: GroupStore<'static>,
 }
 
 impl GenerateMessages {
-    pub fn new(
-        db: Arc<redb::Database>,
-        network: args::BackendOpts,
-        opts: args::MessageGenerateOpts,
-    ) -> Self {
-        Self { db, network, opts }
+    pub fn new(network: args::BackendOpts, opts: args::MessageGenerateOpts) -> Result<Self> {
+        let (identity_store, group_store) = {
+            let db = App::readonly_db()?;
+            (db.clone().into(), db.into())
+        };
+        Ok(Self {
+            network,
+            opts,
+            identity_store,
+            group_store,
+        })
     }
 
     pub async fn run(self, n: usize, concurrency: usize) -> Result<()> {
@@ -51,26 +59,19 @@ impl GenerateMessages {
             r#loop, interval, ..
         } = self.opts;
 
-        self.send_many_messages(self.db.clone(), n, concurrency)
-            .await?;
+        self.send_many_messages(n, concurrency).await?;
 
         if r#loop {
             loop {
                 info!(time = ?std::time::Instant::now(), amount = n, "sending messages");
                 tokio::time::sleep(*interval).await;
-                self.send_many_messages(self.db.clone(), n, concurrency)
-                    .await?;
+                self.send_many_messages(n, concurrency).await?;
             }
         }
         Ok(())
     }
 
-    async fn send_many_messages(
-        &self,
-        db: Arc<redb::Database>,
-        n: usize,
-        concurrency: usize,
-    ) -> Result<usize> {
+    async fn send_many_messages(&self, n: usize, concurrency: usize) -> Result<usize> {
         let Self { network, opts, .. } = self;
 
         let style = ProgressStyle::with_template(
@@ -81,15 +82,16 @@ impl GenerateMessages {
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
 
         let mut set: tokio::task::JoinSet<Result<(), eyre::Error>> = tokio::task::JoinSet::new();
+        let stores = (self.identity_store.clone(), self.group_store.clone());
         for _ in 0..n {
             let bar_pointer = bar.clone();
-            let d = db.clone();
             let n = network.clone();
             let opts = opts.clone();
+            let (identity, group) = stores.clone();
             let semaphore = semaphore.clone();
             set.spawn(async move {
                 let _permit = semaphore.acquire().await?;
-                Self::send_message(&d.clone().into(), &d.clone().into(), n, opts).await?;
+                Self::send_message(&group, &identity, n, opts).await?;
                 bar_pointer.inc(1);
                 Ok(())
             });
@@ -114,11 +116,6 @@ impl GenerateMessages {
             .into_iter()
             .filter(|r| r.is_ok())
             .collect::<Vec<Result<_, _>>>();
-        let key = crate::meta_key!(network);
-        let meta_db: MetadataStore = db.into();
-        meta_db.modify(key, |meta| {
-            meta.messages += msgs_sent.len() as u32;
-        })?;
         Ok(msgs_sent.len())
     }
 
@@ -156,7 +153,15 @@ impl GenerateMessages {
             let words = rng.gen_range(0..*max_message_size);
             let words = lipsum::lipsum_words_with_rng(&mut *rng, words as usize);
             let message = content_type::new_message(words);
-            group.send_message(&message).await?;
+            group
+                .send_message(
+                    &message,
+                    SendMessageOptsBuilder::default()
+                        .should_push(true)
+                        .build()
+                        .unwrap(),
+                )
+                .await?;
             Ok(())
         } else {
             Err(MessageSendError::NoGroup)

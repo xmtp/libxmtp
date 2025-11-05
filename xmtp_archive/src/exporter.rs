@@ -5,6 +5,7 @@ use async_compression::futures::write::ZstdEncoder;
 use futures::{pin_mut, task::Context};
 use futures_util::{AsyncRead, AsyncWriteExt};
 use prost::Message;
+#[allow(deprecated)]
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::{future::Future, io, pin::Pin, sync::Arc, task::Poll};
 use xmtp_db::prelude::*;
@@ -24,6 +25,7 @@ pub struct ArchiveExporter {
     encoder_finished: bool,
 
     cipher: AesGcm<Aes256, typenum::U12, typenum::U16>,
+    #[allow(deprecated)]
     nonce: GenericArray<u8, typenum::U12>,
 
     // Used to write the nonce, contains the same data as nonce.
@@ -47,7 +49,7 @@ impl ArchiveExporter {
         key: &[u8],
     ) -> Result<(), crate::ArchiveError>
     where
-        D: DbQuery + Send + Sync + 'static,
+        D: DbQuery + 'static,
     {
         let mut exporter = Self::new(options, db, key);
         exporter.write_to_file(path).await?;
@@ -91,7 +93,7 @@ impl ArchiveExporter {
 
     pub fn new<D>(options: BackupOptions, db: D, key: &[u8]) -> Self
     where
-        D: DbQuery + Send + Sync + 'static,
+        D: DbQuery + 'static,
     {
         let mut nonce_buffer = BACKUP_VERSION.to_le_bytes().to_vec();
         let nonce = xmtp_common::rand_array::<NONCE_SIZE>();
@@ -105,7 +107,9 @@ impl ArchiveExporter {
             zstd_encoder: ZstdEncoder::new(Vec::new()),
             encoder_finished: false,
 
+            #[allow(deprecated)]
             cipher: Aes256Gcm::new(GenericArray::from_slice(key)),
+            #[allow(deprecated)]
             nonce: GenericArray::clone_from_slice(&nonce),
             nonce_buffer,
         }

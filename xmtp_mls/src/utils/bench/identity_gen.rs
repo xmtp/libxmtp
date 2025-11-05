@@ -55,7 +55,6 @@ async fn create_identity(is_dev_network: bool) -> Identity {
         ClientBuilder::new_test_builder(&wallet)
             .await
             .dev()
-            .await
             .build()
             .await
             .unwrap()
@@ -63,7 +62,6 @@ async fn create_identity(is_dev_network: bool) -> Identity {
         ClientBuilder::new_test_builder(&wallet)
             .await
             .local()
-            .await
             .build()
             .await
             .unwrap()

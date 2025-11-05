@@ -54,7 +54,8 @@ $CARGO run --bin ffi-uniffi-bindgen \
   --manifest-path $BINDINGS_MANIFEST \
   --features uniffi/cli --release -- \
   generate \
-  --lib-file $TARGET_DIR/release/$LIB_FILE $BINDINGS_PATH/src/$PROJECT_NAME.udl \
+  --library $TARGET_DIR/release/$LIB_FILE \
+  --out-dir $BINDINGS_PATH/src \
   --language kotlin
 
 cd $BINDINGS_PATH

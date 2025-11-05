@@ -1,18 +1,23 @@
 use crate::GroupCommitLock;
-use crate::builder::SyncWorkerMode;
+use crate::builder::{ForkRecoveryOpts, SyncWorkerMode};
 use crate::client::DeviceSync;
 use crate::groups::device_sync::worker::SyncMetric;
 use crate::subscriptions::{LocalEvents, SyncWorkerEvent};
+use crate::tasks::TaskWorkerChannels;
 use crate::utils::VersionInfo;
-use crate::worker::WorkerRunner;
 use crate::worker::metrics::WorkerMetrics;
+use crate::worker::{DynMetrics, MetricsCasting, WorkerKind};
 use crate::{
     identity::{Identity, IdentityError},
     mutex_registry::MutexRegistry,
 };
+use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
+use xmtp_api_d14n::protocol::XmtpQuery;
+use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_db::XmtpDb;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProviderRef;
@@ -42,14 +47,17 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) worker_events: broadcast::Sender<SyncWorkerEvent>,
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync: DeviceSync,
-    pub(crate) workers: WorkerRunner,
+    pub(crate) fork_recovery_opts: ForkRecoveryOpts,
+    // pub(crate) workers: Arc<WorkerRunner>,
+    pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
+    pub(crate) task_channels: TaskWorkerChannels,
 }
 
 impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S>
 where
     Db: XmtpDb,
     ApiClient: XmtpApi,
-    S: XmtpMlsStorageProvider + Send + Sync,
+    S: XmtpMlsStorageProvider,
 {
     /// get a reference to the monolithic Database object where
     /// higher-level queries are defined
@@ -83,7 +91,10 @@ where
     #[cfg(any(test, feature = "test-utils"))]
     pub fn device_sync_client(
         self: &Arc<XmtpMlsLocalContext<ApiClient, Db, S>>,
-    ) -> DeviceSyncClient<Arc<Self>> {
+    ) -> DeviceSyncClient<Arc<Self>>
+    where
+        ApiClient: XmtpQuery,
+    {
         let metrics = self.sync_metrics();
         DeviceSyncClient::new(
             Arc::clone(self),
@@ -107,7 +118,9 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             worker_events: self.worker_events,
             scw_verifier: self.scw_verifier,
             device_sync: self.device_sync,
-            workers: self.workers,
+            fork_recovery_opts: self.fork_recovery_opts,
+            worker_metrics: self.worker_metrics,
+            task_channels: self.task_channels,
         }
     }
 }
@@ -146,18 +159,21 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
     }
 
     pub fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
-        self.workers.sync_metrics()
+        self.worker_metrics
+            .lock()
+            .get(&WorkerKind::DeviceSync)?
+            .as_sync_metrics()
     }
 }
 
 pub trait XmtpSharedContext
 where
-    Self: Send + Sync + Sized + Clone,
+    Self: MaybeSend + MaybeSync + Sized + Clone,
 {
     type Db: XmtpDb;
-    type ApiClient: XmtpApi;
-    type MlsStorage: Send + Sync + XmtpMlsStorageProvider;
-    type ContextReference: Clone + Sized;
+    type ApiClient: XmtpApi + XmtpQuery;
+    type MlsStorage: XmtpMlsStorageProvider;
+    type ContextReference: MaybeSend + MaybeSync + Clone + Sized;
 
     fn context_ref(&self) -> &Self::ContextReference;
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery;
@@ -174,6 +190,9 @@ where
     fn device_sync_worker_enabled(&self) -> bool {
         !matches!(self.device_sync().mode, SyncWorkerMode::Disabled)
     }
+
+    fn fork_recovery_opts(&self) -> &ForkRecoveryOpts;
+
     /// Creates a new MLS Provider
     fn mls_provider(&'_ self) -> XmtpOpenMlsProviderRef<'_, Self::MlsStorage> {
         XmtpOpenMlsProviderRef::new(self.mls_storage())
@@ -197,16 +216,17 @@ where
     fn version_info(&self) -> &VersionInfo;
     fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent>;
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
+    fn task_channels(&self) -> &TaskWorkerChannels;
+    fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
-    fn workers(&self) -> &WorkerRunner;
     fn mutexes(&self) -> &MutexRegistry;
 }
 
 impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
 where
-    XApiClient: XmtpApi,
+    XApiClient: XmtpApi + XmtpQuery,
     XDb: XmtpDb,
-    XMls: Send + Sync + XmtpMlsStorageProvider,
+    XMls: XmtpMlsStorageProvider,
 {
     type Db = XDb;
     type ApiClient = XApiClient;
@@ -237,6 +257,10 @@ where
         &self.device_sync
     }
 
+    fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {
+        &self.fork_recovery_opts
+    }
+
     /// a reference to the MLS Storage Type
     /// This can be related to 'db()' but may also be separate
     fn mls_storage(&self) -> &Self::MlsStorage {
@@ -263,8 +287,15 @@ where
         &self.mls_commit_lock
     }
 
-    fn workers(&self) -> &WorkerRunner {
-        &self.workers
+    fn task_channels(&self) -> &TaskWorkerChannels {
+        &self.task_channels
+    }
+
+    fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
+        self.worker_metrics
+            .lock()
+            .get(&WorkerKind::DeviceSync)?
+            .as_sync_metrics()
     }
 
     fn mutexes(&self) -> &MutexRegistry {
@@ -313,6 +344,10 @@ where
         <T as XmtpSharedContext>::device_sync_worker_enabled(self)
     }
 
+    fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {
+        <T as XmtpSharedContext>::fork_recovery_opts(self)
+    }
+
     fn mls_storage(&self) -> &Self::MlsStorage {
         <T as XmtpSharedContext>::mls_storage(self)
     }
@@ -337,8 +372,12 @@ where
         <T as XmtpSharedContext>::mls_commit_lock(self)
     }
 
-    fn workers(&self) -> &WorkerRunner {
-        <T as XmtpSharedContext>::workers(self)
+    fn task_channels(&self) -> &TaskWorkerChannels {
+        <T as XmtpSharedContext>::task_channels(self)
+    }
+
+    fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
+        <T as XmtpSharedContext>::sync_metrics(self)
     }
 
     fn mutexes(&self) -> &MutexRegistry {

@@ -38,7 +38,7 @@ impl Endpoint for PublishClientEnvelopes {
 
 #[cfg(test)]
 mod test {
-    use crate::protocol::TopicKind;
+    use xmtp_proto::types::TopicKind;
 
     use super::*;
     use xmtp_api_grpc::error::GrpcError;
@@ -70,11 +70,11 @@ mod test {
     async fn test_publish_client_envelopes() {
         use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 
-        let client = crate::TestClient::create_gateway();
+        let client = crate::TestGrpcClient::create_gateway();
         let client = client.build().unwrap();
 
         let aad = AuthenticatedData {
-            target_topic: TopicKind::GroupMessagesV1.build(&rand_vec::<16>()),
+            target_topic: TopicKind::GroupMessagesV1.build(rand_vec::<16>()),
             depends_on: None,
         };
         let e = ClientEnvelope {

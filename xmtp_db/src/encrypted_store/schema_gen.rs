@@ -43,6 +43,7 @@ diesel::table! {
         published_in_epoch -> Nullable<BigInt>,
         should_push -> Bool,
         sequence_id -> Nullable<BigInt>,
+        originator_id -> Nullable<BigInt>,
     }
 }
 
@@ -61,9 +62,9 @@ diesel::table! {
         version_major -> Integer,
         authority_id -> Text,
         reference_id -> Nullable<Binary>,
-        sequence_id -> Nullable<BigInt>,
-        originator_id -> Nullable<BigInt>,
         expire_at_ns -> Nullable<BigInt>,
+        originator_id -> BigInt,
+        sequence_id -> BigInt,
     }
 }
 
@@ -74,7 +75,7 @@ diesel::table! {
         membership_state -> Integer,
         installations_last_checked -> BigInt,
         added_by_inbox_id -> Text,
-        welcome_id -> Nullable<BigInt>,
+        sequence_id -> Nullable<BigInt>,
         rotated_at_ns -> BigInt,
         conversation_type -> Integer,
         dm_id -> Nullable<Text>,
@@ -84,11 +85,11 @@ diesel::table! {
         paused_for_version -> Nullable<Text>,
         maybe_forked -> Bool,
         fork_details -> Text,
-        sequence_id -> Nullable<BigInt>,
         originator_id -> Nullable<BigInt>,
         should_publish_commit_log -> Bool,
         commit_log_public_key -> Nullable<Binary>,
         is_commit_log_forked -> Nullable<Bool>,
+        has_pending_leave_request -> Nullable<Bool>,
     }
 }
 
@@ -126,6 +127,7 @@ diesel::table! {
         sequence_id -> BigInt,
         server_timestamp_ns -> BigInt,
         payload -> Binary,
+        originator_id -> Integer,
     }
 }
 
@@ -171,6 +173,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    pending_remove (group_id, inbox_id) {
+        group_id -> Binary,
+        inbox_id -> Text,
+        message_id -> Binary,
+    }
+}
+
+diesel::table! {
     processed_device_sync_messages (message_id) {
         message_id -> Binary,
     }
@@ -186,10 +196,11 @@ diesel::table! {
 }
 
 diesel::table! {
-    refresh_state (entity_id, entity_kind) {
+    refresh_state (entity_id, entity_kind, originator_id) {
         entity_id -> Binary,
         entity_kind -> Integer,
-        cursor -> BigInt,
+        sequence_id -> BigInt,
+        originator_id -> Integer,
     }
 }
 
@@ -202,6 +213,25 @@ diesel::table! {
         commit_result -> Integer,
         applied_epoch_number -> BigInt,
         applied_epoch_authenticator -> Binary,
+    }
+}
+
+diesel::table! {
+    tasks (id) {
+        id -> Integer,
+        originating_message_sequence_id -> BigInt,
+        originating_message_originator_id -> Integer,
+        created_at_ns -> BigInt,
+        expires_at_ns -> BigInt,
+        attempts -> Integer,
+        max_attempts -> Integer,
+        last_attempted_at_ns -> BigInt,
+        backoff_scaling_factor -> Float,
+        max_backoff_duration_ns -> BigInt,
+        initial_backoff_duration_ns -> BigInt,
+        next_attempt_at_ns -> BigInt,
+        data_hash -> Binary,
+        data -> Binary,
     }
 }
 
@@ -231,9 +261,11 @@ diesel::allow_tables_to_appear_in_same_query!(
     local_commit_log,
     openmls_key_store,
     openmls_key_value,
+    pending_remove,
     processed_device_sync_messages,
     readd_status,
     refresh_state,
     remote_commit_log,
+    tasks,
     user_preferences,
 );

@@ -20,7 +20,7 @@ use crate::{
 };
 use futures::TryFutureExt;
 use owo_colors::OwoColorize;
-use std::{any::Any, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::{OnceCell, broadcast};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
@@ -80,7 +80,7 @@ struct Factory<Context> {
 
 impl<Context> WorkerFactory for Factory<Context>
 where
-    Context: XmtpSharedContext + Send + Sync + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     fn create(&self, metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>) {
         let worker = SyncWorker::new(self.context.clone(), metrics);
@@ -104,14 +104,13 @@ where
         WorkerKind::DeviceSync
     }
 
-    fn metrics(&self) -> Option<Arc<dyn Any + Send + Sync>> {
+    fn metrics(&self) -> Option<DynMetrics> {
         Some(self.metrics.clone())
     }
 
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
-        Self: Sized,
-        C: XmtpSharedContext + Send + Sync + 'static,
+        C: XmtpSharedContext + 'static,
     {
         Factory { context }
     }

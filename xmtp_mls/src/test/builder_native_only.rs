@@ -1,6 +1,7 @@
 use crate::builder::ClientBuilder;
 use crate::{client::Client, identity::IdentityStrategy};
 use alloy::{dyn_abi::SolType, primitives::U256, providers::Provider, signers::Signer};
+use std::time::Duration;
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_id::associations::Identifier;
@@ -12,6 +13,7 @@ use xmtp_id::{
 use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
 
 #[rstest::rstest]
+#[timeout(Duration::from_secs(60))]
 #[tokio::test]
 async fn test_remote_is_valid_signature(#[future] docker_smart_wallet: SmartWalletContext) {
     let SmartWalletContext {
@@ -37,8 +39,7 @@ async fn test_remote_is_valid_signature(#[future] docker_smart_wallet: SmartWall
     let xmtp_client = Client::builder(identity_strategy)
         .temp_store()
         .await
-        .local_client()
-        .await
+        .local()
         .default_mls_store()
         .unwrap()
         .with_remote_verifier()
@@ -73,6 +74,7 @@ async fn test_remote_is_valid_signature(#[future] docker_smart_wallet: SmartWall
 }
 
 #[rstest::rstest]
+#[timeout(Duration::from_secs(60))]
 #[tokio::test]
 async fn test_detect_scw_vs_eoa_creation(#[future] docker_smart_wallet: SmartWalletContext) {
     let SmartWalletContext {
@@ -106,8 +108,7 @@ async fn test_detect_scw_vs_eoa_creation(#[future] docker_smart_wallet: SmartWal
     let scw_client = Client::builder(identity_strategy)
         .temp_store()
         .await
-        .local_client()
-        .await
+        .local()
         .default_mls_store()
         .unwrap()
         .with_remote_verifier()

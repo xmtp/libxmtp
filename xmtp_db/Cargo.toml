@@ -21,6 +21,7 @@ ctor.workspace = true
 derive_builder.workspace = true
 diesel_migrations = { workspace = true, features = ["sqlite"] }
 hex.workspace = true
+itertools.workspace = true
 openmls.workspace = true
 openmls_basic_credential.workspace = true
 openmls_rust_crypto.workspace = true
