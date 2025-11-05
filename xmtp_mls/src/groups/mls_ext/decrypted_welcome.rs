@@ -163,7 +163,7 @@ impl DecryptedWelcome {
                             .build(xmtp_proto::xmtp::mls::database::Task{
                                 task: Some(xmtp_proto::xmtp::mls::database::task::Task::ProcessWelcomePointer(welcome_pointer.to_proto())),
                             })?;
-                        context.workers().task_channels().send(task);
+                        context.task_channels().send(task);
                         return Err(GroupError::WelcomeDataNotFound(destination));
                     }
                 }
