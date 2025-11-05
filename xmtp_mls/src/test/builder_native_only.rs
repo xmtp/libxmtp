@@ -1,15 +1,18 @@
 use crate::builder::ClientBuilder;
+use crate::context::XmtpSharedContext;
 use crate::{client::Client, identity::IdentityStrategy};
 use alloy::{dyn_abi::SolType, primitives::U256, providers::Provider, signers::Signer};
 use xmtp_cryptography::utils::generate_local_wallet;
+use xmtp_db::Fetch;
+use xmtp_db::encrypted_store::identity::StoredIdentity;
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_id::associations::Identifier;
+use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
 use xmtp_id::utils::test::{SmartWalletContext, docker_smart_wallet};
 use xmtp_id::{
     associations::{AccountId, unverified::NewUnverifiedSmartContractWalletSignature},
     utils::test::SignatureWithNonce,
 };
-use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
 
 #[rstest::rstest]
 #[tokio::test]
@@ -380,7 +383,10 @@ async fn test_smart_contract_wallet_unverified_should_fail_2(
     // Create an EOA client first
     let eoa_wallet = generate_local_wallet();
     let eoa_client = ClientBuilder::new_test_client(&eoa_wallet).await;
-    println!("Created EOA client with inbox_id: {}", eoa_client.inbox_id());
+    println!(
+        "Created EOA client with inbox_id: {}",
+        eoa_client.inbox_id()
+    );
 
     // STEP 1: Create SCW client with VALID signature first
     let account_address1 = format!("{sw_address1}");
@@ -427,15 +433,24 @@ async fn test_smart_contract_wallet_unverified_should_fail_2(
         .await
         .unwrap();
 
-    scw_client.register_identity(signature_request1).await.unwrap();
+    scw_client
+        .register_identity(signature_request1)
+        .await
+        .unwrap();
     println!("SCW client registered with VALID signature");
 
     // EOA client creates a group and adds the SCW client
     let group = eoa_client.create_group(None, None).unwrap();
-    println!("EOA client created group with ID: {:?}", hex::encode(&group.group_id));
+    println!(
+        "EOA client created group with ID: {:?}",
+        hex::encode(&group.group_id)
+    );
 
     // Add the SCW client to the group
-    group.add_members_by_inbox_id(&[scw_client.inbox_id()]).await.unwrap();
+    group
+        .add_members_by_inbox_id(&[scw_client.inbox_id()])
+        .await
+        .unwrap();
     println!("EOA client added SCW client to the group");
 
     group.sync().await.unwrap();
@@ -450,7 +465,10 @@ async fn test_smart_contract_wallet_unverified_should_fail_2(
     println!("SCW client found {} groups", scw_groups.len());
 
     if let Some(scw_group) = scw_groups.first() {
-        println!("SCW client found group with ID: {:?}", hex::encode(&scw_group.group_id));
+        println!(
+            "SCW client found group with ID: {:?}",
+            hex::encode(&scw_group.group_id)
+        );
 
         // Send a message with valid signature
         let message = b"Hello from valid SCW!";
@@ -488,23 +506,23 @@ async fn test_smart_contract_wallet_unverified_should_fail_2(
 
     println!("Add invalid signature result: {:?}", add_invalid_result);
 
-    // Try to apply the invalid signature
-    if add_invalid_result.is_ok() {
-        let apply_result = scw_client.apply_signature_request(invalid_signature_request).await;
-        println!("Apply invalid signature result: {:?}", apply_result);
-    }
-
     // Sync again after adding invalid signature
     println!("\n--- SCW client syncing after INVALID signature added ---");
     let sync_welcomes_result2 = scw_client.sync_all_welcomes_and_groups(None).await;
-    println!("SCW sync_welcomes result (after invalid): {:?}", sync_welcomes_result2);
+    println!(
+        "SCW sync_welcomes result (after invalid): {:?}",
+        sync_welcomes_result2
+    );
 
     // Try to send another message after invalid signature
     let scw_groups = scw_client.find_groups(Default::default()).unwrap();
     if let Some(scw_group) = scw_groups.first() {
         let message2 = b"Hello after invalid signature!";
         let send_result2 = scw_group.send_message(message2).await;
-        println!("SCW send_message result (after invalid): {:?}", send_result2);
+        println!(
+            "SCW send_message result (after invalid): {:?}",
+            send_result2
+        );
 
         // Sync the group
         let sync_result2 = scw_group.sync().await;
@@ -512,8 +530,336 @@ async fn test_smart_contract_wallet_unverified_should_fail_2(
 
         // Try to read messages
         let messages = scw_group.find_messages(&MsgQueryArgs::default()).unwrap();
-        println!("SCW group has {} messages after invalid signature attempt", messages.len());
+        println!(
+            "SCW group has {} messages after invalid signature attempt",
+            messages.len()
+        );
     }
 
     println!("\nTest completed: Observed behavior with valid then invalid SCW signature");
+}
+
+/// Test that invalid SCW signature prevents client from being stored in DB
+#[rstest::rstest]
+#[tokio::test]
+async fn test_invalid_scw_prevents_db_storage(#[future] docker_smart_wallet: SmartWalletContext) {
+    let SmartWalletContext {
+        factory,
+        owner0: wallet,
+        sw,
+        sw_address,
+        ..
+    } = docker_smart_wallet.await;
+
+    let provider = factory.provider();
+    let chain_id = provider.get_chain_id().await.unwrap();
+
+    // Create client with smart contract wallet
+    let account_address = format!("{sw_address}");
+    let ident = Identifier::eth(&account_address).unwrap();
+    let account_id = AccountId::new_evm(chain_id, account_address.clone());
+
+    let identity_strategy = IdentityStrategy::new(
+        ident.inbox_id(0).unwrap(),
+        Identifier::eth(account_address).unwrap(),
+        0,
+        None,
+    );
+
+    // Use a mock verifier that returns FALSE for verification
+    let mock_verifier = MockSmartContractSignatureVerifier::new(false);
+
+    let client = Client::builder(identity_strategy)
+        .temp_store()
+        .await
+        .local_client()
+        .await
+        .default_mls_store()
+        .unwrap()
+        .with_scw_verifier(mock_verifier)
+        .build()
+        .await
+        .unwrap();
+
+    // Create a valid signature but it will fail verification due to mock verifier
+    let mut signature_request = client.context.signature_request().unwrap();
+    let signature_text = signature_request.signature_text();
+    let hash_to_sign = alloy::primitives::eip191_hash_message(signature_text);
+    let rsh = sw.replaySafeHash(hash_to_sign).call().await.unwrap();
+    let signed_hash = wallet.sign_hash(&rsh).await.unwrap().as_bytes().to_vec();
+    let signature_bytes = SignatureWithNonce::abi_encode(&(U256::from(0), signed_hash));
+
+    // Try to add the signature - this should fail because verification returns false
+    let add_signature_result = signature_request
+        .add_new_unverified_smart_contract_signature(
+            NewUnverifiedSmartContractWalletSignature::new(
+                signature_bytes.to_vec(),
+                account_id,
+                None,
+            ),
+            &client.scw_verifier(),
+        )
+        .await;
+
+    // Assert that adding the signature failed
+    assert!(
+        add_signature_result.is_err(),
+        "Expected signature verification to fail"
+    );
+
+    // Attempting to register identity should fail with missing signatures
+    let register_result = client.register_identity(signature_request).await;
+    assert!(
+        register_result.is_err(),
+        "Expected identity registration to fail with invalid signature"
+    );
+
+    // CRITICAL: Verify that the client was NOT stored in the database
+    let stored_identity: Option<StoredIdentity> = client.context.db().fetch(&()).unwrap();
+    assert!(
+        stored_identity.is_none(),
+        "Client should NOT be stored in DB after failed registration"
+    );
+
+    // Verify that is_ready() is still false
+    assert!(
+        !client.identity().is_ready(),
+        "Identity should not be ready after failed registration"
+    );
+
+    println!("✓ Confirmed: Invalid SCW signature prevents DB storage");
+}
+
+/// Test recovery: invalid SCW signature, then valid SCW signature should work
+#[rstest::rstest]
+#[tokio::test]
+async fn test_invalid_scw_then_valid_scw_recovery(
+    #[future] docker_smart_wallet: SmartWalletContext,
+) {
+    let SmartWalletContext {
+        factory,
+        owner0: wallet,
+        sw,
+        sw_address,
+        ..
+    } = docker_smart_wallet.await;
+
+    let provider = factory.provider();
+    let chain_id = provider.get_chain_id().await.unwrap();
+
+    // Create client with smart contract wallet
+    let account_address = format!("{sw_address}");
+    let ident = Identifier::eth(&account_address).unwrap();
+    let account_id = AccountId::new_evm(chain_id, account_address.clone());
+
+    let identity_strategy = IdentityStrategy::new(
+        ident.inbox_id(0).unwrap(),
+        Identifier::eth(&account_address).unwrap(),
+        0,
+        None,
+    );
+
+    // STEP 1: Start with a mock verifier that returns FALSE
+    let mock_verifier = MockSmartContractSignatureVerifier::new(false);
+
+    let client = Client::builder(identity_strategy)
+        .temp_store()
+        .await
+        .local_client()
+        .await
+        .default_mls_store()
+        .unwrap()
+        .with_scw_verifier(mock_verifier)
+        .build()
+        .await
+        .unwrap();
+
+    // Create a signature request with INVALID verifier
+    let mut invalid_signature_request = client.context.signature_request().unwrap();
+    let signature_text = invalid_signature_request.signature_text();
+    let hash_to_sign = alloy::primitives::eip191_hash_message(signature_text);
+    let rsh = sw.replaySafeHash(hash_to_sign).call().await.unwrap();
+    let signed_hash = wallet.sign_hash(&rsh).await.unwrap().as_bytes().to_vec();
+    let signature_bytes = SignatureWithNonce::abi_encode(&(U256::from(0), signed_hash));
+
+    // Try to add the signature - should fail due to mock verifier returning false
+    let add_invalid_result = invalid_signature_request
+        .add_new_unverified_smart_contract_signature(
+            NewUnverifiedSmartContractWalletSignature::new(
+                signature_bytes.clone(),
+                account_id.clone(),
+                None,
+            ),
+            &client.scw_verifier(),
+        )
+        .await;
+
+    assert!(
+        add_invalid_result.is_err(),
+        "Expected invalid signature to be rejected"
+    );
+    println!("✓ Step 1: Invalid signature correctly rejected");
+
+    // STEP 2: Now rebuild client with VALID verifier (remote verifier)
+    let identity_strategy2 = IdentityStrategy::new(
+        ident.inbox_id(0).unwrap(),
+        Identifier::eth(account_address.clone()).unwrap(),
+        0,
+        None,
+    );
+
+    let client2 = Client::builder(identity_strategy2)
+        .temp_store()
+        .await
+        .local_client()
+        .await
+        .default_mls_store()
+        .unwrap()
+        .with_remote_verifier()
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+
+    // Create a new signature request with VALID verifier
+    let mut valid_signature_request = client2.context.signature_request().unwrap();
+
+    // Add the VALID signature
+    valid_signature_request
+        .add_new_unverified_smart_contract_signature(
+            NewUnverifiedSmartContractWalletSignature::new(
+                signature_bytes.to_vec(),
+                account_id.clone(),
+                None,
+            ),
+            &client2.scw_verifier(),
+        )
+        .await
+        .unwrap();
+
+    // Register identity - should succeed now
+    let register_result = client2.register_identity(valid_signature_request).await;
+    assert!(
+        register_result.is_ok(),
+        "Expected valid signature to allow registration: {:?}",
+        register_result
+    );
+    println!("✓ Step 2: Valid signature correctly accepted and registered");
+
+    // Verify that the client IS stored in the database
+    let stored_identity: Option<StoredIdentity> = client2.context.db().fetch(&()).unwrap();
+    assert!(
+        stored_identity.is_some(),
+        "Client SHOULD be stored in DB after successful registration"
+    );
+
+    // Verify that is_ready() is now true
+    assert!(
+        client2.identity().is_ready(),
+        "Identity should be ready after successful registration"
+    );
+
+    // STEP 3: Verify client can perform operations
+    let group_result = client2.create_group(None, None);
+    assert!(
+        group_result.is_ok(),
+        "Client should be able to create groups after successful registration"
+    );
+
+    println!("✓ Step 3: Client is fully functional after recovery");
+    println!("✓ Test completed: Recovery from invalid to valid SCW signature works!");
+}
+
+/// Test that operations fail when identity is not ready
+#[rstest::rstest]
+#[tokio::test]
+async fn test_operations_fail_when_not_ready(#[future] docker_smart_wallet: SmartWalletContext) {
+    let SmartWalletContext {
+        factory,
+        sw_address,
+        ..
+    } = docker_smart_wallet.await;
+
+    let provider = factory.provider();
+    let _chain_id = provider.get_chain_id().await.unwrap();
+
+    // Create client with smart contract wallet but don't register
+    let account_address = format!("{sw_address}");
+    let ident = Identifier::eth(&account_address).unwrap();
+
+    let identity_strategy = IdentityStrategy::new(
+        ident.inbox_id(0).unwrap(),
+        Identifier::eth(account_address).unwrap(),
+        0,
+        None,
+    );
+
+    let client = Client::builder(identity_strategy)
+        .temp_store()
+        .await
+        .local_client()
+        .await
+        .default_mls_store()
+        .unwrap()
+        .with_remote_verifier()
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+
+    // Verify identity is not ready
+    assert!(
+        !client.identity().is_ready(),
+        "Identity should not be ready before registration"
+    );
+
+    // Try to create a group - should fail with UninitializedIdentity
+    let create_group_result = client.create_group(None, None);
+    assert!(
+        create_group_result.is_err(),
+        "create_group should fail when identity is not ready"
+    );
+
+    let err = create_group_result.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            crate::client::ClientError::Identity(
+                crate::identity::IdentityError::UninitializedIdentity
+            )
+        ),
+        "Expected UninitializedIdentity error, got: {:?}",
+        err
+    );
+
+    // Try to sync welcomes - should fail with UninitializedIdentity
+    let sync_welcomes_result = client.sync_welcomes().await;
+    assert!(
+        sync_welcomes_result.is_err(),
+        "sync_welcomes should fail when identity is not ready"
+    );
+
+    // Try to create a DM - should fail with UninitializedIdentity
+    let target_wallet = generate_local_wallet();
+    let find_or_create_dm_result = client
+        .find_or_create_dm(target_wallet.identifier(), None)
+        .await;
+    assert!(
+        find_or_create_dm_result.is_err(),
+        "find_or_create_dm should fail when identity is not ready"
+    );
+
+    let err = find_or_create_dm_result.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            crate::client::ClientError::Identity(
+                crate::identity::IdentityError::UninitializedIdentity
+            )
+        ),
+        "Expected UninitializedIdentity error, got: {:?}",
+        err
+    );
+
+    println!("✓ All operations correctly fail when identity is not ready");
 }

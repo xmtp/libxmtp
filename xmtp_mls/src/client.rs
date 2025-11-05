@@ -467,6 +467,14 @@ where
         self.context.identity()
     }
 
+    /// Helper method to ensure identity is ready before performing operations
+    fn ensure_identity_ready(&self) -> Result<(), ClientError> {
+        if !self.identity().is_ready() {
+            return Err(IdentityError::UninitializedIdentity.into());
+        }
+        Ok(())
+    }
+
     /// Create a new group with the default settings
     /// Applies a custom [`PolicySet`] to the group if one is specified
     pub fn create_group(
@@ -474,6 +482,7 @@ where
         permissions_policy_set: Option<PolicySet>,
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
+        self.ensure_identity_ready()?;
         tracing::info!("creating group");
 
         let group: MlsGroup<Context> = MlsGroup::create_and_insert(
@@ -560,6 +569,7 @@ where
         target_identity: Identifier,
         opts: Option<DMMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
+        self.ensure_identity_ready()?;
         tracing::info!("finding or creating dm with address: {target_identity}");
         let inbox_id = match self
             .find_inbox_id_from_identifier(&self.context.db(), target_identity.clone())
@@ -580,6 +590,7 @@ where
         inbox_id: impl AsIdRef,
         opts: Option<DMMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
+        self.ensure_identity_ready()?;
         let inbox_id = inbox_id.as_ref();
         tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
         let db = self.context.db();
@@ -789,12 +800,16 @@ where
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
         tracing::info!("registering identity");
-        // Register the identity before applying the signature request
+        // Validate and publish the identity update BEFORE uploading key packages
+        // This ensures we don't commit state changes if signature validation fails
+        let updates = IdentityUpdates::new(&self.context);
+        updates.apply_signature_request(signature_request).await?;
+
+        // Only after successful validation, register the identity and upload key packages
         self.identity()
             .register(self.context.api(), self.context.mls_storage())
             .await?;
-        let updates = IdentityUpdates::new(&self.context);
-        updates.apply_signature_request(signature_request).await?;
+
         self.identity().set_ready();
         Ok(())
     }
@@ -841,6 +856,7 @@ where
     /// Returns any new groups created in the operation
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
+        self.ensure_identity_ready()?;
         WelcomeService::new(self.context.clone())
             .sync_welcomes()
             .await
@@ -852,6 +868,7 @@ where
         &self,
         groups: Vec<MlsGroup<Context>>,
     ) -> Result<usize, GroupError> {
+        self.ensure_identity_ready()?;
         WelcomeService::new(self.context.clone())
             .sync_all_groups(groups)
             .await
@@ -863,6 +880,7 @@ where
         &self,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<usize, GroupError> {
+        self.ensure_identity_ready()?;
         WelcomeService::new(self.context.clone())
             .sync_all_welcomes_and_groups(consent_states)
             .await
