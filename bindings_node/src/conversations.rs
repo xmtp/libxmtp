@@ -92,6 +92,22 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
   }
 }
 
+#[napi]
+#[derive(Debug)]
+pub enum ListConversationsOrderBy {
+  CreatedAt,
+  LastActivity,
+}
+
+impl From<ListConversationsOrderBy> for GroupQueryOrderBy {
+  fn from(order_by: ListConversationsOrderBy) -> Self {
+    match order_by {
+      ListConversationsOrderBy::CreatedAt => GroupQueryOrderBy::CreatedAt,
+      ListConversationsOrderBy::LastActivity => GroupQueryOrderBy::LastActivity,
+    }
+  }
+}
+
 #[napi(object)]
 #[derive(Default)]
 pub struct ListConversationsOptions {
@@ -100,6 +116,7 @@ pub struct ListConversationsOptions {
   pub created_after_ns: Option<i64>,
   pub created_before_ns: Option<i64>,
   pub include_duplicate_dms: Option<bool>,
+  pub order_by: Option<ListConversationsOrderBy>,
   pub limit: Option<i64>,
 }
 
@@ -119,7 +136,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       last_activity_before_ns: None,
       last_activity_after_ns: None,
       should_publish_commit_log: None,
-      order_by: Some(GroupQueryOrderBy::LastActivity),
+      order_by: opts.order_by.map(Into::into),
     }
   }
 }
