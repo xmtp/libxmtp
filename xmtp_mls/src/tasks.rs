@@ -52,6 +52,12 @@ pub struct TaskWorkerChannels {
     pub task_receiver: Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<DbNewTask>>>,
 }
 
+impl Default for TaskWorkerChannels {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TaskWorkerChannels {
     pub fn new() -> Self {
         let (task_sender, task_receiver) = tokio::sync::mpsc::unbounded_channel();
@@ -64,12 +70,6 @@ impl TaskWorkerChannels {
         self.task_sender
             .send(new_task)
             .expect("Task receiver is owned by same struct");
-    }
-}
-
-impl Default for TaskWorkerChannels {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -130,7 +130,7 @@ where
     Context: XmtpSharedContext + 'static,
 {
     pub fn new(context: Context) -> Self {
-        let channels = context.workers().task_channels().clone();
+        let channels = context.task_channels().clone();
         Self { context, channels }
     }
     pub async fn run(&mut self) -> Result<(), TaskWorkerError> {
