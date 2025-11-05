@@ -1,7 +1,6 @@
 [workspace]
 members = [
   "examples/cli",
-  "benches",
   "mls_validation_service",
   "xmtp_cryptography",
   "xmtp_api_grpc",
