@@ -4,7 +4,7 @@ mod metadata;
 
 use std::{borrow::Borrow, sync::Arc};
 
-use color_eyre::eyre::{self, Result};
+use color_eyre::eyre::{self, Result, eyre};
 use rand::{Rng, seq::IteratorRandom};
 use redb::{AccessGuard, ReadTransaction, ReadableDatabase, WriteTransaction};
 use speedy::{Readable, Writable};
@@ -161,9 +161,9 @@ pub trait RandomDatabase<Key, Value> {
         network: impl Into<u64> + Copy,
         rng: &mut impl Rng,
         n: usize,
-    ) -> Result<Vec<Value>>
+    ) -> Result<Vec<AccessGuard<'_, Value>>>
     where
-        Value: std::hash::Hash + Eq;
+        Value: std::hash::Hash + Eq + redb::Value;
 }
 
 pub trait TableProvider<'a, K: redb::Key + 'static, V: redb::Value + 'static> {
@@ -355,23 +355,44 @@ where
         network: impl Into<u64> + Copy,
         rng: &mut impl Rng,
         n: usize,
-    ) -> Result<Vec<Value>>
+    ) -> Result<Vec<AccessGuard<'_, Value>>>
     where
         Value: std::hash::Hash + Eq,
     {
         if n == 0 {
             return Ok(Vec::new());
         }
-
-        if let Some(items) = self.load(network)? {
-            Ok(items
-                .choose_multiple(rng, n)
+        let len = self
+            .load(network)?
+            .ok_or(eyre!("no items found, try generating some"))?
+            .fold(0, |acc, _| acc + 1);
+        let mut items = self
+            .load(network)?
+            .ok_or(eyre!("no items found, try generating some"))?;
+        // choose_mutliple will only fill up to the size of items.
+        // so we may need to load multiple times if we're trying to
+        // fill a buffer of size > items.
+        // items aren't loaded into memory until `value()` is called on `AccessGuard`.
+        let mut random = Vec::with_capacity(n);
+        let uninit = random.spare_capacity_mut();
+        // use lower bound for memory safety
+        for chunk in uninit.chunks_mut(len) {
+            items
+                .choose_multiple(rng, chunk.len())
                 .into_iter()
-                .map(|v| v.value())
-                .collect())
-        } else {
-            Ok(Vec::new())
+                .enumerate()
+                .for_each(|(idx, i)| {
+                    chunk[idx].write(i);
+                });
+            items = self
+                .load(network)?
+                .ok_or(eyre!("no items found, try generating some"))?;
         }
+        // safe because we ensure that every item is set/written to.
+        unsafe {
+            random.set_len(n);
+        }
+        Ok(random)
     }
 }
 

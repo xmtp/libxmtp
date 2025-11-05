@@ -314,7 +314,7 @@ impl BackendOpts {
         }
     }
 
-    pub async fn connect(&self) -> eyre::Result<crate::DbgClientApi> {
+    pub fn connect(&self) -> eyre::Result<crate::DbgClientApi> {
         let network = self.network_url();
         let is_secure = network.scheme() == "https";
 
