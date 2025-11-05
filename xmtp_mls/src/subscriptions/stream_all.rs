@@ -1,21 +1,6 @@
 #[cfg(test)]
 mod tests;
 
-use std::{
-    borrow::Cow,
-    pin::Pin,
-    task::{Poll, ready},
-};
-
-use crate::{context::XmtpSharedContext, subscriptions::stream_messages::MessagesApiSubscription};
-use crate::{groups::welcome_sync::WelcomeService, track};
-
-use xmtp_db::{
-    group::{ConversationType, GroupQueryArgs},
-    group_message::StoredGroupMessage,
-};
-use xmtp_proto::api_client::XmtpMlsStreams;
-
 use super::{
     Result, SubscribeError,
     stream_conversations::{StreamConversations, WelcomesApiSubscription},
@@ -23,20 +8,32 @@ use super::{
 };
 use crate::groups::MlsGroup;
 use crate::subscriptions::SyncWorkerEvent;
+use crate::{context::XmtpSharedContext, subscriptions::stream_messages::MessagesApiSubscription};
+use crate::{groups::welcome_sync::WelcomeService, track};
 use futures::stream::Stream;
-use xmtp_db::prelude::*;
-use xmtp_db::{consent_record::ConsentState, group::StoredGroup};
+use pin_project_lite::pin_project;
+use std::{
+    borrow::Cow,
+    pin::Pin,
+    task::{Poll, ready},
+};
+use xmtp_db::{
+    consent_record::ConsentState,
+    group::StoredGroup,
+    group::{ConversationType, GroupQueryArgs},
+    group_message::StoredGroupMessage,
+    prelude::*,
+};
+use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::GroupId;
 
-use pin_project_lite::pin_project;
-
 pin_project! {
-    pub(super) struct StreamAllMessages<'a, Context: Clone, Conversations, Messages> {
-        #[pin] conversations: Conversations,
-        #[pin] messages: Messages,
-        context: Cow<'a, Context>,
-        sync_groups: Vec<Vec<u8>>,
-        conversation_type: Option<ConversationType>,
+    pub struct StreamAllMessages<'a, Context: Clone, Conversations, Messages> {
+        #[pin] pub(super) conversations: Conversations,
+        #[pin] pub(super) messages: Messages,
+        pub(super) context: Cow<'a, Context>,
+        pub(super) sync_groups: Vec<Vec<u8>>,
+        pub(super) conversation_type: Option<ConversationType>,
     }
 }
 

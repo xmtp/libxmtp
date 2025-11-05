@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_mls::{
-  common::group_mutable_metadata::MetadataField as XmtpMetadataField,
   groups::{
     PreconfiguredPolicies,
     group_permissions::{
@@ -11,6 +10,7 @@ use xmtp_mls::{
     },
     intents::{PermissionPolicyOption, PermissionUpdateType as XmtpPermissionUpdateType},
   },
+  mls_common::group_mutable_metadata::MetadataField as XmtpMetadataField,
 };
 
 #[wasm_bindgen]
