@@ -143,33 +143,38 @@ pub enum StreamStat {
     },
 }
 
-impl<'a, Context>
-    StreamStatsWrapper<
-        'a,
-        Context,
-        StreamConversations<'static, Context, WelcomesApiSubscription<'static, Context::ApiClient>>,
-        StreamGroupMessages<'static, Context, MessagesApiSubscription<'static, Context::ApiClient>>,
-    >
+type ConversationStream<'a, Context> = StreamConversations<
+    'static,
+    Context,
+    WelcomesApiSubscription<'static, <Context as XmtpSharedContext>::ApiClient>,
+>;
+
+type GroupMessageStream<'a, Context> = StreamGroupMessages<
+    'static,
+    Context,
+    MessagesApiSubscription<'static, <Context as XmtpSharedContext>::ApiClient>,
+>;
+
+type AllMessagesStream<'a, Context> = StreamAllMessages<
+    'a,
+    Context,
+    ConversationStream<'a, Context>,
+    GroupMessageStream<'a, Context>,
+>;
+
+type StatsWrapper<'a, Context> = StreamStatsWrapper<
+    'a,
+    Context,
+    ConversationStream<'a, Context>,
+    GroupMessageStream<'a, Context>,
+>;
+
+impl<'a, Context> StatsWrapper<'a, Context>
 where
     Context: Clone + XmtpSharedContext + Send + Sync + 'static,
     Context::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
 {
-    pub fn new(
-        inner: StreamAllMessages<
-            'a,
-            Context,
-            StreamConversations<
-                'static,
-                Context,
-                WelcomesApiSubscription<'static, Context::ApiClient>,
-            >,
-            StreamGroupMessages<
-                'static,
-                Context,
-                MessagesApiSubscription<'static, Context::ApiClient>,
-            >,
-        >,
-    ) -> Self {
+    pub fn new(inner: AllMessagesStream<'a, Context>) -> Self {
         Self {
             inner,
             old_state: StreamState::Unknown,
@@ -210,7 +215,7 @@ where
                     .finish_reconnect(this.inner.messages.groups.len());
             }
 
-            this.stats.set_state(inner_state.into());
+            this.stats.set_state(inner_state);
         }
 
         *this.old_state = inner_state;
@@ -239,7 +244,7 @@ mod tests {
             .stream_all_messages_owned_with_stats(None, None)
             .await?;
         let stream_stats = stream.stats();
-        tokio::task::spawn(async move { while let Some(_) = stream.next().await {} });
+        tokio::task::spawn(async move { while stream.next().await.is_some() {} });
         xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
         bo.test_talk_in_dm_with(&alix).await?;

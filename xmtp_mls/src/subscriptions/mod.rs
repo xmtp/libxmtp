@@ -22,7 +22,7 @@ pub mod stream_messages;
 mod stream_utils;
 
 #[cfg(any(test, feature = "test-utils"))]
-use crate::subscriptions::stream_messages::stream_stats::StreamStatsWrapper;
+use crate::subscriptions::stream_messages::stream_stats::{StreamStatsWrapper, StreamWithStats};
 
 use crate::{
     Client,
@@ -31,7 +31,6 @@ use crate::{
         GroupError, MlsGroup, device_sync::preference_sync::PreferenceUpdate,
         mls_sync::GroupMessageProcessingError,
     },
-    subscriptions::stream_messages::stream_stats::StreamWithStats,
 };
 use thiserror::Error;
 use xmtp_common::{MaybeSend, RetryableError, StreamHandle, retryable};
