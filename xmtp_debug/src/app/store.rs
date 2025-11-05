@@ -136,6 +136,7 @@ pub trait Database<Key, Value> {
     /// Get an entity by key from this database store
     fn get(&self, value: Key) -> Result<Option<Value>>;
 
+    /// Load all items in db as iterator
     fn load(
         &'_ self,
         network: impl Into<u64>,

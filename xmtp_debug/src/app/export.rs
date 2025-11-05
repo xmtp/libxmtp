@@ -9,6 +9,7 @@ use crate::{
 use color_eyre::eyre::Result;
 use serde::{Deserialize, Serialize};
 use std::{fs, io::Write, sync::Arc};
+use xmtp_cryptography::XmtpInstallationCredential;
 
 use super::types::{Group, Identity};
 pub struct Export {
@@ -74,13 +75,16 @@ impl Export {
 pub struct IdentityExport {
     inbox_id: String,
     ethereum_address: String,
+    installation_public_key: String,
 }
 
 impl From<Identity> for IdentityExport {
     fn from(identity: Identity) -> Self {
+        let inst = XmtpInstallationCredential::from_bytes(&identity.installation_key).unwrap();
         IdentityExport {
             inbox_id: hex::encode(identity.inbox_id),
             ethereum_address: identity.address(),
+            installation_public_key: hex::encode(inst.public_bytes()),
         }
     }
 }

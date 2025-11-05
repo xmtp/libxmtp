@@ -8,6 +8,8 @@ use crate::{app, args};
 use color_eyre::eyre::{self, ContextCompat, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::sync::Arc;
+use xmtp_cryptography::XmtpInstallationCredential;
+use xmtp_proto::types::InstallationId;
 
 pub struct GenerateGroups {
     group_store: GroupStore<'static>,
@@ -71,10 +73,17 @@ impl GenerateGroups {
 
                 debug!(address = identity.address(), "group owner");
                 let client = app::client_from_identity(&identity, &network).await?;
-                let ids = invitees
-                    .iter()
-                    .map(|i| hex::encode(i.inbox_id))
-                    .collect::<Vec<_>>();
+                let mut ids = Vec::with_capacity(invitees.len());
+                for member in &invitees {
+                    let cred = XmtpInstallationCredential::from_bytes(&member.installation_key)?;
+                    let inbox_id = hex::encode(member.inbox_id);
+                    tracing::debug!(
+                        inbox_ids = hex::encode(member.inbox_id),
+                        installation_key = %InstallationId::from(*cred.public_bytes()),
+                        "Adding Members"
+                    );
+                    ids.push(inbox_id);
+                }
                 let group = client.create_group(Default::default(), Default::default())?;
                 group.add_members_by_inbox_id(ids.as_slice()).await?;
                 bar_pointer.inc(1);

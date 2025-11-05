@@ -27,7 +27,6 @@ impl Inspect {
         let Inspect { db, opts, network } = self;
 
         let identity_store: IdentityStore = db.clone().into();
-        // let group_store: GroupStore = db.clone().into();
 
         let args::Inspect { kind, inbox_id } = opts;
         let key = (u64::from(&network), *inbox_id);
