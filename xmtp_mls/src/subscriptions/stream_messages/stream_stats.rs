@@ -62,7 +62,6 @@ impl StatsInner {
         self.reconnect_start = Some(now_ns() as u64);
     }
     fn finish_reconnect(&mut self, num_groups: usize) {
-        tracing::info!("?");
         if let Some(start) = self.reconnect_start.take() {
             let _ = self.stats_tx.send(StreamStat::Reconnection {
                 duration: start..(now_ns() as u64),
