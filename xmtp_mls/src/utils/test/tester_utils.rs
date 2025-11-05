@@ -260,12 +260,15 @@ where
             );
             replace.add(client.inbox_id(), name);
         }
-        let worker = client.context.sync_metrics();
-        if let Some(worker) = &worker
-            && self.wait_for_init
-        {
-            worker.wait_for_init().await.unwrap();
+        let mut worker = None;
+        if self.wait_for_init && self.sync_mode != SyncWorkerMode::Disabled {
+            while worker.is_none() {
+                xmtp_common::task::yield_now().await;
+                worker = client.context.sync_metrics();
+            }
+            worker.as_ref().unwrap().wait_for_init().await.unwrap();
         }
+
         client.sync_welcomes().await;
 
         let mut tester = Tester {

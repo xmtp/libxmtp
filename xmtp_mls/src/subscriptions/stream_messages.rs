@@ -1,4 +1,11 @@
+#[cfg(any(test, feature = "test-utils"))]
+pub mod stream_stats;
+#[cfg(any(test, feature = "test-utils"))]
+mod test_utils;
 mod types;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use test_utils::*;
 
 use types::GroupList;
 pub(super) use types::MessagePosition;
@@ -44,7 +51,7 @@ pin_project! {
         groups: GroupList,
         add_queue: VecDeque<MlsGroup<Context>>,
         returned: Vec<Cursor>,
-        got: Vec<Cursor>
+        got: Vec<Cursor>,
     }
 }
 
@@ -55,12 +62,13 @@ pin_project! {
         /// State that indicates the stream is waiting on the next message from the network
         #[default]
         Waiting,
-        /// state that indicates the stream is waiting on a IO/Network future to finish processing
+        /// State that indicates the stream is waiting on a IO/Network future to finish processing
         /// the current message before moving on to the next one
         Processing {
             #[pin] future: FutureWrapper<'a, Result<ProcessedMessage>>,
             message: Cursor
         },
+        // State that indicates that the stream is adding a new group to the stream.
         Adding {
             #[pin] future: FutureWrapper<'a, Result<(Out, Vec<u8>, Option<Cursor>)>>
         }
@@ -427,6 +435,7 @@ where
         let groups_with_positions = self.groups.groups_with_positions();
         let future = Self::subscribe(self.context.clone(), groups_with_positions, group.group_id);
         let mut this = self.as_mut().project();
+
         this.state.set(State::Adding {
             future: FutureWrapper::new(future),
         });

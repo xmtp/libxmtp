@@ -246,7 +246,7 @@ where
     /// Reconnect to the client's database if it has previously been released
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
         self.context.db().reconnect().map_err(StorageError::from)?;
-        self.workers.spawn();
+        self.workers.spawn(self.context.clone());
         Ok(())
     }
 

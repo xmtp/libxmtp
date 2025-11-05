@@ -5,7 +5,10 @@ use alloy::signers::local::PrivateKeySigner;
 use xmtp_common::{TestLogReplace, tmp_path};
 use xmtp_configuration::GrpcUrls;
 use xmtp_id::InboxOwner;
-use xmtp_mls::utils::{PasskeyUser, Tester, TesterBuilder};
+use xmtp_mls::{
+    builder::SyncWorkerMode,
+    utils::{PasskeyUser, Tester, TesterBuilder},
+};
 
 use crate::inbox_owner::FfiInboxOwner;
 
@@ -51,12 +54,13 @@ impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
             .await?;
         client.register_identity(signature_request).await?;
 
-        let worker = client.inner_client.context.sync_metrics();
-
-        if let Some(worker) = &worker
-            && self.wait_for_init
-        {
-            worker.wait_for_init().await.unwrap();
+        let mut worker = None;
+        if self.wait_for_init && self.sync_mode != SyncWorkerMode::Disabled {
+            while worker.is_none() {
+                xmtp_common::task::yield_now().await;
+                worker = client.inner_client.context.sync_metrics();
+            }
+            worker.as_ref().unwrap().wait_for_init().await.unwrap();
         }
 
         Ok(Tester {
@@ -104,12 +108,13 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
             .unwrap();
         client.register_identity(signature_request).await?;
 
-        let worker = client.inner_client.context.sync_metrics();
-
-        if let Some(worker) = &worker
-            && self.wait_for_init
-        {
-            worker.wait_for_init().await.unwrap();
+        let mut worker = None;
+        if self.wait_for_init && self.sync_mode != SyncWorkerMode::Disabled {
+            while worker.is_none() {
+                xmtp_common::task::yield_now().await;
+                worker = client.inner_client.context.sync_metrics();
+            }
+            worker.as_ref().unwrap().wait_for_init().await.unwrap();
         }
 
         Ok(Tester {
