@@ -52,7 +52,7 @@ resolver = "2"
 
 [workspace.package]
 license = "MIT"
-version = "1.6.1-rc1"
+version = "1.6.1-rc2"
 
 [workspace.dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
@@ -103,7 +103,6 @@ openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "51f
 openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "51f800df4d56d74fb2dde993f33e320b573df60e" }
 openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "51f800df4d56d74fb2dde993f33e320b573df60e" }
 openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "51f800df4d56d74fb2dde993f33e320b573df60e" }
-
 owo-colors = { version = "4.1" }
 p256 = { version = "0.13.2", features = ["ecdsa"] }
 parking_lot = "0.12.3"
@@ -206,3 +205,4 @@ diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "co
 
 [workspace.lints.clippy]
 uninlined_format_args = "allow"
+arc_with_non_send_sync = "allow"

@@ -28,7 +28,7 @@ pub trait ProcessFutureFactory<'a> {
 
 impl<'a, Context> ProcessFutureFactory<'a> for ProcessMessageFuture<Context>
 where
-    Context: Send + Sync + XmtpSharedContext + 'a,
+    Context: XmtpSharedContext + 'a,
 {
     fn create(
         &self,

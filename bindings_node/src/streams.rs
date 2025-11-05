@@ -18,7 +18,7 @@ pub struct StreamCloser {
 
 impl StreamCloser {
   pub fn new(
-    handle: impl XmtpStreamHandle<StreamOutput = Result<(), SubscribeError>> + Send + Sync + 'static,
+    handle: impl XmtpStreamHandle<StreamOutput = Result<(), SubscribeError>> + 'static,
   ) -> Self {
     let abort = handle.abort_handle();
     Self {

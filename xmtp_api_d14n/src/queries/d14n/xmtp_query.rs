@@ -9,17 +9,18 @@ use xmtp_proto::{
 use crate::{
     D14nClient,
     d14n::QueryEnvelope,
-    protocol::{XmtpEnvelope, XmtpQuery},
+    protocol::{CursorStore, XmtpEnvelope, XmtpQuery},
 };
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, G, E> XmtpQuery for D14nClient<C, G>
+impl<C, G, Store, E> XmtpQuery for D14nClient<C, G, Store>
 where
     C: Client<Error = E>,
-    G: Client<Error = <C as Client>::Error>,
-    ApiClientError<E>: From<ApiClientError<<C as Client>::Error>> + Send + Sync + 'static,
-    E: RetryableError,
+    G: Client<Error = E>,
+    ApiClientError<E>: From<ApiClientError<<C as Client>::Error>>,
+    E: RetryableError + 'static,
+    Store: CursorStore,
 {
     type Error = ApiClientError<E>;
 

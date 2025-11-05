@@ -48,8 +48,8 @@ impl<Context>
         StreamGroupMessages<'static, Context, MessagesApiSubscription<'static, Context::ApiClient>>,
     >
 where
-    Context: Clone + XmtpSharedContext + Send + Sync + 'static,
-    Context::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
+    Context: Clone + XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams + 'static,
 {
     pub async fn new_owned(
         context: Context,
@@ -68,8 +68,8 @@ impl<'a, Context>
         StreamGroupMessages<'a, Context, MessagesApiSubscription<'a, Context::ApiClient>>,
     >
 where
-    Context: Clone + XmtpSharedContext + Send + Sync + 'a,
-    Context::ApiClient: XmtpMlsStreams + Send + Sync + 'a,
+    Context: Clone + XmtpSharedContext + 'a,
+    Context::ApiClient: XmtpMlsStreams + 'a,
 {
     pub async fn new(
         context: &'a Context,
@@ -192,10 +192,7 @@ where
         if let Some(group) = ready!(this.conversations.poll_next(cx)) {
             let group_result = group?;
             this.messages.as_mut().add(group_result);
-
             cx.waker().wake_by_ref();
-
-            return Poll::Pending;
         }
         Poll::Pending
     }

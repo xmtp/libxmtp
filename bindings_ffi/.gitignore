@@ -8,8 +8,6 @@ tags
 # Ignore intermediate build files
 *.a
 LibXMTPSwiftFFI.xcframework
-LibXMTPSwiftFFIDynamic.xcframework
-
 /target
 /build
 

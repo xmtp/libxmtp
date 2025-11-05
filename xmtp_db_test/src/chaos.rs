@@ -3,6 +3,7 @@ use diesel::SqliteConnection;
 use parking_lot::Mutex;
 use rand::{Rng, distributions::Standard, prelude::Distribution};
 use std::{collections::HashMap, sync::Arc};
+use xmtp_common::{MaybeSend, MaybeSync, if_native, if_wasm};
 use xmtp_db::ConnectionExt;
 
 const TRANSACTION_START_HOOK: &str = "TRANSACTION_START_HOOK";
@@ -24,7 +25,12 @@ const STATIC_PRE_WRITE_HOOK: &str = "STATIC_PRE_WRITE_HOOK";
 const STATIC_POST_READ_HOOK: &str = "STATIC_POST_READ_HOOK";
 const STATIC_POST_WRITE_HOOK: &str = "STATIC_POST_WRITE_HOOK";
 
-type HookFn<C> = Box<dyn Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync>;
+if_native! {
+    type HookFn<C> = Box<dyn Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync>;
+}
+if_wasm! {
+    type HookFn<C> = Box<dyn Fn(&C) -> Result<(), xmtp_db::ConnectionError>>;
+}
 
 #[derive(Builder)]
 #[builder(setter(into), build_fn(validate = "Self::validate"))]
@@ -109,7 +115,7 @@ impl<C> ChaosConnection<C> {
     /// Add a hook to run after the next transaction is started
     pub fn start_transaction_hook<F>(&self, f: F)
     where
-        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + MaybeSend + MaybeSync + 'static,
     {
         let mut m = self.hooks.lock();
         m.entry(TRANSACTION_START_HOOK)
@@ -120,7 +126,7 @@ impl<C> ChaosConnection<C> {
     /// Add a hook to run before the next read
     pub fn pre_read_hook<F>(&self, f: F)
     where
-        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + MaybeSend + MaybeSync + 'static,
     {
         let mut m = self.hooks.lock();
         m.entry(PRE_READ_HOOK).or_default().push(Box::new(f))
@@ -129,7 +135,7 @@ impl<C> ChaosConnection<C> {
     /// Add a hook to run after the next read
     pub fn post_read_hook<F>(&self, f: F)
     where
-        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + MaybeSend + MaybeSync + 'static,
     {
         let mut m = self.hooks.lock();
         m.entry(POST_READ_HOOK).or_default().push(Box::new(f))
@@ -138,7 +144,7 @@ impl<C> ChaosConnection<C> {
     /// Add a hook to run before the next write
     pub fn pre_write_hook<F>(&self, f: F)
     where
-        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + MaybeSend + MaybeSync + 'static,
     {
         let mut m = self.hooks.lock();
         m.entry(PRE_WRITE_HOOK).or_default().push(Box::new(f))
@@ -147,7 +153,7 @@ impl<C> ChaosConnection<C> {
     /// Add a hook to run after the next write
     pub fn post_write_hook<F>(&self, f: F)
     where
-        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + MaybeSend + MaybeSync + 'static,
     {
         let mut m = self.hooks.lock();
         m.entry(POST_WRITE_HOOK).or_default().push(Box::new(f))
@@ -159,7 +165,7 @@ impl<C> ChaosConnection<C> {
     /// transaction start hook.
     pub fn static_start_transaction_hook<F>(&self, f: F)
     where
-        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + MaybeSend + MaybeSync + 'static,
     {
         let mut m = self.static_hooks.lock();
         m.entry(STATIC_TRANSACTION_START_HOOK)
@@ -173,7 +179,7 @@ impl<C> ChaosConnection<C> {
     /// but after dynamic hooks in the 'POST' stage.
     pub fn static_pre_read_hook<F>(&self, f: F)
     where
-        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + MaybeSend + MaybeSync + 'static,
     {
         let mut m = self.static_hooks.lock();
         m.entry(STATIC_PRE_READ_HOOK).or_default().push(Box::new(f))
@@ -185,7 +191,7 @@ impl<C> ChaosConnection<C> {
     /// but after dynamic hooks in the 'POST' stage.
     pub fn static_post_read_hook<F>(&self, f: F)
     where
-        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + MaybeSend + MaybeSync + 'static,
     {
         let mut m = self.static_hooks.lock();
         m.entry(STATIC_POST_READ_HOOK)
@@ -199,7 +205,7 @@ impl<C> ChaosConnection<C> {
     /// but after dynamic hooks in the 'POST' stage.
     pub fn static_pre_write_hook<F>(&self, f: F)
     where
-        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + MaybeSend + MaybeSync + 'static,
     {
         let mut m = self.static_hooks.lock();
         m.entry(STATIC_PRE_WRITE_HOOK)
@@ -213,7 +219,7 @@ impl<C> ChaosConnection<C> {
     /// but after dynamic hooks in the 'POST' stage.
     pub fn static_post_write_hook<F>(&self, f: F)
     where
-        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + MaybeSend + MaybeSync + 'static,
     {
         let mut m = self.static_hooks.lock();
         m.entry(STATIC_POST_WRITE_HOOK)

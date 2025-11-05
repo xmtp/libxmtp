@@ -113,8 +113,8 @@ where
 impl<C> StreamGroupMessages<'static, C, MessagesApiSubscription<'static, C::ApiClient>>
 where
     C: XmtpSharedContext + 'static,
-    C::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
-    C::Db: Send + 'static,
+    C::ApiClient: XmtpMlsStreams + 'static,
+    C::Db: 'static,
 {
     pub async fn new_owned(context: C, groups: Vec<GroupId>) -> Result<Self> {
         let f = ProcessMessageFuture::new(context.clone());
@@ -135,7 +135,24 @@ where
     ) -> Result<Self> {
         tracing::debug!("setting up messages subscription");
         let api = context.api();
-        let groups_list = GroupList::new(groups.clone());
+
+        // Get the last sync cursor for each group to populate seen messages
+        use xmtp_db::encrypted_store::refresh_state::{EntityKind, QueryRefreshState};
+        use xmtp_db::group_message::QueryGroupMessage;
+
+        let db = context.db();
+        let cursors_by_group = db.get_last_cursor_for_ids(
+            &groups,
+            &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
+        )?;
+
+        // Get all cursors of messages newer than last sync for each group
+        // to populate seen messages
+        let seen_cursors_vec = db.messages_newer_than(&cursors_by_group)?;
+
+        let seen_cursors: std::collections::HashSet<_> = seen_cursors_vec.into_iter().collect();
+
+        let groups_list = GroupList::new(groups.clone(), seen_cursors);
         let subscription = api
             .subscribe_group_messages(&groups.iter().collect::<Vec<_>>())
             .await?;
@@ -169,20 +186,16 @@ where
     /// This is an asynchronous operation that transitions the stream to the `Adding` state.
     /// The actual subscription update happens when the stream is polled.
     pub(super) fn add(mut self: Pin<&mut Self>, group: MlsGroup<C>) {
+        // we unconditionally notify, otherwise
+        // test failures if we hit a group that is already in the stream.
         if self.groups.contains(&group.group_id) {
             tracing::debug!("group {} already in stream", hex::encode(&group.group_id));
             return;
         }
-
-        // if we're waiting, resolve it right away
-        if let State::Waiting = self.state {
-            self.resolve_group_additions(group);
-        } else {
-            tracing::debug!("stream busy, queuing group add");
-            // any other state and the group must be added to queue
-            let this = self.as_mut().project();
-            this.add_queue.push_back(group);
-        }
+        tracing::debug!("queuing group add");
+        // any other state and the group must be added to queue
+        let this = self.as_mut().project();
+        this.add_queue.push_back(group);
     }
 
     /// Internal API to re-subscribe to a message stream.
@@ -198,34 +211,40 @@ where
     ///
     /// # Arguments
     /// * `context` - Reference to the client used for API communication
-    /// * `filters` - Current list of group filters
+    /// * `groups_with_positions` - List of tuples containing group IDs and their current positions
     /// * `new_group` - ID of the new group to add
     ///
     /// # Returns
-    /// * `Result<(MessagesApiSubscription<'a, C>, Vec<u8>, Option<u64>)>` - A tuple containing:
+    /// * `Result<(MessagesApiSubscription<'a, C>, Vec<u8>, Option<Cursor>)>` - A tuple containing:
     ///   - The new message subscription
     ///   - The ID of the newly added group
     ///   - The cursor position for the new group (if available)
     ///
     /// # Errors
     /// May return errors if:
-    /// - Querying the database for the last cursor fails
     /// - Creating the new subscription fails
     #[tracing::instrument(level = "trace", skip(context, new_group), fields(new_group = hex::encode(&new_group)))]
     #[allow(clippy::type_complexity)]
     async fn subscribe(
         context: Cow<'a, C>,
-        filters: Vec<GroupId>,
+        groups_with_positions: Vec<(GroupId, MessagePosition)>,
         new_group: Vec<u8>,
     ) -> Result<(
         MessagesApiSubscription<'a, C::ApiClient>,
         Vec<u8>,
         Option<Cursor>,
     )> {
-        // get the last synced cursor
+        use xmtp_proto::types::GlobalCursor;
+
+        let groups_with_cursors: Vec<(&GroupId, GlobalCursor)> = groups_with_positions
+            .iter()
+            .map(|(group_id, position)| (group_id, GlobalCursor::new(position.last_streamed())))
+            .collect();
+
         let stream = context
+            .as_ref()
             .api()
-            .subscribe_group_messages(&filters.iter().collect::<Vec<_>>())
+            .subscribe_group_messages_with_cursors(&groups_with_cursors)
             .await?;
         Ok((
             stream,
@@ -264,10 +283,12 @@ where
                     return Poll::Pending;
                 }
                 let r = self.as_mut().on_waiting(cx);
-                tracing::trace!(
-                    "stream messages returning from waiting state, transitioning to {}",
-                    self.as_mut().current_state()
-                );
+                if self.as_mut().current_state() != "waiting" {
+                    tracing::trace!(
+                        "stream messages returning from waiting state, transitioning to {}",
+                        self.as_mut().current_state()
+                    );
+                }
                 r
             }
             Processing { message, .. } => {
@@ -353,10 +374,10 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<<Self as Stream>::Item>> {
         let next_msg = ready!(self.as_mut().next_message(cx));
-        if next_msg.is_none() {
+        let Some(next_msg) = next_msg else {
             return Poll::Ready(None);
-        }
-        let mut next_msg = next_msg.expect("checked for none")?;
+        };
+        let next_msg = next_msg?;
         // ensure we have not tried processing this message yet
         // if we have tried to process, replay messages up to the known cursor.
         if self.groups.has_seen(next_msg.cursor) {
@@ -365,7 +386,8 @@ where
                 next_msg.cursor,
                 next_msg.group_id
             );
-            next_msg = ready!(self.as_mut().skip(cx, next_msg))?;
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
         }
         if let Some(stored) = self.factory.retrieve(&next_msg)? {
             tracing::debug!(
@@ -403,36 +425,12 @@ where
         let this = self.as_mut().project();
         this.groups
             .add(&group.group_id, MessagePosition::new(Cursor::new(1, 0u32)));
-        let future = Self::subscribe(self.context.clone(), self.groups.ids(), group.group_id);
+        let groups_with_positions = self.groups.groups_with_positions();
+        let future = Self::subscribe(self.context.clone(), groups_with_positions, group.group_id);
         let mut this = self.as_mut().project();
         this.state.set(State::Adding {
             future: FutureWrapper::new(future),
         });
-    }
-
-    // iterative skip to avoid overflowing the stack
-    fn skip(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        mut envelope: xmtp_proto::types::GroupMessage,
-    ) -> Poll<Result<xmtp_proto::types::GroupMessage>> {
-        // skip the messages
-        while let Some(new_envelope) = ready!(self.as_mut().next_message(cx)) {
-            let new_envelope = new_envelope?;
-            if self.as_ref().groups.has_seen(new_envelope.cursor) {
-                tracing::debug!(
-                    "skipping msg with group_id@[{}] and cursor@[{}]",
-                    xmtp_common::fmt::debug_hex(new_envelope.group_id.as_slice()),
-                    new_envelope.cursor
-                );
-                continue;
-            } else {
-                envelope = new_envelope;
-                tracing::trace!("finished skipping");
-                break;
-            }
-        }
-        Poll::Ready(Ok(envelope))
     }
 
     /// Retrieves the next message from the inner stream.

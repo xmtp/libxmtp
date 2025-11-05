@@ -5,7 +5,7 @@ use super::{
     refresh_state::EntityKind,
     sql_key_store::{self, SqlKeyStoreError},
 };
-use xmtp_common::{RetryableError, retryable};
+use xmtp_common::{BoxDynError, RetryableError, retryable};
 use xmtp_proto::types::{Cursor, InstallationId};
 
 pub struct Mls;
@@ -17,7 +17,7 @@ pub enum StorageError {
     #[error(transparent)]
     DieselResult(#[from] diesel::result::Error),
     #[error("Error migrating database {0}")]
-    MigrationError(#[from] Box<dyn std::error::Error + Send + Sync>),
+    MigrationError(#[from] BoxDynError),
     #[error(transparent)]
     NotFound(#[from] NotFound),
     #[error(transparent)]

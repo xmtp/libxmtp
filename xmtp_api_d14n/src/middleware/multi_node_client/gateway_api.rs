@@ -5,7 +5,10 @@ use crate::{
 use futures::StreamExt;
 use std::collections::HashMap;
 use xmtp_api_grpc::{ClientBuilder, GrpcClient};
-use xmtp_common::time::{Duration, Instant};
+use xmtp_common::{
+    BoxDynError,
+    time::{Duration, Instant},
+};
 use xmtp_proto::api::Query;
 use xmtp_proto::api_client::ApiBuilder;
 use xmtp_proto::{ApiEndpoint, api::ApiClientError};
@@ -52,7 +55,7 @@ pub async fn get_nodes(
 
             let client = client_builder.build().map_err(|e| (node_id, e.into()))?;
 
-            Ok::<_, (u32, Box<dyn std::error::Error + Send + Sync>)>((node_id, client, url))
+            Ok::<_, (u32, BoxDynError)>((node_id, client, url))
         }))
         .buffer_unordered(max_concurrency);
 
@@ -175,19 +178,16 @@ pub async fn get_fastest_node(
 }
 
 /// Validate that the template's TLS configuration matches the URL scheme.
-pub fn validate_tls_guard(
-    template: &ClientBuilder,
-    url: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub fn validate_tls_guard(template: &ClientBuilder, url: &str) -> Result<(), BoxDynError> {
     let url_is_tls = url
         .parse::<url::Url>()
-        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?
+        .map_err(|e| -> BoxDynError { Box::new(e) })?
         .scheme()
         == "https";
 
     (template.tls_channel == url_is_tls)
         .then_some(())
-        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+        .ok_or_else(|| -> BoxDynError {
             Box::new(MultiNodeClientError::TlsChannelMismatch {
                 url_is_tls,
                 client_builder_tls_channel: template.tls_channel,
