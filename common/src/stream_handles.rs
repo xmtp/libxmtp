@@ -214,6 +214,23 @@ mod native {
     use super::*;
     use std::future::Future;
     use tokio::task::JoinHandle;
+    use tokio::runtime::{Handle, Runtime};
+    use std::sync::OnceLock;
+
+    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+
+    fn get_runtime_handle() -> Handle {
+        // Try to get the current runtime handle first (for napi-rs or other contexts)
+        if let Ok(handle) = Handle::try_current() {
+            return handle;
+        }
+
+        // Fallback: create or get our own runtime
+        let runtime = RUNTIME.get_or_init(|| {
+            Runtime::new().expect("Failed to create Tokio runtime")
+        });
+        runtime.handle().clone()
+    }
 
     pub struct TokioStreamHandle<T> {
         inner: JoinHandle<T>,
@@ -288,7 +305,7 @@ mod native {
         F::Output: Send + 'static,
     {
         TokioStreamHandle {
-            inner: tokio::task::spawn(future),
+            inner: get_runtime_handle().spawn(future),
             ready,
         }
     }
@@ -303,7 +320,7 @@ mod native {
         F::Output: Send + 'static,
     {
         TokioStreamHandle {
-            inner: tokio::task::spawn(future),
+            inner: get_runtime_handle().spawn(future),
             ready,
         }
     }
