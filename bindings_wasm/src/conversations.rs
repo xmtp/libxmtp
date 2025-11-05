@@ -86,6 +86,22 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
   }
 }
 
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub enum ListConversationsOrderBy {
+  CreatedAt,
+  LastActivity,
+}
+
+impl From<ListConversationsOrderBy> for GroupQueryOrderBy {
+  fn from(order_by: ListConversationsOrderBy) -> Self {
+    match order_by {
+      ListConversationsOrderBy::CreatedAt => GroupQueryOrderBy::CreatedAt,
+      ListConversationsOrderBy::LastActivity => GroupQueryOrderBy::LastActivity,
+    }
+  }
+}
+
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Default)]
 pub struct ListConversationsOptions {
@@ -99,6 +115,8 @@ pub struct ListConversationsOptions {
   pub created_before_ns: Option<i64>,
   #[wasm_bindgen(js_name = includeDuplicateDms)]
   pub include_duplicate_dms: Option<bool>,
+  #[wasm_bindgen(js_name = orderBy)]
+  pub order_by: Option<ListConversationsOrderBy>,
   pub limit: Option<i64>,
 }
 
@@ -118,7 +136,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       last_activity_before_ns: None,
       last_activity_after_ns: None,
       should_publish_commit_log: None,
-      order_by: Some(GroupQueryOrderBy::LastActivity),
+      order_by: opts.order_by.map(Into::into),
     }
   }
 }
@@ -133,6 +151,7 @@ impl ListConversationsOptions {
     created_before_ns: Option<i64>,
     include_duplicate_dms: Option<bool>,
     limit: Option<i64>,
+    order_by: Option<ListConversationsOrderBy>,
   ) -> Self {
     Self {
       consent_states,
@@ -141,6 +160,7 @@ impl ListConversationsOptions {
       created_before_ns,
       include_duplicate_dms,
       limit,
+      order_by,
     }
   }
 }
