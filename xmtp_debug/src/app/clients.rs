@@ -1,10 +1,17 @@
 //! Different ways to create a [`crate::DbgClient`]
 
+use std::collections::HashMap;
+
 use super::*;
+use crate::app::store::Database;
+use crate::app::store::IdentityStore;
 use crate::app::types::*;
 use alloy::signers::local::PrivateKeySigner;
-use color_eyre::eyre;
-use xmtp_db::{NativeDb, XmtpDb, prelude::*};
+use color_eyre::eyre::eyre;
+use futures::{TryStreamExt, stream};
+use tokio::sync::Mutex;
+use xmtp_db::prelude::Pragmas;
+use xmtp_db::{NativeDb, XmtpDb};
 use xmtp_mls::builder::SyncWorkerMode;
 
 pub async fn new_registered_client(
@@ -151,4 +158,26 @@ async fn existing_client_inner(
         .await?;
 
     Ok(client)
+}
+
+/// Loads all identities
+pub async fn load_all_identities(
+    store: &IdentityStore<'static>,
+    network: &args::BackendOpts,
+) -> Result<Arc<HashMap<InboxId, Mutex<crate::DbgClient>>>> {
+    let identities = store
+        .load(u64::from(network))?
+        .ok_or(eyre!("no identities in store, try generating some"))?
+        .map(|v| Ok::<_, eyre::Report>(v.value()));
+
+    let clients = stream::iter(identities)
+        .and_then(async |i| {
+            Ok((
+                i.inbox_id,
+                Mutex::new(client_from_identity(&i, network).await?),
+            ))
+        })
+        .try_collect::<HashMap<_, _>>()
+        .await?;
+    Ok(Arc::new(clients))
 }

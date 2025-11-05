@@ -1,16 +1,19 @@
-use crate::app::App;
-use crate::app::identity_lock::get_identity_lock;
+use crate::DbgClient;
+use crate::app::types::InboxId;
+use crate::app::{App, load_all_identities};
 use crate::{
     app::{
         self,
-        store::{Database, GroupStore, IdentityStore, RandomDatabase},
+        store::{GroupStore, IdentityStore, RandomDatabase},
     },
     args,
 };
 use color_eyre::eyre::{self, Result, eyre};
 use indicatif::{ProgressBar, ProgressStyle};
 use rand::{Rng, SeedableRng, rngs::SmallRng, seq::SliceRandom};
+use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
 use xmtp_mls::groups::summary::SyncSummary;
 
@@ -81,17 +84,19 @@ impl GenerateMessages {
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
 
+        let clients = load_all_identities(&self.identity_store, network).await?;
         let mut set: tokio::task::JoinSet<Result<(), eyre::Error>> = tokio::task::JoinSet::new();
         let stores = (self.identity_store.clone(), self.group_store.clone());
         for _ in 0..n {
             let bar_pointer = bar.clone();
             let n = network.clone();
             let opts = opts.clone();
-            let (identity, group) = stores.clone();
+            let (_, group) = stores.clone();
             let semaphore = semaphore.clone();
+            let cs = clients.clone();
             set.spawn(async move {
                 let _permit = semaphore.acquire().await?;
-                Self::send_message(&group, &identity, n, opts).await?;
+                Self::send_message(&group, cs, n, opts).await?;
                 bar_pointer.inc(1);
                 Ok(())
             });
@@ -121,7 +126,7 @@ impl GenerateMessages {
 
     async fn send_message(
         group_store: &GroupStore<'static>,
-        identity_store: &IdentityStore<'static>,
+        clients: Arc<HashMap<InboxId, Mutex<DbgClient>>>,
         network: args::BackendOpts,
         opts: args::MessageGenerateOpts,
     ) -> Result<(), MessageSendError> {
@@ -135,17 +140,10 @@ impl GenerateMessages {
             .random(&network, rng)?
             .ok_or(eyre!("no group in local store"))?;
         if let Some(inbox_id) = group.members.choose(rng) {
-            let key = (u64::from(&network), *inbox_id);
-
-            // each identity can only be used by one worker thread
-            let identity_lock = get_identity_lock(inbox_id)?;
-            let _lock_guard = identity_lock.lock().await;
-
-            let identity = identity_store.get(key.into())?.ok_or(eyre!(
-                "No identity with inbox id [{}] in local store",
-                hex::encode(inbox_id)
-            ))?;
-            let client = app::client_from_identity(&identity, &network).await?;
+            let client = clients
+                .get(inbox_id.as_slice())
+                .ok_or(eyre!("client does not exist"))?;
+            let client = client.lock().await;
             client.sync_welcomes().await?;
             let group = client.group(&group.id.into())?;
             group.sync_with_conn().await?;

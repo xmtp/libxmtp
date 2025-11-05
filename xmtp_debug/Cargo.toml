@@ -30,7 +30,7 @@ k256 = "0.13"
 lipsum = "0.9"
 num_cpus = "1.16.0"
 openmls.workspace = true
-openmls_rust_crypto = { workspace = true }
+openmls_rust_crypto.workspace = true
 owo-colors.workspace = true
 prost.workspace = true
 rand = { workspace = true, features = ["small_rng"] }

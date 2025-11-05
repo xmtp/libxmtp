@@ -1,12 +1,13 @@
 //! Group Generation
-use crate::app::identity_lock::get_identity_lock;
+use crate::app::load_all_identities;
 use crate::app::{
     store::{Database, GroupStore, IdentityStore, RandomDatabase},
     types::*,
 };
-use crate::{app, args};
-use color_eyre::eyre::{self, ContextCompat, Result};
+use crate::args;
+use color_eyre::eyre::{self, Result, eyre};
 use indicatif::{ProgressBar, ProgressStyle};
+use rand::seq::IteratorRandom;
 use std::sync::Arc;
 use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_proto::types::InstallationId;
@@ -55,24 +56,18 @@ impl GenerateGroups {
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
 
+        let clients = load_all_identities(&self.identity_store, network).await?;
         for _ in 0..n {
-            let identity = self
-                .identity_store
-                .random(network, &mut rng)?
-                .with_context(
-                    || "no local identities found in database, have identities been generated?",
-                )?;
             let invitees = self.identity_store.random_n(network, &mut rng, invitees)?;
             let bar_pointer = bar.clone();
-            let network = network.clone();
             let semaphore = semaphore.clone();
+            let cs = clients.clone();
             handles.push(set.spawn(async move {
                 let _permit = semaphore.acquire().await?;
-                let identity_lock = get_identity_lock(&identity.inbox_id)?;
-                let _lock_guard = identity_lock.lock().await;
-
-                debug!(address = identity.address(), "group owner");
-                let client = app::client_from_identity(&identity, &network).await?;
+                let owner = cs.keys().choose(&mut rand::thread_rng()).ok_or(eyre!(
+                    "no local identities found in database, have identities been generated?"
+                ))?;
+                debug!(owner = hex::encode(owner), "group owner");
                 let mut ids = Vec::with_capacity(invitees.len());
                 for member in &invitees {
                     let cred = XmtpInstallationCredential::from_bytes(&member.installation_key)?;
@@ -84,6 +79,7 @@ impl GenerateGroups {
                     );
                     ids.push(inbox_id);
                 }
+                let client = cs.get(owner).unwrap().lock().await;
                 let group = client.create_group(Default::default(), Default::default())?;
                 group.add_members_by_inbox_id(ids.as_slice()).await?;
                 bar_pointer.inc(1);
@@ -91,7 +87,7 @@ impl GenerateGroups {
                     .into_iter()
                     .map(|i| i.inbox_id)
                     .collect::<Vec<InboxId>>();
-                members.push(identity.inbox_id);
+                members.push(*owner);
                 Ok(Group {
                     id: group
                         .group_id
@@ -99,7 +95,7 @@ impl GenerateGroups {
                         .expect("Group id expected to be 32 bytes"),
                     member_size: members.len() as u32,
                     members,
-                    created_by: identity.inbox_id,
+                    created_by: *owner,
                 })
             }));
 
