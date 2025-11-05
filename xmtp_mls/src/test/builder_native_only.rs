@@ -37,8 +37,7 @@ async fn test_remote_is_valid_signature(#[future] docker_smart_wallet: SmartWall
     let xmtp_client = Client::builder(identity_strategy)
         .temp_store()
         .await
-        .local_client()
-        .await
+        .local()
         .default_mls_store()
         .unwrap()
         .with_remote_verifier()
@@ -107,8 +106,7 @@ async fn test_detect_scw_vs_eoa_creation(#[future] docker_smart_wallet: SmartWal
     let scw_client = Client::builder(identity_strategy)
         .temp_store()
         .await
-        .local_client()
-        .await
+        .local()
         .default_mls_store()
         .unwrap()
         .with_remote_verifier()

@@ -1,5 +1,6 @@
 use crate::protocol::{
-    CollectionExtractor, MessageMetadataExtractor, ProtocolEnvelope, V3WelcomeMessageExtractor,
+    CollectionExtractor, CursorStore, MessageMetadataExtractor, ProtocolEnvelope,
+    V3WelcomeMessageExtractor,
 };
 use crate::protocol::{SequencedExtractor, V3GroupMessageExtractor, traits::Extractor};
 use crate::{V3Client, v3::*};
@@ -12,11 +13,12 @@ use xmtp_proto::types::{GroupId, GroupMessageMetadata, InstallationId, TopicKind
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, E> XmtpMlsClient for V3Client<C>
+impl<C, Store, E> XmtpMlsClient for V3Client<C, Store>
 where
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
-    C: Send + Sync + Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<C as Client>::Error>> + Send + Sync + 'static,
+    E: RetryableError + 'static,
+    C: Client<Error = E>,
+    ApiClientError<E>: From<ApiClientError<<C as Client>::Error>> + 'static,
+    Store: CursorStore,
 {
     type Error = ApiClientError<E>;
 
@@ -68,7 +70,6 @@ where
         let topic = &TopicKind::GroupMessagesV1.create(&group_id);
         let cursor = self
             .cursor_store
-            .read()
             .latest_per_originator(
                 topic,
                 &[
@@ -130,7 +131,6 @@ where
         let topic = &TopicKind::WelcomeMessagesV1.create(installation_key);
         let id_cursor = self
             .cursor_store
-            .read()
             .latest_for_originator(topic, &Originators::WELCOME_MESSAGES)?
             .sequence_id;
         let endpoint = QueryWelcomeMessages::builder()

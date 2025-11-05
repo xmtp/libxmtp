@@ -623,7 +623,7 @@ pub async fn is_member_of_association_state<Client>(
     scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
 ) -> Result<bool, ClientError>
 where
-    Client: XmtpMlsClient + XmtpIdentityClient + Clone + Send + Sync,
+    Client: XmtpMlsClient + XmtpIdentityClient + Clone,
 {
     let filters = vec![GetIdentityUpdatesV2Filter {
         inbox_id: inbox_id.to_string(),
@@ -978,7 +978,7 @@ pub(crate) mod tests {
         let mut inbox_ids: Vec<String> = vec![];
 
         // Create an inbox with 2 history items for each client
-        for (client, wallet) in vec![
+        for (client, wallet) in [
             (client_1, wallet_1),
             (client_2, wallet_2),
             (client_3, wallet_3),

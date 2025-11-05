@@ -8312,7 +8312,6 @@ dependencies = [
 name = "xmtp_api_d14n"
 version = "1.6.0-dev"
 dependencies = [
- "arc-swap",
  "async-trait",
  "chrono",
  "const-hex",
@@ -8484,6 +8483,7 @@ name = "xmtp_content_types"
 version = "1.6.0-dev"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "const-hex",
  "prost",
  "serde",

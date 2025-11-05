@@ -16,8 +16,8 @@ pub struct CombinedD14nClient<C, D> {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C, D> XmtpMlsClient for CombinedD14nClient<C, D>
 where
-    C: Send + Sync + XmtpMlsClient,
-    D: Send + Sync + XmtpMlsClient<Error = C::Error>,
+    C: XmtpMlsClient,
+    D: XmtpMlsClient<Error = C::Error>,
 {
     type Error = <C as XmtpMlsClient>::Error;
 
@@ -97,8 +97,8 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C, D> XmtpIdentityClient for CombinedD14nClient<C, D>
 where
-    C: Send + Sync + XmtpIdentityClient,
-    D: Send + Sync + XmtpIdentityClient<Error = C::Error>,
+    C: XmtpIdentityClient,
+    D: XmtpIdentityClient<Error = C::Error>,
 {
     type Error = <C as XmtpIdentityClient>::Error;
 

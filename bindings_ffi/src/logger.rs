@@ -93,15 +93,11 @@ mod other {
     }
 }
 
+#[derive(Default)]
 enum EmptyOrFileWriter {
+    #[default]
     Empty,
     File(tracing_appender::non_blocking::NonBlocking),
-}
-
-impl Default for EmptyOrFileWriter {
-    fn default() -> Self {
-        Self::Empty
-    }
 }
 
 impl Write for EmptyOrFileWriter {

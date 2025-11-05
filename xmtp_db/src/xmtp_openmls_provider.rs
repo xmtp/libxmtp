@@ -6,6 +6,7 @@ use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::storage::CURRENT_VERSION;
 use openmls_traits::storage::{Entity, StorageProvider};
+use xmtp_common::{MaybeSend, MaybeSync};
 
 /// Convenience super trait to constrain the storage provider to a
 /// specific error type and version
@@ -14,7 +15,7 @@ use openmls_traits::storage::{Entity, StorageProvider};
 // constraining the error type here will avoid leaking
 // the associated type parameter, so we don't need to define it on every function.
 pub trait XmtpMlsStorageProvider:
-    StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>
+    MaybeSend + MaybeSync + StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>
 {
     /// An Opaque Database connection type. Can be anything.
     type Connection: ConnectionExt;

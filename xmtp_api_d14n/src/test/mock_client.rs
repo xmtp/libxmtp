@@ -1,12 +1,9 @@
 use std::pin::Pin;
 
-use crate::protocol::CursorStore;
 use crate::protocol::XmtpQuery;
 use futures::Stream;
 use mockall::mock;
-use std::sync::Arc;
 use xmtp_proto::api::mock::MockApiBuilder;
-use xmtp_proto::api_client::CursorAwareApi;
 use xmtp_proto::api_client::XmtpTestClient;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
@@ -113,6 +110,8 @@ mod not_wasm {
             #[mockall::concretize]
             async fn subscribe_group_messages(&self, group_ids: &[&GroupId]) -> Result<MockGroupStream, MockError>;
             #[mockall::concretize]
+            async fn subscribe_group_messages_with_cursors(&self, groups_with_cursors: &[(&GroupId, xmtp_proto::types::GlobalCursor)]) -> Result<MockGroupStream, MockError>;
+            #[mockall::concretize]
             async fn subscribe_welcome_messages(&self, installations: &[&InstallationId]) -> Result<MockWelcomeStream, MockError>;
         }
 
@@ -131,11 +130,6 @@ mod not_wasm {
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
             fn create_d14n() -> MockApiBuilder { MockApiBuilder }
             fn create_gateway() -> MockApiBuilder { MockApiBuilder }
-        }
-
-        impl CursorAwareApi for ApiClient {
-            type CursorStore = Arc<dyn CursorStore>;
-            fn set_cursor_store(&self, store: <Self as CursorAwareApi>::CursorStore);
         }
     }
 
@@ -192,6 +186,8 @@ mod wasm {
             #[mockall::concretize]
             async fn subscribe_group_messages(&self, group_ids: &[&GroupId]) -> Result<MockGroupStream, MockError>;
             #[mockall::concretize]
+            async fn subscribe_group_messages_with_cursors(&self, groups_with_cursors: &[(&GroupId, xmtp_proto::types::GlobalCursor)]) -> Result<MockGroupStream, MockError>;
+            #[mockall::concretize]
             async fn subscribe_welcome_messages(&self, installations: &[&InstallationId]) -> Result<MockWelcomeStream, MockError>;
         }
 
@@ -212,12 +208,6 @@ mod wasm {
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
             fn create_d14n() -> MockApiBuilder { MockApiBuilder }
             fn create_gateway() -> MockApiBuilder { MockApiBuilder }
-        }
-
-
-        impl CursorAwareApi for ApiClient {
-            type CursorStore = Arc<dyn CursorStore>;
-            fn set_cursor_store(&self, store: <Self as CursorAwareApi>::CursorStore);
         }
     }
 

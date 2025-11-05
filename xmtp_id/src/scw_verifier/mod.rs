@@ -11,7 +11,7 @@ use std::{collections::HashMap, fs, path::Path, sync::Arc};
 use thiserror::Error;
 use tracing::info;
 use url::Url;
-use xmtp_common::RetryableError;
+use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
 
 static DEFAULT_CHAIN_URLS: &str = include_str!("chain_urls_default.json");
 
@@ -36,7 +36,7 @@ pub enum VerifierError {
     #[error("hash was invalid length or otherwise malformed")]
     InvalidHash(Vec<u8>),
     #[error("{0}")]
-    Other(Box<dyn RetryableError + Send + Sync>),
+    Other(Box<dyn RetryableError>),
 }
 
 impl RetryableError for VerifierError {
@@ -51,7 +51,7 @@ impl RetryableError for VerifierError {
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait SmartContractSignatureVerifier: Send + Sync {
+pub trait SmartContractSignatureVerifier: MaybeSend + MaybeSync {
     /// Verifies an ERC-6492<https://eips.ethereum.org/EIPS/eip-6492> signature.
     ///
     /// # Arguments
@@ -133,7 +133,7 @@ pub struct ValidationResponse {
 }
 
 pub struct MultiSmartContractSignatureVerifier {
-    verifiers: HashMap<String, Box<dyn SmartContractSignatureVerifier + Send + Sync>>,
+    verifiers: HashMap<String, Box<dyn SmartContractSignatureVerifier>>,
 }
 
 impl MultiSmartContractSignatureVerifier {

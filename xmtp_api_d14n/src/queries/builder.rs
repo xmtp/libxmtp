@@ -3,18 +3,19 @@
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
-use xmtp_api_grpc::error::GrpcBuilderError;
-use xmtp_api_grpc::{GrpcClient, error::GrpcError};
+use xmtp_api_grpc::GrpcClient;
+use xmtp_api_grpc::error::{GrpcBuilderError, GrpcError};
+use xmtp_common::RetryableError;
+use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_configuration::MULTI_NODE_TIMEOUT_MS;
 use xmtp_id::scw_verifier::VerifierError;
-use xmtp_proto::api::IsConnectedCheck;
-use xmtp_proto::api_client::CursorAwareApi;
-use xmtp_proto::api_client::{ApiBuilder, BoxedGroupS, BoxedWelcomeS};
-use xmtp_proto::prelude::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
-use xmtp_proto::{api::ApiClientError, types::AppVersion};
+use xmtp_proto::api::ApiClientError;
+use xmtp_proto::api_client::ApiBuilder;
+use xmtp_proto::types::AppVersion;
 
-use crate::protocol::{CursorStore, InMemoryCursorStore, XmtpQuery};
+use crate::protocol::{CursorStore, FullXmtpApiArc, FullXmtpApiBox, FullXmtpApiT, NoCursorStore};
 use crate::{D14nClient, MiddlewareBuilder, MultiNodeClientBuilderError, V3Client};
+
 mod impls;
 
 /// Builder to access the backend XMTP API
@@ -38,49 +39,14 @@ pub enum MessageBackendBuilderError {
     MultiNode(#[from] MultiNodeClientBuilderError),
     #[error(transparent)]
     Scw(#[from] VerifierError),
-}
-
-/// A type-erased version of the Xmtp Api in a [`Box`]
-pub type FullXmtpApiBox<E> = Box<dyn FullXmtpApiT<E>>;
-/// A type-erased version of the Xntp Api in a [`Arc`]
-pub type FullXmtpApiArc<E> = Arc<dyn FullXmtpApiT<E>>;
-
-pub trait FullXmtpApiT<Err>
-where
-    Self: XmtpMlsClient<Error = Err>
-        + XmtpIdentityClient<Error = Err>
-        + XmtpMlsStreams<
-            Error = Err,
-            WelcomeMessageStream = BoxedWelcomeS<Err>,
-            GroupMessageStream = BoxedGroupS<Err>,
-        > + IsConnectedCheck
-        + XmtpQuery<Error = Err>
-        + CursorAwareApi<CursorStore = Arc<dyn CursorStore>>
-        + Send
-        + Sync,
-{
-}
-
-impl<T, Err> FullXmtpApiT<Err> for T where
-    T: XmtpMlsClient<Error = Err>
-        + XmtpIdentityClient<Error = Err>
-        + XmtpMlsStreams<
-            Error = Err,
-            WelcomeMessageStream = BoxedWelcomeS<Err>,
-            GroupMessageStream = BoxedGroupS<Err>,
-        > + IsConnectedCheck
-        + CursorAwareApi<CursorStore = Arc<dyn CursorStore>>
-        + XmtpQuery<Error = Err>
-        + Send
-        + Sync
-        + ?Sized
-{
+    #[error("failed to build stateful local client, cursor store not replaced, type {0}")]
+    CursorStoreNotReplaced(&'static str),
 }
 
 /// Indicates this api implementation can be type-erased
 /// and coerced into a [`Box`] or [`Arc`]
-pub trait ToDynApi {
-    type Error;
+pub trait ToDynApi: MaybeSend + MaybeSync {
+    type Error: MaybeSend + MaybeSync;
     fn boxed(self) -> FullXmtpApiBox<Self::Error>;
     fn arced(self) -> FullXmtpApiArc<Self::Error>;
 }
@@ -145,8 +111,7 @@ impl MessageBackendBuilder {
             cursor_store,
         } = self.clone();
         let v3_host = v3_host.ok_or(MessageBackendBuilderError::MissingV3Host)?;
-        let cursor_store =
-            cursor_store.unwrap_or(Arc::new(InMemoryCursorStore::default()) as Arc<_>);
+        let cursor_store = cursor_store.unwrap_or(Arc::new(NoCursorStore) as Arc<dyn CursorStore>);
 
         if let Some(gateway) = gateway_host {
             let mut gateway_client_builder = GrpcClient::builder();
@@ -175,7 +140,29 @@ impl MessageBackendBuilder {
             }
 
             let v3_client = v3_client.build()?;
-            Ok(V3Client::new(v3_client, cursor_store).arced())
+            let v3_client = V3Client::new(v3_client, cursor_store);
+            tracing::info!("V3Client type: {}", std::any::type_name_of_val(&v3_client));
+            Ok(v3_client.arced())
         }
     }
+}
+
+// TODO:d14n: Remove once D14n-only
+/// Temporary standalone to produce a new ApiClient with a cached store
+pub fn new_client_with_store<E>(
+    api: Arc<dyn FullXmtpApiT<E>>,
+    store: Arc<dyn CursorStore>,
+) -> Result<Arc<dyn FullXmtpApiT<ApiClientError<GrpcError>>>, MessageBackendBuilderError>
+where
+    E: RetryableError + 'static,
+{
+    if let Some(c) = super::d14n::d14n_new_with_store(api.clone(), store.clone()) {
+        return Ok(c);
+    }
+    if let Some(c) = super::v3::v3_new_with_store(api.clone(), store) {
+        return Ok(c);
+    }
+    Err(MessageBackendBuilderError::CursorStoreNotReplaced(
+        std::any::type_name_of_val(&api),
+    ))
 }

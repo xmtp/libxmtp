@@ -1,9 +1,9 @@
+use crate::protocol::AnyClient;
+use crate::protocol::XmtpQuery;
 use std::pin::Pin;
-
 use xmtp_proto::api::HasStats;
 use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api_client::ApiStats;
-use xmtp_proto::api_client::CursorAwareApi;
 use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::identity_v1;
@@ -13,9 +13,6 @@ use xmtp_proto::prelude::XmtpMlsStreams;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::types::{GroupId, GroupMessage};
-
-use crate::protocol::XmtpQuery;
-
 /// Wraps an ApiClient to allow turning
 /// a concretely-typed client into type-erased a [`BoxableXmtpApi`]
 /// allowing for the transformation into a type-erased Api Client
@@ -34,7 +31,7 @@ impl<C> BoxedStreamsClient<C> {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C> XmtpMlsClient for BoxedStreamsClient<C>
 where
-    C: Send + Sync + XmtpMlsClient,
+    C: XmtpMlsClient,
 {
     type Error = <C as XmtpMlsClient>::Error;
 
@@ -112,7 +109,7 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C> XmtpIdentityClient for BoxedStreamsClient<C>
 where
-    C: Send + Sync + XmtpIdentityClient,
+    C: XmtpIdentityClient,
 {
     type Error = <C as XmtpIdentityClient>::Error;
 
@@ -151,7 +148,7 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C> XmtpMlsStreams for BoxedStreamsClient<C>
 where
-    C: Send + Sync + XmtpMlsStreams,
+    C: XmtpMlsStreams,
     C::GroupMessageStream: 'static,
     C::WelcomeMessageStream: 'static,
 {
@@ -164,6 +161,17 @@ where
         group_ids: &[&GroupId],
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         let s = self.inner.subscribe_group_messages(group_ids).await?;
+        Ok(Box::pin(s) as Pin<Box<_>>)
+    }
+
+    async fn subscribe_group_messages_with_cursors(
+        &self,
+        groups_with_cursors: &[(&GroupId, xmtp_proto::types::GlobalCursor)],
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
+        let s = self
+            .inner
+            .subscribe_group_messages_with_cursors(groups_with_cursors)
+            .await?;
         Ok(Box::pin(s) as Pin<Box<_>>)
     }
 
@@ -197,7 +205,7 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C> IsConnectedCheck for BoxedStreamsClient<C>
 where
-    C: IsConnectedCheck + Send + Sync,
+    C: IsConnectedCheck,
 {
     async fn is_connected(&self) -> bool {
         self.inner.is_connected().await
@@ -218,10 +226,15 @@ impl<C: XmtpQuery> XmtpQuery for BoxedStreamsClient<C> {
     }
 }
 
-impl<A: CursorAwareApi> CursorAwareApi for BoxedStreamsClient<A> {
-    type CursorStore = A::CursorStore;
+impl<C> AnyClient for BoxedStreamsClient<C>
+where
+    C: AnyClient,
+{
+    fn downcast_ref_v3client(&self) -> Option<&'_ crate::definitions::FullV3Client> {
+        <C as AnyClient>::downcast_ref_v3client(&self.inner)
+    }
 
-    fn set_cursor_store(&self, store: Self::CursorStore) {
-        <A as CursorAwareApi>::set_cursor_store(&self.inner, store);
+    fn downcast_ref_d14nclient(&self) -> Option<&'_ crate::definitions::FullD14nClient> {
+        <C as AnyClient>::downcast_ref_d14nclient(&self.inner)
     }
 }

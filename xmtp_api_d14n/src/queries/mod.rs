@@ -20,7 +20,7 @@ mod builder;
 pub use builder::*;
 
 use std::error::Error as StdError;
-use xmtp_common::{RetryableError, retryable};
+use xmtp_common::{MaybeSend, MaybeSync, RetryableError, retryable};
 use xmtp_proto::{
     ConversionError,
     api::{ApiClientError, BodyError},
@@ -40,7 +40,7 @@ pub enum QueryError<E: StdError> {
 
 impl<E> From<crate::protocol::EnvelopeError> for ApiClientError<E>
 where
-    E: StdError + Send + Sync,
+    E: StdError + MaybeSend + MaybeSync,
 {
     fn from(e: crate::protocol::EnvelopeError) -> ApiClientError<E> {
         ApiClientError::Other(Box::new(e))
