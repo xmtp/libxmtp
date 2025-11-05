@@ -1,3 +1,3 @@
-Version: 3656d6304
-Branch: 10-10-add_exclude_sender_inbox_ids_msgqueryarg_option
-Date: 2025-10-10 23:07:27 +0000
+Version: 5597847ab
+Branch: cv/release-1.6-rc2
+Date: 2025-11-04 22:17:27 +0000

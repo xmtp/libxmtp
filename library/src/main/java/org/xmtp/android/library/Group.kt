@@ -712,6 +712,8 @@ class Group(
 
     suspend fun getLastReadTimes(): Map<InboxId, Long> = withContext(Dispatchers.IO) { libXMTPGroup.getLastReadTimes() }
 
+    suspend fun leaveGroup() = withContext(Dispatchers.IO) { libXMTPGroup.leaveGroup() }
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false

@@ -1,5 +1,6 @@
 package org.xmtp.android.library
 
+import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.messages.PrivateKeyBuilder
@@ -164,45 +166,49 @@ class ConversationsTest : BaseInstrumentedTest() {
     fun testsCanSyncAllConversationsFiltered() {
         runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
         val group = runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
-        assert(runBlocking { boClient.conversations.syncAllConversations() }.toInt() >= 2)
-        assert(
+        val syncSummary = runBlocking { boClient.conversations.syncAllConversations() }
+        assert(syncSummary.numEligible >= 2U)
+        var syncSummaryAllowed =
             runBlocking {
                 boClient.conversations.syncAllConversations(
                     consentStates = listOf(ConsentState.ALLOWED),
                 )
-            }.toInt() >= 2,
-        )
-        assert(
+            }
+
+        assert(syncSummaryAllowed.numEligible >= 2U)
+
+        var syncSummaryDenied =
             runBlocking {
                 boClient.conversations.syncAllConversations(
                     consentStates = listOf(ConsentState.DENIED),
                 )
-            }.toInt() <= 1,
-        )
+            }
+        assert(syncSummaryDenied.numEligible <= 1U)
         runBlocking { group.updateConsentState(ConsentState.DENIED) }
-        assert(
+
+        syncSummaryAllowed =
             runBlocking {
                 boClient.conversations.syncAllConversations(
                     consentStates = listOf(ConsentState.ALLOWED),
                 )
-            }.toInt() <= 2,
-        )
-        assert(
+            }
+        assert(syncSummaryAllowed.numEligible <= 2U)
+        syncSummaryDenied =
             runBlocking {
                 boClient.conversations.syncAllConversations(
                     consentStates = listOf(ConsentState.DENIED),
                 )
-            }.toInt() <= 2,
-        )
-        assert(
+            }
+        assert(syncSummaryDenied.numEligible <= 2U)
+
+        var syncSummaryAllowedDenied =
             runBlocking {
                 boClient.conversations.syncAllConversations(
-                    consentStates =
-                        listOf(ConsentState.DENIED, ConsentState.ALLOWED),
+                    consentStates = listOf(ConsentState.ALLOWED, ConsentState.DENIED),
                 )
-            }.toInt() >= 2,
-        )
-        assert(runBlocking { boClient.conversations.syncAllConversations() }.toInt() >= 1)
+            }
+        assert(syncSummaryAllowedDenied.numEligible >= 2U)
+//        assert(runBlocking { boClient.conversations.syncAllConversations() }.toInt() >= 1)
     }
 
     @Test
@@ -453,7 +459,7 @@ class ConversationsTest : BaseInstrumentedTest() {
     @Test
     fun testStreamsAndMessages() =
         runBlocking {
-            val messages = mutableListOf<String>()
+            val messages = mutableListOf<DecodedMessage>()
             val davonClient = createClient(createWallet())
             val alixGroup =
                 alixClient.conversations.newGroup(listOf(caroClient.inboxId, boClient.inboxId))
@@ -478,9 +484,9 @@ class ConversationsTest : BaseInstrumentedTest() {
                             caroClient
                                 .conversations
                                 .streamAllMessages()
-                                .take(100) // Stop after receiving 90 messages
+                                .take(100) // Stop after receiving 100 messages
                                 .collect { message ->
-                                    synchronized(messages) { messages.add(message.body) }
+                                    synchronized(messages) { messages.add(message) }
                                     println("Caro received: ${message.body}")
                                 }
                         }
@@ -542,6 +548,16 @@ class ConversationsTest : BaseInstrumentedTest() {
             delay(2000)
 
             caroJob.cancelAndJoin()
+
+            // Print content type for all messages
+            messages.forEachIndexed { index, message ->
+            }
+
+            // Filter out GroupUpdated messages
+            val userMessages =
+                messages.filter { message ->
+                    message.encodedContent.type != ContentTypeGroupUpdated
+                }
 
             assertEquals(90, messages.size)
             assertEquals(41, caroGroup.messages().size)

@@ -16,6 +16,8 @@ import org.xmtp.android.library.libxmtp.InboxState
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.libxmtp.SignatureRequest
 import org.xmtp.android.library.libxmtp.toFfi
+import uniffi.xmtpv3.FfiForkRecoveryOpts
+import uniffi.xmtpv3.FfiForkRecoveryPolicy
 import uniffi.xmtpv3.FfiKeyPackageStatus
 import uniffi.xmtpv3.FfiLogLevel
 import uniffi.xmtpv3.FfiLogRotation
@@ -46,6 +48,7 @@ data class ClientOptions(
     val dbDirectory: String? = null,
     val deviceSyncEnabled: Boolean = true,
     val debugEventsEnabled: Boolean = false,
+    val forkRecoveryOptions: ForkRecoveryOptions? = null,
 ) {
     data class Api(
         val env: XMTPEnvironment = XMTPEnvironment.DEV,
@@ -53,6 +56,35 @@ data class ClientOptions(
         val appVersion: String? = null,
         val gatewayHost: String? = null,
     )
+}
+
+enum class ForkRecoveryPolicy {
+    None,
+    AllowlistedGroups,
+    All,
+    ;
+
+    fun toFfi(): FfiForkRecoveryPolicy =
+        when (this) {
+            None -> FfiForkRecoveryPolicy.NONE
+            AllowlistedGroups -> FfiForkRecoveryPolicy.ALLOWLISTED_GROUPS
+            All -> FfiForkRecoveryPolicy.ALL
+        }
+}
+
+data class ForkRecoveryOptions(
+    val enableRecoveryRequests: ForkRecoveryPolicy,
+    val groupsToRequestRecovery: List<String>,
+    val disableRecoveryResponses: Boolean? = null,
+    val workerIntervalNs: ULong? = null,
+) {
+    fun toFfi(): FfiForkRecoveryOpts =
+        FfiForkRecoveryOpts(
+            enableRecoveryRequests = this.enableRecoveryRequests.toFfi(),
+            groupsToRequestRecovery = this.groupsToRequestRecovery,
+            disableRecoveryResponses = this.disableRecoveryResponses,
+            workerIntervalNs = this.workerIntervalNs,
+        )
 }
 
 typealias InboxId = String
@@ -93,6 +125,7 @@ class Client(
 
         private val apiClientCache = mutableMapOf<String, XmtpApiClient>()
         private val cacheLock = Mutex()
+
         private val syncApiClientCache = mutableMapOf<String, XmtpApiClient>()
         private val syncCacheLock = Mutex()
 
@@ -163,7 +196,7 @@ class Client(
                 }
 
                 // If not cached or not connected, create a fresh client
-                val newClient = connectToBackend(api.env.getUrl(), api.isSecure, api.appVersion)
+                val newClient = connectToBackend(api.env.getUrl(), api.gatewayHost, api.isSecure, api.appVersion)
                 apiClientCache[cacheKey] = newClient
                 return@withLock newClient
             }
@@ -179,7 +212,7 @@ class Client(
                 }
 
                 // If not cached or not connected, create a fresh client
-                val newClient = connectToBackend(api.env.getUrl(), api.isSecure, api.appVersion)
+                val newClient = connectToBackend(api.env.getUrl(), api.gatewayHost, api.isSecure, api.appVersion)
                 syncApiClientCache[cacheKey] = newClient
                 return@withLock newClient
             }
@@ -274,6 +307,7 @@ class Client(
                         deviceSyncMode = null,
                         allowOffline = false,
                         disableEvents = true,
+                        forkRecoveryOpts = null,
                     )
 
                 useClient(ffiClient)
@@ -449,6 +483,7 @@ class Client(
                             },
                         allowOffline = buildOffline,
                         disableEvents = options.debugEventsEnabled,
+                        forkRecoveryOpts = options.forkRecoveryOptions?.toFfi(),
                     )
                 Pair(ffiClient, dbPath)
             }
