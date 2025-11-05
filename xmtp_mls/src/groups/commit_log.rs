@@ -565,7 +565,6 @@ where
             );
             return true;
         }
-
         let Some(latest_saved_remote_log) = latest_saved_remote_log else {
             return false;
         };

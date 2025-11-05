@@ -54,11 +54,6 @@ use xmtp_id::{
     },
 };
 use xmtp_mls::client::inbox_addresses_with_verifier;
-use xmtp_mls::common::group::DMMetadataOptions;
-use xmtp_mls::common::group::GroupMetadataOptions;
-use xmtp_mls::common::group_metadata::GroupMetadata;
-use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings;
-use xmtp_mls::common::group_mutable_metadata::MetadataField;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::ConversationDebugInfo;
 use xmtp_mls::groups::device_sync::DeviceSyncError;
@@ -71,6 +66,11 @@ use xmtp_mls::identity_updates::revoke_installations_with_verifier;
 use xmtp_mls::identity_updates::{
     apply_signature_request_with_verifier, get_creation_signature_kind,
 };
+use xmtp_mls::mls_common::group::DMMetadataOptions;
+use xmtp_mls::mls_common::group::GroupMetadataOptions;
+use xmtp_mls::mls_common::group_metadata::GroupMetadata;
+use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings;
+use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
 use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
