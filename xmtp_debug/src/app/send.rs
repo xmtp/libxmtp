@@ -1,21 +1,22 @@
 use std::sync::Arc;
 
-use crate::args;
+use crate::{app::App, args};
 use color_eyre::eyre::{Result, eyre};
 use rand::prelude::*;
+use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
 
 use super::store::{Database, GroupStore, IdentityStore};
 
-#[derive(Debug)]
 pub struct Send {
-    db: Arc<redb::Database>,
+    db: Arc<redb::ReadOnlyDatabase>,
     opts: args::Send,
     network: args::BackendOpts,
 }
 
 impl Send {
-    pub fn new(opts: args::Send, network: args::BackendOpts, db: Arc<redb::Database>) -> Self {
-        Self { opts, network, db }
+    pub fn new(opts: args::Send, network: args::BackendOpts) -> Result<Self> {
+        let db = App::readonly_db()?;
+        Ok(Self { opts, network, db })
     }
 
     pub async fn run(self) -> Result<()> {
@@ -49,7 +50,15 @@ impl Send {
         let client = crate::app::client_from_identity(&identity, network).await?;
         client.sync_welcomes().await?;
         let xmtp_group = client.group(&group.id.to_vec())?;
-        xmtp_group.send_message(data.as_bytes()).await?;
+        xmtp_group
+            .send_message(
+                data.as_bytes(),
+                SendMessageOptsBuilder::default()
+                    .should_push(true)
+                    .build()
+                    .unwrap(),
+            )
+            .await?;
         Ok(())
     }
 }

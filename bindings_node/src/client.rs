@@ -1,5 +1,6 @@
 use crate::ErrorWrapper;
 use crate::conversations::Conversations;
+use crate::enriched_message::DecodedMessage;
 use crate::identity::{ApiStats, Identifier, IdentityExt, IdentityStats};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestHandle;
@@ -9,26 +10,18 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
-use xmtp_api::ApiDebugWrapper;
-pub use xmtp_api_grpc::v3::Client as TonicApiClient;
+use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb, StorageOption};
 use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
-use xmtp_mls::context::XmtpMlsLocalContext;
+use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_proto::api_client::AggregateStats;
 
-pub type MlsContext = Arc<
-  XmtpMlsLocalContext<
-    ApiDebugWrapper<TonicApiClient>,
-    xmtp_db::DefaultStore,
-    xmtp_db::DefaultMlsStore,
-  >,
->;
-pub type RustXmtpClient = MlsClient<MlsContext>;
-pub type RustMlsGroup = MlsGroup<MlsContext>;
+pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
+pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
 static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
 
 #[napi]
@@ -100,6 +93,21 @@ pub struct LogOptions {
   pub level: Option<LogLevel>,
 }
 
+#[napi(object)]
+pub struct GroupSyncSummary {
+  pub num_eligible: u32,
+  pub num_synced: u32,
+}
+
+impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for GroupSyncSummary {
+  fn from(summary: xmtp_mls::groups::welcome_sync::GroupSyncSummary) -> Self {
+    Self {
+      num_eligible: summary.num_eligible as u32,
+      num_synced: summary.num_synced as u32,
+    }
+  }
+}
+
 fn init_logging(options: LogOptions) -> Result<()> {
   LOGGER_INIT
     .get_or_init(|| {
@@ -139,7 +147,8 @@ fn init_logging(options: LogOptions) -> Result<()> {
 #[allow(clippy::too_many_arguments)]
 #[napi]
 pub async fn create_client(
-  host: String,
+  v3_host: String,
+  gateway_host: Option<String>,
   is_secure: bool,
   db_path: Option<String>,
   inbox_id: String,
@@ -153,13 +162,13 @@ pub async fn create_client(
   app_version: Option<String>,
 ) -> Result<Client> {
   let root_identifier = account_identifier.clone();
-
   init_logging(log_options.unwrap_or_default())?;
-  let api_client = TonicApiClient::create(&host, is_secure, app_version.as_ref())
-    .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
-
-  let sync_api_client = TonicApiClient::create(&host, is_secure, app_version.as_ref())
-    .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
+  let mut backend = MessageBackendBuilder::default();
+  backend
+    .v3_host(&v3_host)
+    .maybe_gateway_host(gateway_host)
+    .app_version(app_version.clone().unwrap_or_default())
+    .is_secure(is_secure);
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
@@ -193,27 +202,25 @@ pub async fn create_client(
     None,
   );
 
-  let mut builder = match device_sync_server_url {
-    Some(url) => xmtp_mls::Client::builder(identity_strategy)
-      .api_clients(api_client, sync_api_client)
-      .enable_api_debug_wrapper()
-      .map_err(ErrorWrapper::from)?
-      .with_remote_verifier()
-      .map_err(ErrorWrapper::from)?
-      .with_allow_offline(allow_offline)
-      .with_disable_events(disable_events)
-      .store(store)
-      .device_sync_server_url(&url),
+  let cursor_store = SqliteCursorStore::new(store.db());
+  backend.cursor_store(cursor_store);
+  let api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
+  let sync_api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
 
-    None => xmtp_mls::Client::builder(identity_strategy)
-      .api_clients(api_client, sync_api_client)
-      .enable_api_debug_wrapper()
-      .map_err(ErrorWrapper::from)?
-      .with_remote_verifier()
-      .map_err(ErrorWrapper::from)?
-      .with_allow_offline(allow_offline)
-      .with_disable_events(disable_events)
-      .store(store),
+  let mut builder = xmtp_mls::Client::builder(identity_strategy)
+    .api_clients(api_client, sync_api_client)
+    .enable_api_stats()
+    .map_err(ErrorWrapper::from)?
+    .enable_api_debug_wrapper()
+    .map_err(ErrorWrapper::from)?
+    .with_remote_verifier()
+    .map_err(ErrorWrapper::from)?
+    .with_allow_offline(allow_offline)
+    .with_disable_events(disable_events)
+    .store(store);
+
+  if let Some(u) = device_sync_server_url {
+    builder = builder.device_sync_server_url(&u);
   };
 
   if let Some(device_sync_worker_mode) = device_sync_worker_mode {
@@ -357,17 +364,15 @@ impl Client {
   }
 
   #[napi]
-  pub async fn sync_preferences(&self) -> Result<u32> {
+  pub async fn sync_preferences(&self) -> Result<GroupSyncSummary> {
     let inner = self.inner_client.as_ref();
 
-    let num_groups_synced: usize = inner
+    let summary = inner
       .sync_all_welcomes_and_history_sync_groups()
       .await
       .map_err(ErrorWrapper::from)?;
 
-    let num_groups_synced: u32 = num_groups_synced.try_into().map_err(ErrorWrapper::from)?;
-
-    Ok(num_groups_synced)
+    Ok(summary.into())
   }
 
   #[napi]
@@ -410,5 +415,15 @@ impl Client {
       .delete_message(message_id.to_vec())
       .map_err(ErrorWrapper::from)?;
     Ok(deleted_count as u32)
+  }
+
+  #[napi]
+  pub async fn enriched_message(&self, message_id: Vec<u8>) -> Result<DecodedMessage> {
+    let message = self
+      .inner_client
+      .message_v2(message_id)
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(message.into())
   }
 }

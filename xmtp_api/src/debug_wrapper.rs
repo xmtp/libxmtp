@@ -1,11 +1,22 @@
 use std::future::Future;
+use xmtp_api_d14n::protocol::XmtpEnvelope;
+use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_common::RetryableError;
+use xmtp_proto::api::HasStats;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
+use xmtp_proto::mls_v1::GetNewestGroupMessageRequest;
 use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
 };
+use xmtp_proto::types::GlobalCursor;
+use xmtp_proto::types::GroupId;
+use xmtp_proto::types::GroupMessage;
+use xmtp_proto::types::GroupMessageMetadata;
+use xmtp_proto::types::InstallationId;
+use xmtp_proto::types::Topic;
+use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request;
 use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response;
 use xmtp_proto::xmtp::identity::api::v1::GetInboxIdsRequest;
@@ -16,17 +27,11 @@ use xmtp_proto::xmtp::identity::api::v1::VerifySmartContractWalletSignaturesRequ
 use xmtp_proto::xmtp::identity::api::v1::VerifySmartContractWalletSignaturesResponse;
 use xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest;
 use xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesResponse;
-use xmtp_proto::xmtp::mls::api::v1::QueryGroupMessagesRequest;
-use xmtp_proto::xmtp::mls::api::v1::QueryGroupMessagesResponse;
-use xmtp_proto::xmtp::mls::api::v1::QueryWelcomeMessagesRequest;
-use xmtp_proto::xmtp::mls::api::v1::QueryWelcomeMessagesResponse;
 use xmtp_proto::xmtp::mls::api::v1::SendGroupMessagesRequest;
 use xmtp_proto::xmtp::mls::api::v1::SendWelcomeMessagesRequest;
-use xmtp_proto::xmtp::mls::api::v1::SubscribeGroupMessagesRequest;
-use xmtp_proto::xmtp::mls::api::v1::SubscribeWelcomeMessagesRequest;
 use xmtp_proto::xmtp::mls::api::v1::UploadKeyPackageRequest;
 use xmtp_proto::{
-    api::{ApiClientError, HasStats},
+    api::ApiClientError,
     prelude::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
 };
 
@@ -48,7 +53,7 @@ async fn wrap_err<T, R, F, E>(
 where
     R: FnOnce() -> F,
     F: Future<Output = Result<T, ApiClientError<E>>>,
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    E: RetryableError + 'static,
 {
     let res = req().await;
     if let Err(e) = res {
@@ -78,14 +83,22 @@ where
     fn aggregate_stats(&self) -> AggregateStats {
         self.inner.aggregate_stats()
     }
+
+    fn mls_stats(&self) -> ApiStats {
+        self.inner.mls_stats()
+    }
+
+    fn identity_stats(&self) -> IdentityStats {
+        self.inner.identity_stats()
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<A, E> XmtpMlsClient for ApiDebugWrapper<A>
 where
-    A: XmtpMlsClient<Error = ApiClientError<E>> + Send + Sync,
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    A: XmtpMlsClient<Error = ApiClientError<E>>,
+    E: RetryableError + 'static,
     A: HasStats,
 {
     type Error = ApiClientError<E>;
@@ -136,10 +149,21 @@ where
 
     async fn query_group_messages(
         &self,
-        request: QueryGroupMessagesRequest,
-    ) -> Result<QueryGroupMessagesResponse, Self::Error> {
+        group_id: GroupId,
+    ) -> Result<Vec<GroupMessage>, Self::Error> {
         wrap_err(
-            || self.inner.query_group_messages(request),
+            || self.inner.query_group_messages(group_id),
+            || self.inner.aggregate_stats(),
+        )
+        .await
+    }
+
+    async fn query_latest_group_message(
+        &self,
+        group_id: GroupId,
+    ) -> Result<Option<GroupMessage>, Self::Error> {
+        wrap_err(
+            || self.inner.query_latest_group_message(group_id),
             || self.inner.aggregate_stats(),
         )
         .await
@@ -147,10 +171,10 @@ where
 
     async fn query_welcome_messages(
         &self,
-        request: QueryWelcomeMessagesRequest,
-    ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
+        installation_key: InstallationId,
+    ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         wrap_err(
-            || self.inner.query_welcome_messages(request),
+            || self.inner.query_welcome_messages(installation_key),
             || self.inner.aggregate_stats(),
         )
         .await
@@ -178,8 +202,15 @@ where
         .await
     }
 
-    fn stats(&self) -> ApiStats {
-        self.inner.stats()
+    async fn get_newest_group_message(
+        &self,
+        request: GetNewestGroupMessageRequest,
+    ) -> Result<Vec<Option<GroupMessageMetadata>>, Self::Error> {
+        wrap_err(
+            || self.inner.get_newest_group_message(request),
+            || self.inner.aggregate_stats(),
+        )
+        .await
     }
 }
 
@@ -187,8 +218,8 @@ where
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<A, E> XmtpMlsStreams for ApiDebugWrapper<A>
 where
-    A: XmtpMlsStreams<Error = ApiClientError<E>> + Send + Sync + 'static,
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    A: XmtpMlsStreams<Error = ApiClientError<E>>,
+    E: RetryableError + 'static,
     A: HasStats,
 {
     type GroupMessageStream = <A as XmtpMlsStreams>::GroupMessageStream;
@@ -199,10 +230,24 @@ where
 
     async fn subscribe_group_messages(
         &self,
-        request: SubscribeGroupMessagesRequest,
+        group_ids: &[&GroupId],
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         wrap_err(
-            || self.inner.subscribe_group_messages(request),
+            || self.inner.subscribe_group_messages(group_ids),
+            || self.inner.aggregate_stats(),
+        )
+        .await
+    }
+
+    async fn subscribe_group_messages_with_cursors(
+        &self,
+        groups_with_cursors: &[(&GroupId, GlobalCursor)],
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
+        wrap_err(
+            || {
+                self.inner
+                    .subscribe_group_messages_with_cursors(groups_with_cursors)
+            },
             || self.inner.aggregate_stats(),
         )
         .await
@@ -210,10 +255,10 @@ where
 
     async fn subscribe_welcome_messages(
         &self,
-        request: SubscribeWelcomeMessagesRequest,
+        installations: &[&InstallationId],
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         wrap_err(
-            || self.inner.subscribe_welcome_messages(request),
+            || self.inner.subscribe_welcome_messages(installations),
             || self.inner.aggregate_stats(),
         )
         .await
@@ -224,8 +269,8 @@ where
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<A, E> XmtpIdentityClient for ApiDebugWrapper<A>
 where
-    A: XmtpIdentityClient<Error = ApiClientError<E>> + Send + Sync,
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    A: XmtpIdentityClient<Error = ApiClientError<E>>,
+    E: RetryableError + 'static,
     A: HasStats,
 {
     type Error = ApiClientError<E>;
@@ -273,8 +318,21 @@ where
         )
         .await
     }
+}
 
-    fn identity_stats(&self) -> IdentityStats {
-        self.inner.identity_stats()
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<C> XmtpQuery for ApiDebugWrapper<C>
+where
+    C: XmtpQuery,
+{
+    type Error = <C as XmtpQuery>::Error;
+
+    async fn query_at(
+        &self,
+        topic: Topic,
+        at: Option<GlobalCursor>,
+    ) -> Result<XmtpEnvelope, Self::Error> {
+        <C as XmtpQuery>::query_at(&self.inner, topic, at).await
     }
 }

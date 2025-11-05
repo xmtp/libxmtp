@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use diesel::prelude::*;
 
 use super::{
@@ -50,6 +52,24 @@ pub trait QueryReaddStatus {
         installation_id: &[u8],
         sequence_id: i64,
     ) -> Result<(), crate::ConnectionError>;
+
+    fn delete_other_readd_statuses(
+        &self,
+        group_id: &[u8],
+        self_installation_id: &[u8],
+    ) -> Result<(), crate::ConnectionError>;
+
+    fn delete_readd_statuses(
+        &self,
+        group_id: &[u8],
+        installation_ids: HashSet<Vec<u8>>,
+    ) -> Result<(), crate::ConnectionError>;
+
+    fn get_readds_awaiting_response(
+        &self,
+        group_id: &[u8],
+        self_installation_id: &[u8],
+    ) -> Result<Vec<ReaddStatus>, crate::ConnectionError>;
 }
 
 impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
@@ -150,6 +170,66 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
 
         Ok(())
     }
+
+    fn delete_other_readd_statuses(
+        &self,
+        group_id: &[u8],
+        self_installation_id: &[u8],
+    ) -> Result<(), crate::ConnectionError> {
+        use super::schema::readd_status::dsl as readd_dsl;
+        use diesel::{ExpressionMethods, QueryDsl};
+
+        self.raw_query_write(|conn| {
+            diesel::delete(
+                readd_dsl::readd_status
+                    .filter(readd_dsl::group_id.eq(group_id))
+                    .filter(readd_dsl::installation_id.ne(self_installation_id)),
+            )
+            .execute(conn)?;
+            Ok(())
+        })
+    }
+
+    fn delete_readd_statuses(
+        &self,
+        group_id: &[u8],
+        installation_ids: HashSet<Vec<u8>>,
+    ) -> Result<(), crate::ConnectionError> {
+        use super::schema::readd_status::dsl as readd_dsl;
+        use diesel::{ExpressionMethods, QueryDsl};
+
+        self.raw_query_write(|conn| {
+            diesel::delete(
+                readd_dsl::readd_status
+                    .filter(readd_dsl::group_id.eq(group_id))
+                    .filter(readd_dsl::installation_id.eq_any(installation_ids)),
+            )
+            .execute(conn)?;
+            Ok(())
+        })
+    }
+
+    fn get_readds_awaiting_response(
+        &self,
+        group_id: &[u8],
+        self_installation_id: &[u8],
+    ) -> Result<Vec<ReaddStatus>, crate::ConnectionError> {
+        use super::schema::readd_status::dsl as readd_dsl;
+        use diesel::{ExpressionMethods, QueryDsl};
+
+        self.raw_query_read(|conn| {
+            readd_dsl::readd_status
+                .filter(readd_dsl::group_id.eq(group_id))
+                .filter(readd_dsl::installation_id.ne(self_installation_id))
+                .filter(readd_dsl::requested_at_sequence_id.is_not_null())
+                .filter(
+                    readd_dsl::requested_at_sequence_id
+                        .ge(readd_dsl::responded_at_sequence_id)
+                        .or(readd_dsl::responded_at_sequence_id.is_null()),
+                )
+                .load::<ReaddStatus>(conn)
+        })
+    }
 }
 
 impl<T> QueryReaddStatus for &T
@@ -188,6 +268,30 @@ where
         sequence_id: i64,
     ) -> Result<(), crate::ConnectionError> {
         (**self).update_responded_at_sequence_id(group_id, installation_id, sequence_id)
+    }
+
+    fn delete_other_readd_statuses(
+        &self,
+        group_id: &[u8],
+        self_installation_id: &[u8],
+    ) -> Result<(), crate::ConnectionError> {
+        (**self).delete_other_readd_statuses(group_id, self_installation_id)
+    }
+
+    fn delete_readd_statuses(
+        &self,
+        group_id: &[u8],
+        installation_ids: HashSet<Vec<u8>>,
+    ) -> Result<(), crate::ConnectionError> {
+        (**self).delete_readd_statuses(group_id, installation_ids)
+    }
+
+    fn get_readds_awaiting_response(
+        &self,
+        group_id: &[u8],
+        self_installation_id: &[u8],
+    ) -> Result<Vec<ReaddStatus>, crate::ConnectionError> {
+        (**self).get_readds_awaiting_response(group_id, self_installation_id)
     }
 }
 
@@ -529,6 +633,169 @@ mod tests {
             // Should return true when requested_at > 0 (default responded_at)
             let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
             assert!(result);
+        })
+        .await;
+    }
+
+    #[xmtp_common::test]
+    async fn test_delete_other_readd_statuses() {
+        with_connection(|conn| {
+            let group_id = vec![1, 2, 3];
+            let keep_installation_id = vec![10, 11, 12];
+            let delete_installation_id_1 = vec![20, 21, 22];
+            let delete_installation_id_2 = vec![30, 31, 32];
+
+            // Create readd statuses for the same group with different installation IDs
+            let status_to_keep = ReaddStatus {
+                group_id: group_id.clone(),
+                installation_id: keep_installation_id.clone(),
+                requested_at_sequence_id: Some(10),
+                responded_at_sequence_id: Some(5),
+            };
+            status_to_keep.store(conn).unwrap();
+
+            let status_to_delete_1 = ReaddStatus {
+                group_id: group_id.clone(),
+                installation_id: delete_installation_id_1.clone(),
+                requested_at_sequence_id: Some(15),
+                responded_at_sequence_id: Some(8),
+            };
+            status_to_delete_1.store(conn).unwrap();
+
+            let status_to_delete_2 = ReaddStatus {
+                group_id: group_id.clone(),
+                installation_id: delete_installation_id_2.clone(),
+                requested_at_sequence_id: Some(20),
+                responded_at_sequence_id: None,
+            };
+            status_to_delete_2.store(conn).unwrap();
+
+            // Create a status for a different group (should not be affected)
+            let different_group_status = ReaddStatus {
+                group_id: vec![4, 5, 6],
+                installation_id: vec![40, 41, 42],
+                requested_at_sequence_id: Some(25),
+                responded_at_sequence_id: Some(12),
+            };
+            different_group_status.store(conn).unwrap();
+
+            // Delete other readd statuses for the group
+            conn.delete_other_readd_statuses(&group_id, &keep_installation_id)
+                .unwrap();
+
+            // Verify the status we wanted to keep is still there
+            let kept_status = conn
+                .get_readd_status(&group_id, &keep_installation_id)
+                .unwrap();
+            assert!(kept_status.is_some());
+
+            // Verify the other statuses in the same group were deleted
+            let deleted_status_1 = conn
+                .get_readd_status(&group_id, &delete_installation_id_1)
+                .unwrap();
+            assert!(deleted_status_1.is_none());
+
+            let deleted_status_2 = conn
+                .get_readd_status(&group_id, &delete_installation_id_2)
+                .unwrap();
+            assert!(deleted_status_2.is_none());
+
+            // Verify the status in the different group was not affected
+            let different_group_check = conn.get_readd_status(&[4, 5, 6], &[40, 41, 42]).unwrap();
+            assert!(different_group_check.is_some());
+        })
+        .await;
+    }
+
+    #[xmtp_common::test]
+    async fn test_get_readds_awaiting_response() {
+        with_connection(|conn| {
+            let group_id = vec![1, 2, 3];
+            let self_installation_id = vec![10, 11, 12];
+            let other_installation_id_1 = vec![20, 21, 22];
+            let other_installation_id_2 = vec![30, 31, 32];
+
+            // Create readd statuses with various states
+
+            // Case 1: Pending readd from other installation (should be included)
+            let pending_status_1 = ReaddStatus {
+                group_id: group_id.clone(),
+                installation_id: other_installation_id_1.clone(),
+                requested_at_sequence_id: Some(10),
+                responded_at_sequence_id: Some(5),
+            };
+            pending_status_1.store(conn).unwrap();
+
+            // Case 2: Pending readd from other installation with null responded_at (should be included)
+            let pending_status_2 = ReaddStatus {
+                group_id: group_id.clone(),
+                installation_id: other_installation_id_2.clone(),
+                requested_at_sequence_id: Some(15),
+                responded_at_sequence_id: None,
+            };
+            pending_status_2.store(conn).unwrap();
+
+            // Case 3: Not pending readd from other installation (should be excluded)
+            let fulfilled_status = ReaddStatus {
+                group_id: group_id.clone(),
+                installation_id: vec![40, 41, 42],
+                requested_at_sequence_id: Some(8),
+                responded_at_sequence_id: Some(12),
+            };
+            fulfilled_status.store(conn).unwrap();
+
+            // Case 4: Pending readd from self installation (should be excluded)
+            let self_status = ReaddStatus {
+                group_id: group_id.clone(),
+                installation_id: self_installation_id.clone(),
+                requested_at_sequence_id: Some(20),
+                responded_at_sequence_id: Some(10),
+            };
+            self_status.store(conn).unwrap();
+
+            // Case 5: No requested_at_sequence_id (should be excluded)
+            let no_request_status = ReaddStatus {
+                group_id: group_id.clone(),
+                installation_id: vec![50, 51, 52],
+                requested_at_sequence_id: None,
+                responded_at_sequence_id: Some(5),
+            };
+            no_request_status.store(conn).unwrap();
+
+            // Case 6: Different group (should be excluded)
+            let different_group_status = ReaddStatus {
+                group_id: vec![4, 5, 6],
+                installation_id: vec![60, 61, 62],
+                requested_at_sequence_id: Some(25),
+                responded_at_sequence_id: Some(15),
+            };
+            different_group_status.store(conn).unwrap();
+
+            // Call the method under test
+            let result = conn
+                .get_readds_awaiting_response(&group_id, &self_installation_id)
+                .unwrap();
+
+            // Should return 2 pending readds from other installations
+            assert_eq!(result.len(), 2);
+
+            // Verify the correct statuses are returned
+            let returned_installations: Vec<Vec<u8>> =
+                result.iter().map(|r| r.installation_id.clone()).collect();
+            assert!(returned_installations.contains(&other_installation_id_1));
+            assert!(returned_installations.contains(&other_installation_id_2));
+
+            // Verify the details of the returned statuses
+            for status in result {
+                assert_eq!(status.group_id, group_id);
+                assert_ne!(status.installation_id, self_installation_id);
+                assert!(status.requested_at_sequence_id.is_some());
+
+                // Check that the awaiting response condition is met
+                let requested_at = status.requested_at_sequence_id.unwrap();
+                let responded_at = status.responded_at_sequence_id.unwrap_or(0);
+                assert!(requested_at >= responded_at);
+            }
         })
         .await;
     }

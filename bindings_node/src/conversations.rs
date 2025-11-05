@@ -25,6 +25,7 @@ use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings as Xmt
 use xmtp_mls::groups::ConversationDebugInfo as XmtpConversationDebugInfo;
 use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate as XmtpUserPreferenceUpdate;
+use xmtp_proto::types::Cursor;
 
 #[napi]
 #[derive(Debug)]
@@ -64,6 +65,7 @@ pub enum GroupMembershipState {
   Rejected = 1,
   Pending = 2,
   Restored = 3,
+  PendingRemove = 4,
 }
 
 impl From<XmtpGroupMembershipState> for GroupMembershipState {
@@ -73,6 +75,7 @@ impl From<XmtpGroupMembershipState> for GroupMembershipState {
       XmtpGroupMembershipState::Rejected => GroupMembershipState::Rejected,
       XmtpGroupMembershipState::Pending => GroupMembershipState::Pending,
       XmtpGroupMembershipState::Restored => GroupMembershipState::Restored,
+      XmtpGroupMembershipState::PendingRemove => GroupMembershipState::PendingRemove,
     }
   }
 }
@@ -84,6 +87,7 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
       GroupMembershipState::Rejected => XmtpGroupMembershipState::Rejected,
       GroupMembershipState::Pending => XmtpGroupMembershipState::Pending,
       GroupMembershipState::Restored => XmtpGroupMembershipState::Restored,
+      GroupMembershipState::PendingRemove => XmtpGroupMembershipState::PendingRemove,
     }
   }
 }
@@ -168,7 +172,23 @@ pub struct ConversationDebugInfo {
   pub is_commit_log_forked: Option<bool>,
   pub local_commit_log: String,
   pub remote_commit_log: String,
-  pub cursor: i64,
+  pub cursor: Vec<XmtpCursor>,
+}
+
+#[napi(object)]
+pub struct XmtpCursor {
+  pub originator_id: u32,
+  // napi doesn't suppor u64
+  pub sequence_id: i64,
+}
+
+impl From<Cursor> for XmtpCursor {
+  fn from(value: Cursor) -> Self {
+    XmtpCursor {
+      originator_id: value.originator_id,
+      sequence_id: value.sequence_id as i64,
+    }
+  }
 }
 
 impl From<XmtpConversationDebugInfo> for ConversationDebugInfo {
@@ -180,7 +200,7 @@ impl From<XmtpConversationDebugInfo> for ConversationDebugInfo {
       is_commit_log_forked: value.is_commit_log_forked,
       local_commit_log: value.local_commit_log,
       remote_commit_log: value.remote_commit_log,
-      cursor: value.cursor,
+      cursor: value.cursor.into_iter().map(Into::into).collect(),
     }
   }
 }
@@ -480,17 +500,17 @@ impl Conversations {
   pub async fn sync_all_conversations(
     &self,
     consent_states: Option<Vec<ConsentState>>,
-  ) -> Result<usize> {
+  ) -> Result<crate::client::GroupSyncSummary> {
     let consents: Option<Vec<XmtpConsentState>> =
       consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
 
-    let num_groups_synced = self
+    let summary = self
       .inner_client
       .sync_all_welcomes_and_groups(consents)
       .await
       .map_err(ErrorWrapper::from)?;
 
-    Ok(num_groups_synced)
+    Ok(summary.into())
   }
 
   #[napi]

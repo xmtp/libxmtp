@@ -1,19 +1,23 @@
-use std::collections::HashMap;
-
 use super::D14nClient;
+use crate::protocol::CursorStore;
 use crate::protocol::IdentityUpdateExtractor;
 use crate::protocol::SequencedExtractor;
 use crate::protocol::traits::{Envelope, EnvelopeCollection, Extractor};
 use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
 use itertools::Itertools;
+use std::collections::HashMap;
 use xmtp_common::RetryableError;
+use xmtp_configuration::Originators;
+use xmtp_id::associations::AccountId;
+use xmtp_id::scw_verifier::{SmartContractSignatureVerifier, VerifierError};
 use xmtp_proto::ConversionError;
-use xmtp_proto::api;
-use xmtp_proto::api::Client;
-use xmtp_proto::api::{ApiClientError, Query};
-use xmtp_proto::api_client::{IdentityStats, XmtpIdentityClient};
+use xmtp_proto::api::{self, ApiClientError, Client, Query};
+use xmtp_proto::api_client::XmtpIdentityClient;
 use xmtp_proto::identity_v1;
+use xmtp_proto::identity_v1::VerifySmartContractWalletSignatureRequestSignature;
 use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
+use xmtp_proto::identity_v1::verify_smart_contract_wallet_signatures_response::ValidationResponse;
+use xmtp_proto::types::Topic;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
@@ -23,12 +27,13 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, P, E> XmtpIdentityClient for D14nClient<C, P>
+impl<C, G, Store, E> XmtpIdentityClient for D14nClient<C, G, Store>
 where
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
-    P: Send + Sync + Client<Error = E>,
-    C: Send + Sync + Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<P as xmtp_proto::api::Client>::Error>>,
+    E: std::error::Error + RetryableError + 'static,
+    G: Client<Error = E>,
+    C: Client<Error = E>,
+    ApiClientError<E>: From<ApiClientError<<G as xmtp_proto::api::Client>::Error>> + 'static,
+    Store: CursorStore,
 {
     type Error = ApiClientError<E>;
 
@@ -62,17 +67,19 @@ where
         if request.requests.is_empty() {
             return Ok(identity_v1::GetIdentityUpdatesResponse { responses: vec![] });
         }
-
+        let min_sid = request
+            .requests
+            .iter()
+            .map(|r| r.sequence_id)
+            .min()
+            .unwrap_or(0);
         let topics = request.requests.topics()?;
-        //todo: replace with returned node_id
-        let node_id = 100;
         let last_seen = Some(Cursor {
-            node_id_to_sequence_id: [(node_id, request.requests.first().unwrap().sequence_id)]
-                .into(),
+            node_id_to_sequence_id: [(Originators::INBOX_LOG, min_sid)].into(),
         });
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {
-                topics: topics.clone(),
+                topics: topics.iter().map(Topic::bytes).collect(),
                 originator_node_ids: vec![],
                 last_seen,
             })
@@ -136,12 +143,31 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     async fn verify_smart_contract_wallet_signatures(
         &self,
-        _request: identity_v1::VerifySmartContractWalletSignaturesRequest,
+        request: identity_v1::VerifySmartContractWalletSignaturesRequest,
     ) -> Result<identity_v1::VerifySmartContractWalletSignaturesResponse, Self::Error> {
-        unimplemented!()
-    }
-
-    fn identity_stats(&self) -> IdentityStats {
-        Default::default()
+        let mut responses = vec![];
+        for VerifySmartContractWalletSignatureRequestSignature {
+            account_id,
+            block_number,
+            signature,
+            hash,
+        } in request.signatures
+        {
+            let id = AccountId::try_from(account_id)?;
+            let hash = hash.try_into().map_err(|e| {
+                ApiClientError::Other(Box::new(VerifierError::InvalidHash(e)) as Box<_>)
+            })?;
+            let result = self
+                .scw_verifier
+                .is_valid_signature(id, hash, signature.into(), block_number)
+                .await
+                .map_err(|e| ApiClientError::Other(Box::new(e) as Box<_>))?;
+            responses.push(ValidationResponse {
+                is_valid: result.is_valid,
+                block_number: result.block_number,
+                error: result.error,
+            })
+        }
+        Ok(identity_v1::VerifySmartContractWalletSignaturesResponse { responses })
     }
 }

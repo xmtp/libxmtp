@@ -1,6 +1,6 @@
-x-xmtpd-server-image: &x-xmtpd-server-image ghcr.io/xmtp/xmtpd:sha-e4c3978
-x-xmtpd-gateway-image: &x-xmtpd-gateway-image ghcr.io/xmtp/xmtpd-gateway:sha-e4c3978
-x-xmtpd-cli-image: &x-xmtpd-cli-image ghcr.io/xmtp/xmtpd-cli:sha-e4c3978
+x-xmtpd-server-image: &x-xmtpd-server-image ghcr.io/xmtp/xmtpd:sha-5d27ea4
+x-xmtpd-gateway-image: &x-xmtpd-gateway-image ghcr.io/xmtp/xmtpd-gateway:sha-5d27ea4
+x-xmtpd-cli-image: &x-xmtpd-cli-image ghcr.io/xmtp/xmtpd-cli:sha-5d27ea4
 x-xmtpd-contracts-image: &x-xmtpd-contracts-image ghcr.io/xmtp/contracts:v0.5.5
 x-postgres-image: &x-postgres-image postgres:16
 x-redis-image: &x-redis-image redis:7-alpine
@@ -14,6 +14,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+
   replicationdb:
     image: *x-postgres-image
     environment:
@@ -23,10 +24,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
   chain:
     platform: linux/amd64
     image: *x-xmtpd-contracts-image
-  register-node:
+
+  register-node-native:
     platform: linux/amd64
     image: *x-xmtpd-cli-image
     env_file:
@@ -36,19 +39,20 @@ services:
     command:
       [
         "--config-file=/cfg/anvil.json",
-        "--private-key=${REGISTER_NODE_ADMIN_KEY}",
+        "--private-key=${ANVIL_ADMIN_KEY}",
         "--rpc-url=${XMTPD_SETTLEMENT_CHAIN_RPC_URL}",
         "nodes",
         "register",
-        "--owner-address=${REGISTER_NODE_OWNER_ADDRESS}",
-        "--signing-key-pub=${REGISTER_NODE_PUBKEY}",
-        "--http-address=${REGISTER_NODE_HTTP_ADDRESS}",
+        "--owner-address=${REGISTER_NODE_NATIVE_OWNER_ADDRESS}",
+        "--signing-key-pub=${REGISTER_NODE_NATIVE_PUBKEY}",
+        "--http-address=${REGISTER_NODE_NATIVE_HTTP_ADDRESS}",
       ]
     depends_on:
       chain:
         condition: service_started
     restart: on-failure
-  enable-node:
+
+  enable-node-native:
     platform: linux/amd64
     image: *x-xmtpd-cli-image
     env_file:
@@ -58,7 +62,7 @@ services:
     command:
       [
         "--config-file=/cfg/anvil.json",
-        "--private-key=${REGISTER_NODE_ADMIN_KEY}",
+        "--private-key=${ANVIL_ADMIN_KEY}",
         "--rpc-url=${XMTPD_SETTLEMENT_CHAIN_RPC_URL}",
         "nodes",
         "canonical-network",
@@ -68,10 +72,60 @@ services:
     depends_on:
       chain:
         condition: service_started
-      register-node:
+      register-node-native:
         condition: service_completed_successfully
     restart: on-failure
-  repnode:
+
+  register-node-wasm:
+    platform: linux/amd64
+    image: *x-xmtpd-cli-image
+    env_file:
+      - local.env
+    volumes:
+      - ../environments/anvil.json:/cfg/anvil.json
+    command:
+      [
+        "--config-file=/cfg/anvil.json",
+        "--private-key=${ANVIL_ADMIN_KEY}",
+        "--rpc-url=${XMTPD_SETTLEMENT_CHAIN_RPC_URL}",
+        "nodes",
+        "register",
+        "--owner-address=${REGISTER_NODE_WASM_OWNER_ADDRESS}",
+        "--signing-key-pub=${REGISTER_NODE_WASM_PUBKEY}",
+        "--http-address=${REGISTER_NODE_WASM_HTTP_ADDRESS}",
+      ]
+    depends_on:
+      chain:
+        condition: service_started
+      register-node-native:
+        condition: service_completed_successfully
+    restart: on-failure
+
+  enable-node-wasm:
+    platform: linux/amd64
+    image: *x-xmtpd-cli-image
+    env_file:
+      - local.env
+    volumes:
+      - ../environments/anvil.json:/cfg/anvil.json
+    command:
+      [
+        "--config-file=/cfg/anvil.json",
+        "--private-key=${ANVIL_ADMIN_KEY}",
+        "--rpc-url=${XMTPD_SETTLEMENT_CHAIN_RPC_URL}",
+        "nodes",
+        "canonical-network",
+        "--add",
+        "--node-id=200",
+      ]
+    depends_on:
+      chain:
+        condition: service_started
+      register-node-wasm:
+        condition: service_completed_successfully
+    restart: on-failure
+
+  xmtpd:
     platform: linux/amd64
     image: *x-xmtpd-server-image
     env_file:
@@ -81,25 +135,31 @@ services:
     environment:
       - "XMTPD_CONTRACTS_CONFIG_FILE_PATH=/cfg/anvil.json"
     depends_on:
-      enable-node:
+      enable-node-native:
+        condition: service_completed_successfully
+      enable-node-wasm:
         condition: service_completed_successfully
       replicationdb:
         condition: service_healthy
     ports:
       - 5050:5050
-      - 5055:5055
+      - 5052:5052
+
+  # Gateway runs on the same network namespace as xmtpd.
+  # That means it can access xmtpd on localhost:5050, but docker
+  # explicitly forbids to publish ports under the gateway service.
+  # So we need to publish the port on the xmtpd service.
   gateway:
     platform: linux/amd64
     image: *x-xmtpd-gateway-image
+    network_mode: "service:xmtpd"
     env_file:
       - local.env
     volumes:
       - ../environments/anvil.json:/cfg/anvil.json
     environment:
       - "XMTPD_CONTRACTS_CONFIG_FILE_PATH=/cfg/anvil.json"
+      - "XMTPD_API_PORT=5052"
     depends_on:
       redis:
         condition: service_healthy
-    ports:
-      - 5052:5050
-      - 5057:5055

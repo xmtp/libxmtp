@@ -8,7 +8,7 @@ use crate::identity::Identity;
 use crate::identity::IdentityError;
 use crate::utils::test::TestClient;
 use xmtp_api::ApiClientWrapper;
-use xmtp_api::test_utils::*;
+use xmtp_api_d14n::MockApiClient;
 use xmtp_common::{ExponentialBackoff, Retry, rand_vec, tmp_path};
 use xmtp_db::XmtpTestDb;
 use xmtp_db::events::Events;

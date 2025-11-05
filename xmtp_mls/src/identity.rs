@@ -1,4 +1,6 @@
-use crate::groups::mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension};
+use crate::groups::mls_ext::{
+    WelcomePointersExtension, WrapperAlgorithm, WrapperEncryptionExtension,
+};
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
 use crate::worker::NeedsDbReconnect;
 use crate::{XmtpApi, verified_key_package_v2::KeyPackageVerificationError};
@@ -30,7 +32,8 @@ use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::{
     CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
     GROUP_PERMISSIONS_EXTENSION_ID, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
-    MUTABLE_METADATA_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+    MUTABLE_METADATA_EXTENSION_ID, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+    WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
 use xmtp_cryptography::signature::IdentifierValidationError;
@@ -82,7 +85,7 @@ pub enum IdentityStrategy {
     /// Identity that is already in the disk store
     CachedOnly,
     /// An already-built Identity for testing purposes
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     ExternalIdentity(Identity),
 }
 
@@ -138,7 +141,7 @@ impl IdentityStrategy {
             .map(|i: StoredIdentity| i.try_into())
             .transpose()?;
 
-        debug!("identity in store: {:?}", stored_identity);
+        debug!("identity strategy: {self:?}, identity in store: {stored_identity:?}");
         match self {
             CachedOnly => stored_identity.ok_or(IdentityError::RequiredIdentityNotFound),
             CreateIfNotFound {
@@ -175,7 +178,7 @@ impl IdentityStrategy {
                     .await
                 }
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-utils"))]
             ExternalIdentity(identity) => Ok(identity),
         }
     }
@@ -668,6 +671,11 @@ impl Identity {
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+tokio::task_local! {
+    pub static ENABLE_WELCOME_POINTERS: bool;
+}
+
 #[derive(Builder, Debug)]
 #[builder(build_fn(error = "IdentityError", name = "inner_build", private))]
 pub struct XmtpKeyPackage {
@@ -693,7 +701,21 @@ impl XmtpKeyPackageBuilder {
     ) -> Result<NewKeyPackageResult, IdentityError> {
         let this = self.inner_build()?;
         let last_resort = Extension::LastResort(LastResortExtension::default());
-        let mut extensions = vec![last_resort];
+        let welcome_pointee_encryption_aead_types =
+            WelcomePointersExtension::available_types().try_into()?;
+        let mut extensions = vec![last_resort, welcome_pointee_encryption_aead_types];
+        #[cfg(any(test, feature = "test-utils"))]
+        {
+            if !ENABLE_WELCOME_POINTERS.try_with(|v| *v).unwrap_or(true) {
+                let extension = extensions
+                    .pop()
+                    .expect("Welcome pointers extension is always present");
+                assert_eq!(
+                    extension.extension_type(),
+                    ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID)
+                );
+            }
+        }
         let mut post_quantum_keypair = None;
         if include_post_quantum {
             let keypair = generate_post_quantum_key()?;
@@ -716,6 +738,7 @@ impl XmtpKeyPackageBuilder {
                 ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
                 ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
                 ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
+                ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
                 ExtensionType::ImmutableMetadata,
             ]),
             Some(&[ProposalType::GroupContextExtensions]),
@@ -889,6 +912,7 @@ mod tests {
     use openmls::prelude::{KeyPackageBundle, KeyPackageRef};
     use openmls_traits::{OpenMlsProvider, storage::StorageProvider};
     use tls_codec::Serialize;
+    use xmtp_api_d14n::protocol::XmtpQuery;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::XmtpMlsStorageProvider;
     use xmtp_db::XmtpOpenMlsProviderRef;
@@ -898,33 +922,34 @@ mod tests {
         sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
     };
     use xmtp_mls_common::group::DMMetadataOptions;
-    use xmtp_proto::mls_v1::welcome_message::{
-        V1 as WelcomeMessageV1, Version as WelcomeMessageVersion,
-    };
+    use xmtp_proto::types::TopicKind;
 
     async fn get_key_package_from_network(client: &FullXmtpClient) -> VerifiedKeyPackageV2 {
-        let kp_mapping = client
+        let mut kp_mapping = client
             .get_key_packages_for_installation_ids(vec![client.installation_public_key().to_vec()])
             .await
             .unwrap();
 
-        kp_mapping[&client.installation_public_key().to_vec()]
-            .clone()
+        kp_mapping
+            .remove(client.installation_public_key().as_slice())
+            .unwrap()
             .unwrap()
     }
 
-    async fn get_latest_welcome(client: &FullXmtpClient) -> WelcomeMessageV1 {
+    async fn get_latest_welcome(client: &FullXmtpClient) -> xmtp_proto::types::WelcomeMessage {
         let welcomes = client
             .context
             .api()
-            .query_welcome_messages(client.context.installation_id(), None)
+            .query_at(
+                TopicKind::WelcomeMessagesV1.create(client.context.installation_id()),
+                None,
+            )
             .await
+            .unwrap()
+            .welcome_messages()
             .unwrap();
 
-        let first_welcome = welcomes.first().unwrap().clone();
-        let WelcomeMessageVersion::V1(inner) = first_welcome.version.unwrap();
-
-        inner
+        welcomes[0].clone()
     }
 
     /// Look up the key package hash ref by public init key
@@ -1087,12 +1112,13 @@ mod tests {
             let bola_welcome = get_latest_welcome(&bola).await;
 
             // Make sure the wrapper algorithms were set correctly in the Welcome messages
-            let pq_algorithm: i32 = WrapperAlgorithm::XWingMLKEM768Draft6.into();
-            let traditional_algorithm: i32 = WrapperAlgorithm::Curve25519.into();
+            let pq_algorithm = WrapperAlgorithm::XWingMLKEM768Draft6;
+            let traditional_algorithm = WrapperAlgorithm::Curve25519;
+            let bola_wrapper = bola_welcome.as_v1().unwrap().wrapper_algorithm;
             if bola_has_pq {
-                assert_eq!(bola_welcome.wrapper_algorithm, pq_algorithm);
+                assert_eq!(bola_wrapper, pq_algorithm.into());
             } else {
-                assert_eq!(bola_welcome.wrapper_algorithm, traditional_algorithm);
+                assert_eq!(bola_wrapper, traditional_algorithm.into());
             }
         }
     }

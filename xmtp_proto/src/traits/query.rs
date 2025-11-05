@@ -9,7 +9,7 @@ use crate::{
     prelude::ApiClientError,
 };
 
-pub(super) async fn request<C: Client + Send + Sync>(
+pub(super) async fn request<C: Client>(
     client: &C,
     endpoint: &mut impl Endpoint,
 ) -> Result<http::Response<Bytes>, ApiClientError<C::Error>> {
@@ -27,9 +27,8 @@ pub(super) async fn request<C: Client + Send + Sync>(
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<Q, C> Query<C> for Q
 where
-    Q: QueryRaw<C> + Endpoint + Send + Sync,
-    C: Client + Sync + Send,
-    C::Error: std::error::Error,
+    Q: QueryRaw<C> + Endpoint,
+    C: Client,
     <Q as Endpoint>::Output: Default + prost::Message + 'static,
 {
     type Output = <Q as Endpoint>::Output;
@@ -45,9 +44,8 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<E, C> QueryRaw<C> for E
 where
-    E: Endpoint + Send + Sync,
-    C: Client + Sync + Send,
-    C::Error: std::error::Error,
+    E: Endpoint,
+    C: Client,
 {
     async fn query_raw(&mut self, client: &C) -> Result<bytes::Bytes, ApiClientError<C::Error>> {
         let rsp = request(client, self).await?;
@@ -60,9 +58,8 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<E, T, C> QueryStream<T, C> for E
 where
-    E: Endpoint + Send + Sync,
-    C: Client + Sync + Send,
-    C::Error: std::error::Error,
+    E: Endpoint,
+    C: Client,
     T: Default + prost::Message + 'static,
 {
     async fn stream(
@@ -75,9 +72,9 @@ where
         let rsp = client
             .stream(request, path, self.body()?)
             .await
-            .map_err(|e| e.endpoint(endpoint.into_owned()))?;
+            .map_err(|e| e.endpoint(endpoint.as_ref().to_owned()))?;
         let stream = rsp.into_body();
-        let stream = XmtpStream::new(stream, ApiEndpoint::SubscribeGroupMessages);
+        let stream = XmtpStream::new(stream, ApiEndpoint::Path(endpoint.into_owned()));
         Ok(stream)
     }
 }

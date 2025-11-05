@@ -58,7 +58,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_upload_key_package() {
-        let client = crate::TestClient::create_local();
+        let client = crate::TestGrpcClient::create_local();
         let client = client.build().unwrap();
         let endpoint = UploadKeyPackage::builder()
             .key_package(Some(KeyPackageUpload {

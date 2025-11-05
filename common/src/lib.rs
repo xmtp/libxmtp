@@ -24,6 +24,7 @@ pub mod stream_handles;
 pub use stream_handles::*;
 
 pub mod fmt;
+pub mod hex;
 pub mod snippet;
 pub mod time;
 pub mod types;
@@ -31,6 +32,7 @@ pub mod types;
 pub mod r#const;
 pub use r#const::*;
 
+pub use xmtp_cryptography::hash::*;
 pub use xmtp_cryptography::rand::*;
 
 #[cfg(feature = "logging")]

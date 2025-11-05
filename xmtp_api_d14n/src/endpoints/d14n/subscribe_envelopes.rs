@@ -3,6 +3,7 @@ use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::api::{BodyError, Endpoint};
+use xmtp_proto::types::{GlobalCursor, OriginatorId, Topic};
 use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesRequest;
 use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, SubscribeEnvelopesResponse};
 
@@ -10,7 +11,12 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, SubscribeEnvelopesRe
 #[derive(Debug, Builder, Default, Clone)]
 #[builder(build_fn(error = "BodyError"))]
 pub struct SubscribeEnvelopes {
-    envelopes: EnvelopesQuery,
+    #[builder(setter(each(name = "topic", into)))]
+    topics: Vec<Topic>,
+    #[builder(setter(into))]
+    last_seen: Option<GlobalCursor>,
+    #[builder(default)]
+    originators: Vec<OriginatorId>,
 }
 
 impl SubscribeEnvelopes {
@@ -26,10 +32,15 @@ impl Endpoint for SubscribeEnvelopes {
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
-        let query = SubscribeEnvelopesRequest {
-            query: Some(self.envelopes.clone()),
+        for topic in &self.topics {
+            tracing::info!("subscribing to {}", topic.clone());
+        }
+        let query = EnvelopesQuery {
+            topics: self.topics.iter().map(Topic::bytes).collect(),
+            last_seen: self.last_seen.clone().map(Into::into),
+            originator_node_ids: self.originators.clone(),
         };
-        tracing::debug!("{:?}", query);
+        let query = SubscribeEnvelopesRequest { query: Some(query) };
         Ok(query.encode_to_vec().into())
     }
 }
@@ -37,9 +48,7 @@ impl Endpoint for SubscribeEnvelopes {
 #[cfg(test)]
 mod test {
     use super::*;
-    use xmtp_proto::{
-        api::QueryStreamExt as _, prelude::*, xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse,
-    };
+    use xmtp_proto::{api::QueryStreamExt as _, prelude::*};
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
@@ -61,19 +70,16 @@ mod test {
     async fn test_subscribe_envelopes() {
         use crate::d14n::SubscribeEnvelopes;
 
-        let client = crate::TestClient::create_d14n();
+        let client = crate::TestGrpcClient::create_d14n();
         let client = client.build().unwrap();
 
         let mut endpoint = SubscribeEnvelopes::builder()
-            .envelopes(EnvelopesQuery {
-                topics: vec![vec![]],
-                originator_node_ids: vec![],
-                last_seen: None,
-            })
+            .topics(vec![])
+            .last_seen(None)
             .build()
             .unwrap();
         let rsp = endpoint
-            .subscribe::<SubscribeEnvelopesResponse>(&client)
+            .subscribe(&client)
             .await
             .inspect_err(|e| tracing::info!("{:?}", e));
         assert!(rsp.is_ok());

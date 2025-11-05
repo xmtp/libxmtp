@@ -77,7 +77,7 @@ static_resources:
                               grpc_timeout_header_max: 0s
                         - match: {prefix: "/xmtpd"}
                           route:
-                            cluster: repnode
+                            cluster: xmtpd
                             regex_rewrite:
                               pattern:
                                 google_re2: {}
@@ -122,7 +122,7 @@ static_resources:
                     socket_address:
                       address: node
                       port_value: 5556
-    - name: repnode
+    - name: xmtpd
       connect_timeout: 0.25s
       type: LOGICAL_DNS
       typed_extension_protocol_options:
@@ -132,13 +132,13 @@ static_resources:
             http2_protocol_options: {}
       lb_policy: ROUND_ROBIN
       load_assignment:
-        cluster_name: repnode
+        cluster_name: xmtpd
         endpoints:
           - lb_endpoints:
               - endpoint:
                   address:
                     socket_address:
-                      address: repnode
+                      address: xmtpd
                       port_value: 5050
     - name: gateway
       connect_timeout: 0.25s
@@ -156,5 +156,5 @@ static_resources:
               - endpoint:
                   address:
                     socket_address:
-                      address: gateway
-                      port_value: 5050
+                      address: xmtpd
+                      port_value: 5052

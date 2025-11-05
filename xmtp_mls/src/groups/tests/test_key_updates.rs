@@ -1,3 +1,4 @@
+use crate::groups::send_message_opts::SendMessageOpts;
 use crate::tester;
 use futures::future::join_all;
 use std::{future::Future, pin::Pin, time::Duration};
@@ -19,13 +20,13 @@ async fn test_key_rotation_with_optimistic_send() {
     let mut futs = vec![];
     for _ in 0..4 {
         let fut = async {
-            g.send_message_optimistic(b"hello there")?;
+            g.send_message_optimistic(b"hello there", SendMessageOpts::default())?;
         };
         let fut = Box::pin(fut) as Pin<Box<dyn Future<Output = ()>>>;
         futs.push(fut);
 
         let fut = async {
-            bo_g.send_message_optimistic(b"hello there")?;
+            bo_g.send_message_optimistic(b"hello there", SendMessageOpts::default())?;
         };
         let fut = Box::pin(fut) as Pin<Box<dyn Future<Output = ()>>>;
         futs.push(fut);
@@ -56,7 +57,7 @@ async fn key_update_out_of_epoch() {
     tester!(ed);
     tester!(fester);
     tester!(greg);
-    tester!(bo, events);
+    tester!(bo, events, triggers);
 
     let g = alix
         .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
@@ -65,7 +66,7 @@ async fn key_update_out_of_epoch() {
     bo.sync_welcomes().await?;
     let bo_g = bo.group(&g.group_id)?;
     for _ in 0..10 {
-        bo_g.send_message_optimistic(b"hello there")?;
+        bo_g.send_message_optimistic(b"hello there", SendMessageOpts::default())?;
     }
 
     g.add_members_by_inbox_id(&[carl.inbox_id().to_string()])

@@ -5,7 +5,7 @@ use xmtp_mls::groups::UpdateAdminListType;
 
 use crate::{
     app::{
-        self,
+        self, App,
         store::{Database, GroupStore, IdentityStore},
     },
     args,
@@ -18,8 +18,9 @@ pub struct Modify {
 }
 
 impl Modify {
-    pub fn new(opts: args::Modify, network: args::BackendOpts, db: Arc<redb::Database>) -> Self {
-        Self { opts, network, db }
+    pub fn new(opts: args::Modify, network: args::BackendOpts) -> Result<Self> {
+        let db = App::db()?;
+        Ok(Self { opts, network, db })
     }
 
     pub async fn run(self) -> Result<()> {

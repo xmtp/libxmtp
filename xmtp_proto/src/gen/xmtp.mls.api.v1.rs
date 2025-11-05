@@ -2,7 +2,7 @@
 /// Full representation of a welcome message
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct WelcomeMessage {
-    #[prost(oneof = "welcome_message::Version", tags = "1")]
+    #[prost(oneof = "welcome_message::Version", tags = "1, 2")]
     pub version: ::core::option::Option<welcome_message::Version>,
 }
 /// Nested message and enum types in `WelcomeMessage`.
@@ -38,10 +38,45 @@ pub mod welcome_message {
             "/xmtp.mls.api.v1.WelcomeMessage.V1".into()
         }
     }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct WelcomePointer {
+        #[prost(uint64, tag = "1")]
+        pub id: u64,
+        #[prost(uint64, tag = "2")]
+        pub created_ns: u64,
+        /// The topic of the welcome message (generally the installation id)
+        #[prost(bytes = "vec", tag = "3")]
+        pub installation_key: ::prost::alloc::vec::Vec<u8>,
+        /// A WelcomePointer encrypted using the algorithm specified by
+        /// wrapper_algorithm
+        #[prost(bytes = "vec", tag = "4")]
+        pub welcome_pointer: ::prost::alloc::vec::Vec<u8>,
+        /// The public key used to encrypt the welcome pointer
+        #[prost(bytes = "vec", tag = "5")]
+        pub hpke_public_key: ::prost::alloc::vec::Vec<u8>,
+        /// The algorithm used to encrypt the welcome pointer
+        #[prost(
+            enumeration = "super::super::super::message_contents::WelcomePointerWrapperAlgorithm",
+            tag = "6"
+        )]
+        pub wrapper_algorithm: i32,
+    }
+    impl ::prost::Name for WelcomePointer {
+        const NAME: &'static str = "WelcomePointer";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.WelcomeMessage.WelcomePointer".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.WelcomeMessage.WelcomePointer".into()
+        }
+    }
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
     pub enum Version {
         #[prost(message, tag = "1")]
         V1(V1),
+        #[prost(message, tag = "2")]
+        WelcomePointer(WelcomePointer),
     }
 }
 impl ::prost::Name for WelcomeMessage {
@@ -57,25 +92,32 @@ impl ::prost::Name for WelcomeMessage {
 /// Input type for a welcome message
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct WelcomeMessageInput {
-    #[prost(oneof = "welcome_message_input::Version", tags = "1")]
+    #[prost(oneof = "welcome_message_input::Version", tags = "1, 2")]
     pub version: ::core::option::Option<welcome_message_input::Version>,
 }
 /// Nested message and enum types in `WelcomeMessageInput`.
 pub mod welcome_message_input {
-    /// Version 1 of the WelcomeMessageInput format
+    /// Version 1 of the WelcomeMessageInput format, if used as the pointee of a
+    /// WelcomePointer then the hpke_public_key will be unset, and the
+    /// wrapper_algorithm will be WELCOME_WRAPPER_ALGORITHM_SYMMETRIC_KEY
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct V1 {
+        /// The topic of the welcome message (generally the installation id)
         #[prost(bytes = "vec", tag = "1")]
         pub installation_key: ::prost::alloc::vec::Vec<u8>,
+        /// An encrypted mls `Welcome` struct
         #[prost(bytes = "vec", tag = "2")]
         pub data: ::prost::alloc::vec::Vec<u8>,
+        /// The public key of the welcome message
         #[prost(bytes = "vec", tag = "3")]
         pub hpke_public_key: ::prost::alloc::vec::Vec<u8>,
+        /// The algorithm used to encrypt the welcome message
         #[prost(
             enumeration = "super::super::super::message_contents::WelcomeWrapperAlgorithm",
             tag = "4"
         )]
         pub wrapper_algorithm: i32,
+        /// The metadata of the welcome message
         #[prost(bytes = "vec", tag = "7")]
         pub welcome_metadata: ::prost::alloc::vec::Vec<u8>,
     }
@@ -89,10 +131,42 @@ pub mod welcome_message_input {
             "/xmtp.mls.api.v1.WelcomeMessageInput.V1".into()
         }
     }
+    /// Version 2 of the WelcomeMessageInput format which uses a WelcomePointer
+    /// to point to the welcome message for several installations at once
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct WelcomePointer {
+        /// The topic of the welcome message (generally the installation id)
+        #[prost(bytes = "vec", tag = "1")]
+        pub installation_key: ::prost::alloc::vec::Vec<u8>,
+        /// A WelcomePointer encrypted using the wrapper_algorithm
+        #[prost(bytes = "vec", tag = "2")]
+        pub welcome_pointer: ::prost::alloc::vec::Vec<u8>,
+        /// The public key used to encrypt the welcome pointer
+        #[prost(bytes = "vec", tag = "3")]
+        pub hpke_public_key: ::prost::alloc::vec::Vec<u8>,
+        /// The algorithm used to encrypt the welcome pointer
+        #[prost(
+            enumeration = "super::super::super::message_contents::WelcomePointerWrapperAlgorithm",
+            tag = "4"
+        )]
+        pub wrapper_algorithm: i32,
+    }
+    impl ::prost::Name for WelcomePointer {
+        const NAME: &'static str = "WelcomePointer";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.WelcomeMessageInput.WelcomePointer".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.WelcomeMessageInput.WelcomePointer".into()
+        }
+    }
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
     pub enum Version {
         #[prost(message, tag = "1")]
         V1(V1),
+        #[prost(message, tag = "2")]
+        WelcomePointer(WelcomePointer),
     }
 }
 impl ::prost::Name for WelcomeMessageInput {
@@ -144,6 +218,8 @@ pub mod group_message {
         pub sender_hmac: ::prost::alloc::vec::Vec<u8>,
         #[prost(bool, tag = "6")]
         pub should_push: bool,
+        #[prost(bool, tag = "7")]
+        pub is_commit: bool,
     }
     impl ::prost::Name for V1 {
         const NAME: &'static str = "V1";
@@ -790,6 +866,61 @@ impl ::prost::Name for BatchQueryCommitLogResponse {
         "/xmtp.mls.api.v1.BatchQueryCommitLogResponse".into()
     }
 }
+/// Request to get the newest group message from a range of topics
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GetNewestGroupMessageRequest {
+    /// Get the newest message from each of these topics
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub group_ids: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bool, tag = "2")]
+    pub include_content: bool,
+}
+impl ::prost::Name for GetNewestGroupMessageRequest {
+    const NAME: &'static str = "GetNewestGroupMessageRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.GetNewestGroupMessageRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.GetNewestGroupMessageRequest".into()
+    }
+}
+/// Returns a list of responses that will always be the same length as the
+/// request
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetNewestGroupMessageResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub responses: ::prost::alloc::vec::Vec<get_newest_group_message_response::Response>,
+}
+/// Nested message and enum types in `GetNewestGroupMessageResponse`.
+pub mod get_newest_group_message_response {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Response {
+        /// If no message is found on the topic, will be nil
+        #[prost(message, optional, tag = "1")]
+        pub group_message: ::core::option::Option<super::GroupMessage>,
+    }
+    impl ::prost::Name for Response {
+        const NAME: &'static str = "Response";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.GetNewestGroupMessageResponse.Response".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.GetNewestGroupMessageResponse.Response".into()
+        }
+    }
+}
+impl ::prost::Name for GetNewestGroupMessageResponse {
+    const NAME: &'static str = "GetNewestGroupMessageResponse";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.GetNewestGroupMessageResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.GetNewestGroupMessageResponse".into()
+    }
+}
 /// Sort direction for queries
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -820,417 +951,8 @@ impl SortDirection {
         }
     }
 }
-/// Generated client implementations.
-pub mod mls_api_client {
-    #![allow(
-        unused_variables,
-        dead_code,
-        missing_docs,
-        clippy::wildcard_imports,
-        clippy::let_unit_value,
-    )]
-    use tonic::codegen::*;
-    use tonic::codegen::http::Uri;
-    /// RPCs for the new MLS API
-    #[derive(Debug, Clone)]
-    pub struct MlsApiClient<T> {
-        inner: tonic::client::Grpc<T>,
-    }
-    impl<T> MlsApiClient<T>
-    where
-        T: tonic::client::GrpcService<tonic::body::Body>,
-        T::Error: Into<StdError>,
-        T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
-        <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
-    {
-        pub fn new(inner: T) -> Self {
-            let inner = tonic::client::Grpc::new(inner);
-            Self { inner }
-        }
-        pub fn with_origin(inner: T, origin: Uri) -> Self {
-            let inner = tonic::client::Grpc::with_origin(inner, origin);
-            Self { inner }
-        }
-        pub fn with_interceptor<F>(
-            inner: T,
-            interceptor: F,
-        ) -> MlsApiClient<InterceptedService<T, F>>
-        where
-            F: tonic::service::Interceptor,
-            T::ResponseBody: Default,
-            T: tonic::codegen::Service<
-                http::Request<tonic::body::Body>,
-                Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::Body>>::ResponseBody,
-                >,
-            >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::Body>,
-            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
-        {
-            MlsApiClient::new(InterceptedService::new(inner, interceptor))
-        }
-        /// Compress requests with the given encoding.
-        ///
-        /// This requires the server to support it otherwise it might respond with an
-        /// error.
-        #[must_use]
-        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
-            self.inner = self.inner.send_compressed(encoding);
-            self
-        }
-        /// Enable decompressing responses.
-        #[must_use]
-        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
-            self.inner = self.inner.accept_compressed(encoding);
-            self
-        }
-        /// Limits the maximum size of a decoded message.
-        ///
-        /// Default: `4MB`
-        #[must_use]
-        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
-            self.inner = self.inner.max_decoding_message_size(limit);
-            self
-        }
-        /// Limits the maximum size of an encoded message.
-        ///
-        /// Default: `usize::MAX`
-        #[must_use]
-        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
-            self.inner = self.inner.max_encoding_message_size(limit);
-            self
-        }
-        /// Send a MLS payload, that would be validated before being stored to the
-        /// network
-        pub async fn send_group_messages(
-            &mut self,
-            request: impl tonic::IntoRequest<super::SendGroupMessagesRequest>,
-        ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/SendGroupMessages",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "SendGroupMessages"));
-            self.inner.unary(req, path, codec).await
-        }
-        /// Send a batch of welcome messages
-        pub async fn send_welcome_messages(
-            &mut self,
-            request: impl tonic::IntoRequest<super::SendWelcomeMessagesRequest>,
-        ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/SendWelcomeMessages",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "SendWelcomeMessages"),
-                );
-            self.inner.unary(req, path, codec).await
-        }
-        /// Register a new installation, which would be validated before storage
-        pub async fn register_installation(
-            &mut self,
-            request: impl tonic::IntoRequest<super::RegisterInstallationRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::RegisterInstallationResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/RegisterInstallation",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "RegisterInstallation"),
-                );
-            self.inner.unary(req, path, codec).await
-        }
-        /// Upload a new KeyPackage, which would be validated before storage
-        pub async fn upload_key_package(
-            &mut self,
-            request: impl tonic::IntoRequest<super::UploadKeyPackageRequest>,
-        ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/UploadKeyPackage",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "UploadKeyPackage"));
-            self.inner.unary(req, path, codec).await
-        }
-        /// Get one or more Key Packages by installation_id
-        pub async fn fetch_key_packages(
-            &mut self,
-            request: impl tonic::IntoRequest<super::FetchKeyPackagesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::FetchKeyPackagesResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/FetchKeyPackages",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "FetchKeyPackages"));
-            self.inner.unary(req, path, codec).await
-        }
-        /// Would delete all key packages associated with the installation and mark
-        /// the installation as having been revoked
-        pub async fn revoke_installation(
-            &mut self,
-            request: impl tonic::IntoRequest<super::RevokeInstallationRequest>,
-        ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/RevokeInstallation",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "RevokeInstallation"));
-            self.inner.unary(req, path, codec).await
-        }
-        /// Used to check for changes related to members of a group.
-        /// Would return an array of any new installations associated with the wallet
-        /// address, and any revocations that have happened.
-        pub async fn get_identity_updates(
-            &mut self,
-            request: impl tonic::IntoRequest<super::GetIdentityUpdatesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::GetIdentityUpdatesResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/GetIdentityUpdates",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "GetIdentityUpdates"));
-            self.inner.unary(req, path, codec).await
-        }
-        /// Query stored group messages
-        pub async fn query_group_messages(
-            &mut self,
-            request: impl tonic::IntoRequest<super::QueryGroupMessagesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::QueryGroupMessagesResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/QueryGroupMessages",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "QueryGroupMessages"));
-            self.inner.unary(req, path, codec).await
-        }
-        /// Query stored group messages
-        pub async fn query_welcome_messages(
-            &mut self,
-            request: impl tonic::IntoRequest<super::QueryWelcomeMessagesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::QueryWelcomeMessagesResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/QueryWelcomeMessages",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "QueryWelcomeMessages"),
-                );
-            self.inner.unary(req, path, codec).await
-        }
-        /// Subscribe stream of new group messages
-        pub async fn subscribe_group_messages(
-            &mut self,
-            request: impl tonic::IntoRequest<super::SubscribeGroupMessagesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<super::GroupMessage>>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/SubscribeGroupMessages",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "SubscribeGroupMessages"),
-                );
-            self.inner.server_streaming(req, path, codec).await
-        }
-        /// Subscribe stream of new welcome messages
-        pub async fn subscribe_welcome_messages(
-            &mut self,
-            request: impl tonic::IntoRequest<super::SubscribeWelcomeMessagesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<super::WelcomeMessage>>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/SubscribeWelcomeMessages",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "SubscribeWelcomeMessages"),
-                );
-            self.inner.server_streaming(req, path, codec).await
-        }
-        pub async fn batch_publish_commit_log(
-            &mut self,
-            request: impl tonic::IntoRequest<super::BatchPublishCommitLogRequest>,
-        ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/BatchPublishCommitLog",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "BatchPublishCommitLog"),
-                );
-            self.inner.unary(req, path, codec).await
-        }
-        pub async fn batch_query_commit_log(
-            &mut self,
-            request: impl tonic::IntoRequest<super::BatchQueryCommitLogRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::BatchQueryCommitLogResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/BatchQueryCommitLog",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "BatchQueryCommitLog"),
-                );
-            self.inner.unary(req, path, codec).await
-        }
-    }
-}
 /// Generated server implementations.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]
 pub mod mls_api_server {
     #![allow(
         unused_variables,
@@ -1344,6 +1066,13 @@ pub mod mls_api_server {
             request: tonic::Request<super::BatchQueryCommitLogRequest>,
         ) -> std::result::Result<
             tonic::Response<super::BatchQueryCommitLogResponse>,
+            tonic::Status,
+        >;
+        async fn get_newest_group_message(
+            &self,
+            request: tonic::Request<super::GetNewestGroupMessageRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetNewestGroupMessageResponse>,
             tonic::Status,
         >;
     }
@@ -2003,6 +1732,52 @@ pub mod mls_api_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = BatchQueryCommitLogSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/xmtp.mls.api.v1.MlsApi/GetNewestGroupMessage" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetNewestGroupMessageSvc<T: MlsApi>(pub Arc<T>);
+                    impl<
+                        T: MlsApi,
+                    > tonic::server::UnaryService<super::GetNewestGroupMessageRequest>
+                    for GetNewestGroupMessageSvc<T> {
+                        type Response = super::GetNewestGroupMessageResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetNewestGroupMessageRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as MlsApi>::get_newest_group_message(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetNewestGroupMessageSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

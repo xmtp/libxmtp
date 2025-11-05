@@ -10,7 +10,7 @@ use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request::Request;
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct GetIdentityUpdatesV2 {
-    #[builder(setter(into))]
+    #[builder(setter(into, each = "request"))]
     pub requests: Vec<Request>,
 }
 
@@ -57,7 +57,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_get_identity_updates_v2() {
-        let client = crate::TestClient::create_local();
+        let client = crate::TestGrpcClient::create_local();
         let client = client.build().unwrap();
         let mut endpoint = GetIdentityUpdatesV2::builder()
             .requests(vec![Request {

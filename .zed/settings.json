@@ -41,7 +41,6 @@
           },
           "ignored": {
             "tracing": ["instrument"],
-            "napi-derive": ["napi"],
             "async-recursion": ["async_recursion"],
             "ctor": ["ctor"],
             "tokio": ["test"],

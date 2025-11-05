@@ -35,9 +35,9 @@ jobs:
       - name: Install wasm-bindgen
         uses: taiki-e/install-action@v2
         with:
-          tool: wasm-bindgen@0.2.101
+          tool: wasm-bindgen@0.2.104
       - name: Setup node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version-file: ".node-version"
           cache-dependency-path: "bindings_wasm/yarn.lock"

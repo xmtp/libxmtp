@@ -4,6 +4,7 @@ use prost::Message;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
+use xmtp_api_d14n::protocol::{Extractor, ProtocolEnvelope as _};
 
 use tracing::instrument;
 use xmtp_db::prelude::*;
@@ -29,7 +30,7 @@ use crate::{
     },
 };
 use thiserror::Error;
-use xmtp_common::{RetryableError, StreamHandle, retryable};
+use xmtp_common::{MaybeSend, RetryableError, StreamHandle, retryable};
 use xmtp_db::{
     NotFound, StorageError,
     consent_record::{ConsentState, StoredConsentRecord},
@@ -53,7 +54,7 @@ impl RetryableError for LocalEventError {
 
 /// Events local to this client
 /// are broadcast across all senders/receivers of streams
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LocalEvents {
     // a new group was created
     NewGroup(Vec<u8>),
@@ -186,9 +187,15 @@ pub enum SubscribeError {
     #[error(transparent)]
     ApiClient(#[from] xmtp_api::ApiError),
     #[error("{0}")]
-    BoxError(Box<dyn RetryableError + Send + Sync>),
+    BoxError(Box<dyn RetryableError>),
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
+    #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
+    #[error(transparent)]
+    Envelope(#[from] xmtp_api_d14n::protocol::EnvelopeError),
+    #[error("the originators of the messages do not match expected: {expected}, got: {got}")]
+    MismatchedOriginators { expected: u32, got: u32 },
 }
 
 impl From<GroupError> for SubscribeError {
@@ -218,13 +225,17 @@ impl RetryableError for SubscribeError {
             ApiClient(e) => retryable!(e),
             BoxError(e) => retryable!(e),
             Db(c) => retryable!(c),
+            Conversion(c) => retryable!(c),
+            Envelope(c) => retryable!(c),
+            // this is an error which should never occur
+            MismatchedOriginators { .. } => false,
         }
     }
 }
 
 impl<Context> Client<Context>
 where
-    Context: XmtpSharedContext + Send + Sync + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     /// Async proxy for processing a streamed welcome message.
     /// Shouldn't be used unless for out-of-process utilities like Push Notifications.
@@ -236,11 +247,15 @@ where
         let conn = self.context.db();
         let envelope =
             WelcomeMessage::decode(envelope_bytes.as_slice()).map_err(SubscribeError::from)?;
-        let known_welcomes = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());
+        let known_welcomes = HashSet::from_iter(conn.group_cursors()?.into_iter());
+        let mut extractor = xmtp_api_d14n::protocol::V3WelcomeMessageExtractor::default();
+        envelope.accept(&mut extractor)?;
+        let welcome: xmtp_proto::types::WelcomeMessage = extractor.get()?;
+
         let future = ProcessWelcomeFuture::new(
             known_welcomes,
             self.context.clone(),
-            WelcomeOrGroup::Welcome(envelope),
+            WelcomeOrGroup::Welcome(welcome),
             None,
             false,
             None,
@@ -294,20 +309,15 @@ where
 
 impl<Context> Client<Context>
 where
-    Context: XmtpSharedContext + Send + Sync + 'static,
-    Context::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
-    Context::MlsStorage: Send + Sync + 'static,
+    Context: XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams + 'static,
+    Context::MlsStorage: 'static,
 {
     pub fn stream_conversations_with_callback(
         client: Arc<Client<Context>>,
         conversation_type: Option<ConversationType>,
-        #[cfg(not(target_arch = "wasm32"))] mut convo_callback: impl FnMut(Result<MlsGroup<Context>>)
-        + Send
-        + 'static,
-        #[cfg(target_arch = "wasm32")] mut convo_callback: impl FnMut(Result<MlsGroup<Context>>)
-        + 'static,
-        #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
-        #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
+        mut convo_callback: impl FnMut(Result<MlsGroup<Context>>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
         include_duplicate_dms: bool,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
@@ -371,12 +381,8 @@ where
         context: Context,
         conversation_type: Option<ConversationType>,
         consent_state: Option<Vec<ConsentState>>,
-        #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<StoredGroupMessage>)
-        + Send
-        + 'static,
-        #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
-        #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
-        #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
+        mut callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -406,13 +412,8 @@ where
 
     pub fn stream_consent_with_callback(
         client: Arc<Client<Context>>,
-        #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>)
-        + Send
-        + 'static,
-        #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>)
-        + 'static,
-        #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
-        #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
+        mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 

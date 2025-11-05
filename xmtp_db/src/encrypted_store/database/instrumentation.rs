@@ -14,6 +14,7 @@ impl Instrumentation for TestInstrumentation {
         use InstrumentationEvent::*;
         match event {
             FinishQuery { query, error, .. } => {
+                tracing::debug!("{}", query);
                 if let Some(e) = error {
                     tracing::error!("query {} errored with {:?}", query, error);
                     if let DieselError::DatabaseError(_, info) = e {
@@ -39,13 +40,13 @@ impl Instrumentation for TestInstrumentation {
                 }
             }
             BeginTransaction { depth, .. } => {
-                tracing::debug!("Begin Transaction @ depth={}", depth);
+                tracing::trace!("Begin Transaction @ depth={}", depth);
             }
             CommitTransaction { depth, .. } => {
-                tracing::debug!("Commit Transaction @ depth={}", depth);
+                tracing::trace!("Commit Transaction @ depth={}", depth);
             }
             RollbackTransaction { depth, .. } => {
-                tracing::debug!("Rollback Transaction @ depth={}", depth);
+                tracing::trace!("Rollback Transaction @ depth={}", depth);
             }
 
             _ => (),

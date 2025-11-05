@@ -8,6 +8,7 @@ use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
 
 use crate::ErrorWrapper;
 
+#[derive(Clone)]
 #[napi(object)]
 pub struct Reaction {
   pub reference: String,
@@ -113,6 +114,64 @@ impl From<ReactionSchema> for i32 {
       ReactionSchema::Unicode => 1,
       ReactionSchema::Shortcode => 2,
       ReactionSchema::Custom => 3,
+    }
+  }
+}
+
+// ReactionPayload for enriched messages
+#[derive(Clone)]
+#[napi(object)]
+pub struct ReactionPayload {
+  pub reference: String,
+  pub reference_inbox_id: String,
+  pub action: ReactionAction,
+  pub content: String,
+  pub schema: ReactionSchema,
+}
+
+impl From<xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2> for ReactionPayload {
+  fn from(reaction: xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2) -> Self {
+    Self {
+      reference: reaction.reference.clone(),
+      reference_inbox_id: reaction.reference_inbox_id.clone(),
+      action: reaction.action().into(),
+      content: reaction.content.clone(),
+      schema: reaction.schema().into(),
+    }
+  }
+}
+
+impl From<xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction>
+  for ReactionAction
+{
+  fn from(action: xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction) -> Self {
+    match action {
+      xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction::Added => {
+        ReactionAction::Added
+      }
+      xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction::Removed => {
+        ReactionAction::Removed
+      }
+      _ => ReactionAction::Unknown,
+    }
+  }
+}
+
+impl From<xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema>
+  for ReactionSchema
+{
+  fn from(schema: xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema) -> Self {
+    match schema {
+      xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema::Unicode => {
+        ReactionSchema::Unicode
+      }
+      xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema::Shortcode => {
+        ReactionSchema::Shortcode
+      }
+      xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema::Custom => {
+        ReactionSchema::Custom
+      }
+      _ => ReactionSchema::Unknown,
     }
   }
 }

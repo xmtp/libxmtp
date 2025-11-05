@@ -1,3 +1,4 @@
+use crate::groups::send_message_opts::SendMessageOpts;
 use xmtp_db::consent_record::ConsentState;
 
 use crate::tester;
@@ -17,14 +18,16 @@ async fn test_auto_consent_to_own_group() {
     assert_eq!(unwanted.consent_state()?, ConsentState::Unknown);
 
     tester!(alix2, from: alix1);
-    unwanted_bo.send_message(b"hi unwanted group").await?;
+    unwanted_bo
+        .send_message(b"hi unwanted group", SendMessageOpts::default())
+        .await?;
 
     alix2.sync_welcomes().await?;
     let unwanted2 = alix2.group(&unwanted.group_id)?;
     assert_eq!(unwanted2.consent_state()?, ConsentState::Unknown);
 
     let g = alix1.create_group(None, None)?;
-    g.send_message(b"hello").await?;
+    g.send_message(b"hello", SendMessageOpts::default()).await?;
     alix2.sync_welcomes().await?;
 
     let g2 = alix2.group(&g.group_id)?;

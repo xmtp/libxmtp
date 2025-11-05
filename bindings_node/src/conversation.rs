@@ -28,6 +28,7 @@ use crate::{
   consent_state::ConsentState,
   conversations::{HmacKey, MessageDisappearingSettings},
   encoded_content::EncodedContent,
+  enriched_message::DecodedMessage,
   identity::{Identifier, IdentityExt},
   message::{ListMessagesOptions, Message, MessageWithReactions},
   permissions::{GroupPermissions, MetadataField, PermissionPolicy, PermissionUpdateType},
@@ -37,6 +38,19 @@ use prost::Message as ProstMessage;
 
 use crate::conversations::ConversationDebugInfo;
 use napi_derive::napi;
+
+#[napi(object)]
+pub struct SendMessageOpts {
+  pub should_push: bool,
+}
+
+impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
+  fn from(opts: SendMessageOpts) -> Self {
+    xmtp_mls::groups::send_message_opts::SendMessageOpts {
+      should_push: opts.should_push,
+    }
+  }
+}
 
 #[napi]
 pub struct GroupMetadata {
@@ -130,24 +144,32 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn send(&self, encoded_content: EncodedContent) -> Result<String> {
+  pub async fn send(
+    &self,
+    encoded_content: EncodedContent,
+    opts: SendMessageOpts,
+  ) -> Result<String> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.create_mls_group();
 
     let message_id = group
-      .send_message(encoded_content.encode_to_vec().as_slice())
+      .send_message(encoded_content.encode_to_vec().as_slice(), opts.into())
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(hex::encode(message_id.clone()))
   }
 
   #[napi]
-  pub fn send_optimistic(&self, encoded_content: EncodedContent) -> Result<String> {
+  pub fn send_optimistic(
+    &self,
+    encoded_content: EncodedContent,
+    opts: SendMessageOpts,
+  ) -> Result<String> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.create_mls_group();
 
     let id = group
-      .send_message_optimistic(encoded_content.encode_to_vec().as_slice())
+      .send_message_optimistic(encoded_content.encode_to_vec().as_slice(), opts.into())
       .map_err(ErrorWrapper::from)?;
 
     Ok(hex::encode(id.clone()))
@@ -194,6 +216,18 @@ impl Conversation {
       .collect();
 
     Ok(messages)
+  }
+
+  #[napi]
+  pub async fn count_messages(&self, opts: Option<ListMessagesOptions>) -> Result<i64> {
+    let opts = opts.unwrap_or_default();
+    let group = self.create_mls_group();
+    let msg_args: MsgQueryArgs = opts.into();
+    let count = group
+      .count_messages(&msg_args)
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(count)
   }
 
   #[napi]
@@ -696,5 +730,29 @@ impl Conversation {
     let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();
 
     Ok(conversations)
+  }
+
+  #[napi]
+  pub async fn find_enriched_messages(
+    &self,
+    opts: Option<ListMessagesOptions>,
+  ) -> Result<Vec<DecodedMessage>> {
+    let opts = opts.unwrap_or_default();
+    let group = self.create_mls_group();
+    let messages: Vec<DecodedMessage> = group
+      .find_messages_v2(&opts.into())
+      .map_err(ErrorWrapper::from)?
+      .into_iter()
+      .map(|msg| msg.into())
+      .collect();
+
+    Ok(messages)
+  }
+
+  #[napi]
+  pub async fn get_last_read_times(&self) -> Result<HashMap<String, i64>> {
+    let group = self.create_mls_group();
+    let times = group.get_last_read_times().map_err(ErrorWrapper::from)?;
+    Ok(times)
   }
 }

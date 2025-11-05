@@ -6,7 +6,7 @@ use std::{borrow::Borrow, sync::Arc};
 
 use color_eyre::eyre::{self, Result};
 use rand::{Rng, seq::IteratorRandom};
-use redb::{AccessGuard, ReadTransaction, WriteTransaction};
+use redb::{AccessGuard, ReadTransaction, ReadableDatabase, WriteTransaction};
 use speedy::{Readable, Writable};
 
 pub use groups::*;
@@ -186,6 +186,7 @@ pub trait TrackMetadata {
 
 #[derive(Clone)]
 enum DatabaseOrTransaction<'a> {
+    ReadOnly(Arc<redb::ReadOnlyDatabase>),
     Db(Arc<redb::Database>),
     WriteTx(&'a WriteTransaction),
     ReadTx(&'a redb::ReadTransaction),
@@ -208,6 +209,7 @@ impl<Storage> KeyValueStore<'_, Storage> {
             }
             WriteTx(w) => Ok(op(w)?),
             ReadTx(_) => eyre::bail!("requires write"),
+            ReadOnly(_) => eyre::bail!("database is in read-only mode"),
         }
     }
 
@@ -223,6 +225,10 @@ impl<Storage> KeyValueStore<'_, Storage> {
             }
             ReadTx(r) => Ok(op(r)?),
             WriteTx(_) => eyre::bail!("requires read only"),
+            ReadOnly(ref d) => {
+                let r = d.begin_read()?;
+                Ok(op(&r)?)
+            }
         }
     }
 }

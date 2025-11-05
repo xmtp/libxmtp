@@ -2,6 +2,7 @@
 
 pub mod identity;
 pub mod mls;
+pub mod scw_verifier;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
@@ -15,6 +16,7 @@ pub use xmtp_proto::api_client::XmtpApi;
 
 pub use identity::*;
 pub use mls::*;
+mod xmtp_query;
 
 pub type Result<T> = std::result::Result<T, ApiError>;
 
@@ -26,14 +28,14 @@ pub mod strategies {
 }
 
 // Erases Api Error type (which may be Http or Grpc)
-fn dyn_err(e: impl RetryableError + Send + Sync + 'static) -> ApiError {
+pub fn dyn_err(e: impl RetryableError + 'static) -> ApiError {
     ApiError::Api(Box::new(e))
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
     #[error("api client error {0}")]
-    Api(Box<dyn RetryableError + Send + Sync>),
+    Api(Box<dyn RetryableError>),
     #[error(
         "mismatched number of results, key packages {} != installation_keys {}",
         .key_packages,
@@ -73,9 +75,12 @@ impl<ApiClient> ApiClientWrapper<ApiClient> {
         }
     }
 
-    pub fn attach_debug_wrapper(self) -> ApiClientWrapper<ApiDebugWrapper<ApiClient>> {
+    pub fn map<F, NewApiClient>(self, f: F) -> ApiClientWrapper<NewApiClient>
+    where
+        F: FnOnce(ApiClient) -> NewApiClient,
+    {
         ApiClientWrapper {
-            api_client: ApiDebugWrapper::new(self.api_client),
+            api_client: f(self.api_client),
             retry_strategy: self.retry_strategy,
             inbox_id: self.inbox_id,
         }
@@ -88,7 +93,10 @@ impl<ApiClient> ApiClientWrapper<ApiClient> {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod tests {
-    pub type TestClient = xmtp_api_grpc::v3::Client;
+xmtp_common::if_native! {
+    #[cfg(test)]
+    #[ctor::ctor]
+    fn _setup() {
+        xmtp_common::logger()
+    }
 }

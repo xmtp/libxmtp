@@ -10,6 +10,7 @@ use futures::future::try_join_all;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{Retry, RetryableError, retry_async, retryable};
+use xmtp_configuration::Originators;
 use xmtp_cryptography::CredentialSign;
 use xmtp_db::StorageError;
 use xmtp_db::XmtpDb;
@@ -26,7 +27,7 @@ use xmtp_id::{
             UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature, UnverifiedSignature,
         },
     },
-    scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
+    scw_verifier::SmartContractSignatureVerifier,
 };
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
@@ -592,6 +593,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
                 sequence_id: update.sequence_id as i64,
                 server_timestamp_ns: update.server_timestamp_ns as i64,
                 payload: update.update.clone().into(),
+                originator_id: Originators::INBOX_LOG as i32,
             })
         })
         .collect::<Vec<StoredIdentityUpdate>>();
@@ -621,7 +623,7 @@ pub async fn is_member_of_association_state<Client>(
     scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
 ) -> Result<bool, ClientError>
 where
-    Client: XmtpMlsClient + XmtpIdentityClient + Clone + Send + Sync,
+    Client: XmtpMlsClient + XmtpIdentityClient + Clone,
 {
     let filters = vec![GetIdentityUpdatesV2Filter {
         inbox_id: inbox_id.to_string(),
@@ -641,10 +643,8 @@ where
 
     let mut association_state = None;
 
-    let scw_verifier = scw_verifier.unwrap_or_else(|| {
-        Box::new(RemoteSignatureVerifier::new(api_client.clone()))
-            as Box<dyn SmartContractSignatureVerifier>
-    });
+    let scw_verifier = scw_verifier
+        .unwrap_or_else(|| Box::new(api_client.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
     let updates: Vec<_> = updates
         .iter()
@@ -698,6 +698,7 @@ pub(crate) mod tests {
     };
     use alloy::signers::Signer;
     use xmtp_api::IdentityUpdate;
+    use xmtp_configuration::Originators;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{
         InboxOwner,
@@ -740,8 +741,13 @@ pub(crate) mod tests {
     where
         C: ConnectionExt,
     {
-        let identity_update =
-            StoredIdentityUpdate::new(inbox_id.to_string(), sequence_id, 0, rand_vec::<24>());
+        let identity_update = StoredIdentityUpdate::new(
+            inbox_id.to_string(),
+            sequence_id,
+            0,
+            rand_vec::<24>(),
+            Originators::INBOX_LOG as i32,
+        );
 
         conn.insert_or_ignore_identity_updates(&[identity_update])
             .expect("insert should succeed");
@@ -864,7 +870,10 @@ pub(crate) mod tests {
 
         use xmtp_common::assert_logged;
 
-        use crate::{groups::device_sync::DeviceSyncClient, worker::metrics::WorkerMetrics};
+        use crate::{
+            groups::device_sync::DeviceSyncClient, utils::LocalTester,
+            worker::metrics::WorkerMetrics,
+        };
 
         xmtp_common::traced_test!(async {
             let client = Tester::new().await;
@@ -969,7 +978,7 @@ pub(crate) mod tests {
         let mut inbox_ids: Vec<String> = vec![];
 
         // Create an inbox with 2 history items for each client
-        for (client, wallet) in vec![
+        for (client, wallet) in [
             (client_1, wallet_1),
             (client_2, wallet_2),
             (client_3, wallet_3),

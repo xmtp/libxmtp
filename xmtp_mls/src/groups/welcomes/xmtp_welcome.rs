@@ -1,6 +1,8 @@
 //! XMTP Welcome Processing
 //! Processes a new welcome from the network
 
+use std::collections::HashSet;
+
 use crate::groups::mls_ext::CommitLogStorer;
 use crate::groups::mls_sync::DeferredEvents;
 use crate::groups::oneshot::Oneshot;
@@ -23,7 +25,7 @@ use xmtp_common::time::now_ns;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_db::{
-    StorageError, XmtpOpenMlsProvider, XmtpOpenMlsProviderRef,
+    StorageError, XmtpOpenMlsProviderRef,
     consent_record::{ConsentState, StoredConsentRecord},
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -33,10 +35,8 @@ use xmtp_db::{
 use xmtp_mls_common::{
     group_metadata::extract_group_metadata, group_mutable_metadata::extract_group_mutable_metadata,
 };
-use xmtp_proto::xmtp::mls::{
-    api::v1::welcome_message,
-    message_contents::{ContentTypeId, GroupUpdated, group_updated::Inbox},
-};
+use xmtp_proto::types::Cursor;
+use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, GroupUpdated, group_updated::Inbox};
 
 /// Create a group from a decrypted and decoded welcome message.
 /// If the group already exists in the store, overwrite the MLS state and do not update the group entry
@@ -56,7 +56,7 @@ use xmtp_proto::xmtp::mls::{
 )]
 pub struct XmtpWelcome<'a, C, V> {
     context: C,
-    welcome: &'a welcome_message::V1,
+    welcome: &'a xmtp_proto::types::WelcomeMessage,
     cursor_increment: bool,
     validator: V,
     /// Worker events collected throughout the welcome process
@@ -103,11 +103,11 @@ where
             return Ok(Some(group));
         }
 
-        match this.validate_membership(&db).await {
+        let decrypted_welcome = match this.validate_membership(&db).await {
             Err(e) if !e.is_retryable() && this.cursor_increment => {
                 tracing::info!(
                     "detected non-retryable error {e}, incrementing welcome cursor [{}]",
-                    this.welcome.id
+                    this.welcome.cursor
                 );
                 this.update_cursor(&db)?;
                 return Err(e);
@@ -115,14 +115,14 @@ where
             Err(e) => {
                 return Err(e);
             }
-            _ => (),
-        }
+            Ok(decrypted_welcome) => decrypted_welcome,
+        };
         // we only use take once
         let mut events = this
             .events
             .take()
             .expect("builder is built with events as Some");
-        let commit_result = this.commit_or_fail_forever(&mut events)?;
+        let commit_result = this.commit_or_fail_forever(decrypted_welcome, &mut events)?;
         commit_result.into_result()
     }
 }
@@ -131,10 +131,16 @@ impl<'a, C, V> XmtpWelcome<'a, C, V>
 where
     C: XmtpSharedContext,
     V: ValidateGroupMembership,
+    <C::MlsStorage as XmtpMlsStorageProvider>::Connection: xmtp_db::ConnectionExt,
 {
     /// Get the last cursor in the database for welcomes
-    fn last_cursor(&self, db: &impl DbQuery) -> Result<i64, StorageError> {
-        db.get_last_cursor_for_id(self.context.installation_id(), EntityKind::Welcome)
+    fn last_sequence_id(&self, db: &impl DbQuery) -> Result<i64, StorageError> {
+        let last = db.get_last_cursor_for_originator(
+            self.context.installation_id(),
+            EntityKind::Welcome,
+            self.welcome.originator_id(),
+        )?;
+        Ok(last.sequence_id as i64)
     }
 
     /// Update the cursor in the database
@@ -143,7 +149,7 @@ where
         db.update_cursor(
             self.context.installation_id(),
             EntityKind::Welcome,
-            self.welcome.id as i64,
+            self.welcome.cursor,
         )
     }
 
@@ -152,18 +158,21 @@ where
     /// if the cursor of this welcome is less than the one we have in our local database,
     /// we can safely return the local cached group as if we had processed it.
     fn check_if_processed(&self, db: &impl DbQuery) -> Result<Option<MlsGroup<C>>, GroupError> {
+        if self.welcome.resuming() {
+            return Ok(None);
+        }
         let context = &self.context;
 
         // Check if this welcome was already processed. Return the existing group if so.
-        if self.last_cursor(db)? >= self.welcome.id as i64 {
+        if self.last_sequence_id(db)? >= self.welcome.sequence_id() as i64 {
             tracing::debug!(
-                welcome_id = self.welcome.id,
+                welcome_id = %self.welcome.cursor,
                 "Welcome id is less than cursor, fetching from DB"
             );
-            let maybe_group = db.find_group_by_welcome_id(self.welcome.id as i64)?;
+            let maybe_group = db.find_group_by_sequence_id(self.welcome.cursor)?;
             let Some(group) = maybe_group else {
                 tracing::warn!(
-                    welcome_id = self.welcome.id,
+                    welcome_id = %self.welcome.cursor,
                     "Already processed welcome not found in DB, likely pre-existing group or oneshot message"
                 );
                 return Ok(None);
@@ -177,7 +186,7 @@ where
                 group.created_at_ns,
             );
 
-            tracing::warn!("Skipping old welcome {}", self.welcome.id);
+            tracing::warn!("Skipping old welcome {}", self.welcome.cursor);
             return Ok(Some(group));
         };
         Ok(None)
@@ -185,31 +194,16 @@ where
 
     /// Process the welcome without affecting persistent state.
     /// Return error if validation fails or if welcome was already processed.
-    async fn validate_membership(&self, db: &impl DbQuery) -> Result<(), GroupError> {
+    async fn validate_membership(&self, db: &impl DbQuery) -> Result<DecryptedWelcome, GroupError> {
         let Self { welcome, .. } = self;
-        let mut decrypt_result: Result<DecryptedWelcome, GroupError> =
-            Err(GroupError::UninitializedResult);
-        let transaction_result = self.context.mls_storage().transaction(|conn| {
-            let mls_storage = conn.key_store();
-            decrypt_result = DecryptedWelcome::from_encrypted_bytes(
-                &XmtpOpenMlsProvider::new(mls_storage),
-                &welcome.hpke_public_key,
-                &welcome.data,
-                &welcome.welcome_metadata,
-                welcome.wrapper_algorithm.into(),
-            );
-            Err(StorageError::IntentionalRollback)
-        });
+        let decrypted_welcome =
+            DecryptedWelcome::from_welcome_proto(welcome, &self.context).await?;
 
-        let Err(StorageError::IntentionalRollback) = transaction_result else {
-            return Err(transaction_result?);
-        };
-
-        let DecryptedWelcome { staged_welcome, .. } = decrypt_result?;
+        let DecryptedWelcome { staged_welcome, .. } = &decrypted_welcome;
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
         self.validator
-            .check_initial_membership(&staged_welcome)
+            .check_initial_membership(staged_welcome)
             .await?;
         let group_id = staged_welcome.public_group().group_id();
         // try to load the group this welcome represents
@@ -230,10 +224,10 @@ where
                 {
                     tracing::warn!(
                         "Skipping welcome {} because we are already in group {}",
-                        welcome.id,
+                        welcome.cursor,
                         hex::encode(group_id.as_slice())
                     );
-                    return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
+                    return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.cursor).into());
                 }
             } else {
                 tracing::error!(
@@ -242,7 +236,7 @@ where
                 );
             }
         }
-        Ok(())
+        Ok(decrypted_welcome)
     }
 
     /// Commit the welcome to the local db and memory.
@@ -252,12 +246,14 @@ where
     /// Once transaction succeeds, sends device sync messages
     fn commit_or_fail_forever(
         &self,
+        decrypted_welcome: DecryptedWelcome,
         events: &mut DeferredEvents,
     ) -> Result<CommitResult<C>, GroupError> {
+        tracing::info!("attempting to commit welcome={}", &self.welcome.cursor);
         let commit_result = self.context.mls_storage().transaction(|conn| {
             let storage = conn.key_store();
             // Savepoint transaction
-            let result = storage.savepoint(|conn| self.commit(conn, events));
+            let result = storage.savepoint(|conn| self.commit(conn, events, decrypted_welcome));
             let db = storage.db();
             // if we got an error
             // and the error is not retryable
@@ -265,7 +261,7 @@ where
             // update the cursor
             match result {
                 Err(err) if !err.is_retryable() && self.cursor_increment => {
-                    tracing::warn!("welcome with cursor_id={} failed with a non-retryable error because of {err}, incrementing cursor", self.welcome.id);
+                    tracing::warn!("welcome with cursor_id={} failed with a non-retryable error because of {err}, incrementing cursor", self.welcome.cursor);
                     self.update_cursor(&db)?;
                     // return ok to commit the transaction
                     Ok(CommitResult::FailedForever(err))
@@ -286,6 +282,7 @@ where
         &self,
         tx: &mut impl TransactionalKeyStore,
         events: &mut DeferredEvents,
+        decrypted_welcome: DecryptedWelcome,
     ) -> Result<Option<MlsGroup<C>>, GroupError> {
         let Self {
             welcome,
@@ -297,13 +294,7 @@ where
         let storage = tx.key_store();
         let db = storage.db();
         let provider = XmtpOpenMlsProviderRef::new(&storage);
-        let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
-            &provider,
-            &welcome.hpke_public_key,
-            &welcome.data,
-            &welcome.welcome_metadata,
-            welcome.wrapper_algorithm.into(),
-        )?;
+
         let DecryptedWelcome {
             staged_welcome,
             added_by_inbox_id,
@@ -311,22 +302,21 @@ where
             welcome_metadata,
         } = decrypted_welcome;
 
-        tracing::debug!("calling update cursor for welcome {}", welcome.id);
-        let requires_processing = {
-            let current_cursor = self.last_cursor(&db)?;
-            welcome.id > current_cursor as u64
-        };
+        tracing::debug!("calling update cursor for welcome {}", welcome.cursor);
+        let requires_processing =
+            welcome.resuming() || welcome.sequence_id() > self.last_sequence_id(&db)? as u64;
         if !requires_processing {
-            tracing::error!("Skipping already processed welcome {}", welcome.id);
-            return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
+            tracing::error!("Skipping already processed welcome {}", welcome.cursor);
+            return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.cursor).into());
         }
         if *cursor_increment {
+            tracing::info!("updating cursor to {}", welcome.cursor);
             // TODO: We update the cursor if this welcome decrypts successfully, but if previous welcomes
             // failed due to retriable errors, this will permanently skip them.
             db.update_cursor(
                 context.installation_id(),
                 EntityKind::Welcome,
-                welcome.id as i64,
+                welcome.cursor,
             )?;
         }
         let metadata =
@@ -335,7 +325,7 @@ where
         if metadata.conversation_type == ConversationType::Oneshot {
             Oneshot::process_welcome(
                 &provider,
-                welcome.id,
+                welcome.cursor,
                 added_by_inbox_id,
                 added_by_installation_id,
                 metadata,
@@ -387,7 +377,7 @@ where
             .id(group_id)
             .created_at_ns(now_ns())
             .added_by_inbox_id(&added_by_inbox_id)
-            .welcome_id(welcome.id as i64)
+            .cursor(welcome.cursor)
             .conversation_type(conversation_type)
             .dm_id(dm_members.map(String::from))
             .message_disappear_from_ns(disappearing_settings.as_ref().map(|m| m.from_ns))
@@ -406,7 +396,7 @@ where
                 validate_dm_group(context, &mls_group, &added_by_inbox_id)?;
                 group
                     .membership_state(GroupMembershipState::Pending)
-                    .last_message_ns(welcome.created_ns as i64)
+                    .last_message_ns(welcome.timestamp())
                     .build()?
             }
             ConversationType::Sync => {
@@ -415,6 +405,7 @@ where
                 let group_id = mls_group.group_id().to_vec();
                 events.add_worker_event(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
 
+                // Sync groups are always Allowed.
                 group
                     .membership_state(GroupMembershipState::Allowed)
                     .build()?
@@ -424,7 +415,7 @@ where
             }
         };
 
-        tracing::info!("storing group with welcome id {}", welcome.id);
+        tracing::info!("storing group with welcome id {}", welcome.cursor);
         // Insert or replace the group in the database.
         // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
         let stored_group = db.insert_or_replace_group(to_store)?;
@@ -448,13 +439,12 @@ where
             }],
             removed_inboxes: vec![],
             metadata_field_changes: vec![],
+            left_inboxes: vec![],
         };
 
         let encoded_added_payload = GroupUpdatedCodec::encode(added_payload)?;
         let mut encoded_added_payload_bytes = Vec::new();
-        encoded_added_payload
-            .encode(&mut encoded_added_payload_bytes)
-            .map_err(GroupError::EncodeError)?;
+        encoded_added_payload.encode(&mut encoded_added_payload_bytes)?;
 
         let added_message_id = crate::utils::id::calculate_message_id(
             &stored_group.id,
@@ -476,9 +466,9 @@ where
             id: added_message_id,
             group_id: stored_group.id.clone(),
             decrypted_message_bytes: encoded_added_payload_bytes,
-            sent_at_ns: welcome.created_ns as i64,
+            sent_at_ns: welcome.timestamp(),
             kind: GroupMessageKind::MembershipChange,
-            sender_installation_id: welcome.installation_key.clone(),
+            sender_installation_id: added_by_installation_id,
             sender_inbox_id: added_by_inbox_id,
             delivery_status: DeliveryStatus::Published,
             content_type: added_content_type.type_id.into(),
@@ -486,8 +476,8 @@ where
             version_minor: added_content_type.version_minor as i32,
             authority_id: added_content_type.authority_id,
             reference_id: None,
-            sequence_id: Some(welcome.id as i64),
-            originator_id: None,
+            sequence_id: welcome.sequence_id() as i64,
+            originator_id: welcome.originator_id() as i64,
             expire_at_ns: None,
         };
 
@@ -515,13 +505,26 @@ where
         let cursor = welcome_metadata
             .map(|m| m.message_cursor as i64)
             .unwrap_or_default();
-        db.update_cursor(&group.group_id, EntityKind::Group, cursor)?;
+        db.update_cursor(
+            &group.group_id,
+            EntityKind::CommitMessage,
+            //TODO:d14n this must change before D14n-only
+            //Originator must be included in welcome
+            Cursor::mls_commits(cursor as u64),
+        )?;
+        MlsGroup::<C>::mark_readd_requests_as_responded(
+            &storage,
+            &group.group_id,
+            &HashSet::from([context.installation_id().to_vec()]),
+            cursor,
+        )?;
 
         tracing::info!(
             inbox_id = %current_inbox_id,
             installation_id = %self.context.installation_id(),
             group_id = %hex::encode(&group.group_id),
-            welcome_id = welcome.id,
+            welcome_id = welcome.cursor.sequence_id,
+            originator_id = welcome.cursor.originator_id,
             cursor = cursor,
             "updated message cursor from welcome metadata"
         );
@@ -532,6 +535,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use xmtp_common::Generate;
+
     use crate::{
         groups::test::NoopValidator,
         test::mock::{NewMockContext, context},
@@ -539,23 +544,11 @@ mod tests {
 
     use super::*;
 
-    fn generate_welcome() -> welcome_message::V1 {
-        welcome_message::V1 {
-            id: 0,
-            created_ns: 0,
-            installation_key: vec![0],
-            data: vec![0],
-            hpke_public_key: vec![],
-            wrapper_algorithm: 0,
-            welcome_metadata: vec![0],
-        }
-    }
-
     // Is async so that the async timeout from rstest is used in wasm (does not spawn thread)
     #[rstest::rstest]
     #[xmtp_common::test]
     async fn welcome_builds_with_default_events(context: NewMockContext) {
-        let w = generate_welcome();
+        let w = xmtp_proto::types::WelcomeMessage::generate();
         let builder = XmtpWelcome::builder()
             .context(context)
             .welcome(&w)

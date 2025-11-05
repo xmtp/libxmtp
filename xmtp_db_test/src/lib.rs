@@ -24,7 +24,6 @@ impl<Db: XmtpDb> ChaosDb<Db> {
 impl<Db> XmtpDb for ChaosDb<Db>
 where
     Db: XmtpDb,
-    <Db as XmtpDb>::Connection: Send + Sync,
 {
     type Connection = Arc<chaos::ChaosConnection<Db::Connection>>;
     type DbQuery = DbConnection<Self::Connection>;
@@ -77,7 +76,7 @@ impl<Db> ChaosDbBuilder<Db> {
 impl<Db> ChaosDbBuilder<Db>
 where
     Db: XmtpDb + Clone,
-    <Db as XmtpDb>::Connection: Clone + Send + Sync,
+    <Db as XmtpDb>::Connection: Clone,
 {
     /// Build the EncryptedMessageStore with Chaos
     /// Returns a tuple of (ChaosConnection, EncryptedMessageStore)

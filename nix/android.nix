@@ -11,16 +11,15 @@
 , openssl
 , lib
 , gnused
-, mkToolchain
 , perl
+, xmtp
 }:
 let
-  frameworks = if stdenv.isDarwin then darwin.apple_sdk.frameworks else null;
   inherit (androidComposition) androidsdk;
 
   android = {
     platforms = [ "33" "34" ];
-    platformTools = "34.0.4";
+    platformTools = "34.0.5";
     buildTools = [ "30.0.3" ];
   };
 
@@ -32,7 +31,7 @@ let
   ];
 
   # Pinned Rust Version
-  rust-android-toolchain = mkToolchain androidTargets [ "clippy-preview" "rustfmt-preview" ];
+  rust-android-toolchain = xmtp.mkToolchain androidTargets [ "clippy-preview" "rustfmt-preview" ];
   sdkArgs = {
     platformVersions = android.platforms;
     platformToolsVersion = android.platformTools;

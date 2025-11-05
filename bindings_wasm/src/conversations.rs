@@ -19,6 +19,7 @@ use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
 use xmtp_mls::common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_mls::groups::PreconfiguredPolicies;
+use xmtp_proto::types::Cursor;
 
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
@@ -58,6 +59,7 @@ pub enum GroupMembershipState {
   Rejected = 1,
   Pending = 2,
   Restored = 3,
+  PendingRemove = 4,
 }
 
 impl From<XmtpGroupMembershipState> for GroupMembershipState {
@@ -67,6 +69,7 @@ impl From<XmtpGroupMembershipState> for GroupMembershipState {
       XmtpGroupMembershipState::Rejected => GroupMembershipState::Rejected,
       XmtpGroupMembershipState::Pending => GroupMembershipState::Pending,
       XmtpGroupMembershipState::Restored => GroupMembershipState::Restored,
+      XmtpGroupMembershipState::PendingRemove => GroupMembershipState::PendingRemove,
     }
   }
 }
@@ -78,6 +81,7 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
       GroupMembershipState::Rejected => XmtpGroupMembershipState::Rejected,
       GroupMembershipState::Pending => XmtpGroupMembershipState::Pending,
       GroupMembershipState::Restored => XmtpGroupMembershipState::Restored,
+      GroupMembershipState::PendingRemove => XmtpGroupMembershipState::PendingRemove,
     }
   }
 }
@@ -178,6 +182,23 @@ impl MessageDisappearingSettings {
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, serde::Serialize)]
+pub struct XmtpCursor {
+  pub originator_id: u32,
+  // wasm doesn't suppor u64
+  pub sequence_id: i64,
+}
+
+impl From<Cursor> for XmtpCursor {
+  fn from(value: Cursor) -> Self {
+    XmtpCursor {
+      originator_id: value.originator_id,
+      sequence_id: value.sequence_id as i64,
+    }
+  }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Clone, serde::Serialize)]
 pub struct ConversationDebugInfo {
   pub epoch: u64,
   #[wasm_bindgen(js_name = maybeForked)]
@@ -197,7 +218,7 @@ pub struct ConversationDebugInfo {
   pub remote_commit_log: String,
   #[wasm_bindgen(js_name = cursor)]
   #[serde(rename = "cursor")]
-  pub cursor: i64,
+  pub cursor: Vec<XmtpCursor>,
 }
 
 #[wasm_bindgen(getter_with_clone)]
@@ -507,17 +528,17 @@ impl Conversations {
   pub async fn sync_all_conversations(
     &self,
     consent_states: Option<Vec<ConsentState>>,
-  ) -> Result<usize, JsError> {
+  ) -> Result<crate::client::GroupSyncSummary, JsError> {
     let consents: Option<Vec<XmtpConsentState>> =
       consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
 
-    let num_groups_synced = self
+    let summary = self
       .inner_client
       .sync_all_welcomes_and_groups(consents)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
-    Ok(num_groups_synced)
+    Ok(summary.into())
   }
 
   #[wasm_bindgen]

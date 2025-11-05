@@ -8,7 +8,7 @@ use xmtp_configuration::Originators;
 #[derive(
     Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
-// TODO:d14n comparing cursors is unsafe/undefined behavior if originator ids are not equal.
+// _*NOTE:*_ comparing cursors is unsafe/undefined behavior if originator ids are not equal.
 pub struct Cursor {
     pub originator_id: super::OriginatorId,
     pub sequence_id: super::SequenceId,
@@ -25,42 +25,42 @@ impl Cursor {
     pub const fn commit_log(sequence_id: u64) -> Self {
         Self {
             sequence_id,
-            originator_id: Originators::REMOTE_COMMIT_LOG as u32,
+            originator_id: Originators::REMOTE_COMMIT_LOG,
         }
     }
 
     pub const fn welcomes(sequence_id: u64) -> Self {
         Self {
             sequence_id,
-            originator_id: Originators::WELCOME_MESSAGES as u32,
+            originator_id: Originators::WELCOME_MESSAGES,
         }
     }
 
     pub const fn v3_messages(sequence_id: u64) -> Self {
         Self {
             sequence_id,
-            originator_id: Originators::APPLICATION_MESSAGES as u32,
+            originator_id: Originators::APPLICATION_MESSAGES,
         }
     }
 
     pub const fn installations(sequence_id: u64) -> Self {
         Self {
             sequence_id,
-            originator_id: Originators::INSTALLATIONS as u32,
+            originator_id: Originators::INSTALLATIONS,
         }
     }
 
     pub const fn mls_commits(sequence_id: u64) -> Self {
         Self {
             sequence_id,
-            originator_id: Originators::MLS_COMMITS as u32,
+            originator_id: Originators::MLS_COMMITS,
         }
     }
 
     pub const fn inbox_log(sequence_id: u64) -> Self {
         Self {
             sequence_id,
-            originator_id: Originators::INBOX_LOG as u32,
+            originator_id: Originators::INBOX_LOG,
         }
     }
 }
@@ -88,12 +88,12 @@ mod test {
     use super::*;
 
     #[rstest]
-    #[case(Cursor::commit_log(100), 100, Originators::REMOTE_COMMIT_LOG as u32)]
-    #[case(Cursor::welcomes(200), 200, Originators::WELCOME_MESSAGES as u32)]
-    #[case(Cursor::v3_messages(300), 300, Originators::APPLICATION_MESSAGES as u32)]
-    #[case(Cursor::installations(400), 400, Originators::INSTALLATIONS as u32)]
-    #[case(Cursor::mls_commits(500), 500, Originators::MLS_COMMITS as u32)]
-    #[case(Cursor::inbox_log(600), 600, Originators::INBOX_LOG as u32)]
+    #[case(Cursor::commit_log(100), 100, Originators::REMOTE_COMMIT_LOG)]
+    #[case(Cursor::welcomes(200), 200, Originators::WELCOME_MESSAGES)]
+    #[case(Cursor::v3_messages(300), 300, Originators::APPLICATION_MESSAGES)]
+    #[case(Cursor::installations(400), 400, Originators::INSTALLATIONS)]
+    #[case(Cursor::mls_commits(500), 500, Originators::MLS_COMMITS)]
+    #[case(Cursor::inbox_log(600), 600, Originators::INBOX_LOG)]
     fn test_originator_constructors(
         #[case] cursor: Cursor,
         #[case] expected_seq: u64,

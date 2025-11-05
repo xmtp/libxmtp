@@ -13,7 +13,7 @@ pub fn localhost_to_internal(host_url: &str) -> url::Url {
             url.set_host(Some("node")).unwrap() // the xmtp-go node
         }
         5050 | 5055 => {
-            url.set_host(Some("repnode")).unwrap() // the xmtpd replication node
+            url.set_host(Some("xmtpd")).unwrap() // the xmtpd replication node
         }
         5052 => {
             url.set_host(Some("gateway")).unwrap() // the xmtpd gateway node
@@ -30,8 +30,8 @@ pub fn toxi_port(host_url: &str) -> u16 {
     match url.port().unwrap() {
         5556 => 21100, // node-go
         5555 => 21101, // http REST node-go
-        5050 => 21102, // repnode
-        5055 => 21103, // http REST repnode
+        5050 => 21102, // xmtpd
+        5055 => 21103, // http REST xmtpd
         5052 => 21104, // xmtpd gateway
         _ => panic!("unknown port"),
     }

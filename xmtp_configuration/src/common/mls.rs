@@ -38,3 +38,12 @@ pub const CREATE_PQ_KEY_PACKAGE_EXTENSION: bool = true;
 // and it does not have a policy set, it is a super admin only field
 pub const SUPER_ADMIN_METADATA_PREFIX: &str = "_";
 pub const HMAC_SALT: &[u8] = b"libXMTP HKDF salt!";
+
+pub const ENABLE_COMMIT_LOG: bool = true;
+pub const MIN_RECOVERY_REQUEST_VERSION: &str = "1.6.0";
+
+// Welcome pointers are mostly the hpke public key and less than 100 bytes for the welcome pointer
+// so as long as we have 2 installations that need a single welcome it will result in less data being
+// ingested by the nodes and stored. There is a slight penalty for egress data, but the amount needed
+// to be stored can be 100x less than using regular welcome messages.
+pub const INSTALLATION_THRESHOLD_FOR_WELCOME_POINTER_SENDING: usize = 2;

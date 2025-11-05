@@ -1,5 +1,8 @@
+pub mod actions;
 pub mod attachment;
 pub mod group_updated;
+pub mod intent;
+pub mod leave_request;
 pub mod membership_change;
 pub mod multi_remote_attachment;
 pub mod reaction;
@@ -39,12 +42,15 @@ pub enum ContentType {
     Reaction,
     ReadReceipt,
     Reply,
+    Actions,
     Attachment,
+    Intent,
     RemoteAttachment,
     MultiRemoteAttachment,
     TransactionReference,
     WalletSendCalls,
     DeviceSyncMessage,
+    LeaveRequest,
 }
 
 impl TryFrom<&str> for ContentType {
@@ -69,31 +75,11 @@ impl TryFrom<&str> for ContentType {
                 Ok(Self::TransactionReference)
             }
             wallet_send_calls::WalletSendCallsCodec::TYPE_ID => Ok(Self::WalletSendCalls),
+            leave_request::LeaveRequestCodec::TYPE_ID => Ok(Self::LeaveRequest),
+            actions::ActionsCodec::TYPE_ID => Ok(Self::Actions),
+            intent::IntentCodec::TYPE_ID => Ok(Self::Intent),
             _ => Err(format!("Unknown content type ID: {type_id}")),
         }
-    }
-}
-
-// Represents whether this message type should send pushed notification when received by a user
-pub fn should_push(content_type_id: String) -> bool {
-    let content_type = ContentType::try_from(content_type_id.as_str()).ok();
-    if let Some(content_type) = content_type {
-        match content_type {
-            ContentType::Text => true,
-            ContentType::GroupMembershipChange => false,
-            ContentType::GroupUpdated => false,
-            ContentType::Reaction => false,
-            ContentType::ReadReceipt => false,
-            ContentType::Reply => true,
-            ContentType::Attachment => true,
-            ContentType::RemoteAttachment => true,
-            ContentType::MultiRemoteAttachment => true,
-            ContentType::TransactionReference => true,
-            ContentType::WalletSendCalls => true,
-            ContentType::DeviceSyncMessage => false,
-        }
-    } else {
-        false
     }
 }
 

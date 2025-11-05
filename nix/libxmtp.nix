@@ -1,7 +1,6 @@
 { stdenv
 , darwin
 , lib
-, mkToolchain
 , pkg-config
 , mktemp
 , jdk21
@@ -28,26 +27,27 @@
 , protobuf
 , protolint
 , mkShell
+, wasm-bindgen-cli
 , wasm-pack
 , binaryen
 , emscripten
 , taplo
 , shellcheck
-, cargo-llvm-cov
 , lcov
+, cargo-llvm-cov
+, cargo-machete
+, zlib
+, xmtp
+, omnix
 , ...
 }:
 
 let
-  inherit (stdenv) isDarwin;
-  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
+  inherit (stdenv) isDarwin isLinux;
+  rust-toolchain = xmtp.mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
 in
 mkShell {
   OPENSSL_DIR = "${openssl.dev}";
-  # LLVM_PATH = "${llvmPackages_19.stdenv}";
-  # CXX_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/clang++";
-  # AS_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/llvm-as";
-  # STRIP_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/llvm-strip";
   # disable -fzerocallusedregs in clang
   hardeningDisable = [ "zerocallusedregs" "stackprotector" ];
   OPENSSL_LIB_DIR = "${lib.getLib openssl}/lib";
@@ -56,8 +56,8 @@ mkShell {
   CC_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/clang";
   AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
   CFLAGS_wasm32_unknown_unknown = "-I ${llvmPackages.clang-unwrapped.lib}/lib/clang/19/include";
-
-  nativeBuildInputs = [ pkg-config zstd sqlite wasm-pack binaryen emscripten ];
+  LD_LIBRARY_PATH = lib.makeLibraryPath [ openssl zlib ];
+  nativeBuildInputs = [ pkg-config zstd openssl zlib ];
   buildInputs =
     [
       rust-toolchain
@@ -84,17 +84,22 @@ mkShell {
       cargo-deny
       cargo-flamegraph
       cargo-nextest
+      cargo-machete
       inferno
       lnav
       jq
       curl
-      cargo-llvm-cov
       lcov
+      wasm-bindgen-cli
+      binaryen
+      wasm-pack
+      binaryen
 
       # Protobuf
       buf
       protobuf
       protolint
+      omnix
 
 
       # lint
@@ -106,5 +111,5 @@ mkShell {
     ]
     ++ lib.optionals isDarwin [
       darwin.cctools
-    ];
+    ] ++ lib.optionals isLinux [ cargo-llvm-cov ];
 }

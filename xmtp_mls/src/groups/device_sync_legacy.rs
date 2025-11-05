@@ -3,10 +3,12 @@
 use super::device_sync::preference_sync::PreferenceUpdate;
 use super::device_sync::worker::SyncMetric;
 use super::device_sync::{DeviceSyncClient, DeviceSyncError};
+use super::send_message_opts;
 use crate::context::XmtpSharedContext;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::worker::metrics::WorkerMetrics;
 use crate::{Client, subscriptions::LocalEvents};
+#[allow(deprecated)]
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
     Aes256Gcm,
@@ -91,15 +93,19 @@ where
         let content = DeviceSyncContent::Request(request.clone());
         let content_bytes = serde_json::to_vec(&content)?;
 
-        let _message_id = sync_group.prepare_message(&content_bytes, {
-            let request = request.clone();
-            move |now| PlaintextEnvelope {
-                content: Some(Content::V2(V2 {
-                    message_type: Some(MessageType::DeviceSyncRequest(request)),
-                    idempotency_key: now.to_string(),
-                })),
-            }
-        })?;
+        let _message_id = sync_group.prepare_message(
+            &content_bytes,
+            send_message_opts::SendMessageOpts { should_push: false },
+            {
+                let request = request.clone();
+                move |now| PlaintextEnvelope {
+                    content: Some(Content::V2(V2 {
+                        message_type: Some(MessageType::DeviceSyncRequest(request)),
+                        idempotency_key: now.to_string(),
+                    })),
+                }
+            },
+        )?;
 
         // publish the intent
         sync_group.publish_intents().await?;
@@ -156,12 +162,16 @@ where
             (content_bytes, contents)
         };
 
-        sync_group.prepare_message(&content_bytes, |now| PlaintextEnvelope {
-            content: Some(Content::V2(V2 {
-                message_type: Some(MessageType::DeviceSyncReply(contents)),
-                idempotency_key: now.to_string(),
-            })),
-        })?;
+        sync_group.prepare_message(
+            &content_bytes,
+            send_message_opts::SendMessageOpts { should_push: false },
+            |now| PlaintextEnvelope {
+                content: Some(Content::V2(V2 {
+                    message_type: Some(MessageType::DeviceSyncReply(contents)),
+                    idempotency_key: now.to_string(),
+                })),
+            },
+        )?;
 
         sync_group.publish_intents().await?;
 
@@ -337,7 +347,9 @@ where
         let (nonce, ciphertext) = payload.split_at(NONCE_SIZE);
 
         // Create a cipher instance
+        #[allow(deprecated)]
         let cipher = Aes256Gcm::new(GenericArray::from_slice(enc_key));
+        #[allow(deprecated)]
         let nonce_array = GenericArray::from_slice(nonce);
 
         // Decrypt the ciphertext
@@ -581,7 +593,9 @@ fn encrypt_syncables_with_key(
     let mut result = generate_nonce().to_vec();
 
     // create a cipher instance
+    #[allow(deprecated)]
     let cipher = Aes256Gcm::new(GenericArray::from_slice(enc_key_bytes));
+    #[allow(deprecated)]
     let nonce_array = GenericArray::from_slice(&result);
 
     // encrypt the payload and append to the result

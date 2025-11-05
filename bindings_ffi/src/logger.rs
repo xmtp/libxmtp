@@ -93,15 +93,11 @@ mod other {
     }
 }
 
+#[derive(Default)]
 enum EmptyOrFileWriter {
+    #[default]
     Empty,
     File(tracing_appender::non_blocking::NonBlocking),
-}
-
-impl Default for EmptyOrFileWriter {
-    fn default() -> Self {
-        Self::Empty
-    }
 }
 
 impl Write for EmptyOrFileWriter {
@@ -340,6 +336,11 @@ mod test_logger {
         xmtp_common::logger_layer()
     }
 
+    // _NOTE:_ this test **fails** if there are rogue loggers
+    // started with `ctor::ctor` in other crates.
+    // crates should ensure their test `ctor`'s are
+    // using `cfg(test)` and cannot be activated
+    // with `test-utils`.
     #[test]
     fn test_file_appender() {
         init_logger();

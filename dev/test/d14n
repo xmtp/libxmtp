@@ -5,11 +5,4 @@ set -eou pipefail
 # Skips tests for unimplemented features (streams)
 
 EXTRA_FLAGS=${1:-}
-cargo nextest run $EXTRA_FLAGS --features d14n \
-  -E 'package(xmtp_mls)
-  and !test(subscriptions)
-  and !test(can_stream_out_of_order_without_forking)
-  and !test(should_stream_consent)
-  and !test(groups::subscriptions)
-  and !test(basic_sync)
-  and !test(should_reconnect)'
+cargo nextest run $EXTRA_FLAGS --features d14n --profile ci-d14n -E 'package(xmtp_mls)' -E 'rdeps(xmtp_mls)'
