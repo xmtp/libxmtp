@@ -135,6 +135,8 @@ pub enum Query {
     Identity(Identity),
     FetchKeyPackages(FetchKeyPackages),
     BatchQueryCommitLog(BatchQueryCommitLog),
+    /// Get all keypackages for each installation id in the app db
+    AllKeyPackages,
 }
 
 #[derive(Args, Debug, Clone)]

@@ -53,7 +53,7 @@ impl<'a> From<&'a Identity> for EthereumWallet {
 #[derive(valuable::Valuable, Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Readable, Writable)]
 pub struct Identity {
     pub inbox_id: [u8; 32],
-    installation_key: [u8; 32],
+    pub installation_key: [u8; 32],
     eth_key: [u8; 32],
 }
 

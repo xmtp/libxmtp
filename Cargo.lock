@@ -8257,6 +8257,7 @@ dependencies = [
  "lipsum",
  "num_cpus",
  "openmls",
+ "openmls_rust_crypto",
  "owo-colors",
  "prost",
  "rand 0.8.5",
