@@ -35,7 +35,7 @@ impl Query {
 
     pub async fn identity(&self, opts: &args::Identity) -> Result<()> {
         tracing::info!("Fetching identity for inbox: {}", opts.inbox_id);
-        let client = self.network.connect().await?;
+        let client = self.network.connect()?;
 
         let res = client
             .get_identity_updates_v2(
@@ -122,7 +122,7 @@ impl Query {
             .map(|x| hex::decode(x).map_err(Into::into))
             .collect::<Result<HashSet<_>>>()?;
 
-        let client = self.network.connect().await?;
+        let client = self.network.connect()?;
         let res = client
             .fetch_key_packages(xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest {
                 installation_keys: installation_keys.iter().cloned().collect(),
@@ -150,7 +150,7 @@ impl Query {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        let client = self.network.connect().await?;
+        let client = self.network.connect()?;
         let res = client
             .query_commit_log(xmtp_proto::xmtp::mls::api::v1::BatchQueryCommitLogRequest {
                 requests,
@@ -208,7 +208,7 @@ impl Query {
                     *cred.public_bytes()
                 })
                 .collect();
-            let client = self.network.connect().await?;
+            let client = self.network.connect()?;
             tracing::info!(
                 installation_keys = ?keys.iter().map(hex::encode).collect::<Vec<_>>(),
                 "fetching key packages"

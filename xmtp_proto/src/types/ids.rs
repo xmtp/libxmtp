@@ -5,7 +5,7 @@ use hex::FromHexError;
 
 use crate::ConversionError;
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InstallationId([u8; 32]);
 
 impl InstallationId {
