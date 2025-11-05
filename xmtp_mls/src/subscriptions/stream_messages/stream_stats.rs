@@ -19,7 +19,7 @@ use std::{
     },
 };
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-use xmtp_common::time::now_ns;
+use xmtp_common::{MaybeSend, MaybeSync, time::now_ns};
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::prelude::XmtpMlsStreams;
 
@@ -170,8 +170,8 @@ type StatsWrapper<'a, Context> = StreamStatsWrapper<
 
 impl<'a, Context> StatsWrapper<'a, Context>
 where
-    Context: Clone + XmtpSharedContext + Send + Sync + 'static,
-    Context::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
+    Context: Clone + XmtpSharedContext + MaybeSend + MaybeSync + 'static,
+    Context::ApiClient: XmtpMlsStreams + MaybeSend + MaybeSync + 'static,
 {
     pub fn new(inner: AllMessagesStream<'a, Context>) -> Self {
         Self {
@@ -235,7 +235,7 @@ mod tests {
     };
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn stream_stats() {
+    async fn test_stream_stats() {
         tester!(alix);
         tester!(bo);
 
@@ -243,10 +243,13 @@ mod tests {
             .stream_all_messages_owned_with_stats(None, None)
             .await?;
         let stream_stats = stream.stats();
-        tokio::task::spawn(async move { while stream.next().await.is_some() {} });
+        xmtp_common::spawn(None, async move { while stream.next().await.is_some() {} });
         xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
         bo.test_talk_in_dm_with(&alix).await?;
+        for _ in 0..10 {
+            bo.test_talk_in_new_group_with(&alix).await?;
+        }
 
         xmtp_common::time::sleep(Duration::from_millis(100)).await;
         let stats = stream_stats.new_stats();
