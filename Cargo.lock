@@ -8337,6 +8337,7 @@ dependencies = [
  "fs_extra",
  "futures",
  "indicatif",
+ "itertools 0.14.0",
  "k256",
  "lipsum",
  "num_cpus",

@@ -44,7 +44,7 @@ impl Modify {
             "no local identity found for inbox_id=[{}]",
             hex::encode(local_group.created_by)
         ))?;
-        let admin = app::client_from_identity(&identity, &network).await?;
+        let admin = app::client_from_identity(&identity, &network)?;
         let group = admin.group(&local_group.id.to_vec())?;
         match action {
             Remove => {

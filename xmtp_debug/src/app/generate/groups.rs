@@ -1,11 +1,12 @@
 //! Group Generation
-use crate::app::identity_lock::get_identity_lock;
+use crate::app::load_n_identities;
 use crate::app::{
     store::{Database, GroupStore, IdentityStore, RandomDatabase},
     types::*,
 };
-use crate::{app, args};
-use color_eyre::eyre::{self, ContextCompat, Result};
+use crate::args;
+use color_eyre::eyre::{self, Result, ensure, eyre};
+use futures::{StreamExt, TryFutureExt, TryStreamExt, stream};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::sync::Arc;
 use xmtp_cryptography::XmtpInstallationCredential;
@@ -27,108 +28,89 @@ impl GenerateGroups {
         }
     }
 
-    #[allow(unused)]
-    pub fn load_groups(&self) -> Result<Option<impl Iterator<Item = Result<Group>> + use<'_>>> {
-        Ok(self
-            .group_store
-            .load(&self.network)?
-            .map(|i| i.map(|i| Ok(i.value()))))
-    }
-
     pub async fn create_groups(
         &self,
         n: usize,
         invitees: usize,
         concurrency: usize,
     ) -> Result<Vec<Group>> {
-        // TODO: Check if identities still exist
-        let mut groups: Vec<Group> = Vec::with_capacity(n);
+        tracing::info!("creating groups");
+
+        let network = &self.network;
+        let identities = self.identity_store.len(network)?;
+        ensure!(
+            identities >= invitees,
+            "not enough identities generated. have {}, but need to invite {}. groups cannot hold duplicate identities",
+            identities,
+            invitees
+        );
         let style = ProgressStyle::with_template(
             "{bar} {pos}/{len} elapsed {elapsed} remaining {eta_precise}",
         );
         let bar = ProgressBar::new(n as u64).with_style(style.unwrap());
-        let mut set: tokio::task::JoinSet<Result<_, eyre::Error>> = tokio::task::JoinSet::new();
-        let mut handles = vec![];
 
-        let network = &self.network;
-        let mut rng = rand::thread_rng();
+        let clients = load_n_identities(&self.identity_store, network, n)?;
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
-
-        for _ in 0..n {
-            let identity = self
-                .identity_store
-                .random(network, &mut rng)?
-                .with_context(
-                    || "no local identities found in database, have identities been generated?",
-                )?;
-            let invitees = self.identity_store.random_n(network, &mut rng, invitees)?;
-            let bar_pointer = bar.clone();
-            let network = network.clone();
-            let semaphore = semaphore.clone();
-            handles.push(set.spawn(async move {
-                let _permit = semaphore.acquire().await?;
-                let identity_lock = get_identity_lock(&identity.inbox_id)?;
-                let _lock_guard = identity_lock.lock().await;
-
-                debug!(address = identity.address(), "group owner");
-                let client = app::client_from_identity(&identity, &network).await?;
-                let mut ids = Vec::with_capacity(invitees.len());
-                for member in &invitees {
-                    let cred = XmtpInstallationCredential::from_bytes(&member.installation_key)?;
-                    let inbox_id = hex::encode(member.inbox_id);
-                    tracing::debug!(
-                        inbox_ids = hex::encode(member.inbox_id),
-                        installation_key = %InstallationId::from(*cred.public_bytes()),
-                        "Adding Members"
-                    );
-                    ids.push(inbox_id);
-                }
-                let group = client.create_group(Default::default(), Default::default())?;
-                group.add_members_by_inbox_id(ids.as_slice()).await?;
-                bar_pointer.inc(1);
-                let mut members = invitees
-                    .into_iter()
-                    .map(|i| i.inbox_id)
-                    .collect::<Vec<InboxId>>();
-                members.push(identity.inbox_id);
-                Ok(Group {
-                    id: group
-                        .group_id
-                        .try_into()
-                        .expect("Group id expected to be 32 bytes"),
-                    member_size: members.len() as u32,
-                    members,
-                    created_by: identity.inbox_id,
+        let groups = stream::iter(clients.iter())
+            .map(|(owner, client)| {
+                let bar_pointer = bar.clone();
+                let client = client.clone();
+                let owner = *owner;
+                let store = self.identity_store.clone();
+                let network = u64::from(network);
+                let semaphore = semaphore.clone();
+                Ok(tokio::spawn({
+                    async move {
+                        let _permit = semaphore.acquire().await?;
+                        debug!(owner = hex::encode(owner), "group owner");
+                        let invitees = {
+                            let mut rng = rand::thread_rng();
+                            // todo: maybe generate more identities at this point?
+                            // or earlier, check if we have sufficient identities for this
+                            // command
+                            store.random_n_capped(network, &mut rng, invitees)
+                        }?;
+                        let mut ids = Vec::with_capacity(invitees.len());
+                        for member in &invitees {
+                            let member = member.value();
+                            let cred =
+                                XmtpInstallationCredential::from_bytes(&member.installation_key)?;
+                            let inbox_id = hex::encode(member.inbox_id);
+                            tracing::debug!(
+                                inbox_ids = hex::encode(member.inbox_id),
+                                installation_key = %InstallationId::from(*cred.public_bytes()),
+                                "Adding Members"
+                            );
+                            ids.push(inbox_id);
+                        }
+                        let client = client.lock().await;
+                        let group = client.create_group(Default::default(), Default::default())?;
+                        group.add_members_by_inbox_id(ids.as_slice()).await?;
+                        bar_pointer.inc(1);
+                        let mut members = invitees
+                            .into_iter()
+                            .map(|i| i.value().inbox_id)
+                            .collect::<Vec<InboxId>>();
+                        members.push(owner);
+                        Ok(Group {
+                            id: group
+                                .group_id
+                                .try_into()
+                                .expect("Group id expected to be 32 bytes"),
+                            member_size: members.len() as u32,
+                            members,
+                            created_by: owner,
+                        })
+                    }
                 })
-            }));
-
-            // going above 128 we hit "unable to open database errors"
-            // This may be related to open file limits
-            if set.len() >= 64
-                && let Some(group) = set.join_next().await
-            {
-                match group {
-                    Ok(group) => {
-                        groups.push(group?);
-                    }
-                    Err(e) => {
-                        error!("{}", e.to_string());
-                    }
-                }
-            }
-        }
-
-        while let Some(group) = set.join_next().await {
-            match group {
-                Ok(group) => {
-                    groups.push(group?);
-                }
-                Err(e) => {
-                    error!("{}", e.to_string());
-                }
-            }
-        }
+                .map_err(|_| eyre!("failed to spawn tasks for group creation")))
+            })
+            .try_buffer_unordered(concurrency)
+            .try_collect::<Vec<_>>()
+            .await?
+            .into_iter()
+            .collect::<Result<Vec<_>, eyre::Report>>()?;
         self.group_store.set_all(groups.as_slice(), &self.network)?;
         Ok(groups)
     }
