@@ -272,11 +272,11 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
         use ProjectState::*;
-        let mut this = self.as_mut().project();
-        let state = this.state.as_mut().project();
-        match state {
+        let mut this = self.as_mut();
+        match this.as_mut().project().state.as_mut().project() {
             Waiting => {
                 tracing::trace!("stream messages in waiting state");
+                let this = self.as_mut().project();
                 if let Some(group) = this.add_queue.pop_front() {
                     self.as_mut().resolve_group_additions(group);
                     cx.waker().wake_by_ref();
@@ -315,21 +315,20 @@ where
             }
             Adding { future } => {
                 tracing::trace!("stream messages in adding state");
-                let (stream, group, cursor) = ready!(future.poll(cx))?;
-                let this = self.as_mut();
-                if let Some(c) = cursor {
-                    this.set_cursor(group.as_slice(), c)
-                };
-                let mut this = self.as_mut().project();
-                this.inner.set(stream);
-                if let Some(cursor) = this.groups.position(&group) {
-                    tracing::debug!(
-                        "added group_id={} at cursor={} to messages stream",
-                        hex::encode(&group),
-                        cursor
-                    );
+                if let Ok((stream, group, cursor)) = ready!(future.poll(cx)) {
+                    if let Some(c) = cursor {
+                        this.as_mut().set_cursor(group.as_slice(), c)
+                    };
+                    this.as_mut().project().inner.set(stream);
+                    if let Some(cursor) = this.groups.position(&group) {
+                        tracing::debug!(
+                            "added group_id={} at cursor={} to messages stream",
+                            hex::encode(&group),
+                            cursor
+                        );
+                    }
                 }
-                this.state.as_mut().set(State::Waiting);
+                this.project().state.as_mut().set(State::Waiting);
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
@@ -492,14 +491,14 @@ where
     ) -> Poll<Option<<Self as Stream>::Item>> {
         use ProjectState::*;
         if let Processing { future, .. } = self.as_mut().project().state.project() {
-            let processed = ready!(future.poll(cx))?;
+            let processed = ready!(future.poll(cx))
+                .inspect_err(|_| self.as_mut().project().state.set(State::Waiting))?;
             tracing::trace!(
                 "message @cursor=[{}] finished processing",
                 processed.tried_to_process
             );
-            let mut this = self.as_mut().project();
+            let this = self.as_mut().project();
             if let Some(msg) = processed.message {
-                this.state.set(State::Waiting);
                 this.returned.push(Cursor {
                     sequence_id: msg.sequence_id as u64,
                     originator_id: msg.originator_id as u32,
@@ -512,9 +511,9 @@ where
                     processed.tried_to_process,
                     self.returned.len()
                 );
+                self.as_mut().project().state.set(State::Waiting);
                 return Poll::Ready(Some(Ok(msg)));
             } else {
-                this.state.set(State::Waiting);
                 self.as_mut()
                     .set_cursor(processed.group_id.as_slice(), processed.next_message);
                 tracing::trace!(
@@ -523,6 +522,7 @@ where
                     processed.tried_to_process,
                     processed.next_message
                 );
+                self.as_mut().project().state.set(State::Waiting);
                 cx.waker().wake_by_ref();
                 return Poll::Pending;
             }
