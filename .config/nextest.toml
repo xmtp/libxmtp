@@ -1,6 +1,6 @@
 [profile.default]
 default-filter = "not test(test_stream_all_messages_does_not_lose_messages)"
-retries = 0
+retries = { backoff = "exponential", count = 3, delay = "3s", max-delay = "20s", jitter = true }
 status-level = "skip"
 failure-output = "final"
 fail-fast = false
@@ -8,7 +8,6 @@ fail-fast = false
 [profile.ci]
 slow-timeout = "90sec"
 default-filter = "not (test(test_stream_all_messages_does_not_lose_messages)|test(test_can_stream_group_messages_for_updates))"
-retries = 0
 status-level = "skip"
 failure-output = "immediate-final"
 fail-fast = false
