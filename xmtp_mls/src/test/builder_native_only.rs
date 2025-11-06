@@ -591,25 +591,14 @@ async fn test_invalid_scw_then_valid_scw_recovery(
 }
 
 /// Test that operations fail when identity is not ready
-#[rstest::rstest]
-#[tokio::test]
-async fn test_operations_fail_when_not_ready(#[future] docker_smart_wallet: SmartWalletContext) {
-    let SmartWalletContext {
-        factory,
-        sw_address,
-        ..
-    } = docker_smart_wallet.await;
-
-    let provider = factory.provider();
-    let _chain_id = provider.get_chain_id().await.unwrap();
-
-    // Create client with smart contract wallet but don't register
-    let account_address = format!("{sw_address}");
-    let ident = Identifier::eth(&account_address).unwrap();
-
+#[xmtp_common::test]
+async fn test_operations_fail_when_not_ready() {
+    // Create client with regular wallet but don't register identity
+    let wallet = generate_local_wallet();
+    let ident = wallet.identifier();
     let identity_strategy = IdentityStrategy::new(
         ident.inbox_id(0).unwrap(),
-        Identifier::eth(account_address).unwrap(),
+        ident.clone(),
         0,
         None,
     );
