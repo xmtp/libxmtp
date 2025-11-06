@@ -663,11 +663,9 @@ impl Identity {
         }
     }
 
-    /// Generate a new key package and store it in the database (without uploading to network).
-    /// Returns the serialized key package bytes and the history ID for later upload and cleanup.
-    ///
-    /// This is used during identity registration to separate key package generation from
-    /// signature validation, preventing orphaned key packages on the network if validation fails.
+    /// Generate and store key package locally (not uploaded to network).
+    /// Returns serialized bytes and history ID for later upload/cleanup.
+    /// Prevents orphaned key packages if signature validation fails.
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn generate_and_store_key_package<S: XmtpMlsStorageProvider>(
         &self,

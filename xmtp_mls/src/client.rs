@@ -31,7 +31,7 @@ use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
-use xmtp_common::retryable;
+use xmtp_common::{Retry, retry_async, retryable};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{
     ConnectionExt, NotFound, StorageError, XmtpDb,
@@ -478,15 +478,13 @@ where
         self.context.identity()
     }
 
-    /// Helper method to ensure identity is ready before performing operations.
-    ///
-    /// This check prevents operations on a client whose identity registration has not
-    /// completed successfully. Call `register_identity()` first to initialize the identity.
+    /// Ensures identity is ready before performing operations.
+    /// Call `register_identity()` first if this fails.
     fn ensure_identity_ready(&self) -> Result<(), ClientError> {
         if !self.identity().is_ready() {
             tracing::warn!(
                 inbox_id = %self.inbox_id(),
-                "Attempted operation on uninitialized identity. Call register_identity() first."
+                "Operation attempted before register_identity() was called"
             );
             return Err(IdentityError::UninitializedIdentity.into());
         }
@@ -827,7 +825,7 @@ where
     ) -> Result<(), ClientError> {
         tracing::info!("registering identity");
 
-        // Check if already registered
+        // Handle crash recovery - if already registered, just mark ready and return
         let stored_identity: Option<StoredIdentity> = self.context.db().fetch(&())?;
         if stored_identity.is_some() {
             tracing::info!("Identity already registered, skipping");
@@ -835,36 +833,50 @@ where
             return Ok(());
         }
 
-        // Generate key package locally (stores in DB but doesn't upload to network yet)
+        // Step 1: Generate key package and store locally (not uploaded yet)
         let (kp_bytes, history_id) = self.identity().generate_and_store_key_package(
             self.context.mls_storage(),
             CREATE_PQ_KEY_PACKAGE_EXTENSION,
         )?;
 
-        // Validate signatures BEFORE uploading key package
-        let updates = IdentityUpdates::new(&self.context);
-        updates.apply_signature_request(signature_request).await?;
+        // Step 2: Validate signatures (fails here if invalid - no network pollution)
+        let identity_update = signature_request
+            .build_identity_update()
+            .map_err(IdentityUpdateError::from)?;
+        identity_update.to_verified(&self.context.scw_verifier()).await?;
 
-        // Upload key package to network after validating signatures
+        // Step 3: Upload key package first (prevents race condition)
         self.context
             .api()
             .upload_key_package(kp_bytes, true)
             .await?;
 
-        // Mark old key packages for deletion and reset rotation queue to make sure we don't keep previous key packages around
+        // Step 4: Publish identity update (makes installation visible)
+        self.context.api().publish_identity_update(identity_update).await?;
+
+        // Step 5: Fetch and store in local DB (needed for group operations)
+        let inbox_id = self.inbox_id().to_string();
+        retry_async!(
+            Retry::default(),
+            (async {
+                load_identity_updates(self.context.api(), &self.context.db(), &[inbox_id.as_str()])
+                    .await
+            })
+        )?;
+
+        // Clean up old key packages
         self.context.mls_storage().transaction(|conn| {
             conn.key_store()
                 .db()
                 .mark_key_package_before_id_to_be_deleted(history_id)?;
             Ok::<(), StorageError>(())
         })?;
-
         self.context
             .mls_storage()
             .db()
             .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
 
-        // Store in database and mark as ready
+        // Mark identity as ready
         StoredIdentity::try_from(self.identity())?.store(&self.context.db())?;
         self.identity().set_ready();
         Ok(())
