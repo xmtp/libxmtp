@@ -1,7 +1,8 @@
 use crate::{app::types::*, constants::STORAGE_PREFIX};
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, eyre};
 use redb::TableDefinition;
 use std::sync::Arc;
+use xmtp_cryptography::XmtpInstallationCredential;
 
 use super::{Database, MetadataStore};
 
@@ -14,6 +15,16 @@ const TABLE: TableDefinition<IdentityKey, Identity> = TableDefinition::new(NAMES
 
 pub type IdentityKey = super::NetworkKey<32>;
 pub type IdentityStore<'a> = super::KeyValueStore<'a, IdentityStorage>;
+
+impl IdentityStore<'_> {
+    pub fn installation_ids(&self, network: u64) -> Result<Vec<XmtpInstallationCredential>> {
+        Ok(self
+            .load(network)?
+            .ok_or(eyre!("no identities in store. try generating some."))?
+            .map(|id| XmtpInstallationCredential::from_bytes(&id.value().installation_key).unwrap())
+            .collect())
+    }
+}
 
 impl From<Arc<redb::Database>> for IdentityStore<'_> {
     fn from(value: Arc<redb::Database>) -> Self {

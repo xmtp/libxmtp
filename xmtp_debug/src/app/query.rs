@@ -4,12 +4,12 @@ use crate::{
         store::{Database, IdentityStore},
     },
     args,
+    queries::key_packages,
 };
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{self, Result, eyre};
 use openmls_rust_crypto::RustCrypto;
 use std::{collections::HashSet, sync::Arc};
-use xmtp_cryptography::XmtpInstallationCredential;
-use xmtp_proto::mls_v1::fetch_key_packages_response;
+use xmtp_mls::verified_key_package_v2::VerifiedKeyPackageV2;
 
 pub struct Query {
     opts: args::Query,
@@ -128,7 +128,19 @@ impl Query {
                 installation_keys: installation_keys.iter().cloned().collect(),
             })
             .await?;
-        print_kps(&res.key_packages, installation_keys)?;
+        let kps = res
+            .key_packages
+            .into_iter()
+            .map(|kp| {
+                xmtp_mls::verified_key_package_v2::VerifiedKeyPackageV2::from_bytes(
+                    &RustCrypto::default(),
+                    kp.key_package_tls_serialized.as_slice(),
+                )
+                .map_err(eyre::Report::from)
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        print_kps(&kps, installation_keys)?;
         Ok(())
     }
 
@@ -200,55 +212,41 @@ impl Query {
     pub async fn all_key_packages(&self) -> Result<()> {
         let store: IdentityStore = self.db.clone().into();
         let network = u64::from(&self.network);
-        if let Some(identities) = store.load(network)? {
-            let keys: Vec<[u8; 32]> = identities
-                .map(|i| {
-                    let cred = XmtpInstallationCredential::from_bytes(&i.value().installation_key)
-                        .unwrap();
-                    *cred.public_bytes()
-                })
-                .collect();
-            let client = self.network.connect()?;
-            tracing::info!(
-                installation_keys = ?keys.iter().map(hex::encode).collect::<Vec<_>>(),
-                "fetching key packages"
-            );
-            let res = client
-                .fetch_key_packages(xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest {
-                    installation_keys: keys.iter().map(Vec::from).collect(),
-                })
-                .await?;
-            print_kps(&res.key_packages, keys.iter().map(Vec::from).collect())?;
-        } else {
-            tracing::warn!("no identities in database, try generating some.");
-        }
+        let identities: Vec<_> = store
+            .load(network)?
+            .ok_or(eyre!("no identities in db, try generating some"))?
+            .map(|v| v.value())
+            .collect();
+
+        let kps = key_packages(&self.network, identities.iter()).await?;
+        let keys = store
+            .installation_ids(network)?
+            .into_iter()
+            .map(|i| i.public_slice().to_vec())
+            .collect::<HashSet<_>>();
+        print_kps(&kps, keys)?;
+        tracing::info!(
+            "{} total KeyPackages for {} identities",
+            kps.len(),
+            identities.len()
+        );
         Ok(())
     }
 }
 
-fn print_kps(
-    kps: &[fetch_key_packages_response::KeyPackage],
-    keys: HashSet<Vec<u8>>,
-) -> Result<()> {
-    for package in kps {
-        let verified = xmtp_mls::verified_key_package_v2::VerifiedKeyPackageV2::from_bytes(
-            &RustCrypto::default(),
-            package.key_package_tls_serialized.as_slice(),
-        )?;
-        let installation_id = verified.installation_id();
+fn print_kps(kps: &[VerifiedKeyPackageV2], keys: impl Into<HashSet<Vec<u8>>>) -> Result<()> {
+    let keys = keys.into();
+    for kp in kps {
+        let installation_id = kp.installation_id();
         let is_verified = keys.contains(&installation_id);
-        let wrapper_encryption = verified
-            .wrapper_encryption()
-            .ok()
-            .flatten()
-            .map(|e| e.algorithm);
+        let wrapper_encryption = kp.wrapper_encryption().ok().flatten().map(|e| e.algorithm);
 
-        let lifetime = verified.life_time().unwrap();
+        let lifetime = kp.life_time().unwrap();
         let not_before = lifetime.not_before;
         let not_before_date = chrono::DateTime::from_timestamp(not_before as i64, 0).unwrap();
         let not_after = lifetime.not_after;
         let not_after_date = chrono::DateTime::from_timestamp(not_after as i64, 0).unwrap();
-        let last_resort = verified.inner.last_resort();
+        let last_resort = kp.inner.last_resort();
 
         println!("  installation_id: {}", hex::encode(installation_id));
         println!("    verified: {is_verified}");
@@ -261,11 +259,8 @@ fn print_kps(
         println!("    not_before: {not_before_date}");
         println!("    not_after: {not_after_date}");
         println!("    last_resort: {last_resort}");
-        println!("    inbox_id: {}", verified.credential.inbox_id);
-        println!(
-            "    hpke_init_key: {}",
-            hex::encode(verified.hpke_init_key())
-        );
+        println!("    inbox_id: {}", kp.credential.inbox_id);
+        println!("    hpke_init_key: {}", hex::encode(kp.hpke_init_key()));
     }
     Ok(())
 }

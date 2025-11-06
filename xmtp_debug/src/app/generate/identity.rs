@@ -4,8 +4,9 @@ use crate::app::register_client;
 use crate::app::store::{Database, IdentityStore};
 use crate::app::{self, types::Identity};
 use crate::args;
+use crate::queries::key_packages;
 
-use color_eyre::eyre::{self, Result, WrapErr, bail, eyre};
+use color_eyre::eyre::{self, Result, ensure, eyre};
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, future, stream};
 use indicatif::{ProgressBar, ProgressStyle};
 use openmls_rust_crypto::RustCrypto;
@@ -13,6 +14,7 @@ use tokio::sync::Mutex;
 use tokio::time::timeout;
 use xmtp_api_d14n::d14n::SubscribeEnvelopes;
 use xmtp_api_d14n::protocol::{CollectionExtractor, Extractor, KeyPackagesExtractor};
+use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_proto::api::QueryStreamExt;
 use xmtp_proto::types::{InstallationId, TopicKind};
 
@@ -28,16 +30,6 @@ impl GenerateIdentity {
             identity_store,
             network,
         }
-    }
-
-    #[allow(unused)]
-    pub fn load_identities(
-        &self,
-    ) -> Result<Option<impl Iterator<Item = Result<Identity>> + use<'_>>> {
-        Ok(self
-            .identity_store
-            .load(&self.network)?
-            .map(|i| i.map(|i| Ok(i.value()))))
     }
 
     pub async fn create_identities(
@@ -69,7 +61,7 @@ impl GenerateIdentity {
         let s = Arc::new(Mutex::new(SubscribeEnvelopes::builder()));
 
         tracing::info!("creating clients");
-        let clients = stream::iter((0..n).collect::<Vec<_>>())
+        let clients: Vec<_> = stream::iter((0..n).collect::<Vec<_>>())
             .map(|_| {
                 tokio::spawn({
                     let sem = semaphore.clone();
@@ -119,7 +111,7 @@ impl GenerateIdentity {
                 let _ = tx.send(());
                 bar_ref.set_message("waiting for identities to be written");
                 futures::pin_mut!(s);
-                while let Some(kp) = timeout(n.ryow_timeout.into(), s.try_next()).await.wrap_err("timeout reached for reading writes on key package published")?? {
+                while let Some(kp) = timeout(n.ryow_timeout.into(), s.try_next()).await?? {
                     // TODO: we can deserialize key packages in extractors possibly
                     let extractor =
                         CollectionExtractor::new(kp.envelopes, KeyPackagesExtractor::new());
@@ -154,12 +146,14 @@ impl GenerateIdentity {
         // ensure our ryow task is spawned
         let _ = rx.await;
 
-        let identities = stream::iter(clients.into_iter().map(Ok))
+        let c = clients.clone();
+        let identities = stream::iter(c.into_iter().map(Ok))
             .map_ok(|(c, wallet)| {
                 tokio::spawn({
                     let sem = semaphore.clone();
+                    let wallet = wallet.clone();
                     async move {
-                        let _permit = sem.acquire().await?;
+                        let _permit = sem.acquire().await;
                         let identity = Identity::from_libxmtp(c.identity(), wallet.clone())?;
                         register_client(&c, wallet.into_alloy()).await?;
                         Ok(identity)
@@ -172,50 +166,56 @@ impl GenerateIdentity {
             .try_collect::<Vec<Identity>>()
             .await?;
 
+        let original_ids = identities.clone();
         self.identity_store
             .set_all(identities.as_slice(), &self.network)?;
-
-        //TODO: this can be removed once we're d14n-only
-        let tmp = Arc::new(app::temp_client(network, None).await?);
-        let conn = Arc::new(tmp.context.store().db());
-        let states = stream::iter(identities.iter().copied().map(Ok))
-            .map_ok(|identity| {
-                let tmp = tmp.clone();
-                let conn = conn.clone();
-                tokio::spawn({
-                    let sem = semaphore.clone();
-                    async move {
-                        let _permit = sem.acquire().await?;
-                        let id = hex::encode(identity.inbox_id);
-                        trace!(inbox_id = id, "getting association state");
-                        let state = tmp
-                            .identity_updates()
-                            .get_latest_association_state(&conn, &id)
-                            .await?;
-                        Ok(state)
-                    }
-                })
-                .map_err(|_| eyre!("failed to register identities"))
+        // since we cannot depend on RYOW and KPS dont get uploaded
+        // just keep trying to upload until they do.
+        // TODO:d14n Hopefully can remove this at some point
+        let key_package_keys: HashSet<Vec<u8>> = key_packages(&self.network, identities.iter())
+            .await?
+            .iter()
+            .map(|v| v.installation_public_key.clone())
+            .collect();
+        let mut needed_keys: HashSet<Vec<u8>> = identities
+            .iter()
+            .map(|i| {
+                let cred = XmtpInstallationCredential::from_bytes(&i.installation_key).unwrap();
+                cred.public_bytes().to_vec()
             })
-            .try_buffer_unordered(concurrency)
-            .map(|j| j.flatten())
-            .collect::<Vec<_>>()
-            .await;
-        let errs = states
-            .into_iter()
-            .filter_map(|s| s.err())
-            .map(|e| e.to_string())
-            .collect::<Vec<String>>();
-        let unique: HashSet<String> = HashSet::from_iter(errs.clone());
-        if !unique.is_empty() {
-            tracing::error!("{} errors during identity generation", errs.len());
-            tracing::error!("{} unique errors during identity generation", unique.len());
-            for err in unique.into_iter() {
-                error!(err);
-            }
-            bail!("Error generation failed");
+            .collect();
+        needed_keys = needed_keys.difference(&key_package_keys).cloned().collect();
+        while !needed_keys.is_empty() {
+            tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+            tracing::info!("still need {}", needed_keys.len());
+            stream::iter(clients.iter().map(Ok))
+                .try_for_each(async |c| {
+                    if needed_keys.contains(c.0.context.installation_id().as_ref()) {
+                        c.0.rotate_and_upload_key_package().await?;
+                    }
+                    Ok::<_, eyre::Report>(())
+                })
+                .await?;
+            let check_ids = original_ids.iter().filter(|id| {
+                let key = XmtpInstallationCredential::from_bytes(&id.installation_key).unwrap();
+                needed_keys.contains(&key.public_bytes().to_vec())
+            });
+            let key_package_keys: HashSet<Vec<u8>> = key_packages(&self.network, check_ids)
+                .await?
+                .iter()
+                .map(|v| v.installation_public_key.clone())
+                .collect();
+            needed_keys = needed_keys.difference(&key_package_keys).cloned().collect();
         }
         read_writes.await?;
+
+        let key_package_keys: Vec<_> = key_packages(&self.network, original_ids.iter()).await?;
+        ensure!(
+            key_package_keys.len() == original_ids.len(),
+            "created {} identities, but only {} key packages were uploaded",
+            identities.len(),
+            key_package_keys.len()
+        );
         Ok(identities)
     }
 }
