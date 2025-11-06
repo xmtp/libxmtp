@@ -697,4 +697,19 @@ impl Conversations {
     );
     Ok(StreamCloser::new(stream_closer))
   }
+
+  #[wasm_bindgen(js_name = "streamMessageDeletions")]
+  pub fn stream_message_deletions(
+    &self,
+    callback: StreamCallback,
+  ) -> Result<StreamCloser, JsError> {
+    let stream_closer = RustXmtpClient::stream_message_deletions_with_callback(
+      self.inner_client.clone(),
+      move |message| match message {
+        Ok(message_id) => callback.on_message_deleted(message_id),
+        Err(e) => callback.on_error(JsError::from(e)),
+      },
+    );
+    Ok(StreamCloser::new(stream_closer))
+  }
 }

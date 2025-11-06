@@ -62,6 +62,8 @@ pub enum LocalEvents {
     // a new group was created
     NewGroup(Vec<u8>),
     PreferencesChanged(Vec<PreferenceUpdate>),
+    // a message was deleted (contains message ID)
+    MessageDeleted(Vec<u8>),
 }
 
 #[derive(Clone)]
@@ -141,11 +143,19 @@ impl LocalEvents {
             _ => None,
         }
     }
+
+    fn message_deletion_filter(self) -> Option<Vec<u8>> {
+        match self {
+            Self::MessageDeleted(message_id) => Some(message_id),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) trait StreamMessages {
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>>;
     fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>>;
+    fn stream_message_deletions(self) -> impl Stream<Item = Result<Vec<u8>>>;
 }
 
 impl StreamMessages for broadcast::Receiver<LocalEvents> {
@@ -163,6 +173,15 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
         BroadcastStream::new(self).filter_map(|event| async {
             xmtp_common::optify!(event, "Missed message due to event queue lag")
                 .and_then(LocalEvents::preference_filter)
+                .map(Result::Ok)
+        })
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    fn stream_message_deletions(self) -> impl Stream<Item = Result<Vec<u8>>> {
+        BroadcastStream::new(self).filter_map(|event| async {
+            xmtp_common::optify!(event, "Missed message due to event queue lag")
+                .and_then(LocalEvents::message_deletion_filter)
                 .map(Result::Ok)
         })
     }
@@ -478,6 +497,27 @@ where
             }
             tracing::debug!("`stream_preferences` stream ended, dropping stream");
             on_close();
+            Ok::<_, SubscribeError>(())
+        })
+    }
+
+    pub fn stream_message_deletions_with_callback(
+        client: Arc<Client<Context>>,
+        #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<u8>>) + Send + 'static,
+        #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<u8>>) + 'static,
+    ) -> impl StreamHandle<StreamOutput = Result<()>> {
+        let (tx, rx) = oneshot::channel();
+
+        xmtp_common::spawn(Some(rx), async move {
+            let receiver = client.local_events.subscribe();
+            let stream = receiver.stream_message_deletions();
+
+            futures::pin_mut!(stream);
+            let _ = tx.send(());
+            while let Some(message_id) = stream.next().await {
+                callback(message_id)
+            }
+            tracing::debug!("`stream_message_deletions` stream ended, dropping stream");
             Ok::<_, SubscribeError>(())
         })
     }

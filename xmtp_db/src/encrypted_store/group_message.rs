@@ -433,7 +433,7 @@ pub trait QueryGroupMessage {
         msg_id: &MessageId,
     ) -> Result<usize, crate::ConnectionError>;
 
-    fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError>;
+    fn delete_expired_messages(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
 
     fn delete_message_by_id<MessageId: AsRef<[u8]>>(
         &self,
@@ -576,7 +576,7 @@ where
         (**self).set_delivery_status_to_failed(msg_id)
     }
 
-    fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError> {
+    fn delete_expired_messages(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
         (**self).delete_expired_messages()
     }
 
@@ -1077,7 +1077,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
-    fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError> {
+    fn delete_expired_messages(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
         self.raw_query_write(|conn| {
             use diesel::prelude::*;
             let now = now_ns();
@@ -1089,7 +1089,8 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
                     .filter(dsl::expire_at_ns.is_not_null())
                     .filter(dsl::expire_at_ns.le(now)),
             )
-            .execute(conn)
+            .returning(dsl::id)
+            .load::<Vec<u8>>(conn)
         })
     }
 
