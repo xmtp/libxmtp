@@ -1821,6 +1821,24 @@ impl FfiConversations {
         FfiStreamCloser::new(handle)
     }
 
+    /// Get notified when a message is deleted by the disappearing messages worker.
+    /// The callback receives the message ID of each deleted message.
+    pub async fn stream_message_deletions(
+        &self,
+        callback: Arc<dyn FfiMessageDeletionCallback>,
+    ) -> FfiStreamCloser {
+        let handle = RustXmtpClient::stream_message_deletions_with_callback(
+            self.inner_client.clone(),
+            move |msg| {
+                if let Ok(message_id) = msg {
+                    callback.on_message_deleted(message_id)
+                }
+            },
+        );
+
+        FfiStreamCloser::new(handle)
+    }
+
     pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let conversations = inner.find_groups(GroupQueryArgs {
@@ -3131,6 +3149,11 @@ pub trait FfiPreferenceCallback: Send + Sync {
     fn on_preference_update(&self, preference: Vec<FfiPreferenceUpdate>);
     fn on_error(&self, error: FfiSubscribeError);
     fn on_close(&self);
+}
+
+#[uniffi::export(with_foreign)]
+pub trait FfiMessageDeletionCallback: Send + Sync {
+    fn on_message_deleted(&self, message_id: Vec<u8>);
 }
 
 #[derive(uniffi::Enum, Debug)]

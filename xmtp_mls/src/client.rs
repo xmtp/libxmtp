@@ -731,7 +731,15 @@ where
     /// Returns the number of messages deleted (0 or 1)
     pub fn delete_message(&self, message_id: Vec<u8>) -> Result<usize, ClientError> {
         let conn = self.context.db();
-        Ok(conn.delete_message_by_id(&message_id)?)
+        let num_deleted = conn.delete_message_by_id(&message_id)?;
+        // Fire a local event if the message was successfully deleted
+        if num_deleted > 0 {
+            let _ = self.context.local_events().send(
+                crate::subscriptions::LocalEvents::MessageDeleted(message_id),
+            );
+        }
+
+        Ok(num_deleted)
     }
 
     /// Query for groups with optional filters
