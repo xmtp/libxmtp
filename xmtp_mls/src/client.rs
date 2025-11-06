@@ -6,7 +6,7 @@ use crate::{
         enrichment::{EnrichMessageError, enrich_messages},
     },
 };
-use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
+use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
 
 use crate::{
     builder::SyncWorkerMode,
@@ -41,6 +41,7 @@ use xmtp_db::{
     events::EventLevel,
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
+    identity::StoredIdentity,
 };
 use xmtp_db::{group::GroupQueryOrderBy, prelude::*};
 use xmtp_id::{
@@ -818,16 +819,46 @@ where
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
         tracing::info!("registering identity");
-        // Validate and publish the identity update BEFORE uploading key packages
-        // This ensures we don't commit state changes if signature validation fails
+
+        // Check if already registered
+        let stored_identity: Option<StoredIdentity> = self.context.db().fetch(&())?;
+        if stored_identity.is_some() {
+            tracing::info!("Identity already registered, skipping");
+            self.identity().set_ready();
+            return Ok(());
+        }
+
+        // Generate key package locally (stores in DB but doesn't upload to network yet)
+        let (kp_bytes, history_id) = self.identity().generate_and_store_key_package(
+            self.context.mls_storage(),
+            CREATE_PQ_KEY_PACKAGE_EXTENSION,
+        )?;
+
+        // Validate signatures BEFORE uploading key package
         let updates = IdentityUpdates::new(&self.context);
         updates.apply_signature_request(signature_request).await?;
 
-        // Only after successful validation, register the identity and upload key packages
-        self.identity()
-            .register(self.context.api(), self.context.mls_storage())
+        // Upload key package to network after validating signatures
+        self.context
+            .api()
+            .upload_key_package(kp_bytes, true)
             .await?;
 
+        // Mark old key packages for deletion and reset rotation queue to make sure we don't keep previous key packages around
+        self.context.mls_storage().transaction(|conn| {
+            conn.key_store()
+                .db()
+                .mark_key_package_before_id_to_be_deleted(history_id)?;
+            Ok::<(), StorageError>(())
+        })?;
+
+        self.context
+            .mls_storage()
+            .db()
+            .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
+
+        // Store in database and mark as ready
+        StoredIdentity::try_from(self.identity())?.store(&self.context.db())?;
         self.identity().set_ready();
         Ok(())
     }

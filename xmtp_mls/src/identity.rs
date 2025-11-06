@@ -638,22 +638,15 @@ impl Identity {
     ) -> Result<(), IdentityError> {
         tracing::info!("Start rotating keys and uploading the new key package");
 
-        let provider = XmtpOpenMlsProviderRef::new(mls_storage);
-        let NewKeyPackageResult {
-            key_package: kp,
-            pq_pub_key,
-        } = self.new_key_package(&provider, include_post_quantum)?;
-        let hash_ref = serialize_key_package_hash_ref(&kp, &provider)?;
-        let history_id = provider
-            .storage()
-            .db()
-            .store_key_package_history_entry(hash_ref.clone(), pq_pub_key.clone())?
-            .id;
-        let kp_bytes = kp.tls_serialize_detached()?;
+        // Generate and store key package locally
+        let (kp_bytes, history_id) =
+            self.generate_and_store_key_package(mls_storage, include_post_quantum)?;
 
+        // Upload to network
         match api_client.upload_key_package(kp_bytes, true).await {
             Ok(()) => {
                 // Successfully uploaded. Delete previous KPs
+                let provider = XmtpOpenMlsProviderRef::new(mls_storage);
                 provider.storage().transaction(|conn| {
                     let storage = conn.key_store();
                     storage
@@ -668,6 +661,35 @@ impl Identity {
             }
             Err(err) => Err(IdentityError::ApiClient(err)),
         }
+    }
+
+    /// Generate a new key package and store it in the database (without uploading to network).
+    /// Returns the serialized key package bytes and the history ID for later upload and cleanup.
+    ///
+    /// This is used during identity registration to separate key package generation from
+    /// signature validation, preventing orphaned key packages on the network if validation fails.
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub(crate) fn generate_and_store_key_package<S: XmtpMlsStorageProvider>(
+        &self,
+        mls_storage: &S,
+        include_post_quantum: bool,
+    ) -> Result<(Vec<u8>, i32), IdentityError> {
+        let provider = XmtpOpenMlsProviderRef::new(mls_storage);
+        let NewKeyPackageResult {
+            key_package: kp,
+            pq_pub_key,
+        } = self.new_key_package(&provider, include_post_quantum)?;
+
+        let hash_ref = serialize_key_package_hash_ref(&kp, &provider)?;
+        let history_id = provider
+            .storage()
+            .db()
+            .store_key_package_history_entry(hash_ref, pq_pub_key)?
+            .id;
+
+        let kp_bytes = kp.tls_serialize_detached()?;
+
+        Ok((kp_bytes, history_id))
     }
 }
 

@@ -8,7 +8,7 @@ use xmtp_db::Fetch;
 use xmtp_db::encrypted_store::identity::StoredIdentity;
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_id::associations::Identifier;
-use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
+use xmtp_id::associations::test_utils::{MockSmartContractSignatureVerifier, WalletTestExt};
 use xmtp_id::utils::test::{SmartWalletContext, docker_smart_wallet};
 use xmtp_id::{
     associations::{AccountId, unverified::NewUnverifiedSmartContractWalletSignature},
@@ -224,8 +224,7 @@ async fn test_two_smart_contract_wallets_group_messaging(
     let client1 = Client::builder(identity_strategy1)
         .temp_store()
         .await
-        .local_client()
-        .await
+        .local()
         .default_mls_store()
         .unwrap()
         .with_remote_verifier()
@@ -267,8 +266,14 @@ async fn test_two_smart_contract_wallets_group_messaging(
     let message2 = b"Hello from smart wallet 2!";
 
     // Client1 sends a message
-    group1.send_message(message1).await.unwrap();
-    group1.send_message(message2).await.unwrap();
+    group1
+        .send_message(message1, Default::default())
+        .await
+        .unwrap();
+    group1
+        .send_message(message2, Default::default())
+        .await
+        .unwrap();
 
     // Client2 receives and sends a message
     // group2.sync().await.unwrap();
@@ -321,8 +326,7 @@ async fn test_smart_contract_wallet_unverified_should_fail(
     let client1 = Client::builder(identity_strategy1)
         .temp_store()
         .await
-        .local_client()
-        .await
+        .local()
         .default_mls_store()
         .unwrap()
         .with_scw_verifier(mock_verifier)
@@ -404,8 +408,7 @@ async fn test_smart_contract_wallet_unverified_should_fail_2(
     let scw_client = Client::builder(identity_strategy1)
         .temp_store()
         .await
-        .local_client()
-        .await
+        .local()
         .default_mls_store()
         .unwrap()
         .with_remote_verifier()
@@ -473,7 +476,7 @@ async fn test_smart_contract_wallet_unverified_should_fail_2(
 
         // Send a message with valid signature
         let message = b"Hello from valid SCW!";
-        let send_result = scw_group.send_message(message).await;
+        let send_result = scw_group.send_message(message, Default::default()).await;
         println!("SCW send_message result (valid): {:?}", send_result);
 
         // Sync the group
@@ -519,7 +522,7 @@ async fn test_smart_contract_wallet_unverified_should_fail_2(
     let scw_groups = scw_client.find_groups(Default::default()).unwrap();
     if let Some(scw_group) = scw_groups.first() {
         let message2 = b"Hello after invalid signature!";
-        let send_result2 = scw_group.send_message(message2).await;
+        let send_result2 = scw_group.send_message(message2, Default::default()).await;
         println!(
             "SCW send_message result (after invalid): {:?}",
             send_result2
@@ -573,8 +576,7 @@ async fn test_invalid_scw_prevents_db_storage(#[future] docker_smart_wallet: Sma
     let client = Client::builder(identity_strategy)
         .temp_store()
         .await
-        .local_client()
-        .await
+        .local()
         .default_mls_store()
         .unwrap()
         .with_scw_verifier(mock_verifier)
@@ -627,8 +629,6 @@ async fn test_invalid_scw_prevents_db_storage(#[future] docker_smart_wallet: Sma
         !client.identity().is_ready(),
         "Identity should not be ready after failed registration"
     );
-
-    println!("✓ Confirmed: Invalid SCW signature prevents DB storage");
 }
 
 /// Test recovery: invalid SCW signature, then valid SCW signature should work
@@ -666,8 +666,7 @@ async fn test_invalid_scw_then_valid_scw_recovery(
     let client = Client::builder(identity_strategy)
         .temp_store()
         .await
-        .local_client()
-        .await
+        .local()
         .default_mls_store()
         .unwrap()
         .with_scw_verifier(mock_verifier)
@@ -699,7 +698,6 @@ async fn test_invalid_scw_then_valid_scw_recovery(
         add_invalid_result.is_err(),
         "Expected invalid signature to be rejected"
     );
-    println!("✓ Step 1: Invalid signature correctly rejected");
 
     // STEP 2: Now rebuild client with VALID verifier (remote verifier)
     let identity_strategy2 = IdentityStrategy::new(
@@ -712,8 +710,7 @@ async fn test_invalid_scw_then_valid_scw_recovery(
     let client2 = Client::builder(identity_strategy2)
         .temp_store()
         .await
-        .local_client()
-        .await
+        .local()
         .default_mls_store()
         .unwrap()
         .with_remote_verifier()
@@ -725,11 +722,18 @@ async fn test_invalid_scw_then_valid_scw_recovery(
     // Create a new signature request with VALID verifier
     let mut valid_signature_request = client2.context.signature_request().unwrap();
 
+    // Generate a NEW signature for client2's signature_text
+    let signature_text2 = valid_signature_request.signature_text();
+    let hash_to_sign2 = alloy::primitives::eip191_hash_message(signature_text2);
+    let rsh2 = sw.replaySafeHash(hash_to_sign2).call().await.unwrap();
+    let signed_hash2 = wallet.sign_hash(&rsh2).await.unwrap().as_bytes().to_vec();
+    let signature_bytes2 = SignatureWithNonce::abi_encode(&(U256::from(0), signed_hash2));
+
     // Add the VALID signature
     valid_signature_request
         .add_new_unverified_smart_contract_signature(
             NewUnverifiedSmartContractWalletSignature::new(
-                signature_bytes.to_vec(),
+                signature_bytes2.to_vec(),
                 account_id.clone(),
                 None,
             ),
@@ -745,7 +749,6 @@ async fn test_invalid_scw_then_valid_scw_recovery(
         "Expected valid signature to allow registration: {:?}",
         register_result
     );
-    println!("✓ Step 2: Valid signature correctly accepted and registered");
 
     // Verify that the client IS stored in the database
     let stored_identity: Option<StoredIdentity> = client2.context.db().fetch(&()).unwrap();
@@ -766,9 +769,6 @@ async fn test_invalid_scw_then_valid_scw_recovery(
         group_result.is_ok(),
         "Client should be able to create groups after successful registration"
     );
-
-    println!("✓ Step 3: Client is fully functional after recovery");
-    println!("✓ Test completed: Recovery from invalid to valid SCW signature works!");
 }
 
 /// Test that operations fail when identity is not ready
@@ -798,8 +798,7 @@ async fn test_operations_fail_when_not_ready(#[future] docker_smart_wallet: Smar
     let client = Client::builder(identity_strategy)
         .temp_store()
         .await
-        .local_client()
-        .await
+        .local()
         .default_mls_store()
         .unwrap()
         .with_remote_verifier()
@@ -861,6 +860,4 @@ async fn test_operations_fail_when_not_ready(#[future] docker_smart_wallet: Smar
         "Expected UninitializedIdentity error, got: {:?}",
         err
     );
-
-    println!("✓ All operations correctly fail when identity is not ready");
 }
