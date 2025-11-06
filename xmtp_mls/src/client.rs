@@ -843,7 +843,9 @@ where
         let identity_update = signature_request
             .build_identity_update()
             .map_err(IdentityUpdateError::from)?;
-        identity_update.to_verified(&self.context.scw_verifier()).await?;
+        identity_update
+            .to_verified(&self.context.scw_verifier())
+            .await?;
 
         // Step 3: Upload key package first (prevents race condition)
         self.context
@@ -852,7 +854,10 @@ where
             .await?;
 
         // Step 4: Publish identity update (makes installation visible)
-        self.context.api().publish_identity_update(identity_update).await?;
+        self.context
+            .api()
+            .publish_identity_update(identity_update)
+            .await?;
 
         // Step 5: Fetch and store in local DB (needed for group operations)
         let inbox_id = self.inbox_id().to_string();
