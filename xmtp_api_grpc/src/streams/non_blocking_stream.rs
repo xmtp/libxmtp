@@ -140,6 +140,9 @@ where
                 if let Poll::Ready(None) = next {
                     this.state.set(StreamState::Terminated);
                 }
+                if let Poll::Ready(Some(_)) = next {
+                    tracing::info!("got an item!");
+                }
                 next
             }
             Terminated => Poll::Ready(None),
