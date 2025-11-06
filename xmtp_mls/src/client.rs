@@ -478,9 +478,16 @@ where
         self.context.identity()
     }
 
-    /// Helper method to ensure identity is ready before performing operations
+    /// Helper method to ensure identity is ready before performing operations.
+    ///
+    /// This check prevents operations on a client whose identity registration has not
+    /// completed successfully. Call `register_identity()` first to initialize the identity.
     fn ensure_identity_ready(&self) -> Result<(), ClientError> {
         if !self.identity().is_ready() {
+            tracing::warn!(
+                inbox_id = %self.inbox_id(),
+                "Attempted operation on uninitialized identity. Call register_identity() first."
+            );
             return Err(IdentityError::UninitializedIdentity.into());
         }
         Ok(())
