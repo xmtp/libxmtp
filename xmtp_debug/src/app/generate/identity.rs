@@ -110,7 +110,10 @@ impl GenerateIdentity {
                 let _ = tx.send(());
                 bar_ref.set_message("waiting for identities to be written");
                 futures::pin_mut!(s);
-                while let Some(kp) = timeout(n.ryow_timeout.into(), s.try_next()).await.wrap_err("timeout reached for reading writes on key package published")?? {
+                let duration: std::time::Duration = n.ryow_timeout.into();
+                while let Some(kp) = timeout(duration, s.try_next()).await.wrap_err(
+                    format!("timeout reached for reading writes on key package published. still need {} installations", needed_installations.len())
+                )?? {
                     // TODO: we can deserialize key packages in extractors possibly
                     let extractor =
                         CollectionExtractor::new(kp.envelopes, KeyPackagesExtractor::new());
