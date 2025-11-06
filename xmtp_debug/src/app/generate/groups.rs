@@ -56,7 +56,7 @@ impl GenerateGroups {
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
 
-        let clients = load_all_identities(&self.identity_store, network).await?;
+        let clients = load_all_identities(&self.identity_store, network)?;
         for _ in 0..n {
             let invitees = self.identity_store.random_n(network, &mut rng, invitees)?;
             let bar_pointer = bar.clone();

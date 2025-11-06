@@ -146,7 +146,6 @@ impl Client for GrpcClient {
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
-        tracing::debug!(?path, "request");
         let client = &mut self.inner.clone();
         self.wait_for_ready(client).await.map_err(GrpcError::from)?;
         let request = self

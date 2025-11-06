@@ -9,7 +9,6 @@ use crate::app::store::IdentityStore;
 use crate::app::types::*;
 use alloy::signers::local::PrivateKeySigner;
 use color_eyre::eyre::eyre;
-use futures::{TryStreamExt, stream};
 use tokio::sync::Mutex;
 use xmtp_db::prelude::Pragmas;
 use xmtp_db::{NativeDb, XmtpDb};
@@ -51,7 +50,7 @@ pub async fn temp_client(
 }
 
 /// Get the XMTP Client from an [`Identity`]
-pub async fn client_from_identity(
+pub fn client_from_identity(
     identity: &Identity,
     network: &args::BackendOpts,
 ) -> Result<crate::DbgClient> {
@@ -61,7 +60,7 @@ pub async fn client_from_identity(
         db_path = %path.display(),
         "creating client from identity"
     );
-    existing_client_inner(network, path).await
+    existing_client_inner(network, path)
 }
 
 /// Create a new client + Identity & register it
@@ -130,7 +129,7 @@ pub async fn register_client(client: &crate::DbgClient, owner: impl InboxOwner) 
 }
 
 /// Create a new client + Identity
-async fn existing_client_inner(
+fn existing_client_inner(
     network: &args::BackendOpts,
     db_path: PathBuf,
 ) -> Result<crate::DbgClient> {
@@ -152,14 +151,14 @@ async fn existing_client_inner(
         .store(store?)
         .default_mls_store()?
         .with_device_sync_worker_mode(Some(SyncWorkerMode::Disabled))
-        .build()
-        .await?;
+        .with_allow_offline(Some(true))
+        .build_offline()?;
 
     Ok(client)
 }
 
 /// Loads all identities
-pub async fn load_all_identities(
+pub fn load_all_identities(
     store: &IdentityStore<'static>,
     network: &args::BackendOpts,
 ) -> Result<Arc<HashMap<InboxId, Mutex<crate::DbgClient>>>> {
@@ -168,14 +167,11 @@ pub async fn load_all_identities(
         .ok_or(eyre!("no identities in store, try generating some"))?
         .map(|v| Ok::<_, eyre::Report>(v.value()));
 
-    let clients = stream::iter(identities)
-        .and_then(async |i| {
-            Ok((
-                i.inbox_id,
-                Mutex::new(client_from_identity(&i, network).await?),
-            ))
+    let clients = identities
+        .map(|i| {
+            let i = i?;
+            Ok::<_, eyre::Report>((i.inbox_id, Mutex::new(client_from_identity(&i, network)?)))
         })
-        .try_collect::<HashMap<_, _>>()
-        .await?;
+        .collect::<Result<HashMap<_, _>, _>>()?;
     Ok(Arc::new(clients))
 }

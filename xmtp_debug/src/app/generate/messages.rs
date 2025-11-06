@@ -84,7 +84,7 @@ impl GenerateMessages {
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
 
-        let clients = load_all_identities(&self.identity_store, network).await?;
+        let clients = load_all_identities(&self.identity_store, network)?;
         let mut set: tokio::task::JoinSet<Result<(), eyre::Error>> = tokio::task::JoinSet::new();
         let stores = (self.identity_store.clone(), self.group_store.clone());
         for _ in 0..n {

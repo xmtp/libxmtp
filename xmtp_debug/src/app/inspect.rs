@@ -34,8 +34,7 @@ impl Inspect {
         if identity.is_none() {
             bail!("No local identity with inbox_id=[{}]", inbox_id);
         }
-        let client =
-            app::client_from_identity(&identity.expect("checked for none"), &network).await?;
+        let client = app::client_from_identity(&identity.expect("checked for none"), &network)?;
         let conn = client.context.store().db();
         match kind {
             Associations => {
