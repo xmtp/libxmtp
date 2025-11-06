@@ -27,7 +27,6 @@ services:
       - node
     ports:
       - 5557:5557
-      - 5051:5051
       - 9901:9901
     build:
       context: ../..

@@ -51,16 +51,16 @@ xmtp_common::if_wasm! {
     xmtp_common::if_dev! {
         impl GrpcUrls {
             pub const NODE: &'static str = "https://api.dev.xmtp.network:5558";
-            pub const XMTPD: &'static str = "https://grpc.testnet-staging.xmtp.network:5558/xmtpd";
-            pub const GATEWAY: &'static str = "https://payer.testnet-staging.xmtp.network:5558/payer";
+            pub const XMTPD: &'static str = "https://grpc.testnet-staging.xmtp.network:443";
+            pub const GATEWAY: &'static str = "https://payer.testnet-staging.xmtp.network:443";
         }
     }
 
     xmtp_common::if_local! {
         impl GrpcUrls {
             pub const NODE: &'static str = "http://localhost:5557";
-            pub const XMTPD: &'static str = "http://localhost:5051/xmtpd";
-            pub const GATEWAY: &'static str = "http://localhost:5051/gateway";
+            pub const XMTPD: &'static str = GrpcUrlsLocal::XMTPD;
+            pub const GATEWAY: &'static str = GrpcUrlsLocal::GATEWAY;
         }
     }
 }
