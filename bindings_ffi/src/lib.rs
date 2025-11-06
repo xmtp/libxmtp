@@ -17,7 +17,7 @@ use std::error::Error;
 use xmtp_api_d14n::MessageBackendBuilderError;
 use xmtp_common::time::Expired;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_mls::common::group_metadata::GroupMetadataError;
+use xmtp_mls::mls_common::group_metadata::GroupMetadataError;
 
 extern crate tracing as log;
 

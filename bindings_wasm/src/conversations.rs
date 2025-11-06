@@ -16,9 +16,9 @@ use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group::{ConversationType as XmtpConversationType, GroupQueryOrderBy};
 use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
-use xmtp_mls::common::group::{DMMetadataOptions, GroupMetadataOptions};
-use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_mls::groups::PreconfiguredPolicies;
+use xmtp_mls::mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
+use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_proto::types::Cursor;
 
 #[wasm_bindgen]
@@ -86,6 +86,22 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
   }
 }
 
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub enum ListConversationsOrderBy {
+  CreatedAt,
+  LastActivity,
+}
+
+impl From<ListConversationsOrderBy> for GroupQueryOrderBy {
+  fn from(order_by: ListConversationsOrderBy) -> Self {
+    match order_by {
+      ListConversationsOrderBy::CreatedAt => GroupQueryOrderBy::CreatedAt,
+      ListConversationsOrderBy::LastActivity => GroupQueryOrderBy::LastActivity,
+    }
+  }
+}
+
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Default)]
 pub struct ListConversationsOptions {
@@ -99,6 +115,8 @@ pub struct ListConversationsOptions {
   pub created_before_ns: Option<i64>,
   #[wasm_bindgen(js_name = includeDuplicateDms)]
   pub include_duplicate_dms: Option<bool>,
+  #[wasm_bindgen(js_name = orderBy)]
+  pub order_by: Option<ListConversationsOrderBy>,
   pub limit: Option<i64>,
 }
 
@@ -118,7 +136,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       last_activity_before_ns: None,
       last_activity_after_ns: None,
       should_publish_commit_log: None,
-      order_by: Some(GroupQueryOrderBy::LastActivity),
+      order_by: opts.order_by.map(Into::into),
     }
   }
 }
@@ -133,6 +151,7 @@ impl ListConversationsOptions {
     created_before_ns: Option<i64>,
     include_duplicate_dms: Option<bool>,
     limit: Option<i64>,
+    order_by: Option<ListConversationsOrderBy>,
   ) -> Self {
     Self {
       consent_states,
@@ -141,6 +160,7 @@ impl ListConversationsOptions {
       created_before_ns,
       include_duplicate_dms,
       limit,
+      order_by,
     }
   }
 }
@@ -674,6 +694,21 @@ impl Conversations {
         Err(e) => callback.on_error(JsError::from(e)),
       },
       move || on_close_cb.on_close(),
+    );
+    Ok(StreamCloser::new(stream_closer))
+  }
+
+  #[wasm_bindgen(js_name = "streamMessageDeletions")]
+  pub fn stream_message_deletions(
+    &self,
+    callback: StreamCallback,
+  ) -> Result<StreamCloser, JsError> {
+    let stream_closer = RustXmtpClient::stream_message_deletions_with_callback(
+      self.inner_client.clone(),
+      move |message| match message {
+        Ok(message_id) => callback.on_message_deleted(message_id),
+        Err(e) => callback.on_error(JsError::from(e)),
+      },
     );
     Ok(StreamCloser::new(stream_closer))
   }

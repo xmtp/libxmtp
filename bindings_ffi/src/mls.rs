@@ -11,7 +11,8 @@ use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_api_d14n::{MessageBackendBuilder, new_client_with_store};
+use xmtp_api_grpc::error::GrpcError;
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::attachment::Attachment;
@@ -53,11 +54,7 @@ use xmtp_id::{
     },
 };
 use xmtp_mls::client::inbox_addresses_with_verifier;
-use xmtp_mls::common::group::DMMetadataOptions;
-use xmtp_mls::common::group::GroupMetadataOptions;
-use xmtp_mls::common::group_metadata::GroupMetadata;
-use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings;
-use xmtp_mls::common::group_mutable_metadata::MetadataField;
+use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::ConversationDebugInfo;
 use xmtp_mls::groups::device_sync::DeviceSyncError;
 use xmtp_mls::groups::device_sync::archive::ArchiveImporter;
@@ -69,6 +66,11 @@ use xmtp_mls::identity_updates::revoke_installations_with_verifier;
 use xmtp_mls::identity_updates::{
     apply_signature_request_with_verifier, get_creation_signature_kind,
 };
+use xmtp_mls::mls_common::group::DMMetadataOptions;
+use xmtp_mls::mls_common::group::GroupMetadataOptions;
+use xmtp_mls::mls_common::group_metadata::GroupMetadata;
+use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings;
+use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
 use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
@@ -87,6 +89,7 @@ use xmtp_mls::{
     identity::IdentityStrategy,
     subscriptions::SubscribeError,
 };
+use xmtp_proto::api::ApiClientError;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
@@ -303,11 +306,19 @@ pub async fn create_client(
         legacy_signed_private_key_proto,
     );
 
+    //TODO:temp_cache_workaround
+    let api_client: xmtp_mls::XmtpApiClient = Arc::unwrap_or_clone(api).0;
+    let sync_api_client: xmtp_mls::XmtpApiClient = Arc::unwrap_or_clone(sync_api).0;
+    let cursor_store = Arc::new(SqliteCursorStore::new(store.db()));
+    // ensure to clone grpc channels but allocate a new type for the cursor store
+    let api_client = new_client_with_store::<ApiClientError<GrpcError>>(
+        api_client.clone(),
+        cursor_store.clone(),
+    )?;
+    let sync_api_client = new_client_with_store(sync_api_client.clone(), cursor_store)?;
+
     let mut builder = xmtp_mls::Client::builder(identity_strategy)
-        .api_clients(
-            Arc::unwrap_or_clone(api).0,
-            Arc::unwrap_or_clone(sync_api).0,
-        )
+        .api_clients(api_client, sync_api_client)
         .enable_api_stats()?
         .enable_api_debug_wrapper()?
         .with_remote_verifier()?
@@ -1810,6 +1821,24 @@ impl FfiConversations {
         FfiStreamCloser::new(handle)
     }
 
+    /// Get notified when a message is deleted by the disappearing messages worker.
+    /// The callback receives the message ID of each deleted message.
+    pub async fn stream_message_deletions(
+        &self,
+        callback: Arc<dyn FfiMessageDeletionCallback>,
+    ) -> FfiStreamCloser {
+        let handle = RustXmtpClient::stream_message_deletions_with_callback(
+            self.inner_client.clone(),
+            move |msg| {
+                if let Ok(message_id) = msg {
+                    callback.on_message_deleted(message_id)
+                }
+            },
+        );
+
+        FfiStreamCloser::new(handle)
+    }
+
     pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let conversations = inner.find_groups(GroupQueryArgs {
@@ -3120,6 +3149,11 @@ pub trait FfiPreferenceCallback: Send + Sync {
     fn on_preference_update(&self, preference: Vec<FfiPreferenceUpdate>);
     fn on_error(&self, error: FfiSubscribeError);
     fn on_close(&self);
+}
+
+#[uniffi::export(with_foreign)]
+pub trait FfiMessageDeletionCallback: Send + Sync {
+    fn on_message_deleted(&self, message_id: Vec<u8>);
 }
 
 #[derive(uniffi::Enum, Debug)]

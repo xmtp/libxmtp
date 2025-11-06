@@ -1,4 +1,11 @@
+#[cfg(any(test, feature = "test-utils"))]
+pub mod stream_stats;
+#[cfg(any(test, feature = "test-utils"))]
+mod test_utils;
 mod types;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use test_utils::*;
 
 use types::GroupList;
 pub(super) use types::MessagePosition;
@@ -44,7 +51,7 @@ pin_project! {
         groups: GroupList,
         add_queue: VecDeque<MlsGroup<Context>>,
         returned: Vec<Cursor>,
-        got: Vec<Cursor>
+        got: Vec<Cursor>,
     }
 }
 
@@ -55,12 +62,13 @@ pin_project! {
         /// State that indicates the stream is waiting on the next message from the network
         #[default]
         Waiting,
-        /// state that indicates the stream is waiting on a IO/Network future to finish processing
+        /// State that indicates the stream is waiting on a IO/Network future to finish processing
         /// the current message before moving on to the next one
         Processing {
             #[pin] future: FutureWrapper<'a, Result<ProcessedMessage>>,
             message: Cursor
         },
+        // State that indicates that the stream is adding a new group to the stream.
         Adding {
             #[pin] future: FutureWrapper<'a, Result<(Out, Vec<u8>, Option<Cursor>)>>
         }
@@ -186,20 +194,16 @@ where
     /// This is an asynchronous operation that transitions the stream to the `Adding` state.
     /// The actual subscription update happens when the stream is polled.
     pub(super) fn add(mut self: Pin<&mut Self>, group: MlsGroup<C>) {
+        // we unconditionally notify, otherwise
+        // test failures if we hit a group that is already in the stream.
         if self.groups.contains(&group.group_id) {
             tracing::debug!("group {} already in stream", hex::encode(&group.group_id));
             return;
         }
-
-        // if we're waiting, resolve it right away
-        if let State::Waiting = self.state {
-            self.resolve_group_additions(group);
-        } else {
-            tracing::debug!("stream busy, queuing group add");
-            // any other state and the group must be added to queue
-            let this = self.as_mut().project();
-            this.add_queue.push_back(group);
-        }
+        tracing::debug!("queuing group add");
+        // any other state and the group must be added to queue
+        let this = self.as_mut().project();
+        this.add_queue.push_back(group);
     }
 
     /// Internal API to re-subscribe to a message stream.
@@ -276,21 +280,23 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
         use ProjectState::*;
-        let mut this = self.as_mut().project();
-        let state = this.state.as_mut().project();
-        match state {
+        let mut this = self.as_mut();
+        match this.as_mut().project().state.as_mut().project() {
             Waiting => {
                 tracing::trace!("stream messages in waiting state");
+                let this = self.as_mut().project();
                 if let Some(group) = this.add_queue.pop_front() {
                     self.as_mut().resolve_group_additions(group);
                     cx.waker().wake_by_ref();
                     return Poll::Pending;
                 }
                 let r = self.as_mut().on_waiting(cx);
-                tracing::trace!(
-                    "stream messages returning from waiting state, transitioning to {}",
-                    self.as_mut().current_state()
-                );
+                if self.as_mut().current_state() != "waiting" {
+                    tracing::trace!(
+                        "stream messages returning from waiting state, transitioning to {}",
+                        self.as_mut().current_state()
+                    );
+                }
                 r
             }
             Processing { message, .. } => {
@@ -317,21 +323,20 @@ where
             }
             Adding { future } => {
                 tracing::trace!("stream messages in adding state");
-                let (stream, group, cursor) = ready!(future.poll(cx))?;
-                let this = self.as_mut();
-                if let Some(c) = cursor {
-                    this.set_cursor(group.as_slice(), c)
-                };
-                let mut this = self.as_mut().project();
-                this.inner.set(stream);
-                if let Some(cursor) = this.groups.position(&group) {
-                    tracing::debug!(
-                        "added group_id={} at cursor={} to messages stream",
-                        hex::encode(&group),
-                        cursor
-                    );
+                if let Ok((stream, group, cursor)) = ready!(future.poll(cx)) {
+                    if let Some(c) = cursor {
+                        this.as_mut().set_cursor(group.as_slice(), c)
+                    };
+                    this.as_mut().project().inner.set(stream);
+                    if let Some(cursor) = this.groups.position(&group) {
+                        tracing::debug!(
+                            "added group_id={} at cursor={} to messages stream",
+                            hex::encode(&group),
+                            cursor
+                        );
+                    }
                 }
-                this.state.as_mut().set(State::Waiting);
+                this.project().state.as_mut().set(State::Waiting);
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
@@ -376,10 +381,10 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<<Self as Stream>::Item>> {
         let next_msg = ready!(self.as_mut().next_message(cx));
-        if next_msg.is_none() {
+        let Some(next_msg) = next_msg else {
             return Poll::Ready(None);
-        }
-        let mut next_msg = next_msg.expect("checked for none")?;
+        };
+        let next_msg = next_msg?;
         // ensure we have not tried processing this message yet
         // if we have tried to process, replay messages up to the known cursor.
         if self.groups.has_seen(next_msg.cursor) {
@@ -388,7 +393,8 @@ where
                 next_msg.cursor,
                 next_msg.group_id
             );
-            next_msg = ready!(self.as_mut().skip(cx, next_msg))?;
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
         }
         if let Some(stored) = self.factory.retrieve(&next_msg)? {
             tracing::debug!(
@@ -429,34 +435,10 @@ where
         let groups_with_positions = self.groups.groups_with_positions();
         let future = Self::subscribe(self.context.clone(), groups_with_positions, group.group_id);
         let mut this = self.as_mut().project();
+
         this.state.set(State::Adding {
             future: FutureWrapper::new(future),
         });
-    }
-
-    // iterative skip to avoid overflowing the stack
-    fn skip(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        mut envelope: xmtp_proto::types::GroupMessage,
-    ) -> Poll<Result<xmtp_proto::types::GroupMessage>> {
-        // skip the messages
-        while let Some(new_envelope) = ready!(self.as_mut().next_message(cx)) {
-            let new_envelope = new_envelope?;
-            if self.as_ref().groups.has_seen(new_envelope.cursor) {
-                tracing::debug!(
-                    "skipping msg with group_id@[{}] and cursor@[{}]",
-                    xmtp_common::fmt::debug_hex(new_envelope.group_id.as_slice()),
-                    new_envelope.cursor
-                );
-                continue;
-            } else {
-                envelope = new_envelope;
-                tracing::trace!("finished skipping");
-                break;
-            }
-        }
-        Poll::Ready(Ok(envelope))
     }
 
     /// Retrieves the next message from the inner stream.
@@ -518,14 +500,14 @@ where
     ) -> Poll<Option<<Self as Stream>::Item>> {
         use ProjectState::*;
         if let Processing { future, .. } = self.as_mut().project().state.project() {
-            let processed = ready!(future.poll(cx))?;
+            let processed = ready!(future.poll(cx))
+                .inspect_err(|_| self.as_mut().project().state.set(State::Waiting))?;
             tracing::trace!(
                 "message @cursor=[{}] finished processing",
                 processed.tried_to_process
             );
-            let mut this = self.as_mut().project();
+            let this = self.as_mut().project();
             if let Some(msg) = processed.message {
-                this.state.set(State::Waiting);
                 this.returned.push(Cursor {
                     sequence_id: msg.sequence_id as u64,
                     originator_id: msg.originator_id as u32,
@@ -538,9 +520,9 @@ where
                     processed.tried_to_process,
                     self.returned.len()
                 );
+                self.as_mut().project().state.set(State::Waiting);
                 return Poll::Ready(Some(Ok(msg)));
             } else {
-                this.state.set(State::Waiting);
                 self.as_mut()
                     .set_cursor(processed.group_id.as_slice(), processed.next_message);
                 tracing::trace!(
@@ -549,6 +531,7 @@ where
                     processed.tried_to_process,
                     processed.next_message
                 );
+                self.as_mut().project().state.set(State::Waiting);
                 cx.waker().wake_by_ref();
                 return Poll::Pending;
             }

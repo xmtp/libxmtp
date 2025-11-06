@@ -3,7 +3,7 @@
 use super::FullXmtpClient;
 use async_trait::async_trait;
 use diesel::QueryableByName;
-use xmtp_api_d14n::protocol::InMemoryCursorStore;
+use xmtp_api_d14n::{XmtpTestClientExt, protocol::InMemoryCursorStore};
 use xmtp_configuration::{DeviceSyncUrls, DockerUrls};
 use xmtp_db::{
     ConnectionExt, ReadOnly, TestDb, XmtpTestDb,
@@ -15,6 +15,7 @@ use crate::{
     builder::{ClientBuilder, ForkRecoveryOpts, ForkRecoveryPolicy, SyncWorkerMode},
     client::ClientError,
     context::XmtpSharedContext,
+    cursor_store::SqliteCursorStore,
     groups::device_sync::worker::SyncMetric,
     identity::{Identity, IdentityStrategy},
     subscriptions::SubscribeError,
@@ -186,36 +187,12 @@ where
             replace.add(&ident.to_string(), &format!("{name}_ident"));
         }
 
-        let (mut local_client, mut sync_api_client) = match self.api_endpoint {
-            ApiEndpoint::Local => (TestClient::create_local(), TestClient::create_local()),
-            ApiEndpoint::Dev => (TestClient::create_dev(), TestClient::create_dev()),
-        };
-
-        let mut proxy = None;
-        if self.proxy {
-            proxy = Some(local_client.with_toxiproxy().await);
-            sync_api_client.with_existing_toxi(local_client.host().unwrap());
-        }
-
-        let api_client = local_client.build().unwrap();
-        let sync_api_client = sync_api_client.build().unwrap();
-
         let strategy = match (&self.external_identity, &self.snapshot) {
             (Some(identity), _) => IdentityStrategy::ExternalIdentity(identity.clone()),
             (_, Some(snapshot)) => IdentityStrategy::CachedOnly,
             _ => identity_setup(&self.owner),
         };
-
-        let mut client = Client::builder(strategy.clone())
-            .api_clients(api_client, sync_api_client)
-            .with_disable_events(Some(!self.events))
-            .with_disable_workers(self.disable_workers)
-            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-            .with_device_sync_worker_mode(Some(self.sync_mode))
-            .with_device_sync_server_url(self.sync_url.clone())
-            .maybe_version(self.version.clone())
-            .with_commit_log_worker(self.commit_log_worker)
-            .fork_recovery_opts(self.fork_recovery_opts.clone().unwrap_or_default());
+        let mut client = Client::builder(strategy.clone());
 
         // Setup the database. Snapshots are always ephemeral.
         if self.ephemeral_db || self.snapshot.is_some() {
@@ -233,6 +210,34 @@ where
         } else {
             client = client.temp_store().await;
         }
+
+        let f = match self.api_endpoint {
+            ApiEndpoint::Local => TestClient::create_local,
+            ApiEndpoint::Dev => TestClient::create_dev,
+        };
+        let store = Arc::new(SqliteCursorStore::new(client.store.as_ref().unwrap().db()));
+        let mut local_client = TestClient::with_cursor_store(f, store.clone());
+        let mut sync_api_client = TestClient::with_cursor_store(f, store);
+
+        let mut proxy = None;
+        if self.proxy {
+            proxy = Some(local_client.with_toxiproxy().await);
+            sync_api_client.with_existing_toxi(local_client.host().unwrap());
+        }
+
+        let api_client = local_client.build().unwrap();
+        let sync_api_client = sync_api_client.build().unwrap();
+
+        let mut client = client
+            .api_clients(api_client, sync_api_client)
+            .with_disable_events(Some(!self.events))
+            .with_disable_workers(self.disable_workers)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .with_device_sync_worker_mode(Some(self.sync_mode))
+            .with_device_sync_server_url(self.sync_url.clone())
+            .maybe_version(self.version.clone())
+            .with_commit_log_worker(self.commit_log_worker)
+            .fork_recovery_opts(self.fork_recovery_opts.clone().unwrap_or_default());
 
         if self.in_memory_cursors {
             client = client.cursor_store(Arc::new(InMemoryCursorStore::new()) as Arc<_>);
@@ -255,12 +260,15 @@ where
             );
             replace.add(client.inbox_id(), name);
         }
-        let worker = client.context.sync_metrics();
-        if let Some(worker) = &worker
-            && self.wait_for_init
-        {
-            worker.wait_for_init().await.unwrap();
+        let mut worker = None;
+        if self.wait_for_init && self.sync_mode != SyncWorkerMode::Disabled {
+            while worker.is_none() {
+                xmtp_common::task::yield_now().await;
+                worker = client.context.sync_metrics();
+            }
+            worker.as_ref().unwrap().wait_for_init().await.unwrap();
         }
+
         client.sync_welcomes().await;
 
         let mut tester = Tester {

@@ -1,3 +1,4 @@
+use crate::protocol::CursorStore;
 use crate::{V3Client, v3::*};
 use xmtp_common::RetryableError;
 use xmtp_proto::api::{ApiClientError, Client, Query};
@@ -7,10 +8,11 @@ use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, E> XmtpIdentityClient for V3Client<C>
+impl<C, Store, E> XmtpIdentityClient for V3Client<C, Store>
 where
     C: Client<Error = E>,
     E: RetryableError + 'static,
+    Store: CursorStore,
 {
     type Error = ApiClientError<E>;
 

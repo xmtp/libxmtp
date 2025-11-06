@@ -162,7 +162,7 @@ impl From<&str> for ClientError {
 pub struct Client<Context> {
     pub context: Context,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
-    pub(crate) workers: WorkerRunner,
+    pub(crate) workers: Arc<WorkerRunner>,
 }
 
 #[derive(Clone)]
@@ -246,7 +246,7 @@ where
     /// Reconnect to the client's database if it has previously been released
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
         self.context.db().reconnect().map_err(StorageError::from)?;
-        self.workers.spawn();
+        self.workers.spawn(self.context.clone());
         Ok(())
     }
 
@@ -288,7 +288,7 @@ where
     }
 
     pub fn device_sync_client(&self) -> DeviceSyncClient<Context> {
-        let metrics = self.context.workers().sync_metrics();
+        let metrics = self.context.sync_metrics();
         DeviceSyncClient::new(
             self.context.clone(),
             metrics.unwrap_or(Arc::new(WorkerMetrics::new(self.context.installation_id()))),
@@ -720,7 +720,15 @@ where
     /// Returns the number of messages deleted (0 or 1)
     pub fn delete_message(&self, message_id: Vec<u8>) -> Result<usize, ClientError> {
         let conn = self.context.db();
-        Ok(conn.delete_message_by_id(&message_id)?)
+        let num_deleted = conn.delete_message_by_id(&message_id)?;
+        // Fire a local event if the message was successfully deleted
+        if num_deleted > 0 {
+            let _ = self.context.local_events().send(
+                crate::subscriptions::LocalEvents::MessageDeleted(message_id),
+            );
+        }
+
+        Ok(num_deleted)
     }
 
     /// Query for groups with optional filters

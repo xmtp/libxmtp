@@ -10,6 +10,7 @@ use crate::subscriptions::SubscribeError;
 use crate::subscriptions::process_message::{
     ProcessFutureFactory, ProcessMessageFuture, ProcessedMessage,
 };
+use crate::worker::{MetricsCasting, WorkerKind};
 use crate::{
     builder::SyncWorkerMode, client::DeviceSync, context::XmtpMlsLocalContext, identity::Identity,
     mutex_registry::MutexRegistry, utils::VersionInfo,
@@ -85,7 +86,8 @@ impl Clone for NewMockContext {
             scw_verifier: self.scw_verifier.clone(),
             device_sync: self.device_sync.clone(),
             fork_recovery_opts: self.fork_recovery_opts.clone(),
-            workers: self.workers.clone(),
+            task_channels: self.task_channels.clone(),
+            worker_metrics: self.worker_metrics.clone(),
         }
     }
 }
@@ -146,12 +148,23 @@ impl XmtpSharedContext for NewMockContext {
         &self.mls_commit_lock
     }
 
-    fn workers(&self) -> &crate::worker::WorkerRunner {
-        &self.workers
-    }
-
     fn mutexes(&self) -> &MutexRegistry {
         &self.mutexes
+    }
+
+    fn task_channels(&self) -> &crate::tasks::TaskWorkerChannels {
+        &self.task_channels
+    }
+
+    fn sync_metrics(
+        &self,
+    ) -> Option<
+        Arc<crate::worker::metrics::WorkerMetrics<crate::groups::device_sync::worker::SyncMetric>>,
+    > {
+        self.worker_metrics
+            .lock()
+            .get(&WorkerKind::DeviceSync)?
+            .as_sync_metrics()
     }
 
     fn sync_api(&self) -> &ApiClientWrapper<Self::ApiClient> {

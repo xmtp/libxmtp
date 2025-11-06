@@ -30,10 +30,11 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
-pub use xmtp_db;
+pub use xmtp_common as common;
+pub use xmtp_db as db;
 use xmtp_db::{DuplicateItem, StorageError};
 pub use xmtp_id::InboxOwner;
-pub use xmtp_mls_common as common;
+pub use xmtp_mls_common as mls_common;
 pub use xmtp_proto::api_client::*;
 
 pub fn version() -> &'static str {

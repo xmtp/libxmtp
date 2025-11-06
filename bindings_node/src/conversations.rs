@@ -20,11 +20,11 @@ use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group::{ConversationType as XmtpConversationType, GroupQueryOrderBy};
 use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
-use xmtp_mls::common::group::{DMMetadataOptions, GroupMetadataOptions};
-use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_mls::groups::ConversationDebugInfo as XmtpConversationDebugInfo;
 use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate as XmtpUserPreferenceUpdate;
+use xmtp_mls::mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
+use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_proto::types::Cursor;
 
 #[napi]
@@ -92,6 +92,22 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
   }
 }
 
+#[napi]
+#[derive(Debug)]
+pub enum ListConversationsOrderBy {
+  CreatedAt,
+  LastActivity,
+}
+
+impl From<ListConversationsOrderBy> for GroupQueryOrderBy {
+  fn from(order_by: ListConversationsOrderBy) -> Self {
+    match order_by {
+      ListConversationsOrderBy::CreatedAt => GroupQueryOrderBy::CreatedAt,
+      ListConversationsOrderBy::LastActivity => GroupQueryOrderBy::LastActivity,
+    }
+  }
+}
+
 #[napi(object)]
 #[derive(Default)]
 pub struct ListConversationsOptions {
@@ -100,6 +116,7 @@ pub struct ListConversationsOptions {
   pub created_after_ns: Option<i64>,
   pub created_before_ns: Option<i64>,
   pub include_duplicate_dms: Option<bool>,
+  pub order_by: Option<ListConversationsOrderBy>,
   pub limit: Option<i64>,
 }
 
@@ -119,7 +136,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       last_activity_before_ns: None,
       last_activity_after_ns: None,
       should_publish_commit_log: None,
-      order_by: Some(GroupQueryOrderBy::LastActivity),
+      order_by: opts.order_by.map(Into::into),
     }
   }
 }
@@ -758,6 +775,34 @@ impl Conversations {
       move || {
         let status = tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
         tracing::info!("stream on close status {:?}", status);
+      },
+    );
+
+    Ok(StreamCloser::new(stream_closer))
+  }
+
+  #[napi(ts_args_type = "callback: (err: null | Error, result: Uint8Array) => void")]
+  pub fn stream_message_deletions(&self, callback: JsFunction) -> Result<StreamCloser> {
+    tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
+    let tsfn: ThreadsafeFunction<Vec<u8>, ErrorStrategy::CalleeHandled> = callback
+      .create_threadsafe_function(0, |ctx| {
+        let env = ctx.env;
+        env
+          .create_buffer_with_data(ctx.value)
+          .map(|b| vec![b.into_raw()])
+      })?;
+    let stream_closer = RustXmtpClient::stream_message_deletions_with_callback(
+      self.inner_client.clone(),
+      move |message| match message {
+        Ok(message_id) => {
+          let _ = tsfn.call(Ok(message_id), ThreadsafeFunctionCallMode::Blocking);
+        }
+        Err(e) => {
+          let _ = tsfn.call(
+            Err(Error::from(ErrorWrapper::from(e))),
+            ThreadsafeFunctionCallMode::Blocking,
+          );
+        }
       },
     );
 
