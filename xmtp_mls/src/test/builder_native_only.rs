@@ -596,12 +596,8 @@ async fn test_operations_fail_when_not_ready() {
     // Create client with regular wallet but don't register identity
     let wallet = generate_local_wallet();
     let ident = wallet.identifier();
-    let identity_strategy = IdentityStrategy::new(
-        ident.inbox_id(0).unwrap(),
-        ident.clone(),
-        0,
-        None,
-    );
+    let identity_strategy =
+        IdentityStrategy::new(ident.inbox_id(0).unwrap(), ident.clone(), 0, None);
 
     let client = Client::builder(identity_strategy)
         .temp_store()
