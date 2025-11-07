@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
+use std::sync::Arc;
+
 use xmtp_common::MaybeSend;
 use xmtp_common::MaybeSync;
 use xmtp_configuration::PAYER_WRITE_FILTER;
@@ -10,6 +12,7 @@ use xmtp_proto::prelude::ApiBuilder;
 use xmtp_proto::prelude::XmtpTestClient;
 
 use crate::ReadWriteClientBuilder;
+use crate::protocol::CursorStore;
 use crate::{ReadWriteClient, XmtpTestClientExt, protocol::NoCursorStore};
 
 use super::*;
@@ -69,9 +72,6 @@ impl<C, Store> D14nClientBuilder<C, Store> {
     }
 }
 
-// TODO: should deprecate these api builders
-// it is not a good solution for the variety o clients we have now
-// its OK for low-level GRPC clients
 impl<BRead, BWrite, Store> ApiBuilder
     for D14nClientBuilder<ReadWriteClientBuilder<BRead, BWrite>, Store>
 where

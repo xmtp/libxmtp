@@ -1,9 +1,14 @@
+use std::sync::Arc;
+
 use xmtp_proto::{
     api_client::{ToxicProxies, ToxicTestClient},
     prelude::XmtpTestClient,
 };
 
-use crate::{protocol::NoCursorStore, XmtpTestClientExt};
+use crate::{
+    XmtpTestClientExt,
+    protocol::{CursorStore, NoCursorStore},
+};
 
 use super::*;
 

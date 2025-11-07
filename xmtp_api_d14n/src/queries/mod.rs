@@ -1,23 +1,20 @@
-mod combined;
-pub use combined::*;
-
-mod d14n;
-pub use d14n::*;
-
-mod v3;
-pub use v3::*;
-
-mod stream;
-pub use stream::*;
-
-mod boxed_streams;
-pub use boxed_streams::*;
-
 mod api_stats;
-pub use api_stats::*;
-
+mod boxed_streams;
 mod builder;
+mod client_bundle;
+mod combined;
+mod d14n;
+mod stream;
+mod v3;
+
+pub use api_stats::*;
+pub use boxed_streams::*;
 pub use builder::*;
+pub use client_bundle::*;
+pub use combined::*;
+pub use d14n::*;
+pub use stream::*;
+pub use v3::*;
 
 use std::error::Error as StdError;
 use xmtp_common::{MaybeSend, MaybeSync, RetryableError, retryable};
