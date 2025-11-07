@@ -14,10 +14,9 @@ use crate::{
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, G, Store, E> XmtpQuery for D14nClient<C, G, Store>
+impl<C, Store, E> XmtpQuery for D14nClient<C, Store>
 where
     C: Client<Error = E>,
-    G: Client<Error = E>,
     ApiClientError<E>: From<ApiClientError<<C as Client>::Error>>,
     E: RetryableError + 'static,
     Store: CursorStore,
@@ -34,7 +33,7 @@ where
             .last_seen(at.unwrap_or_default())
             .limit(MAX_PAGE_SIZE)
             .build()?
-            .query(&self.message_client)
+            .query(&self.client)
             .await?;
         Ok(XmtpEnvelope::new(response.envelopes))
     }

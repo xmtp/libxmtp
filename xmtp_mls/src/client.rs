@@ -1058,8 +1058,8 @@ pub(crate) mod tests {
     use futures::stream::StreamExt;
     use prost::Message;
     use std::time::Duration;
-    use xmtp_common::NS_IN_SEC;
     use xmtp_common::time::now_ns;
+    use xmtp_common::{NS_IN_SEC, toxiproxy_test};
     use xmtp_content_types::ContentCodec;
     use xmtp_content_types::text::TextCodec;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -1857,48 +1857,56 @@ pub(crate) mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = true)]
-    // Set to 40 seconds to safely account for the 16 second keepalive interval and 10 second timeout
-    #[timeout(Duration::from_secs(40))]
+    // Set to 50 seconds to safely account for the 16 second keepalive interval and 10 second timeout
+    #[timeout(Duration::from_secs(50))]
     #[cfg_attr(any(target_arch = "wasm32"), ignore)]
     async fn should_reconnect() {
-        let alix = Tester::builder().proxy().build().await;
-        let bo = Tester::builder().build().await;
+        toxiproxy_test(async || {
+            let alix = Tester::builder().proxy().build().await;
+            let bo = Tester::builder().build().await;
 
-        let start_new_convo = || async {
-            bo.create_group_with_inbox_ids(&[alix.inbox_id().to_string()], None, None)
-                .await
-                .unwrap()
-        };
+            let start_new_convo = || async {
+                bo.create_group_with_inbox_ids(&[alix.inbox_id().to_string()], None, None)
+                    .await
+                    .unwrap()
+            };
 
-        let proxy = &alix.proxy(0);
+            let stream = alix.client.stream_conversations(None, false).await.unwrap();
+            futures::pin_mut!(stream);
 
-        let stream = alix.client.stream_conversations(None, false).await.unwrap();
-        futures::pin_mut!(stream);
+            start_new_convo().await;
 
-        start_new_convo().await;
+            let success_res = stream.try_next().await;
+            assert!(success_res.is_ok());
 
-        let success_res = stream.try_next().await;
-        assert!(success_res.is_ok());
+            // Black hole the connection for a minute, then reconnect. The test will timeout without the keepalives.
+            alix.for_each_proxy(async |p| {
+                p.with_timeout("downstream".into(), 60_000, 1.0).await;
+            })
+            .await;
 
-        // Black hole the connection for a minute, then reconnect. The test will timeout without the keepalives.
-        proxy.with_timeout("downstream".into(), 60_000, 1.0).await;
+            start_new_convo().await;
 
-        start_new_convo().await;
+            let should_fail = stream.try_next().await;
+            assert!(should_fail.is_err());
 
-        let should_fail = stream.try_next().await;
-        assert!(should_fail.is_err());
+            start_new_convo().await;
 
-        start_new_convo().await;
+            alix.for_each_proxy(async |p| {
+                p.delete_all_toxics().await.unwrap();
+            })
+            .await;
+            xmtp_common::time::sleep(std::time::Duration::from_millis(500)).await;
 
-        proxy.delete_all_toxics().await.unwrap();
-
-        // stream closes after it gets the broken pipe b/c of blackhole & HTTP/2 KeepAlive
-        futures_test::assert_stream_done!(stream);
-        xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
-        let mut new_stream = alix.client.stream_conversations(None, false).await.unwrap();
-        let new_res = new_stream.try_next().await;
-        assert!(new_res.is_ok());
-        assert!(new_res.unwrap().is_some());
+            // stream closes after it gets the broken pipe b/c of blackhole & HTTP/2 KeepAlive
+            futures_test::assert_stream_done!(stream);
+            xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
+            let mut new_stream = alix.client.stream_conversations(None, false).await.unwrap();
+            let new_res = new_stream.try_next().await;
+            assert!(new_res.is_ok());
+            assert!(new_res.unwrap().is_some());
+        })
+        .await
     }
 
     #[rstest::rstest]

@@ -8,7 +8,6 @@ use xmtp_proto::mls_v1;
 use xmtp_proto::prelude::ApiBuilder;
 use xmtp_proto::prelude::XmtpIdentityClient;
 use xmtp_proto::prelude::XmtpMlsStreams;
-use xmtp_proto::types::AppVersion;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::types::{GroupId, GroupMessage};
@@ -245,42 +244,10 @@ where
 
     type Error = <Builder as ApiBuilder>::Error;
 
-    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
-        <Builder as ApiBuilder>::set_libxmtp_version(&mut self.client, version)
-    }
-
-    fn set_app_version(&mut self, version: AppVersion) -> Result<(), Self::Error> {
-        <Builder as ApiBuilder>::set_app_version(&mut self.client, version)
-    }
-
-    fn set_host(&mut self, host: String) {
-        <Builder as ApiBuilder>::set_host(&mut self.client, host)
-    }
-
-    fn set_tls(&mut self, tls: bool) {
-        <Builder as ApiBuilder>::set_tls(&mut self.client, tls)
-    }
-
-    fn rate_per_minute(&mut self, limit: u32) {
-        <Builder as ApiBuilder>::rate_per_minute(&mut self.client, limit)
-    }
-
-    fn port(&self) -> Result<Option<String>, Self::Error> {
-        <Builder as ApiBuilder>::port(&self.client)
-    }
-
-    fn host(&self) -> Option<&str> {
-        <Builder as ApiBuilder>::host(&self.client)
-    }
-
     fn build(self) -> Result<Self::Output, Self::Error> {
         Ok(TrackedStatsClient::new(<Builder as ApiBuilder>::build(
             self.client,
         )?))
-    }
-
-    fn set_retry(&mut self, retry: xmtp_common::Retry) {
-        <Builder as ApiBuilder>::set_retry(&mut self.client, retry)
     }
 }
 
@@ -304,59 +271,40 @@ mod tests {
     use crate::XmtpTestClientExt;
 
     use super::*;
-    use xmtp_configuration::LOCALHOST;
-    use xmtp_proto::ToxicProxies;
-    use xmtp_proto::{TestApiBuilder, prelude::XmtpTestClient};
+    use xmtp_proto::api_client::ToxicProxies;
+    use xmtp_proto::api_client::ToxicTestClient;
+    use xmtp_proto::prelude::XmtpTestClient;
 
     impl<C> XmtpTestClientExt for TrackedStatsClient<C>
     where
         C: XmtpTestClientExt,
     {
         fn with_cursor_store(
-            f: impl Fn() -> <Self as XmtpTestClient>::Builder,
             store: std::sync::Arc<dyn crate::protocol::CursorStore>,
         ) -> <Self as XmtpTestClient>::Builder {
-            let f = || {
-                let b = f();
-                b.client
-            };
             StatsBuilder {
-                client: <C as XmtpTestClientExt>::with_cursor_store(f, store),
+                client: <C as XmtpTestClientExt>::with_cursor_store(store),
             }
         }
     }
-
     impl<C> XmtpTestClient for TrackedStatsClient<C>
     where
         C: XmtpTestClient,
     {
         type Builder = StatsBuilder<C::Builder>;
-        fn create_local() -> Self::Builder {
-            StatsBuilder::new(<C as XmtpTestClient>::create_local())
-        }
-        fn create_dev() -> Self::Builder {
-            StatsBuilder::new(<C as XmtpTestClient>::create_dev())
-        }
-        fn create_gateway() -> Self::Builder {
-            StatsBuilder::new(<C as XmtpTestClient>::create_gateway())
-        }
-        fn create_d14n() -> Self::Builder {
-            StatsBuilder::new(<C as XmtpTestClient>::create_d14n())
+        fn create() -> Self::Builder {
+            StatsBuilder::new(<C as XmtpTestClient>::create())
         }
     }
 
-    impl<Builder> TestApiBuilder for StatsBuilder<Builder>
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    impl<C> ToxicTestClient for TrackedStatsClient<C>
     where
-        Builder: ApiBuilder,
+        C: ToxicTestClient,
     {
-        async fn with_toxiproxy(&mut self) -> ToxicProxies {
-            let host = <Builder as ApiBuilder>::host(&self.client).unwrap();
-            let proxies = xmtp_proto::init_toxi(&[host]).await;
-            <Builder as ApiBuilder>::set_host(
-                &mut self.client,
-                format!("{LOCALHOST}:{}", proxies.ports()[0]),
-            );
-            proxies
+        async fn proxies() -> ToxicProxies {
+            <C as ToxicTestClient>::proxies().await
         }
     }
 }
