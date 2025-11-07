@@ -6,7 +6,7 @@ use crate::{
         enrichment::{EnrichMessageError, enrich_messages},
     },
 };
-use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
+use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
 
 use crate::{
     builder::SyncWorkerMode,
@@ -31,7 +31,7 @@ use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
-use xmtp_common::retryable;
+use xmtp_common::{Retry, retry_async, retryable};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{
     ConnectionExt, NotFound, StorageError, XmtpDb,
@@ -41,6 +41,7 @@ use xmtp_db::{
     events::EventLevel,
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
+    identity::StoredIdentity,
 };
 use xmtp_db::{group::GroupQueryOrderBy, prelude::*};
 use xmtp_id::{
@@ -477,6 +478,19 @@ where
         self.context.identity()
     }
 
+    /// Ensures identity is ready before performing operations.
+    /// Call `register_identity()` first if this fails.
+    fn ensure_identity_ready(&self) -> Result<(), ClientError> {
+        if !self.identity().is_ready() {
+            tracing::warn!(
+                inbox_id = %self.inbox_id(),
+                "Operation attempted before register_identity() was called"
+            );
+            return Err(IdentityError::UninitializedIdentity.into());
+        }
+        Ok(())
+    }
+
     /// Create a new group with the default settings
     /// Applies a custom [`PolicySet`] to the group if one is specified
     pub fn create_group(
@@ -484,6 +498,7 @@ where
         permissions_policy_set: Option<PolicySet>,
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
+        self.ensure_identity_ready()?;
         tracing::info!("creating group");
 
         let group: MlsGroup<Context> = MlsGroup::create_and_insert(
@@ -570,6 +585,7 @@ where
         target_identity: Identifier,
         opts: Option<DMMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
+        self.ensure_identity_ready()?;
         tracing::info!("finding or creating dm with address: {target_identity}");
         let inbox_id = match self
             .find_inbox_id_from_identifier(&self.context.db(), target_identity.clone())
@@ -590,6 +606,7 @@ where
         inbox_id: impl AsIdRef,
         opts: Option<DMMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
+        self.ensure_identity_ready()?;
         let inbox_id = inbox_id.as_ref();
         tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
         let db = self.context.db();
@@ -807,12 +824,65 @@ where
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
         tracing::info!("registering identity");
-        // Register the identity before applying the signature request
-        self.identity()
-            .register(self.context.api(), self.context.mls_storage())
+
+        // Handle crash recovery - if already registered, just mark ready and return
+        let stored_identity: Option<StoredIdentity> = self.context.db().fetch(&())?;
+        if stored_identity.is_some() {
+            tracing::info!("Identity already registered, skipping");
+            self.identity().set_ready();
+            return Ok(());
+        }
+
+        // Step 1: Generate key package and store locally (not uploaded yet)
+        let (kp_bytes, history_id) = self.identity().generate_and_store_key_package(
+            self.context.mls_storage(),
+            CREATE_PQ_KEY_PACKAGE_EXTENSION,
+        )?;
+
+        // Step 2: Validate signatures (fails here if invalid - no network pollution)
+        let identity_update = signature_request
+            .build_identity_update()
+            .map_err(IdentityUpdateError::from)?;
+        identity_update
+            .to_verified(&self.context.scw_verifier())
             .await?;
-        let updates = IdentityUpdates::new(&self.context);
-        updates.apply_signature_request(signature_request).await?;
+
+        // Step 3: Upload key package first (prevents race condition)
+        self.context
+            .api()
+            .upload_key_package(kp_bytes, true)
+            .await?;
+
+        // Step 4: Publish identity update (makes installation visible)
+        self.context
+            .api()
+            .publish_identity_update(identity_update)
+            .await?;
+
+        // Step 5: Fetch and store in local DB (needed for group operations)
+        let inbox_id = self.inbox_id().to_string();
+        retry_async!(
+            Retry::default(),
+            (async {
+                load_identity_updates(self.context.api(), &self.context.db(), &[inbox_id.as_str()])
+                    .await
+            })
+        )?;
+
+        // Clean up old key packages
+        self.context.mls_storage().transaction(|conn| {
+            conn.key_store()
+                .db()
+                .mark_key_package_before_id_to_be_deleted(history_id)?;
+            Ok::<(), StorageError>(())
+        })?;
+        self.context
+            .mls_storage()
+            .db()
+            .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
+
+        // Mark identity as ready
+        StoredIdentity::try_from(self.identity())?.store(&self.context.db())?;
         self.identity().set_ready();
         Ok(())
     }
@@ -859,6 +929,7 @@ where
     /// Returns any new groups created in the operation
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
+        self.ensure_identity_ready()?;
         WelcomeService::new(self.context.clone())
             .sync_welcomes()
             .await
@@ -870,6 +941,7 @@ where
         &self,
         groups: Vec<MlsGroup<Context>>,
     ) -> Result<GroupSyncSummary, GroupError> {
+        self.ensure_identity_ready()?;
         WelcomeService::new(self.context.clone())
             .sync_all_groups(groups)
             .await
@@ -881,6 +953,7 @@ where
         &self,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<GroupSyncSummary, GroupError> {
+        self.ensure_identity_ready()?;
         WelcomeService::new(self.context.clone())
             .sync_all_welcomes_and_groups(consent_states)
             .await
