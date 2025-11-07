@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use xmtp_proto::types::{ClockOrdering, GlobalCursor};
+use xmtp_proto::types::{ClockOrdering, Cursor, GlobalCursor};
 
 use crate::protocol::VectorClock;
 
@@ -39,5 +39,14 @@ impl VectorClock for GlobalCursor {
             (false, true) => ClockOrdering::Ancestor,
             (true, true) => ClockOrdering::Concurrent,
         }
+    }
+
+    fn apply(&mut self, cursor: &Cursor) {
+        let Cursor {
+            originator_id: node,
+            sequence_id: seq,
+        } = &cursor;
+        let entry = self.entry(*node).or_insert(0);
+        *entry = (*entry).max(*seq)
     }
 }

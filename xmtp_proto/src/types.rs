@@ -7,6 +7,7 @@ mod group_message;
 mod ids;
 mod message_metadata;
 mod topic;
+mod topic_cursor;
 mod welcome_message;
 pub use api_identifier::*;
 pub use app_version::*;
@@ -16,6 +17,7 @@ pub use group_message::*;
 pub use ids::*;
 pub use message_metadata::*;
 pub use topic::*;
+pub use topic_cursor::*;
 pub use welcome_message::*;
 
 pub type OriginatorId = u32;
