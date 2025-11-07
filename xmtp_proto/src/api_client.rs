@@ -209,7 +209,7 @@ pub trait XmtpIdentityClient: MaybeSend + MaybeSync {
 /// Build an API from its parts for the XMTP Backend
 pub trait ApiBuilder: MaybeSend + MaybeSync {
     type Output: MaybeSend + MaybeSync;
-    type Error: MaybeSend + MaybeSync;
+    type Error: MaybeSend + MaybeSync + std::fmt::Debug;
 
     /// set the libxmtp version (required)
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error>;
