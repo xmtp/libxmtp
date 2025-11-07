@@ -29,4 +29,3 @@ default-filter = "not (test(/\\w*commit_log*/)|test(case_2_onehundred_dms)|test(
 status-level = "skip"
 failure-output = "immediate-final"
 fail-fast = false
-retries = 3

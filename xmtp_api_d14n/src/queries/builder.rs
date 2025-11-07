@@ -7,14 +7,17 @@ use xmtp_api_grpc::GrpcClient;
 use xmtp_api_grpc::error::{GrpcBuilderError, GrpcError};
 use xmtp_common::RetryableError;
 use xmtp_common::{MaybeSend, MaybeSync};
-use xmtp_configuration::MULTI_NODE_TIMEOUT_MS;
+use xmtp_configuration::{MULTI_NODE_TIMEOUT_MS, PAYER_WRITE_FILTER};
 use xmtp_id::scw_verifier::VerifierError;
 use xmtp_proto::api::ApiClientError;
-use xmtp_proto::api_client::ApiBuilder;
+use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig};
 use xmtp_proto::types::AppVersion;
 
 use crate::protocol::{CursorStore, FullXmtpApiArc, FullXmtpApiBox, FullXmtpApiT, NoCursorStore};
-use crate::{D14nClient, MiddlewareBuilder, MultiNodeClientBuilderError, V3Client};
+use crate::{
+    D14nClient, MiddlewareBuilder, MultiNodeClientBuilderError, ReadWriteClient,
+    ReadWriteClientBuilderError, V3Client,
+};
 
 mod impls;
 
@@ -41,6 +44,8 @@ pub enum MessageBackendBuilderError {
     Scw(#[from] VerifierError),
     #[error("failed to build stateful local client, cursor store not replaced, type {0}")]
     CursorStoreNotReplaced(&'static str),
+    #[error("error while building read/write api client {0},")]
+    UninitializedField(#[from] ReadWriteClientBuilderError),
 }
 
 /// Indicates this api implementation can be type-erased
@@ -124,13 +129,19 @@ impl MessageBackendBuilder {
 
             let mut multi_node = crate::middleware::MultiNodeClientBuilder::default();
             multi_node.set_timeout(Duration::from_millis(MULTI_NODE_TIMEOUT_MS))?;
-            multi_node.set_tls(is_secure);
             multi_node.set_gateway_builder(gateway_client_builder.clone())?;
+            let mut template = GrpcClient::builder();
+            template.set_tls(is_secure);
+            multi_node.set_node_client_builder(template)?;
 
             let gateway_client = gateway_client_builder.build()?;
             let multi_node = multi_node.build()?;
-
-            Ok(D14nClient::new(multi_node, gateway_client, cursor_store)?.arced())
+            let rw = ReadWriteClient::builder()
+                .read(multi_node)
+                .write(gateway_client)
+                .filter(PAYER_WRITE_FILTER)
+                .build()?;
+            Ok(D14nClient::new(rw, cursor_store)?.arced())
         } else {
             let mut v3_client = GrpcClient::builder();
             v3_client.set_host(v3_host);

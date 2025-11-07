@@ -79,14 +79,15 @@ impl IsConnectedCheck for MultiNodeClient {
 mod tests {
     use super::*;
     use crate::{
+        ReadWriteClient,
         middleware::{MiddlewareBuilder, MultiNodeClientBuilder},
         protocol::{InMemoryCursorStore, NoCursorStore},
         queries::D14nClient,
     };
     use std::sync::Arc;
-    use xmtp_configuration::GrpcUrls;
+    use xmtp_configuration::{GrpcUrls, PAYER_WRITE_FILTER};
     use xmtp_proto::api::Query;
-    use xmtp_proto::api_client::ApiBuilder;
+    use xmtp_proto::api_client::{ApiBuilder, NetConnectConfig};
     use xmtp_proto::prelude::XmtpMlsClient;
     use xmtp_proto::types::GroupId;
 
@@ -108,30 +109,40 @@ mod tests {
         gateway_builder
     }
 
+    fn create_node_builder() -> ClientBuilder {
+        let mut node_builder = GrpcClient::builder();
+        node_builder.set_tls(is_tls_enabled());
+        node_builder
+    }
+
     fn create_multinode_client_builder() -> MultiNodeClientBuilder {
         let mut multi_node_builder = MultiNodeClientBuilder::default();
         multi_node_builder
             .set_gateway_builder(create_gateway_builder())
             .unwrap();
         multi_node_builder
+            .set_node_client_builder(create_node_builder())
+            .unwrap();
+        multi_node_builder
             .set_timeout(Duration::from_millis(1000))
             .unwrap();
-        multi_node_builder.set_tls(is_tls_enabled());
         multi_node_builder
     }
 
     fn create_multinode_client() -> MultiNodeClient {
         let multi_node_builder = create_multinode_client_builder();
-        multi_node_builder.into_client().unwrap()
+        multi_node_builder.build().unwrap()
     }
 
-    fn create_d14n_client() -> D14nClient<MultiNodeClient, GrpcClient, NoCursorStore> {
-        D14nClient::new(
-            create_multinode_client_builder().into_client().unwrap(),
-            create_gateway_builder().build().unwrap(),
-            NoCursorStore,
-        )
-        .unwrap()
+    fn create_d14n_client()
+    -> D14nClient<ReadWriteClient<MultiNodeClient, GrpcClient>, NoCursorStore> {
+        let rw = ReadWriteClient::builder()
+            .read(create_multinode_client_builder().build().unwrap())
+            .write(create_gateway_builder().build().unwrap())
+            .filter(PAYER_WRITE_FILTER)
+            .build()
+            .unwrap();
+        D14nClient::new(rw, NoCursorStore).unwrap()
     }
 
     fn create_node_client_template(tls: bool) -> xmtp_api_grpc::ClientBuilder {
@@ -182,6 +193,7 @@ mod tests {
 
         // 1) Create gateway builder.
         let gateway_builder = create_gateway_builder();
+        let node_builder = create_node_builder();
 
         // 2) Configure multi-node builder with the gateway builder.
         let mut multi_node_builder = MultiNodeClientBuilder::default();
@@ -192,44 +204,54 @@ mod tests {
             .set_gateway_builder(gateway_builder.clone())
             .expect("gateway set on multi-node");
 
+        multi_node_builder
+            .set_node_client_builder(node_builder)
+            .expect("node set on multi-node");
+
         // Multi-node specific configuration.
         // Set the timeout, used in multi-node client requests to the gateway.
         multi_node_builder
             .set_timeout(xmtp_common::time::Duration::from_millis(1000))
             .unwrap();
 
-        // ApiBuilder methods forward configuration to the node client template.
-        // All GrpcClient instances will inherit these settings.
-        multi_node_builder.set_tls(is_tls_enabled());
-
         // All ApiBuilder methods are available:
         // multi_node_builder.set_libxmtp_version("1.0.0".into())?;
         // multi_node_builder.set_retry(Retry::default());
 
         let cursor_store = create_in_memory_cursor_store();
-        let multi_node_client = multi_node_builder.into_client().unwrap();
+        let multi_node_client = multi_node_builder.build().unwrap();
         let gateway_client = gateway_builder.build().unwrap();
 
+        let rw = ReadWriteClient::builder()
+            .read(multi_node_client)
+            .write(gateway_client)
+            .filter(PAYER_WRITE_FILTER)
+            .build()
+            .unwrap();
         // 3) Build D14n client with both clients
-        let _d14n = D14nClient::new(multi_node_client, gateway_client, cursor_store).unwrap();
+        let _d14n = D14nClient::new(rw, cursor_store).unwrap();
     }
 
     /// This test also serves as an example of how to use the MultiNodeClientBuilder standalone.
     #[xmtp_common::test]
     async fn build_multinode_as_standalone() {
         let gateway_builder = create_gateway_builder();
-
+        let node_builder = create_node_builder();
         let mut multi_node_builder = MultiNodeClientBuilder::default();
         multi_node_builder
             .set_gateway_builder(gateway_builder.clone())
             .expect("gateway set on multi-node");
+
+        multi_node_builder
+            .set_node_client_builder(node_builder)
+            .expect("node set on multi-node");
+
         multi_node_builder
             .set_timeout(xmtp_common::time::Duration::from_millis(100))
             .unwrap();
-        multi_node_builder.set_tls(is_tls_enabled());
 
         let _ = multi_node_builder
-            .into_client()
+            .build()
             .expect("failed to build multi-node client");
     }
 

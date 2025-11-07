@@ -38,6 +38,7 @@ impl Endpoint for SubscribeWelcomeMessages {
 #[cfg(test)]
 mod test {
     use super::*;
+    use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::{api::QueryStreamExt, prelude::*};
 
     #[xmtp_common::test]
@@ -48,7 +49,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_subscribe_envelopes() {
-        let client = crate::TestGrpcClient::create_local();
+        let client = NodeGoClient::create();
         let client = client.build().unwrap();
 
         let mut endpoint = SubscribeWelcomeMessages::builder()

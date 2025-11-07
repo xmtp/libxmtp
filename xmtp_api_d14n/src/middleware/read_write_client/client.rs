@@ -4,13 +4,10 @@
 //! to filter with regex, or let the consumer pass in a closure instead of a static
 //! string filter.
 
-use derive_builder::{Builder, UninitializedFieldError};
+use derive_builder::Builder;
 use prost::bytes::Bytes;
 use xmtp_proto::api::IsConnectedCheck;
-use xmtp_proto::{
-    api::{ApiClientError, Client},
-    prelude::ApiBuilder,
-};
+use xmtp_proto::api::{ApiClientError, Client};
 
 /// A client which holds two clients
 /// and decides on a read/write strategy based on a given service str
@@ -85,6 +82,8 @@ where
 }
 
 xmtp_common::if_test! {
+    use derive_builder::UninitializedFieldError;
+    use xmtp_proto::prelude::ApiBuilder;
     #[allow(clippy::unwrap_used)]
     impl<R, W> ReadWriteClientBuilder<R, W>
     where
