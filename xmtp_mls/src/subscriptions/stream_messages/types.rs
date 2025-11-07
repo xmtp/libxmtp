@@ -86,12 +86,6 @@ impl GroupList {
         self.seen.contains(&cursor)
     }
 
-    /// get the size of the group list
-    #[allow(unused)]
-    pub(super) fn len(&self) -> usize {
-        self.list.len()
-    }
-
     /// get all groups with their positions
     pub(super) fn groups_with_positions(&self) -> Vec<(GroupId, MessagePosition)> {
         self.list
