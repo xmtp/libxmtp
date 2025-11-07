@@ -1,5 +1,5 @@
 use super::*;
-use crate::{prelude::*, types::AppVersion};
+use crate::{api_client::NetConnectConfig, prelude::*, types::AppVersion};
 
 pub struct TestEndpoint;
 impl Endpoint for TestEndpoint {
@@ -19,6 +19,13 @@ pub struct MockApiBuilder;
 impl ApiBuilder for MockApiBuilder {
     type Output = MockNetworkClient;
     type Error = MockError;
+
+    fn build(self) -> Result<Self::Output, Self::Error> {
+        Ok(MockNetworkClient::default())
+    }
+}
+
+impl NetConnectConfig for MockApiBuilder {
     fn set_libxmtp_version(&mut self, _version: String) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -31,10 +38,6 @@ impl ApiBuilder for MockApiBuilder {
 
     fn port(&self) -> Result<Option<String>, Self::Error> {
         Ok(None)
-    }
-
-    fn build(self) -> Result<Self::Output, Self::Error> {
-        Ok(MockNetworkClient::default())
     }
 
     fn host(&self) -> Option<&str> {

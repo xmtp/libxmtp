@@ -23,7 +23,7 @@ use xmtp_common::Retry;
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
 use xmtp_proto::{
     api::{ApiClientError, Client, IsConnectedCheck},
-    api_client::ApiBuilder,
+    api_client::{ApiBuilder, NetConnectConfig},
     codec::TransparentCodec,
     types::AppVersion,
 };
@@ -215,10 +215,7 @@ pub struct ClientBuilder {
     pub retry: Option<Retry>,
 }
 
-impl ApiBuilder for ClientBuilder {
-    type Output = crate::GrpcClient;
-    type Error = GrpcBuilderError;
-
+impl NetConnectConfig for ClientBuilder {
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
         self.libxmtp_version = Some(MetadataValue::try_from(&version)?);
         Ok(())
@@ -254,6 +251,15 @@ impl ApiBuilder for ClientBuilder {
         self.host.as_deref()
     }
 
+    fn set_retry(&mut self, retry: xmtp_common::Retry) {
+        self.retry = Some(retry);
+    }
+}
+
+impl ApiBuilder for ClientBuilder {
+    type Output = crate::GrpcClient;
+    type Error = GrpcBuilderError;
+
     fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
         let channel = crate::GrpcService::new(host, self.limit, self.tls_channel)?;
@@ -268,10 +274,6 @@ impl ApiBuilder for ClientBuilder {
                 env!("CARGO_PKG_VERSION").to_string(),
             )?),
         })
-    }
-
-    fn set_retry(&mut self, retry: xmtp_common::Retry) {
-        self.retry = Some(retry);
     }
 }
 
@@ -302,7 +304,7 @@ pub mod tests {
     use crate::grpc_client::test::DevNodeGoClient;
     use prost::Message;
     use xmtp_proto::api_client::ApiBuilder;
-    use xmtp_proto::prelude::XmtpTestClient;
+    use xmtp_proto::prelude::{NetConnectConfig, XmtpTestClient};
     use xmtp_proto::types::AppVersion;
     use xmtp_proto::xmtp::message_api::v1::PublishRequest;
 

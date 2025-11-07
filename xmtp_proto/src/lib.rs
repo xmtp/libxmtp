@@ -49,7 +49,8 @@ pub mod prelude {
         pub use super::api_client::XmtpTestClient;
     }
     pub use super::api_client::{
-        ApiBuilder, ArcedXmtpApi, BoxedXmtpApi, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
+        ApiBuilder, ArcedXmtpApi, BoxedXmtpApi, NetConnectConfig, XmtpIdentityClient,
+        XmtpMlsClient, XmtpMlsStreams,
     };
     pub use super::traits::{ApiClientError, Client, Endpoint, Query, QueryStream};
 }

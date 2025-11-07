@@ -192,11 +192,11 @@ pub trait XmtpIdentityClient: MaybeSend + MaybeSync {
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error>;
 }
 
-/// Build an API from its parts for the XMTP Backend
-pub trait ApiBuilder: MaybeSend + MaybeSync {
-    type Output: MaybeSend + MaybeSync;
-    type Error: MaybeSend + MaybeSync + std::fmt::Debug;
-
+/// describe how to create a single network
+/// connection.
+/// Implement this trait if your type connects to a single
+/// network channel/connection (like gRPc or HTTP)
+pub trait NetConnectConfig: ApiBuilder + MaybeSend + MaybeSync {
     /// set the libxmtp version (required)
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error>;
 
@@ -220,7 +220,12 @@ pub trait ApiBuilder: MaybeSend + MaybeSync {
 
     /// Host of the builder
     fn host(&self) -> Option<&str>;
+}
 
+/// Build an API from its parts for the XMTP Backend
+pub trait ApiBuilder: MaybeSend + MaybeSync {
+    type Output: MaybeSend + MaybeSync;
+    type Error: MaybeSend + MaybeSync + std::fmt::Debug;
     /// Build the api client
     fn build(self) -> Result<Self::Output, Self::Error>;
 }
