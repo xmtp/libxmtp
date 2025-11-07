@@ -1,6 +1,6 @@
-x-xmtpd-server-image: &x-xmtpd-server-image ghcr.io/xmtp/xmtpd:sha-5d27ea4
-x-xmtpd-gateway-image: &x-xmtpd-gateway-image ghcr.io/xmtp/xmtpd-gateway:sha-5d27ea4
-x-xmtpd-cli-image: &x-xmtpd-cli-image ghcr.io/xmtp/xmtpd-cli:sha-5d27ea4
+x-xmtpd-server-image: &x-xmtpd-server-image ghcr.io/xmtp/xmtpd:sha-e2f0de1
+x-xmtpd-gateway-image: &x-xmtpd-gateway-image ghcr.io/xmtp/xmtpd-gateway:sha-e2f0de1
+x-xmtpd-cli-image: &x-xmtpd-cli-image ghcr.io/xmtp/xmtpd-cli:sha-e2f0de1
 x-xmtpd-contracts-image: &x-xmtpd-contracts-image ghcr.io/xmtp/contracts:v0.5.5
 x-postgres-image: &x-postgres-image postgres:16
 x-redis-image: &x-redis-image redis:7-alpine
@@ -76,55 +76,6 @@ services:
         condition: service_completed_successfully
     restart: on-failure
 
-  register-node-wasm:
-    platform: linux/amd64
-    image: *x-xmtpd-cli-image
-    env_file:
-      - local.env
-    volumes:
-      - ../environments/anvil.json:/cfg/anvil.json
-    command:
-      [
-        "--config-file=/cfg/anvil.json",
-        "--private-key=${ANVIL_ADMIN_KEY}",
-        "--rpc-url=${XMTPD_SETTLEMENT_CHAIN_RPC_URL}",
-        "nodes",
-        "register",
-        "--owner-address=${REGISTER_NODE_WASM_OWNER_ADDRESS}",
-        "--signing-key-pub=${REGISTER_NODE_WASM_PUBKEY}",
-        "--http-address=${REGISTER_NODE_WASM_HTTP_ADDRESS}",
-      ]
-    depends_on:
-      chain:
-        condition: service_started
-      register-node-native:
-        condition: service_completed_successfully
-    restart: on-failure
-
-  enable-node-wasm:
-    platform: linux/amd64
-    image: *x-xmtpd-cli-image
-    env_file:
-      - local.env
-    volumes:
-      - ../environments/anvil.json:/cfg/anvil.json
-    command:
-      [
-        "--config-file=/cfg/anvil.json",
-        "--private-key=${ANVIL_ADMIN_KEY}",
-        "--rpc-url=${XMTPD_SETTLEMENT_CHAIN_RPC_URL}",
-        "nodes",
-        "canonical-network",
-        "--add",
-        "--node-id=200",
-      ]
-    depends_on:
-      chain:
-        condition: service_started
-      register-node-wasm:
-        condition: service_completed_successfully
-    restart: on-failure
-
   xmtpd:
     platform: linux/amd64
     image: *x-xmtpd-server-image
@@ -136,8 +87,6 @@ services:
       - "XMTPD_CONTRACTS_CONFIG_FILE_PATH=/cfg/anvil.json"
     depends_on:
       enable-node-native:
-        condition: service_completed_successfully
-      enable-node-wasm:
         condition: service_completed_successfully
       replicationdb:
         condition: service_healthy

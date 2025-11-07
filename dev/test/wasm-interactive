@@ -38,5 +38,5 @@ export WASM_BINDGEN_TEST_ONLY_WEB=1
 export NO_HEADLESS=1
 
 cargo test --target wasm32-unknown-unknown --release \
-  -p $PACKAGE -- \
+  -p $PACKAGE --features d14n -- \
   $TESTS
