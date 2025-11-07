@@ -3,26 +3,36 @@ use crate::time::Expired;
 use rand::distributions::DistString;
 use rand::{Rng, distributions::Alphanumeric, seq::IteratorRandom};
 use std::collections::HashMap;
+use std::sync::LazyLock;
 use std::{future::Future, sync::OnceLock};
-
-#[cfg(not(target_arch = "wasm32"))]
-pub mod traced_test;
-#[cfg(not(target_arch = "wasm32"))]
-pub use traced_test::TestWriter;
+use tokio::sync;
 
 mod macros;
 
 mod openmls;
 pub use openmls::*;
 
+crate::if_native! {
+    use parking_lot::Mutex;
+    pub mod traced_test;
+    pub use traced_test::TestWriter;
+    mod logger;
+
+    use once_cell::sync::Lazy;
+    static REPLACE_IDS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+}
+
 static INIT: OnceLock<()> = OnceLock::new();
 
-crate::if_native! {
-    use once_cell::sync::Lazy;
-    use parking_lot::Mutex;
+use toxiproxy_rust::TOXIPROXY;
 
-    static REPLACE_IDS: once_cell::sync::Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
-    mod logger;
+static TOXIPROXY_TEST_LOCK: LazyLock<sync::Mutex<()>> = LazyLock::new(|| sync::Mutex::new(()));
+
+// TODO: can add this to the macro
+pub async fn toxiproxy_test<T, F: AsyncFn() -> T>(f: F) -> T {
+    let _g = TOXIPROXY_TEST_LOCK.lock().await;
+    TOXIPROXY.reset().await.unwrap();
+    f().await
 }
 
 pub trait Generate {
@@ -154,8 +164,6 @@ fn ctor_logging_setup() {
 }
 
 // must be in an arc so we only ever have one subscriber
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-use std::sync::LazyLock;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 static SCOPED_SUBSCRIBER: LazyLock<std::sync::Arc<Box<dyn tracing::Subscriber + Send + Sync>>> =
     LazyLock::new(|| {

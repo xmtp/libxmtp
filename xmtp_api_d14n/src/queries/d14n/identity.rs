@@ -27,12 +27,11 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, G, Store, E> XmtpIdentityClient for D14nClient<C, G, Store>
+impl<C, Store, E> XmtpIdentityClient for D14nClient<C, Store>
 where
-    E: std::error::Error + RetryableError + 'static,
-    G: Client<Error = E>,
+    E: RetryableError + 'static,
     C: Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<G as xmtp_proto::api::Client>::Error>> + 'static,
+    ApiClientError<E>: From<ApiClientError<<C as xmtp_proto::api::Client>::Error>> + 'static,
     Store: CursorStore,
 {
     type Error = ApiClientError<E>;
@@ -53,7 +52,7 @@ where
                 .envelope(envelopes)
                 .build()?,
         )
-        .query(&self.gateway_client)
+        .query(&self.client)
         .await?;
 
         Ok(identity_v1::PublishIdentityUpdateResponse {})
@@ -84,7 +83,7 @@ where
                 last_seen,
             })
             .build()?
-            .query(&self.message_client)
+            .query(&self.client)
             .await?;
 
         let updates: HashMap<String, Vec<IdentityUpdateLog>> = SequencedExtractor::builder()
@@ -124,7 +123,7 @@ where
                     .collect::<Vec<_>>(),
             )
             .build()?
-            .query(&self.message_client)
+            .query(&self.client)
             .await?;
 
         Ok(identity_v1::GetInboxIdsResponse {

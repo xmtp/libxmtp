@@ -1,5 +1,5 @@
 use super::*;
-use crate::{ToxicProxies, prelude::*, types::AppVersion};
+use crate::{prelude::*, types::AppVersion};
 
 pub struct TestEndpoint;
 impl Endpoint for TestEndpoint {
@@ -26,7 +26,6 @@ impl ApiBuilder for MockApiBuilder {
         Ok(())
     }
     fn set_host(&mut self, _host: String) {}
-    fn set_gateway(&mut self, _host: String) {}
     fn set_tls(&mut self, _tls: bool) {}
     fn rate_per_minute(&mut self, _limit: u32) {}
 
@@ -43,12 +42,6 @@ impl ApiBuilder for MockApiBuilder {
     }
 
     fn set_retry(&mut self, _retry: xmtp_common::Retry) {}
-}
-
-impl crate::TestApiBuilder for MockApiBuilder {
-    async fn with_toxiproxy(&mut self) -> ToxicProxies {
-        unimplemented!()
-    }
 }
 
 #[derive(thiserror::Error, Debug)]
