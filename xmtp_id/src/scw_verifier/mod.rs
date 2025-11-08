@@ -43,6 +43,7 @@ impl RetryableError for VerifierError {
     fn is_retryable(&self) -> bool {
         use VerifierError::*;
         match self {
+            Provider(_) => true,
             Other(o) => o.is_retryable(),
             _ => false,
         }
