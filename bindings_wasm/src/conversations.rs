@@ -255,6 +255,8 @@ pub struct CreateGroupOptions {
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
   #[wasm_bindgen(js_name = messageDisappearingSettings)]
   pub message_disappearing_settings: Option<MessageDisappearingSettings>,
+  #[wasm_bindgen(js_name = appData)]
+  pub app_data: Option<String>,
 }
 
 #[wasm_bindgen]
@@ -268,6 +270,7 @@ impl CreateGroupOptions {
     group_description: Option<String>,
     custom_permission_policy_set: Option<PermissionPolicySet>,
     message_disappearing_settings: Option<MessageDisappearingSettings>,
+    app_data: Option<String>,
   ) -> Self {
     Self {
       permissions,
@@ -276,6 +279,7 @@ impl CreateGroupOptions {
       group_description,
       custom_permission_policy_set,
       message_disappearing_settings,
+      app_data,
     }
   }
 }
@@ -289,6 +293,7 @@ impl CreateGroupOptions {
       message_disappearing_settings: self
         .message_disappearing_settings
         .map(|settings| settings.into()),
+      app_data: self.app_data,
     }
   }
 }
@@ -387,6 +392,7 @@ impl Conversations {
       group_description: None,
       custom_permission_policy_set: None,
       message_disappearing_settings: None,
+      app_data: None,
     });
 
     if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
