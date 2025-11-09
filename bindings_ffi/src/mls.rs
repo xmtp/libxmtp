@@ -2443,6 +2443,16 @@ impl FfiConversation {
         Ok(group_name)
     }
 
+    pub async fn update_app_data(&self, app_data: String) -> Result<(), GenericError> {
+        self.inner.update_app_data(app_data).await?;
+        Ok(())
+    }
+
+    pub fn app_data(&self) -> Result<String, GenericError> {
+        let app_data = self.inner.app_data()?;
+        Ok(app_data)
+    }
+
     pub async fn update_group_image_url_square(
         &self,
         group_image_url_square: String,

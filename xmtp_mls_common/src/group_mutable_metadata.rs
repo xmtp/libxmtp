@@ -48,6 +48,7 @@ pub enum MetadataField {
     MessageDisappearInNS,
     MinimumSupportedProtocolVersion,
     CommitLogSigner,
+    AppData,
 }
 
 impl MetadataField {
@@ -62,6 +63,7 @@ impl MetadataField {
             MetadataField::MinimumSupportedProtocolVersion => "minimum_supported_protocol_version",
             // Uses SUPER_ADMIN_METADATA_PREFIX ("_") to make this field super-admin only
             MetadataField::CommitLogSigner => "_commit_log_signer",
+            MetadataField::AppData => "app_data",
         }
     }
 }
@@ -234,6 +236,7 @@ impl GroupMutableMetadata {
             MetadataField::MessageDisappearFromNS,
             MetadataField::MessageDisappearInNS,
             MetadataField::MinimumSupportedProtocolVersion,
+            MetadataField::AppData,
         ]
     }
 

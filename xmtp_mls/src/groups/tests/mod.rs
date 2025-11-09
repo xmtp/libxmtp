@@ -32,7 +32,8 @@ use crate::context::XmtpSharedContext;
 use crate::groups::intents::QueueIntent;
 use crate::groups::{DmValidationError, GroupLeaveValidationError, MetadataPermissionsError};
 use crate::groups::{
-    MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
+    MAX_APP_DATA_LENGTH, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
+    MAX_GROUP_NAME_LENGTH,
 };
 use crate::tester;
 use crate::utils::fixtures::{alix, bola, caro};
@@ -4108,10 +4109,18 @@ async fn test_respects_character_limits_for_group_metadata() {
         matches!(result, Err(GroupError::TooManyCharacters { length }) if length == MAX_GROUP_IMAGE_URL_LENGTH)
     );
 
+    // Verify that updating the app data with an excessive length fails
+    let overlong_app_data = "d".repeat(MAX_APP_DATA_LENGTH + 1);
+    let result = amal_group.update_app_data(overlong_app_data).await;
+    assert!(
+        matches!(result, Err(GroupError::TooManyCharacters { length }) if length == MAX_APP_DATA_LENGTH)
+    );
+
     // Verify updates with valid lengths are successful
     let valid_name = "Valid Group Name".to_string();
     let valid_description = "Valid group description within limit.".to_string();
     let valid_image_url = "http://example.com/image.png".to_string();
+    let valid_app_data = "Valid app data content".to_string();
 
     amal_group
         .update_group_name(valid_name.clone())
@@ -4123,6 +4132,10 @@ async fn test_respects_character_limits_for_group_metadata() {
         .unwrap();
     amal_group
         .update_group_image_url_square(valid_image_url.clone())
+        .await
+        .unwrap();
+    amal_group
+        .update_app_data(valid_app_data.clone())
         .await
         .unwrap();
 
@@ -4152,6 +4165,63 @@ async fn test_respects_character_limits_for_group_metadata() {
             .unwrap(),
         &valid_image_url
     );
+    assert_eq!(
+        metadata
+            .attributes
+            .get(&MetadataField::AppData.to_string())
+            .unwrap(),
+        &valid_app_data
+    );
+}
+
+#[xmtp_common::test]
+async fn test_update_app_data() {
+    tester!(amal);
+
+    let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
+    let amal_group = amal.create_group(policy_set, None).unwrap();
+    amal_group.sync().await.unwrap();
+
+    // Update app data with a valid value
+    let app_data = "Test application data".to_string();
+    amal_group.update_app_data(app_data.clone()).await.unwrap();
+    amal_group.sync().await.unwrap();
+
+    // Verify the app data was updated using the getter
+    let retrieved_app_data = amal_group.app_data().unwrap();
+    assert_eq!(retrieved_app_data, app_data);
+
+    // Update with maximum allowed size (8KB)
+    let max_size_data = "x".repeat(MAX_APP_DATA_LENGTH);
+    amal_group
+        .update_app_data(max_size_data.clone())
+        .await
+        .unwrap();
+    amal_group.sync().await.unwrap();
+
+    let retrieved_max_data = amal_group.app_data().unwrap();
+    assert_eq!(retrieved_max_data, max_size_data);
+}
+
+#[xmtp_common::test]
+async fn test_app_data_dm_restriction() {
+    tester!(amal);
+    tester!(bola);
+
+    // Create a DM
+    let dm = amal
+        .find_or_create_dm_by_inbox_id(bola.inbox_id().to_string(), None)
+        .await
+        .unwrap();
+
+    // Verify that updating app_data on a DM fails
+    let result = dm.update_app_data("test data".to_string()).await;
+    assert!(matches!(
+        result,
+        Err(GroupError::MetadataPermissionsError(
+            MetadataPermissionsError::DmGroupMetadataForbidden
+        ))
+    ));
 }
 
 fn increment_patch_version(version: &str) -> Option<String> {
