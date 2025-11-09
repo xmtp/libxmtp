@@ -1,5 +1,6 @@
 use super::{
-    MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
+    MAX_APP_DATA_LENGTH, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
+    MAX_GROUP_NAME_LENGTH,
     group_membership::{GroupMembership, MembershipDiff},
     group_permissions::{
         GroupMutablePermissions, GroupMutablePermissionsError, extract_group_permissions,
@@ -349,6 +350,13 @@ impl ValidatedCommit {
                     {
                         return Err(CommitValidationError::TooManyCharacters {
                             length: MAX_GROUP_IMAGE_URL_LENGTH,
+                        });
+                    }
+                    val if val == MetadataField::AppData.as_str()
+                        && new_value.len() > MAX_APP_DATA_LENGTH =>
+                    {
+                        return Err(CommitValidationError::TooManyCharacters {
+                            length: MAX_APP_DATA_LENGTH,
                         });
                     }
                     _ => {}

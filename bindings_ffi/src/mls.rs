@@ -2258,6 +2258,7 @@ pub struct FfiCreateGroupOptions {
     pub group_description: Option<String>,
     pub custom_permission_policy_set: Option<FfiPermissionPolicySet>,
     pub message_disappearing_settings: Option<FfiMessageDisappearingSettings>,
+    pub app_data: Option<String>,
 }
 
 impl FfiCreateGroupOptions {
@@ -2269,6 +2270,7 @@ impl FfiCreateGroupOptions {
             message_disappearing_settings: self
                 .message_disappearing_settings
                 .map(|settings| settings.into()),
+            app_data: self.app_data,
         }
     }
 }
@@ -2491,6 +2493,16 @@ impl FfiConversation {
     pub fn group_name(&self) -> Result<String, GenericError> {
         let group_name = self.inner.group_name()?;
         Ok(group_name)
+    }
+
+    pub async fn update_app_data(&self, app_data: String) -> Result<(), GenericError> {
+        self.inner.update_app_data(app_data).await?;
+        Ok(())
+    }
+
+    pub fn app_data(&self) -> Result<String, GenericError> {
+        let app_data = self.inner.app_data()?;
+        Ok(app_data)
     }
 
     pub async fn update_group_image_url_square(
