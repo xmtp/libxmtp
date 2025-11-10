@@ -10,7 +10,7 @@
     "test": "yarn build:test && vitest"
   },
   "dependencies": {
-    "@vitest/browser": "^3.2.1",
+    "@vitest/browser": "^4.0.8",
     "playwright": "^1.52.0"
   }
 }
