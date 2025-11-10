@@ -1,9 +1,5 @@
-use std::sync::Arc;
-
-use tracing::error;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::consent_record::{ConsentState, ConsentType};
-use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::prelude::*;
 
 use crate::tester;
