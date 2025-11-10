@@ -69,6 +69,21 @@ mod wasm {
             EncryptedMessageStore::new(db).unwrap()
         }
 
+        async fn create_ephemeral_store_from_snapshot(
+            snapshot: &[u8],
+        ) -> EncryptedMessageStore<crate::DefaultDatabase> {
+            let db = crate::database::WasmDb::new(&StorageOption::Ephemeral)
+                .await
+                .unwrap();
+            let store = EncryptedMessageStore::new_uninit(db).unwrap();
+            store
+                .db()
+                .raw_query_write(|conn| conn.deserialize_database_from_buffer(snapshot))
+                .unwrap();
+
+            store
+        }
+
         async fn create_persistent_store(
             path: Option<String>,
         ) -> EncryptedMessageStore<crate::DefaultDatabase> {
