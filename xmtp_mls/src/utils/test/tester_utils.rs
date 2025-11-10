@@ -757,3 +757,19 @@ macro_rules! tester {
         tester!(@process $builder.$key() ; $name $(, $k $(: $v)?)*)
     };
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_snapshots() {
+        tester!(alix, ephemeral_db);
+        let g = alix.create_group(None, None)?;
+        let snap = Arc::new(alix.db_snapshot());
+        tester!(alix2, snapshot: snap);
+
+        assert_eq!(alix.inbox_id(), alix2.inbox_id());
+        assert!(alix2.group(&g.group_id).is_ok());
+    }
+}
