@@ -98,7 +98,7 @@ where
         self.db()
             .raw_query_write(|conn| {
                 let buff = conn.serialize_database_to_buffer();
-                Ok(buff.as_slice().to_vec())
+                Ok(buff.to_vec())
             })
             .unwrap()
     }
