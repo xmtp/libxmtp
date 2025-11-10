@@ -27,7 +27,9 @@ futures-timer.workspace = true
 http = "1.2"
 tls_codec.workspace = true
 xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
+xmtp_api_grpc.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_configuration.workspace = true
 xmtp_cryptography = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }

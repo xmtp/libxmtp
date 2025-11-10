@@ -38,6 +38,7 @@ impl Endpoint for GetIdentityUpdatesV2 {
 #[cfg(test)]
 mod test {
     use super::*;
+    use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::{identity_v1::GetIdentityUpdatesResponse, prelude::*};
 
     #[xmtp_common::test]
@@ -57,7 +58,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_get_identity_updates_v2() {
-        let client = crate::TestGrpcClient::create_local();
+        let client = NodeGoClient::create();
         let client = client.build().unwrap();
         let mut endpoint = GetIdentityUpdatesV2::builder()
             .requests(vec![Request {

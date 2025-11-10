@@ -366,16 +366,22 @@ pub mod tests {
     use crate::*;
 
     use prost::Message;
+    use xmtp_api_d14n::D14nClient;
     use xmtp_api_d14n::MockApiClient;
     use xmtp_api_d14n::MockError;
+    use xmtp_api_d14n::ReadWriteClient;
     use xmtp_api_d14n::V3Client;
     use xmtp_api_d14n::protocol::NoCursorStore;
+    use xmtp_api_grpc::GrpcClient;
     use xmtp_common::FakeMlsApplicationMessage;
     use xmtp_common::Generate;
     use xmtp_common::rand_vec;
+    use xmtp_configuration::GrpcUrls;
+    use xmtp_configuration::PAYER_WRITE_FILTER;
     use xmtp_cryptography::openmls::prelude::MlsMessageOut;
     use xmtp_proto::api::mock::MockNetworkClient;
     use xmtp_proto::api_client::ApiBuilder;
+    use xmtp_proto::api_client::NetConnectConfig;
     use xmtp_proto::api_client::XmtpTestClient;
     use xmtp_proto::mls_v1::PagingInfo;
     use xmtp_proto::mls_v1::QueryGroupMessagesRequest;
@@ -649,11 +655,24 @@ pub mod tests {
     #[xmtp_common::test]
     #[ignore]
     async fn it_should_rate_limit() {
-        let mut client = crate::test_utils::TestClient::create_local();
-        client.rate_per_minute(1);
-        let _ = client.set_app_version("999.999.999".into());
-        let c = client.build().unwrap();
-        let wrapper = ApiClientWrapper::new(c, Retry::default());
+        let mut builder = GrpcClient::builder();
+        builder.rate_per_minute(1);
+        builder.set_app_version("999.999.999".into()).unwrap();
+
+        let mut gateway = builder.clone();
+        gateway.set_host(GrpcUrls::GATEWAY.into());
+        let mut xmtpd = builder.clone();
+        xmtpd.set_host(GrpcUrls::XMTPD.into());
+        let xmtpd = xmtpd.build().unwrap();
+        let gateway = gateway.build().unwrap();
+        let rw = ReadWriteClient::builder()
+            .read(xmtpd)
+            .write(gateway)
+            .filter(PAYER_WRITE_FILTER)
+            .build()
+            .unwrap();
+        let d14n = D14nClient::new(rw, NoCursorStore).unwrap();
+        let wrapper = ApiClientWrapper::new(d14n, Retry::default());
         let _first = wrapper.query_group_messages(vec![0, 0].into()).await;
         let now = std::time::Instant::now();
         let _second = wrapper.query_group_messages(vec![0, 0].into()).await;
@@ -663,8 +682,7 @@ pub mod tests {
     #[xmtp_common::test]
     #[cfg_attr(any(target_arch = "wasm32"), ignore)]
     async fn it_should_allow_large_payloads() {
-        let mut client = crate::test_utils::TestClient::create_local();
-        client.set_app_version("0.0.0".into()).unwrap();
+        let client = crate::test_utils::DefaultTestClientCreator::create();
         let installation_key = rand_vec::<32>();
         let hpke_public_key = rand_vec::<32>();
 
@@ -702,8 +720,7 @@ pub mod tests {
     async fn test_publish_commit_log_batching_with_local_server() {
         // This test verifies that publish batching works correctly with a local server
         // It should handle 11 publish requests without hitting API limits
-        let mut client = crate::test_utils::TestClient::create_local();
-        client.set_app_version("0.0.0".into()).unwrap();
+        let client = crate::test_utils::DefaultTestClientCreator::create();
 
         let c = client.build().unwrap();
         let wrapper = ApiClientWrapper::new(c, Retry::default());
@@ -745,8 +762,7 @@ pub mod tests {
     async fn test_query_commit_log_batching_with_local_server() {
         // This test verifies that query batching works correctly with a local server
         // It should handle 21 query requests without hitting API limits
-        let mut client = crate::test_utils::TestClient::create_local();
-        client.set_app_version("0.0.0".into()).unwrap();
+        let client = crate::test_utils::DefaultTestClientCreator::create();
 
         let c = client.build().unwrap();
         let wrapper = ApiClientWrapper::new(c, Retry::default());

@@ -40,6 +40,7 @@ impl Endpoint for GetNewestEnvelopes {
 
 #[cfg(test)]
 mod test {
+    use xmtp_api_grpc::test::XmtpdClient;
     use xmtp_proto::{api, prelude::*};
 
     #[xmtp_common::test]
@@ -63,7 +64,7 @@ mod test {
     async fn get_newest_envelopes() {
         use crate::d14n::GetNewestEnvelopes;
 
-        let client = crate::TestGrpcClient::create_d14n();
+        let client = XmtpdClient::create();
         let client = client.build().unwrap();
 
         let endpoint = GetNewestEnvelopes::builder().topic(vec![]).build().unwrap();

@@ -41,6 +41,8 @@ xmtp_mls.workspace = true
 xmtp_proto = { workspace = true, features = [] }
 
 toxiproxy_rust = { workspace = true, optional = true }
+xmtp_api_grpc = { workspace = true, optional = true }
+xmtp_configuration = { workspace = true, optional = true }
 
 [build-dependencies]
 napi-build = "2.0.1"
@@ -48,6 +50,8 @@ napi-build = "2.0.1"
 [dev-dependencies]
 chrono = { workspace = true }
 toxiproxy_rust.workspace = true
+xmtp_api_grpc.workspace = true
+xmtp_configuration.workspace = true
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 
 [package.metadata.cross.build.env]
@@ -58,4 +62,6 @@ test-utils = [
   "xmtp_mls/test-utils",
   "dep:toxiproxy_rust",
   "xmtp_proto/test-utils",
+  "dep:xmtp_configuration",
+  "dep:xmtp_api_grpc",
 ]

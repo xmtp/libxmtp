@@ -6,16 +6,19 @@ use crate::{
 };
 use http::{request, uri::PathAndQuery};
 use prost::bytes::Bytes;
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::Arc};
 use xmtp_common::{MaybeSend, MaybeSync, Retry};
 
-#[cfg(any(test, feature = "test-utils"))]
-pub mod mock;
+xmtp_common::if_test! {
+    pub mod mock;
+}
 
-pub mod combinators;
+mod boxed_client;
+pub(super) mod combinators;
 mod error;
 mod query;
 pub mod stream;
+pub use boxed_client::*;
 pub use error::*;
 
 pub trait HasStats {
@@ -75,16 +78,6 @@ pub trait Pageable {
     fn set_cursor(&mut self, cursor: u64);
 }
 
-#[derive(thiserror::Error, Debug)]
-pub enum MockE {}
-use futures::Future;
-pub type BoxedClient = Box<
-    dyn Client<
-            Error = ApiClientError<MockE>,
-            Stream = futures::stream::Once<Box<dyn Future<Output = ()>>>,
-        >,
->;
-
 /// A client represents how a request body is formed and sent into
 /// a backend. The client is protocol agnostic, a Client may
 /// communicate with a backend over gRPC, JSON-RPC, HTTP-REST, etc.
@@ -111,6 +104,64 @@ pub trait Client: MaybeSend + MaybeSync {
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>>;
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<T: MaybeSend + MaybeSync + ?Sized> Client for Box<T>
+where
+    T: Client,
+{
+    type Error = T::Error;
+
+    type Stream = T::Stream;
+
+    async fn request(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+        (**self).request(request, path, body).await
+    }
+
+    async fn stream(
+        &self,
+        request: request::Builder,
+        path: http::uri::PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
+        (**self).stream(request, path, body).await
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<T: MaybeSend + MaybeSync + ?Sized> Client for Arc<T>
+where
+    T: Client,
+{
+    type Error = T::Error;
+
+    type Stream = T::Stream;
+
+    async fn request(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+        (**self).request(request, path, body).await
+    }
+
+    async fn stream(
+        &self,
+        request: request::Builder,
+        path: http::uri::PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
+        (**self).stream(request, path, body).await
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]

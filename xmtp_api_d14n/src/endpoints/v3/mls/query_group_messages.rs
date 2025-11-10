@@ -47,6 +47,7 @@ impl Pageable for QueryGroupMessages {
 #[cfg(test)]
 mod test {
     use crate::v3::QueryGroupMessages;
+    use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::prelude::*;
     use xmtp_proto::xmtp::mls::api::v1::*;
 
@@ -67,7 +68,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_query_group_messages() {
-        let client = crate::TestGrpcClient::create_local();
+        let client = NodeGoClient::create();
         let client = client.build().unwrap();
         let mut endpoint = QueryGroupMessages::builder()
             .group_id(vec![1, 2, 3])

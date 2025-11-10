@@ -11,3 +11,5 @@ impl Originators {
     pub const INSTALLATIONS: u32 = 13;
     pub const REMOTE_COMMIT_LOG: u32 = 100;
 }
+
+pub const PAYER_WRITE_FILTER: &str = "xmtp.xmtpv4.payer_api.PayerApi";

@@ -30,22 +30,8 @@ mod stats;
 pub use stats::*;
 
 xmtp_common::if_test! {
-    pub mod tests;
-
-    pub trait XmtpTestClient {
-        type Builder: ApiBuilder;
-        fn create_local() -> Self::Builder;
-
-        fn create_d14n() -> Self::Builder {
-            unimplemented!("d14n not implemented for this test client")
-        }
-        fn create_gateway() -> Self::Builder {
-            unimplemented!("gateway not implemented for this test client")
-        }
-        fn create_dev() -> Self::Builder {
-            unimplemented!("dev not implemented for this test client")
-        }
-    }
+    mod tests;
+    pub use tests::*;
 }
 
 /// A type-erased version of the Xmtp Api in a [`Box`]
@@ -206,11 +192,11 @@ pub trait XmtpIdentityClient: MaybeSend + MaybeSync {
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error>;
 }
 
-/// Build an API from its parts for the XMTP Backend
-pub trait ApiBuilder: MaybeSend + MaybeSync {
-    type Output: MaybeSend + MaybeSync;
-    type Error: MaybeSend + MaybeSync;
-
+/// describe how to create a single network
+/// connection.
+/// Implement this trait if your type connects to a single
+/// network channel/connection (like gRPc or HTTP)
+pub trait NetConnectConfig: ApiBuilder + MaybeSend + MaybeSync {
     /// set the libxmtp version (required)
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error>;
 
@@ -219,9 +205,6 @@ pub trait ApiBuilder: MaybeSend + MaybeSync {
 
     /// Set the libxmtp host (required)
     fn set_host(&mut self, host: String);
-
-    /// Set the payer URL (optional)
-    fn set_gateway(&mut self, _host: String) {}
 
     /// indicate tls (default: false)
     fn set_tls(&mut self, tls: bool);
@@ -237,7 +220,12 @@ pub trait ApiBuilder: MaybeSend + MaybeSync {
 
     /// Host of the builder
     fn host(&self) -> Option<&str>;
+}
 
+/// Build an API from its parts for the XMTP Backend
+pub trait ApiBuilder: MaybeSend + MaybeSync {
+    type Output: MaybeSend + MaybeSync;
+    type Error: MaybeSend + MaybeSync + std::fmt::Debug;
     /// Build the api client
     fn build(self) -> Result<Self::Output, Self::Error>;
 }

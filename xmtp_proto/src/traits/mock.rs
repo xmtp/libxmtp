@@ -1,5 +1,5 @@
 use super::*;
-use crate::{ToxicProxies, prelude::*, types::AppVersion};
+use crate::{api_client::NetConnectConfig, prelude::*, types::AppVersion};
 
 pub struct TestEndpoint;
 impl Endpoint for TestEndpoint {
@@ -19,6 +19,13 @@ pub struct MockApiBuilder;
 impl ApiBuilder for MockApiBuilder {
     type Output = MockNetworkClient;
     type Error = MockError;
+
+    fn build(self) -> Result<Self::Output, Self::Error> {
+        Ok(MockNetworkClient::default())
+    }
+}
+
+impl NetConnectConfig for MockApiBuilder {
     fn set_libxmtp_version(&mut self, _version: String) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -26,7 +33,6 @@ impl ApiBuilder for MockApiBuilder {
         Ok(())
     }
     fn set_host(&mut self, _host: String) {}
-    fn set_gateway(&mut self, _host: String) {}
     fn set_tls(&mut self, _tls: bool) {}
     fn rate_per_minute(&mut self, _limit: u32) {}
 
@@ -34,21 +40,11 @@ impl ApiBuilder for MockApiBuilder {
         Ok(None)
     }
 
-    fn build(self) -> Result<Self::Output, Self::Error> {
-        Ok(MockNetworkClient::default())
-    }
-
     fn host(&self) -> Option<&str> {
         None
     }
 
     fn set_retry(&mut self, _retry: xmtp_common::Retry) {}
-}
-
-impl crate::TestApiBuilder for MockApiBuilder {
-    async fn with_toxiproxy(&mut self) -> ToxicProxies {
-        unimplemented!()
-    }
 }
 
 #[derive(thiserror::Error, Debug)]
