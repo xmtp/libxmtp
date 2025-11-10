@@ -33,19 +33,15 @@ pin_project! {
     }
 }
 
-pub trait StreamWithStats: Stream {
-    type Item;
-
+pub trait StreamWithStats: Stream<Item = Result<StoredGroupMessage>> {
     fn stats(&self) -> Arc<StreamStats>;
 }
 
 impl<'a, Context: Clone, Conversations, Messages> StreamWithStats
     for StreamStatsWrapper<'a, Context, Conversations, Messages>
 where
-    Self: Stream,
+    Self: Stream<Item = Result<StoredGroupMessage>>,
 {
-    type Item = Result<StoredGroupMessage>;
-
     fn stats(&self) -> Arc<StreamStats> {
         self.stats.stats()
     }

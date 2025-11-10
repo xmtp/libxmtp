@@ -1,5 +1,9 @@
+use std::sync::Arc;
+
+use tracing::error;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::consent_record::{ConsentState, ConsentType};
+use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::prelude::*;
 
 use crate::tester;
@@ -65,4 +69,47 @@ async fn test_dm_welcome_with_preexisting_consent() {
             .group_id,
         a_group.group_id
     );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn create_14k_groups() {
+    use indicatif::ProgressBar;
+    use tracing::error;
+
+    tester!(alix);
+    tester!(bo);
+
+    let num_groups = 14_000;
+    let prog = ProgressBar::new(num_groups);
+    for _ in 0..num_groups {
+        error!("a");
+        bo.create_group_with_inbox_ids(&[alix.inbox_id()], None, None)
+            .await?;
+        error!("b");
+        alix.sync_welcomes().await?;
+        let num_groups = alix.find_groups(Default::default())?.len();
+        tracing::error!("{num_groups}");
+        prog.inc(1);
+    }
+
+    let snap = alix.dump_db();
+    std::fs::write("alix.db3", &snap)?;
+    let snap = bo.dump_db();
+    std::fs::write("bo.db3", &snap)?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_14k_groups() {
+    let snap = Arc::new(std::fs::read("alix.db3")?);
+    tester!(alix, snapshot: snap);
+
+    let groups = alix.find_groups(Default::default())?;
+    error!("{}", groups.len());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_snap() {
+    tester!(alix);
+    let snap = Arc::new(alix.dump_db());
+    tester!(alix2, snapshot: snap);
 }
