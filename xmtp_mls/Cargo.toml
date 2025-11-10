@@ -39,11 +39,11 @@ test-utils = [
 ]
 bench = [
   "test-utils",
+  "indicatif",
   "tracing-subscriber",
   "criterion",
   "dep:fdlimit",
   "dep:alloy",
-  "indicatif",
   "xmtp_common/bench",
 ]
 default = []
@@ -156,7 +156,6 @@ fdlimit = { workspace = true }
 futures-executor = { version = "0.3" }
 futures-test = "0.3.31"
 futures-timer.workspace = true
-indicatif.workspace = true
 mockall.workspace = true
 once_cell.workspace = true
 openmls = { workspace = true, features = ["test-utils"] }
