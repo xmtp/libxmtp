@@ -10,13 +10,13 @@ use xmtp_db::{
   group_message::MsgQueryArgs,
 };
 use xmtp_mls::{
-  common::{
-    group_metadata::GroupMetadata as XmtpGroupMetadata,
-    group_mutable_metadata::MetadataField as XmtpMetadataField,
-  },
   groups::{
     MlsGroup, UpdateAdminListType, intents::PermissionUpdateType as XmtpPermissionUpdateType,
     members::PermissionLevel as XmtpPermissionLevel,
+  },
+  mls_common::{
+    group_metadata::GroupMetadata as XmtpGroupMetadata,
+    group_mutable_metadata::MetadataField as XmtpMetadataField,
   },
 };
 

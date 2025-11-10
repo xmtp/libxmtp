@@ -93,7 +93,7 @@ pub(crate) fn process_incoming_preference_update(
         updates.extend(changed);
     }
 
-    if let Some(handle) = context.workers().sync_metrics() {
+    if let Some(handle) = context.sync_metrics() {
         updates.iter().for_each(|u| match u {
             PreferenceUpdate::Consent(_) => handle.increment_metric(SyncMetric::V1ConsentReceived),
             PreferenceUpdate::Hmac { .. } => handle.increment_metric(SyncMetric::V1HmacReceived),

@@ -3582,17 +3582,11 @@ async fn skip_already_processed_intents() {
 
 #[xmtp_common::test(flavor = "multi_thread")]
 async fn test_parallel_syncs() {
-    let wallet = generate_local_wallet();
-    let alix1 = Arc::new(ClientBuilder::new_test_client(&wallet).await);
-    alix1
-        .device_sync_client()
-        .wait_for_sync_worker_init()
-        .await
-        .unwrap();
+    tester!(alix1, sync_worker, sync_server);
 
     let alix1_group = alix1.create_group(None, None).unwrap();
 
-    let alix2 = ClientBuilder::new_test_client(&wallet).await;
+    tester!(alix2, from: alix1);
 
     let sync_tasks: Vec<_> = (0..10)
         .map(|_| {

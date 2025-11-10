@@ -14,12 +14,15 @@ use process_welcome::ProcessWelcomeResult;
 use stream_all::StreamAllMessages;
 use stream_conversations::{StreamConversations, WelcomeOrGroup};
 
-pub(super) mod process_message;
-pub(super) mod process_welcome;
+pub mod process_message;
+pub mod process_welcome;
 mod stream_all;
 mod stream_conversations;
-pub(crate) mod stream_messages;
+pub mod stream_messages;
 mod stream_utils;
+
+#[cfg(any(test, feature = "test-utils"))]
+use crate::subscriptions::stream_messages::stream_stats::{StreamStatsWrapper, StreamWithStats};
 
 use crate::{
     Client,
@@ -59,6 +62,8 @@ pub enum LocalEvents {
     // a new group was created
     NewGroup(Vec<u8>),
     PreferencesChanged(Vec<PreferenceUpdate>),
+    // a message was deleted (contains message ID)
+    MessageDeleted(Vec<u8>),
 }
 
 #[derive(Clone)]
@@ -138,11 +143,19 @@ impl LocalEvents {
             _ => None,
         }
     }
+
+    fn message_deletion_filter(self) -> Option<Vec<u8>> {
+        match self {
+            Self::MessageDeleted(message_id) => Some(message_id),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) trait StreamMessages {
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>>;
     fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>>;
+    fn stream_message_deletions(self) -> impl Stream<Item = Result<Vec<u8>>>;
 }
 
 impl StreamMessages for broadcast::Receiver<LocalEvents> {
@@ -160,6 +173,15 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
         BroadcastStream::new(self).filter_map(|event| async {
             xmtp_common::optify!(event, "Missed message due to event queue lag")
                 .and_then(LocalEvents::preference_filter)
+                .map(Result::Ok)
+        })
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    fn stream_message_deletions(self) -> impl Stream<Item = Result<Vec<u8>>> {
+        BroadcastStream::new(self).filter_map(|event| async {
+            xmtp_common::optify!(event, "Missed message due to event queue lag")
+                .and_then(LocalEvents::message_deletion_filter)
                 .map(Result::Ok)
         })
     }
@@ -377,6 +399,27 @@ where
         StreamAllMessages::new_owned(self.context.clone(), conversation_type, consent_state).await
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn stream_all_messages_owned_with_stats(
+        &self,
+        conversation_type: Option<ConversationType>,
+        consent_state: Option<Vec<ConsentState>>,
+    ) -> Result<impl StreamWithStats<Item = Result<StoredGroupMessage>> + 'static> {
+        tracing::debug!(
+            inbox_id = self.inbox_id(),
+            installation_id = %self.context.installation_id(),
+            conversation_type = ?conversation_type,
+            "stream all messages"
+        );
+
+        let stream =
+            StreamAllMessages::new_owned(self.context.clone(), conversation_type, consent_state)
+                .await?;
+
+        Ok(StreamStatsWrapper::new(stream))
+    }
+
     pub fn stream_all_messages_with_callback(
         context: Context,
         conversation_type: Option<ConversationType>,
@@ -454,6 +497,27 @@ where
             }
             tracing::debug!("`stream_preferences` stream ended, dropping stream");
             on_close();
+            Ok::<_, SubscribeError>(())
+        })
+    }
+
+    pub fn stream_message_deletions_with_callback(
+        client: Arc<Client<Context>>,
+        #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<u8>>) + Send + 'static,
+        #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<u8>>) + 'static,
+    ) -> impl StreamHandle<StreamOutput = Result<()>> {
+        let (tx, rx) = oneshot::channel();
+
+        xmtp_common::spawn(Some(rx), async move {
+            let receiver = client.local_events.subscribe();
+            let stream = receiver.stream_message_deletions();
+
+            futures::pin_mut!(stream);
+            let _ = tx.send(());
+            while let Some(message_id) = stream.next().await {
+                callback(message_id)
+            }
+            tracing::debug!("`stream_message_deletions` stream ended, dropping stream");
             Ok::<_, SubscribeError>(())
         })
     }

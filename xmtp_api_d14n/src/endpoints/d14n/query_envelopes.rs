@@ -77,7 +77,7 @@ impl Endpoint for QueryEnvelopes {
 #[cfg(test)]
 mod test {
     use super::*;
-    use xmtp_api_grpc::error::GrpcError;
+    use xmtp_api_grpc::{error::GrpcError, test::XmtpdClient};
     use xmtp_proto::{api, prelude::*};
 
     #[xmtp_common::test]
@@ -109,7 +109,7 @@ mod test {
     async fn test_query_envelopes() {
         use crate::d14n::QueryEnvelopes;
 
-        let client = crate::TestGrpcClient::create_d14n();
+        let client = XmtpdClient::create();
         let client = client.build().unwrap();
 
         let endpoint = QueryEnvelopes::builder()
@@ -137,7 +137,7 @@ mod test {
     async fn test_query_envelope() {
         use crate::d14n::QueryEnvelope;
 
-        let client = crate::TestGrpcClient::create_d14n();
+        let client = XmtpdClient::create();
         let client = client.build().unwrap();
 
         let endpoint = QueryEnvelope::builder()

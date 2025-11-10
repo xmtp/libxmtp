@@ -1,4 +1,3 @@
-use crate::protocol::AnyClient;
 use crate::protocol::XmtpQuery;
 use std::pin::Pin;
 use xmtp_proto::api::HasStats;
@@ -223,18 +222,5 @@ impl<C: XmtpQuery> XmtpQuery for BoxedStreamsClient<C> {
         at: Option<xmtp_proto::types::GlobalCursor>,
     ) -> Result<crate::protocol::XmtpEnvelope, Self::Error> {
         <C as XmtpQuery>::query_at(&self.inner, topic, at).await
-    }
-}
-
-impl<C> AnyClient for BoxedStreamsClient<C>
-where
-    C: AnyClient,
-{
-    fn downcast_ref_v3client(&self) -> Option<&'_ crate::definitions::FullV3Client> {
-        <C as AnyClient>::downcast_ref_v3client(&self.inner)
-    }
-
-    fn downcast_ref_d14nclient(&self) -> Option<&'_ crate::definitions::FullD14nClient> {
-        <C as AnyClient>::downcast_ref_d14nclient(&self.inner)
     }
 }

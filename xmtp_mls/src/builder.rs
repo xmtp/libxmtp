@@ -86,7 +86,7 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) disable_workers: bool,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SyncWorkerMode {
     Disabled,
     Enabled,
@@ -292,8 +292,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 mode: device_sync_worker_mode,
             },
             fork_recovery_opts: fork_recovery_opts.unwrap_or_default(),
-            workers: workers.clone(),
+
             sync_api_client,
+            worker_metrics: workers.metrics().clone(),
+            task_channels: workers.task_channels().clone(),
         });
 
         // register workers
@@ -332,7 +334,12 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 .register_new_worker::<crate::tasks::TaskWorker<ContextParts<ApiClient, S, Db>>, _>(
                     context.clone(),
                 );
-            workers.spawn();
+        }
+
+        let workers = Arc::new(workers);
+
+        if !disable_workers {
+            workers.spawn(context.clone());
         }
 
         let client = Client {

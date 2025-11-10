@@ -15,30 +15,21 @@ use crate::{
     context::{XmtpMlsLocalContext, XmtpSharedContext},
     identity::IdentityStrategy,
 };
-use alloy::signers::local::PrivateKeySigner;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
 use xmtp_api_d14n::XmtpTestClientExt;
 use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_common::time::Expired;
+use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{ConnectionExt, DbConnection, XmtpTestDb};
-use xmtp_db::{XmtpMlsStorageProvider, sql_key_store::SqlKeyStore};
 use xmtp_id::associations::{Identifier, test_utils::MockSmartContractSignatureVerifier};
-use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
+use xmtp_proto::api_client::ApiBuilder;
 use xmtp_proto::types::ApiIdentifier;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub use tester_utils::*;
-
-pub type TestMlsStorage = SqlKeyStore<xmtp_db::DefaultDbConnection>;
-pub type TestXmtpMlsContext =
-    Arc<XmtpMlsLocalContext<TestClient, xmtp_db::DefaultStore, TestMlsStorage>>;
-pub type FullXmtpClient = Client<TestXmtpMlsContext>;
-/// Default Client Tester type
-pub type ClientTester = Tester<PrivateKeySigner, FullXmtpClient>;
-pub type TestMlsGroup = crate::groups::MlsGroup<TestXmtpMlsContext>;
-
-pub type TestClient = xmtp_api_d14n::TestClient;
+mod definitions;
+pub use definitions::*;
 
 use super::VersionInfo;
 
@@ -48,20 +39,18 @@ impl<A, S> ClientBuilder<A, S> {
     }
 
     pub fn dev(self) -> ClientBuilder<TestClient, S> {
-        let dev = <TestClient as XmtpTestClient>::create_dev;
         let s = Arc::new(SqliteCursorStore::new(self.store.as_ref().unwrap().db()));
-        let a = TestClient::with_cursor_store(dev, s.clone());
-        let s = TestClient::with_cursor_store(dev, s);
+        let a = DevOnlyTestClientCreator::with_cursor_store(s.clone());
+        let s = DevOnlyTestClientCreator::with_cursor_store(s);
         let api_client = a.build().unwrap();
         let sync_api_client = s.build().unwrap();
         self.api_clients(api_client, sync_api_client)
     }
 
     pub fn local(self) -> ClientBuilder<TestClient, S> {
-        let local = <TestClient as XmtpTestClient>::create_local;
         let s = Arc::new(SqliteCursorStore::new(self.store.as_ref().unwrap().db()));
-        let a = TestClient::with_cursor_store(local, s.clone());
-        let s = TestClient::with_cursor_store(local, s);
+        let a = LocalOnlyTestClientCreator::with_cursor_store(s.clone());
+        let s = LocalOnlyTestClientCreator::with_cursor_store(s);
         let api_client = a.build().unwrap();
         let sync_api_client = s.build().unwrap();
         self.api_clients(api_client, sync_api_client)

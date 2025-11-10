@@ -1181,24 +1181,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d86b93f97252c47b41663388e6d155714a9d0c398b99f1005cbc5f978b29f445"
 
 [[package]]
-name = "benches"
-version = "1.6.0-dev"
-dependencies = [
- "anyhow",
- "clap",
- "futures",
- "indicatif",
- "parking_lot 0.12.4",
- "rlimit",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "xmtp_mls",
-]
-
-[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1229,7 +1211,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_node"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "chrono",
  "const-hex",
@@ -1245,7 +1227,9 @@ dependencies = [
  "tracing-subscriber",
  "xmtp_api",
  "xmtp_api_d14n",
+ "xmtp_api_grpc",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_db",
@@ -1256,7 +1240,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_wasm"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "alloy",
  "chrono",
@@ -4100,7 +4084,7 @@ dependencies = [
 
 [[package]]
 name = "mls_validation_service"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "alloy",
  "async-trait",
@@ -5534,15 +5518,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd124222d17ad93a644ed9d011a40f4fb64aa54275c08cc216524a9ea82fb09f"
 dependencies = [
  "digest 0.10.7",
-]
-
-[[package]]
-name = "rlimit"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7043b63bd0cd1aaa628e476b80e6d4023a3b50eb32789f2728908107bd0c793a"
-dependencies = [
- "libc",
 ]
 
 [[package]]
@@ -7312,9 +7287,9 @@ checksum = "f6ccf251212114b54433ec949fd6a7841275f9ada20dddd2f29e9ceea4501493"
 
 [[package]]
 name = "unicode-width"
-version = "0.2.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a1a07cc7db3810833284e8d372ccdc6da29741639ecc70c9ec107df0fa6154c"
+checksum = "1fc81956842c57dac11422a97c3b8195a1ff727f06e85c84ed2e8aa277c9a0fd"
 
 [[package]]
 name = "unicode-xid"
@@ -8286,7 +8261,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "async-trait",
  "chrono",
@@ -8302,7 +8277,9 @@ dependencies = [
  "tracing",
  "wasm-bindgen-test",
  "xmtp_api_d14n",
+ "xmtp_api_grpc",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",
@@ -8310,7 +8287,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_d14n"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "async-trait",
  "chrono",
@@ -8346,7 +8323,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_grpc"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "async-trait",
  "futures",
@@ -8376,7 +8353,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_archive"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "aes-gcm",
  "async-compression",
@@ -8402,7 +8379,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cli"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "alloy",
  "chrono",
@@ -8435,7 +8412,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_common"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "async-trait",
  "console_error_panic_hook",
@@ -8454,6 +8431,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio_with_wasm",
+ "toxiproxy_rust",
  "tracing",
  "tracing-flame",
  "tracing-forest",
@@ -8470,7 +8448,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_configuration"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "openmls",
  "url",
@@ -8480,7 +8458,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_content_types"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -8497,7 +8475,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cryptography"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "alloy",
  "bincode",
@@ -8521,7 +8499,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_db"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "arc-swap",
  "bincode",
@@ -8563,7 +8541,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_db_test"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "derive_builder",
  "diesel",
@@ -8576,7 +8554,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_id"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "alloy",
  "async-trait",
@@ -8611,7 +8589,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_macro"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "num_cpus",
  "proc-macro2",
@@ -8623,7 +8601,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "aes-gcm",
  "alloy",
@@ -8704,7 +8682,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls_common"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "const-hex",
  "openmls",
@@ -8722,7 +8700,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_proto"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "async-trait",
  "bytes",
@@ -8761,7 +8739,7 @@ dependencies = [
 
 [[package]]
 name = "xmtpv3"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 dependencies = [
  "alloy",
  "async-trait",

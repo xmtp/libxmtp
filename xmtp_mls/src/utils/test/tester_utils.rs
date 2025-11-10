@@ -1,15 +1,6 @@
 #![allow(unused)]
 
 use super::FullXmtpClient;
-use async_trait::async_trait;
-use diesel::QueryableByName;
-use xmtp_api_d14n::{XmtpTestClientExt, protocol::InMemoryCursorStore};
-use xmtp_configuration::{DeviceSyncUrls, DockerUrls};
-use xmtp_db::{
-    ConnectionExt, ReadOnly, TestDb, XmtpTestDb,
-    diesel::{self, Connection, RunQueryDsl, SqliteConnection, sql_query},
-};
-
 use crate::{
     Client,
     builder::{ClientBuilder, ForkRecoveryOpts, ForkRecoveryPolicy, SyncWorkerMode},
@@ -19,10 +10,15 @@ use crate::{
     groups::device_sync::worker::SyncMetric,
     identity::{Identity, IdentityStrategy},
     subscriptions::SubscribeError,
-    utils::{TestClient, TestMlsStorage, VersionInfo, register_client, test::identity_setup},
+    utils::{
+        TestClient, TestMlsStorage, ToxicOnlyTestClientCreator, VersionInfo, register_client,
+        test::identity_setup,
+    },
     worker::metrics::WorkerMetrics,
 };
 use alloy::signers::local::PrivateKeySigner;
+use async_trait::async_trait;
+use diesel::QueryableByName;
 use futures::Stream;
 use futures_executor::block_on;
 use parking_lot::Mutex;
@@ -43,14 +39,23 @@ use tokio::{runtime::Handle, sync::OnceCell};
 use toxiproxy_rust::proxy::{Proxy, ProxyPack};
 use url::Url;
 use xmtp_api::XmtpApi;
+use xmtp_api_d14n::{
+    DevOnlyTestClientCreator, LocalOnlyTestClientCreator, XmtpTestClientExt,
+    protocol::InMemoryCursorStore,
+};
 use xmtp_common::StreamHandle;
 use xmtp_common::TestLogReplace;
 use xmtp_configuration::LOCALHOST;
+use xmtp_configuration::{DeviceSyncUrls, DockerUrls};
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
 #[cfg(not(target_arch = "wasm32"))]
 use xmtp_db::NativeDb;
 #[cfg(target_arch = "wasm32")]
 use xmtp_db::WasmDb;
+use xmtp_db::{
+    ConnectionExt, ReadOnly, TestDb, XmtpTestDb,
+    diesel::{self, Connection, RunQueryDsl, SqliteConnection, sql_query},
+};
 use xmtp_db::{
     EncryptedMessageStore, MlsProviderExt, StorageOption, XmtpOpenMlsProvider,
     group_message::StoredGroupMessage, sql_key_store::SqlKeyStore,
@@ -64,9 +69,9 @@ use xmtp_id::{
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
-use xmtp_proto::prelude::XmtpTestClient;
-use xmtp_proto::{TestApiBuilder, ToxicProxies};
+use xmtp_proto::api_client::ToxicTestClient;
 use xmtp_proto::{api_client::ApiBuilder, xmtp::message_contents::PrivateKey};
+use xmtp_proto::{api_client::ToxicProxies, prelude::XmtpTestClient};
 
 type XmtpMlsProvider = XmtpOpenMlsProvider<Arc<TestMlsStorage>>;
 
@@ -211,19 +216,26 @@ where
             client = client.temp_store().await;
         }
 
-        let f = match self.api_endpoint {
-            ApiEndpoint::Local => TestClient::create_local,
-            ApiEndpoint::Dev => TestClient::create_dev,
-        };
-        let store = Arc::new(SqliteCursorStore::new(client.store.as_ref().unwrap().db()));
-        let mut local_client = TestClient::with_cursor_store(f, store.clone());
-        let mut sync_api_client = TestClient::with_cursor_store(f, store);
-
         let mut proxy = None;
-        if self.proxy {
-            proxy = Some(local_client.with_toxiproxy().await);
-            sync_api_client.with_existing_toxi(local_client.host().unwrap());
-        }
+        let store = Arc::new(SqliteCursorStore::new(client.store.as_ref().unwrap().db()));
+        let (local_client, sync_api_client) = match (&self.api_endpoint, self.proxy) {
+            (ApiEndpoint::Local, false) => (
+                LocalOnlyTestClientCreator::with_cursor_store(store.clone()),
+                LocalOnlyTestClientCreator::with_cursor_store(store.clone()),
+            ),
+            (ApiEndpoint::Dev, false) => (
+                DevOnlyTestClientCreator::with_cursor_store(store.clone()),
+                DevOnlyTestClientCreator::with_cursor_store(store.clone()),
+            ),
+            (ApiEndpoint::Local, true) => {
+                proxy = Some(ToxicOnlyTestClientCreator::proxies().await);
+                (
+                    ToxicOnlyTestClientCreator::with_cursor_store(store.clone()),
+                    ToxicOnlyTestClientCreator::with_cursor_store(store.clone()),
+                )
+            }
+            (ApiEndpoint::Dev, true) => (unimplemented!("toxiproxy not supported on dev")),
+        };
 
         let api_client = local_client.build().unwrap();
         let sync_api_client = sync_api_client.build().unwrap();
@@ -260,12 +272,15 @@ where
             );
             replace.add(client.inbox_id(), name);
         }
-        let worker = client.context.sync_metrics();
-        if let Some(worker) = &worker
-            && self.wait_for_init
-        {
-            worker.wait_for_init().await.unwrap();
+        let mut worker = None;
+        if self.wait_for_init && self.sync_mode != SyncWorkerMode::Disabled {
+            while worker.is_none() {
+                xmtp_common::task::yield_now().await;
+                worker = client.context.sync_metrics();
+            }
+            worker.as_ref().unwrap().wait_for_init().await.unwrap();
         }
+
         client.sync_welcomes().await;
 
         let mut tester = Tester {

@@ -39,9 +39,9 @@
 , zlib
 , xmtp
 , omnix
+, toxiproxy
 , ...
 }:
-
 let
   inherit (stdenv) isDarwin isLinux;
   rust-toolchain = xmtp.mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
@@ -76,6 +76,7 @@ mkShell {
       kotlin
       diesel-cli
       graphite-cli
+      toxiproxy
 
       # Random devtools
       # tokio-console
@@ -101,7 +102,6 @@ mkShell {
       protolint
       omnix
 
-
       # lint
       taplo
       # dev/up
@@ -111,5 +111,6 @@ mkShell {
     ]
     ++ lib.optionals isDarwin [
       darwin.cctools
-    ] ++ lib.optionals isLinux [ cargo-llvm-cov ];
+    ]
+    ++ lib.optionals isLinux [ cargo-llvm-cov ];
 }

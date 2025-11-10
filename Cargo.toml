@@ -14,7 +14,6 @@ members = [
   "xmtp_debug",
   "xmtp_content_types",
   "common",
-  "benches",
   "xmtp_api_d14n",
   "xmtp_macro",
   "xmtp_db",
@@ -52,7 +51,7 @@ resolver = "2"
 
 [workspace.package]
 license = "MIT"
-version = "1.6.0-dev"
+version = "1.7.0-dev"
 
 [workspace.dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
