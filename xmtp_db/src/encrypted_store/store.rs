@@ -20,7 +20,7 @@ impl<Db> EncryptedMessageStore<Db> {
 impl<Db: XmtpDb> EncryptedMessageStore<Db> {
     pub fn new(db: Db) -> Result<Self, StorageError> {
         let store = Self::new_uninit(db)?;
-        store.db.init();
+        store.db.init()?;
         Ok(store)
     }
 
