@@ -235,31 +235,36 @@ impl Client {
     })
   }
 
+  // Returns Some SignatureRequestHandle if we have installallations to revoke.
+  // If we have no other installations to revoke, returns None.
   #[wasm_bindgen(js_name = revokeAllOtherInstallationsSignatureRequest)]
   pub async fn revoke_all_other_installations_signature_request(
     &mut self,
-  ) -> Result<SignatureRequestHandle, JsError> {
+  ) -> Result<Option<SignatureRequestHandle>, JsError> {
     let installation_id = self.inner_client().installation_public_key();
     let inbox_state = self
       .inner_client()
       .inbox_state(true)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-    let other_installation_ids = inbox_state
+    let other_installation_ids: Vec<Vec<u8>> = inbox_state
       .installation_ids()
       .into_iter()
       .filter(|id| id != installation_id)
       .collect();
+    if other_installation_ids.is_empty() {
+      return Ok(None);
+    }
     let signature_request = self
       .inner_client()
       .identity_updates()
       .revoke_installations(other_installation_ids)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-    Ok(SignatureRequestHandle {
+    Ok(Some(SignatureRequestHandle {
       inner: Arc::new(Mutex::new(signature_request)),
       scw_verifier: self.inner_client().scw_verifier().clone(),
-    })
+    }))
   }
 
   #[wasm_bindgen(js_name = revokeInstallationsSignatureRequest)]
