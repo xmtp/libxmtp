@@ -235,7 +235,7 @@ impl Client {
     })
   }
 
-  // Returns Some SignatureRequestHandle if we have installallations to revoke.
+  // Returns Some SignatureRequestHandle if we have installations to revoke.
   // If we have no other installations to revoke, returns None.
   #[wasm_bindgen(js_name = revokeAllOtherInstallationsSignatureRequest)]
   pub async fn revoke_all_other_installations_signature_request(

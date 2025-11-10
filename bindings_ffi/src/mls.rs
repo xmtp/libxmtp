@@ -838,7 +838,7 @@ impl FfiXmtpClient {
 
     /**
      * Revokes all installations except the one the client is currently using
-     * Returns Some FfiSignatureRequest if we have installallations to revoke.
+     * Returns Some FfiSignatureRequest if we have installations to revoke.
      * If we have no other installations to revoke, returns None.
      */
     pub async fn revoke_all_other_installations_signature_request(
