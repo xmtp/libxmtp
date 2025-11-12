@@ -47,7 +47,7 @@ pub fn verify_signed_with_public_key(
 
 #[allow(dead_code)]
 #[napi]
-pub fn revoke_installations_signature_request(
+pub async fn revoke_installations_signature_request(
   v3_host: String,
   gateway_host: Option<String>,
   recovery_identifier: Identifier,
