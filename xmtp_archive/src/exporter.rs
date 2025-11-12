@@ -199,7 +199,7 @@ impl AsyncRead for ArchiveExporter {
 
                 let mut element = this
                     .cipher
-                    .encrypt(&this.nonce, &*element)
+                    .encrypt(this.nonce, &*element)
                     .expect("Encryption should always work");
                 let mut bytes = (element.len() as u32).to_le_bytes().to_vec();
                 bytes.append(&mut element);
