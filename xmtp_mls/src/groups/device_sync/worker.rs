@@ -8,9 +8,6 @@ use crate::{
     groups::{
         GroupError,
         device_sync::{archive::insert_importer, default_archive_options},
-        device_sync_legacy::{
-            DeviceSyncContent, preference_sync_legacy::LegacyUserPreferenceUpdate,
-        },
     },
     subscriptions::{LocalEvents, SyncWorkerEvent},
     worker::{
@@ -151,14 +148,6 @@ where
                 SyncWorkerEvent::CycleHMAC => {
                     self.evt_cycle_hmac().await?;
                 }
-
-                // Device Sync V1 events
-                SyncWorkerEvent::Reply { message_id } => {
-                    self.evt_v1_device_sync_reply(message_id).await?;
-                }
-                SyncWorkerEvent::Request { message_id } => {
-                    self.evt_v1_device_sync_request(message_id).await?;
-                }
             }
         }
         Ok(())
@@ -228,18 +217,7 @@ where
         &self,
         updates: Vec<PreferenceUpdate>,
     ) -> Result<(), DeviceSyncError> {
-        let (updates, legacy_updates) = self.client.sync_preferences(updates).await?;
-
-        let sync_group = self.client.get_sync_group().await?;
-        legacy_updates.iter().for_each(|u| match u {
-            LegacyUserPreferenceUpdate::ConsentUpdate(_) => {
-                tracing::info!("Sent consent to group_id: {:?}", sync_group.group_id);
-                self.metrics.increment_metric(SyncMetric::V1ConsentSent)
-            }
-            LegacyUserPreferenceUpdate::HmacKeyUpdate { .. } => {
-                self.metrics.increment_metric(SyncMetric::V1HmacSent)
-            }
-        });
+        let updates = self.client.sync_preferences(updates).await?;
 
         updates.iter().for_each(|update| match update {
             PreferenceUpdate::Consent(_) => self.metrics.increment_metric(SyncMetric::ConsentSent),
@@ -250,32 +228,6 @@ where
 
     async fn evt_cycle_hmac(&self) -> Result<(), DeviceSyncError> {
         self.client.cycle_hmac().await?;
-        Ok(())
-    }
-
-    /// Called when this device has received a device sync v1 sync reply
-    async fn evt_v1_device_sync_reply(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
-        let conn = self.client.context.db();
-        if let Some(msg) = conn.get_group_message(&message_id)? {
-            let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
-            if let DeviceSyncContent::Reply(reply) = content {
-                self.client.v1_process_sync_reply(reply).await?;
-            };
-        }
-        Ok(())
-    }
-
-    /// Called when this device has received a device sync v1 sync request
-    async fn evt_v1_device_sync_request(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
-        let conn = self.client.context.db();
-        if let Some(msg) = conn.get_group_message(&message_id)? {
-            let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
-            if let DeviceSyncContent::Request(request) = content {
-                self.client
-                    .v1_reply_to_sync_request(request, &self.metrics)
-                    .await?;
-            }
-        }
         Ok(())
     }
 }
