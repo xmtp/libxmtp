@@ -208,16 +208,16 @@ pub async fn create_client(
       if !lossless {
         return Err(Error::from_reason("`nonce` is too large"));
       }
-      Some(value)
+      value
     }
-    None => None,
+    None => 1,
   };
   let internal_account_identifier = account_identifier.clone().try_into()?;
   let identity_strategy = IdentityStrategy::new(
     inbox_id.clone(),
     internal_account_identifier,
     // this is a temporary solution
-    nonce.unwrap_or(1),
+    nonce,
     None,
   );
 
