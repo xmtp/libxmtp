@@ -1,5 +1,6 @@
 //! Traits representing un-processed (extracted) and processed (extracted) protobuf types
 use chrono::Utc;
+use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_proto::types::Cursor;
 
 use crate::protocol::{CursorExtractor, DependsOnExtractor, TimestampExtractor};
@@ -13,7 +14,7 @@ use super::*;
 * Theres a way to seal this trait implementation to
 * avoid external implementations which should be done.
 */
-pub trait ProtocolEnvelope<'env>: std::fmt::Debug {
+pub trait ProtocolEnvelope<'env>: std::fmt::Debug + MaybeSend + MaybeSync {
     type Nested<'a>
     where
         Self: 'a;
@@ -35,7 +36,7 @@ pub trait ProtocolEnvelope<'env>: std::fmt::Debug {
 /// a [`Cursor`](xmtp_proto::types::Cursor) per envelope.
 /// Likewise, Clients form the [`ClientEnvelope`] according to the [Client Node2Node Protocol](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#332-envelopes)
 /// Client envelopes maintain a payload/topic with MLS and Client-specific duties.
-pub trait Envelope<'env>: std::fmt::Debug {
+pub trait Envelope<'env>: std::fmt::Debug + MaybeSend + MaybeSync {
     /// Extract the topic for this envelope
     fn topic(&self) -> Result<Topic, EnvelopeError>;
     /// Extract the cursor for this envelope
