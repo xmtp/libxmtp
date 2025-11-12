@@ -58,7 +58,8 @@ impl Stream for ArchiveImporter {
                     Err(_) => {
                         this.nonce.decrement();
                         this.cipher
-                            .decrypt(&this.nonce, &this.decoded[..element_len])?
+                            .decrypt(&this.nonce, &this.decoded[..element_len])
+                            .inspect_err(|_| this.nonce.increment())?
                     }
                 };
 

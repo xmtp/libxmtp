@@ -12,7 +12,7 @@ impl GenericArrayExt for GenericArray<u8, typenum::U12> {
         let bytes = self.as_mut_slice();
 
         let mut buf = [0; 16];
-        buf[..12].copy_from_slice(&bytes);
+        buf[..12].copy_from_slice(bytes);
         let val = u128::from_le_bytes(buf);
         let val = val.wrapping_add(1);
 
@@ -23,7 +23,7 @@ impl GenericArrayExt for GenericArray<u8, typenum::U12> {
         let bytes = self.as_mut_slice();
 
         let mut buf = [0; 16];
-        buf[..12].copy_from_slice(&bytes);
+        buf[..12].copy_from_slice(bytes);
         let val = u128::from_le_bytes(buf);
         let val = val.wrapping_sub(1);
 
