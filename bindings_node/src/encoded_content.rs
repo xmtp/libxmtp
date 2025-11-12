@@ -6,8 +6,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
   ContentTypeId as XmtpContentTypeId, EncodedContent as XmtpEncodedContent,
 };
 
-#[derive(Clone)]
 #[napi(object)]
+#[derive(Clone)]
 pub struct ContentTypeId {
   pub authority_id: String,
   pub type_id: String,
@@ -37,7 +37,6 @@ impl From<ContentTypeId> for XmtpContentTypeId {
   }
 }
 
-#[derive(Clone)]
 #[napi(object)]
 pub struct EncodedContent {
   pub r#type: Option<ContentTypeId>,
@@ -47,10 +46,22 @@ pub struct EncodedContent {
   pub content: Uint8Array,
 }
 
+impl Clone for EncodedContent {
+  fn clone(&self) -> Self {
+    Self {
+      r#type: self.r#type.clone(),
+      parameters: self.parameters.clone(),
+      fallback: self.fallback.clone(),
+      compression: self.compression,
+      content: self.content.to_vec().into(),
+    }
+  }
+}
+
 #[napi]
 #[allow(dead_code)]
 pub fn deserialize_encoded_content(bytes: Uint8Array) -> Result<EncodedContent> {
-  let encoded = XmtpEncodedContent::decode(bytes.as_ref())
+  let encoded = XmtpEncodedContent::decode(&*bytes)
     .map_err(|e| napi::Error::from_reason(format!("Failed to decode EncodedContent: {}", e)))?;
   Ok(encoded.into())
 }
@@ -63,7 +74,7 @@ pub fn serialize_encoded_content(content: EncodedContent) -> Result<Uint8Array> 
     parameters: content.parameters,
     fallback: content.fallback,
     compression: content.compression,
-    content: content.content.deref().to_vec(),
+    content: content.content.to_vec(),
   };
   let mut buf = Vec::new();
   encoded
