@@ -1,7 +1,6 @@
 use crate::ErrorWrapper;
 use crate::identity::Identifier;
-use napi::bindgen_prelude::Result;
-use napi::bindgen_prelude::Uint8Array;
+use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::sync::Arc;
 use xmtp_api::{ApiClientWrapper, strategies};
@@ -38,11 +37,22 @@ pub async fn get_inbox_id_for_identifier(
 }
 
 #[napi]
-pub fn generate_inbox_id(account_ident: Identifier) -> Result<String> {
-  // ensure that the nonce is always 1 for now since this will only be used for the
-  // create_client function above, which also has a hard-coded nonce of 1
+pub fn generate_inbox_id(account_ident: Identifier, nonce: Option<BigInt>) -> Result<String> {
+  let nonce = match nonce {
+    Some(n) => {
+      let (signed, value, lossless) = n.get_u64();
+      if signed {
+        return Err(Error::from_reason("`nonce` must be non-negative"));
+      }
+      if !lossless {
+        return Err(Error::from_reason("`nonce` is too large"));
+      }
+      value
+    }
+    None => 1,
+  };
   let ident: XmtpIdentifier = account_ident.try_into()?;
-  Ok(ident.inbox_id(1).map_err(ErrorWrapper::from)?)
+  Ok(ident.inbox_id(nonce).map_err(ErrorWrapper::from)?)
 }
 
 #[napi]
