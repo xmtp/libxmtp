@@ -8357,11 +8357,13 @@ version = "1.7.0-dev"
 dependencies = [
  "aes-gcm",
  "async-compression",
+ "async-trait",
  "chrono",
  "futures",
  "futures-util",
  "getrandom 0.3.3",
  "openmls",
+ "pin-project-lite",
  "prost",
  "reqwest 0.12.23",
  "serde_json",

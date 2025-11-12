@@ -1,10 +1,12 @@
 use super::*;
+use async_trait::async_trait;
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, message_backup::GroupMessageSave};
 
+#[async_trait]
 impl BackupRecordProvider for GroupMessageSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records<D>(
+    async fn backup_records<D>(
         db: Arc<D>,
         start_ns: Option<i64>,
         end_ns: Option<i64>,
