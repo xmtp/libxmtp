@@ -199,7 +199,19 @@ pub async fn create_client(
     }
   };
 
-  let nonce = nonce.map(|n| n.get_u64().1);
+  let nonce = match nonce {
+    Some(n) => {
+      let (signed, value, lossless) = n.get_u64();
+      if signed {
+        return Err(Error::from_reason("`nonce` must be non-negative"));
+      }
+      if !lossless {
+        return Err(Error::from_reason("`nonce` is too large"));
+      }
+      Some(value)
+    }
+    None => None,
+  };
   let internal_account_identifier = account_identifier.clone().try_into()?;
   let identity_strategy = IdentityStrategy::new(
     inbox_id.clone(),
