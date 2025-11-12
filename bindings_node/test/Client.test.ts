@@ -388,7 +388,7 @@ describe('Streams', () => {
 
     let messages = new Array()
     client2.conversations().syncAllConversations()
-    let stream = client2.conversations().streamAllMessages(
+    let stream = await client2.conversations().streamAllMessages(
       (msg) => {
         messages.push(msg)
       },

@@ -465,12 +465,8 @@ where
 
     pub fn stream_preferences_with_callback(
         client: Arc<Client<Context>>,
-        #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>)
-        + Send
-        + 'static,
-        #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>) + 'static,
-        #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
-        #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
+        mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -491,8 +487,7 @@ where
 
     pub fn stream_message_deletions_with_callback(
         client: Arc<Client<Context>>,
-        #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<u8>>) + Send + 'static,
-        #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<u8>>) + 'static,
+        mut callback: impl FnMut(Result<Vec<u8>>) + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
