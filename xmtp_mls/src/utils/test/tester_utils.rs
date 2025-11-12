@@ -30,6 +30,7 @@ use passkey::{
 use public_suffix::PublicSuffixList;
 use std::{
     ops::Deref,
+    path::{Path, PathBuf},
     sync::{
         Arc, LazyLock,
         atomic::{AtomicUsize, Ordering},
@@ -100,12 +101,21 @@ where
     Owner: InboxOwner,
 {
     pub fn db_snapshot(&self) -> Vec<u8> {
+        if !self.builder.ephemeral_db {
+            panic!("Snapshots can only be made on ephemeral databases.");
+        }
+
         self.db()
             .raw_query_write(|conn| {
                 let buff = conn.serialize_database_to_buffer();
                 Ok(buff.to_vec())
             })
             .unwrap()
+    }
+
+    pub fn save_db_snapshot_to_file(&self, path: impl Into<PathBuf>) {
+        let snapshot = self.db_snapshot();
+        std::fs::write(path.into(), &snapshot);
     }
 }
 
@@ -484,6 +494,11 @@ where
         self.ephemeral_db()
     }
 
+    pub fn snapshot_file(mut self, snapshot_path: impl Into<PathBuf>) -> Self {
+        let snapshot = std::fs::read(snapshot_path.into()).unwrap();
+        self.snapshot(Arc::new(snapshot))
+    }
+
     pub fn disable_workers(mut self) -> Self {
         self.disable_workers = true;
         self
@@ -743,7 +758,7 @@ impl UserValidationMethod for PkUserValidationMethod {
 #[macro_export]
 macro_rules! tester {
     ($name:ident, from: $existing:expr $(, $k:ident $(: $v:expr)?)*) => {
-        tester!(@process $existing.builder ; $name $(, $k $(: $v)?)*)
+        tester!(@process $existing.builder.clone() ; $name $(, $k $(: $v)?)*)
     };
 
     ($name:ident $(, $k:ident $(: $v:expr)?)*) => {
