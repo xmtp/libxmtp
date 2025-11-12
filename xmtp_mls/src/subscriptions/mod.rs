@@ -73,10 +73,6 @@ pub enum SyncWorkerEvent {
     // The sync worker will auto-sync these with other devices.
     SyncPreferences(Vec<PreferenceUpdate>),
     CycleHMAC,
-
-    // TODO: Device Sync V1 below - Delete when V1 is deleted
-    Request { message_id: Vec<u8> },
-    Reply { message_id: Vec<u8> },
 }
 
 impl std::fmt::Debug for SyncWorkerEvent {
@@ -89,14 +85,6 @@ impl std::fmt::Debug for SyncWorkerEvent {
             Self::NewSyncGroupMsg => write!(f, "NewSyncGroupMsg"),
             Self::SyncPreferences(arg0) => f.debug_tuple("SyncPreferences").field(arg0).finish(),
             Self::CycleHMAC => write!(f, "CycleHMAC"),
-            Self::Request { message_id } => f
-                .debug_struct("Request")
-                .field("message_id", message_id)
-                .finish(),
-            Self::Reply { message_id } => f
-                .debug_struct("Reply")
-                .field("message_id", message_id)
-                .finish(),
         }
     }
 }
