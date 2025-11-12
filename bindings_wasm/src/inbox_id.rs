@@ -35,12 +35,13 @@ pub async fn get_inbox_id_for_identifier(
 #[wasm_bindgen(js_name = generateInboxId)]
 pub fn generate_inbox_id(
   #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
+  nonce: Option<u64>,
 ) -> Result<String, JsError> {
   // ensure that the nonce is always 1 for now since this will only be used for the
   // create_client function above, which also has a hard-coded nonce of 1
   let ident: XmtpIdentifier = account_identifier.try_into()?;
 
   ident
-    .inbox_id(1)
+    .inbox_id(nonce.unwrap_or(1))
     .map_err(|e| JsError::new(format!("{}", e).as_str()))
 }

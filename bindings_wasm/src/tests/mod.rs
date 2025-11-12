@@ -17,7 +17,7 @@ pub async fn create_test_client(path: Option<String>) -> Client {
   let wallet = generate_local_wallet();
   let account_address = wallet.get_identifier().unwrap_throw();
   let host = GrpcUrls::NODE.to_string();
-  let inbox_id = generate_inbox_id(account_address.clone().into());
+  let inbox_id = generate_inbox_id(account_address.clone().into(), None);
   let mut client = create_client(
     host.clone(),
     inbox_id.unwrap(),
@@ -31,6 +31,7 @@ pub async fn create_test_client(path: Option<String>) -> Client {
       performance: true,
       level: Some(LogLevel::Info),
     }),
+    None,
     None,
     None,
     None,

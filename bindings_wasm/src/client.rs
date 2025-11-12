@@ -179,6 +179,7 @@ pub async fn create_client(
   disable_events: Option<bool>,
   app_version: Option<String>,
   gateway_host: Option<String>,
+  nonce: Option<u64>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
   let mut backend = MessageBackendBuilder::default();
@@ -214,7 +215,7 @@ pub async fn create_client(
     inbox_id.clone(),
     account_identifier.clone().try_into()?,
     // this is a temporary solution
-    1,
+    nonce.unwrap_or(1),
     None,
   );
 
