@@ -12,8 +12,7 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    },
-    "./version.json": "./dist/version.json"
+    }
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -22,7 +21,7 @@
   ],
   "scripts": {
     "artifacts": "napi artifacts",
-    "build": "yarn build:clean && yarn build:release && yarn build:finish && yarn generate:version",
+    "build": "yarn build:clean && yarn build:release && yarn build:finish",
     "build:clean": "rm -rf dist",
     "build:debug": "napi build --platform --esm",
     "build:finish": "mkdir dist && mv index.js dist && mv index.d.ts dist && mv *.node dist",
@@ -31,7 +30,6 @@
     "clean": "yarn build:clean && yarn test:clean",
     "format": "prettier -w .",
     "format:check": "prettier -c .",
-    "generate:version": "tsx scripts/version.ts",
     "lint": "yarn lint:clippy && yarn lint:fmt",
     "lint:clippy": "cargo clippy --locked --all-features --all-targets --no-deps -- -D warnings",
     "lint:fmt": "cargo fmt --check",
@@ -54,8 +52,7 @@
     "viem": "^2.39.0",
     "vite": "^7.2.2",
     "vite-tsconfig-paths": "^5.1.4",
-    "vitest": "^3.2.4",
-    "zx": "^8.8.5"
+    "vitest": "^3.2.4"
   },
   "packageManager": "yarn@4.11.0",
   "engines": {

@@ -2031,7 +2031,6 @@ __metadata:
     vite: "npm:^7.2.2"
     vite-tsconfig-paths: "npm:^5.1.4"
     vitest: "npm:^3.2.4"
-    zx: "npm:^8.8.5"
   languageName: unknown
   linkType: soft
 
@@ -4247,14 +4246,5 @@ __metadata:
   version: 2.1.2
   resolution: "yoctocolors-cjs@npm:2.1.2"
   checksum: 10/d731e3ba776a0ee19021d909787942933a6c2eafb2bbe85541f0c59aa5c7d475ce86fcb860d5803105e32244c3dd5ba875b87c4c6bf2d6f297da416aa54e556f
-  languageName: node
-  linkType: hard
-
-"zx@npm:^8.8.5":
-  version: 8.8.5
-  resolution: "zx@npm:8.8.5"
-  bin:
-    zx: build/cli.js
-  checksum: 10/29e68a7a2f37b58e1140404655ec5d2f1ab1ab93f385d97192b37929972de61826a106bbc12bbf1fbd29bc649e119cad897c0c1b1751d4e9e01bc7d7629dc86e
   languageName: node
   linkType: hard
