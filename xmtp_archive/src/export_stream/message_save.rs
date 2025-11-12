@@ -1,9 +1,9 @@
 use super::*;
-use async_trait::async_trait;
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, message_backup::GroupMessageSave};
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl BackupRecordProvider for GroupMessageSave {
     const BATCH_SIZE: i64 = 100;
     async fn backup_records<D>(

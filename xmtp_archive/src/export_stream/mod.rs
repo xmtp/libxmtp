@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use futures::{Stream, ready};
 use pin_project_lite::pin_project;
 use std::{
@@ -115,7 +114,8 @@ impl Stream for BatchExportStream {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub(crate) trait BackupRecordProvider: MaybeSend + Sized + 'static {
     const BATCH_SIZE: i64;
     async fn backup_records<D>(
@@ -128,14 +128,28 @@ pub(crate) trait BackupRecordProvider: MaybeSend + Sized + 'static {
         D: MaybeSend + DbQuery + 'static;
 }
 
-pin_project! {
-    pub(crate) struct BackupRecordStreamer<R, D> {
-        cursor: i64,
-        db: Arc<D>,
-        start_ns: Option<i64>,
-        end_ns: Option<i64>,
-        #[pin] current_future: Option<Pin<Box<dyn Future<Output = Result<Vec<BackupElement>, StorageError>> + Send>>>,
-        _phantom: PhantomData<R>,
+if_native! {
+    pin_project! {
+        pub(crate) struct BackupRecordStreamer<R, D> {
+            cursor: i64,
+            db: Arc<D>,
+            start_ns: Option<i64>,
+            end_ns: Option<i64>,
+            #[pin] current_future: Option<Pin<Box<dyn Future<Output = Result<Vec<BackupElement>, StorageError>> + Send>>>,
+            _phantom: PhantomData<R>,
+        }
+    }
+}
+if_wasm! {
+    pin_project! {
+        pub(crate) struct BackupRecordStreamer<R, D> {
+            cursor: i64,
+            db: Arc<D>,
+            start_ns: Option<i64>,
+            end_ns: Option<i64>,
+            #[pin] current_future: Option<Pin<Box<dyn Future<Output = Result<Vec<BackupElement>, StorageError>>>>>,
+            _phantom: PhantomData<R>,
+        }
     }
 }
 
