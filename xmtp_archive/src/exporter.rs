@@ -1,5 +1,5 @@
 use super::{BACKUP_VERSION, OptionsToSave, export_stream::BatchExportStream};
-use crate::NONCE_SIZE;
+use crate::{NONCE_SIZE, util::GenericArrayExt};
 use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::write::ZstdEncoder;
 use futures::{Stream, pin_mut, ready, task::Context};
@@ -203,6 +203,7 @@ impl AsyncRead for ArchiveExporter {
                     .expect("Encryption should always work");
                 let mut bytes = (element.len() as u32).to_le_bytes().to_vec();
                 bytes.append(&mut element);
+                this.nonce.increment();
 
                 let fut = this.zstd_encoder.write(&bytes);
                 pin_mut!(fut);

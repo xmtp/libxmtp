@@ -1,5 +1,5 @@
 use super::{ArchiveError, BackupMetadata};
-use crate::NONCE_SIZE;
+use crate::{NONCE_SIZE, util::GenericArrayExt};
 use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::bufread::ZstdDecoder;
 use futures::{FutureExt, Stream, StreamExt};
@@ -48,11 +48,23 @@ impl Stream for ArchiveImporter {
             }
 
             if element_len != 0 && this.decoded.len() >= element_len {
-                let decrypted = this
+                let decrypted_result = this
                     .cipher
-                    .decrypt(&this.nonce, &this.decoded[..element_len])?;
+                    .decrypt(&this.nonce, &this.decoded[..element_len]);
+
+                let decrypted = match decrypted_result {
+                    Ok(decrypted) => decrypted,
+                    // Attempt to decrypt using a decremented nonce to support legacy archives.
+                    Err(_) => {
+                        this.nonce.decrement();
+                        this.cipher
+                            .decrypt(&this.nonce, &this.decoded[..element_len])?
+                    }
+                };
+
                 let element = BackupElement::decode(&*decrypted);
                 this.decoded.drain(..element_len);
+                this.nonce.increment();
                 return Poll::Ready(Some(element.map_err(ArchiveError::from)));
             }
 

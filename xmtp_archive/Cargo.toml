@@ -7,6 +7,11 @@ version.workspace = true
 [lints]
 workspace = true
 
+[features]
+test-utils = [
+  "xmtp_common/test-utils"
+]
+
 [dependencies]
 aes-gcm.workspace = true
 async-compression.workspace = true
@@ -27,6 +32,9 @@ xmtp_common.workspace = true
 xmtp_db.workspace = true
 xmtp_mls_common.workspace = true
 xmtp_proto.workspace = true
+
+[dev-dependencies]
+xmtp_common = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 xmtp_common.workspace = true
