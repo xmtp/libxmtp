@@ -113,9 +113,9 @@ where
             .unwrap()
     }
 
-    pub fn save_db_snapshot_to_file(&self, path: impl Into<PathBuf>) {
+    pub fn save_db_snapshot_to_file(&self, path: impl AsRef<Path>) {
         let snapshot = self.db_snapshot();
-        std::fs::write(path.into(), &snapshot);
+        std::fs::write(path, &snapshot);
     }
 }
 
