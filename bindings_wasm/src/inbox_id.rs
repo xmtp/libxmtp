@@ -7,8 +7,8 @@ use xmtp_proto::types::ApiIdentifier;
 
 #[wasm_bindgen(js_name = getInboxIdForIdentifier)]
 pub async fn get_inbox_id_for_identifier(
-  v3_host: String,
-  gateway_host: Option<String>,
+  #[wasm_bindgen(js_name = host)] v3_host: String,
+  #[wasm_bindgen(js_name = gatewayHost)] gateway_host: Option<String>,
   #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
 ) -> Result<Option<String>, JsError> {
   let backend = MessageBackendBuilder::default()
