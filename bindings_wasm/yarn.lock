@@ -767,7 +767,6 @@ __metadata:
     binaryen: "npm:^124.0.0"
     tsx: "npm:^4.19.3"
     wasm-pack: "npm:^0.13.1"
-    zx: "npm:^8.4.0"
   languageName: unknown
   linkType: soft
 
@@ -2583,14 +2582,5 @@ __metadata:
   version: 5.0.0
   resolution: "yallist@npm:5.0.0"
   checksum: 10/1884d272d485845ad04759a255c71775db0fac56308764b4c77ea56a20d56679fad340213054c8c9c9c26fcfd4c4b2a90df993b7e0aaf3cdb73c618d1d1a802a
-  languageName: node
-  linkType: hard
-
-"zx@npm:^8.4.0":
-  version: 8.8.0
-  resolution: "zx@npm:8.8.0"
-  bin:
-    zx: build/cli.js
-  checksum: 10/98ed2c641604a48fad0b9ac8c835b0a75eb23bbf490072e8ca0f592a26fa1e7e28c2b2ba19b4d8ddfd023cf3d84a3205655841eec65f0e1f4bf8271083ee97f6
   languageName: node
   linkType: hard
