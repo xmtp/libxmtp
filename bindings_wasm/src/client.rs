@@ -214,7 +214,6 @@ pub async fn create_client(
   let identity_strategy = IdentityStrategy::new(
     inbox_id.clone(),
     account_identifier.clone().try_into()?,
-    // this is a temporary solution
     nonce.unwrap_or(1),
     None,
   );
