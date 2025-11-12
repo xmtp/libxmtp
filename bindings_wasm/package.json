@@ -66,7 +66,7 @@
     "tsx": "^4.19.3",
     "wasm-pack": "^0.13.1"
   },
-  "packageManager": "yarn@4.5.1",
+  "packageManager": "yarn@4.11.0",
   "workspaces": [
     "tests/integration/**"
   ]
