@@ -63,7 +63,7 @@
   "devDependencies": {
     "@sqlite.org/sqlite-wasm": "^3.47.0-build1",
     "binaryen": "^124.0.0",
-    "tsx": "^4.19.3",
+    "tsx": "^4.20.6",
     "wasm-pack": "^0.13.1"
   },
   "packageManager": "yarn@4.11.0",
