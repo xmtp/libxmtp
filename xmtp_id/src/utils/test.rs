@@ -82,7 +82,7 @@ async fn deploy_wallets(provider: EthereumProvider) -> SmartWalletContext {
         .await
         .unwrap()
         .with_required_confirmations(1)
-        .with_timeout(Some(Duration::from_secs(60)))
+        .with_timeout(Some(Duration::from_secs(30)))
         .watch()
         .await
         .unwrap();
