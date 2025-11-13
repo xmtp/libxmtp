@@ -1,0 +1,358 @@
+name: Update All XMTP Repositories
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to use (e.g. swift-bindings-0.1.0.abc1234 or kotlin-bindings-0.1.0.abc1234)"
+        required: true
+      xmtp_ios_branch:
+        description: "xmtp-ios branch to base PR off of (default: main)"
+        required: false
+        default: "main"
+      xmtp_android_branch:
+        description: "xmtp-android branch to base PR off of (default: main)"
+        required: false
+        default: "main"
+      xmtp_react_native_branch:
+        description: "xmtp-react-native branch to base PR off of (default: main)"
+        required: false
+        default: "main"
+
+jobs:
+  get-version-info:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version_info.outputs.version }}
+      release_tag: ${{ steps.version_info.outputs.release_tag }}
+      binding_type: ${{ steps.version_info.outputs.binding_type }}
+    steps:
+      - name: Checkout libxmtp
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+
+      - name: Get version and SHA
+        id: version_info
+        run: |
+          # Get the original version from cargo metadata
+          ORIG_VERSION=$(cargo metadata --manifest-path bindings_ffi/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')
+
+          # Extract the major version and add 3 to it
+          MAJOR_VERSION=$(echo $ORIG_VERSION | cut -d. -f1)
+          NEW_MAJOR=$((MAJOR_VERSION + 3))
+
+          # Replace the major version in the original version string
+          VERSION=$(echo $ORIG_VERSION | sed "s/^$MAJOR_VERSION/$NEW_MAJOR/")
+
+          # Get the tag - either from the push event or from workflow_dispatch input
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            # Find the swift-bindings-* or kotlin-bindings-* tag on the current commit
+            COMMIT_SHA=$(git rev-parse HEAD)
+            SWIFT_TAG=$(git tag --points-at $COMMIT_SHA | grep "^swift-bindings-" | head -n 1)
+            KOTLIN_TAG=$(git tag --points-at $COMMIT_SHA | grep "^kotlin-bindings-" | head -n 1)
+            
+            # Prefer swift-bindings if both exist, otherwise use whichever exists
+            if [[ -n "$SWIFT_TAG" ]]; then
+              TAG="$SWIFT_TAG"
+            elif [[ -n "$KOTLIN_TAG" ]]; then
+              TAG="$KOTLIN_TAG"
+            else
+              TAG="${{ github.ref_name }}"
+            fi
+          fi
+
+          # Determine binding type
+          if [[ "$TAG" == swift-bindings-* ]]; then
+            BINDING_TYPE="swift"
+          elif [[ "$TAG" == kotlin-bindings-* ]]; then
+            BINDING_TYPE="kotlin"
+          else
+            BINDING_TYPE="unknown"
+          fi
+
+          # Extract version and SHA from tag
+          if [[ "$BINDING_TYPE" == "swift" ]]; then
+            VERSION_INPUT=$(echo $TAG | sed 's/swift-bindings-//' | cut -d. -f1-3)
+          elif [[ "$BINDING_TYPE" == "kotlin" ]]; then
+            VERSION_INPUT=$(echo $TAG | sed 's/kotlin-bindings-//' | cut -d. -f1-3)
+          fi
+          SHA7=$(echo $TAG | cut -d. -f4)
+          RELEASE_TAG="${TAG}"
+
+          # If version contains "dev", append the git commit SHA
+          if [[ "$VERSION" == *"dev"* ]]; then
+            VERSION="${VERSION}.${SHA7}"
+          fi
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
+          echo "binding_type=${BINDING_TYPE}" >> $GITHUB_OUTPUT
+
+          echo "Detected binding type: ${BINDING_TYPE}"
+          echo "Version: ${VERSION}"
+          echo "Release tag: ${RELEASE_TAG}"
+
+  update-ios:
+    if: needs.get-version-info.outputs.binding_type == 'swift' || github.event_name == 'workflow_dispatch'
+    needs: get-version-info
+    runs-on: warp-macos-13-arm64-6x
+    steps:
+      - name: Checkout libxmtp
+        uses: actions/checkout@v5
+        with:
+          path: libxmtp
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+
+      - name: Checkout xmtp-ios
+        uses: actions/checkout@v5
+        with:
+          repository: xmtp/xmtp-ios
+          path: xmtp-ios
+          token: ${{ secrets.LIBXMTP_SWIFT_PAT }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.xmtp_ios_branch || 'main' }}
+
+      - name: Create branch in xmtp-ios
+        run: |
+          cd xmtp-ios
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git checkout -b update-to-${{ needs.get-version-info.outputs.release_tag }}
+
+      - name: Update XMTP.podspec
+        run: |
+          cd xmtp-ios
+          VERSION="${{ needs.get-version-info.outputs.version }}"
+          sed -i '' "s/spec.version *= *\"[^\"]*\"/spec.version      = \"${VERSION}\"/" XMTP.podspec
+          pod spec lint XMTP.podspec || echo "Podspec validation failed but continuing"
+
+      - name: Get checksum from release
+        id: get_checksum
+        env:
+          GH_TOKEN: ${{ secrets.LIBXMTP_SWIFT_PAT }}
+        run: |
+          RELEASE_TAG="${{ needs.get-version-info.outputs.release_tag }}"
+          CHECKSUM=$(gh api repos/xmtp/libxmtp/releases/tags/$RELEASE_TAG --jq '.body' | grep -o 'Checksum of LibXMTPSwiftFFI.zip: [a-f0-9]*' | cut -d' ' -f4)
+          if [[ ! $CHECKSUM =~ ^[a-f0-9]+$ ]]; then
+            echo "Failed to extract valid checksum from release description"
+            exit 1
+          fi
+          echo "checksum=${CHECKSUM}" >> $GITHUB_OUTPUT
+
+      - name: Update Package.swift
+        run: |
+          cd xmtp-ios
+          RELEASE_URL="https://github.com/xmtp/libxmtp/releases/download/${{ needs.get-version-info.outputs.release_tag }}/LibXMTPSwiftFFI.zip"
+          CHECKSUM="${{ steps.get_checksum.outputs.checksum }}"
+          sed -i '' "s|url: \"https://github.com/xmtp/libxmtp/releases/download/.*\"|url: \"${RELEASE_URL}\"|" Package.swift
+          sed -i '' "s|checksum: \"[a-f0-9]*\"|checksum: \"${CHECKSUM}\"|" Package.swift
+
+      - name: Download and extract Swift sources
+        run: |
+          RELEASE_URL="https://github.com/xmtp/libxmtp/releases/download/${{ needs.get-version-info.outputs.release_tag }}/LibXMTPSwiftFFI.zip"
+          curl -L -o LibXMTPSwiftFFI.zip "$RELEASE_URL"
+          unzip LibXMTPSwiftFFI.zip
+          if [[ ! -f "Sources/LibXMTP/xmtpv3.swift" ]]; then
+            echo "Error: Expected Swift source file not found in extracted archive"
+            find . -name "*.swift" -type f
+            exit 1
+          fi
+          mkdir -p xmtp-ios/Sources/XMTPiOS/Libxmtp
+          cp Sources/LibXMTP/xmtpv3.swift xmtp-ios/Sources/XMTPiOS/Libxmtp/
+          rm -rf LibXMTPSwiftFFI.zip Sources LibXMTPSwiftFFI.xcframework LICENSE
+
+      - name: Commit and push changes
+        run: |
+          cd xmtp-ios
+          git add -A
+          git commit -m "Update to libxmtp ${{ needs.get-version-info.outputs.version }}"
+          git push origin update-to-${{ needs.get-version-info.outputs.release_tag }}
+
+      - name: Create PR
+        env:
+          GH_TOKEN: ${{ secrets.LIBXMTP_SWIFT_PAT }}
+        run: |
+          BASE_BRANCH="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.xmtp_ios_branch || 'main' }}"
+          gh pr create --repo xmtp/xmtp-ios \
+            --base "${BASE_BRANCH}" \
+            --head update-to-${{ needs.get-version-info.outputs.release_tag }} \
+            --title "Update to libxmtp ${{ needs.get-version-info.outputs.version }}" \
+            --body "This PR updates the iOS bindings to libxmtp version ${{ needs.get-version-info.outputs.version }}. 
+            
+          Changes:
+          - Updated XMTP.podspec version to ${{ needs.get-version-info.outputs.version }}
+          - Updated binary URLs in Package.swift to point to the new release
+          - Updated checksum in Package.swift
+          - Updated Swift source file (xmtpv3.swift) from the new release
+          
+          Base branch: ${BASE_BRANCH}"
+
+  update-android:
+    if: needs.get-version-info.outputs.binding_type == 'kotlin' || github.event_name == 'workflow_dispatch'
+    needs: get-version-info
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout libxmtp
+        uses: actions/checkout@v5
+        with:
+          path: libxmtp
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+
+      - name: Checkout xmtp-android
+        uses: actions/checkout@v5
+        with:
+          repository: xmtp/xmtp-android
+          path: xmtp-android
+          token: ${{ secrets.LIBXMTP_SWIFT_PAT }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.xmtp_android_branch || 'main' }}
+
+      - name: Create branch in xmtp-android
+        run: |
+          cd xmtp-android
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git checkout -b update-to-${{ needs.get-version-info.outputs.release_tag }}
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'adopt'
+          java-version: '17'
+
+      - name: Run gen_kotlin.sh
+        run: |
+          cd libxmtp/bindings_ffi
+          ./gen_kotlin.sh
+
+      - name: Update release version in workflow file
+        run: |
+          cd xmtp-android
+          VERSION="${{ needs.get-version-info.outputs.version }}"
+          WORKFLOW_FILE=".github/workflows/release.yml"
+          if [[ -f "$WORKFLOW_FILE" ]]; then
+            sed -i "s/RELEASE_VERSION: \"[^\"]*\"/RELEASE_VERSION: \"${VERSION}\"/" "$WORKFLOW_FILE"
+            echo "Updated RELEASE_VERSION in $WORKFLOW_FILE to $VERSION"
+          else
+            echo "Warning: Could not find workflow file at $WORKFLOW_FILE"
+            find .github/workflows -name "*.yml" -o -name "*.yaml" 2>/dev/null || echo "No .github/workflows directory found"
+          fi
+
+      - name: Commit and push changes
+        run: |
+          cd xmtp-android
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 1
+          fi
+          git commit -m "Update to libxmtp ${{ needs.get-version-info.outputs.version }}"
+          git push origin update-to-${{ needs.get-version-info.outputs.release_tag }}
+
+      - name: Create PR
+        env:
+          GH_TOKEN: ${{ secrets.LIBXMTP_SWIFT_PAT }}
+        run: |
+          BASE_BRANCH="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.xmtp_android_branch || 'main' }}"
+          gh pr create --repo xmtp/xmtp-android \
+            --base "${BASE_BRANCH}" \
+            --head update-to-${{ needs.get-version-info.outputs.release_tag }} \
+            --title "Update to libxmtp ${{ needs.get-version-info.outputs.version }}" \
+            --body "This PR updates the Android bindings to libxmtp version ${{ needs.get-version-info.outputs.version }}. 
+            
+          Changes:
+          - Updated Kotlin bindings via gen_kotlin.sh
+          - Updated RELEASE_VERSION in workflow file to ${{ needs.get-version-info.outputs.version }}
+          
+          Base branch: ${BASE_BRANCH}"
+
+  update-react-native:
+    needs: [get-version-info, update-ios, update-android]
+    if: always() && (needs.update-ios.result == 'success' || needs.update-ios.result == 'skipped') && (needs.update-android.result == 'success' || needs.update-android.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout xmtp-react-native
+        uses: actions/checkout@v5
+        with:
+          repository: xmtp/xmtp-react-native
+          path: xmtp-react-native
+          token: ${{ secrets.LIBXMTP_SWIFT_PAT }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.xmtp_react_native_branch || 'main' }}
+
+      - name: Create branch in xmtp-react-native
+        run: |
+          cd xmtp-react-native
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git checkout -b update-to-${{ needs.get-version-info.outputs.release_tag }}
+
+      - name: Update Android dependency
+        run: |
+          cd xmtp-react-native
+          VERSION="${{ needs.get-version-info.outputs.version }}"
+          
+          # Update android/build.gradle
+          if [[ -f "android/build.gradle" ]]; then
+            sed -i "s/implementation \"org.xmtp:android:[^\"]*\"/implementation \"org.xmtp:android:${VERSION}\"/" android/build.gradle
+            echo "Updated Android dependency to version $VERSION"
+          else
+            echo "Warning: android/build.gradle not found"
+          fi
+
+      - name: Update iOS podspec
+        run: |
+          cd xmtp-react-native
+          VERSION="${{ needs.get-version-info.outputs.version }}"
+          
+          # Update ios/XMTPReactNative.podspec
+          if [[ -f "ios/XMTPReactNative.podspec" ]]; then
+            sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" ios/XMTPReactNative.podspec
+            echo "Updated iOS podspec version to $VERSION"
+          else
+            echo "Warning: ios/XMTPReactNative.podspec not found"
+          fi
+
+      - name: Update package.json
+        run: |
+          cd xmtp-react-native
+          VERSION="${{ needs.get-version-info.outputs.version }}"
+          
+          # Update package.json
+          if [[ -f "package.json" ]]; then
+            sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" package.json
+            echo "Updated package.json version to $VERSION"
+          else
+            echo "Warning: package.json not found"
+          fi
+
+      - name: Commit and push changes
+        run: |
+          cd xmtp-react-native
+          git add -A
+          
+          # Check if there are any changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 1
+          fi
+          
+          git commit -m "Update to libxmtp ${{ needs.get-version-info.outputs.version }}"
+          git push origin update-to-${{ needs.get-version-info.outputs.release_tag }}
+
+      - name: Create PR
+        env:
+          GH_TOKEN: ${{ secrets.LIBXMTP_SWIFT_PAT }}
+        run: |
+          BASE_BRANCH="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.xmtp_react_native_branch || 'main' }}"
+          gh pr create --repo xmtp/xmtp-react-native \
+            --base "${BASE_BRANCH}" \
+            --head update-to-${{ needs.get-version-info.outputs.release_tag }} \
+            --title "Update to libxmtp ${{ needs.get-version-info.outputs.version }}" \
+            --body "This PR updates the React Native SDK to libxmtp version ${{ needs.get-version-info.outputs.version }}. 
+            
+          Changes:
+          - Updated Android dependency to version ${{ needs.get-version-info.outputs.version }}
+          - Updated iOS podspec version to ${{ needs.get-version-info.outputs.version }}
+          - Updated package.json version to ${{ needs.get-version-info.outputs.version }}
+          
+          Base branch: ${BASE_BRANCH}"
