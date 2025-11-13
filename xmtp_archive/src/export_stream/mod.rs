@@ -128,28 +128,20 @@ pub(crate) trait BackupRecordProvider: MaybeSend + Sized + 'static {
         D: MaybeSend + DbQuery + 'static;
 }
 
-if_native! {
-    pin_project! {
-        pub(crate) struct BackupRecordStreamer<R, D> {
-            cursor: i64,
-            db: Arc<D>,
-            start_ns: Option<i64>,
-            end_ns: Option<i64>,
-            #[pin] current_future: Option<Pin<Box<dyn Future<Output = Result<Vec<BackupElement>, StorageError>> + Send>>>,
-            _phantom: PhantomData<R>,
-        }
-    }
+trait MaybeSendFuture: Future<Output = Result<Vec<BackupElement>, StorageError>> + MaybeSend {}
+impl<T: Future<Output = Result<Vec<BackupElement>, StorageError>> + MaybeSend> MaybeSendFuture
+    for T
+{
 }
-if_wasm! {
-    pin_project! {
-        pub(crate) struct BackupRecordStreamer<R, D> {
-            cursor: i64,
-            db: Arc<D>,
-            start_ns: Option<i64>,
-            end_ns: Option<i64>,
-            #[pin] current_future: Option<Pin<Box<dyn Future<Output = Result<Vec<BackupElement>, StorageError>>>>>,
-            _phantom: PhantomData<R>,
-        }
+
+pin_project! {
+    pub(crate) struct BackupRecordStreamer<R, D> {
+        cursor: i64,
+        db: Arc<D>,
+        start_ns: Option<i64>,
+        end_ns: Option<i64>,
+        #[pin] current_future: Option<Pin<Box<dyn MaybeSendFuture>>>,
+        _phantom: PhantomData<R>,
     }
 }
 
