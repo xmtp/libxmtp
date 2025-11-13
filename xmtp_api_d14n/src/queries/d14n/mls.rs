@@ -93,8 +93,8 @@ where
                 .envelopes(envelopes)
                 .build()?,
         )
-            .query(&self.client)
-            .await?;
+        .query(&self.client)
+        .await?;
 
         Ok(())
     }
@@ -111,8 +111,8 @@ where
                 .envelopes(envelope)
                 .build()?,
         )
-            .query(&self.client)
-            .await?;
+        .query(&self.client)
+        .await?;
         Ok(())
     }
 
