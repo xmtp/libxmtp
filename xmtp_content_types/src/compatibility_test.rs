@@ -51,9 +51,9 @@ fn decode_and_reencode(
             Ok(TextCodec::encode(content)?)
         }
         "reaction" => {
-            use crate::reaction::LegacyReactionCodec;
-            let content = LegacyReactionCodec::decode(encoded_content.clone())?;
-            Ok(LegacyReactionCodec::encode(content)?)
+            use crate::reaction::ReactionCodec;
+            let content = ReactionCodec::decode(encoded_content.clone())?;
+            Ok(ReactionCodec::encode(content)?)
         }
         "reply" => {
             use crate::reply::ReplyCodec;

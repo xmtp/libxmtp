@@ -4,7 +4,7 @@ use crate::{
     group_updated::GroupUpdatedCodec,
     membership_change::GroupMembershipChangeCodec,
     multi_remote_attachment::MultiRemoteAttachmentCodec,
-    reaction::ReactionCodec,
+    reaction::{Reaction, ReactionCodec},
     read_receipt::{ReadReceipt, ReadReceiptCodec},
     remote_attachment::{RemoteAttachment, RemoteAttachmentCodec},
     reply::{Reply, ReplyCodec},
@@ -13,7 +13,7 @@ use crate::{
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent, GroupMembershipChanges, GroupUpdated,
-    content_types::{MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2},
+    content_types::MultiRemoteAttachment,
 };
 
 pub struct TestContentGenerator;
@@ -69,17 +69,13 @@ impl TestContentGenerator {
             .expect("Failed to encode multi remote attachment")
     }
 
-    pub fn reaction_content(
-        reference_id: &str,
-        content: &str,
-        action: ReactionAction,
-    ) -> EncodedContent {
-        let reaction = ReactionV2 {
+    pub fn reaction_content(reference_id: &str, content: &str, action: &str) -> EncodedContent {
+        let reaction = Reaction {
             reference: reference_id.to_string(),
-            reference_inbox_id: "test-inbox-id".to_string(),
-            action: action.into(),
+            reference_inbox_id: Some("test-inbox-id".to_string()),
+            action: action.to_string(),
             content: content.to_string(),
-            schema: ReactionSchema::Unicode.into(),
+            schema: "unicode".to_string(),
         };
         ReactionCodec::encode(reaction).expect("Failed to encode reaction")
     }

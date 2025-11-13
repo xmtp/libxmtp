@@ -4,10 +4,9 @@ use xmtp_mls::messages::decoded_message::MessageBody;
 
 use super::{
   attachment::Attachment, group_updated::GroupUpdated,
-  multi_remote_attachment::MultiRemoteAttachment, reaction::ReactionPayload,
-  read_receipt::ReadReceipt, remote_attachment::RemoteAttachment, reply::EnrichedReply,
-  text::TextContent, transaction_reference::TransactionReference,
-  wallet_send_calls::WalletSendCalls,
+  multi_remote_attachment::MultiRemoteAttachment, reaction::Reaction, read_receipt::ReadReceipt,
+  remote_attachment::RemoteAttachment, reply::EnrichedReply, text::TextContent,
+  transaction_reference::TransactionReference, wallet_send_calls::WalletSendCalls,
 };
 use crate::encoded_content::EncodedContent;
 
@@ -68,7 +67,7 @@ impl DecodedMessageContent {
   }
 
   #[wasm_bindgen(js_name = asReaction)]
-  pub fn as_reaction(&self) -> Option<ReactionPayload> {
+  pub fn as_reaction(&self) -> Option<Reaction> {
     match &self.payload {
       MessageBody::Reaction(r) => Some(r.clone().into()),
       _ => None,

@@ -50,7 +50,6 @@ mod tests {
     use xmtp_db::group_message::{
         ContentType as DbContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
     };
-    use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction;
     use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
     async fn setup_test_group() -> (MlsGroup<impl XmtpSharedContext>, impl XmtpSharedContext) {
@@ -288,7 +287,7 @@ mod tests {
             &conn,
             &group.group_id,
             vec![4],
-            TestContentGenerator::reaction_content(&msg_id_hex, "👍", ReactionAction::Added),
+            TestContentGenerator::reaction_content(&msg_id_hex, "👍", "added"),
             1000,
             "reactor1",
         );
@@ -297,7 +296,7 @@ mod tests {
             &conn,
             &group.group_id,
             vec![5],
-            TestContentGenerator::reaction_content(&msg_id_hex, "❤️", ReactionAction::Added),
+            TestContentGenerator::reaction_content(&msg_id_hex, "❤️", "added"),
             2000,
             "reactor2",
         );
@@ -497,7 +496,7 @@ mod tests {
             &conn,
             &group.group_id,
             vec![4],
-            TestContentGenerator::reaction_content(&msg_id_hex, "👍", ReactionAction::Added),
+            TestContentGenerator::reaction_content(&msg_id_hex, "👍", "added"),
             1000,
             "reactor1",
         );

@@ -4,7 +4,7 @@ use xmtp_mls::messages::decoded_message::{DecodedMessage as XmtpDecodedMessage, 
 use crate::content_types::attachment::Attachment;
 use crate::content_types::group_updated::GroupUpdated;
 use crate::content_types::multi_remote_attachment::MultiRemoteAttachmentPayload;
-use crate::content_types::reaction::ReactionPayload;
+use crate::content_types::reaction::Reaction;
 use crate::content_types::read_receipt::ReadReceipt;
 use crate::content_types::remote_attachment::RemoteAttachment;
 use crate::content_types::reply::EnrichedReply;
@@ -69,7 +69,7 @@ impl DecodedMessage {
   }
 
   #[napi(getter)]
-  pub fn reaction_content(&self) -> Option<ReactionPayload> {
+  pub fn reaction_content(&self) -> Option<Reaction> {
     match &self.inner.content {
       MessageBody::Reaction(r) => Some(r.clone().into()),
       _ => None,

@@ -2,7 +2,7 @@ use crate::fork_recovery::FfiForkRecoveryOpts;
 use crate::identity::{FfiCollectionExt, FfiCollectionTryExt, FfiIdentifier};
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
-use crate::message::{FfiDecodedMessage, FfiDeliveryStatus, FfiReactionPayload};
+use crate::message::{FfiDecodedMessage, FfiDeliveryStatus, FfiReaction};
 use crate::worker::FfiSyncWorker;
 use crate::worker::FfiSyncWorkerMode;
 use crate::{FfiReply, FfiSubscribeError, GenericError};
@@ -2753,12 +2753,9 @@ impl From<StoredGroupMessageWithReactions> for FfiMessageWithReactions {
 }
 
 #[uniffi::export]
-pub fn encode_reaction(reaction: FfiReactionPayload) -> Result<Vec<u8>, GenericError> {
-    // Convert FfiReaction to Reaction
-    let reaction: ReactionV2 = reaction.into();
-
+pub fn encode_reaction(reaction: FfiReaction) -> Result<Vec<u8>, GenericError> {
     // Use ReactionCodec to encode the reaction
-    let encoded = ReactionCodec::encode(reaction)
+    let encoded = ReactionCodec::encode(reaction.into())
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;
 
     // Encode the EncodedContent to bytes
@@ -2771,7 +2768,7 @@ pub fn encode_reaction(reaction: FfiReactionPayload) -> Result<Vec<u8>, GenericE
 }
 
 #[uniffi::export]
-pub fn decode_reaction(bytes: Vec<u8>) -> Result<FfiReactionPayload, GenericError> {
+pub fn decode_reaction(bytes: Vec<u8>) -> Result<FfiReaction, GenericError> {
     // Decode bytes into EncodedContent
     let encoded_content = EncodedContent::decode(bytes.as_slice())
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;
@@ -3234,8 +3231,8 @@ mod tests {
         FfiDirection, FfiGroupMessageKind, FfiGroupPermissionsOptions, FfiGroupQueryOrderBy,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
-        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction,
-        FfiReactionPayload, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply,
+        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
+        FfiReactionAction, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply,
         FfiSendMessageOpts, FfiSignatureKind, FfiSubscribeError, FfiTransactionReference,
         GenericError, apply_signature_request, connect_to_backend, decode_attachment,
         decode_multi_remote_attachment, decode_reaction, decode_read_receipt,
@@ -8374,9 +8371,9 @@ mod tests {
         let message_to_react_to = &messages[1];
 
         // Create and send reaction
-        let ffi_reaction = FfiReactionPayload {
+        let ffi_reaction = FfiReaction {
             reference: hex::encode(message_to_react_to.id.clone()),
-            reference_inbox_id: alix.inbox_id(),
+            reference_inbox_id: Some(alix.inbox_id()),
             action: FfiReactionAction::Added,
             content: "👍".to_string(),
             schema: FfiReactionSchema::Unicode,
@@ -8403,7 +8400,7 @@ mod tests {
         let reaction = decode_reaction(message_content).unwrap();
         assert_eq!(reaction.content, "👍");
         assert_eq!(reaction.action, FfiReactionAction::Added);
-        assert_eq!(reaction.reference_inbox_id, alix.inbox_id());
+        assert_eq!(reaction.reference_inbox_id.unwrap(), alix.inbox_id());
         assert_eq!(
             reaction.reference,
             hex::encode(message_to_react_to.id.clone())
@@ -8434,9 +8431,9 @@ mod tests {
     #[tokio::test]
     async fn test_reaction_encode_decode() {
         // Create a test reaction
-        let original_reaction = FfiReactionPayload {
+        let original_reaction = FfiReaction {
             reference: "123abc".to_string(),
-            reference_inbox_id: "test_inbox_id".to_string(),
+            reference_inbox_id: Some("test_inbox_id".to_string()),
             action: FfiReactionAction::Added,
             content: "👍".to_string(),
             schema: FfiReactionSchema::Unicode,
@@ -8875,9 +8872,9 @@ mod tests {
         let messages = text_messages;
 
         // Add reactions to different messages
-        let reaction1 = FfiReactionPayload {
+        let reaction1 = FfiReaction {
             reference: hex::encode(messages[0].id()),
-            reference_inbox_id: alix.client.inbox_id(),
+            reference_inbox_id: Some(alix.client.inbox_id()),
             action: FfiReactionAction::Added,
             content: "👍".to_string(),
             schema: FfiReactionSchema::Unicode,
@@ -8890,9 +8887,9 @@ mod tests {
             .await
             .unwrap();
 
-        let reaction2 = FfiReactionPayload {
+        let reaction2 = FfiReaction {
             reference: hex::encode(messages[1].id()),
-            reference_inbox_id: alix.client.inbox_id(),
+            reference_inbox_id: Some(alix.client.inbox_id()),
             action: FfiReactionAction::Added,
             content: "❤️".to_string(),
             schema: FfiReactionSchema::Unicode,
@@ -8906,9 +8903,9 @@ mod tests {
             .unwrap();
 
         // Remove a reaction
-        let reaction3 = FfiReactionPayload {
+        let reaction3 = FfiReaction {
             reference: hex::encode(messages[0].id()),
-            reference_inbox_id: alix.client.inbox_id(),
+            reference_inbox_id: Some(alix.client.inbox_id()),
             action: FfiReactionAction::Removed,
             content: "👍".to_string(),
             schema: FfiReactionSchema::Unicode,

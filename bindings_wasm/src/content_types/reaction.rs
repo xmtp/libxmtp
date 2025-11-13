@@ -4,16 +4,88 @@ use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
-use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
+
+#[wasm_bindgen]
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub enum ReactionAction {
+  Unknown,
+  #[default]
+  Added,
+  Removed,
+}
+
+impl From<ReactionAction> for String {
+  fn from(action: ReactionAction) -> Self {
+    match action {
+      ReactionAction::Unknown => "unknown".to_string(),
+      ReactionAction::Added => "added".to_string(),
+      ReactionAction::Removed => "removed".to_string(),
+    }
+  }
+}
+
+#[wasm_bindgen]
+#[derive(Copy, Clone, Default, PartialEq)]
+pub enum ReactionSchema {
+  Unknown,
+  #[default]
+  Unicode,
+  Shortcode,
+  Custom,
+}
+
+impl From<ReactionSchema> for String {
+  fn from(schema: ReactionSchema) -> Self {
+    match schema {
+      ReactionSchema::Unknown => "unknown".to_string(),
+      ReactionSchema::Unicode => "unicode".to_string(),
+      ReactionSchema::Shortcode => "shortcode".to_string(),
+      ReactionSchema::Custom => "custom".to_string(),
+    }
+  }
+}
 
 #[wasm_bindgen(getter_with_clone)]
 pub struct Reaction {
   pub reference: String,
   #[wasm_bindgen(js_name = "referenceInboxId")]
-  pub reference_inbox_id: String,
+  pub reference_inbox_id: Option<String>,
   pub action: ReactionAction,
   pub content: String,
   pub schema: ReactionSchema,
+}
+
+impl From<xmtp_content_types::reaction::Reaction> for Reaction {
+  fn from(reaction: xmtp_content_types::reaction::Reaction) -> Self {
+    Self {
+      action: match reaction.action.as_str() {
+        "added" => ReactionAction::Added,
+        "removed" => ReactionAction::Removed,
+        _ => ReactionAction::Unknown,
+      },
+      content: reaction.content,
+      reference_inbox_id: reaction.reference_inbox_id,
+      reference: reaction.reference,
+      schema: match reaction.schema.as_str() {
+        "unicode" => ReactionSchema::Unicode,
+        "shortcode" => ReactionSchema::Shortcode,
+        "custom" => ReactionSchema::Custom,
+        _ => ReactionSchema::Unknown,
+      },
+    }
+  }
+}
+
+impl From<Reaction> for xmtp_content_types::reaction::Reaction {
+  fn from(reaction: Reaction) -> Self {
+    Self {
+      action: reaction.action.into(),
+      content: reaction.content,
+      reference_inbox_id: reaction.reference_inbox_id,
+      reference: reaction.reference,
+      schema: reaction.schema.into(),
+    }
+  }
 }
 
 #[wasm_bindgen]
@@ -21,7 +93,7 @@ impl Reaction {
   #[wasm_bindgen(constructor)]
   pub fn new(
     reference: String,
-    #[wasm_bindgen(js_name = "referenceInboxId")] reference_inbox_id: String,
+    #[wasm_bindgen(js_name = "referenceInboxId")] reference_inbox_id: Option<String>,
     action: ReactionAction,
     content: String,
     schema: ReactionSchema,
@@ -36,46 +108,11 @@ impl Reaction {
   }
 }
 
-impl From<Reaction> for ReactionV2 {
-  fn from(reaction: Reaction) -> Self {
-    ReactionV2 {
-      reference: reaction.reference,
-      reference_inbox_id: reaction.reference_inbox_id,
-      action: reaction.action.into(),
-      content: reaction.content,
-      schema: reaction.schema.into(),
-    }
-  }
-}
-
-impl From<ReactionV2> for Reaction {
-  fn from(reaction: ReactionV2) -> Self {
-    Reaction {
-      reference: reaction.reference,
-      reference_inbox_id: reaction.reference_inbox_id,
-      action: match reaction.action {
-        1 => ReactionAction::Added,
-        2 => ReactionAction::Removed,
-        _ => ReactionAction::Unknown,
-      },
-      content: reaction.content,
-      schema: match reaction.schema {
-        1 => ReactionSchema::Unicode,
-        2 => ReactionSchema::Shortcode,
-        3 => ReactionSchema::Custom,
-        _ => ReactionSchema::Unknown,
-      },
-    }
-  }
-}
-
 #[wasm_bindgen(js_name = "encodeReaction")]
 pub fn encode_reaction(reaction: Reaction) -> Result<Uint8Array, JsError> {
-  // Convert Reaction to Reaction
-  let reaction: ReactionV2 = reaction.into();
-
   // Use ReactionCodec to encode the reaction
-  let encoded = ReactionCodec::encode(reaction).map_err(|e| JsError::new(&format!("{}", e)))?;
+  let encoded =
+    ReactionCodec::encode(reaction.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
 
   // Encode the EncodedContent to bytes
   let mut buf = Vec::new();
@@ -96,93 +133,4 @@ pub fn decode_reaction(bytes: Uint8Array) -> Result<Reaction, JsError> {
   ReactionCodec::decode(encoded_content)
     .map(Into::into)
     .map_err(|e| JsError::new(&format!("{}", e)))
-}
-
-#[wasm_bindgen]
-#[derive(Clone, Copy, Default, PartialEq, Debug)]
-pub enum ReactionAction {
-  Unknown,
-  #[default]
-  Added,
-  Removed,
-}
-
-impl From<ReactionAction> for i32 {
-  fn from(action: ReactionAction) -> Self {
-    match action {
-      ReactionAction::Unknown => 0,
-      ReactionAction::Added => 1,
-      ReactionAction::Removed => 2,
-    }
-  }
-}
-
-#[wasm_bindgen]
-#[derive(Copy, Clone, Default, PartialEq)]
-pub enum ReactionSchema {
-  Unknown,
-  #[default]
-  Unicode,
-  Shortcode,
-  Custom,
-}
-
-impl From<ReactionSchema> for i32 {
-  fn from(schema: ReactionSchema) -> Self {
-    match schema {
-      ReactionSchema::Unknown => 0,
-      ReactionSchema::Unicode => 1,
-      ReactionSchema::Shortcode => 2,
-      ReactionSchema::Custom => 3,
-    }
-  }
-}
-
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Debug, Clone)]
-pub struct ReactionPayload {
-  pub reference: String,
-  #[wasm_bindgen(js_name = "referenceInboxId")]
-  pub reference_inbox_id: String,
-  pub action: ReactionActionPayload,
-  pub content: String,
-  pub schema: ReactionSchemaPayload,
-}
-
-impl From<ReactionV2> for ReactionPayload {
-  fn from(reaction: ReactionV2) -> Self {
-    ReactionPayload {
-      reference: reaction.reference,
-      reference_inbox_id: reaction.reference_inbox_id,
-      action: match reaction.action {
-        1 => ReactionActionPayload::Added,
-        2 => ReactionActionPayload::Removed,
-        _ => ReactionActionPayload::Unknown,
-      },
-      content: reaction.content,
-      schema: match reaction.schema {
-        1 => ReactionSchemaPayload::Unicode,
-        2 => ReactionSchemaPayload::Shortcode,
-        3 => ReactionSchemaPayload::Custom,
-        _ => ReactionSchemaPayload::Unknown,
-      },
-    }
-  }
-}
-
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub enum ReactionActionPayload {
-  Added,
-  Removed,
-  Unknown,
-}
-
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub enum ReactionSchemaPayload {
-  Unicode,
-  Shortcode,
-  Custom,
-  Unknown,
 }

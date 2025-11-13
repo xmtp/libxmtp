@@ -71,10 +71,7 @@ use xmtp_configuration::{
 };
 use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
-use xmtp_content_types::{
-    reaction::{LegacyReaction, ReactionCodec},
-    reply::ReplyCodec,
-};
+use xmtp_content_types::{reaction::ReactionCodec, reply::ReplyCodec};
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
@@ -236,16 +233,12 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
         let type_id_str = content_type_id.type_id.clone();
 
         let reference_id = match (type_id_str.as_str(), content_type_id.version_major) {
-            (ReplyCodec::TYPE_ID, 1) => ReplyCodec::decode(content)
+            (ReplyCodec::TYPE_ID, 1) => ReplyCodec::decode(content.clone())
                 .ok()
                 .and_then(|reply| hex::decode(reply.reference).ok()),
-            (ReactionCodec::TYPE_ID, major) if major >= 2 => {
-                ReactionV2::decode(content.content.as_slice())
-                    .ok()
-                    .and_then(|reaction| hex::decode(reaction.reference).ok())
-            }
-            (ReactionCodec::TYPE_ID, _) => LegacyReaction::decode(&content.content)
-                .and_then(|legacy_reaction| hex::decode(legacy_reaction.reference).ok()),
+            (ReactionCodec::TYPE_ID, 1) => ReactionCodec::decode(content.clone())
+                .ok()
+                .and_then(|reaction| hex::decode(reaction.reference).ok()),
             _ => None,
         };
 

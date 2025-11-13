@@ -4,60 +4,96 @@ use prost::Message;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
-use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
 
 use crate::ErrorWrapper;
 
-#[derive(Clone)]
-#[napi(object)]
-pub struct Reaction {
-  pub reference: String,
-  pub reference_inbox_id: String,
-  pub action: ReactionAction,
-  pub content: String,
-  pub schema: ReactionSchema,
+#[napi]
+#[derive(Clone, Default, PartialEq, Debug)]
+pub enum ReactionAction {
+  Unknown,
+  #[default]
+  Added,
+  Removed,
 }
 
-impl From<Reaction> for ReactionV2 {
-  fn from(reaction: Reaction) -> Self {
-    ReactionV2 {
-      reference: reaction.reference,
-      reference_inbox_id: reaction.reference_inbox_id,
-      action: reaction.action.into(),
-      content: reaction.content,
-      schema: reaction.schema.into(),
+impl From<ReactionAction> for String {
+  fn from(action: ReactionAction) -> Self {
+    match action {
+      ReactionAction::Unknown => "unknown".to_string(),
+      ReactionAction::Added => "added".to_string(),
+      ReactionAction::Removed => "removed".to_string(),
     }
   }
 }
 
-impl From<ReactionV2> for Reaction {
-  fn from(reaction: ReactionV2) -> Self {
-    Reaction {
-      reference: reaction.reference,
-      reference_inbox_id: reaction.reference_inbox_id,
-      action: match reaction.action {
-        1 => ReactionAction::Added,
-        2 => ReactionAction::Removed,
+#[napi]
+#[derive(Clone, Default, PartialEq)]
+pub enum ReactionSchema {
+  Unknown,
+  #[default]
+  Unicode,
+  Shortcode,
+  Custom,
+}
+
+impl From<ReactionSchema> for String {
+  fn from(schema: ReactionSchema) -> Self {
+    match schema {
+      ReactionSchema::Unknown => "unknown".to_string(),
+      ReactionSchema::Unicode => "unicode".to_string(),
+      ReactionSchema::Shortcode => "shortcode".to_string(),
+      ReactionSchema::Custom => "custom".to_string(),
+    }
+  }
+}
+
+#[derive(Clone)]
+#[napi(object)]
+pub struct Reaction {
+  pub action: ReactionAction,
+  pub content: String,
+  pub reference_inbox_id: Option<String>,
+  pub reference: String,
+  pub schema: ReactionSchema,
+}
+
+impl From<xmtp_content_types::reaction::Reaction> for Reaction {
+  fn from(reaction: xmtp_content_types::reaction::Reaction) -> Self {
+    Self {
+      action: match reaction.action.as_str() {
+        "added" => ReactionAction::Added,
+        "removed" => ReactionAction::Removed,
         _ => ReactionAction::Unknown,
       },
       content: reaction.content,
-      schema: match reaction.schema {
-        1 => ReactionSchema::Unicode,
-        2 => ReactionSchema::Shortcode,
-        3 => ReactionSchema::Custom,
+      reference_inbox_id: reaction.reference_inbox_id,
+      reference: reaction.reference,
+      schema: match reaction.schema.as_str() {
+        "unicode" => ReactionSchema::Unicode,
+        "shortcode" => ReactionSchema::Shortcode,
+        "custom" => ReactionSchema::Custom,
         _ => ReactionSchema::Unknown,
       },
     }
   }
 }
 
+impl From<Reaction> for xmtp_content_types::reaction::Reaction {
+  fn from(reaction: Reaction) -> Self {
+    Self {
+      action: reaction.action.into(),
+      content: reaction.content,
+      reference_inbox_id: reaction.reference_inbox_id,
+      reference: reaction.reference,
+      schema: reaction.schema.into(),
+    }
+  }
+}
+
 #[napi]
 pub fn encode_reaction(reaction: Reaction) -> Result<Uint8Array> {
-  // Convert Reaction to Reaction
-  let reaction: ReactionV2 = reaction.into();
-
   // Use ReactionCodec to encode the reaction
-  let encoded = ReactionCodec::encode(reaction).map_err(ErrorWrapper::from)?;
+  let encoded = ReactionCodec::encode(reaction.into()).map_err(ErrorWrapper::from)?;
 
   // Encode the EncodedContent to bytes
   let mut buf = Vec::new();
@@ -76,102 +112,4 @@ pub fn decode_reaction(bytes: Uint8Array) -> Result<Reaction> {
   ReactionCodec::decode(encoded_content)
     .map(Into::into)
     .map_err(|e| napi::Error::from_reason(e.to_string()))
-}
-
-#[napi]
-#[derive(Clone, Default, PartialEq, Debug)]
-pub enum ReactionAction {
-  Unknown,
-  #[default]
-  Added,
-  Removed,
-}
-
-impl From<ReactionAction> for i32 {
-  fn from(action: ReactionAction) -> Self {
-    match action {
-      ReactionAction::Unknown => 0,
-      ReactionAction::Added => 1,
-      ReactionAction::Removed => 2,
-    }
-  }
-}
-
-#[napi]
-#[derive(Clone, Default, PartialEq)]
-pub enum ReactionSchema {
-  Unknown,
-  #[default]
-  Unicode,
-  Shortcode,
-  Custom,
-}
-
-impl From<ReactionSchema> for i32 {
-  fn from(schema: ReactionSchema) -> Self {
-    match schema {
-      ReactionSchema::Unknown => 0,
-      ReactionSchema::Unicode => 1,
-      ReactionSchema::Shortcode => 2,
-      ReactionSchema::Custom => 3,
-    }
-  }
-}
-
-// ReactionPayload for enriched messages
-#[derive(Clone)]
-#[napi(object)]
-pub struct ReactionPayload {
-  pub reference: String,
-  pub reference_inbox_id: String,
-  pub action: ReactionAction,
-  pub content: String,
-  pub schema: ReactionSchema,
-}
-
-impl From<xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2> for ReactionPayload {
-  fn from(reaction: xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2) -> Self {
-    Self {
-      reference: reaction.reference.clone(),
-      reference_inbox_id: reaction.reference_inbox_id.clone(),
-      action: reaction.action().into(),
-      content: reaction.content.clone(),
-      schema: reaction.schema().into(),
-    }
-  }
-}
-
-impl From<xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction>
-  for ReactionAction
-{
-  fn from(action: xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction) -> Self {
-    match action {
-      xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction::Added => {
-        ReactionAction::Added
-      }
-      xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction::Removed => {
-        ReactionAction::Removed
-      }
-      _ => ReactionAction::Unknown,
-    }
-  }
-}
-
-impl From<xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema>
-  for ReactionSchema
-{
-  fn from(schema: xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema) -> Self {
-    match schema {
-      xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema::Unicode => {
-        ReactionSchema::Unicode
-      }
-      xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema::Shortcode => {
-        ReactionSchema::Shortcode
-      }
-      xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema::Custom => {
-        ReactionSchema::Custom
-      }
-      _ => ReactionSchema::Unknown,
-    }
-  }
 }

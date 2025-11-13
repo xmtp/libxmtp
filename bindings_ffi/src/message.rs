@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use xmtp_content_types::{
     attachment::Attachment,
+    reaction::Reaction,
     read_receipt::ReadReceipt,
     remote_attachment::RemoteAttachment,
     reply::Reply,
@@ -14,7 +15,7 @@ use xmtp_mls::messages::decoded_message::{
     DecodedMessage, DecodedMessageMetadata, MessageBody, Reply as ProcessedReply, Text,
 };
 use xmtp_proto::xmtp::mls::message_contents::content_types::{
-    MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2, RemoteAttachmentInfo,
+    MultiRemoteAttachment, RemoteAttachmentInfo,
 };
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent, GroupUpdated};
 
@@ -32,7 +33,7 @@ pub struct FfiEnrichedReply {
 #[derive(uniffi::Enum, Clone, Debug)]
 pub enum FfiDecodedMessageBody {
     Text(FfiTextContent),
-    Reaction(FfiReactionPayload),
+    Reaction(FfiReaction),
     Attachment(FfiAttachment),
     RemoteAttachment(FfiRemoteAttachment),
     MultiRemoteAttachment(FfiMultiRemoteAttachment),
@@ -68,48 +69,6 @@ pub struct FfiRemoteAttachment {
     pub filename: Option<String>,
 }
 
-#[derive(uniffi::Record, Clone, Default, Debug)]
-pub struct FfiReactionPayload {
-    pub reference: String,
-    pub reference_inbox_id: String,
-    pub action: FfiReactionAction,
-    pub content: String,
-    pub schema: FfiReactionSchema,
-}
-
-impl From<FfiReactionPayload> for ReactionV2 {
-    fn from(reaction: FfiReactionPayload) -> Self {
-        ReactionV2 {
-            reference: reaction.reference,
-            reference_inbox_id: reaction.reference_inbox_id,
-            action: reaction.action.into(),
-            content: reaction.content,
-            schema: reaction.schema.into(),
-        }
-    }
-}
-
-impl From<ReactionV2> for FfiReactionPayload {
-    fn from(reaction: ReactionV2) -> Self {
-        FfiReactionPayload {
-            reference: reaction.reference,
-            reference_inbox_id: reaction.reference_inbox_id,
-            action: match reaction.action {
-                1 => FfiReactionAction::Added,
-                2 => FfiReactionAction::Removed,
-                _ => FfiReactionAction::Unknown,
-            },
-            content: reaction.content,
-            schema: match reaction.schema {
-                1 => FfiReactionSchema::Unicode,
-                2 => FfiReactionSchema::Shortcode,
-                3 => FfiReactionSchema::Custom,
-                _ => FfiReactionSchema::Unknown,
-            },
-        }
-    }
-}
-
 #[derive(uniffi::Enum, Clone, Default, PartialEq, Debug)]
 pub enum FfiReactionAction {
     Unknown,
@@ -118,32 +77,12 @@ pub enum FfiReactionAction {
     Removed,
 }
 
-impl From<FfiReactionAction> for i32 {
+impl From<FfiReactionAction> for String {
     fn from(action: FfiReactionAction) -> Self {
         match action {
-            FfiReactionAction::Unknown => 0,
-            FfiReactionAction::Added => 1,
-            FfiReactionAction::Removed => 2,
-        }
-    }
-}
-
-impl From<ReactionAction> for FfiReactionAction {
-    fn from(action: ReactionAction) -> Self {
-        match action {
-            ReactionAction::Unspecified => FfiReactionAction::Unknown,
-            ReactionAction::Added => FfiReactionAction::Added,
-            ReactionAction::Removed => FfiReactionAction::Removed,
-        }
-    }
-}
-
-impl From<FfiReactionAction> for ReactionAction {
-    fn from(action: FfiReactionAction) -> Self {
-        match action {
-            FfiReactionAction::Unknown => ReactionAction::Unspecified,
-            FfiReactionAction::Added => ReactionAction::Added,
-            FfiReactionAction::Removed => ReactionAction::Removed,
+            FfiReactionAction::Unknown => "unknown".to_string(),
+            FfiReactionAction::Added => "added".to_string(),
+            FfiReactionAction::Removed => "removed".to_string(),
         }
     }
 }
@@ -157,24 +96,55 @@ pub enum FfiReactionSchema {
     Custom,
 }
 
-impl From<FfiReactionSchema> for i32 {
+impl From<FfiReactionSchema> for String {
     fn from(schema: FfiReactionSchema) -> Self {
         match schema {
-            FfiReactionSchema::Unknown => 0,
-            FfiReactionSchema::Unicode => 1,
-            FfiReactionSchema::Shortcode => 2,
-            FfiReactionSchema::Custom => 3,
+            FfiReactionSchema::Unknown => "unknown".to_string(),
+            FfiReactionSchema::Unicode => "unicode".to_string(),
+            FfiReactionSchema::Shortcode => "shortcode".to_string(),
+            FfiReactionSchema::Custom => "custom".to_string(),
         }
     }
 }
 
-impl From<ReactionSchema> for FfiReactionSchema {
-    fn from(schema: ReactionSchema) -> Self {
-        match schema {
-            ReactionSchema::Unspecified => FfiReactionSchema::Unknown,
-            ReactionSchema::Unicode => FfiReactionSchema::Unicode,
-            ReactionSchema::Shortcode => FfiReactionSchema::Shortcode,
-            ReactionSchema::Custom => FfiReactionSchema::Custom,
+#[derive(uniffi::Record, Clone, Default, Debug)]
+pub struct FfiReaction {
+    pub reference: String,
+    pub reference_inbox_id: Option<String>,
+    pub action: FfiReactionAction,
+    pub content: String,
+    pub schema: FfiReactionSchema,
+}
+
+impl From<Reaction> for FfiReaction {
+    fn from(reaction: Reaction) -> Self {
+        Self {
+            action: match reaction.action.as_str() {
+                "added" => FfiReactionAction::Added,
+                "removed" => FfiReactionAction::Removed,
+                _ => FfiReactionAction::Unknown,
+            },
+            content: reaction.content,
+            reference_inbox_id: reaction.reference_inbox_id,
+            reference: reaction.reference,
+            schema: match reaction.schema.as_str() {
+                "unicode" => FfiReactionSchema::Unicode,
+                "shortcode" => FfiReactionSchema::Shortcode,
+                "custom" => FfiReactionSchema::Custom,
+                _ => FfiReactionSchema::Unknown,
+            },
+        }
+    }
+}
+
+impl From<FfiReaction> for Reaction {
+    fn from(reaction: FfiReaction) -> Self {
+        Self {
+            action: reaction.action.into(),
+            content: reaction.content,
+            reference_inbox_id: reaction.reference_inbox_id,
+            reference: reaction.reference,
+            schema: reaction.schema.into(),
         }
     }
 }
@@ -316,7 +286,7 @@ pub struct FfiDecodedMessageMetadata {
 pub enum FfiDecodedMessageContent {
     Text(FfiTextContent),
     Reply(FfiEnrichedReply),
-    Reaction(FfiReactionPayload),
+    Reaction(FfiReaction),
     Attachment(FfiAttachment),
     RemoteAttachment(FfiRemoteAttachment),
     MultiRemoteAttachment(FfiMultiRemoteAttachment),

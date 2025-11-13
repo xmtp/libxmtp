@@ -3,7 +3,7 @@ use crate::messages::enrichment::EnrichMessageError;
 use prost::Message;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
-use xmtp_content_types::reaction::{LegacyReactionCodec, ReactionCodec};
+use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::read_receipt::ReadReceiptCodec;
 use xmtp_content_types::remote_attachment::RemoteAttachmentCodec;
 use xmtp_content_types::reply::ReplyCodec;
@@ -12,6 +12,7 @@ use xmtp_content_types::wallet_send_calls::{WalletSendCalls, WalletSendCallsCode
 use xmtp_content_types::{CodecError, ContentCodec};
 use xmtp_content_types::{
     attachment::{Attachment, AttachmentCodec},
+    reaction::Reaction,
     read_receipt::ReadReceipt,
     remote_attachment::RemoteAttachment,
     text::TextCodec,
@@ -20,8 +21,7 @@ use xmtp_content_types::{
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
 use xmtp_proto::xmtp::mls::message_contents::{
-    ContentTypeId, EncodedContent, GroupUpdated,
-    content_types::{MultiRemoteAttachment, ReactionV2},
+    ContentTypeId, EncodedContent, GroupUpdated, content_types::MultiRemoteAttachment,
 };
 
 #[derive(Debug, Clone)]
@@ -43,7 +43,7 @@ pub struct Text {
 pub enum MessageBody {
     Text(Text),
     Reply(Reply),
-    Reaction(ReactionV2),
+    Reaction(Reaction),
     Attachment(Attachment),
     RemoteAttachment(RemoteAttachment),
     MultiRemoteAttachment(MultiRemoteAttachment),
@@ -121,10 +121,6 @@ impl TryFrom<EncodedContent> for MessageBody {
             (ReactionCodec::TYPE_ID, ReactionCodec::MAJOR_VERSION) => {
                 let reaction = ReactionCodec::decode(value)?;
                 Ok(MessageBody::Reaction(reaction))
-            }
-            (LegacyReactionCodec::TYPE_ID, LegacyReactionCodec::MAJOR_VERSION) => {
-                let reaction = LegacyReactionCodec::decode(value)?;
-                Ok(MessageBody::Reaction(reaction.into()))
             }
             (MultiRemoteAttachmentCodec::TYPE_ID, MultiRemoteAttachmentCodec::MAJOR_VERSION) => {
                 let multi_remote_attachment = MultiRemoteAttachmentCodec::decode(value)?;

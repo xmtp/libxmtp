@@ -4,7 +4,7 @@ use xmtp_mls::messages::decoded_message::MessageBody;
 use super::attachment::Attachment;
 use super::group_updated::GroupUpdated;
 use super::multi_remote_attachment::MultiRemoteAttachmentPayload;
-use super::reaction::ReactionPayload;
+use super::reaction::Reaction;
 use super::read_receipt::ReadReceipt;
 use super::remote_attachment::RemoteAttachment;
 use super::text::TextContent;
@@ -17,7 +17,7 @@ use crate::encoded_content::EncodedContent;
 #[napi(object)]
 pub struct DecodedMessageBody {
   pub text_content: Option<TextContent>,
-  pub reaction_content: Option<ReactionPayload>,
+  pub reaction_content: Option<Reaction>,
   pub attachment_content: Option<Attachment>,
   pub remote_attachment_content: Option<RemoteAttachment>,
   pub multi_remote_attachment_content: Option<MultiRemoteAttachmentPayload>,
