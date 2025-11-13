@@ -108,6 +108,7 @@ parking_lot = "0.12.3"
 pbjson = "0.8"
 pbjson-types = "0.8"
 pin-project-lite = "0.2"
+proptest = { version = "1.9", default-features = false }
 prost = { version = "0.14", default-features = false }
 prost-types = { version = "0.14", default-features = false }
 # updating crates are blocked on https://github.com/dalek-cryptography/curve25519-dalek/pull/729

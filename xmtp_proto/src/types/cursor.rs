@@ -29,7 +29,7 @@ impl Cursor {
         }
     }
 
-    pub const fn welcomes(sequence_id: u64) -> Self {
+    pub const fn v3_welcomes(sequence_id: u64) -> Self {
         Self {
             sequence_id,
             originator_id: Originators::WELCOME_MESSAGES,
@@ -89,7 +89,7 @@ mod test {
 
     #[rstest]
     #[case(Cursor::commit_log(100), 100, Originators::REMOTE_COMMIT_LOG)]
-    #[case(Cursor::welcomes(200), 200, Originators::WELCOME_MESSAGES)]
+    #[case(Cursor::v3_welcomes(200), 200, Originators::WELCOME_MESSAGES)]
     #[case(Cursor::v3_messages(300), 300, Originators::APPLICATION_MESSAGES)]
     #[case(Cursor::installations(400), 400, Originators::INSTALLATIONS)]
     #[case(Cursor::mls_commits(500), 500, Originators::MLS_COMMITS)]

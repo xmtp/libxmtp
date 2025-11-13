@@ -46,6 +46,12 @@ pub use vector_clock::*;
 mod full_api;
 pub use full_api::*;
 
+mod dependency_resolution;
+pub use dependency_resolution::*;
+
+mod sort;
+pub use sort::*;
+
 #[derive(thiserror::Error, Debug)]
 pub enum EnvelopeError {
     #[error(transparent)]
