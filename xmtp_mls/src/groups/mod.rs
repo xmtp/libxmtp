@@ -107,7 +107,6 @@ use xmtp_proto::{
     types::Cursor,
     xmtp::mls::message_contents::{
         EncodedContent, OneshotMessage, PlaintextEnvelope,
-        content_types::ReactionV2,
         plaintext_envelope::{Content, V1},
     },
 };
