@@ -95,7 +95,7 @@ use xmtp_proto::types::ApiIdentifier;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
-use xmtp_proto::xmtp::mls::message_contents::content_types::{MultiRemoteAttachment, ReactionV2};
+use xmtp_proto::xmtp::mls::message_contents::content_types::MultiRemoteAttachment;
 
 // Re-export types from message module that are used in public APIs
 pub use crate::message::{
@@ -3294,10 +3294,7 @@ mod tests {
         groups::{GroupError, device_sync::worker::SyncMetric},
         utils::{PasskeyUser, Tester, TesterBuilder},
     };
-    use xmtp_proto::xmtp::mls::message_contents::{
-        ContentTypeId, EncodedContent,
-        content_types::{ReactionAction, ReactionSchema, ReactionV2},
-    };
+    use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
     const HISTORY_SYNC_URL: &str = "http://localhost:5558";
 
@@ -8417,15 +8414,15 @@ mod tests {
         let message_content = message_with_reactions.reactions[0].content.clone();
         let slice: &[u8] = message_content.as_slice();
         let encoded_content = EncodedContent::decode(slice).unwrap();
-        let reaction = ReactionV2::decode(encoded_content.content.as_slice()).unwrap();
+        let reaction = ReactionCodec::decode(encoded_content).unwrap();
         assert_eq!(reaction.content, "👍");
-        assert_eq!(reaction.action, ReactionAction::Added as i32);
-        assert_eq!(reaction.reference_inbox_id, alix.inbox_id());
+        assert_eq!(reaction.action, "added");
+        assert_eq!(reaction.reference_inbox_id.unwrap(), alix.inbox_id());
         assert_eq!(
             reaction.reference,
             hex::encode(message_to_react_to.id.clone())
         );
-        assert_eq!(reaction.schema, ReactionSchema::Unicode as i32);
+        assert_eq!(reaction.schema, "unicode");
     }
 
     #[tokio::test]
