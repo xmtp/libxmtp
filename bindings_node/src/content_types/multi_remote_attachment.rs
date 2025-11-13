@@ -11,7 +11,6 @@ use xmtp_proto::xmtp::mls::message_contents::content_types::{
 
 use crate::ErrorWrapper;
 
-#[derive(Clone)]
 #[napi(object)]
 pub struct RemoteAttachmentInfo {
   pub secret: Uint8Array,
@@ -42,19 +41,18 @@ impl From<RemoteAttachmentInfo> for XmtpRemoteAttachmentInfo {
 impl From<XmtpRemoteAttachmentInfo> for RemoteAttachmentInfo {
   fn from(remote_attachment_info: XmtpRemoteAttachmentInfo) -> Self {
     RemoteAttachmentInfo {
-      secret: Uint8Array::from(remote_attachment_info.secret),
+      secret: remote_attachment_info.secret.into(),
       content_digest: remote_attachment_info.content_digest,
-      nonce: Uint8Array::from(remote_attachment_info.nonce),
+      nonce: remote_attachment_info.nonce.into(),
       scheme: remote_attachment_info.scheme,
       url: remote_attachment_info.url,
-      salt: Uint8Array::from(remote_attachment_info.salt),
+      salt: remote_attachment_info.salt.into(),
       content_length: remote_attachment_info.content_length,
       filename: remote_attachment_info.filename,
     }
   }
 }
 
-#[derive(Clone)]
 #[napi(object)]
 pub struct MultiRemoteAttachment {
   pub attachments: Vec<RemoteAttachmentInfo>,
@@ -99,7 +97,7 @@ pub fn encode_multi_remote_attachment(
   let mut buf = Vec::new();
   encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
 
-  Ok(Uint8Array::from(buf))
+  Ok(buf.into())
 }
 
 #[napi]

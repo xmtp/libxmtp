@@ -47,7 +47,7 @@ pub fn verify_signed_with_public_key(
 
 #[allow(dead_code)]
 #[napi]
-pub fn revoke_installations_signature_request(
+pub async fn revoke_installations_signature_request(
   v3_host: String,
   gateway_host: Option<String>,
   recovery_identifier: Identifier,
@@ -161,13 +161,34 @@ impl SignatureRequestHandle {
       ));
     }
 
+    let (signed, chain_id, lossless) = chain_id.get_u64();
+    if signed {
+      return Err(Error::from_reason("`chain_id` must be non-negative"));
+    }
+    if !lossless {
+      return Err(Error::from_reason("`chain_id` is too large"));
+    }
+
+    let block_number = match block_number {
+      Some(n) => {
+        let (signed, value, lossless) = n.get_u64();
+        if signed {
+          return Err(Error::from_reason("`block_number` must be non-negative"));
+        }
+        if !lossless {
+          return Err(Error::from_reason("`block_number` is too large"));
+        }
+        Some(value)
+      }
+      None => None,
+    };
     let ident: xmtp_id::associations::Identifier = account_identifier.try_into()?;
-    let account_id = AccountId::new_evm(chain_id.get_u64().1, ident.to_string());
+    let account_id = AccountId::new_evm(chain_id, ident.to_string());
 
     let signature = NewUnverifiedSmartContractWalletSignature::new(
       signature_bytes.to_vec(),
       account_id,
-      block_number.map(|b| b.get_u64().1),
+      block_number,
     );
 
     let mut inner = self.inner.lock().await;

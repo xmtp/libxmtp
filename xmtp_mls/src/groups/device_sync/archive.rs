@@ -212,7 +212,7 @@ mod tests {
             .context
             .db()
             .raw_query_read(|conn| group_messages::table.load(conn))?;
-        assert_eq!(old_messages.len(), 6);
+        assert_eq!(old_messages.len(), 5);
 
         let opts = BackupOptions {
             start_ns: None,

@@ -4,7 +4,7 @@ use crate::enriched_message::DecodedMessage;
 use crate::identity::{ApiStats, Identifier, IdentityExt, IdentityStats};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestHandle;
-use napi::bindgen_prelude::{Error, Result, Uint8Array};
+use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -28,13 +28,18 @@ static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new()
 #[derive(Clone)]
 pub struct Client {
   inner_client: Arc<RustXmtpClient>,
-  pub account_identifier: Identifier,
+  account_identifier: Identifier,
   app_version: Option<String>,
 }
 
+#[napi]
 impl Client {
   pub fn inner_client(&self) -> &Arc<RustXmtpClient> {
     &self.inner_client
+  }
+  #[napi(getter)]
+  pub fn account_identifier(&self) -> Identifier {
+    self.account_identifier.clone()
   }
 }
 
@@ -132,7 +137,7 @@ fn init_logging(options: LogOptions) -> Result<()> {
       }
       Ok(())
     })
-    .clone()
+    .as_ref()
     .map_err(ErrorWrapper::from)?;
   Ok(())
 }
@@ -160,6 +165,7 @@ pub async fn create_client(
   allow_offline: Option<bool>,
   disable_events: Option<bool>,
   app_version: Option<String>,
+  nonce: Option<BigInt>,
 ) -> Result<Client> {
   let root_identifier = account_identifier.clone();
   init_logging(log_options.unwrap_or_default())?;
@@ -193,12 +199,25 @@ pub async fn create_client(
     }
   };
 
+  let nonce = match nonce {
+    Some(n) => {
+      let (signed, value, lossless) = n.get_u64();
+      if signed {
+        return Err(Error::from_reason("`nonce` must be non-negative"));
+      }
+      if !lossless {
+        return Err(Error::from_reason("`nonce` is too large"));
+      }
+      value
+    }
+    None => 1,
+  };
   let internal_account_identifier = account_identifier.clone().try_into()?;
   let identity_strategy = IdentityStrategy::new(
     inbox_id.clone(),
     internal_account_identifier,
     // this is a temporary solution
-    1,
+    nonce,
     None,
   );
 
