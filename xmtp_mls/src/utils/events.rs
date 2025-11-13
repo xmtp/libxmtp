@@ -4,10 +4,7 @@ use crate::{
     groups::device_sync::DeviceSyncError,
     worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult},
 };
-use std::{
-    fmt::Debug,
-    sync::{LazyLock, atomic::Ordering},
-};
+use std::{fmt::Debug, sync::atomic::Ordering};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_archive::exporter::ArchiveExporter;
@@ -34,8 +31,6 @@ impl NeedsDbReconnect for EventError {
         }
     }
 }
-
-static EVENT_TX: LazyLock<broadcast::Sender<Events>> = LazyLock::new(|| broadcast::channel(100).0);
 
 pub(crate) struct EventBuilder<'a, E> {
     pub event: E,
@@ -70,7 +65,7 @@ where
         })
     }
 
-    pub(crate) fn track(self) {
+    pub(crate) fn track(self, context: &impl XmtpSharedContext) {
         if !EVENTS_ENABLED.load(Ordering::Relaxed) {
             return;
         }
@@ -83,7 +78,7 @@ where
             }
         };
 
-        if let Err(err) = EVENT_TX.send(event) {
+        if let Err(err) = context.events().send(event) {
             tracing::warn!("Unable to send event to writing worker: {err:?}");
         }
     }
@@ -176,57 +171,57 @@ where
 /// - The calling code continues execution regardless of tracking success/failure
 #[macro_export]
 macro_rules! track {
-    ($label:expr, $details:tt $(, $k:ident $(: $v:expr)?)*) => {{
+    ($context:expr,$label:expr, $details:tt $(, $k:ident $(: $v:expr)?)*) => {{
         let details = serde_json::json!($details);
-        track!($label, details: details $(, $k $(: $v)?)*)
+        track!($context, $label, details: details $(, $k $(: $v)?)*)
     }};
 
-    ($label:expr $(, $k:ident $(: $v:expr)?)*) => {{
+    ($context:expr, $label:expr $(, $k:ident $(: $v:expr)?)*) => {{
         #[allow(unused_mut)]
         let mut builder = $crate::utils::events::EventBuilder::new($label.to_string());
-        track!(@process builder $(, $k $(: $v)?)*)
+        track!(@process $context, builder $(, $k $(: $v)?)*)
     }};
 
-    (@process $builder:ident) => {
-        $builder.track()
+    (@process $context:expr, $builder:ident) => {
+        $builder.track($context)
     };
 
-    (@process $builder:ident, details: $details:expr $(, $k:ident $(: $v:expr)?)*) => {{
+    (@process $context:expr, $builder:ident, details: $details:expr $(, $k:ident $(: $v:expr)?)*) => {{
         $builder.details = Some($details);
-        track!(@process $builder $(, $k $(: $v)?)*)
+        track!(@process $context, $builder $(, $k $(: $v)?)*)
     }};
 
-    (@process $builder:ident, level: $level:expr $(, $k:ident $(: $v:expr)?)*) => {{
+    (@process $context:expr, $builder:ident, level: $level:expr $(, $k:ident $(: $v:expr)?)*) => {{
         $builder.level = Some($level);
 
         if matches!($level, EventLevel::Fault) {
             $builder.icon = Some("☠️".to_string());
         }
 
-        track!(@process $builder $(, $k $(: $v)?)*)
+        track!(@process $context, $builder $(, $k $(: $v)?)*)
     }};
 
-    (@process $builder:ident, icon: $icon:literal $(, $k:ident $(: $v:expr)?)*) => {{
+    (@process $context:expr, $builder:ident, icon: $icon:literal $(, $k:ident $(: $v:expr)?)*) => {{
         $builder.icon = Some($icon.to_string());
-        track!(@process $builder $(, $k $(: $v)?)*)
+        track!(@process $context, $builder $(, $k $(: $v)?)*)
     }};
-    (@process $builder:ident, group: $group:expr $(, $k:ident $(: $v:expr)?)*) => {
-        track!(@process $builder, group_id: $group $(, $k $(: $v)?)*)
+    (@process $context:expr, $builder:ident, group: $group:expr $(, $k:ident $(: $v:expr)?)*) => {
+        track!(@process $context, $builder, group_id: $group $(, $k $(: $v)?)*)
     };
-    (@process $builder:ident, group_id: $group_id:expr $(, $k:ident $(: $v:expr)?)*) => {{
+    (@process $context:expr, $builder:ident, group_id: $group_id:expr $(, $k:ident $(: $v:expr)?)*) => {{
         $builder.group_id = Some($group_id);
-        track!(@process $builder $(, $k $(: $v)?)*)
+        track!(@process $context, $builder $(, $k $(: $v)?)*)
     }};
-    (@process $builder:ident, maybe_group_id: $maybe_group_id:expr $(, $k:ident $(: $v:expr)?)*) => {
+    (@process $context:expr, $builder:ident, maybe_group_id: $maybe_group_id:expr $(, $k:ident $(: $v:expr)?)*) => {
         $builder.group_id = $maybe_group_id;
-        track!(@process $builder $(, $k $(: $v)?)*)
+        track!(@process $context, $builder $(, $k $(: $v)?)*)
     };
 
-    (@process $builder:ident, result: $result:expr $(, $k:ident $(: $v:expr)?)*) => {{
+    (@process $context:expr, $builder:ident, result: $result:expr $(, $k:ident $(: $v:expr)?)*) => {{
         match $result {
             Ok(_) => {
                 track!(
-                    @process $builder,
+                    @process $context, $builder,
                     level: xmtp_db::events::EventLevel::Success
                     $(, $k $(: $v)?)*
                 )
@@ -242,7 +237,7 @@ macro_rules! track {
                 };
 
                 track!(
-                    @process $builder,
+                    @process $context, $builder,
                     details: details,
                     level: xmtp_db::events::EventLevel::Error,
                     icon: "⚠️"
@@ -277,18 +272,18 @@ macro_rules! track {
 /// See the `track!` macro documentation for all available parameters and options.
 #[macro_export]
 macro_rules! track_err {
-    ($name:literal, $result:expr $(, $k:ident $(: $v:expr)?)*) => {{
+    ($context:expr, $name:literal, $result:expr $(, $k:ident $(: $v:expr)?)*) => {{
         let result = &$result;
         if result.is_err() {
-            track!($name, result: result $(, $k $(: $v)?)*)
+            track!($context, $name, result: result $(, $k $(: $v)?)*)
         }
     }};
 }
 
 #[macro_export]
 macro_rules! track_request {
-    ($name:literal, $details:tt $(, $k:ident $(: $v:expr)?)*) => {
-        track!($name, $details, icon: "🛜" $(, $k $(: $v)?)*)
+    ($context:expr, $name:literal, $details:tt $(, $k:ident $(: $v:expr)?)*) => {
+        track!($context, $name, $details, icon: "🛜" $(, $k $(: $v)?)*)
     };
 }
 
@@ -324,7 +319,7 @@ where
     Context: XmtpSharedContext + 'static,
 {
     pub(crate) fn new(context: Context) -> Self {
-        let rx = EVENT_TX.subscribe();
+        let rx = context.events().subscribe();
         Self { context, rx }
     }
     async fn run(&mut self) -> Result<(), EventError> {
