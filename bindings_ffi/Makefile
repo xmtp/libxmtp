@@ -1,7 +1,7 @@
 PROJECT_NAME = xmtpv3
 WORKSPACE_MANIFEST=$(shell cargo locate-project --workspace --message-format=plain)
 WORKSPACE_PATH=$(shell dirname $(WORKSPACE_MANIFEST))
-TARGET_DIR=$(WORKSPACE_PATH)/target
+TARGET_DIR=$(shell cargo metadata --format-version 1 --no-deps | jq -r '.target_directory')
 
 # Simulator config
 ARCHS_IOS = x86_64-apple-ios aarch64-apple-ios-sim
