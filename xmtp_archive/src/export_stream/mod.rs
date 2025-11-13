@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use xmtp_common::{MaybeSend, if_native, if_wasm};
+use xmtp_common::{MaybeSend, MaybeSendFuture, if_native, if_wasm};
 use xmtp_db::{StorageError, prelude::*};
 use xmtp_proto::xmtp::device_sync::{
     BackupElement, BackupElementSelection, BackupOptions, consent_backup::ConsentSave,
@@ -128,16 +128,13 @@ pub(crate) trait BackupRecordProvider: MaybeSend + Sized + 'static {
         D: MaybeSend + DbQuery + 'static;
 }
 
-trait MaybeSendFuture<O>: Future<Output = O> + MaybeSend {}
-impl<O, T: Future<Output = O> + MaybeSend> MaybeSendFuture<O> for T {}
-
 pin_project! {
     pub(crate) struct BackupRecordStreamer<R, D> {
         cursor: i64,
         db: Arc<D>,
         start_ns: Option<i64>,
         end_ns: Option<i64>,
-        #[pin] current_future: Option<Pin<Box<dyn MaybeSendFuture<Result<Vec<BackupElement>, StorageError>>>>>,
+        #[pin] current_future: Option<Pin<Box<dyn MaybeSendFuture<Output = Result<Vec<BackupElement>, StorageError>>>>>,
         _phantom: PhantomData<R>,
     }
 }

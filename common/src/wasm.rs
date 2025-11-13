@@ -46,6 +46,9 @@ crate::if_native! {
 
 }
 
+pub trait MaybeSendFuture: Future + MaybeSend {}
+impl<T: Future + MaybeSend> MaybeSendFuture for T {}
+
 impl<I> Stream for StreamWrapper<'_, I> {
     type Item = I;
 
