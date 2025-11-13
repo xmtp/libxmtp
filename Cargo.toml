@@ -55,7 +55,7 @@ version = "1.7.0-dev"
 
 [workspace.dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
-alloy = { version = "1.0", default-features = false }
+alloy = { version = "1.1", default-features = false }
 anyhow = "1.0"
 arc-swap = "1.7"
 async-compression = { default-features = false, version = "0.4", features = [
@@ -200,8 +200,8 @@ lto = true
 # (cfg-specific patche support does not exist)
 [patch.crates-io]
 tracing-forest = { git = "https://github.com/QnnOkabayashi/tracing-forest", branch = "main" }
-diesel = { git = "https://github.com/ephemerahq/diesel", branch = "codabrink/writable-deserialize" }
-diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "codabrink/writable-deserialize" }
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
+diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
 
 [workspace.lints.clippy]
 uninlined_format_args = "allow"

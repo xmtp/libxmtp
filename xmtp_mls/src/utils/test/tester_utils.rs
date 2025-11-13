@@ -30,6 +30,7 @@ use passkey::{
 use public_suffix::PublicSuffixList;
 use std::{
     ops::Deref,
+    path::{Path, PathBuf},
     sync::{
         Arc, LazyLock,
         atomic::{AtomicUsize, Ordering},
@@ -99,7 +100,11 @@ impl<Owner> Tester<Owner, FullXmtpClient>
 where
     Owner: InboxOwner,
 {
-    pub fn dump_db(&self) -> Vec<u8> {
+    pub fn db_snapshot(&self) -> Vec<u8> {
+        if !self.builder.ephemeral_db {
+            panic!("Snapshots can only be made on ephemeral databases.");
+        }
+
         self.db()
             .raw_query_write(|conn| {
                 let buff = conn.serialize_database_to_buffer();
@@ -107,42 +112,17 @@ where
             })
             .unwrap()
     }
+
+    pub fn save_db_snapshot_to_file(&self, path: impl AsRef<Path>) {
+        let snapshot = self.db_snapshot();
+        std::fs::write(path, &snapshot);
+    }
 }
 
 #[derive(QueryableByName)]
 struct TableName {
     #[diesel(sql_type = diesel::sql_types::Text)]
     name: String,
-}
-
-#[macro_export]
-macro_rules! tester {
-    ($name:ident, from: $existing:expr $(, $k:ident $(: $v:expr)?)*) => {
-        tester!(@process $existing.builder ; $name $(, $k $(: $v)?)*)
-    };
-
-    ($name:ident $(, $k:ident $(: $v:expr)?)*) => {
-        let builder = $crate::utils::TesterBuilder::new();
-        tester!(@process builder ; $name $(, $k $(: $v)?)*)
-    };
-
-    (@process $builder:expr ; $name:ident) => {
-        let $name = {
-            use tracing::Instrument;
-
-            use $crate::utils::LocalTesterBuilder;
-            let span = tracing::info_span!(stringify!($name));
-            $builder.build().instrument(span).await
-        };
-    };
-
-    (@process $builder:expr ; $name:ident, $key:ident: $value:expr $(, $k:ident $(: $v:expr)?)*) => {
-        tester!(@process $builder.$key($value) ; $name $(, $k $(: $v)?)*)
-    };
-
-    (@process $builder:expr ; $name:ident, $key:ident $(, $k:ident $(: $v:expr)?)*) => {
-        tester!(@process $builder.$key() ; $name $(, $k $(: $v)?)*)
-    };
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -201,15 +181,12 @@ where
 
         // Setup the database. Snapshots are always ephemeral.
         if self.ephemeral_db || self.snapshot.is_some() {
-            let db = TestDb::create_ephemeral_store().await;
-
-            if let Some(snapshot) = &self.snapshot {
-                db.conn()
-                    .raw_query_write(|conn| conn.deserialize_database_from_buffer(snapshot))
-                    .unwrap();
-
+            let db = if let Some(snapshot) = &self.snapshot {
                 client.allow_offline = true;
-            }
+                TestDb::create_ephemeral_store_from_snapshot(snapshot).await
+            } else {
+                TestDb::create_ephemeral_store().await
+            };
 
             client = client.store(db);
         } else {
@@ -517,6 +494,11 @@ where
         self.ephemeral_db()
     }
 
+    pub fn snapshot_file(mut self, snapshot_path: impl Into<PathBuf>) -> Self {
+        let snapshot = std::fs::read(snapshot_path.into()).unwrap();
+        self.snapshot(Arc::new(snapshot))
+    }
+
     pub fn disable_workers(mut self) -> Self {
         self.disable_workers = true;
         self
@@ -770,5 +752,51 @@ impl UserValidationMethod for PkUserValidationMethod {
 
     fn is_presence_enabled(&self) -> bool {
         true
+    }
+}
+
+#[macro_export]
+macro_rules! tester {
+    ($name:ident, from: $existing:expr $(, $k:ident $(: $v:expr)?)*) => {
+        tester!(@process $existing.builder.clone() ; $name $(, $k $(: $v)?)*)
+    };
+
+    ($name:ident $(, $k:ident $(: $v:expr)?)*) => {
+        let builder = $crate::utils::TesterBuilder::new();
+        tester!(@process builder ; $name $(, $k $(: $v)?)*)
+    };
+
+    (@process $builder:expr ; $name:ident) => {
+        let $name = {
+            use tracing::Instrument;
+
+            use $crate::utils::LocalTesterBuilder;
+            let span = tracing::info_span!(stringify!($name));
+            $builder.build().instrument(span).await
+        };
+    };
+
+    (@process $builder:expr ; $name:ident, $key:ident: $value:expr $(, $k:ident $(: $v:expr)?)*) => {
+        tester!(@process $builder.$key($value) ; $name $(, $k $(: $v)?)*)
+    };
+
+    (@process $builder:expr ; $name:ident, $key:ident $(, $k:ident $(: $v:expr)?)*) => {
+        tester!(@process $builder.$key() ; $name $(, $k $(: $v)?)*)
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_snapshots() {
+        tester!(alix, ephemeral_db);
+        let g = alix.create_group(None, None)?;
+        let snap = Arc::new(alix.db_snapshot());
+        tester!(alix2, snapshot: snap);
+
+        assert_eq!(alix.inbox_id(), alix2.inbox_id());
+        assert!(alix2.group(&g.group_id).is_ok());
     }
 }
