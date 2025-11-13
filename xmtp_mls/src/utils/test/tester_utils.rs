@@ -173,8 +173,8 @@ where
         }
 
         let strategy = match (&self.external_identity, &self.snapshot) {
-            (_, Some(snapshot)) => IdentityStrategy::CachedOnly,
             (Some(identity), _) => IdentityStrategy::ExternalIdentity(identity.clone()),
+            (_, Some(snapshot)) => IdentityStrategy::CachedOnly,
             _ => identity_setup(&self.owner),
         };
         let mut client = Client::builder(strategy.clone());
