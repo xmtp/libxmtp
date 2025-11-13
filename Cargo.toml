@@ -200,8 +200,8 @@ lto = true
 # (cfg-specific patche support does not exist)
 [patch.crates-io]
 tracing-forest = { git = "https://github.com/QnnOkabayashi/tracing-forest", branch = "main" }
-diesel = { git = "https://github.com/ephemerahq/diesel", branch = "codabrink/writable-deserialize" }
-diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "codabrink/writable-deserialize" }
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
+diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
 
 [workspace.lints.clippy]
 uninlined_format_args = "allow"
