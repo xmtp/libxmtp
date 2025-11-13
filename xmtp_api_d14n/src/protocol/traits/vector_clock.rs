@@ -12,6 +12,9 @@ pub trait VectorClock {
     /// Merges another clock into this one by taking the max ordering per node
     fn merge(&mut self, other: &Self);
 
+    /// Merges another clock into this one by taking the min ordering per node
+    fn merge_least(&mut self, other: &Self);
+
     /// Compares this clock to another to determine their relative ordering
     fn compare(&self, other: &Self) -> ClockOrdering;
 

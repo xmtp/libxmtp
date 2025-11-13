@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{collections::HashSet, error::Error};
 
 use derive_builder::UninitializedFieldError;
 use xmtp_common::{MaybeSend, MaybeSync};
@@ -20,6 +20,21 @@ pub enum ResolutionError {
     ResolutionFailed,
 }
 
+pub struct Resolved<E> {
+    pub envelopes: Vec<E>,
+    /// list of envelopes that could not be resolved with this strategy
+    pub unresolved: Option<HashSet<MissingEnvelope>>,
+}
+
+impl<E> Resolved<E> {
+    pub fn new(envelopes: Vec<E>, unresolved: Option<HashSet<MissingEnvelope>>) -> Self {
+        Self {
+            envelopes,
+            unresolved,
+        }
+    }
+}
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait ResolveDependencies: MaybeSend + MaybeSync {
@@ -31,8 +46,8 @@ pub trait ResolveDependencies: MaybeSend + MaybeSync {
     /// * `Vec<Self::ResolvedEnvelope>`: The list of envelopes which were resolved.
     async fn resolve(
         &mut self,
-        missing: Vec<MissingEnvelope>,
-    ) -> Result<Vec<Self::ResolvedEnvelope>, ResolutionError>;
+        missing: HashSet<MissingEnvelope>,
+    ) -> Result<Resolved<Self::ResolvedEnvelope>, ResolutionError>;
 }
 
 /// A resolver that does not even attempt to try and get dependencies
@@ -42,7 +57,13 @@ pub struct NoopResolver;
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl ResolveDependencies for NoopResolver {
     type ResolvedEnvelope = ();
-    async fn resolve(&mut self, _: Vec<MissingEnvelope>) -> Result<Vec<()>, ResolutionError> {
-        Ok(vec![])
+    async fn resolve(
+        &mut self,
+        m: HashSet<MissingEnvelope>,
+    ) -> Result<Resolved<()>, ResolutionError> {
+        Ok(Resolved {
+            envelopes: vec![],
+            unresolved: Some(m),
+        })
     }
 }

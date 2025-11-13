@@ -29,6 +29,13 @@ impl VectorClock for GlobalCursor {
         }
     }
 
+    fn merge_least(&mut self, other: &Self) {
+        for (&node, &seq) in other {
+            let entry = self.entry(node).or_insert(0);
+            *entry = (*entry).min(seq);
+        }
+    }
+
     fn compare(&self, other: &Self) -> ClockOrdering {
         let all_nodes: HashSet<_> = self.keys().chain(other.keys()).collect();
 
