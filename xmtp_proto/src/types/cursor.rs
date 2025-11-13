@@ -10,8 +10,8 @@ use xmtp_configuration::Originators;
 )]
 // _*NOTE:*_ comparing cursors is unsafe/undefined behavior if originator ids are not equal.
 pub struct Cursor {
-    pub originator_id: super::OriginatorId,
     pub sequence_id: super::SequenceId,
+    pub originator_id: super::OriginatorId,
 }
 
 impl Cursor {
