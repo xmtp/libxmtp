@@ -64,6 +64,7 @@ async fn deploy_wallets(provider: EthereumProvider) -> SmartWalletContext {
         sc_owner,
         ..
     } = provider;
+
     let factory = cb_smart_wallet(sc_owner.clone(), provider.clone()).await;
     let nonce = U256::from(0); // needed when creating a smart wallet
     let owners_addresses = vec![
@@ -81,7 +82,7 @@ async fn deploy_wallets(provider: EthereumProvider) -> SmartWalletContext {
         .send()
         .await
         .unwrap()
-        .with_required_confirmations(1)
+        .with_required_confirmations(0)
         .with_timeout(Some(Duration::from_secs(30)))
         .watch()
         .await
