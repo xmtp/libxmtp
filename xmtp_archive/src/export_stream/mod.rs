@@ -128,11 +128,8 @@ pub(crate) trait BackupRecordProvider: MaybeSend + Sized + 'static {
         D: MaybeSend + DbQuery + 'static;
 }
 
-trait MaybeSendFuture: Future<Output = Result<Vec<BackupElement>, StorageError>> + MaybeSend {}
-impl<T: Future<Output = Result<Vec<BackupElement>, StorageError>> + MaybeSend> MaybeSendFuture
-    for T
-{
-}
+trait MaybeSendFuture<O>: Future<Output = O> + MaybeSend {}
+impl<O, T: Future<Output = O> + MaybeSend> MaybeSendFuture<O> for T {}
 
 pin_project! {
     pub(crate) struct BackupRecordStreamer<R, D> {
@@ -140,7 +137,7 @@ pin_project! {
         db: Arc<D>,
         start_ns: Option<i64>,
         end_ns: Option<i64>,
-        #[pin] current_future: Option<Pin<Box<dyn MaybeSendFuture>>>,
+        #[pin] current_future: Option<Pin<Box<dyn MaybeSendFuture<Result<Vec<BackupElement>, StorageError>>>>>,
         _phantom: PhantomData<R>,
     }
 }
