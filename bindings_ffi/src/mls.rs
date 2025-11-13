@@ -2206,6 +2206,7 @@ pub struct FfiCreateGroupOptions {
     pub group_description: Option<String>,
     pub custom_permission_policy_set: Option<FfiPermissionPolicySet>,
     pub message_disappearing_settings: Option<FfiMessageDisappearingSettings>,
+    pub app_data: Option<String>,
 }
 
 impl FfiCreateGroupOptions {
@@ -2217,6 +2218,7 @@ impl FfiCreateGroupOptions {
             message_disappearing_settings: self
                 .message_disappearing_settings
                 .map(|settings| settings.into()),
+            app_data: self.app_data,
         }
     }
 }
@@ -2439,6 +2441,16 @@ impl FfiConversation {
     pub fn group_name(&self) -> Result<String, GenericError> {
         let group_name = self.inner.group_name()?;
         Ok(group_name)
+    }
+
+    pub async fn update_app_data(&self, app_data: String) -> Result<(), GenericError> {
+        self.inner.update_app_data(app_data).await?;
+        Ok(())
+    }
+
+    pub fn app_data(&self) -> Result<String, GenericError> {
+        let app_data = self.inner.app_data()?;
+        Ok(app_data)
     }
 
     pub async fn update_group_image_url_square(
@@ -4335,6 +4347,7 @@ mod tests {
                     message_disappearing_settings: Some(
                         conversation_message_disappearing_settings.clone(),
                     ),
+                    app_data: Some("app_data".to_string()),
                 },
             )
             .await
@@ -4345,6 +4358,7 @@ mod tests {
         assert_eq!(group.group_name().unwrap(), "Group Name");
         assert_eq!(group.group_image_url_square().unwrap(), "url");
         assert_eq!(group.group_description().unwrap(), "group description");
+        assert_eq!(group.app_data().unwrap(), "app_data".to_string());
         assert_eq!(
             group
                 .conversation_message_disappearing_settings()
@@ -6733,6 +6747,7 @@ mod tests {
                     group_description: Some("group description".to_string()),
                     custom_permission_policy_set: None,
                     message_disappearing_settings: Some(disappearing_settings.clone()),
+                    app_data: None,
                 },
             )
             .await
@@ -6861,6 +6876,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             custom_permission_policy_set: Some(custom_permissions),
             message_disappearing_settings: None,
+            app_data: None,
         };
 
         let alix_group = alix
@@ -6983,6 +6999,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             custom_permission_policy_set: Some(custom_permissions_invalid_1),
             message_disappearing_settings: None,
+            app_data: None,
         };
 
         let results_1 = alix
@@ -7002,6 +7019,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid.clone()),
             message_disappearing_settings: None,
+            app_data: None,
         };
 
         let results_2 = alix
@@ -7021,6 +7039,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid.clone()),
             message_disappearing_settings: None,
+            app_data: None,
         };
 
         let results_3 = alix
@@ -7040,6 +7059,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid),
             message_disappearing_settings: None,
+            app_data: None,
         };
 
         let results_4 = alix
