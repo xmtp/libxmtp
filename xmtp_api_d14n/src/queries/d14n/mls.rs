@@ -104,11 +104,11 @@ where
         &self,
         request: mls_v1::SendWelcomeMessagesRequest,
     ) -> Result<(), Self::Error> {
-        let envelope = request.messages.client_envelopes()?;
+        let envelopes = request.messages.client_envelopes()?;
 
         api::ignore(
             PublishClientEnvelopes::builder()
-                .envelopes(envelope)
+                .envelopes(envelopes)
                 .build()?,
         )
         .query(&self.client)
