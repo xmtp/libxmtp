@@ -515,6 +515,7 @@ where
             .send(LocalEvents::NewGroup(group.group_id.clone()));
 
         track!(
+            &self.context,
             "Group Create",
             {
                 "conversation_type": ConversationType::Group

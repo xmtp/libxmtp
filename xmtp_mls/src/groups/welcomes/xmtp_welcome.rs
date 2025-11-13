@@ -422,6 +422,7 @@ where
 
         StoredConsentRecord::stitch_dm_consent(&db, &stored_group)?;
         track!(
+            &self.context,
             "Group Welcome",
             {
                 "conversation_type": stored_group.conversation_type,
