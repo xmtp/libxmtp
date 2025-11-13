@@ -375,7 +375,7 @@ where
 
         // Even if publish fails, continue to receiving
         let result = self.publish_intents().await;
-        track_err!("Publish intents", &result, group: &self.group_id);
+        track_err!(&self.context, "Publish intents", &result, group: &self.group_id);
         if let Err(e) = result {
             tracing::error!("Sync: error publishing intents {e:?}",);
             summary.add_publish_err(e);
@@ -384,7 +384,7 @@ where
         // Even if receiving fails, we continue to post_commit
         // Errors are collected in the summary.
         let result = self.receive().await;
-        track_err!("Receive messages", &result, group: &self.group_id);
+        track_err!(&self.context, "Receive messages", &result, group: &self.group_id);
         match result {
             Ok(s) => summary.add_process(s),
             Err(e) => {
@@ -397,7 +397,7 @@ where
 
         let result = self.post_commit().await;
 
-        track_err!("Send Welcomes", &result, group: &self.group_id);
+        track_err!(&self.context, "Send Welcomes", &result, group: &self.group_id);
         if let Err(e) = result {
             tracing::error!("post commit error {e:?}",);
             summary.add_post_commit_err(e);
@@ -427,13 +427,14 @@ where
         };
 
         track!(
+            &self.context,
             "Syncing Intents",
             {"num_intents": intents.len()},
             group: &self.group_id,
             icon: "🔄"
         );
         let result = self.sync_until_intent_resolved(intent.id).await;
-        track_err!("Sync until intent resolved", &result, group: &self.group_id);
+        track_err!(&self.context, "Sync until intent resolved", &result, group: &self.group_id);
         result
     }
 
@@ -766,6 +767,7 @@ where
             }
             let epoch = mls_group.epoch().as_u64();
             track!(
+                &self.context,
                 "Commit merged",
                 {
                     "": format!("Epoch {epoch}"),
@@ -1173,6 +1175,7 @@ where
 
                 let epoch = mls_group.epoch().as_u64();
                 track!(
+                    &self.context,
                     "Commit merged",
                     {
                         "": format!("Epoch {epoch}"),
@@ -1769,7 +1772,7 @@ where
         process_result: Result<MessageIdentifier, GroupMessageProcessingError>,
         envelope: &xmtp_proto::types::GroupMessage,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
-        track_err!("Process message", &process_result, group: &self.group_id);
+        track_err!(&self.context, "Process message", &process_result, group: &self.group_id);
         let message = match process_result {
             Ok(m) => {
                 tracing::info!(
@@ -1909,6 +1912,7 @@ where
 
         let summary = self.process_messages(messages).await;
         track!(
+            &self.context,
             "Receive messages",
             {
                 "total": summary.total_messages.len(),
@@ -2044,6 +2048,7 @@ where
                     fork_details
                 );
                 track!(
+                    &self.context,
                     "Possible Fork",
                     {
                         "message_epoch": message_epoch,

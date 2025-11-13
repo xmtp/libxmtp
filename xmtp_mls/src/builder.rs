@@ -275,6 +275,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         let (local_events, _) = broadcast::channel(32);
         let (worker_tx, _) = broadcast::channel(32);
+        let (events, _) = broadcast::channel(32);
         let mut workers = WorkerRunner::new();
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
@@ -287,6 +288,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mls_commit_lock: Arc::new(GroupCommitLock::new()),
             local_events: local_events.clone(),
             worker_events: worker_tx.clone(),
+            events,
             device_sync: DeviceSync {
                 server_url: device_sync_server_url,
                 mode: device_sync_worker_mode,
@@ -352,7 +354,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         if let Err(err) = Events::clear_old_events(&client.db()) {
             tracing::warn!("ClientEvents clear old events: {err:?}");
         }
-        track!("Client Build");
+        track!(&client.context, "Client Build");
 
         Ok(client)
     }
