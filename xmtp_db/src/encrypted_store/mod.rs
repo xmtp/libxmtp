@@ -26,6 +26,7 @@ pub mod identity_update;
 pub mod key_package_history;
 pub mod key_store_entry;
 pub mod local_commit_log;
+pub mod message_deletion;
 pub mod pending_remove;
 pub mod pragmas;
 pub mod processed_device_sync_messages;

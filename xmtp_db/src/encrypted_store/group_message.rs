@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::{
-    attachment, group_updated, leave_request, membership_change, reaction, read_receipt,
-    remote_attachment, reply, text, transaction_reference, wallet_send_calls,
+    attachment, delete_message, group_updated, leave_request, membership_change, reaction,
+    read_receipt, remote_attachment, reply, text, transaction_reference, wallet_send_calls,
 };
 use xmtp_proto::types::Cursor;
 
@@ -146,6 +146,7 @@ pub enum ContentType {
     TransactionReference = 9,
     WalletSendCalls = 10,
     LeaveRequest = 11,
+    DeleteMessage = 12,
 }
 
 impl ContentType {
@@ -163,6 +164,7 @@ impl ContentType {
             ContentType::TransactionReference,
             ContentType::WalletSendCalls,
             ContentType::LeaveRequest,
+            ContentType::DeleteMessage,
         ]
     }
 }
@@ -182,6 +184,7 @@ impl std::fmt::Display for ContentType {
             Self::TransactionReference => transaction_reference::TransactionReferenceCodec::TYPE_ID,
             Self::WalletSendCalls => wallet_send_calls::WalletSendCallsCodec::TYPE_ID,
             Self::LeaveRequest => leave_request::LeaveRequestCodec::TYPE_ID,
+            Self::DeleteMessage => delete_message::DeleteMessageCodec::TYPE_ID,
         };
 
         write!(f, "{}", as_string)
@@ -202,6 +205,7 @@ impl From<String> for ContentType {
             transaction_reference::TransactionReferenceCodec::TYPE_ID => Self::TransactionReference,
             wallet_send_calls::WalletSendCallsCodec::TYPE_ID => Self::WalletSendCalls,
             leave_request::LeaveRequestCodec::TYPE_ID => Self::LeaveRequest,
+            delete_message::DeleteMessageCodec::TYPE_ID => Self::DeleteMessage,
             _ => Self::Unknown,
         }
     }
@@ -235,6 +239,7 @@ where
             9 => Ok(ContentType::TransactionReference),
             10 => Ok(ContentType::WalletSendCalls),
             11 => Ok(ContentType::LeaveRequest),
+            12 => Ok(ContentType::DeleteMessage),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

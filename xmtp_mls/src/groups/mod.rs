@@ -70,6 +70,7 @@ use xmtp_configuration::{
     MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators,
     SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
+use xmtp_content_types::delete_message::DeleteMessageCodec;
 use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
 use xmtp_content_types::{
@@ -77,6 +78,7 @@ use xmtp_content_types::{
     reply::ReplyCodec,
 };
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
+use xmtp_db::message_deletion::QueryMessageDeletion;
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
@@ -106,7 +108,7 @@ use xmtp_mls_common::{
         GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings, MetadataField,
     },
 };
-use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
+use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, LeaveRequest};
 use xmtp_proto::{
     types::Cursor,
     xmtp::mls::message_contents::{
@@ -247,6 +249,11 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
             }
             (ReactionCodec::TYPE_ID, _) => LegacyReaction::decode(&content.content)
                 .and_then(|legacy_reaction| hex::decode(legacy_reaction.reference).ok()),
+            (DeleteMessageCodec::TYPE_ID, DeleteMessageCodec::MAJOR_VERSION) => {
+                DeleteMessage::decode(content.content.as_slice())
+                    .ok()
+                    .and_then(|delete_msg| hex::decode(delete_msg.message_id).ok())
+            }
             _ => None,
         };
 
@@ -652,6 +659,67 @@ where
         let message_id =
             self.prepare_message(message, opts, |now| Self::into_envelope(message, now))?;
         Ok(message_id)
+    }
+
+    /// Delete a message by its ID. Returns the ID of the deletion message.
+    ///
+    /// Only the original sender or a super admin can delete a message.
+    /// Transcript messages (GroupUpdated, membership changes) cannot be deleted.
+    ///
+    /// # Arguments
+    /// * `message_id_bytes` - The message ID as bytes (not hex encoded)
+    ///
+    /// # Returns
+    /// The ID of the deletion message
+    pub fn delete_message(&self, message_id_bytes: Vec<u8>) -> Result<Vec<u8>, GroupError> {
+        use error::DeleteMessageError;
+
+        let conn = self.context.db();
+
+        // Load the original message
+        let original_msg = conn
+            .get_group_message(&message_id_bytes)?
+            .ok_or_else(|| DeleteMessageError::MessageNotFound(hex::encode(&message_id_bytes)))?;
+
+        // Check if message is already deleted
+        if conn.is_message_deleted(&message_id_bytes)? {
+            return Err(DeleteMessageError::MessageAlreadyDeleted.into());
+        }
+
+        // Authorization check: sender OR super admin
+        let sender_inbox_id = self.context.inbox_id();
+        let is_sender = original_msg.sender_inbox_id == sender_inbox_id;
+        let is_super_admin = self.is_super_admin(sender_inbox_id.to_string())?;
+
+        if !is_sender && !is_super_admin {
+            return Err(DeleteMessageError::NotAuthorized.into());
+        }
+
+        // Restriction: cannot delete transcript messages
+        if original_msg.kind == GroupMessageKind::MembershipChange {
+            return Err(DeleteMessageError::CannotDeleteTranscript.into());
+        }
+
+        if original_msg.content_type == ContentType::GroupUpdated {
+            return Err(DeleteMessageError::CannotDeleteTranscript.into());
+        }
+
+        // Create DeleteMessage proto
+        let delete_msg = xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage {
+            message_id: hex::encode(&message_id_bytes),
+        };
+
+        // Encode the delete message
+        let encoded_delete = DeleteMessageCodec::encode(delete_msg)?;
+        let delete_bytes = encoded_content_to_bytes(encoded_delete);
+
+        // Send the delete message optimistically
+        let deletion_message_id = self.send_message_optimistic(
+            &delete_bytes,
+            SendMessageOpts::default(),
+        )?;
+
+        Ok(deletion_message_id)
     }
 
     /// Helper function to extract queryable content fields from a message

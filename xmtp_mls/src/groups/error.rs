@@ -184,6 +184,26 @@ pub enum GroupError {
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
     #[error(transparent)]
     EnrichMessage(#[from] EnrichMessageError),
+    #[error(transparent)]
+    DeleteMessage(#[from] DeleteMessageError),
+}
+
+#[derive(Error, Debug)]
+pub enum DeleteMessageError {
+    #[error("Message not found: {0}")]
+    MessageNotFound(String),
+    #[error("Not authorized to delete this message")]
+    NotAuthorized,
+    #[error("Cannot delete transcript or membership change messages")]
+    CannotDeleteTranscript,
+    #[error("Message already deleted")]
+    MessageAlreadyDeleted,
+}
+
+impl RetryableError for DeleteMessageError {
+    fn is_retryable(&self) -> bool {
+        false
+    }
 }
 
 impl From<prost::EncodeError> for GroupError {
@@ -308,6 +328,7 @@ impl RetryableError for GroupError {
             Self::Diesel(e) => e.is_retryable(),
             Self::EnrichMessage(e) => e.is_retryable(),
             Self::LeaveCantProcessed(e) => e.is_retryable(),
+            Self::DeleteMessage(e) => e.is_retryable(),
             Self::NotFound(_)
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership

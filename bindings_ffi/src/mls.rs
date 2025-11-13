@@ -2279,6 +2279,12 @@ impl FfiConversation {
         Ok(id)
     }
 
+    /// Delete a message by its ID. Returns the ID of the deletion message.
+    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<Vec<u8>, GenericError> {
+        let deletion_id = self.inner.delete_message(message_id)?;
+        Ok(deletion_id)
+    }
+
     /// Publish all unpublished messages
     pub async fn publish_messages(&self) -> Result<(), GenericError> {
         self.inner.publish_messages().await?;

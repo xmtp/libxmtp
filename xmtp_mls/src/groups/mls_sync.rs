@@ -47,11 +47,12 @@ use xmtp_configuration::{
     SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_db::{
-    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
+    Fetch, MlsProviderExt, Store, StorageError, StoreOrIgnore,
     events::EventLevel,
     group::{ConversationType, StoredGroup},
     group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    message_deletion::StoredMessageDeletion,
     remote_commit_log::CommitResult,
     sql_key_store,
     user_preferences::StoredUserPreferences,
@@ -92,7 +93,10 @@ use thiserror::Error;
 use tracing::debug;
 use xmtp_common::time::now_ns;
 use xmtp_common::{Retry, RetryableError, retry_async};
-use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
+use xmtp_content_types::{
+    CodecError, ContentCodec, group_updated::GroupUpdatedCodec,
+};
+use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_db::group::GroupMembershipState;
 use xmtp_db::pending_remove::{PendingRemove, QueryPendingRemove};
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
@@ -1109,6 +1113,10 @@ where
                             self.process_leave_request_message(mls_group, storage, &message)?;
                         }
 
+                        if message.content_type == ContentType::DeleteMessage {
+                            self.process_delete_message(mls_group, storage, &message)?;
+                        }
+
                         Ok::<_, GroupMessageProcessingError>(())
                     }
                     Some(Content::V2(V2 {
@@ -1357,6 +1365,90 @@ where
         // If we reach here, the action was by another user or no validated commit
         // Only process admin actions if we're admin/super-admin
         self.process_admin_pending_remove_actions(mls_group, storage)?;
+
+        Ok(())
+    }
+
+    fn process_delete_message(
+        &self,
+        mls_group: &OpenMlsGroup,
+        storage: &impl XmtpMlsStorageProvider,
+        message: &StoredGroupMessage,
+    ) -> Result<(), GroupMessageProcessingError> {
+        let delete_msg = DeleteMessage::decode(message.decrypted_message_bytes.as_slice())?;
+
+        let target_message_id = hex::decode(&delete_msg.message_id)
+            .map_err(|_| GroupMessageProcessingError::InvalidPayload)?;
+
+        // Check if the original message exists
+        let original_msg_opt = storage.db().get_group_message(&target_message_id)?;
+
+        let is_authorized = if let Some(ref original_msg) = original_msg_opt {
+            // Check if sender matches the original message sender
+            if original_msg.sender_inbox_id == message.sender_inbox_id {
+                true
+            } else {
+                // Check if sender is a super admin at the time of deletion
+                self.is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
+                    .unwrap_or(false)
+            }
+        } else {
+            self.is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
+                .unwrap_or(false)
+        };
+
+        if !is_authorized {
+            tracing::warn!(
+                "Unauthorized deletion attempt by {} for message {}",
+                message.sender_inbox_id,
+                delete_msg.message_id
+            );
+            return Ok(());
+        }
+
+        if let Some(ref original_msg) = original_msg_opt {
+            // Cannot delete transcript messages or membership changes
+            if original_msg.kind == GroupMessageKind::MembershipChange {
+                tracing::warn!(
+                    "Attempted to delete membership change message {}",
+                    delete_msg.message_id
+                );
+                return Ok(());
+            }
+
+            // Cannot delete GroupUpdated messages
+            if original_msg.content_type == ContentType::GroupUpdated {
+                tracing::warn!(
+                    "Attempted to delete GroupUpdated message {}",
+                    delete_msg.message_id
+                );
+                return Ok(());
+            }
+        }
+
+        // Determine if this is a super admin deletion
+        let is_super_admin_deletion = self
+            .is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
+            .unwrap_or(false);
+
+        // Store the deletion record
+        let deletion = StoredMessageDeletion {
+            id: message.id.clone(),
+            group_id: self.group_id.clone(),
+            deleted_message_id: target_message_id,
+            deleted_by_inbox_id: message.sender_inbox_id.clone(),
+            is_super_admin_deletion,
+            deleted_at_ns: message.sent_at_ns,
+        };
+
+        deletion.store(&storage.db())?;
+
+        tracing::info!(
+            "Message {} deleted by {} (super_admin: {})",
+            delete_msg.message_id,
+            message.sender_inbox_id,
+            is_super_admin_deletion
+        );
 
         Ok(())
     }

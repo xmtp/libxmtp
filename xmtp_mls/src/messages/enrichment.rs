@@ -1,4 +1,4 @@
-use crate::messages::decoded_message::{DecodedMessage, MessageBody};
+use crate::messages::decoded_message::{DeletedBy, DecodedMessage, MessageBody};
 use hex::ToHexExt;
 use std::collections::HashMap;
 use thiserror::Error;
@@ -7,6 +7,7 @@ use xmtp_db::DbQuery;
 use xmtp_db::group_message::{
     ContentType as DbContentType, RelationCounts, RelationQuery, StoredGroupMessage,
 };
+use xmtp_db::message_deletion::StoredMessageDeletion;
 
 #[derive(Debug, Error)]
 pub enum EnrichMessageError {
@@ -32,6 +33,8 @@ impl RetryableError for EnrichMessageError {
 type ReactionMap = HashMap<Vec<u8>, Vec<DecodedMessage>>;
 // Mapping of referenced messages, keyed by ID
 type ReferencedMessageMap = HashMap<Vec<u8>, DecodedMessage>;
+// Mapping of deletions, keyed by the ID of the deleted message
+type DeletionMap = HashMap<Vec<u8>, StoredMessageDeletion>;
 
 pub fn enrich_messages(
     conn: impl DbQuery,
@@ -54,27 +57,43 @@ pub fn enrich_messages(
                 .inspect_err(|err| tracing::warn!("Failed to decode message {:?}", err))
                 .ok()?;
 
-            decoded.reactions = relations
-                .reactions
-                .remove(&decoded.metadata.id)
-                .unwrap_or_default();
+            // Check if this message has been deleted
+            if let Some(deletion) = relations.deletions.get(&decoded.metadata.id) {
+                // Replace content with DeletedMessage placeholder
+                decoded.content = MessageBody::DeletedMessage {
+                    deleted_by: if deletion.is_super_admin_deletion {
+                        DeletedBy::Admin(deletion.deleted_by_inbox_id.clone())
+                    } else {
+                        DeletedBy::Sender
+                    },
+                };
+                // Clear reactions and replies for deleted messages
+                decoded.reactions = Vec::new();
+                decoded.num_replies = 0;
+            } else {
+                // Only populate reactions and replies for non-deleted messages
+                decoded.reactions = relations
+                    .reactions
+                    .remove(&decoded.metadata.id)
+                    .unwrap_or_default();
 
-            decoded.num_replies = relations
-                .reply_counts
-                .get(&decoded.metadata.id)
-                .cloned()
-                .unwrap_or(0);
+                decoded.num_replies = relations
+                    .reply_counts
+                    .get(&decoded.metadata.id)
+                    .cloned()
+                    .unwrap_or(0);
 
-            if let MessageBody::Reply(mut reply_body) = decoded.content {
-                let _ = hex::decode(&reply_body.reference_id)
-                    .inspect_err(|err| {
-                        tracing::warn!("could not parse reference ID as hex: {:?}", err)
-                    })
-                    .inspect(|id| {
-                        let in_reply_to = relations.referenced_messages.get(id).cloned();
-                        reply_body.in_reply_to = in_reply_to.map(Box::new);
-                    });
-                decoded.content = MessageBody::Reply(reply_body);
+                if let MessageBody::Reply(mut reply_body) = decoded.content {
+                    let _ = hex::decode(&reply_body.reference_id)
+                        .inspect_err(|err| {
+                            tracing::warn!("could not parse reference ID as hex: {:?}", err)
+                        })
+                        .inspect(|id| {
+                            let in_reply_to = relations.referenced_messages.get(id).cloned();
+                            reply_body.in_reply_to = in_reply_to.map(Box::new);
+                        });
+                    decoded.content = MessageBody::Reply(reply_body);
+                }
             }
 
             Some(decoded)
@@ -95,6 +114,7 @@ fn get_relations(
             reactions: HashMap::new(),
             referenced_messages: HashMap::new(),
             reply_counts: HashMap::new(),
+            deletions: HashMap::new(),
         });
     }
 
@@ -113,10 +133,15 @@ fn get_relations(
     let reply_counts =
         conn.get_inbound_relation_counts(group_id, message_ids, replies_count_query)?;
 
+    // Get deletions for all messages
+    let message_ids_vec: Vec<Vec<u8>> = message_ids.iter().map(|id| id.to_vec()).collect();
+    let deletions = conn.get_deletions_for_messages(message_ids_vec)?;
+
     Ok(GetRelationsResults {
         reactions: get_reactions(reactions),
         referenced_messages: get_referenced_messages(referenced_messages),
         reply_counts,
+        deletions: get_deletions(deletions),
     })
 }
 
@@ -124,6 +149,7 @@ struct GetRelationsResults {
     reactions: ReactionMap,
     referenced_messages: ReferencedMessageMap,
     reply_counts: RelationCounts,
+    deletions: DeletionMap,
 }
 
 fn get_referenced_messages(messages: HashMap<Vec<u8>, StoredGroupMessage>) -> ReferencedMessageMap {
@@ -164,5 +190,12 @@ fn get_reactions(messages: HashMap<Vec<u8>, Vec<StoredGroupMessage>>) -> Reactio
                 .collect();
             (id, mapped_reactions)
         })
+        .collect()
+}
+
+fn get_deletions(deletions: Vec<StoredMessageDeletion>) -> DeletionMap {
+    deletions
+        .into_iter()
+        .map(|deletion| (deletion.deleted_message_id.clone(), deletion))
         .collect()
 }
