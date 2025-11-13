@@ -42,7 +42,7 @@ pub enum GenericError {
     GroupMutablePermissions(
         #[from] xmtp_mls::groups::group_permissions::GroupMutablePermissionsError,
     ),
-    #[error("Generic {err}")]
+    #[error("{err}")]
     Generic { err: String },
     #[error(transparent)]
     SignatureRequestError(#[from] xmtp_id::associations::builder::SignatureRequestError),
@@ -80,6 +80,13 @@ pub enum GenericError {
     Expired(#[from] Expired),
     #[error(transparent)]
     BackendBuilder(#[from] MessageBackendBuilderError),
+}
+
+// this impl allows us to gracefully handle unexpected errors from foreign code without panicking
+impl From<uniffi::UnexpectedUniFFICallbackError> for GenericError {
+    fn from(e: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        Self::Generic { err: e.to_string() }
+    }
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]
