@@ -4,17 +4,12 @@ use crate::identity::Identifier;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
-use napi::JsFunction;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
-use napi::threadsafe_function::{
-  ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode,
-};
+use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::vec;
 use xmtp_db::consent_record::ConsentState as XmtpConsentState;
 use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
@@ -28,7 +23,7 @@ use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings as
 use xmtp_proto::types::Cursor;
 
 #[napi]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum ConversationType {
   Dm = 0,
   Group = 1,
@@ -222,31 +217,19 @@ impl From<XmtpConversationDebugInfo> for ConversationDebugInfo {
   }
 }
 
-// TODO: Napi-rs 3.0.0 will support structured enums
-// alpha release: https://github.com/napi-rs/napi-rs/releases/tag/napi%403.0.0-alpha.9
-// PR: https://github.com/napi-rs/napi-rs/pull/2222
-// Issue: https://github.com/napi-rs/napi-rs/issues/507
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum Tag<T> {
-  V(T),
-}
-
-#[derive(Serialize, Deserialize)]
+#[napi(discriminant = "type")]
 pub enum UserPreferenceUpdate {
   ConsentUpdate { consent: Consent },
-  HmacKeyUpdate { key: Vec<u8> },
+  HmacKeyUpdate { key: Uint8Array },
 }
 
-impl From<XmtpUserPreferenceUpdate> for Tag<UserPreferenceUpdate> {
+impl From<XmtpUserPreferenceUpdate> for UserPreferenceUpdate {
   fn from(value: XmtpUserPreferenceUpdate) -> Self {
     match value {
-      XmtpUserPreferenceUpdate::Hmac { key, .. } => {
-        Tag::V(UserPreferenceUpdate::HmacKeyUpdate { key })
-      }
-      XmtpUserPreferenceUpdate::Consent(consent) => Tag::V(UserPreferenceUpdate::ConsentUpdate {
-        consent: Consent::from(consent),
-      }),
+      XmtpUserPreferenceUpdate::Hmac { key, .. } => Self::HmacKeyUpdate { key: key.into() },
+      XmtpUserPreferenceUpdate::Consent(consent) => Self::ConsentUpdate {
+        consent: consent.into(),
+      },
     }
   }
 }
@@ -574,25 +557,18 @@ impl Conversations {
     Ok(hmac_map)
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: Error | null, result: Conversation | undefined) => void, onClose: () => void, conversationType?: ConversationType"
-  )]
-  pub fn stream(
+  #[napi]
+  pub async fn stream(
     &self,
-    callback: JsFunction,
-    on_close: JsFunction,
+    callback: ThreadsafeFunction<Conversation, ()>,
+    on_close: ThreadsafeFunction<(), ()>,
     conversation_type: Option<ConversationType>,
   ) -> Result<StreamCloser> {
-    let tsfn: ThreadsafeFunction<Conversation, ErrorStrategy::CalleeHandled> =
-      callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
-      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-
     let stream_closer = RustXmtpClient::stream_conversations_with_callback(
       self.inner_client.clone(),
       conversation_type.map(|ct| ct.into()),
       move |convo| {
-        let status = tsfn.call(
+        let status = callback.call(
           convo
             .map(Conversation::from)
             .map_err(ErrorWrapper::from)
@@ -602,7 +578,7 @@ impl Conversations {
         tracing::info!("Stream status: {:?}", status);
       },
       move || {
-        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+        on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
       },
       false,
     );
@@ -610,13 +586,11 @@ impl Conversations {
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, onClose: () => void, conversationType?: ConversationType, consentStates?: ConsentState[]"
-  )]
-  pub fn stream_all_messages(
+  #[napi]
+  pub async fn stream_all_messages(
     &self,
-    callback: JsFunction,
-    on_close: JsFunction,
+    callback: ThreadsafeFunction<Message, ()>,
+    on_close: ThreadsafeFunction<(), ()>,
     conversation_type: Option<ConversationType>,
     consent_states: Option<Vec<ConsentState>>,
   ) -> Result<StreamCloser> {
@@ -624,10 +598,6 @@ impl Conversations {
       inbox_id = self.inner_client.inbox_id(),
       conversation_type = ?conversation_type,
     );
-    let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
-      callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
-      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
 
     let inbox_id = self.inner_client.inbox_id().to_string();
     let consents: Option<Vec<XmtpConsentState>> = consent_states.map(|states| {
@@ -670,7 +640,7 @@ impl Conversations {
               inbox_id,
               "[received] calling tsfn callback with successful message"
             );
-            let status = tsfn.call(Ok(transformed_msg), ThreadsafeFunctionCallMode::Blocking);
+            let status = callback.call(Ok(transformed_msg), ThreadsafeFunctionCallMode::Blocking);
             tracing::info!("Stream status: {:?}", status);
           }
           Err(err) => {
@@ -684,22 +654,20 @@ impl Conversations {
         }
       },
       move || {
-        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+        on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
       },
     );
 
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Consent[] | undefined) => void, onClose: () => void"
-  )]
-  pub fn stream_consent(&self, callback: JsFunction, on_close: JsFunction) -> Result<StreamCloser> {
+  #[napi]
+  pub async fn stream_consent(
+    &self,
+    callback: ThreadsafeFunction<Vec<Consent>, ()>,
+    on_close: ThreadsafeFunction<(), ()>,
+  ) -> Result<StreamCloser> {
     tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
-    let tsfn: ThreadsafeFunction<Vec<Consent>, ErrorStrategy::CalleeHandled> =
-      callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
-      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let inbox_id = self.inner_client.inbox_id().to_string();
     let stream_closer = RustXmtpClient::stream_consent_with_callback(
       self.inner_client.clone(),
@@ -708,11 +676,11 @@ impl Conversations {
         match message {
           Ok(message) => {
             let msg: Vec<Consent> = message.into_iter().map(Into::into).collect();
-            let status = tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
+            let status = callback.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
             tracing::info!("Stream status: {:?}", status);
           }
           Err(e) => {
-            let status = tsfn.call(
+            let status = callback.call(
               Err(Error::from(ErrorWrapper::from(e))),
               ThreadsafeFunctionCallMode::Blocking,
             );
@@ -721,34 +689,20 @@ impl Conversations {
         }
       },
       move || {
-        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+        on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
       },
     );
 
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: any) => void, onClose: () => void")]
-  pub fn stream_preferences(
+  #[napi]
+  pub async fn stream_preferences(
     &self,
-    callback: JsFunction,
-    on_close: JsFunction,
+    callback: ThreadsafeFunction<Vec<UserPreferenceUpdate>, ()>,
+    on_close: ThreadsafeFunction<(), ()>,
   ) -> Result<StreamCloser> {
-    tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
-    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
-      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let tsfn: ThreadsafeFunction<Vec<Tag<UserPreferenceUpdate>>, ErrorStrategy::CalleeHandled> =
-      callback.create_threadsafe_function(
-        0,
-        |ctx: ThreadSafeCallContext<Vec<Tag<UserPreferenceUpdate>>>| {
-          let env = ctx.env;
-          ctx
-            .value
-            .into_iter()
-            .map(|v| env.to_js_value(&v))
-            .collect::<Result<Vec<napi::JsUnknown>, _>>()
-        },
-      )?;
+    tracing::trace!(inbox_id = self.inner_client.inbox_id());
     let inbox_id = self.inner_client.inbox_id().to_string();
     let stream_closer = RustXmtpClient::stream_preferences_with_callback(
       self.inner_client.clone(),
@@ -756,15 +710,15 @@ impl Conversations {
         tracing::trace!(inbox_id, "[received] calling tsfn callback");
         match message {
           Ok(message) => {
-            let msg: Vec<Tag<UserPreferenceUpdate>> = message
+            let msg: Vec<UserPreferenceUpdate> = message
               .into_iter()
-              .map(Tag::<UserPreferenceUpdate>::from)
+              .map(UserPreferenceUpdate::from)
               .collect();
-            let status = tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
+            let status = callback.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
             tracing::info!("Stream status: {:?}", status);
           }
           Err(e) => {
-            let status = tsfn.call(
+            let status = callback.call(
               Err(Error::from(ErrorWrapper::from(e))),
               ThreadsafeFunctionCallMode::Blocking,
             );
@@ -773,7 +727,7 @@ impl Conversations {
         }
       },
       move || {
-        let status = tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+        let status = on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
         tracing::info!("stream on close status {:?}", status);
       },
     );
@@ -781,24 +735,23 @@ impl Conversations {
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: Uint8Array) => void")]
-  pub fn stream_message_deletions(&self, callback: JsFunction) -> Result<StreamCloser> {
-    tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
-    let tsfn: ThreadsafeFunction<Vec<u8>, ErrorStrategy::CalleeHandled> = callback
-      .create_threadsafe_function(0, |ctx| {
-        let env = ctx.env;
-        env
-          .create_buffer_with_data(ctx.value)
-          .map(|b| vec![b.into_raw()])
-      })?;
+  #[napi]
+  pub fn stream_message_deletions(
+    &self,
+    callback: ThreadsafeFunction<String, ()>,
+  ) -> Result<StreamCloser> {
+    tracing::trace!(inbox_id = self.inner_client.inbox_id());
     let stream_closer = RustXmtpClient::stream_message_deletions_with_callback(
       self.inner_client.clone(),
       move |message| match message {
         Ok(message_id) => {
-          let _ = tsfn.call(Ok(message_id), ThreadsafeFunctionCallMode::Blocking);
+          let _ = callback.call(
+            Ok(hex::encode(message_id)),
+            ThreadsafeFunctionCallMode::Blocking,
+          );
         }
         Err(e) => {
-          let _ = tsfn.call(
+          let _ = callback.call(
             Err(Error::from(ErrorWrapper::from(e))),
             ThreadsafeFunctionCallMode::Blocking,
           );

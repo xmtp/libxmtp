@@ -12,9 +12,11 @@ use xmtp_proto::xmtp::device_sync::{
     },
 };
 
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl BackupRecordProvider for GroupSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records<D>(
+    async fn backup_records<D>(
         db: Arc<D>,
         start_ns: Option<i64>,
         end_ns: Option<i64>,

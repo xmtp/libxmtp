@@ -1,7 +1,6 @@
 pub mod commit_log;
 pub mod commit_log_key;
 pub mod device_sync;
-pub mod device_sync_legacy;
 pub mod disappearing_messages;
 mod error;
 pub mod group_membership;

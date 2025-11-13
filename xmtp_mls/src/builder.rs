@@ -273,7 +273,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             .await?;
         }
 
-        let (tx, _) = broadcast::channel(32);
+        let (local_events, _) = broadcast::channel(32);
         let (worker_tx, _) = broadcast::channel(32);
         let mut workers = WorkerRunner::new();
         let context = Arc::new(XmtpMlsLocalContext {
@@ -285,7 +285,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: Arc::new(scw_verifier),
             mutexes: MutexRegistry::new(),
             mls_commit_lock: Arc::new(GroupCommitLock::new()),
-            local_events: tx.clone(),
+            local_events: local_events.clone(),
             worker_events: worker_tx.clone(),
             device_sync: DeviceSync {
                 server_url: device_sync_server_url,
@@ -344,7 +344,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         let client = Client {
             context,
-            local_events: tx,
+            local_events,
             workers,
         };
 

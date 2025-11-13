@@ -12,6 +12,7 @@ const BACKUP_VERSION: u16 = 0;
 mod export_stream;
 pub mod exporter;
 pub mod importer;
+mod util;
 
 #[derive(Debug, Error)]
 pub enum ArchiveError {

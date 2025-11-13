@@ -36,7 +36,7 @@ extern "C" {
   pub fn on_conversation(this: &StreamCallback, item: Conversation);
 
   #[wasm_bindgen(structural, method)]
-  pub fn on_message_deleted(this: &StreamCallback, message_id: Vec<u8>);
+  pub fn on_message_deleted(this: &StreamCallback, message_id: String);
 
   /// Js Fn to call on error
   #[wasm_bindgen(structural, method)]

@@ -212,7 +212,7 @@ mod tests {
             .context
             .db()
             .raw_query_read(|conn| group_messages::table.load(conn))?;
-        assert_eq!(old_messages.len(), 6);
+        assert_eq!(old_messages.len(), 5);
 
         let opts = BackupOptions {
             start_ns: None,
@@ -316,5 +316,23 @@ mod tests {
 
         // cleanup
         let _ = tokio::fs::remove_file(path).await;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn test_legacy_archive_import() {
+        use std::path::PathBuf;
+
+        use crate::tester;
+
+        let key = vec![0; 32];
+        let path = PathBuf::from("tests/assets/archive-legacy.xmtp");
+        tracing::info!("{path:?}");
+        let mut importer = ArchiveImporter::from_file(path, &key).await?;
+
+        tester!(alix);
+
+        let result = insert_importer(&mut importer, &alix.context).await;
+        assert!(result.is_ok());
     }
 }

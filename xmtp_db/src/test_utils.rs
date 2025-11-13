@@ -12,6 +12,11 @@ pub type TestDb = EncryptedMessageStore<crate::DefaultDatabase>;
 pub trait XmtpTestDb {
     /// Create a validated, ephemeral database, running the migrations
     async fn create_ephemeral_store() -> EncryptedMessageStore<crate::DefaultDatabase>;
+
+    async fn create_ephemeral_store_from_snapshot(
+        snapshot: &[u8],
+    ) -> EncryptedMessageStore<crate::DefaultDatabase>;
+
     /// Create a validated, persistent database running the migrations
     async fn create_persistent_store(
         path: Option<String>,
@@ -62,6 +67,21 @@ mod wasm {
                 .await
                 .unwrap();
             EncryptedMessageStore::new(db).unwrap()
+        }
+
+        async fn create_ephemeral_store_from_snapshot(
+            snapshot: &[u8],
+        ) -> EncryptedMessageStore<crate::DefaultDatabase> {
+            let db = crate::database::WasmDb::new(&StorageOption::Ephemeral)
+                .await
+                .unwrap();
+            let store = EncryptedMessageStore::new_uninit(db).unwrap();
+            store
+                .db()
+                .raw_query_write(|conn| conn.deserialize_database_from_buffer(snapshot))
+                .unwrap();
+
+            store
         }
 
         async fn create_persistent_store(
@@ -145,6 +165,17 @@ mod native {
             let opts = StorageOption::Ephemeral;
             let db = crate::database::NativeDb::new_unencrypted(&opts).unwrap();
             EncryptedMessageStore::new(db).unwrap()
+        }
+        async fn create_ephemeral_store_from_snapshot(snapshot: &[u8]) -> crate::DefaultStore {
+            let opts = StorageOption::Ephemeral;
+            let db = crate::database::NativeDb::new_unencrypted(&opts).unwrap();
+            let store = EncryptedMessageStore::new_uninit(db).unwrap();
+            store
+                .db()
+                .raw_query_write(|conn| conn.deserialize_database_from_buffer(snapshot))
+                .unwrap();
+
+            store
         }
         async fn create_persistent_store(path: Option<String>) -> crate::DefaultStore {
             let path = path.unwrap_or(xmtp_common::tmp_path());

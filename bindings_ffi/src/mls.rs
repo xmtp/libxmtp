@@ -56,11 +56,10 @@ use xmtp_mls::client::inbox_addresses_with_verifier;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::ConversationDebugInfo;
 use xmtp_mls::groups::device_sync::DeviceSyncError;
-use xmtp_mls::groups::device_sync::archive::ArchiveImporter;
 use xmtp_mls::groups::device_sync::archive::BackupMetadata;
 use xmtp_mls::groups::device_sync::archive::exporter::ArchiveExporter;
 use xmtp_mls::groups::device_sync::archive::insert_importer;
-use xmtp_mls::groups::device_sync_legacy::ENC_KEY_SIZE;
+use xmtp_mls::groups::device_sync::archive::{ArchiveImporter, ENC_KEY_SIZE};
 use xmtp_mls::identity_updates::revoke_installations_with_verifier;
 use xmtp_mls::identity_updates::{
     apply_signature_request_with_verifier, get_creation_signature_kind,
