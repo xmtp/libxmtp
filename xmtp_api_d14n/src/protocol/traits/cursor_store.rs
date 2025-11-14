@@ -3,7 +3,7 @@ use std::sync::Arc;
 use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
 use xmtp_proto::{
     api::ApiClientError,
-    types::{Cursor, GlobalCursor, OriginatorId, Topic, TopicKind},
+    types::{Cursor, GlobalCursor, GroupId, OriginatorId, Topic, TopicKind},
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -16,6 +16,12 @@ pub enum CursorStoreError {
     UnhandledTopicKind(TopicKind),
     #[error("{0}")]
     Other(Box<dyn RetryableError>),
+}
+
+impl CursorStoreError {
+    pub fn other<E: RetryableError + 'static>(e: E) -> Self {
+        CursorStoreError::Other(Box::new(e))
+    }
 }
 
 impl RetryableError for CursorStoreError {
@@ -78,6 +84,9 @@ pub trait CursorStore: MaybeSend + MaybeSync {
 
     // temp until reliable streams
     fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError>;
+
+    /// find dependencies of message with `group_id`
+    fn find_dependencies(&self, group_id: GroupId) -> Result<GlobalCursor, CursorStoreError>;
 }
 
 impl<T: CursorStore> CursorStore for Option<T> {
@@ -127,6 +136,14 @@ impl<T: CursorStore> CursorStore for Option<T> {
             NoCursorStore.lcc_maybe_missing(topic)
         }
     }
+
+    fn find_dependencies(&self, group_id: GroupId) -> Result<GlobalCursor, CursorStoreError> {
+        if let Some(c) = self {
+            c.find_dependencies(group_id)
+        } else {
+            NoCursorStore.find_dependencies(group_id)
+        }
+    }
 }
 
 impl<T: CursorStore + ?Sized> CursorStore for Arc<T> {
@@ -156,6 +173,10 @@ impl<T: CursorStore + ?Sized> CursorStore for Arc<T> {
     fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
         (**self).lcc_maybe_missing(topic)
     }
+
+    fn find_dependencies(&self, group_id: GroupId) -> Result<GlobalCursor, CursorStoreError> {
+        (**self).find_dependencies(group_id)
+    }
 }
 
 impl<T: CursorStore + ?Sized> CursorStore for Box<T> {
@@ -184,6 +205,10 @@ impl<T: CursorStore + ?Sized> CursorStore for Box<T> {
 
     fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
         (**self).lcc_maybe_missing(topic)
+    }
+
+    fn find_dependencies(&self, group_id: GroupId) -> Result<GlobalCursor, CursorStoreError> {
+        (**self).find_dependencies(group_id)
     }
 }
 /// This cursor store always returns 0
@@ -217,6 +242,10 @@ impl CursorStore for NoCursorStore {
     }
 
     fn lcc_maybe_missing(&self, _: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
+        Ok(GlobalCursor::default())
+    }
+
+    fn find_dependencies(&self, _: GroupId) -> Result<GlobalCursor, CursorStoreError> {
         Ok(GlobalCursor::default())
     }
 }
