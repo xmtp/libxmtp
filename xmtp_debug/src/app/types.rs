@@ -177,7 +177,7 @@ impl redb::Value for Identity {
 
 /// Group specific to this debug CLI Tool.
 /// Number of members in group
-#[derive(Debug, Hash, PartialEq, Eq, valuable::Valuable, Readable, Writable)]
+#[derive(Debug, Hash, Clone, PartialEq, Eq, valuable::Valuable, Readable, Writable)]
 pub struct Group {
     /// user that created group
     pub created_by: InboxId,

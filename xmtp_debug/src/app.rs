@@ -26,6 +26,7 @@ mod types;
 use clap::CommandFactory;
 use color_eyre::eyre::{self, Result};
 use directories::ProjectDirs;
+use redb::DatabaseError;
 use std::{fs, path::PathBuf, sync::Arc};
 use xmtp_db::{EncryptedMessageStore, StorageOption};
 use xmtp_id::InboxOwner;
@@ -54,7 +55,32 @@ impl App {
     }
 
     fn readonly_db() -> Result<Arc<redb::ReadOnlyDatabase>> {
-        Ok(Arc::new(redb::ReadOnlyDatabase::open(Self::redb()?)?))
+        match redb::ReadOnlyDatabase::open(Self::redb()?) {
+            // if the db is corrupted attempt a repair
+            Err(DatabaseError::RepairAborted) => {
+                let integrity = {
+                    let mut rw = redb::Database::open(Self::redb()?)?;
+                    rw.check_integrity()
+                };
+                match integrity {
+                    // db is ok can be reopened
+                    Ok(true) => Self::readonly_db(),
+                    // db was broken but is repaired
+                    Ok(false) => Self::readonly_db(),
+                    Err(DatabaseError::DatabaseAlreadyOpen) => {
+                        tracing::warn!(
+                            "db repair attempted but cannot continue because opened in a different process."
+                        );
+                        Err(DatabaseError::DatabaseAlreadyOpen.into())
+                    }
+                    Err(_) => {
+                        panic!("db file corrupted & unrecoverable. run `xdbg --clear` to restart")
+                    }
+                }
+            }
+            Ok(db) => Ok(Arc::new(db)),
+            Err(e) => Err(e.into()),
+        }
     }
 
     fn db() -> Result<Arc<redb::Database>> {
@@ -95,7 +121,7 @@ impl App {
             clear,
             ..
         } = opts;
-        debug!(fdlimit = get_fdlimit());
+        info!(fdlimit = get_fdlimit(), "setting fdlimit");
 
         if cmd.is_none() && !clear {
             AppOpts::command().print_help()?;

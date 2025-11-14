@@ -45,8 +45,8 @@ impl Generate {
                 Ok(())
             }
             Message => {
-                GenerateMessages::new(network, message_opts)?
-                    .run(amount, *concurrency)
+                GenerateMessages::new(network, message_opts, *concurrency)?
+                    .run(amount)
                     .await?;
                 info!("messages generated");
                 Ok(())
