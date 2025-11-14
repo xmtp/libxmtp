@@ -124,15 +124,15 @@ impl GrpcUrlsProduction {
 pub struct GrpcUrlsToxic;
 impl GrpcUrlsToxic {
     /// URL to ToxiProxy version of NODE-GO
-    pub const NODE: &'static str = "http://localhost:40010";
+    pub const NODE: &'static str = "http://localhost:6010";
     /// URL to ToxiProxy version of NODE-GO Grpc Web
-    pub const NODE_WEB: &'static str = "http://localhost:40020";
+    pub const NODE_WEB: &'static str = "http://localhost:6020";
     /// URL to ToxiProxy version of XMTPD
-    pub const XMTPD: &'static str = "http://localhost:40030";
+    pub const XMTPD: &'static str = "http://localhost:6030";
     /// URL to ToxiProxy version of Payer Gateway
-    pub const GATEWAY: &'static str = "http://localhost:40040";
+    pub const GATEWAY: &'static str = "http://localhost:6040";
     /// Url to ToxiProxy version of History Server
-    pub const HISTORY_SERVER: &'static str = "http://localhost:40050";
+    pub const HISTORY_SERVER: &'static str = "http://localhost:6050";
     /// Url to ToxiProxy version of Anvil
-    pub const ANVIL: &'static str = "http://localhost:40060";
+    pub const ANVIL: &'static str = "http://localhost:6060";
 }
