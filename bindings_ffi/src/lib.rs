@@ -124,7 +124,7 @@ pub fn get_version_info() -> String {
 }
 
 #[cfg(test)]
-mod tests {
+mod lib_tests {
     use crate::get_version_info;
 
     #[test]
