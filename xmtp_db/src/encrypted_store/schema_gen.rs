@@ -90,7 +90,6 @@ diesel::table! {
         commit_log_public_key -> Nullable<Binary>,
         is_commit_log_forked -> Nullable<Bool>,
         has_pending_leave_request -> Nullable<Bool>,
-        id_hex -> Text,
     }
 }
 

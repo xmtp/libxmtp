@@ -49,8 +49,3 @@ CREATE INDEX IF NOT EXISTS idx_remote_commit_log_group_commit ON remote_commit_l
 CREATE INDEX idx_groups_dm_id ON groups(dm_id) WHERE dm_id IS NOT NULL;
 
 -- Consent Records
-
--- CREATE INDEX idx_consent_records_entity ON consent_records(entity, entity_type);
-
-ALTER TABLE groups ADD COLUMN id_hex TEXT GENERATED ALWAYS AS (lower(hex(id))) STORED NOT NULL;
-CREATE INDEX idx_groups_id_hex ON groups(id_hex);
