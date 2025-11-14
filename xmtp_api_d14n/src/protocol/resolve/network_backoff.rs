@@ -7,10 +7,9 @@ use crate::{
         types::MissingEnvelope,
     },
 };
-use derive_builder::Builder;
 use itertools::Itertools;
 use tracing::warn;
-use xmtp_common::{ExponentialBackoff, Strategy};
+use xmtp_common::{ExponentialBackoff, RetryableError, Strategy};
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::{
     api::{Client, Query},
@@ -19,22 +18,26 @@ use xmtp_proto::{
 };
 
 /// try resolve d14n dependencies based on a backoff strategy
-#[derive(Clone, Debug, Builder)]
-#[builder(setter(strip_option), build_fn(error = "ResolutionError"))]
+#[derive(Clone, Debug)]
 pub struct NetworkBackoffResolver<ApiClient> {
     client: ApiClient,
     backoff: ExponentialBackoff,
 }
 
-impl<ApiClient: Clone> NetworkBackoffResolver<ApiClient> {
-    pub fn builder() -> NetworkBackoffResolverBuilder<ApiClient> {
-        NetworkBackoffResolverBuilder::default()
+pub fn network_backoff<ApiClient>(client: &ApiClient) -> NetworkBackoffResolver<&ApiClient> {
+    NetworkBackoffResolver {
+        client,
+        backoff: ExponentialBackoff::default(),
     }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<ApiClient: Client> ResolveDependencies for NetworkBackoffResolver<ApiClient> {
+impl<ApiClient> ResolveDependencies for NetworkBackoffResolver<ApiClient>
+where
+    ApiClient: Client,
+    <ApiClient as Client>::Error: RetryableError,
+{
     type ResolvedEnvelope = OriginatorEnvelope;
     /// Resolve dependencies, starting with a list of dependencies. Should try to resolve
     /// all dependents after `dependency`, if `Dependency` is missing as well.
@@ -42,7 +45,7 @@ impl<ApiClient: Client> ResolveDependencies for NetworkBackoffResolver<ApiClient
     /// # Returns
     /// * `HashSet<Self::ResolvedEnvelope>`: The list of envelopes which were resolved.
     async fn resolve(
-        &mut self,
+        &self,
         mut missing: HashSet<MissingEnvelope>,
     ) -> Result<Resolved<Self::ResolvedEnvelope>, ResolutionError> {
         let mut attempts = 0;
@@ -72,7 +75,7 @@ impl<ApiClient: Client> ResolveDependencies for NetworkBackoffResolver<ApiClient
                 .build()?
                 .query(&self.client)
                 .await
-                .map_err(|e| ResolutionError::Api(Box::new(e)))?
+                .map_err(ResolutionError::api)?
                 .envelopes;
             let got = envelopes
                 .iter()

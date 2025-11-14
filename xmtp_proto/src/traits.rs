@@ -108,6 +108,35 @@ pub trait Client: MaybeSend + MaybeSync {
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<T: MaybeSend + MaybeSync + ?Sized> Client for &T
+where
+    T: Client,
+{
+    type Error = T::Error;
+
+    type Stream = T::Stream;
+
+    async fn request(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+        (**self).request(request, path, body).await
+    }
+
+    async fn stream(
+        &self,
+        request: request::Builder,
+        path: http::uri::PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
+        (**self).stream(request, path, body).await
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<T: MaybeSend + MaybeSync + ?Sized> Client for Box<T>
 where
     T: Client,
