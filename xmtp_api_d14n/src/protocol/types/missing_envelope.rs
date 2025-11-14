@@ -6,12 +6,18 @@ use xmtp_proto::types::{Cursor, Topic};
 /// [`Sort`](crate::protocol::Sort)
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct MissingEnvelope {
-    topic: Topic,
-    cursor: Cursor,
+    pub topic: Topic,
+    pub cursor: Cursor,
 }
 
 impl MissingEnvelope {
     pub fn new(topic: Topic, cursor: Cursor) -> Self {
         Self { topic, cursor }
+    }
+}
+
+impl std::fmt::Display for MissingEnvelope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.cursor, self.topic)
     }
 }

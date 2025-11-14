@@ -34,6 +34,16 @@ impl GlobalCursor {
             .or_insert(cursor.sequence_id);
     }
 
+    /// apply a cursor to `Self`, and take the lowest value of SequenceId between
+    /// `Self` and [Cursor](super::Cursor)
+    pub fn apply_least(&mut self, cursor: &super::Cursor) {
+        let _ = self
+            .inner
+            .entry(cursor.originator_id)
+            .and_modify(|sid| *sid = (*sid).min(cursor.sequence_id))
+            .or_insert(cursor.sequence_id);
+    }
+
     /// Get the maximum sequence id for [`crate::xmtpv4::Originator`]
     pub fn get(&self, originator: &OriginatorId) -> SequenceId {
         self.inner.get(originator).copied().unwrap_or(0)

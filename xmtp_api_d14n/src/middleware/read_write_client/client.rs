@@ -124,6 +124,7 @@ mod tests {
 
     use xmtp_proto::{
         api::{Query, mock::MockNetworkClient},
+        types::TopicKind,
         xmtp::xmtpv4::envelopes::ClientEnvelope,
     };
     const FILTER: &str = "xmtp.xmtpv4.payer_api.PayerApi";
@@ -159,7 +160,7 @@ mod tests {
             .times(1)
             .returning(|_, _, _| Ok(http::Response::new(vec![].into())));
         let mut e = QueryEnvelope::builder()
-            .topic(vec![])
+            .topic(TopicKind::GroupMessagesV1.create(vec![]))
             .last_seen(Default::default())
             .limit(0)
             .build()?;

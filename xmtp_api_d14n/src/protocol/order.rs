@@ -1,6 +1,8 @@
+use std::collections::HashSet;
+
 use crate::protocol::{
-    Envelope, EnvelopeError, OrderedEnvelopeCollection, ResolutionError, ResolveDependencies, Sort,
-    VectorClock, sort, types::MissingEnvelope,
+    Envelope, EnvelopeError, OrderedEnvelopeCollection, ResolutionError, ResolveDependencies,
+    Resolved, Sort, VectorClock, sort, types::MissingEnvelope,
 };
 use derive_builder::Builder;
 use itertools::Itertools;
@@ -16,6 +18,12 @@ pub struct Ordered<T, R> {
     envelopes: Vec<T>,
     resolver: R,
     topic_cursor: TopicCursor,
+}
+
+impl<T, R> Ordered<T, R> {
+    pub fn into_parts(self) -> (Vec<T>, TopicCursor) {
+        (self.envelopes, self.topic_cursor)
+    }
 }
 
 impl<T: Clone, R: Clone> Ordered<T, R> {
@@ -38,7 +46,7 @@ where
             topic_cursor,
         } = self;
         sort::timestamp(envelopes).sort()?;
-        while let Some(missing) = sort::causal(envelopes, topic_cursor).sort()? {
+        while let Some(mut missing) = sort::causal(envelopes, topic_cursor).sort()? {
             let cursors = missing
                 .iter()
                 .map(|e| {
@@ -49,22 +57,44 @@ where
                     Ok(need
                         .into_iter()
                         .map(|c| MissingEnvelope::new(topic.clone(), c))
-                        .collect::<Vec<MissingEnvelope>>())
+                        .collect::<HashSet<MissingEnvelope>>())
                 })
                 .flatten_ok()
-                .collect::<Result<Vec<MissingEnvelope>, EnvelopeError>>()?;
-            let resolved = match resolver.resolve(cursors).await {
-                // if resolution fails, drop the missing envelopes.
-                // in this case, we will not process any of those envelopes
-                // until the next query.
-                Err(ResolutionError::ResolutionFailed) => {
-                    return Ok(());
+                .collect::<Result<HashSet<MissingEnvelope>, EnvelopeError>>()?;
+            let Resolved {
+                envelopes: resolved,
+                unresolved,
+            } = resolver.resolve(cursors).await?;
+            if resolved.is_empty() {
+                // if we cant resolve anything, break the loop
+                break;
+            }
+            if let Some(unresolved) = unresolved {
+                let unresolved = unresolved
+                    .into_iter()
+                    .map(|m| m.cursor)
+                    .collect::<HashSet<_>>();
+                // if the resolver fails to resolve some envelopes, ignore them.
+                // delete unresolved envelopes from missing envelopes list.
+                // cannot use retain directly b/c curosr returns Result<>.
+                // see https://github.com/xmtp/libxmtp/issues/2691
+                // TODO:2691
+                let mut to_remove = HashSet::new();
+                for (i, m) in missing.iter().enumerate() {
+                    if unresolved.contains(&m.cursor()?) {
+                        to_remove.insert(i);
+                    }
                 }
-                Err(e) => return Err(e),
-                Ok(r) => r,
-            };
+                let mut i = 0;
+                missing.retain(|_m| {
+                    let could_not_resolve = to_remove.contains(&i);
+                    i += 1;
+                    !could_not_resolve
+                });
+            }
             // apply missing before resolved, so that the resolved
             // are applied to the topic cursor before the missing dependencies.
+            // todo: maybe `VecDeque` better here?
             envelopes.splice(0..0, missing.into_iter());
             envelopes.splice(0..0, resolved.into_iter());
             sort::timestamp(envelopes).sort()?;

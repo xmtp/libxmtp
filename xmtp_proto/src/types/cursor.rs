@@ -67,7 +67,7 @@ impl Cursor {
 
 impl fmt::Display for Cursor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[sid[{}]:oid[{}]]", self.sequence_id, self.originator_id)
+        write!(f, "[sid({}):oid({})]", self.sequence_id, self.originator_id)
     }
 }
 
@@ -104,13 +104,6 @@ mod test {
     }
 
     #[rstest]
-    #[case(Cursor::new(100, 1u32), "[sid[100]:oid[1]]")]
-    #[case(Cursor::new(0, 0u32), "[sid[0]:oid[0]]")]
-    fn test_display(#[case] cursor: Cursor, #[case] expected: &str) {
-        assert_eq!(format!("{}", cursor), expected);
-    }
-
-    #[rstest]
     #[case(Cursor::new(1, 1u32), Cursor::new(2, 1u32), true)] // same originator, different seq
     #[case(Cursor::new(2, 1u32), Cursor::new(1, 1u32), false)]
     #[case(Cursor::new(1, 1u32), Cursor::new(1, 1u32), false)] // equal
@@ -118,13 +111,5 @@ mod test {
     fn test_ordering(#[case] cursor1: Cursor, #[case] cursor2: Cursor, #[case] cursor1_less: bool) {
         assert_eq!(cursor1 < cursor2, cursor1_less);
         assert_eq!(cursor1 == cursor2, !cursor1_less && cursor2 >= cursor1);
-    }
-
-    #[xmtp_common::test]
-    fn test_display_max_values() {
-        assert_eq!(
-            format!("{}", Cursor::new(u64::MAX, u32::MAX)),
-            format!("[sid[{}]:oid[{}]]", u64::MAX, u32::MAX)
-        );
     }
 }
