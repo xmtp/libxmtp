@@ -94,6 +94,18 @@ pub struct MessageGenerateOpts {
     /// Max variable message size, in words.
     #[arg(long, short, default_value = "100")]
     pub max_message_size: u32,
+    /// on every interval, adds a new member to the group and changes the group description in
+    /// addition to sending a message
+    #[arg(long, short)]
+    pub add_and_change_description: bool,
+    /// on every interval, changes the group description in addition to sending a message
+    #[arg(long, short)]
+    pub change_description: bool,
+    /// specify how many identities to add up to
+    /// requires `add_or_change_description`.
+    /// does nothing unless add_or_change_description is set
+    #[arg(long, short, default_value = "100")]
+    pub add_up_to: u32,
 }
 
 /// Modify state of local clients & groups

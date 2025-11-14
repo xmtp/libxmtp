@@ -126,7 +126,7 @@ pub trait DeriveKey<Key> {
 pub trait Database<Key, Value> {
     /// get length of items in db.
     fn len(&self, network: impl Into<u64>) -> Result<usize>;
-    #[allow(unused)]
+
     /// store only `value` to disk
     fn set(&self, value: Value, network: impl Into<u64>) -> Result<()> {
         Database::set_all(self, &[value], network)

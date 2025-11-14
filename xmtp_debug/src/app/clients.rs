@@ -9,7 +9,7 @@ use crate::app::store::IdentityStore;
 use crate::app::store::RandomDatabase;
 use crate::app::types::*;
 use alloy::signers::local::PrivateKeySigner;
-use color_eyre::eyre::eyre;
+use color_eyre::eyre::{WrapErr, eyre};
 use tokio::sync::Mutex;
 use xmtp_db::prelude::Pragmas;
 use xmtp_db::{NativeDb, XmtpDb};
@@ -86,7 +86,7 @@ async fn new_client_inner(
         .into_os_string()
         .into_string()
         .map_err(|_| eyre::eyre!("Conversion failed from OsString"))?;
-    let db = NativeDb::new(&StorageOption::Persistent(path), [0u8; 32])?;
+    let db = NativeDb::new_unencrypted(&StorageOption::Persistent(path))?;
     db.db().set_sqlcipher_log("NONE")?;
     let client = xmtp_mls::Client::builder(IdentityStrategy::new(
         inbox_id,
@@ -136,10 +136,13 @@ fn existing_client_inner(
 ) -> Result<crate::DbgClient> {
     let api = network.connect()?;
 
-    let db = xmtp_db::NativeDb::new(
-        &StorageOption::Persistent(db_path.clone().into_os_string().into_string().unwrap()),
-        [0u8; 32],
-    )?;
+    let db = xmtp_db::NativeDb::new_unencrypted(&StorageOption::Persistent(
+        db_path.clone().into_os_string().into_string().unwrap(),
+    ))
+    .wrap_err(format!(
+        "tried to open sqlite database file@{}",
+        db_path.to_string_lossy()
+    ))?;
     db.db().set_sqlcipher_log("NONE")?;
     let store = EncryptedMessageStore::new(db);
 
@@ -167,12 +170,19 @@ pub fn load_all_identities(
         .load(u64::from(network))?
         .ok_or(eyre!("no identities in store, try generating some"))?;
     let now = std::time::Instant::now();
+    let mut clients_len = 0;
     let clients = identities
         .map(move |i| {
-            Ok::<_, eyre::Report>((
+            let item = (
                 i.value().inbox_id,
-                Mutex::new(client_from_identity(&i.value(), network)?),
-            ))
+                Mutex::new(client_from_identity(&i.value(), network).wrap_err(format!(
+                    "failed to load client for {}, {} other clients succeeded",
+                    hex::encode(i.value().inbox_id),
+                    clients_len
+                ))?),
+            );
+            clients_len += 1;
+            Ok::<_, eyre::Report>(item)
         })
         .collect::<Result<HashMap<_, _>, _>>()?;
     tracing::info!("took {:?} to load {} clients", now.elapsed(), clients.len());
