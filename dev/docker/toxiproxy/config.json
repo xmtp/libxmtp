@@ -1,37 +1,37 @@
 [
   {
     "name": "node-go",
-    "listen": "[::]:40010",
+    "listen": "[::]:6010",
     "upstream": "node:5556",
     "enabled": true
   },
   {
     "name": "grpc-web",
-    "listen": "[::]:40020",
+    "listen": "[::]:6020",
     "upstream": "node-web:5557",
     "enabled": true
   },
   {
     "name": "xmtpd",
-    "listen": "[::]:40030",
+    "listen": "[::]:6030",
     "upstream": "xmtpd:5050",
     "enabled": true
   },
   {
     "name": "gateway",
-    "listen": "[::]:40040",
+    "listen": "[::]:6040",
     "upstream": "xmtpd:5052",
     "enabled": true
   },
   {
     "name": "history-server",
-    "listen": "[::]:40050",
+    "listen": "[::]:6050",
     "upstream": "history-server:5558",
     "enabled": true
   },
   {
     "name": "anvil",
-    "listen": "[::]:40060",
+    "listen": "[::]:6060",
     "upstream": "anvil:8545",
     "enabled": true
   }
