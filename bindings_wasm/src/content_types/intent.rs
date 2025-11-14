@@ -27,41 +27,51 @@ impl Intent {
   }
 }
 
-impl From<xmtp_content_types::intent::Intent> for Intent {
-  fn from(intent: xmtp_content_types::intent::Intent) -> Self {
-    let metadata = intent
-      .metadata
-      .and_then(|map| serde_wasm_bindgen::to_value(&map).ok())
-      .unwrap_or(JsValue::UNDEFINED);
+impl TryFrom<xmtp_content_types::intent::Intent> for Intent {
+  type Error = JsError;
 
-    Self {
+  fn try_from(intent: xmtp_content_types::intent::Intent) -> Result<Self, Self::Error> {
+    let metadata = if let Some(data) = intent.metadata {
+      serde_wasm_bindgen::to_value(&data)
+        .map_err(|e| JsError::new(&format!("Failed to serialize Intent metadata: {}", e)))?
+    } else {
+      JsValue::UNDEFINED
+    };
+
+    Ok(Self {
       id: intent.id,
       action_id: intent.action_id,
       metadata,
-    }
+    })
   }
 }
 
-impl From<Intent> for xmtp_content_types::intent::Intent {
-  fn from(intent: Intent) -> Self {
+impl TryFrom<Intent> for xmtp_content_types::intent::Intent {
+  type Error = JsError;
+
+  fn try_from(intent: Intent) -> Result<Self, Self::Error> {
     let metadata = if intent.metadata.is_null() || intent.metadata.is_undefined() {
       None
     } else {
-      serde_wasm_bindgen::from_value(intent.metadata).ok()
+      Some(
+        serde_wasm_bindgen::from_value(intent.metadata)
+          .map_err(|e| JsError::new(&format!("Failed to deserialize Intent metadata: {}", e)))?,
+      )
     };
 
-    Self {
+    Ok(Self {
       id: intent.id,
       action_id: intent.action_id,
       metadata,
-    }
+    })
   }
 }
 
 #[wasm_bindgen(js_name = "encodeIntent")]
 pub fn encode_intent(intent: Intent) -> Result<Uint8Array, JsError> {
-  // Use IntentCodec to encode the intent
-  let encoded = IntentCodec::encode(intent.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
+  // Convert Intent and use IntentCodec to encode
+  let intent: xmtp_content_types::intent::Intent = intent.try_into()?;
+  let encoded = IntentCodec::encode(intent).map_err(|e| JsError::new(&format!("{}", e)))?;
 
   // Encode the EncodedContent to bytes
   let mut buf = Vec::new();
@@ -78,8 +88,8 @@ pub fn decode_intent(bytes: Uint8Array) -> Result<Intent, JsError> {
   let encoded_content = EncodedContent::decode(bytes.to_vec().as_slice())
     .map_err(|e| JsError::new(&format!("{}", e)))?;
 
-  // Use IntentCodec to decode into Intent and convert to Intent
-  IntentCodec::decode(encoded_content)
-    .map(Into::into)
-    .map_err(|e| JsError::new(&format!("{}", e)))
+  // Use IntentCodec to decode into Intent and convert to WASM Intent
+  let intent = IntentCodec::decode(encoded_content).map_err(|e| JsError::new(&format!("{}", e)))?;
+
+  intent.try_into()
 }

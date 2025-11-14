@@ -63,8 +63,19 @@ impl From<MessageBody> for DecodedMessageBody {
       MessageBody::GroupUpdated(gu) => result.group_updated_content = Some(gu.into()),
       MessageBody::ReadReceipt(rr) => result.read_receipt_content = Some(rr.into()),
       MessageBody::WalletSendCalls(wsc) => result.wallet_send_calls_content = Some(wsc.into()),
-      MessageBody::Intent(intent) => result.intent_content = Some(intent.into()),
-      MessageBody::Actions(actions) => result.actions_content = Some(actions.into()),
+      MessageBody::Intent(intent) => result.intent_content = intent.map(Into::into),
+      MessageBody::Actions(actions) => {
+        result.actions_content = match actions {
+          Some(actions) => match actions.try_into() {
+            Ok(actions) => Some(actions),
+            Err(e) => {
+              tracing::error!("Failed to convert Actions: {}", e);
+              None
+            }
+          },
+          None => None,
+        };
+      }
       MessageBody::Custom(c) => result.custom_content = Some(c.into()),
       MessageBody::Reply(_) => {
         // This should not happen as we are converting from a reply's content

@@ -8867,6 +8867,7 @@ dependencies = [
  "parking_lot 0.12.4",
  "prost",
  "rand 0.8.5",
+ "serde_json",
  "thiserror 2.0.16",
  "tokio",
  "tracing",

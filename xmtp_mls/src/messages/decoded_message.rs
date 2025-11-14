@@ -53,8 +53,8 @@ pub enum MessageBody {
     GroupUpdated(GroupUpdated),
     ReadReceipt(ReadReceipt),
     WalletSendCalls(WalletSendCalls),
-    Intent(Intent),
-    Actions(Actions),
+    Intent(Option<Intent>),
+    Actions(Option<Actions>),
     Custom(EncodedContent),
 }
 
@@ -152,11 +152,11 @@ impl TryFrom<EncodedContent> for MessageBody {
             }
             (IntentCodec::TYPE_ID, IntentCodec::MAJOR_VERSION) => {
                 let intent = IntentCodec::decode(value)?;
-                Ok(MessageBody::Intent(intent))
+                Ok(MessageBody::Intent(Some(intent)))
             }
             (ActionsCodec::TYPE_ID, ActionsCodec::MAJOR_VERSION) => {
                 let actions = ActionsCodec::decode(value)?;
-                Ok(MessageBody::Actions(actions))
+                Ok(MessageBody::Actions(Some(actions)))
             }
 
             _ => Err(CodecError::CodecNotFound(content_type.clone()).into()),

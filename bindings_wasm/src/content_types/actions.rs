@@ -45,28 +45,52 @@ impl Actions {
   }
 }
 
-impl From<xmtp_content_types::actions::Actions> for Actions {
-  fn from(actions: xmtp_content_types::actions::Actions) -> Self {
-    Self {
+impl TryFrom<xmtp_content_types::actions::Actions> for Actions {
+  type Error = JsError;
+
+  fn try_from(actions: xmtp_content_types::actions::Actions) -> Result<Self, Self::Error> {
+    let actions_id = actions.id.clone();
+    let expires_at_ns = match actions.expires_at {
+      Some(dt) => {
+        let ns_opt = dt.and_utc().timestamp_nanos_opt();
+        if ns_opt.is_none() {
+          return Err(JsError::new(&format!(
+            "Actions '{}' expiration timestamp is out of valid range for conversion to nanoseconds",
+            actions_id
+          )));
+        }
+        ns_opt
+      }
+      None => None,
+    };
+
+    let converted_actions: Result<Vec<_>, _> =
+      actions.actions.into_iter().map(|a| a.try_into()).collect();
+
+    Ok(Self {
       id: actions.id,
       description: actions.description,
-      actions: actions.actions.into_iter().map(|a| a.into()).collect(),
-      expires_at_ns: actions
-        .expires_at
-        .map(|dt| dt.and_utc().timestamp_nanos_opt().unwrap_or(0)),
-    }
+      actions: converted_actions?,
+      expires_at_ns,
+    })
   }
 }
 
 impl From<Actions> for xmtp_content_types::actions::Actions {
   fn from(actions: Actions) -> Self {
+    let expires_at = match actions.expires_at_ns {
+      Some(ns) => {
+        let dt = DateTime::from_timestamp_nanos(ns).naive_utc();
+        Some(dt)
+      }
+      None => None,
+    };
+
     Self {
       id: actions.id,
       description: actions.description,
       actions: actions.actions.into_iter().map(|a| a.into()).collect(),
-      expires_at: actions
-        .expires_at_ns
-        .map(|ns| DateTime::from_timestamp_nanos(ns).naive_utc()),
+      expires_at,
     }
   }
 }
@@ -104,30 +128,51 @@ impl Action {
   }
 }
 
-impl From<xmtp_content_types::actions::Action> for Action {
-  fn from(action: xmtp_content_types::actions::Action) -> Self {
-    Self {
+impl TryFrom<xmtp_content_types::actions::Action> for Action {
+  type Error = JsError;
+
+  fn try_from(action: xmtp_content_types::actions::Action) -> Result<Self, Self::Error> {
+    let action_id = action.id.clone();
+    let expires_at_ns = match action.expires_at {
+      Some(dt) => {
+        let ns_opt = dt.and_utc().timestamp_nanos_opt();
+        if ns_opt.is_none() {
+          return Err(JsError::new(&format!(
+            "Action '{}' expiration timestamp is out of valid range for conversion to nanoseconds",
+            action_id
+          )));
+        }
+        ns_opt
+      }
+      None => None,
+    };
+
+    Ok(Self {
       id: action.id,
       label: action.label,
       image_url: action.image_url,
       style: action.style.map(|s| s.into()),
-      expires_at_ns: action
-        .expires_at
-        .map(|dt| dt.and_utc().timestamp_nanos_opt().unwrap_or(0)),
-    }
+      expires_at_ns,
+    })
   }
 }
 
 impl From<Action> for xmtp_content_types::actions::Action {
   fn from(action: Action) -> Self {
+    let expires_at = match action.expires_at_ns {
+      Some(ns) => {
+        let dt = DateTime::from_timestamp_nanos(ns).naive_utc();
+        Some(dt)
+      }
+      None => None,
+    };
+
     Self {
       id: action.id,
       label: action.label,
       image_url: action.image_url,
       style: action.style.map(|s| s.into()),
-      expires_at: action
-        .expires_at_ns
-        .map(|ns| DateTime::from_timestamp_nanos(ns).naive_utc()),
+      expires_at,
     }
   }
 }
@@ -162,7 +207,7 @@ impl From<ActionStyle> for xmtp_content_types::actions::ActionStyle {
 
 #[wasm_bindgen(js_name = "encodeActions")]
 pub fn encode_actions(actions: Actions) -> Result<Uint8Array, JsError> {
-  // Use ActionsCodec to encode the actions
+  // Convert Actions and use ActionsCodec to encode
   let encoded =
     ActionsCodec::encode(actions.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
 
@@ -182,7 +227,8 @@ pub fn decode_actions(bytes: Uint8Array) -> Result<Actions, JsError> {
     .map_err(|e| JsError::new(&format!("{}", e)))?;
 
   // Use ActionsCodec to decode into Actions and convert to Actions
-  ActionsCodec::decode(encoded_content)
-    .map(Into::into)
-    .map_err(|e| JsError::new(&format!("{}", e)))
+  let actions =
+    ActionsCodec::decode(encoded_content).map_err(|e| JsError::new(&format!("{}", e)))?;
+
+  actions.try_into()
 }
