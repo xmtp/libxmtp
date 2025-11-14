@@ -1,6 +1,5 @@
 //! Global Constants for xdbg
 use std::sync::LazyLock;
-use tempfile::TempDir;
 use url::Url;
 use xmtp_configuration::{GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsProduction, GrpcUrlsStaging};
 
@@ -26,5 +25,4 @@ pub static XMTP_DEV_GATEWAY: LazyLock<Url> =
 pub static XMTP_LOCAL_GATEWAY: LazyLock<Url> =
     LazyLock::new(|| Url::parse(GrpcUrlsLocal::GATEWAY).unwrap());
 
-pub static TMPDIR: LazyLock<TempDir> = LazyLock::<TempDir>::new(|| TempDir::new().unwrap());
 pub const STORAGE_PREFIX: &str = "xdbg";

@@ -2,6 +2,7 @@ mod app;
 mod args;
 mod constants;
 mod logger;
+mod queries;
 
 use clap::Parser;
 use color_eyre::eyre::Result;
