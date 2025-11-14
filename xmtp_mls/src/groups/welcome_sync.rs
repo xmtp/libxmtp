@@ -526,6 +526,9 @@ mod tests {
                 db.expect_update_cursor().returning(|_, _, _| Ok(true));
                 db.expect_update_responded_at_sequence_id()
                     .returning(|_, _, _| Ok(()));
+                db.expect_is_awaiting_readd().returning(|_, _| Ok(false));
+                db.expect_set_group_commit_log_forked_status()
+                    .returning(|_, _| Ok(()));
                 db.expect_insert_or_replace_group().returning(Ok);
             })
             .mem(mem)
@@ -704,6 +707,9 @@ mod tests {
                 db.expect_update_responded_at_sequence_id()
                     .once()
                     .returning(|_, _, _| Ok(()));
+                db.expect_is_awaiting_readd().returning(|_, _| Ok(false));
+                db.expect_set_group_commit_log_forked_status()
+                    .returning(|_, _| Ok(()));
                 db.expect_update_cursor()
                     .once()
                     .returning(|_id, entity, cursor| {
