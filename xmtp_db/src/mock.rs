@@ -755,6 +755,33 @@ mock! {
     ) -> Result<bool, crate::ConnectionError>;
     }
 
+    impl crate::message_deletion::QueryMessageDeletion for DbQuery {
+        fn get_message_deletion<MessageId: AsRef<[u8]>>(
+            &self,
+            _id: MessageId,
+        ) -> Result<Option<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
+
+        fn get_deletion_by_deleted_message_id<MessageId: AsRef<[u8]>>(
+            &self,
+            _deleted_message_id: MessageId,
+        ) -> Result<Option<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
+
+        fn get_deletions_for_messages(
+            &self,
+            _message_ids: Vec<Vec<u8>>,
+        ) -> Result<Vec<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
+
+        fn get_group_deletions<GroupId: AsRef<[u8]>>(
+            &self,
+            _group_id: GroupId,
+        ) -> Result<Vec<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
+
+        fn is_message_deleted<MessageId: AsRef<[u8]>>(
+            &self,
+            _message_id: MessageId,
+        ) -> Result<bool, crate::ConnectionError>;
+    }
+
 }
 
 impl ConnectionExt for MockDbQuery {
