@@ -7,6 +7,24 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 use crate::ErrorWrapper;
 
+#[derive(Debug)]
+struct TimestampValidationError {
+  timestamp: i64,
+  context: &'static str,
+}
+
+impl std::fmt::Display for TimestampValidationError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(
+      f,
+      "{} timestamp {} is out of valid range and was clamped",
+      self.context, self.timestamp
+    )
+  }
+}
+
+impl std::error::Error for TimestampValidationError {}
+
 #[derive(Clone)]
 #[napi(object)]
 pub struct Actions {
@@ -29,16 +47,41 @@ impl From<xmtp_content_types::actions::Actions> for Actions {
   }
 }
 
-impl From<Actions> for xmtp_content_types::actions::Actions {
-  fn from(actions: Actions) -> Self {
-    Self {
+impl TryFrom<Actions> for xmtp_content_types::actions::Actions {
+  type Error = napi::Error<napi::Status>;
+
+  fn try_from(actions: Actions) -> std::result::Result<Self, Self::Error> {
+    let expires_at = match actions.expires_at_ns {
+      Some(ns) => {
+        // Create DateTime and immediately validate it didn't clamp
+        let dt = DateTime::from_timestamp_nanos(ns).naive_utc();
+        let roundtrip_ns = dt.and_utc().timestamp_nanos_opt();
+        if roundtrip_ns != Some(ns) {
+          return Err(
+            ErrorWrapper::from(TimestampValidationError {
+              timestamp: ns,
+              context: "Actions",
+            })
+            .into(),
+          );
+        }
+        Some(dt)
+      }
+      None => None,
+    };
+
+    let actions_vec = actions
+      .actions
+      .into_iter()
+      .map(|a| a.try_into())
+      .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    Ok(xmtp_content_types::actions::Actions {
       id: actions.id,
       description: actions.description,
-      actions: actions.actions.into_iter().map(|a| a.into()).collect(),
-      expires_at: actions
-        .expires_at_ns
-        .map(|ns| DateTime::from_timestamp_nanos(ns).naive_utc()),
-    }
+      actions: actions_vec,
+      expires_at,
+    })
   }
 }
 
@@ -66,17 +109,36 @@ impl From<xmtp_content_types::actions::Action> for Action {
   }
 }
 
-impl From<Action> for xmtp_content_types::actions::Action {
-  fn from(action: Action) -> Self {
-    Self {
+impl TryFrom<Action> for xmtp_content_types::actions::Action {
+  type Error = napi::Error<napi::Status>;
+
+  fn try_from(action: Action) -> std::result::Result<Self, Self::Error> {
+    let expires_at = match action.expires_at_ns {
+      Some(ns) => {
+        // Create DateTime and immediately validate it didn't clamp
+        let dt = DateTime::from_timestamp_nanos(ns).naive_utc();
+        let roundtrip_ns = dt.and_utc().timestamp_nanos_opt();
+        if roundtrip_ns != Some(ns) {
+          return Err(
+            ErrorWrapper::from(TimestampValidationError {
+              timestamp: ns,
+              context: "Action",
+            })
+            .into(),
+          );
+        }
+        Some(dt)
+      }
+      None => None,
+    };
+
+    Ok(xmtp_content_types::actions::Action {
       id: action.id,
       label: action.label,
       image_url: action.image_url,
       style: action.style.map(|s| s.into()),
-      expires_at: action
-        .expires_at_ns
-        .map(|ns| DateTime::from_timestamp_nanos(ns).naive_utc()),
-    }
+      expires_at,
+    })
   }
 }
 
@@ -111,7 +173,8 @@ impl From<ActionStyle> for xmtp_content_types::actions::ActionStyle {
 #[napi]
 pub fn encode_actions(actions: Actions) -> Result<Uint8Array> {
   // Use ActionsCodec to encode the actions
-  let encoded = ActionsCodec::encode(actions.into()).map_err(ErrorWrapper::from)?;
+  let actions: xmtp_content_types::actions::Actions = actions.try_into()?;
+  let encoded = ActionsCodec::encode(actions).map_err(ErrorWrapper::from)?;
 
   // Encode the EncodedContent to bytes
   let mut buf = Vec::new();
@@ -127,7 +190,9 @@ pub fn decode_actions(bytes: Uint8Array) -> Result<Actions> {
     EncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
 
   // Use ActionsCodec to decode into Actions and convert to Actions
-  ActionsCodec::decode(encoded_content)
+  let actions = ActionsCodec::decode(encoded_content)
     .map(Into::into)
-    .map_err(|e| napi::Error::from_reason(e.to_string()))
+    .map_err(ErrorWrapper::from)?;
+
+  Ok(actions)
 }

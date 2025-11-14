@@ -16,7 +16,7 @@ use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_d14n::{ClientBundle, MessageBackendBuilder};
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
-use xmtp_content_types::actions::ActionsCodec;
+use xmtp_content_types::actions::{Actions, ActionsCodec};
 use xmtp_content_types::attachment::Attachment;
 use xmtp_content_types::attachment::AttachmentCodec;
 use xmtp_content_types::intent::{Intent, IntentCodec};
@@ -2997,8 +2997,12 @@ pub fn decode_intent(bytes: Vec<u8>) -> Result<FfiIntent, GenericError> {
 
 #[uniffi::export]
 pub fn encode_actions(actions: FfiActions) -> Result<Vec<u8>, GenericError> {
-    let encoded = ActionsCodec::encode(actions.into())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    let actions: Actions = actions
+        .try_into()
+        .map_err(|e: String| GenericError::Generic { err: e })?;
+
+    let encoded =
+        ActionsCodec::encode(actions).map_err(|e| GenericError::Generic { err: e.to_string() })?;
 
     let mut buf = Vec::new();
     encoded
@@ -3013,9 +3017,12 @@ pub fn decode_actions(bytes: Vec<u8>) -> Result<FfiActions, GenericError> {
     let encoded_content = EncodedContent::decode(bytes.as_slice())
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;
 
-    ActionsCodec::decode(encoded_content)
-        .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
+    let actions = ActionsCodec::decode(encoded_content)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    actions
+        .try_into()
+        .map_err(|e| GenericError::Generic { err: e })
 }
 
 #[derive(uniffi::Record, Clone)]
