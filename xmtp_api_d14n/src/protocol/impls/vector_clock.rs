@@ -9,6 +9,19 @@ impl VectorClock for GlobalCursor {
         other.iter().all(|(&node, &seq)| self.get(&node) >= seq)
     }
 
+    /// gets all updates in `other` that are not seen by `self`.
+    fn missing(&self, other: &Self) -> Vec<Cursor> {
+        other
+            .iter()
+            .filter_map(|(&node, &seq)| {
+                (self.get(&node) < seq).then_some(Cursor {
+                    originator_id: node,
+                    sequence_id: seq,
+                })
+            })
+            .collect()
+    }
+
     fn merge(&mut self, other: &Self) {
         for (&node, &seq) in other {
             let entry = self.entry(node).or_insert(0);

@@ -6,7 +6,7 @@ use std::{
 use crate::types::{GlobalCursor, Topic};
 
 /// A cursor that keeps a [`super::GlobalCursor`] for each topic it has seen.
-#[derive(Default, PartialEq)]
+#[derive(Default, Debug, PartialEq, Clone)]
 pub struct TopicCursor {
     inner: HashMap<Topic, GlobalCursor>,
 }

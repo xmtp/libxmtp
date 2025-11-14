@@ -11,9 +11,11 @@ pub use in_memory_cursor_store::*;
 
 mod impls;
 
-mod resolution;
-// pub use resolution::*;
+pub mod resolve;
 
 pub mod sort;
 
 pub mod types;
+
+mod order;
+pub use order::*;
