@@ -19,7 +19,7 @@ use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::actions::ActionsCodec;
 use xmtp_content_types::attachment::Attachment;
 use xmtp_content_types::attachment::AttachmentCodec;
-use xmtp_content_types::intent::IntentCodec;
+use xmtp_content_types::intent::{Intent, IntentCodec};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::read_receipt::ReadReceipt;
@@ -2965,8 +2965,12 @@ pub fn decode_remote_attachment(bytes: Vec<u8>) -> Result<FfiRemoteAttachment, G
 
 #[uniffi::export]
 pub fn encode_intent(intent: FfiIntent) -> Result<Vec<u8>, GenericError> {
-    let encoded = IntentCodec::encode(intent.into())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    let intent: Intent = intent
+        .try_into()
+        .map_err(|e: String| GenericError::Generic { err: e })?;
+
+    let encoded =
+        IntentCodec::encode(intent).map_err(|e| GenericError::Generic { err: e.to_string() })?;
 
     let mut buf = Vec::new();
     encoded
@@ -2981,9 +2985,12 @@ pub fn decode_intent(bytes: Vec<u8>) -> Result<FfiIntent, GenericError> {
     let encoded_content = EncodedContent::decode(bytes.as_slice())
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;
 
-    IntentCodec::decode(encoded_content)
-        .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
+    let intent = IntentCodec::decode(encoded_content)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    intent
+        .try_into()
+        .map_err(|e: String| GenericError::Generic { err: e })
 }
 
 // Actions FFI encode/decode functions

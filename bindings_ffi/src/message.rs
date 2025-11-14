@@ -656,25 +656,39 @@ impl From<FfiWalletCallMetadata> for WalletCallMetadata {
     }
 }
 
-impl From<Intent> for FfiIntent {
-    fn from(intent: Intent) -> Self {
-        FfiIntent {
+impl TryFrom<Intent> for FfiIntent {
+    type Error = String;
+
+    fn try_from(intent: Intent) -> Result<Self, Self::Error> {
+        Ok(FfiIntent {
             id: intent.id,
             action_id: intent.action_id,
             metadata: intent
                 .metadata
-                .and_then(|map| serde_json::to_string(&map).ok()),
-        }
+                .map(|map| {
+                    serde_json::to_string(&map)
+                        .map_err(|e| format!("Failed to serialize Intent metadata: {}", e))
+                })
+                .transpose()?,
+        })
     }
 }
 
-impl From<FfiIntent> for Intent {
-    fn from(ffi: FfiIntent) -> Self {
-        Intent {
+impl TryFrom<FfiIntent> for Intent {
+    type Error = String;
+
+    fn try_from(ffi: FfiIntent) -> Result<Self, Self::Error> {
+        Ok(Intent {
             id: ffi.id,
             action_id: ffi.action_id,
-            metadata: ffi.metadata.and_then(|s| serde_json::from_str(&s).ok()),
-        }
+            metadata: ffi
+                .metadata
+                .map(|s| {
+                    serde_json::from_str(&s)
+                        .map_err(|e| format!("Failed to deserialize Intent metadata: {}", e))
+                })
+                .transpose()?,
+        })
     }
 }
 
@@ -874,7 +888,15 @@ impl From<MessageBody> for FfiDecodedMessageContent {
             MessageBody::WalletSendCalls(wallet_send_calls) => {
                 FfiDecodedMessageContent::WalletSendCalls(wallet_send_calls.into())
             }
-            MessageBody::Intent(intent) => FfiDecodedMessageContent::Intent(intent.into()),
+            MessageBody::Intent(intent) => {
+                let intent_id = intent.id.clone();
+                FfiDecodedMessageContent::Intent(intent.try_into().unwrap_or_else(|e| {
+                    panic!(
+                        "Failed to convert Intent to FfiIntent (id: {}): {}",
+                        intent_id, e
+                    )
+                }))
+            }
             MessageBody::Actions(actions) => FfiDecodedMessageContent::Actions(actions.into()),
             MessageBody::Custom(encoded) => FfiDecodedMessageContent::Custom(encoded.into()),
         }
@@ -908,7 +930,17 @@ pub fn content_to_optional_body(content: MessageBody) -> Option<FfiDecodedMessag
         MessageBody::WalletSendCalls(wallet_send_calls) => Some(
             FfiDecodedMessageBody::WalletSendCalls(wallet_send_calls.into()),
         ),
-        MessageBody::Intent(intent) => Some(FfiDecodedMessageBody::Intent(intent.into())),
+        MessageBody::Intent(intent) => {
+            let intent_id = intent.id.clone();
+            Some(FfiDecodedMessageBody::Intent(
+                intent.try_into().unwrap_or_else(|e| {
+                    panic!(
+                        "Failed to convert Intent to FfiIntent (id: {}): {}",
+                        intent_id, e
+                    )
+                }),
+            ))
+        }
         MessageBody::Actions(actions) => Some(FfiDecodedMessageBody::Actions(actions.into())),
         MessageBody::Custom(encoded) => Some(FfiDecodedMessageBody::Custom(encoded.into())),
     }
