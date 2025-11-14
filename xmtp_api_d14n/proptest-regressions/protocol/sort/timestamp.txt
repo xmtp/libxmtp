@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 783ebaf4bd78f8d0bb95fa2dbd7c798aee6abfb3d504dbc7ac1f7724fd1bb326 # shrinks to mut envelopes = [TestEnvelope { time: Some(0) }, TestEnvelope { time: Some(-1) }]

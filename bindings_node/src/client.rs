@@ -445,4 +445,22 @@ impl Client {
 
     Ok(message.into())
   }
+
+  #[napi]
+  pub fn release_db_connection(&self) -> Result<()> {
+    self
+      .inner_client
+      .release_db_connection()
+      .map_err(ErrorWrapper::from)?;
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn db_reconnect(&self) -> Result<()> {
+    self
+      .inner_client
+      .reconnect_db()
+      .map_err(ErrorWrapper::from)?;
+    Ok(())
+  }
 }

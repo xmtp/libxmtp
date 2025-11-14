@@ -285,7 +285,7 @@ async fn up_welcome_unchanged() {
         .unwrap();
     assert_eq!(
         welcome_cursor,
-        Cursor::welcomes(100),
+        Cursor::v3_welcomes(100),
         "Welcome entry should remain unchanged"
     );
 }
