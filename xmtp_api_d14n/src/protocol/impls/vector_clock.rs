@@ -31,7 +31,7 @@ impl VectorClock for GlobalCursor {
 
     fn merge_least(&mut self, other: &Self) {
         for (&node, &seq) in other {
-            let entry = self.entry(node).or_insert(0);
+            let entry = self.entry(node).or_insert(seq);
             *entry = (*entry).min(seq);
         }
     }
