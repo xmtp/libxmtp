@@ -18,7 +18,6 @@ use xmtp_common::RetryableError;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api;
 use xmtp_proto::api::Client;
-use xmtp_proto::api::EndpointExt;
 use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
