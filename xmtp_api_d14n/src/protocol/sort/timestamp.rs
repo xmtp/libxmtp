@@ -1,17 +1,19 @@
-use crate::protocol::{Envelope, Sort};
+use crate::protocol::{Envelope, EnvelopeError, Sort};
 
 pub struct TimestampSort<'a, E> {
     envelopes: &'a mut [E],
 }
 
-impl<'b, 'a, E> Sort for TimestampSort<'b, E>
+impl<'b, 'a: 'b, E> Sort<()> for TimestampSort<'b, E>
 where
     E: Envelope<'a>,
 {
-    fn sort(mut self) {
+    fn sort(mut self) -> Result<Option<()>, EnvelopeError> {
         let envelopes = &mut self.envelopes;
         // we can only sort envelopes which have a timestamp
         envelopes.sort_unstable_by_key(|e| e.timestamp());
+        // timestamp sort can never have missing dependencies
+        Ok(None)
     }
 }
 
@@ -25,7 +27,7 @@ where
 /// If a timestamp does not have a cursor (extractor return [`Option::None`]) it is
 /// sorted according to [`Ord`], [impl](https://doc.rust-lang.org/src/core/option.rs.html#2341)
 /// This sort will never return any missing envelopes.
-pub fn timestamp<'b, 'a: 'b, E: Envelope<'a>>(envelopes: &'b mut [E]) -> impl Sort {
+pub fn timestamp<'b, 'a: 'b, E: Envelope<'a>>(envelopes: &'b mut [E]) -> impl Sort<()> {
     TimestampSort { envelopes }
 }
 
@@ -103,6 +105,14 @@ mod tests {
         {
             unreachable!()
         }
+
+        fn cursor(&self) -> Result<xmtp_proto::types::Cursor, EnvelopeError> {
+            unreachable!()
+        }
+
+        fn depends_on(&self) -> Result<Option<xmtp_proto::types::GlobalCursor>, EnvelopeError> {
+            unreachable!()
+        }
     }
 
     prop_compose! {
@@ -118,7 +128,7 @@ mod tests {
     #[xmtp_common::test]
     fn sorts_by_timestamp() {
         proptest!(|(mut envelopes in prop::collection::vec(envelope_all_some(), 0 .. 100))| {
-            sort::timestamp(&mut envelopes).sort();
+            sort::timestamp(&mut envelopes).sort().unwrap();
             assert!(is_sorted(&envelopes), "envelopes were not sorted")
         });
     }

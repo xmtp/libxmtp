@@ -1,7 +1,9 @@
 //! Traits representing un-processed (extracted) and processed (extracted) protobuf types
 use chrono::Utc;
+use xmtp_common::{MaybeSend, MaybeSync};
+use xmtp_proto::types::Cursor;
 
-use crate::protocol::TimestampExtractor;
+use crate::protocol::{CursorExtractor, DependsOnExtractor, TimestampExtractor};
 
 use super::*;
 /// An low-level envelope from the network gRPC interface
@@ -12,7 +14,7 @@ use super::*;
 * Theres a way to seal this trait implementation to
 * avoid external implementations which should be done.
 */
-pub trait ProtocolEnvelope<'env> {
+pub trait ProtocolEnvelope<'env>: std::fmt::Debug + MaybeSend + MaybeSync {
     type Nested<'a>
     where
         Self: 'a;
@@ -34,9 +36,13 @@ pub trait ProtocolEnvelope<'env> {
 /// a [`Cursor`](xmtp_proto::types::Cursor) per envelope.
 /// Likewise, Clients form the [`ClientEnvelope`] according to the [Client Node2Node Protocol](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#332-envelopes)
 /// Client envelopes maintain a payload/topic with MLS and Client-specific duties.
-pub trait Envelope<'env> {
+pub trait Envelope<'env>: std::fmt::Debug + MaybeSend + MaybeSync {
     /// Extract the topic for this envelope
     fn topic(&self) -> Result<Topic, EnvelopeError>;
+    /// Extract the cursor for this envelope
+    fn cursor(&self) -> Result<Cursor, EnvelopeError>;
+    /// get the envelope this depends on.
+    fn depends_on(&self) -> Result<Option<GlobalCursor>, EnvelopeError>;
     /// Extract the payload for this envelope
     fn payload(&self) -> Result<Payload, EnvelopeError>;
     /// Get the timestamp of this envelope
@@ -60,12 +66,24 @@ pub trait Envelope<'env> {
 // parsing/matching first.
 impl<'env, T> Envelope<'env> for T
 where
-    T: ProtocolEnvelope<'env> + std::fmt::Debug,
+    T: ProtocolEnvelope<'env>,
 {
     fn topic(&self) -> Result<Topic, EnvelopeError> {
         let mut extractor = TopicExtractor::new();
         self.accept(&mut extractor)?;
         Ok(extractor.get()?)
+    }
+
+    fn cursor(&self) -> Result<Cursor, EnvelopeError> {
+        let mut extractor = CursorExtractor::new();
+        self.accept(&mut extractor)?;
+        Ok(extractor.get()?)
+    }
+
+    fn depends_on(&self) -> Result<Option<GlobalCursor>, EnvelopeError> {
+        let mut extractor = DependsOnExtractor::default();
+        self.accept(&mut extractor)?;
+        Ok(extractor.get())
     }
 
     fn payload(&self) -> Result<Payload, EnvelopeError> {
@@ -146,5 +164,26 @@ where
         }
 
         Ok(None)
+    }
+}
+
+impl<'env, T> ProtocolEnvelope<'env> for &T
+where
+    T: ProtocolEnvelope<'env>,
+{
+    type Nested<'a>
+        = <T as ProtocolEnvelope<'env>>::Nested<'a>
+    where
+        Self: 'a;
+
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    where
+        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
+    {
+        <T as ProtocolEnvelope<'env>>::accept(self, visitor)
+    }
+
+    fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
+        <T as ProtocolEnvelope<'env>>::get_nested(self)
     }
 }
