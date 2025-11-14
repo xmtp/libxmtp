@@ -93,6 +93,13 @@ impl CursorStore for InMemoryCursorStore {
             .map(|topic| (topic.clone(), self.latest(topic).unwrap_or_default()))
             .collect())
     }
+
+    fn find_dependencies(
+        &self,
+        group_id: xmtp_proto::types::GroupId,
+    ) -> Result<GlobalCursor, super::CursorStoreError> {
+        todo!()
+    }
 }
 
 impl fmt::Debug for InMemoryCursorStore {
