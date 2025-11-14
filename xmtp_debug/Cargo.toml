@@ -26,10 +26,12 @@ fs_extra = "1.3"
 futures.workspace = true
 hex.workspace = true
 indicatif.workspace = true
+itertools.workspace = true
 k256 = "0.13"
 lipsum = "0.9"
 num_cpus = "1.16.0"
 openmls.workspace = true
+openmls_rust_crypto.workspace = true
 owo-colors.workspace = true
 prost.workspace = true
 rand = { workspace = true, features = ["small_rng"] }

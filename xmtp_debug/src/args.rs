@@ -135,6 +135,8 @@ pub enum Query {
     Identity(Identity),
     FetchKeyPackages(FetchKeyPackages),
     BatchQueryCommitLog(BatchQueryCommitLog),
+    /// Get all keypackages for each installation id in the app db
+    AllKeyPackages,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -312,7 +314,7 @@ impl BackendOpts {
         }
     }
 
-    pub async fn connect(&self) -> eyre::Result<crate::DbgClientApi> {
+    pub fn connect(&self) -> eyre::Result<crate::DbgClientApi> {
         let network = self.network_url();
         let is_secure = network.scheme() == "https";
 
