@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use xmtp_content_types::{
+    actions::{Action, ActionStyle, Actions},
     attachment::Attachment,
+    intent::Intent,
     read_receipt::ReadReceipt,
     remote_attachment::RemoteAttachment,
     reply::Reply,
@@ -40,6 +42,8 @@ pub enum FfiDecodedMessageBody {
     GroupUpdated(FfiGroupUpdated),
     ReadReceipt(FfiReadReceipt),
     WalletSendCalls(FfiWalletSendCalls),
+    Intent(FfiIntent),
+    Actions(FfiActions),
     Custom(FfiEncodedContent),
 }
 
@@ -271,6 +275,37 @@ pub struct FfiWalletCallMetadata {
     pub extra: HashMap<String, String>,
 }
 
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiIntent {
+    pub id: String,
+    pub action_id: String,
+    pub metadata: Option<String>,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiActions {
+    pub id: String,
+    pub description: String,
+    pub actions: Vec<FfiAction>,
+    pub expires_at_ns: Option<i64>,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiAction {
+    pub id: String,
+    pub label: String,
+    pub image_url: Option<String>,
+    pub style: Option<FfiActionStyle>,
+    pub expires_at_ns: Option<i64>,
+}
+
+#[derive(uniffi::Enum, Clone, Debug)]
+pub enum FfiActionStyle {
+    Primary,
+    Secondary,
+    Danger,
+}
+
 #[derive(uniffi::Record, Clone, Default, Debug, PartialEq)]
 pub struct FfiEncodedContent {
     pub type_id: Option<FfiContentTypeId>,
@@ -324,6 +359,8 @@ pub enum FfiDecodedMessageContent {
     GroupUpdated(FfiGroupUpdated),
     ReadReceipt(FfiReadReceipt),
     WalletSendCalls(FfiWalletSendCalls),
+    Intent(FfiIntent),
+    Actions(FfiActions),
     Custom(FfiEncodedContent),
 }
 
@@ -619,6 +656,102 @@ impl From<FfiWalletCallMetadata> for WalletCallMetadata {
     }
 }
 
+impl From<Intent> for FfiIntent {
+    fn from(intent: Intent) -> Self {
+        FfiIntent {
+            id: intent.id,
+            action_id: intent.action_id,
+            metadata: intent.metadata.and_then(|map| serde_json::to_string(&map).ok()),
+        }
+    }
+}
+
+impl From<FfiIntent> for Intent {
+    fn from(ffi: FfiIntent) -> Self {
+        Intent {
+            id: ffi.id,
+            action_id: ffi.action_id,
+            metadata: ffi
+                .metadata
+                .and_then(|s| serde_json::from_str(&s).ok()),
+        }
+    }
+}
+
+impl From<Actions> for FfiActions {
+    fn from(actions: Actions) -> Self {
+        FfiActions {
+            id: actions.id,
+            description: actions.description,
+            actions: actions.actions.into_iter().map(|a| a.into()).collect(),
+            expires_at_ns: actions
+                .expires_at
+                .map(|dt| dt.and_utc().timestamp_nanos_opt().unwrap_or(0)),
+        }
+    }
+}
+
+impl From<FfiActions> for Actions {
+    fn from(ffi: FfiActions) -> Self {
+        Actions {
+            id: ffi.id,
+            description: ffi.description,
+            actions: ffi.actions.into_iter().map(|a| a.into()).collect(),
+            expires_at: ffi.expires_at_ns.map(|ns| {
+                chrono::DateTime::from_timestamp_nanos(ns).naive_utc()
+            }),
+        }
+    }
+}
+
+impl From<Action> for FfiAction {
+    fn from(action: Action) -> Self {
+        FfiAction {
+            id: action.id,
+            label: action.label,
+            image_url: action.image_url,
+            style: action.style.map(|s| s.into()),
+            expires_at_ns: action
+                .expires_at
+                .map(|dt| dt.and_utc().timestamp_nanos_opt().unwrap_or(0)),
+        }
+    }
+}
+
+impl From<FfiAction> for Action {
+    fn from(ffi: FfiAction) -> Self {
+        Action {
+            id: ffi.id,
+            label: ffi.label,
+            image_url: ffi.image_url,
+            style: ffi.style.map(|s| s.into()),
+            expires_at: ffi.expires_at_ns.map(|ns| {
+                chrono::DateTime::from_timestamp_nanos(ns).naive_utc()
+            }),
+        }
+    }
+}
+
+impl From<ActionStyle> for FfiActionStyle {
+    fn from(style: ActionStyle) -> Self {
+        match style {
+            ActionStyle::Primary => FfiActionStyle::Primary,
+            ActionStyle::Secondary => FfiActionStyle::Secondary,
+            ActionStyle::Danger => FfiActionStyle::Danger,
+        }
+    }
+}
+
+impl From<FfiActionStyle> for ActionStyle {
+    fn from(ffi: FfiActionStyle) -> Self {
+        match ffi {
+            FfiActionStyle::Primary => ActionStyle::Primary,
+            FfiActionStyle::Secondary => ActionStyle::Secondary,
+            FfiActionStyle::Danger => ActionStyle::Danger,
+        }
+    }
+}
+
 impl From<EncodedContent> for FfiEncodedContent {
     fn from(encoded: EncodedContent) -> Self {
         FfiEncodedContent {
@@ -741,6 +874,8 @@ impl From<MessageBody> for FfiDecodedMessageContent {
             MessageBody::WalletSendCalls(wallet_send_calls) => {
                 FfiDecodedMessageContent::WalletSendCalls(wallet_send_calls.into())
             }
+            MessageBody::Intent(intent) => FfiDecodedMessageContent::Intent(intent.into()),
+            MessageBody::Actions(actions) => FfiDecodedMessageContent::Actions(actions.into()),
             MessageBody::Custom(encoded) => FfiDecodedMessageContent::Custom(encoded.into()),
         }
     }
@@ -773,6 +908,8 @@ pub fn content_to_optional_body(content: MessageBody) -> Option<FfiDecodedMessag
         MessageBody::WalletSendCalls(wallet_send_calls) => Some(
             FfiDecodedMessageBody::WalletSendCalls(wallet_send_calls.into()),
         ),
+        MessageBody::Intent(intent) => Some(FfiDecodedMessageBody::Intent(intent.into())),
+        MessageBody::Actions(actions) => Some(FfiDecodedMessageBody::Actions(actions.into())),
         MessageBody::Custom(encoded) => Some(FfiDecodedMessageBody::Custom(encoded.into())),
     }
 }
