@@ -63,8 +63,8 @@ diesel::table! {
         authority_id -> Text,
         reference_id -> Nullable<Binary>,
         expire_at_ns -> Nullable<BigInt>,
-        originator_id -> BigInt,
         sequence_id -> BigInt,
+        originator_id -> BigInt,
     }
 }
 
@@ -90,6 +90,7 @@ diesel::table! {
         commit_log_public_key -> Nullable<Binary>,
         is_commit_log_forked -> Nullable<Bool>,
         has_pending_leave_request -> Nullable<Bool>,
+        id_hex -> Text,
     }
 }
 

@@ -109,6 +109,7 @@ pub struct StoredGroup {
     #[builder(default = None)]
     pub has_pending_leave_request: Option<bool>,
     //todo: store member role?
+    pub id_hex: String,
 }
 
 impl StoredGroupBuilder {
