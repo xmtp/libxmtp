@@ -661,7 +661,9 @@ impl From<Intent> for FfiIntent {
         FfiIntent {
             id: intent.id,
             action_id: intent.action_id,
-            metadata: intent.metadata.and_then(|map| serde_json::to_string(&map).ok()),
+            metadata: intent
+                .metadata
+                .and_then(|map| serde_json::to_string(&map).ok()),
         }
     }
 }
@@ -671,9 +673,7 @@ impl From<FfiIntent> for Intent {
         Intent {
             id: ffi.id,
             action_id: ffi.action_id,
-            metadata: ffi
-                .metadata
-                .and_then(|s| serde_json::from_str(&s).ok()),
+            metadata: ffi.metadata.and_then(|s| serde_json::from_str(&s).ok()),
         }
     }
 }
@@ -686,7 +686,7 @@ impl From<Actions> for FfiActions {
             actions: actions.actions.into_iter().map(|a| a.into()).collect(),
             expires_at_ns: actions
                 .expires_at
-                .map(|dt| dt.and_utc().timestamp_nanos_opt().unwrap_or(0)),
+                .and_then(|dt| dt.and_utc().timestamp_nanos_opt()),
         }
     }
 }
@@ -697,9 +697,9 @@ impl From<FfiActions> for Actions {
             id: ffi.id,
             description: ffi.description,
             actions: ffi.actions.into_iter().map(|a| a.into()).collect(),
-            expires_at: ffi.expires_at_ns.map(|ns| {
-                chrono::DateTime::from_timestamp_nanos(ns).naive_utc()
-            }),
+            expires_at: ffi
+                .expires_at_ns
+                .map(|ns| chrono::DateTime::from_timestamp_nanos(ns).naive_utc()),
         }
     }
 }
@@ -713,7 +713,7 @@ impl From<Action> for FfiAction {
             style: action.style.map(|s| s.into()),
             expires_at_ns: action
                 .expires_at
-                .map(|dt| dt.and_utc().timestamp_nanos_opt().unwrap_or(0)),
+                .and_then(|dt| dt.and_utc().timestamp_nanos_opt()),
         }
     }
 }
@@ -725,9 +725,9 @@ impl From<FfiAction> for Action {
             label: ffi.label,
             image_url: ffi.image_url,
             style: ffi.style.map(|s| s.into()),
-            expires_at: ffi.expires_at_ns.map(|ns| {
-                chrono::DateTime::from_timestamp_nanos(ns).naive_utc()
-            }),
+            expires_at: ffi
+                .expires_at_ns
+                .map(|ns| chrono::DateTime::from_timestamp_nanos(ns).naive_utc()),
         }
     }
 }

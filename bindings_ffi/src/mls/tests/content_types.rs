@@ -654,7 +654,7 @@ async fn test_actions_encode_decode() {
                 label: "Action 1".to_string(),
                 image_url: Some("https://example.com/image1.png".to_string()),
                 style: Some(FfiActionStyle::Primary),
-                expires_at_ns: Some(1234567890_000_000_000),
+                expires_at_ns: Some(1_234_567_890_000_000_000),
             },
             FfiAction {
                 id: "action2".to_string(),
@@ -664,7 +664,7 @@ async fn test_actions_encode_decode() {
                 expires_at_ns: None,
             },
         ],
-        expires_at_ns: Some(1700000000_000_000_000),
+        expires_at_ns: Some(1_700_000_000_000_000_000),
     };
 
     // Encode the actions
@@ -672,13 +672,20 @@ async fn test_actions_encode_decode() {
         encode_actions(original_actions.clone()).expect("Should encode actions successfully");
 
     // Decode the actions
-    let decoded_actions = decode_actions(encoded_bytes).expect("Should decode actions successfully");
+    let decoded_actions =
+        decode_actions(encoded_bytes).expect("Should decode actions successfully");
 
     // Verify the decoded actions matches the original
     assert_eq!(decoded_actions.id, original_actions.id);
     assert_eq!(decoded_actions.description, original_actions.description);
-    assert_eq!(decoded_actions.expires_at_ns, original_actions.expires_at_ns);
-    assert_eq!(decoded_actions.actions.len(), original_actions.actions.len());
+    assert_eq!(
+        decoded_actions.expires_at_ns,
+        original_actions.expires_at_ns
+    );
+    assert_eq!(
+        decoded_actions.actions.len(),
+        original_actions.actions.len()
+    );
 
     // Verify each action
     for (decoded, original) in decoded_actions

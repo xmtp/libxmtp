@@ -24,7 +24,7 @@ impl From<xmtp_content_types::actions::Actions> for Actions {
       actions: actions.actions.into_iter().map(|a| a.into()).collect(),
       expires_at_ns: actions
         .expires_at
-        .map(|dt| dt.and_utc().timestamp_nanos_opt().unwrap_or(0)),
+        .and_then(|dt| dt.and_utc().timestamp_nanos_opt()),
     }
   }
 }
@@ -61,7 +61,7 @@ impl From<xmtp_content_types::actions::Action> for Action {
       style: action.style.map(|s| s.into()),
       expires_at_ns: action
         .expires_at
-        .map(|dt| dt.and_utc().timestamp_nanos_opt().unwrap_or(0)),
+        .and_then(|dt| dt.and_utc().timestamp_nanos_opt()),
     }
   }
 }
