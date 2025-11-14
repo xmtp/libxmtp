@@ -1,5 +1,5 @@
-use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::{JsError, JsValue};
 use xmtp_mls::messages::decoded_message::MessageBody;
 
 use super::{
@@ -25,7 +25,6 @@ pub enum PayloadType {
   WalletSendCalls,
   Intent,
   Actions,
-
   Custom,
 }
 
@@ -143,7 +142,14 @@ impl DecodedMessageContent {
   #[wasm_bindgen(js_name = asIntent)]
   pub fn as_intent(&self) -> Option<Intent> {
     match &self.payload {
-      MessageBody::Intent(intent) => Some(intent.clone().into()),
+      MessageBody::Intent(intent) => {
+        Some(intent.clone().try_into().unwrap_or_else(|e: JsError| {
+          panic!(
+            "Failed to convert Intent to WASM Intent (id: {}): {:?}",
+            intent.id, e
+          )
+        }))
+      }
       _ => None,
     }
   }
