@@ -197,6 +197,24 @@ impl From<FfiLogRotation> for tracing_appender::rolling::Rotation {
     }
 }
 
+/// Enum representing process types for logging
+#[derive(uniffi::Enum, PartialEq, Debug, Clone)]
+pub enum FfiProcessType {
+    /// Main application process
+    Main = 0,
+    /// Notification extension/service process
+    NotificationExtension = 1,
+}
+
+impl FfiProcessType {
+    fn to_str(&self) -> &str {
+        match self {
+            Self::Main => "main",
+            Self::NotificationExtension => "notif",
+        }
+    }
+}
+
 /// Enum representing log levels
 #[derive(uniffi::Enum, PartialEq, Debug, Clone)]
 pub enum FfiLogLevel {
@@ -225,8 +243,8 @@ impl FfiLogLevel {
 }
 
 /// turns on logging to a file on-disk in the directory specified.
-/// files will be prefixed with 'libxmtp.log' and suffixed with the timestamp,
-/// i.e "libxmtp.log.2025-04-02"
+/// files will be prefixed with 'libxmtp-v{version}.{commit}.{process_type}.{pid}.log' and suffixed with the timestamp,
+/// i.e "libxmtp-v1.6.0.abc123.main.12345.log.2025-04-02"
 /// A maximum of 'max_files' log files are kept.
 #[uniffi::export]
 pub fn enter_debug_writer(
@@ -234,13 +252,14 @@ pub fn enter_debug_writer(
     log_level: FfiLogLevel,
     rotation: FfiLogRotation,
     max_files: u32,
+    process_type: FfiProcessType,
 ) -> Result<(), GenericError> {
-    enter_debug_writer_with_level(directory, rotation, max_files, log_level)
+    enter_debug_writer_with_level(directory, rotation, max_files, log_level, process_type)
 }
 
 /// turns on logging to a file on-disk with a specified log level.
-/// files will be prefixed with 'libxmtp.log' and suffixed with the timestamp,
-/// i.e "libxmtp.log.2025-04-02"
+/// files will be prefixed with 'libxmtp-v{version}.{commit}.{process_type}.{pid}.log' and suffixed with the timestamp,
+/// i.e "libxmtp-v1.6.0.abc123.notif.67890.log.2025-04-02"
 /// A maximum of 'max_files' log files are kept.
 #[uniffi::export]
 pub fn enter_debug_writer_with_level(
@@ -248,9 +267,10 @@ pub fn enter_debug_writer_with_level(
     rotation: FfiLogRotation,
     max_files: u32,
     log_level: FfiLogLevel,
+    process_type: FfiProcessType,
 ) -> Result<(), GenericError> {
     if !FILE_INITIALIZED.load(Ordering::Relaxed) {
-        enable_debug_file_inner(directory, rotation, max_files, log_level)?;
+        enable_debug_file_inner(directory, rotation, max_files, log_level, process_type)?;
         FILE_INITIALIZED.store(true, Ordering::Relaxed);
     }
     Ok(())
@@ -261,14 +281,18 @@ fn enable_debug_file_inner(
     rotation: FfiLogRotation,
     max_files: u32,
     log_level: FfiLogLevel,
+    process_type: FfiProcessType,
 ) -> Result<(), GenericError> {
     // First, ensure any previous logger is properly shut down
     let _ = exit_debug_writer();
 
     let version = env!("CARGO_PKG_VERSION");
     let commit_sha = option_env!("VERGEN_GIT_SHA").unwrap_or("unknown");
+    let process_id = std::process::id();
+    let process_suffix = process_type.to_str();
+    
     let file_appender = RollingFileAppender::builder()
-        .filename_prefix(format!("libxmtp-v{}.{}.log", version, commit_sha))
+        .filename_prefix(format!("libxmtp-v{}.{}.{}.{}.log", version, commit_sha, process_suffix, process_id))
         .rotation(rotation.into())
         .max_log_files(max_files as usize)
         .build(&directory)?;
@@ -351,6 +375,7 @@ mod test_logger {
             FfiLogLevel::Trace,
             FfiLogRotation::Minutely,
             10,
+            FfiProcessType::Main,
         )
         .unwrap();
         let rand_nums = hex::encode(xmtp_common::rand_vec::<100>());
