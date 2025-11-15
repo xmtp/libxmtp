@@ -71,6 +71,12 @@ where
     }
 }
 
+impl<E: std::error::Error> ApiClientError<E> {
+    pub fn other<R: RetryableError + 'static>(e: R) -> Self {
+        ApiClientError::Other(Box::new(e))
+    }
+}
+
 impl<E> RetryableError for ApiClientError<E>
 where
     E: RetryableError + std::error::Error + 'static,
