@@ -566,3 +566,143 @@ async fn test_find_enriched_messages_with_replies() {
         })
         .unwrap();
 }
+
+#[tokio::test]
+async fn test_intent_encode_decode() {
+    // Create a test intent with comprehensive metadata including:
+    // - string values
+    // - number values
+    // - boolean values
+    // - null values
+    // - nested objects
+    // - arrays
+    let metadata_json = r#"{
+        "stringValue": "test string",
+        "numberValue": 42,
+        "floatValue": 3.14,
+        "boolValue": true,
+        "nullValue": null,
+        "nestedObject": {
+            "inner": "value",
+            "count": 10
+        },
+        "arrayValue": [1, 2, 3, "four", true]
+    }"#;
+
+    let original_intent = FfiIntent {
+        id: "intent123".to_string(),
+        action_id: "action456".to_string(),
+        metadata: Some(metadata_json.to_string()),
+    };
+
+    // Encode the intent
+    let encoded_bytes =
+        encode_intent(original_intent.clone()).expect("Should encode intent successfully");
+
+    // Decode the intent
+    let decoded_intent = decode_intent(encoded_bytes).expect("Should decode intent successfully");
+
+    // Verify the decoded intent matches the original
+    assert_eq!(decoded_intent.id, original_intent.id);
+    assert_eq!(decoded_intent.action_id, original_intent.action_id);
+
+    // Parse and compare JSON metadata to verify structure is preserved
+    if let (Some(original_meta), Some(decoded_meta)) =
+        (&original_intent.metadata, &decoded_intent.metadata)
+    {
+        let original_json: serde_json::Value =
+            serde_json::from_str(original_meta).expect("Should parse original metadata");
+        let decoded_json: serde_json::Value =
+            serde_json::from_str(decoded_meta).expect("Should parse decoded metadata");
+        assert_eq!(decoded_json, original_json);
+    } else {
+        panic!("Metadata should be present");
+    }
+}
+
+#[tokio::test]
+async fn test_intent_encode_decode_no_metadata() {
+    // Create a test intent without metadata
+    let original_intent = FfiIntent {
+        id: "intent789".to_string(),
+        action_id: "action012".to_string(),
+        metadata: None,
+    };
+
+    // Encode the intent
+    let encoded_bytes =
+        encode_intent(original_intent.clone()).expect("Should encode intent successfully");
+
+    // Decode the intent
+    let decoded_intent = decode_intent(encoded_bytes).expect("Should decode intent successfully");
+
+    // Verify the decoded intent matches the original
+    assert_eq!(decoded_intent.id, original_intent.id);
+    assert_eq!(decoded_intent.action_id, original_intent.action_id);
+    assert_eq!(decoded_intent.metadata, None);
+}
+
+#[tokio::test]
+async fn test_actions_encode_decode() {
+    // Create a test actions
+    let original_actions = FfiActions {
+        id: "actions123".to_string(),
+        description: "Test actions description".to_string(),
+        actions: vec![
+            FfiAction {
+                id: "action1".to_string(),
+                label: "Action 1".to_string(),
+                image_url: Some("https://example.com/image1.png".to_string()),
+                style: Some(FfiActionStyle::Primary),
+                expires_at_ns: Some(1_234_567_890_000_000_000),
+            },
+            FfiAction {
+                id: "action2".to_string(),
+                label: "Action 2".to_string(),
+                image_url: None,
+                style: Some(FfiActionStyle::Secondary),
+                expires_at_ns: None,
+            },
+        ],
+        expires_at_ns: Some(1_700_000_000_000_000_000),
+    };
+
+    // Encode the actions
+    let encoded_bytes =
+        encode_actions(original_actions.clone()).expect("Should encode actions successfully");
+
+    // Decode the actions
+    let decoded_actions =
+        decode_actions(encoded_bytes).expect("Should decode actions successfully");
+
+    // Verify the decoded actions matches the original
+    assert_eq!(decoded_actions.id, original_actions.id);
+    assert_eq!(decoded_actions.description, original_actions.description);
+    assert_eq!(
+        decoded_actions.expires_at_ns,
+        original_actions.expires_at_ns
+    );
+    assert_eq!(
+        decoded_actions.actions.len(),
+        original_actions.actions.len()
+    );
+
+    // Verify each action
+    for (decoded, original) in decoded_actions
+        .actions
+        .iter()
+        .zip(original_actions.actions.iter())
+    {
+        assert_eq!(decoded.id, original.id);
+        assert_eq!(decoded.label, original.label);
+        assert_eq!(decoded.image_url, original.image_url);
+        assert_eq!(decoded.expires_at_ns, original.expires_at_ns);
+        match (&decoded.style, &original.style) {
+            (Some(FfiActionStyle::Primary), Some(FfiActionStyle::Primary)) => (),
+            (Some(FfiActionStyle::Secondary), Some(FfiActionStyle::Secondary)) => (),
+            (Some(FfiActionStyle::Danger), Some(FfiActionStyle::Danger)) => (),
+            (None, None) => (),
+            _ => panic!("Action styles don't match"),
+        }
+    }
+}

@@ -1,12 +1,20 @@
+use tracing::{error, warn};
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_mls::messages::decoded_message::MessageBody;
 
 use super::{
-  attachment::Attachment, group_updated::GroupUpdated,
-  multi_remote_attachment::MultiRemoteAttachment, reaction::ReactionPayload,
-  read_receipt::ReadReceipt, remote_attachment::RemoteAttachment, reply::EnrichedReply,
-  text::TextContent, transaction_reference::TransactionReference,
+  actions::{Action, Actions},
+  attachment::Attachment,
+  group_updated::GroupUpdated,
+  intent::Intent,
+  multi_remote_attachment::MultiRemoteAttachment,
+  reaction::ReactionPayload,
+  read_receipt::ReadReceipt,
+  remote_attachment::RemoteAttachment,
+  reply::EnrichedReply,
+  text::TextContent,
+  transaction_reference::TransactionReference,
   wallet_send_calls::WalletSendCalls,
 };
 use crate::encoded_content::EncodedContent;
@@ -23,6 +31,8 @@ pub enum PayloadType {
   GroupUpdated,
   ReadReceipt,
   WalletSendCalls,
+  Intent,
+  Actions,
   Custom,
 }
 
@@ -47,6 +57,8 @@ impl DecodedMessageContent {
       MessageBody::GroupUpdated(_) => PayloadType::GroupUpdated,
       MessageBody::ReadReceipt(_) => PayloadType::ReadReceipt,
       MessageBody::WalletSendCalls(_) => PayloadType::WalletSendCalls,
+      MessageBody::Intent(_) => PayloadType::Intent,
+      MessageBody::Actions(_) => PayloadType::Actions,
       MessageBody::Custom(_) => PayloadType::Custom,
     }
   }
@@ -132,6 +144,65 @@ impl DecodedMessageContent {
           .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
       }
       _ => Ok(JsValue::NULL),
+    }
+  }
+
+  #[wasm_bindgen(js_name = asIntent)]
+  pub fn as_intent(&self) -> Option<Intent> {
+    match &self.payload {
+      MessageBody::Intent(intent) => Some(
+        intent
+          .clone()
+          .try_into()
+          .expect("Intent metadata serialization should never fail for valid data"),
+      ),
+      _ => None,
+    }
+  }
+
+  #[wasm_bindgen(js_name = asActions)]
+  pub fn as_actions(&self) -> Option<Actions> {
+    match &self.payload {
+      MessageBody::Actions(actions) => {
+        let actions_id = actions.id.clone();
+        let description = actions.description.clone();
+        let wasm_actions: Vec<Action> = actions
+          .actions
+          .iter()
+          .map(|a| {
+            let action_id = a.id.clone();
+            a.clone().try_into().unwrap_or_else(|e| {
+              warn!(
+                actions_id = %actions_id,
+                action_id = %action_id,
+                error = ?e,
+                "Action has invalid timestamp, dropping timestamp but preserving action"
+              );
+              Action {
+                id: action_id,
+                label: a.label.clone(),
+                image_url: a.image_url.clone(),
+                style: a.style.clone().map(|s| s.into()),
+                expires_at_ns: None,
+              }
+            })
+          })
+          .collect();
+        Some(actions.clone().try_into().unwrap_or_else(|e| {
+          error!(
+            actions_id = %actions_id,
+            error = ?e,
+            "Failed to convert Actions expiration timestamp, returning Actions with no expiration timestamp"
+          );
+          Actions {
+            id: actions_id,
+            description,
+            actions: wasm_actions,
+            expires_at_ns: None,
+          }
+        }))
+      }
+      _ => None,
     }
   }
 

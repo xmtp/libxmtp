@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use xmtp_content_types::{
+    actions::{Action, ActionStyle, Actions},
     attachment::Attachment,
+    intent::Intent,
     read_receipt::ReadReceipt,
     remote_attachment::RemoteAttachment,
     reply::Reply,
@@ -40,6 +42,8 @@ pub enum FfiDecodedMessageBody {
     GroupUpdated(FfiGroupUpdated),
     ReadReceipt(FfiReadReceipt),
     WalletSendCalls(FfiWalletSendCalls),
+    Intent(FfiIntent),
+    Actions(FfiActions),
     Custom(FfiEncodedContent),
 }
 
@@ -271,6 +275,37 @@ pub struct FfiWalletCallMetadata {
     pub extra: HashMap<String, String>,
 }
 
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiIntent {
+    pub id: String,
+    pub action_id: String,
+    pub metadata: Option<String>,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiActions {
+    pub id: String,
+    pub description: String,
+    pub actions: Vec<FfiAction>,
+    pub expires_at_ns: Option<i64>,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiAction {
+    pub id: String,
+    pub label: String,
+    pub image_url: Option<String>,
+    pub style: Option<FfiActionStyle>,
+    pub expires_at_ns: Option<i64>,
+}
+
+#[derive(uniffi::Enum, Clone, Debug)]
+pub enum FfiActionStyle {
+    Primary,
+    Secondary,
+    Danger,
+}
+
 #[derive(uniffi::Record, Clone, Default, Debug, PartialEq)]
 pub struct FfiEncodedContent {
     pub type_id: Option<FfiContentTypeId>,
@@ -324,6 +359,8 @@ pub enum FfiDecodedMessageContent {
     GroupUpdated(FfiGroupUpdated),
     ReadReceipt(FfiReadReceipt),
     WalletSendCalls(FfiWalletSendCalls),
+    Intent(FfiIntent),
+    Actions(FfiActions),
     Custom(FfiEncodedContent),
 }
 
@@ -619,6 +656,180 @@ impl From<FfiWalletCallMetadata> for WalletCallMetadata {
     }
 }
 
+impl TryFrom<Intent> for FfiIntent {
+    type Error = String;
+
+    fn try_from(intent: Intent) -> Result<Self, Self::Error> {
+        Ok(FfiIntent {
+            id: intent.id,
+            action_id: intent.action_id,
+            metadata: intent
+                .metadata
+                .map(|map| {
+                    serde_json::to_string(&map)
+                        .map_err(|e| format!("Failed to serialize Intent metadata: {}", e))
+                })
+                .transpose()?,
+        })
+    }
+}
+
+impl TryFrom<FfiIntent> for Intent {
+    type Error = String;
+
+    fn try_from(ffi: FfiIntent) -> Result<Self, Self::Error> {
+        Ok(Intent {
+            id: ffi.id,
+            action_id: ffi.action_id,
+            metadata: ffi
+                .metadata
+                .map(|s| {
+                    serde_json::from_str(&s)
+                        .map_err(|e| format!("Failed to deserialize Intent metadata: {}", e))
+                })
+                .transpose()?,
+        })
+    }
+}
+
+impl TryFrom<Actions> for FfiActions {
+    type Error = String;
+
+    fn try_from(actions: Actions) -> Result<Self, Self::Error> {
+        let expires_at_ns = match actions.expires_at {
+            Some(dt) => {
+                let ns_opt = dt.and_utc().timestamp_nanos_opt();
+                // Validate that the conversion succeeded
+                if ns_opt.is_none() {
+                    return Err("Actions expires_at timestamp is out of valid range".to_string());
+                }
+                ns_opt
+            }
+            None => None,
+        };
+
+        Ok(FfiActions {
+            id: actions.id,
+            description: actions.description,
+            actions: actions
+                .actions
+                .into_iter()
+                .map(|a| a.try_into())
+                .collect::<Result<Vec<_>, _>>()?,
+            expires_at_ns,
+        })
+    }
+}
+
+impl TryFrom<FfiActions> for Actions {
+    type Error = String;
+
+    fn try_from(actions: FfiActions) -> Result<Self, Self::Error> {
+        let expires_at = match actions.expires_at_ns {
+            Some(ns) => {
+                // Create DateTime and immediately validate it didn't clamp
+                let dt = chrono::DateTime::from_timestamp_nanos(ns).naive_utc();
+                let roundtrip_ns = dt.and_utc().timestamp_nanos_opt();
+                if roundtrip_ns != Some(ns) {
+                    return Err(format!(
+                        "Actions timestamp {} is out of valid range and was clamped",
+                        ns
+                    ));
+                }
+                Some(dt)
+            }
+            None => None,
+        };
+
+        Ok(Actions {
+            id: actions.id,
+            description: actions.description,
+            actions: actions
+                .actions
+                .into_iter()
+                .map(|a| a.try_into())
+                .collect::<Result<Vec<_>, _>>()?,
+            expires_at,
+        })
+    }
+}
+
+impl TryFrom<Action> for FfiAction {
+    type Error = String;
+
+    fn try_from(action: Action) -> Result<Self, Self::Error> {
+        let expires_at_ns = match action.expires_at {
+            Some(dt) => {
+                let ns_opt = dt.and_utc().timestamp_nanos_opt();
+                // Validate that the conversion succeeded
+                if ns_opt.is_none() {
+                    return Err("Action expires_at timestamp is out of valid range".to_string());
+                }
+                ns_opt
+            }
+            None => None,
+        };
+
+        Ok(FfiAction {
+            id: action.id,
+            label: action.label,
+            image_url: action.image_url,
+            style: action.style.map(|s| s.into()),
+            expires_at_ns,
+        })
+    }
+}
+
+impl TryFrom<FfiAction> for Action {
+    type Error = String;
+
+    fn try_from(action: FfiAction) -> Result<Self, Self::Error> {
+        let expires_at = match action.expires_at_ns {
+            Some(ns) => {
+                // Create DateTime and immediately validate it didn't clamp
+                let dt = chrono::DateTime::from_timestamp_nanos(ns).naive_utc();
+                let roundtrip_ns = dt.and_utc().timestamp_nanos_opt();
+                if roundtrip_ns != Some(ns) {
+                    return Err(format!(
+                        "Action timestamp {} is out of valid range and was clamped",
+                        ns
+                    ));
+                }
+                Some(dt)
+            }
+            None => None,
+        };
+
+        Ok(Action {
+            id: action.id,
+            label: action.label,
+            image_url: action.image_url,
+            style: action.style.map(|s| s.into()),
+            expires_at,
+        })
+    }
+}
+
+impl From<ActionStyle> for FfiActionStyle {
+    fn from(style: ActionStyle) -> Self {
+        match style {
+            ActionStyle::Primary => FfiActionStyle::Primary,
+            ActionStyle::Secondary => FfiActionStyle::Secondary,
+            ActionStyle::Danger => FfiActionStyle::Danger,
+        }
+    }
+}
+
+impl From<FfiActionStyle> for ActionStyle {
+    fn from(ffi: FfiActionStyle) -> Self {
+        match ffi {
+            FfiActionStyle::Primary => ActionStyle::Primary,
+            FfiActionStyle::Secondary => ActionStyle::Secondary,
+            FfiActionStyle::Danger => ActionStyle::Danger,
+        }
+    }
+}
+
 impl From<EncodedContent> for FfiEncodedContent {
     fn from(encoded: EncodedContent) -> Self {
         FfiEncodedContent {
@@ -741,6 +952,51 @@ impl From<MessageBody> for FfiDecodedMessageContent {
             MessageBody::WalletSendCalls(wallet_send_calls) => {
                 FfiDecodedMessageContent::WalletSendCalls(wallet_send_calls.into())
             }
+            MessageBody::Intent(intent) => FfiDecodedMessageContent::Intent(
+                intent
+                    .try_into()
+                    .expect("Intent metadata serialization should never fail for valid data"),
+            ),
+            MessageBody::Actions(actions) => {
+                let actions_id = actions.id.clone();
+                let description = actions.description.clone();
+                let ffi_actions: Vec<FfiAction> = actions
+                    .actions
+                    .iter()
+                    .map(|a| {
+                        let action_id = a.id.clone();
+                        a.clone().try_into().unwrap_or_else(|e| {
+                            tracing::warn!(
+                                actions_id = %actions_id,
+                                action_id = %action_id,
+                                error = %e,
+                                "Action has invalid timestamp, dropping timestamp but preserving action"
+                            );
+                            // Return action with None timestamp but preserve all other fields
+                            FfiAction {
+                                id: action_id,
+                                label: a.label.clone(),
+                                image_url: a.image_url.clone(),
+                                style: a.style.clone().map(|s| s.into()),
+                                expires_at_ns: None,
+                            }
+                        })
+                    })
+                    .collect();
+                FfiDecodedMessageContent::Actions(actions.try_into().unwrap_or_else(|e| {
+                    tracing::error!(
+                        actions_id = %actions_id,
+                        error = %e,
+                        "Failed to convert Actions expiration timestamp, returning Actions with no expiration timestamp"
+                    );
+                    FfiActions {
+                        id: actions_id,
+                        description,
+                        actions: ffi_actions,
+                        expires_at_ns: None,
+                    }
+                }))
+            }
             MessageBody::Custom(encoded) => FfiDecodedMessageContent::Custom(encoded.into()),
         }
     }
@@ -773,6 +1029,53 @@ pub fn content_to_optional_body(content: MessageBody) -> Option<FfiDecodedMessag
         MessageBody::WalletSendCalls(wallet_send_calls) => Some(
             FfiDecodedMessageBody::WalletSendCalls(wallet_send_calls.into()),
         ),
+        MessageBody::Intent(intent) => {
+            Some(FfiDecodedMessageBody::Intent(intent.try_into().expect(
+                "Intent metadata serialization should never fail for valid data",
+            )))
+        }
+        MessageBody::Actions(actions) => {
+            let actions_id = actions.id.clone();
+            let description = actions.description.clone();
+            let ffi_actions: Vec<FfiAction> = actions
+                .actions
+                .iter()
+                .map(|a| {
+                    let action_id = a.id.clone();
+                    a.clone().try_into().unwrap_or_else(|e| {
+                        tracing::warn!(
+                            actions_id = %actions_id,
+                            action_id = %action_id,
+                            error = %e,
+                            "Action has invalid timestamp, dropping timestamp but preserving action"
+                        );
+                        // Return action with None timestamp but preserve all other fields
+                        FfiAction {
+                            id: action_id,
+                            label: a.label.clone(),
+                            image_url: a.image_url.clone(),
+                            style: a.style.clone().map(|s| s.into()),
+                            expires_at_ns: None,
+                        }
+                    })
+                })
+                .collect();
+            Some(FfiDecodedMessageBody::Actions(
+                actions.try_into().unwrap_or_else(|e| {
+                    tracing::error!(
+                        actions_id = %actions_id,
+                        error = %e,
+                        "Failed to convert Actions expiration timestamp, returning Actions with no expiration timestamp"
+                    );
+                    FfiActions {
+                        id: actions_id,
+                        description,
+                        actions: ffi_actions,
+                        expires_at_ns: None,
+                    }
+                }),
+            ))
+        }
         MessageBody::Custom(encoded) => Some(FfiDecodedMessageBody::Custom(encoded.into())),
     }
 }
