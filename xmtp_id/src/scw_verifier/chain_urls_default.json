@@ -7,5 +7,6 @@
   "eip155:42161": "https://arbitrum.llamarpc.com",
   "eip155:59144": "https://linea-rpc.publicnode.com",
   "eip155:480": "https://worldchain-mainnet.g.alchemy.com/public",
-  "eip155:232":"https://rpc.lens.xyz"
+  "eip155:232":"https://rpc.lens.xyz",
+  "eip155:2741": "https://api.mainnet.abs.xyz"
 }
