@@ -273,7 +273,7 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
                 .load::<Vec<u8>>(conn)?;
 
             // Convert to hex strings
-            let group_id_hexes: Vec<String> = group_ids.iter().map(|id| hex::encode(id)).collect();
+            let group_id_hexes: Vec<String> = group_ids.iter().map(hex::encode).collect();
 
             // Query consent records
             dsl::consent_records
