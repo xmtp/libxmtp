@@ -11,7 +11,7 @@ use xmtp_content_types::{
 };
 use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
 use xmtp_mls::messages::decoded_message::{
-    DeletedBy, DecodedMessage, DecodedMessageMetadata, MessageBody, Reply as ProcessedReply, Text,
+    DecodedMessage, DecodedMessageMetadata, DeletedBy, MessageBody, Reply as ProcessedReply, Text,
 };
 use xmtp_proto::xmtp::mls::message_contents::content_types::{
     MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2, RemoteAttachmentInfo,

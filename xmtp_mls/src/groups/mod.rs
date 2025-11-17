@@ -713,18 +713,12 @@ where
         let delete_bytes = encoded_content_to_bytes(encoded_delete);
 
         // Send the delete message optimistically
-        let deletion_message_id = self.send_message_optimistic(
-            &delete_bytes,
-            SendMessageOpts::default(),
-        )?;
+        let deletion_message_id =
+            self.send_message_optimistic(&delete_bytes, SendMessageOpts::default())?;
 
         // Store the deletion record immediately
         // It's only a super admin deletion if the deleter is NOT the original sender
-        let is_super_admin_deletion = if is_sender {
-            false
-        } else {
-            is_super_admin
-        };
+        let is_super_admin_deletion = if is_sender { false } else { is_super_admin };
 
         let deletion = StoredMessageDeletion {
             id: deletion_message_id.clone(),
@@ -858,7 +852,8 @@ where
     ) -> Result<Vec<crate::messages::decoded_message::DecodedMessage>, GroupError> {
         let conn = self.context.db();
         let messages = conn.get_group_messages(&self.group_id, args)?;
-        let enriched = crate::messages::enrichment::enrich_messages(conn, &self.group_id, messages)?;
+        let enriched =
+            crate::messages::enrichment::enrich_messages(conn, &self.group_id, messages)?;
         Ok(enriched)
     }
 

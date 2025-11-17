@@ -64,10 +64,7 @@ pub trait QueryMessageDeletion {
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError>;
 
     /// Check if a message has been deleted
-    fn is_message_deleted(
-        &self,
-        message_id: &[u8],
-    ) -> Result<bool, crate::ConnectionError>;
+    fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError>;
 }
 
 impl<T> QueryMessageDeletion for &T
@@ -102,10 +99,7 @@ where
         (**self).get_group_deletions(group_id)
     }
 
-    fn is_message_deleted(
-        &self,
-        message_id: &[u8],
-    ) -> Result<bool, crate::ConnectionError> {
+    fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError> {
         (**self).is_message_deleted(message_id)
     }
 }
@@ -161,10 +155,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
         })
     }
 
-    fn is_message_deleted(
-        &self,
-        message_id: &[u8],
-    ) -> Result<bool, crate::ConnectionError> {
+    fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError> {
         self.raw_query_read(|conn| {
             diesel::dsl::select(diesel::dsl::exists(
                 dsl::message_deletions.filter(dsl::deleted_message_id.eq(message_id)),
@@ -177,9 +168,11 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::encrypted_store::group::{ConversationType, GroupMembershipState, StoredGroup};
+    use crate::encrypted_store::group_message::{
+        ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
+    };
     use crate::{Store, with_connection};
-    use crate::encrypted_store::group_message::{StoredGroupMessage, GroupMessageKind, DeliveryStatus, ContentType};
-    use crate::encrypted_store::group::{StoredGroup, ConversationType, GroupMembershipState};
 
     fn create_test_group(conn: &DbConnection<impl ConnectionExt>, group_id: Vec<u8>) {
         StoredGroup {
@@ -340,7 +333,8 @@ mod tests {
             .store(conn)?;
 
             // Query for all three messages
-            let deletions = conn.get_deletions_for_messages(vec![msg1.clone(), msg2.clone(), msg3.clone()])?;
+            let deletions =
+                conn.get_deletions_for_messages(vec![msg1.clone(), msg2.clone(), msg3.clone()])?;
             assert_eq!(deletions.len(), 2);
 
             // msg3 should not be deleted

@@ -1,4 +1,4 @@
-use crate::messages::decoded_message::{DeletedBy, DecodedMessage, MessageBody};
+use crate::messages::decoded_message::{DecodedMessage, DeletedBy, MessageBody};
 use hex::ToHexExt;
 use std::collections::HashMap;
 use thiserror::Error;

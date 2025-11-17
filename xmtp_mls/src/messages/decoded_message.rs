@@ -11,7 +11,6 @@ use xmtp_content_types::reply::ReplyCodec;
 use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
 use xmtp_content_types::wallet_send_calls::{WalletSendCalls, WalletSendCallsCodec};
 use xmtp_content_types::{CodecError, ContentCodec};
-use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_content_types::{
     attachment::{Attachment, AttachmentCodec},
     read_receipt::ReadReceipt,
@@ -21,6 +20,7 @@ use xmtp_content_types::{
 };
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
+use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent, GroupUpdated,
     content_types::{MultiRemoteAttachment, ReactionV2},
@@ -64,7 +64,9 @@ pub enum MessageBody {
     /// The actual DeleteMessage content type (not shown in message lists)
     DeleteMessage(DeleteMessage),
     /// Placeholder for a message that has been deleted (shown in message lists)
-    DeletedMessage { deleted_by: DeletedBy },
+    DeletedMessage {
+        deleted_by: DeletedBy,
+    },
     Custom(EncodedContent),
 }
 

@@ -89,16 +89,14 @@ use thiserror::Error;
 use tracing::debug;
 use xmtp_common::time::now_ns;
 use xmtp_common::{Retry, RetryableError, retry_async};
-use xmtp_content_types::{
-    CodecError, ContentCodec, group_updated::GroupUpdatedCodec,
-};
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
-use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
+use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::group::GroupMembershipState;
 use xmtp_db::pending_remove::{PendingRemove, QueryPendingRemove};
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::types::{Cursor, GroupMessage};
+use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         GroupMessageInput, WelcomeMessageInput, WelcomeMetadata,

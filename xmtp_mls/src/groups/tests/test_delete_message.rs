@@ -1,6 +1,6 @@
+use crate::groups::GroupError;
 use crate::groups::error::DeleteMessageError;
 use crate::groups::send_message_opts::SendMessageOpts;
-use crate::groups::GroupError;
 use crate::messages::decoded_message::{DeletedBy, MessageBody};
 use crate::tester;
 use xmtp_content_types::{ContentCodec, text::TextCodec};
@@ -283,15 +283,17 @@ async fn test_enrichment_with_deleted_messages() {
     let messages = bo_group.find_enriched_messages(&MsgQueryArgs::default())?;
 
     // Find the deleted message (skip membership changes)
-    let deleted_msg = messages.iter()
-        .find(|msg| msg.metadata.id == message_id);
+    let deleted_msg = messages.iter().find(|msg| msg.metadata.id == message_id);
     assert!(deleted_msg.is_some());
 
     let deleted_msg = deleted_msg.unwrap();
     if let MessageBody::DeletedMessage { deleted_by } = &deleted_msg.content {
         assert_eq!(deleted_by, &DeletedBy::Sender);
     } else {
-        panic!("Expected DeletedMessage placeholder, got: {:?}", deleted_msg.content);
+        panic!(
+            "Expected DeletedMessage placeholder, got: {:?}",
+            deleted_msg.content
+        );
     }
 
     // Verify reactions and replies are cleared
@@ -404,8 +406,7 @@ async fn test_admin_deletion_flag() {
 
     // Verify enriched message shows admin deletion
     let messages = bo_group.find_enriched_messages(&MsgQueryArgs::default())?;
-    let deleted_msg = messages.iter()
-        .find(|msg| msg.metadata.id == bo_message_id);
+    let deleted_msg = messages.iter().find(|msg| msg.metadata.id == bo_message_id);
     assert!(deleted_msg.is_some());
 
     if let MessageBody::DeletedMessage { deleted_by } = &deleted_msg.unwrap().content {
