@@ -79,7 +79,12 @@ services:
     image: ghcr.io/shopify/toxiproxy:2.12.0
     ports:
       - 8474:8474
-      - 40000-40100:40000-40100
+      - 6010:6010
+      - 6020:6020
+      - 6030:6030
+      - 6040:6040
+      - 6050:6050
+      - 6060:6060
     networks:
       - proxynet
     depends_on:
