@@ -1,12 +1,9 @@
 //! Group benchmark utilities
 
 use crate::groups::{MlsGroup, send_message_opts::SendMessageOpts};
-use crate::tester;
 use crate::utils::TestXmtpMlsContext;
 use indicatif::{ProgressBar, ProgressStyle};
-use owo_colors::OwoColorize;
 use prost::Message;
-use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::test_utils::TestContentGenerator;
@@ -15,7 +12,6 @@ use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
 use xmtp_db::encrypted_store::group_message::{MsgQueryArgs, SortDirection};
 use xmtp_db::group::{ConversationType, GroupMembershipState, StoredGroup};
 use xmtp_id::associations::Identifier;
-use xmtp_id::associations::ident::Ethereum;
 use xmtp_mls_common::group_metadata::DmMembers;
 
 use super::{BenchClient, Identity};

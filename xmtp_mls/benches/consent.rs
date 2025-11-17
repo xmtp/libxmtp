@@ -8,18 +8,10 @@ use std::{hint::black_box, sync::Arc, time::Duration};
 use tokio::runtime::{Builder, Runtime};
 use tracing::{Instrument, trace_span};
 use xmtp_common::bench::{self, BENCH_ROOT_SPAN};
-use xmtp_db::{
-    encrypted_store::group_message::{
-        ContentType, DeliveryStatus, GroupMessageKind, MsgQueryArgs, SortDirection,
-    },
-    prelude::QueryConsentRecord,
-};
-use xmtp_mls::utils::bench::{
-    ConsentBenchSetup, MessageBenchSetup, create_dm_with_consent, new_client,
-    setup_group_with_messages,
-};
+use xmtp_db::prelude::QueryConsentRecord;
+use xmtp_mls::utils::bench::{ConsentBenchSetup, create_dm_with_consent, new_client};
 
-pub const MESSAGE_COUNTS: [usize; 5] = [10, 100, 1000, 10000, 50000];
+pub const MESSAGE_COUNTS: &[usize] = &[10, 100, 1000, 10000, 50000];
 pub const SAMPLE_SIZE: usize = 10;
 
 fn setup_runtime() -> Runtime {
@@ -41,8 +33,8 @@ fn bench_find_consent_by_dm_id(c: &mut Criterion) {
     bench::logger();
     let mut benchmark_group = c.benchmark_group("find_consent_by_dm_id");
     benchmark_group.sample_size(SAMPLE_SIZE);
-    benchmark_group.measurement_time(Duration::from_secs(30));
-    benchmark_group.warm_up_time(Duration::from_secs(3));
+    benchmark_group.measurement_time(Duration::from_secs(10));
+    benchmark_group.warm_up_time(Duration::from_secs(1));
 
     let runtime = Arc::new(setup_runtime());
 
