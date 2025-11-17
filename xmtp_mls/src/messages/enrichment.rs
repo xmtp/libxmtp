@@ -89,7 +89,21 @@ pub fn enrich_messages(
                             tracing::warn!("could not parse reference ID as hex: {:?}", err)
                         })
                         .inspect(|id| {
-                            let in_reply_to = relations.referenced_messages.get(id).cloned();
+                            let mut in_reply_to = relations.referenced_messages.get(id).cloned();
+                            // Apply deletion state if the referenced message was deleted
+                            if let Some(msg) = in_reply_to.as_mut()
+                                && let Some(deletion) = relations.deletions.get(id)
+                            {
+                                msg.content = MessageBody::DeletedMessage {
+                                    deleted_by: if deletion.is_super_admin_deletion {
+                                        DeletedBy::Admin(deletion.deleted_by_inbox_id.clone())
+                                    } else {
+                                        DeletedBy::Sender
+                                    },
+                                };
+                                msg.reactions = Vec::new();
+                                msg.num_replies = 0;
+                            }
                             reply_body.in_reply_to = in_reply_to.map(Box::new);
                         });
                     decoded.content = MessageBody::Reply(reply_body);

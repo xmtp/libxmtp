@@ -419,3 +419,132 @@ async fn test_admin_deletion_flag() {
         panic!("Expected DeletedMessage placeholder");
     }
 }
+
+/// Test that replies to deleted messages show the deleted state
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_reply_to_deleted_message() {
+    use xmtp_content_types::reply::ReplyCodec;
+
+    tester!(alix);
+    tester!(bo);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+
+    // Alix sends an original message
+    let text_content = TextCodec::encode("Original message".to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    let original_message_id = alix_group
+        .send_message(&text_bytes, SendMessageOpts::default())
+        .await?;
+
+    // Bo syncs and replies to the message
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = &bo_groups[0];
+    bo_group.sync().await?;
+
+    // Bo replies to Alix's message
+    let reply_text_content = TextCodec::encode("Reply to original".to_string())?;
+    let reply_content = ReplyCodec::encode(xmtp_content_types::reply::Reply {
+        reference: hex::encode(&original_message_id),
+        reference_inbox_id: None,
+        content: reply_text_content,
+    })?;
+    let reply_bytes = xmtp_content_types::encoded_content_to_bytes(reply_content);
+    let reply_message_id = bo_group
+        .send_message(&reply_bytes, SendMessageOpts::default())
+        .await?;
+
+    // Alix syncs to see the reply
+    alix_group.sync().await?;
+
+    // Verify the reply shows the original message correctly before deletion
+    let messages_before = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let reply_msg_before = messages_before
+        .iter()
+        .find(|msg| msg.metadata.id == reply_message_id);
+    assert!(reply_msg_before.is_some());
+
+    if let MessageBody::Reply(reply_body) = &reply_msg_before.unwrap().content {
+        assert!(reply_body.in_reply_to.is_some());
+        let in_reply_to = reply_body.in_reply_to.as_ref().unwrap();
+        // Before deletion, the referenced message should be a Text message
+        assert!(matches!(in_reply_to.content, MessageBody::Text(_)));
+    } else {
+        panic!("Expected Reply message");
+    }
+
+    // Now Alix deletes the original message
+    alix_group.delete_message(original_message_id.clone())?;
+    alix_group.publish_messages().await?;
+    bo_group.sync().await?;
+    alix_group.sync().await?;
+
+    // Verify the reply now shows the deleted state for the referenced message
+    let messages_after = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let reply_msg_after = messages_after
+        .iter()
+        .find(|msg| msg.metadata.id == reply_message_id);
+    assert!(reply_msg_after.is_some());
+
+    if let MessageBody::Reply(reply_body) = &reply_msg_after.unwrap().content {
+        assert!(reply_body.in_reply_to.is_some());
+        let in_reply_to = reply_body.in_reply_to.as_ref().unwrap();
+        // After deletion, the referenced message should be a DeletedMessage
+        if let MessageBody::DeletedMessage { deleted_by } = &in_reply_to.content {
+            assert_eq!(deleted_by, &DeletedBy::Sender);
+            // Reactions and replies should be cleared on the deleted referenced message
+            assert_eq!(in_reply_to.reactions.len(), 0);
+            assert_eq!(in_reply_to.num_replies, 0);
+        } else {
+            panic!(
+                "Expected DeletedMessage in reply's in_reply_to, got: {:?}",
+                in_reply_to.content
+            );
+        }
+    } else {
+        panic!("Expected Reply message");
+    }
+}
+
+/// Test that cross-group deletion attempts are rejected
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_cannot_delete_message_from_different_group() {
+    tester!(alix);
+    tester!(bo);
+
+    // Create two separate groups
+    let group1 = alix.create_group(None, None)?;
+    group1.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+
+    let group2 = alix.create_group(None, None)?;
+    group2.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+
+    // Alix sends a message in group1
+    let text_content = TextCodec::encode("Message in group 1".to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    let group1_message_id = group1
+        .send_message(&text_bytes, SendMessageOpts::default())
+        .await?;
+
+    // Bo syncs both groups
+    let bo_groups = bo.sync_welcomes().await?;
+    assert_eq!(bo_groups.len(), 2);
+    bo_groups[0].sync().await?;
+    bo_groups[1].sync().await?;
+
+    // Attempt to delete group1's message from group2 (should fail)
+    let result = group2.delete_message(group1_message_id.clone());
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        GroupError::DeleteMessage(DeleteMessageError::NotAuthorized)
+    ));
+
+    // Verify the message in group1 is NOT deleted
+    let alix_conn = alix.context.db();
+    assert!(!alix_conn.is_message_deleted(&group1_message_id)?);
+
+    // Verify we can still delete it from the correct group
+    group1.delete_message(group1_message_id.clone())?;
+    assert!(alix_conn.is_message_deleted(&group1_message_id)?);
+}

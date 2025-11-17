@@ -1291,6 +1291,18 @@ where
         // Check if the original message exists
         let original_msg_opt = storage.db().get_group_message(&target_message_id)?;
 
+        // Validate message belongs to this group (prevent cross-group deletion)
+        if let Some(ref original_msg) = original_msg_opt
+            && original_msg.group_id != self.group_id
+        {
+            tracing::warn!(
+                "Cross-group deletion attempt: message from group {:?}, deletion from group {:?}",
+                hex::encode(&original_msg.group_id),
+                hex::encode(&self.group_id)
+            );
+            return Ok(());
+        }
+
         let is_authorized = if let Some(ref original_msg) = original_msg_opt {
             // Check if sender matches the original message sender
             if original_msg.sender_inbox_id == message.sender_inbox_id {

@@ -680,6 +680,11 @@ where
             .get_group_message(&message_id_bytes)?
             .ok_or_else(|| DeleteMessageError::MessageNotFound(hex::encode(&message_id_bytes)))?;
 
+        // Validate message belongs to this group (prevent cross-group deletion)
+        if original_msg.group_id != self.group_id {
+            return Err(DeleteMessageError::NotAuthorized.into());
+        }
+
         // Check if message is already deleted
         if conn.is_message_deleted(&message_id_bytes)? {
             return Err(DeleteMessageError::MessageAlreadyDeleted.into());
@@ -710,7 +715,9 @@ where
 
         // Encode the delete message
         let encoded_delete = DeleteMessageCodec::encode(delete_msg)?;
-        let delete_bytes = encoded_content_to_bytes(encoded_delete);
+        let mut buf = Vec::new();
+        encoded_delete.encode(&mut buf)?;
+        let delete_bytes = buf;
 
         // Send the delete message optimistically
         let deletion_message_id =
