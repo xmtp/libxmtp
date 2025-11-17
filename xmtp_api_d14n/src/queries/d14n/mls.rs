@@ -18,7 +18,6 @@ use xmtp_common::RetryableError;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api;
 use xmtp_proto::api::Client;
-use xmtp_proto::api::EndpointExt;
 use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
@@ -88,14 +87,13 @@ where
     ) -> Result<(), Self::Error> {
         let envelopes: Vec<ClientEnvelope> = request.messages.client_envelopes()?;
 
-        for e in envelopes {
+        api::ignore(
             PublishClientEnvelopes::builder()
-                .envelope(e)
-                .build()?
-                .ignore_response()
-                .query(&self.client)
-                .await?;
-        }
+                .envelopes(envelopes)
+                .build()?,
+        )
+        .query(&self.client)
+        .await?;
 
         Ok(())
     }
@@ -106,15 +104,14 @@ where
         request: mls_v1::SendWelcomeMessagesRequest,
     ) -> Result<(), Self::Error> {
         let envelopes = request.messages.client_envelopes()?;
-        // TODO:d14n revert this once [batch publishes](https://github.com/xmtp/xmtpd/issues/262)
-        for e in envelopes {
+
+        api::ignore(
             PublishClientEnvelopes::builder()
-                .envelope(e)
-                .build()?
-                .ignore_response()
-                .query(&self.client)
-                .await?;
-        }
+                .envelopes(envelopes)
+                .build()?,
+        )
+        .query(&self.client)
+        .await?;
         Ok(())
     }
 
