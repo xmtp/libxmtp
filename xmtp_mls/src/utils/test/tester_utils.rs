@@ -404,7 +404,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             commit_log_worker: true, // Default to enabled to match production
             installation: false,
             in_memory_cursors: false,
-            ephemeral_db: false,
+            ephemeral_db: true,
             triggers: false,
             api_endpoint: ApiEndpoint::Local,
             external_identity: None,
@@ -491,7 +491,8 @@ where
 
     pub fn snapshot(mut self, snapshot: Arc<Vec<u8>>) -> Self {
         self.snapshot = Some(snapshot);
-        self.ephemeral_db()
+        self.ephemeral_db = true;
+        self
     }
 
     pub fn snapshot_file(mut self, snapshot_path: impl Into<PathBuf>) -> Self {
@@ -569,8 +570,8 @@ where
         self
     }
 
-    pub fn ephemeral_db(mut self) -> Self {
-        self.ephemeral_db = true;
+    pub fn persistent_db(mut self) -> Self {
+        self.ephemeral_db = false;
         self
     }
 
@@ -791,7 +792,7 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_snapshots() {
-        tester!(alix, ephemeral_db);
+        tester!(alix);
         let g = alix.create_group(None, None)?;
         let snap = Arc::new(alix.db_snapshot());
         tester!(alix2, snapshot: snap);
