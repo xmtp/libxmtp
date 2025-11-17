@@ -1,4 +1,3 @@
-use crate::protocol::sort;
 use xmtp_proto::types::TopicCursor;
 
 use crate::protocol::{ApplyCursor, Envelope, EnvelopeError, Sort, VectorClock};
@@ -63,6 +62,7 @@ pub fn causal<'b, 'a: 'b, E: Envelope<'a>>(
 
 #[cfg(test)]
 mod tests {
+    use crate::protocol::sort;
     use crate::protocol::utils::test::{
         EnvelopesWithMissing, TestEnvelope, depends_on_one, missing_dependencies,
         sorted_dependencies,
