@@ -87,6 +87,8 @@ impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ?Sized {}
 
 /// Trait which for protobuf-generated type
 /// which can be paged.
+/// Paged implementation indicates a response
+/// that returns a collection of envelopes
 pub trait Paged: MaybeSend + MaybeSync {
     type Message: MaybeSend + MaybeSync;
     fn info(&self) -> &Option<PagingInfo>;

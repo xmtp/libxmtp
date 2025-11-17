@@ -40,6 +40,9 @@
 , xmtp
 , omnix
 , toxiproxy
+, rr
+, vscode-extensions
+, lldb
 , ...
 }:
 let
@@ -95,6 +98,9 @@ mkShell {
       binaryen
       wasm-pack
       binaryen
+      rr
+      vscode-extensions.vadimcn.vscode-lldb
+      lldb
 
       # Protobuf
       buf

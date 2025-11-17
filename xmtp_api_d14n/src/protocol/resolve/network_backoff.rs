@@ -80,7 +80,7 @@ where
             resolved.extend(envelopes);
         }
         Ok(Resolved {
-            envelopes: resolved,
+            resolved,
             unresolved: (!missing.is_empty()).then_some(missing),
         })
     }

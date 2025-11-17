@@ -27,7 +27,7 @@ pub(super) async fn request<C: Client>(
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<Q, C> Query<C> for Q
 where
-    Q: QueryRaw<C> + Endpoint,
+    Q: Endpoint,
     C: Client,
     <Q as Endpoint>::Output: Default + prost::Message + 'static,
 {

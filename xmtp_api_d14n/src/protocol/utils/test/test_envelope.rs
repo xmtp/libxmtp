@@ -20,6 +20,10 @@ impl TestEnvelope {
         let depends_on_sid = self.depends_on.get(&originator);
         depends_on_sid == other.cursor.sequence_id
     }
+
+    pub fn has_dependency_on_any(&self, other: &[TestEnvelope]) -> bool {
+        other.iter().any(|e| self.has_dependency_on(e))
+    }
 }
 
 impl std::fmt::Display for TestEnvelope {
@@ -38,7 +42,11 @@ impl Envelope<'_> for TestEnvelope {
     }
 
     fn timestamp(&self) -> Option<chrono::DateTime<Utc>> {
-        unreachable!()
+        // Create a deterministic timestamp based on originator_id and sequence_id
+        // This ensures envelopes can be sorted by timestamp in tests
+        let nanos = (self.cursor.originator_id as i64 * 1_000_000_000)
+            + (self.cursor.sequence_id as i64 * 1000);
+        chrono::DateTime::from_timestamp_nanos(nanos).into()
     }
 
     fn client_envelope(&self) -> Result<ClientEnvelope, crate::protocol::EnvelopeError> {
