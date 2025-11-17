@@ -266,15 +266,20 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
         dm_id: &str,
     ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
         self.raw_query_read(|conn| {
-            dsl::consent_records
-                .inner_join(
-                    groups_dsl::groups
-                        .on(dsl::entity.eq(diesel::dsl::sql("lower(hex(groups.id))"))),
-                )
+            // First, get all group IDs for this dm_id
+            let group_ids: Vec<Vec<u8>> = groups_dsl::groups
                 .filter(groups_dsl::dm_id.eq(dm_id))
+                .select(groups_dsl::id)
+                .load::<Vec<u8>>(conn)?;
+
+            // Convert to hex strings
+            let group_id_hexes: Vec<String> = group_ids.iter().map(hex::encode).collect();
+
+            // Query consent records
+            dsl::consent_records
+                .filter(dsl::entity.eq_any(group_id_hexes))
                 .filter(dsl::entity_type.eq(ConsentType::ConversationId))
                 .order(dsl::consented_at_ns.desc())
-                .select(dsl::consent_records::all_columns())
                 .load::<StoredConsentRecord>(conn)
         })
     }
