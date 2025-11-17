@@ -50,7 +50,9 @@ impl<'a> From<&'a Identity> for EthereumWallet {
 
 /// Identity specific to this debug CLI Tool.
 /// An installation key and a eth address
-#[derive(valuable::Valuable, Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Readable, Writable)]
+#[derive(
+    valuable::Valuable, Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Readable, Writable,
+)]
 pub struct Identity {
     pub inbox_id: [u8; 32],
     pub installation_key: [u8; 32],
@@ -175,7 +177,7 @@ impl redb::Value for Identity {
 
 /// Group specific to this debug CLI Tool.
 /// Number of members in group
-#[derive(Debug, Hash, PartialEq, Eq, valuable::Valuable, Readable, Writable)]
+#[derive(Debug, Hash, Clone, PartialEq, Eq, valuable::Valuable, Readable, Writable)]
 pub struct Group {
     /// user that created group
     pub created_by: InboxId,

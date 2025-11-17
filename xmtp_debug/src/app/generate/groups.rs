@@ -112,6 +112,11 @@ impl GenerateGroups {
             .into_iter()
             .collect::<Result<Vec<_>, eyre::Report>>()?;
         self.group_store.set_all(groups.as_slice(), &self.network)?;
+        // ensure cleanup for each client
+        for client in clients.values() {
+            let client = client.lock().await;
+            client.release_db_connection()?;
+        }
         Ok(groups)
     }
 }

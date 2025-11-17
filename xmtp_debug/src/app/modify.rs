@@ -88,10 +88,9 @@ impl Modify {
                 group_store.set(local_group, &network)?;
             }
             AddExternal => {
-                if inbox_id.is_none() {
+                let Some(inbox_id) = inbox_id else {
                     bail!("Inbox ID to add must be specificied")
-                }
-                let inbox_id = inbox_id.expect("Checked for none");
+                };
                 group
                     .add_members_by_inbox_id(&[hex::encode(*inbox_id)])
                     .await
@@ -102,6 +101,7 @@ impl Modify {
                 info!(
                     inbox_id = hex::encode(*inbox_id),
                     group_id = hex::encode(local_group.id),
+                    added_by = hex::encode(identity.inbox_id),
                     "Member added as Super Admin"
                 );
             }

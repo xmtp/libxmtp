@@ -29,6 +29,7 @@ impl Generate {
             invite,
             message_opts,
             concurrency,
+            ryow,
             ..
         } = opts;
 
@@ -44,8 +45,8 @@ impl Generate {
                 Ok(())
             }
             Message => {
-                GenerateMessages::new(network, message_opts)?
-                    .run(amount, *concurrency)
+                GenerateMessages::new(network, message_opts, *concurrency)?
+                    .run(amount)
                     .await?;
                 info!("messages generated");
                 Ok(())
@@ -53,7 +54,7 @@ impl Generate {
             Identity => {
                 let db = App::db()?;
                 GenerateIdentity::new(db.into(), network)
-                    .create_identities(amount, *concurrency)
+                    .create_identities(amount, *concurrency, ryow)
                     .await?;
                 info!("identities generated");
                 Ok(())

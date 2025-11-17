@@ -126,7 +126,7 @@ pub trait DeriveKey<Key> {
 pub trait Database<Key, Value> {
     /// get length of items in db.
     fn len(&self, network: impl Into<u64>) -> Result<usize>;
-    #[allow(unused)]
+
     /// store only `value` to disk
     fn set(&self, value: Value, network: impl Into<u64>) -> Result<()> {
         Database::set_all(self, &[value], network)
@@ -146,6 +146,8 @@ pub trait Database<Key, Value> {
     where
         Value: redb::Value + 'static;
 
+    #[allow(unused)]
+    /// Clear all items on a network
     fn clear_network(&self, network: impl Into<u64>) -> Result<()>;
 
     /// Modify a single value by removing and re-inserting
@@ -191,6 +193,8 @@ pub trait TrackMetadata {
         network: u64,
         n: u32,
     ) -> Result<()>;
+    // decrement a metadata item
+    #[allow(unused)]
     fn decrement<'a>(
         &self,
         store: impl Into<MetadataStore<'a>>,
