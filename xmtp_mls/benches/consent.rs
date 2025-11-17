@@ -11,7 +11,7 @@ use xmtp_common::bench::{self, BENCH_ROOT_SPAN};
 use xmtp_db::prelude::QueryConsentRecord;
 use xmtp_mls::utils::bench::{ConsentBenchSetup, create_dm_with_consent, new_client};
 
-pub const MESSAGE_COUNTS: &[usize] = &[10, 100, 1000, 10000, 50000];
+pub const CONSENT_COUNTS: &[usize] = &[10, 100, 1000, 10000, 50000];
 pub const SAMPLE_SIZE: usize = 10;
 
 fn setup_runtime() -> Runtime {
@@ -23,7 +23,7 @@ fn setup_runtime() -> Runtime {
         .unwrap()
 }
 
-/// Shared setup for all benchmarks - creates client and group with messages once per MESSAGE_COUNT
+/// Creates n dm groups and associated consent records
 async fn setup_benchmark(total_consents: usize) -> Arc<ConsentBenchSetup> {
     let client = new_client(false).await;
     create_dm_with_consent(client, total_consents).await
@@ -38,10 +38,10 @@ fn bench_find_consent_by_dm_id(c: &mut Criterion) {
 
     let runtime = Arc::new(setup_runtime());
 
-    for &total_consents in MESSAGE_COUNTS.iter() {
+    for &total_consents in CONSENT_COUNTS.iter() {
         benchmark_group.throughput(Throughput::Elements(10)); // Limit of 10
 
-        // Setup once per MESSAGE_COUNT - completely outside the benchmark
+        // Setup once per CONSENT_COUNT - completely outside the benchmark
         let setup = runtime.block_on(setup_benchmark(total_consents));
         let runtime_clone = runtime.clone();
 
