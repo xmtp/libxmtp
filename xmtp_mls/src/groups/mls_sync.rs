@@ -43,7 +43,7 @@ use xmtp_configuration::{
     SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_db::{
-    Fetch, MlsProviderExt, Store, StorageError, StoreOrIgnore,
+    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
     events::EventLevel,
     group::{ConversationType, StoredGroup},
     group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
@@ -92,6 +92,7 @@ use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_content_types::{
     CodecError, ContentCodec, group_updated::GroupUpdatedCodec,
 };
+use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_db::group::GroupMembershipState;
 use xmtp_db::pending_remove::{PendingRemove, QueryPendingRemove};
@@ -1280,7 +1281,11 @@ where
         storage: &impl XmtpMlsStorageProvider,
         message: &StoredGroupMessage,
     ) -> Result<(), GroupMessageProcessingError> {
-        let delete_msg = DeleteMessage::decode(message.decrypted_message_bytes.as_slice())?;
+        // First decode the EncodedContent wrapper
+        let encoded_content = EncodedContent::decode(message.decrypted_message_bytes.as_slice())?;
+
+        // Then decode the DeleteMessage from the content field
+        let delete_msg = DeleteMessage::decode(encoded_content.content.as_slice())?;
 
         let target_message_id = hex::decode(&delete_msg.message_id)
             .map_err(|_| GroupMessageProcessingError::InvalidPayload)?;
@@ -1332,11 +1337,22 @@ where
         }
 
         // Determine if this is a super admin deletion
-        let is_super_admin_deletion = self
-            .is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
+        // It's only a super admin deletion if:
+        // 1. The deleter is a super admin, AND
+        // 2. The deleter is NOT the original sender (deleting someone else's message)
+        let is_sender = original_msg_opt
+            .as_ref()
+            .map(|msg| msg.sender_inbox_id == message.sender_inbox_id)
             .unwrap_or(false);
 
-        // Store the deletion record
+        let is_super_admin_deletion = if is_sender {
+            false
+        } else {
+            self.is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
+                .unwrap_or(false)
+        };
+
+        // Store the deletion record (or ignore if already exists)
         let deletion = StoredMessageDeletion {
             id: message.id.clone(),
             group_id: self.group_id.clone(),
@@ -1346,7 +1362,7 @@ where
             deleted_at_ns: message.sent_at_ns,
         };
 
-        deletion.store(&storage.db())?;
+        deletion.store_or_ignore(&storage.db())?;
 
         tracing::info!(
             "Message {} deleted by {} (super_admin: {})",

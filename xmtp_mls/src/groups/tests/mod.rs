@@ -4,6 +4,7 @@ mod test_commit_log_readd_requests;
 mod test_commit_log_remote;
 mod test_consent;
 mod test_dm;
+mod test_delete_message;
 mod test_extract_readded_installations;
 mod test_key_updates;
 mod test_libxmtp_version;

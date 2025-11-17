@@ -77,7 +77,7 @@ use xmtp_content_types::{
     reply::ReplyCodec,
 };
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
-use xmtp_db::message_deletion::QueryMessageDeletion;
+use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
@@ -718,6 +718,25 @@ where
             SendMessageOpts::default(),
         )?;
 
+        // Store the deletion record immediately
+        // It's only a super admin deletion if the deleter is NOT the original sender
+        let is_super_admin_deletion = if is_sender {
+            false
+        } else {
+            is_super_admin
+        };
+
+        let deletion = StoredMessageDeletion {
+            id: deletion_message_id.clone(),
+            group_id: self.group_id.clone(),
+            deleted_message_id: message_id_bytes,
+            deleted_by_inbox_id: sender_inbox_id.to_string(),
+            is_super_admin_deletion,
+            deleted_at_ns: now_ns(),
+        };
+
+        deletion.store(&conn)?;
+
         Ok(deletion_message_id)
     }
 
@@ -830,6 +849,17 @@ where
         let conn = self.context.db();
         let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
         Ok(messages)
+    }
+
+    /// Query for enriched messages (with reactions, replies, and deletion status)
+    pub fn find_enriched_messages(
+        &self,
+        args: &MsgQueryArgs,
+    ) -> Result<Vec<crate::messages::decoded_message::DecodedMessage>, GroupError> {
+        let conn = self.context.db();
+        let messages = conn.get_group_messages(&self.group_id, args)?;
+        let enriched = crate::messages::enrichment::enrich_messages(conn, &self.group_id, messages)?;
+        Ok(enriched)
     }
 
     pub fn get_last_read_times(&self) -> Result<LatestMessageTimeBySender, GroupError> {

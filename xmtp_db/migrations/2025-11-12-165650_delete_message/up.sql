@@ -18,7 +18,7 @@ CREATE TABLE message_deletions (
   deleted_at_ns BIGINT NOT NULL,
 
   -- Foreign key to the DeleteMessage in group_messages
-  FOREIGN KEY (id) REFERENCES group_messages(id) ON DELETE CASCADE,
+  FOREIGN KEY (id) REFERENCES group_messages(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_message_deletions_deleted_message_id ON message_deletions(deleted_message_id);

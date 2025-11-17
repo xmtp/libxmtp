@@ -1,6 +1,6 @@
 use super::ConnectionExt;
 use crate::schema::message_deletions::dsl;
-use crate::{DbConnection, impl_store, schema::message_deletions};
+use crate::{DbConnection, impl_store, impl_store_or_ignore, schema::message_deletions};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -35,19 +35,20 @@ pub struct StoredMessageDeletion {
 }
 
 impl_store!(StoredMessageDeletion, message_deletions);
+impl_store_or_ignore!(StoredMessageDeletion, message_deletions);
 
 /// Trait for querying message deletions
 pub trait QueryMessageDeletion {
     /// Get a deletion record by the DeleteMessage ID
-    fn get_message_deletion<MessageId: AsRef<[u8]>>(
+    fn get_message_deletion(
         &self,
-        id: MessageId,
+        id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError>;
 
     /// Get deletion record for a specific deleted message
-    fn get_deletion_by_deleted_message_id<MessageId: AsRef<[u8]>>(
+    fn get_deletion_by_deleted_message_id(
         &self,
-        deleted_message_id: MessageId,
+        deleted_message_id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError>;
 
     /// Get all deletions for a list of message IDs
@@ -57,15 +58,15 @@ pub trait QueryMessageDeletion {
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError>;
 
     /// Get all deletions in a group
-    fn get_group_deletions<GroupId: AsRef<[u8]>>(
+    fn get_group_deletions(
         &self,
-        group_id: GroupId,
+        group_id: &[u8],
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError>;
 
     /// Check if a message has been deleted
-    fn is_message_deleted<MessageId: AsRef<[u8]>>(
+    fn is_message_deleted(
         &self,
-        message_id: MessageId,
+        message_id: &[u8],
     ) -> Result<bool, crate::ConnectionError>;
 }
 
@@ -73,16 +74,16 @@ impl<T> QueryMessageDeletion for &T
 where
     T: QueryMessageDeletion,
 {
-    fn get_message_deletion<MessageId: AsRef<[u8]>>(
+    fn get_message_deletion(
         &self,
-        id: MessageId,
+        id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
         (**self).get_message_deletion(id)
     }
 
-    fn get_deletion_by_deleted_message_id<MessageId: AsRef<[u8]>>(
+    fn get_deletion_by_deleted_message_id(
         &self,
-        deleted_message_id: MessageId,
+        deleted_message_id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
         (**self).get_deletion_by_deleted_message_id(deleted_message_id)
     }
@@ -94,41 +95,41 @@ where
         (**self).get_deletions_for_messages(message_ids)
     }
 
-    fn get_group_deletions<GroupId: AsRef<[u8]>>(
+    fn get_group_deletions(
         &self,
-        group_id: GroupId,
+        group_id: &[u8],
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
         (**self).get_group_deletions(group_id)
     }
 
-    fn is_message_deleted<MessageId: AsRef<[u8]>>(
+    fn is_message_deleted(
         &self,
-        message_id: MessageId,
+        message_id: &[u8],
     ) -> Result<bool, crate::ConnectionError> {
         (**self).is_message_deleted(message_id)
     }
 }
 
 impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
-    fn get_message_deletion<MessageId: AsRef<[u8]>>(
+    fn get_message_deletion(
         &self,
-        id: MessageId,
+        id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
         self.raw_query_read(|conn| {
             dsl::message_deletions
-                .filter(dsl::id.eq(id.as_ref()))
+                .filter(dsl::id.eq(id))
                 .first(conn)
                 .optional()
         })
     }
 
-    fn get_deletion_by_deleted_message_id<MessageId: AsRef<[u8]>>(
+    fn get_deletion_by_deleted_message_id(
         &self,
-        deleted_message_id: MessageId,
+        deleted_message_id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
         self.raw_query_read(|conn| {
             dsl::message_deletions
-                .filter(dsl::deleted_message_id.eq(deleted_message_id.as_ref()))
+                .filter(dsl::deleted_message_id.eq(deleted_message_id))
                 .first(conn)
                 .optional()
         })
@@ -149,24 +150,24 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
         })
     }
 
-    fn get_group_deletions<GroupId: AsRef<[u8]>>(
+    fn get_group_deletions(
         &self,
-        group_id: GroupId,
+        group_id: &[u8],
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
         self.raw_query_read(|conn| {
             dsl::message_deletions
-                .filter(dsl::group_id.eq(group_id.as_ref()))
+                .filter(dsl::group_id.eq(group_id))
                 .load(conn)
         })
     }
 
-    fn is_message_deleted<MessageId: AsRef<[u8]>>(
+    fn is_message_deleted(
         &self,
-        message_id: MessageId,
+        message_id: &[u8],
     ) -> Result<bool, crate::ConnectionError> {
         self.raw_query_read(|conn| {
             diesel::dsl::select(diesel::dsl::exists(
-                dsl::message_deletions.filter(dsl::deleted_message_id.eq(message_id.as_ref())),
+                dsl::message_deletions.filter(dsl::deleted_message_id.eq(message_id)),
             ))
             .get_result::<bool>(conn)
         })

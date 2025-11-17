@@ -23,6 +23,8 @@ pub enum PayloadType {
   GroupUpdated,
   ReadReceipt,
   WalletSendCalls,
+  DeleteMessage,
+  DeletedMessage,
   Custom,
 }
 
@@ -47,6 +49,8 @@ impl DecodedMessageContent {
       MessageBody::GroupUpdated(_) => PayloadType::GroupUpdated,
       MessageBody::ReadReceipt(_) => PayloadType::ReadReceipt,
       MessageBody::WalletSendCalls(_) => PayloadType::WalletSendCalls,
+      MessageBody::DeleteMessage(_) => PayloadType::DeleteMessage,
+      MessageBody::DeletedMessage { .. } => PayloadType::DeletedMessage,
       MessageBody::Custom(_) => PayloadType::Custom,
     }
   }
