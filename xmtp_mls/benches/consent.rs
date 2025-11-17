@@ -57,7 +57,7 @@ fn bench_find_consent_by_dm_id(c: &mut Criterion) {
                         async {
                             let dm_id =
                                 &setup.dm_ids[rand::thread_rng().gen_range(0..total_consents)];
-                            let consent = setup.client.db().find_consent_by_dm_id(&dm_id).unwrap();
+                            let consent = setup.client.db().find_consent_by_dm_id(dm_id).unwrap();
 
                             assert_eq!(
                                 consent.len(),
