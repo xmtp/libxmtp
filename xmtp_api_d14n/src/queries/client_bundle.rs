@@ -53,8 +53,7 @@ impl ClientBundle<()> {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<Err> Client for ClientBundle<Err>
 where
     Err: Error + MaybeSend + MaybeSync + 'static,
@@ -82,8 +81,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<Err> IsConnectedCheck for ClientBundle<Err> {
     async fn is_connected(&self) -> bool {
         self.client.is_connected().await

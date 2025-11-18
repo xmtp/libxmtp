@@ -66,35 +66,11 @@ impl xmtp_common::RetryableError for MockError {
 
 type Repeat = Box<dyn Send + FnMut() -> Result<prost::bytes::Bytes, MockError>>;
 type MockStreamT = futures::stream::RepeatWith<Repeat>;
-#[cfg(not(target_arch = "wasm32"))]
+
 mockall::mock! {
     pub NetworkClient {}
 
-    #[async_trait::async_trait]
-    impl Client for NetworkClient {
-        type Error = MockError;
-        type Stream = MockStreamT;
-        async fn request(
-            &self,
-            request: http::request::Builder,
-            path: http::uri::PathAndQuery,
-            body: Bytes,
-        ) -> Result<http::Response<Bytes>, ApiClientError<MockError>>;
-
-        async fn stream(
-            &self,
-            request: http::request::Builder,
-            path: http::uri::PathAndQuery,
-            body: Bytes,
-        ) -> Result<http::Response<MockStreamT>, ApiClientError<MockError>>;
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-mockall::mock! {
-    pub NetworkClient {}
-
-    #[async_trait::async_trait(?Send)]
+    #[xmtp_common::async_trait]
     impl Client for NetworkClient {
         type Error = MockError;
         type Stream = MockStreamT;

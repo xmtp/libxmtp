@@ -85,7 +85,7 @@ impl FfiAuthCallback {
   }
 }
 
-#[async_trait::async_trait]
+#[xmtp_common::async_trait]
 impl xmtp_api_d14n::AuthCallback for FfiAuthCallback {
   async fn on_auth_required(&self) -> Result<xmtp_api_d14n::Credential, BoxDynError> {
     let promise = self.callback.call_async(Ok(())).await?;

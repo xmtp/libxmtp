@@ -41,7 +41,7 @@ impl From<FfiAuthHandle> for xmtp_api_d14n::AuthHandle {
 }
 
 #[uniffi::export(with_foreign)]
-#[async_trait::async_trait]
+#[xmtp_common::async_trait]
 pub trait FfiAuthCallback: Send + Sync + 'static {
     async fn on_auth_required(&self) -> Result<FfiCredential, GenericError>;
 }
@@ -79,7 +79,7 @@ impl FfiAuthCallbackBridge {
     }
 }
 
-#[async_trait::async_trait]
+#[xmtp_common::async_trait]
 impl xmtp_api_d14n::AuthCallback for FfiAuthCallbackBridge {
     async fn on_auth_required(&self) -> Result<xmtp_api_d14n::Credential, BoxDynError> {
         let ffi_auth = self.callback.on_auth_required().await?;

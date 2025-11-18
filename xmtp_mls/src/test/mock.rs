@@ -59,7 +59,7 @@ impl Identity {
 mock! {
     pub ProcessFutureFactory {}
     impl ProcessFutureFactory<'_> for ProcessFutureFactory {
-        fn create(&self, msg: xmtp_proto::types::GroupMessage) -> xmtp_common::FutureWrapper<'_, Result<ProcessedMessage, SubscribeError>>;
+        fn create(&self, msg: xmtp_proto::types::GroupMessage) -> xmtp_common::BoxDynFuture<'_, Result<ProcessedMessage, SubscribeError>>;
         fn retrieve(&self, msg: &xmtp_proto::types::GroupMessage) -> Result<Option<xmtp_db::group_message::StoredGroupMessage>, SubscribeError>;
     }
 }

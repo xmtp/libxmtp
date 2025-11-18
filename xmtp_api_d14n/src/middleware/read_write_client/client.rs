@@ -31,8 +31,7 @@ impl<Read: Clone, Write: Clone> ReadWriteClient<Read, Write> {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<Read, Write> Client for ReadWriteClient<Read, Write>
 where
     Read: Client<Error = Write::Error, Stream = Write::Stream>,
@@ -69,8 +68,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<R, W> IsConnectedCheck for ReadWriteClient<R, W>
 where
     R: IsConnectedCheck,

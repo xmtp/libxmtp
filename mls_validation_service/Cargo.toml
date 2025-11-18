@@ -27,8 +27,9 @@ tonic = { workspace = true }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "ansi"] }
 warp = "0.3.6"
+xmtp_common.workspace = true
 xmtp_configuration.workspace = true
-xmtp_cryptography = { workspace = true }
+xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto = { workspace = true, features = ["grpc_server_impls"] }
