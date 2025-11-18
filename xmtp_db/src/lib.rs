@@ -20,6 +20,7 @@ pub use test_utils::*;
 pub use diesel;
 pub use encrypted_store::*;
 pub use errors::*;
+pub use xmtp_proto as proto;
 
 use diesel::connection::SimpleConnection;
 

@@ -1,0 +1,20 @@
+[package]
+name = "xmtp-manager"
+edition = "2024"
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+hex.workspace = true
+tracing.workspace = true
+xmtp_db.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+test-utils = []
+bench = []

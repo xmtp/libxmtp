@@ -21,6 +21,7 @@ members = [
   "xmtp_archive",
   "xmtp_mls_common",
   "xmtp_configuration",
+  "manager",
 ]
 
 # Used when cargo commands in the workspace root, such as `cargo test`, are run without flags.
@@ -67,6 +68,7 @@ base64 = "0.22"
 bincode = { version = "1.3" }
 bytes = "1.9"
 chrono = "0.4.38"
+clap = { version = "4", features = ["derive"] }
 color-eyre = "0.6"
 console_error_panic_hook = "0.1"
 const_format = "0.2"
