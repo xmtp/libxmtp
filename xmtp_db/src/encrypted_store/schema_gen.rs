@@ -63,8 +63,8 @@ diesel::table! {
         authority_id -> Text,
         reference_id -> Nullable<Binary>,
         expire_at_ns -> Nullable<BigInt>,
-        originator_id -> BigInt,
         sequence_id -> BigInt,
+        originator_id -> BigInt,
     }
 }
 
