@@ -76,7 +76,7 @@ where
                     .collect::<HashSet<_>>();
                 // if the resolver fails to resolve some envelopes, ignore them.
                 // delete unresolved envelopes from missing envelopes list.
-                // cannot use retain directly b/c curosr returns Result<>.
+                // cannot use retain directly b/c cursor returns Result<>.
                 // see https://github.com/xmtp/libxmtp/issues/2691
                 // TODO:2691
                 let mut to_remove = HashSet::new();

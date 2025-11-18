@@ -1,0 +1,77 @@
+use crate::protocol::{Envelope, EnvelopeError};
+use chrono::Utc;
+use std::sync::LazyLock;
+use xmtp_proto::types::{Cursor, GlobalCursor, Topic, TopicKind};
+use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
+use xmtp_proto::xmtp::xmtpv4::envelopes::client_envelope::Payload;
+
+static TOPIC: LazyLock<Topic> =
+    LazyLock::new(|| Topic::new(TopicKind::GroupMessagesV1, vec![0, 1, 2]));
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TestEnvelope {
+    pub cursor: Cursor,
+    pub depends_on: GlobalCursor,
+}
+
+impl TestEnvelope {
+    pub fn has_dependency_on(&self, other: &TestEnvelope) -> bool {
+        let originator = other.cursor.originator_id;
+        let depends_on_sid = self.depends_on.get(&originator);
+        depends_on_sid == other.cursor.sequence_id
+    }
+}
+
+impl std::fmt::Display for TestEnvelope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "cursor {} depends on {}", &self.cursor, &self.depends_on)
+    }
+}
+
+impl Envelope<'_> for TestEnvelope {
+    fn topic(&self) -> Result<xmtp_proto::types::Topic, crate::protocol::EnvelopeError> {
+        Ok(TOPIC.clone())
+    }
+
+    fn payload(&self) -> Result<Payload, crate::protocol::EnvelopeError> {
+        unreachable!()
+    }
+
+    fn timestamp(&self) -> Option<chrono::DateTime<Utc>> {
+        unreachable!()
+    }
+
+    fn client_envelope(&self) -> Result<ClientEnvelope, crate::protocol::EnvelopeError> {
+        unreachable!()
+    }
+
+    fn group_message(
+        &self,
+    ) -> Result<Option<xmtp_proto::types::GroupMessage>, crate::protocol::EnvelopeError> {
+        unreachable!()
+    }
+
+    fn welcome_message(
+        &self,
+    ) -> Result<Option<xmtp_proto::types::WelcomeMessage>, crate::protocol::EnvelopeError> {
+        unreachable!()
+    }
+
+    fn consume<E>(&self, _extractor: E) -> Result<E::Output, crate::protocol::EnvelopeError>
+    where
+        Self: Sized,
+        for<'a> crate::protocol::EnvelopeError:
+            From<<E as crate::protocol::EnvelopeVisitor<'a>>::Error>,
+        for<'a> E: crate::protocol::EnvelopeVisitor<'a> + crate::protocol::Extractor,
+    {
+        unreachable!()
+    }
+
+    fn cursor(&self) -> Result<xmtp_proto::types::Cursor, EnvelopeError> {
+        Ok(self.cursor)
+    }
+
+    fn depends_on(&self) -> Result<Option<xmtp_proto::types::GlobalCursor>, EnvelopeError> {
+        Ok(Some(self.depends_on.clone()))
+    }
+}

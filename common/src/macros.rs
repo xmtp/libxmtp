@@ -76,11 +76,19 @@ macro_rules! if_local {
     )*}
 }
 
-/// Convenience macro to easily export items for d14n
 #[macro_export]
 macro_rules! if_test {
     ($($item:item)*) => {$(
         #[cfg(any(test, feature = "test-utils"))]
+        $item
+    )*}
+}
+
+// cfg only test but not any extra test-utils features
+#[macro_export]
+macro_rules! if_only_test {
+    ($($item:item)*) => {$(
+        #[cfg(test)]
         $item
     )*}
 }
