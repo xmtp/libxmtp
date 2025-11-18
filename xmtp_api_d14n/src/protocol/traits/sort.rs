@@ -1,4 +1,4 @@
-use xmtp_proto::types::{GlobalCursor, TopicCursor};
+use xmtp_proto::types::TopicCursor;
 
 use crate::protocol::{Envelope, EnvelopeError};
 
@@ -19,24 +19,16 @@ pub trait Sort<Missing> {
 
 /// Extension trait to modify a [`TopicCursor`]
 /// with the contents of an envelope.
-pub trait ApplyCursor<E> {
+pub trait ApplyEnvelope<E> {
     /// applies an envelope to a cursor
-    fn apply(&mut self, envelope: &E) -> Result<(), EnvelopeError>;
+    fn apply_envelope(&mut self, envelope: &E) -> Result<(), EnvelopeError>;
 }
 
-impl<'a, E: Envelope<'a>> ApplyCursor<E> for TopicCursor {
-    fn apply(&mut self, envelope: &E) -> Result<(), EnvelopeError> {
+impl<'a, E: Envelope<'a>> ApplyEnvelope<E> for TopicCursor {
+    fn apply_envelope(&mut self, envelope: &E) -> Result<(), EnvelopeError> {
         let topic = envelope.topic()?;
         let cursor = envelope.cursor()?;
-        self.entry(topic)
-            .and_modify(|global| {
-                global.apply(&cursor);
-            })
-            .or_insert_with(|| {
-                let mut map = GlobalCursor::default();
-                map.apply(&cursor);
-                map
-            });
+        self.apply(topic, &cursor);
         Ok(())
     }
 }

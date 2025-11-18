@@ -1,5 +1,6 @@
 //! Extractor for an MLS Data field
 //! useful for verifing a message has been read or maybe duplicates.
+use xmtp_cryptography::hash::sha256_bytes;
 use xmtp_proto::ConversionError;
 use xmtp_proto::mls_v1::group_message_input::V1 as GroupMessageV1;
 use xmtp_proto::mls_v1::welcome_message_input::V1 as WelcomeMessageV1;
@@ -19,7 +20,12 @@ impl MlsDataExtractor {
     pub fn new() -> Self {
         Default::default()
     }
+
+    pub fn as_sha256(&self) -> Option<Vec<u8>> {
+        self.data.as_ref().map(|d| sha256_bytes(d))
+    }
 }
+
 impl Extractor for MlsDataExtractor {
     type Output = Result<Vec<u8>, ConversionError>;
 

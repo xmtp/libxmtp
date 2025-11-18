@@ -42,6 +42,8 @@ pub enum StorageError {
     Connection(#[from] crate::ConnectionError),
     #[error("HMAC key must be 42 bytes")]
     InvalidHmacLength,
+    #[error("{0:?} is not supported for this query")]
+    EntityNotSupported(Vec<EntityKind>),
 }
 
 impl From<std::convert::Infallible> for StorageError {
@@ -159,6 +161,7 @@ impl RetryableError for StorageError {
             | Self::DbSerialize
             | Self::Builder(_)
             | Self::InvalidHmacLength
+            | Self::EntityNotSupported(_)
             | Self::Prost(_) => false,
         }
     }

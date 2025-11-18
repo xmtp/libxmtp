@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e4e304439a2b33516530ab44b01a030988f41aa1be25e6c8a24f401b10b30d3c # shrinks to topics = [Topic { kind: GroupMessagesV1, bytes: "00" }], states = [(210, 0), (210, 1)]

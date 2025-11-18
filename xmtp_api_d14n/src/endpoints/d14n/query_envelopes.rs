@@ -32,7 +32,7 @@ impl Endpoint for QueryEnvelope {
     fn body(&self) -> Result<Bytes, BodyError> {
         let query = QueryEnvelopesRequest {
             query: Some(EnvelopesQuery {
-                topics: self.topics.iter().map(Topic::bytes).collect(),
+                topics: self.topics.iter().cloned().map(Topic::to_vec).collect(),
                 originator_node_ids: vec![],
                 last_seen: Some(self.last_seen.clone().into()),
             }),

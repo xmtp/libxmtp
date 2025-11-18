@@ -79,6 +79,7 @@ wasm-bindgen = { workspace = true }
 
 
 [dev-dependencies]
+futures.workspace = true
 futures-timer.workspace = true
 mockall = { workspace = true }
 rstest.workspace = true
@@ -94,9 +95,17 @@ tokio = { workspace = true, features = [
   "rt",
   "rt-multi-thread",
 ] }
+proptest = { workspace = true, features = [
+  "std",
+  "fork",
+  "timeout",
+  "bit-set",
+] }
+
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true
+proptest = { workspace = true, features = ["std"] }
 
 [features]
 update-schema = ["dep:toml"]

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use diesel::{
     backend::Backend,
@@ -11,7 +11,10 @@ use diesel::{
 };
 use itertools::Itertools;
 use xmtp_configuration::Originators;
-use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId, Topic, TopicKind};
+use xmtp_proto::{
+    ConversionError,
+    types::{Cursor, GlobalCursor, OriginatorId, Topic, TopicCursor, TopicKind},
+};
 
 use super::{ConnectionExt, Sqlite, db_connection::DbConnection, schema::refresh_state};
 use crate::{StorageError, StoreOrIgnore, impl_store_or_ignore};
@@ -34,6 +37,50 @@ pub enum EntityKind {
     CommitLogForkCheckLocal = 5, // Last rowid verified in local commit log
     CommitLogForkCheckRemote = 6, // Last rowid verified in remote commit log
     CommitMessage = 7,     // MLS commit messages (originator 0)
+}
+
+impl TryFrom<EntityKind> for TopicKind {
+    type Error = ConversionError;
+
+    fn try_from(value: EntityKind) -> Result<Self, Self::Error> {
+        use EntityKind::*;
+        match value {
+            Welcome => Ok(TopicKind::WelcomeMessagesV1),
+            ApplicationMessage => Ok(TopicKind::GroupMessagesV1),
+            CommitMessage => Ok(TopicKind::GroupMessagesV1),
+            i @ CommitLogUpload
+            | i @ CommitLogForkCheckRemote
+            | i @ CommitLogForkCheckLocal
+            | i @ CommitLogDownload => Err(ConversionError::InvalidValue {
+                item: std::any::type_name::<EntityKind>(),
+                expected: "any of Welcome, ApplicationMessage or Commit",
+                got: i.to_string(),
+            }),
+        }
+    }
+}
+
+pub trait ToEntityKind {
+    fn to_entity_kind(self, only_commits: bool) -> Vec<EntityKind>;
+}
+
+// TODO: could use bitflags crate to make all these conversions easier
+impl ToEntityKind for TopicKind {
+    fn to_entity_kind(self, only_commits: bool) -> Vec<EntityKind> {
+        use TopicKind::*;
+        match self {
+            GroupMessagesV1 => {
+                if only_commits {
+                    vec![EntityKind::CommitMessage]
+                } else {
+                    vec![EntityKind::ApplicationMessage, EntityKind::CommitMessage]
+                }
+            }
+            WelcomeMessagesV1 => vec![EntityKind::Welcome],
+            IdentityUpdatesV1 => vec![],
+            KeyPackagesV1 => vec![],
+        }
+    }
 }
 
 pub trait HasEntityKind {
@@ -174,6 +221,15 @@ pub trait QueryRefreshState {
         entities: &[EntityKind],
     ) -> Result<HashMap<Vec<u8>, GlobalCursor>, StorageError>;
 
+    /// build a [`TopicCursor`] from this list of topics
+    /// `only_commits` indicates to only use commits, ignoring group messages
+    /// for the GroupMessagesV1 topic.
+    fn get_last_cursor_for_topics<To: AsRef<Topic>>(
+        &self,
+        topics: &[To],
+        only_commits: bool,
+    ) -> Result<TopicCursor, StorageError>;
+
     fn update_cursor<Id: AsRef<[u8]>>(
         &self,
         entity_id: Id,
@@ -224,6 +280,14 @@ impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
         entities: &[EntityKind],
     ) -> Result<HashMap<Vec<u8>, GlobalCursor>, StorageError> {
         (**self).get_last_cursor_for_ids(ids, entities)
+    }
+
+    fn get_last_cursor_for_topics<To: AsRef<Topic>>(
+        &self,
+        topics: &[To],
+        only_commits: bool,
+    ) -> Result<TopicCursor, StorageError> {
+        (**self).get_last_cursor_for_topics(topics, only_commits)
     }
 
     fn update_cursor<Id: AsRef<[u8]>>(
@@ -402,6 +466,64 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         Ok(map)
     }
 
+    fn get_last_cursor_for_topics<To: AsRef<Topic>>(
+        &self,
+        topics: &[To],
+        only_commits: bool,
+    ) -> Result<TopicCursor, StorageError> {
+        use super::schema::refresh_state::dsl;
+
+        if topics.is_empty() {
+            return Ok(TopicCursor::default());
+        }
+
+        // Run multiple small IN-queries and merge results.
+        // Keep chunks comfortably under SQLite's default 999-bind limit.
+        const CHUNK: usize = 900;
+        let entities: HashSet<_> = topics
+            .iter()
+            .flat_map(|t| t.as_ref().kind().to_entity_kind(only_commits))
+            .collect();
+
+        let map = self.raw_query_read(|conn| {
+            topics
+                .chunks(CHUNK)
+                .map(|chunk| {
+                    let id_refs = chunk.iter().map(|id| id.as_ref().identifier());
+                    dsl::refresh_state
+                        .filter(dsl::entity_kind.eq_any(&entities))
+                        .filter(dsl::entity_id.eq_any(id_refs))
+                        .group_by((dsl::entity_id, dsl::entity_kind, dsl::originator_id))
+                        .select((
+                            dsl::entity_id,
+                            dsl::entity_kind,
+                            dsl::originator_id,
+                            diesel::dsl::max(dsl::sequence_id),
+                        ))
+                        .load_iter::<(Vec<u8>, EntityKind, i32, Option<i64>), DefaultLoadingMode>(
+                            conn,
+                        )?
+                        .fold_ok(TopicCursor::default(), |mut acc, (id, kind, oid, sid)| {
+                            let cursor = Cursor {
+                                originator_id: oid as u32,
+                                sequence_id: sid.unwrap_or(0) as u64,
+                            };
+                            let topic = TopicKind::try_from(kind)
+                                .expect("function accepts only valid topics");
+                            let topic = topic.create(id);
+                            acc.apply(topic, &cursor);
+                            acc
+                        })
+                })
+                .fold_ok(TopicCursor::default(), |mut acc, cursors| {
+                    acc.extend(cursors.into_iter());
+                    acc
+                })
+        })?;
+
+        Ok(map)
+    }
+
     #[tracing::instrument(level = "info", skip(self), fields(entity_id = %hex::encode(&entity_id)))]
     fn update_cursor<Id: AsRef<[u8]>>(
         &self,
@@ -470,7 +592,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
                 TopicKind::WelcomeMessagesV1 => {
                     vec![(t.identifier().to_vec(), EntityKind::Welcome)]
                 }
-                TopicKind::IdentityUpdatesV1 | TopicKind::KeyPackagesV1 | _ => vec![],
+                TopicKind::IdentityUpdatesV1 | TopicKind::KeyPackagesV1 => vec![],
             })
             .collect::<Vec<_>>();
 
@@ -527,7 +649,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
                 TopicKind::WelcomeMessagesV1 => {
                     vec![(t.identifier().to_vec(), EntityKind::Welcome)]
                 }
-                TopicKind::IdentityUpdatesV1 | TopicKind::KeyPackagesV1 | _ => vec![],
+                TopicKind::IdentityUpdatesV1 | TopicKind::KeyPackagesV1 => vec![],
             })
             .collect::<Vec<_>>();
 
@@ -1430,5 +1552,78 @@ pub(crate) mod tests {
             assert!(!result.contains_key(&id2));
         })
         .await
+    }
+
+    #[xmtp_common::test]
+    fn proptest_get_last_cursor_for_topics() {
+        use futures::FutureExt;
+        use proptest::prelude::*;
+        use std::collections::HashMap;
+
+        prop_compose! {
+            fn arb_topic()(kind in prop::sample::select(vec![TopicKind::GroupMessagesV1, TopicKind::WelcomeMessagesV1]),
+                          id in prop::collection::vec(any::<u8>(), 1..20)) -> Topic {
+                kind.create(id)
+            }
+        }
+
+        proptest!(|(
+            topics in prop::collection::vec(arb_topic(), 1..10),
+            states in prop::collection::vec((any::<u8>(), 0..100i64), 1..200)
+        )| {
+            with_connection(|conn| {
+                // Track expected max sequence_id per (topic, entity_kind, originator)
+                let mut expected: HashMap<(Vec<u8>, EntityKind, u32), u64> = HashMap::new();
+
+                let only_commits = false;
+                // Create/update states for each topic - use same entity_kinds as query will use
+                for topic in &topics {
+                    let entities = topic.kind().to_entity_kind(only_commits);
+                    for (orig_id, seq_id) in &states {
+                        for &entity_kind in &entities {
+                            conn.update_cursor(
+                                topic.identifier(),
+                                entity_kind,
+                                Cursor::new(*seq_id as u64, *orig_id as u32)
+                            ).unwrap();
+                            let key = (topic.identifier().to_vec(), entity_kind, *orig_id as u32);
+                            expected.entry(key)
+                                .and_modify(|max| *max = (*max).max(*seq_id as u64))
+                                .or_insert(*seq_id as u64);
+                        }
+                    }
+                }
+
+                // Query and verify result - function returns max across entity_kinds
+                let mut result = conn.get_last_cursor_for_topics(&topics, only_commits).unwrap();
+
+                // Verify max sequence_id per topic per originator across all entity kinds
+                for topic in &topics {
+                    let cursor = result.get_or_default(topic);
+                    let entities = topic.kind().to_entity_kind(only_commits);
+                    for (orig_id, _) in &states {
+                        // Find max across all entity_kinds for this topic/originator
+                        let max_seq = entities.iter()
+                            .filter_map(|&ek| {
+                                let key = (topic.identifier().to_vec(), ek, *orig_id as u32);
+                                expected.get(&key).copied()
+                            })
+                            .max();
+
+                        if let Some(expected_seq) = max_seq {
+                            assert_eq!(
+                                cursor.get(&(*orig_id as u32)),
+                                expected_seq,
+                                "Topic {:?}, originator {}: expected {}, got {}",
+                                topic.identifier(),
+                                orig_id,
+                                expected_seq,
+                                cursor.get(&(*orig_id as u32))
+                            );
+                        }
+                    }
+                }
+            }).now_or_never().unwrap()
+        });
     }
 }

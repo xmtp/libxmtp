@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::fmt;
 use xmtp_proto::types::{GlobalCursor, OriginatorId, Topic};
 
+// an in memory cursor store that cannot track dependencies
+// should only be used for tests
 #[derive(Default, Clone)]
 pub struct InMemoryCursorStore {
     topics: HashMap<Topic, GlobalCursor>,
@@ -185,7 +187,7 @@ mod tests {
     }
 
     fn topic(name: &str) -> Topic {
-        Topic::from_bytes(name.as_bytes().to_vec())
+        Topic::from_bytes_unchecked(name.as_bytes().to_vec())
     }
 
     #[xmtp_common::test]

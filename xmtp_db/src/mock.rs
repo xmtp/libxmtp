@@ -5,7 +5,7 @@ use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
 use crate::remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder};
 use std::collections::HashMap;
 use std::sync::Arc;
-use xmtp_proto::types::{Cursor, GlobalCursor, Topic};
+use xmtp_proto::types::{Cursor, GlobalCursor, Topic, TopicCursor};
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
 use diesel::prelude::SqliteConnection;
@@ -579,6 +579,13 @@ mock! {
             entity_kind: crate::refresh_state::EntityKind,
             originator_id: &[u32]
         ) -> Result<Vec<Cursor>, StorageError>;
+
+        #[mockall::concretize]
+        fn get_last_cursor_for_topics<To: AsRef<Topic>>(
+                &self,
+                topics: &[To],
+                only_commits: bool,
+            ) -> Result<TopicCursor, StorageError>;
 
         #[mockall::concretize]
         fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(

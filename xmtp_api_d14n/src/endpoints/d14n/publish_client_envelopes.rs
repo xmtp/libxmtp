@@ -74,7 +74,7 @@ mod test {
         let client = client.build().unwrap();
 
         let aad = AuthenticatedData {
-            target_topic: TopicKind::GroupMessagesV1.build(rand_vec::<16>()),
+            target_topic: TopicKind::GroupMessagesV1.create(rand_vec::<16>()).to_vec(),
             depends_on: None,
         };
         let e = ClientEnvelope {

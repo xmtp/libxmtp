@@ -84,10 +84,10 @@ mod tests {
     };
     use std::sync::Arc;
     use xmtp_configuration::{GrpcUrls, PAYER_WRITE_FILTER};
-    use xmtp_proto::api::Query;
     use xmtp_proto::api_client::{ApiBuilder, NetConnectConfig};
     use xmtp_proto::prelude::XmtpMlsClient;
     use xmtp_proto::types::GroupId;
+    use xmtp_proto::{api::Query, types::TopicKind};
 
     fn is_tls_enabled() -> bool {
         url::Url::parse(GrpcUrls::GATEWAY)
@@ -273,7 +273,10 @@ mod tests {
     async fn multinode_request_latest_group_message() {
         use crate::d14n::GetNewestEnvelopes;
         let client = create_multinode_client();
-        let mut endpoint = GetNewestEnvelopes::builder().topic(vec![]).build().unwrap();
+        let mut endpoint = GetNewestEnvelopes::builder()
+            .topic(TopicKind::GroupMessagesV1.create(vec![]))
+            .build()
+            .unwrap();
         let response = endpoint.query(&client).await.unwrap();
         assert!(!response.results.is_empty());
     }

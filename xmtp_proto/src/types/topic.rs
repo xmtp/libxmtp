@@ -1,3 +1,4 @@
+use smallvec::SmallVec;
 use std::{
     fmt::{Debug, Display},
     ops::Deref,
@@ -7,7 +8,6 @@ use crate::{ConversionError, xmtp::xmtpv4::envelopes::AuthenticatedData};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
-#[non_exhaustive]
 pub enum TopicKind {
     GroupMessagesV1 = 0,
     WelcomeMessagesV1 = 1,
@@ -46,9 +46,9 @@ impl Display for TopicKind {
 }
 
 impl TopicKind {
-    pub fn build<B: AsRef<[u8]>>(&self, bytes: B) -> Vec<u8> {
+    fn build<B: AsRef<[u8]>>(&self, bytes: B) -> SmallVec<[u8; 33]> {
         let bytes = bytes.as_ref();
-        let mut topic = Vec::with_capacity(1 + bytes.len());
+        let mut topic = SmallVec::<[u8; 33]>::new();
         topic.push(*self as u8);
         topic.extend_from_slice(bytes);
         topic
@@ -61,11 +61,15 @@ impl TopicKind {
     }
 }
 
+// inbox id is 32 bytes
+// installation id is 32 bytes
+// group id is 16 bytes
+// so we hold at most 33 bytes at any time
 /// A topic where the first byte is the kind
 /// https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#332-envelopes
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Topic {
-    inner: Vec<u8>,
+    inner: SmallVec<[u8; 33]>,
 }
 
 impl Topic {
@@ -86,12 +90,12 @@ impl Topic {
         &self.inner[1..]
     }
 
-    pub fn bytes(&self) -> Vec<u8> {
-        self.inner.clone()
+    pub fn bytes(&self) -> &[u8] {
+        self.inner.as_slice()
     }
 
-    pub fn to_bytes(self) -> Vec<u8> {
-        self.inner
+    pub fn to_vec(self) -> Vec<u8> {
+        self.inner.to_vec()
     }
 
     pub fn identity_updates(&self) -> Option<&Topic> {
@@ -131,8 +135,10 @@ impl Topic {
     /// invalid byte layout will result in
     /// undefined behavior.
     #[cfg(any(feature = "test-utils", test))]
-    pub fn from_bytes(bytes: Vec<u8>) -> Self {
-        Self { inner: bytes }
+    pub fn from_bytes_unchecked(bytes: Vec<u8>) -> Self {
+        Self {
+            inner: SmallVec::from(bytes),
+        }
     }
 }
 
@@ -155,7 +161,7 @@ impl TryFrom<Vec<u8>> for Topic {
 
 impl From<Topic> for Vec<u8> {
     fn from(topic: Topic) -> Vec<u8> {
-        topic.to_bytes()
+        topic.to_vec()
     }
 }
 
@@ -175,10 +181,10 @@ impl Display for Topic {
 }
 
 impl Deref for Topic {
-    type Target = Vec<u8>;
+    type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        self.inner.as_slice()
     }
 }
 
@@ -201,7 +207,7 @@ impl AsRef<Topic> for Topic {
 impl AuthenticatedData {
     pub fn with_topic(topic: Topic) -> AuthenticatedData {
         AuthenticatedData {
-            target_topic: topic.to_bytes(),
+            target_topic: topic.to_vec(),
             depends_on: None,
         }
     }

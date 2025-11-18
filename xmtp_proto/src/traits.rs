@@ -37,6 +37,8 @@ pub trait Endpoint<Specialized = ()>: MaybeSend + MaybeSync {
 }
 
 pub trait EndpointExt<S>: Endpoint<S> {
+    /// immediately drop the response to this request after
+    /// confirming it was succesful or failed
     fn ignore_response(self) -> Ignore<Self>
     where
         Self: Sized + Endpoint<S>,

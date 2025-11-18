@@ -84,7 +84,6 @@ where
                     .await?;
                 Ok(XmtpEnvelope::new(result.key_packages))
             }
-            _ => unreachable!(),
         }
     }
 }

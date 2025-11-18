@@ -3,7 +3,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::types::{GlobalCursor, Topic};
+use crate::types::{Cursor, GlobalCursor, Topic};
 
 /// A cursor that keeps a [`super::GlobalCursor`] for each topic it has seen.
 #[derive(Default, Debug, PartialEq, Clone)]
@@ -34,5 +34,45 @@ impl DerefMut for TopicCursor {
 impl TopicCursor {
     pub fn add(&mut self, topic: Topic, cursor: GlobalCursor) {
         self.inner.insert(topic, cursor);
+    }
+
+    /// apply [`Cursor`] to this topic cursor
+    pub fn apply(&mut self, topic: Topic, cursor: &Cursor) {
+        let v = self.inner.entry(topic).or_default();
+        v.apply(cursor);
+    }
+}
+
+impl FromIterator<(Topic, GlobalCursor)> for TopicCursor {
+    fn from_iter<T: IntoIterator<Item = (Topic, GlobalCursor)>>(iter: T) -> Self {
+        TopicCursor {
+            inner: HashMap::from_iter(iter),
+        }
+    }
+}
+
+impl IntoIterator for TopicCursor {
+    type Item = (Topic, GlobalCursor);
+    type IntoIter = <HashMap<Topic, GlobalCursor> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a TopicCursor {
+    type Item = (&'a Topic, &'a GlobalCursor);
+    type IntoIter = std::collections::hash_map::Iter<'a, Topic, GlobalCursor>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut TopicCursor {
+    type Item = (&'a Topic, &'a mut GlobalCursor);
+    type IntoIter = std::collections::hash_map::IterMut<'a, Topic, GlobalCursor>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.iter_mut()
     }
 }

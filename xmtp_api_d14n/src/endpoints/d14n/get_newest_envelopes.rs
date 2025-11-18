@@ -3,6 +3,7 @@ use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::api::{BodyError, Endpoint};
+use xmtp_proto::types::Topic;
 use xmtp_proto::xmtp::xmtpv4::message_api::{GetNewestEnvelopeRequest, GetNewestEnvelopeResponse};
 
 /// Query a single thing
@@ -10,7 +11,7 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{GetNewestEnvelopeRequest, GetNewestE
 #[builder(build_fn(error = "BodyError"))]
 pub struct GetNewestEnvelopes {
     #[builder(setter(each(name = "topic", into)))]
-    topics: Vec<Vec<u8>>,
+    topics: Vec<Topic>,
 }
 
 impl GetNewestEnvelopes {
@@ -32,7 +33,7 @@ impl Endpoint for GetNewestEnvelopes {
 
     fn body(&self) -> Result<Bytes, BodyError> {
         let query = GetNewestEnvelopeRequest {
-            topics: self.topics.clone(),
+            topics: self.topics.iter().cloned().map(Topic::to_vec).collect(),
         };
         Ok(query.encode_to_vec().into())
     }
@@ -41,7 +42,7 @@ impl Endpoint for GetNewestEnvelopes {
 #[cfg(test)]
 mod test {
     use xmtp_api_grpc::test::XmtpdClient;
-    use xmtp_proto::{api, prelude::*};
+    use xmtp_proto::{api, prelude::*, types::TopicKind};
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
@@ -67,7 +68,10 @@ mod test {
         let client = XmtpdClient::create();
         let client = client.build().unwrap();
 
-        let endpoint = GetNewestEnvelopes::builder().topic(vec![]).build().unwrap();
+        let endpoint = GetNewestEnvelopes::builder()
+            .topic(TopicKind::GroupMessagesV1.create(vec![]))
+            .build()
+            .unwrap();
         api::ignore(endpoint).query(&client).await.unwrap();
     }
 }

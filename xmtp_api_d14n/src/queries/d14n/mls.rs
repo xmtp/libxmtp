@@ -18,8 +18,8 @@ use crate::protocol::traits::Extractor;
 use crate::queries::D14nCombinatorExt;
 use xmtp_common::RetryableError;
 use xmtp_configuration::MAX_PAGE_SIZE;
-use xmtp_proto::api;
 use xmtp_proto::api::Client;
+use xmtp_proto::api::EndpointExt;
 use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
@@ -49,13 +49,12 @@ where
         request: mls_v1::UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
         let envelopes = request.client_envelope()?;
-        api::ignore(
-            PublishClientEnvelopes::builder()
-                .envelope(envelopes)
-                .build()?,
-        )
-        .query(&self.client)
-        .await?;
+        PublishClientEnvelopes::builder()
+            .envelope(envelopes)
+            .build()?
+            .ignore_response()
+            .query(&self.client)
+            .await?;
 
         Ok::<_, Self::Error>(())
     }
@@ -68,7 +67,7 @@ where
         let topics = request
             .installation_keys
             .iter()
-            .map(|key| TopicKind::KeyPackagesV1.build(key))
+            .map(|key| TopicKind::KeyPackagesV1.create(key))
             .collect();
 
         let result: GetNewestEnvelopeResponse = GetNewestEnvelopes::builder()
@@ -89,13 +88,12 @@ where
     ) -> Result<(), Self::Error> {
         let envelopes: Vec<ClientEnvelope> = request.messages.client_envelopes()?;
 
-        api::ignore(
-            PublishClientEnvelopes::builder()
-                .envelopes(envelopes)
-                .build()?,
-        )
-        .query(&self.client)
-        .await?;
+        PublishClientEnvelopes::builder()
+            .envelopes(envelopes)
+            .build()?
+            .ignore_response()
+            .query(&self.client)
+            .await?;
 
         Ok(())
     }
@@ -107,13 +105,12 @@ where
     ) -> Result<(), Self::Error> {
         let envelopes = request.messages.client_envelopes()?;
 
-        api::ignore(
-            PublishClientEnvelopes::builder()
-                .envelopes(envelopes)
-                .build()?,
-        )
-        .query(&self.client)
-        .await?;
+        PublishClientEnvelopes::builder()
+            .envelopes(envelopes)
+            .build()?
+            .ignore_response()
+            .query(&self.client)
+            .await?;
         Ok(())
     }
 
@@ -152,7 +149,7 @@ where
         group_id: GroupId,
     ) -> Result<Option<xmtp_proto::types::GroupMessage>, Self::Error> {
         let response: GetNewestEnvelopeResponse = GetNewestEnvelopes::builder()
-            .topic(TopicKind::GroupMessagesV1.build(group_id))
+            .topic(TopicKind::GroupMessagesV1.create(group_id))
             .build()?
             .query(&self.client)
             .await?;
@@ -216,10 +213,10 @@ where
         &self,
         request: mls_v1::GetNewestGroupMessageRequest,
     ) -> Result<Vec<Option<GroupMessageMetadata>>, Self::Error> {
-        let topics: Vec<Vec<u8>> = request
+        let topics = request
             .group_ids
             .into_iter()
-            .map(|id| TopicKind::GroupMessagesV1.build(id.as_slice()))
+            .map(|id| TopicKind::GroupMessagesV1.create(id))
             .collect();
 
         let response = GetNewestEnvelopes::builder()

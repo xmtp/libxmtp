@@ -1,6 +1,6 @@
 use xmtp_proto::types::TopicCursor;
 
-use crate::protocol::{ApplyCursor, Envelope, EnvelopeError, Sort, VectorClock};
+use crate::protocol::{ApplyEnvelope, Envelope, EnvelopeError, Sort, VectorClock};
 
 pub struct CausalSort<'a, E> {
     envelopes: &'a mut Vec<E>,
@@ -18,7 +18,7 @@ impl<'b, 'a: 'b, E: Envelope<'a>> Sort<Vec<E>> for CausalSort<'b, E> {
             let last_seen = env.depends_on()?.unwrap_or(Default::default());
             let vector_clock = self.topic_cursor.get_or_default(&topic);
             if vector_clock.dominates(&last_seen) {
-                self.topic_cursor.apply(env)?;
+                self.topic_cursor.apply_envelope(env)?;
                 i += 1;
             } else {
                 missing.push(self.envelopes.remove(i));

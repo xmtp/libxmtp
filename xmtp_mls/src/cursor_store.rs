@@ -62,7 +62,6 @@ where
                 Ok(GlobalCursor::new(map))
             }
             TopicKind::KeyPackagesV1 => Ok(GlobalCursor::default()),
-            _ => Err(CursorStoreError::UnhandledTopicKind(topic.kind())),
         }
     }
 
@@ -94,7 +93,6 @@ where
                 Ok(GlobalCursor::new(map))
             }
             TopicKind::KeyPackagesV1 => Ok(GlobalCursor::default()),
-            _ => Err(CursorStoreError::UnhandledTopicKind(topic.kind())),
         }
     }
 
@@ -159,7 +157,6 @@ where
                     .into_iter()
                     .map(|topic| (topic.clone(), GlobalCursor::default()))
                     .collect()),
-                _ => Err(CursorStoreError::UnhandledTopicKind(kind)),
             })
             .collect::<Result<Vec<HashMap<Topic, GlobalCursor>>, _>>()
             .map(|results| results.into_iter().flatten().collect())
