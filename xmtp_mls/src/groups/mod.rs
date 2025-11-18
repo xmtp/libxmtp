@@ -704,7 +704,8 @@ where
             return Err(DeleteMessageError::CannotDeleteTranscript.into());
         }
 
-        if original_msg.content_type == ContentType::GroupUpdated {
+        // Restriction: cannot delete system messages, metadata, or non-deletable content types
+        if !original_msg.content_type.is_deletable() {
             return Err(DeleteMessageError::CannotDeleteTranscript.into());
         }
 

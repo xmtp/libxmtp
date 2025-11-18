@@ -4,7 +4,7 @@ use crate::groups::send_message_opts::SendMessageOpts;
 use crate::messages::decoded_message::{DeletedBy, MessageBody};
 use crate::tester;
 use xmtp_content_types::{ContentCodec, text::TextCodec};
-use xmtp_db::group_message::{ContentType, GroupMessageKind, MsgQueryArgs};
+use xmtp_db::group_message::{ContentType, GroupMessageKind, MsgQueryArgs, QueryGroupMessage};
 use xmtp_db::message_deletion::QueryMessageDeletion;
 
 /// Test basic message deletion by the original sender
@@ -547,4 +547,47 @@ async fn test_cannot_delete_message_from_different_group() {
     // Verify we can still delete it from the correct group
     group1.delete_message(group1_message_id.clone())?;
     assert!(alix_conn.is_message_deleted(&group1_message_id)?);
+}
+
+/// Test that we cannot delete a delete message
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_cannot_delete_delete_message() {
+    tester!(alix);
+    tester!(bo);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+
+    // Alix sends a message
+    let text_content = TextCodec::encode("Original message".to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    let original_message_id = alix_group
+        .send_message(&text_bytes, SendMessageOpts::default())
+        .await?;
+
+    // Alix deletes the message
+    let delete_message_id = alix_group.delete_message(original_message_id.clone())?;
+
+    // Publish the deletion
+    alix_group.publish_messages().await?;
+
+    // Verify the original message is deleted
+    let alix_conn = alix.context.db();
+    assert!(alix_conn.is_message_deleted(&original_message_id)?);
+
+    // Verify the delete message exists in the database
+    let delete_msg = alix_conn.get_group_message(&delete_message_id)?;
+    assert!(delete_msg.is_some());
+    let delete_msg = delete_msg.unwrap();
+    assert_eq!(delete_msg.content_type, ContentType::DeleteMessage);
+
+    // Try to delete the delete message - should fail
+    let result = alix_group.delete_message(delete_message_id.clone());
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        GroupError::DeleteMessage(DeleteMessageError::CannotDeleteTranscript)
+    ));
+
+    // Verify the delete message is NOT deleted
+    assert!(!alix_conn.is_message_deleted(&delete_message_id)?);
 }
