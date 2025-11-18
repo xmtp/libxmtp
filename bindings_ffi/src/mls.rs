@@ -32,7 +32,7 @@ use xmtp_content_types::reply::ReplyCodec;
 use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::transaction_reference::TransactionReference;
 use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
-use xmtp_content_types::wallet_send_calls::{WalletSendCalls, WalletSendCallsCodec};
+use xmtp_content_types::wallet_send_calls::WalletSendCallsCodec;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
 use xmtp_db::NativeDb;
 use xmtp_db::group::DmIdExt;

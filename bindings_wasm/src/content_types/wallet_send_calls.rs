@@ -78,9 +78,9 @@ impl From<WalletCall> for xmtp_content_types::wallet_send_calls::WalletCall {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct WalletCallMetadata {
-  description: String,
-  transaction_type: String,
-  extra: HashMap<String, String>,
+  pub description: String,
+  pub transaction_type: String,
+  pub extra: HashMap<String, String>,
 }
 
 impl From<xmtp_content_types::wallet_send_calls::WalletCallMetadata> for WalletCallMetadata {
@@ -128,9 +128,8 @@ pub fn decode_wallet_send_calls(bytes: Uint8Array) -> Result<JsValue, JsError> {
     .map_err(|e| JsError::new(&format!("{}", e)))?;
 
   // Use WalletSendCallsCodec to decode into WalletSendCalls and convert to WalletSendCalls
-  let wallet_send_calls: XmtpWalletSendCalls = WalletSendCallsCodec::decode(encoded_content)
-    .map(Into::into)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+  let wallet_send_calls =
+    WalletSendCallsCodec::decode(encoded_content).map_err(|e| JsError::new(&format!("{}", e)))?;
   let wallet_send_calls: WalletSendCalls = wallet_send_calls.into();
 
   serde_wasm_bindgen::to_value(&wallet_send_calls).map_err(|e| JsError::new(&format!("{}", e)))
