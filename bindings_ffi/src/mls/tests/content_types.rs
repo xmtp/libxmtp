@@ -566,3 +566,427 @@ async fn test_find_enriched_messages_with_replies() {
         })
         .unwrap();
 }
+
+#[tokio::test]
+async fn test_intent_codec() {
+    use prost::Message;
+    use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+
+    // Test with complex metadata
+    let intent_with_metadata = FfiIntent {
+        id: "intent1".to_string(),
+        action_id: "action1".to_string(),
+        metadata: Some(r#"{"nested":{"value":"test"},"array":[1,true,null]}"#.to_string()),
+    };
+    let encoded = encode_intent(intent_with_metadata.clone()).unwrap();
+    let decoded = decode_intent(encoded).unwrap();
+    assert_eq!(decoded.id, intent_with_metadata.id);
+    assert_eq!(decoded.action_id, intent_with_metadata.action_id);
+    let original: serde_json::Value =
+        serde_json::from_str(intent_with_metadata.metadata.as_ref().unwrap()).unwrap();
+    let decoded_meta: serde_json::Value =
+        serde_json::from_str(decoded.metadata.as_ref().unwrap()).unwrap();
+    assert_eq!(decoded_meta, original);
+
+    // Test without metadata
+    let intent_no_metadata = FfiIntent {
+        id: "intent2".to_string(),
+        action_id: "action2".to_string(),
+        metadata: None,
+    };
+    let encoded = encode_intent(intent_no_metadata.clone()).unwrap();
+    let decoded = decode_intent(encoded).unwrap();
+    assert_eq!(decoded.metadata, None);
+
+    // Test metadata size limit (>10KB)
+    let large_metadata = format!(r#"{{"data":"{}"}}"#, "x".repeat(11 * 1024));
+    let intent_large = FfiIntent {
+        id: "intent3".to_string(),
+        action_id: "action3".to_string(),
+        metadata: Some(large_metadata),
+    };
+    assert!(
+        encode_intent(intent_large)
+            .unwrap_err()
+            .to_string()
+            .contains("too large")
+    );
+
+    // Test malformed JSON
+    let intent_invalid = FfiIntent {
+        id: "intent4".to_string(),
+        action_id: "action4".to_string(),
+        metadata: Some(r#"{"unclosed"#.to_string()),
+    };
+    assert!(encode_intent(intent_invalid).is_err());
+
+    // Simulate decoding malformed metadata in encoded content
+
+    // metadata field is a string instead of an object
+    let malformed_json_wrong_type = r#"{
+        "id": "intent1",
+        "action_id": "action1",
+        "metadata": "this should be an object not a string"
+    }"#;
+
+    let encoded_content = EncodedContent {
+        content: malformed_json_wrong_type.as_bytes().to_vec(),
+        ..Default::default()
+    };
+
+    let mut buf = Vec::new();
+    encoded_content.encode(&mut buf).unwrap();
+
+    // Decoding should fail gracefully
+    let result = decode_intent(buf);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Unable to deserialize")
+    );
+
+    // metadata is an array instead of an object
+    let malformed_json_array = r#"{
+        "id": "intent2",
+        "action_id": "action2",
+        "metadata": ["array", "instead", "of", "object"]
+    }"#;
+
+    let encoded_content = EncodedContent {
+        content: malformed_json_array.as_bytes().to_vec(),
+        ..Default::default()
+    };
+
+    let mut buf = Vec::new();
+    encoded_content.encode(&mut buf).unwrap();
+
+    let result = decode_intent(buf);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Unable to deserialize")
+    );
+
+    // metadata has invalid JSON syntax
+    let malformed_json_invalid = r#"{
+        "id": "intent3",
+        "action_id": "action3",
+        "metadata": {"foo": bar
+    }"#;
+
+    let encoded_content = EncodedContent {
+        content: malformed_json_invalid.as_bytes().to_vec(),
+        ..Default::default()
+    };
+
+    let mut buf = Vec::new();
+    encoded_content.encode(&mut buf).unwrap();
+
+    // Decoding should fail due to invalid JSON syntax
+    let result = decode_intent(buf);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Unable to deserialize")
+    );
+}
+
+#[tokio::test]
+async fn test_actions_codec() {
+    use chrono::NaiveDate;
+    use prost::Message;
+    use xmtp_content_types::actions::{Action, Actions};
+    use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+
+    // Test basic encode/decode
+    let actions = FfiActions {
+        id: "actions1".to_string(),
+        description: "Test".to_string(),
+        actions: vec![
+            FfiAction {
+                id: "a1".to_string(),
+                label: "Action 1".to_string(),
+                image_url: Some("https://example.com/image.png".to_string()),
+                style: Some(FfiActionStyle::Primary),
+                expires_at_ns: Some(1_234_567_890_000_000_000),
+            },
+            FfiAction {
+                id: "a2".to_string(),
+                label: "Action 2".to_string(),
+                image_url: None,
+                style: None,
+                expires_at_ns: None,
+            },
+        ],
+        expires_at_ns: Some(1_700_000_000_000_000_000),
+    };
+    let encoded = encode_actions(actions.clone()).unwrap();
+    let decoded = decode_actions(encoded).unwrap();
+    assert_eq!(decoded.id, actions.id);
+    assert_eq!(decoded.actions.len(), 2);
+    assert_eq!(
+        decoded.actions[0].expires_at_ns,
+        actions.actions[0].expires_at_ns
+    );
+
+    // Test min/max timestamps
+    let min_ns = i64::MIN;
+    let max_ns = i64::MAX;
+    let actions_minmax = FfiActions {
+        id: "actions2".to_string(),
+        description: "MinMax".to_string(),
+        actions: vec![FfiAction {
+            id: "a1".to_string(),
+            label: "A1".to_string(),
+            image_url: None,
+            style: None,
+            expires_at_ns: Some(min_ns),
+        }],
+        expires_at_ns: Some(max_ns),
+    };
+    let encoded = encode_actions(actions_minmax).unwrap();
+    let decoded = decode_actions(encoded).unwrap();
+    assert_eq!(decoded.expires_at_ns, Some(max_ns));
+    assert_eq!(decoded.actions[0].expires_at_ns, Some(min_ns));
+
+    // Test timestamp 0 (Unix epoch is valid)
+    let actions_zero = FfiActions {
+        id: "actions3".to_string(),
+        description: "Zero".to_string(),
+        actions: vec![FfiAction {
+            id: "a1".to_string(),
+            label: "A1".to_string(),
+            image_url: None,
+            style: None,
+            expires_at_ns: Some(0),
+        }],
+        expires_at_ns: Some(0),
+    };
+    let encoded = encode_actions(actions_zero).unwrap();
+    let decoded = decode_actions(encoded).unwrap();
+    assert_eq!(decoded.expires_at_ns, Some(0));
+    assert_eq!(decoded.actions[0].expires_at_ns, Some(0));
+
+    // empty actions
+    let empty = FfiActions {
+        id: "empty".to_string(),
+        description: "Empty".to_string(),
+        actions: vec![],
+        expires_at_ns: None,
+    };
+    assert!(
+        encode_actions(empty)
+            .unwrap_err()
+            .to_string()
+            .contains("at least one")
+    );
+
+    // too many actions (>10)
+    let too_many = FfiActions {
+        id: "many".to_string(),
+        description: "Many".to_string(),
+        actions: (0..11)
+            .map(|i| FfiAction {
+                id: format!("a{}", i),
+                label: format!("A{}", i),
+                image_url: None,
+                style: None,
+                expires_at_ns: None,
+            })
+            .collect(),
+        expires_at_ns: None,
+    };
+    assert!(
+        encode_actions(too_many)
+            .unwrap_err()
+            .to_string()
+            .contains("exceed 10")
+    );
+
+    // duplicate IDs
+    let duplicates = FfiActions {
+        id: "dup".to_string(),
+        description: "Dup".to_string(),
+        actions: vec![
+            FfiAction {
+                id: "same".to_string(),
+                label: "A1".to_string(),
+                image_url: None,
+                style: None,
+                expires_at_ns: None,
+            },
+            FfiAction {
+                id: "same".to_string(),
+                label: "A2".to_string(),
+                image_url: None,
+                style: None,
+                expires_at_ns: None,
+            },
+        ],
+        expires_at_ns: None,
+    };
+    assert!(
+        encode_actions(duplicates)
+            .unwrap_err()
+            .to_string()
+            .contains("unique")
+    );
+
+    // invalid timestamp format - string instead of proper datetime object
+    let malformed_timestamp_string = r#"{
+        "id": "actions1",
+        "description": "Test",
+        "actions": [
+            {
+                "id": "a1",
+                "label": "Action 1",
+                "image_url": null,
+                "style": null,
+                "expires_at": "not a valid datetime"
+            }
+        ],
+        "expires_at": "also not valid"
+    }"#;
+
+    let encoded_content = EncodedContent {
+        content: malformed_timestamp_string.as_bytes().to_vec(),
+        ..Default::default()
+    };
+
+    let mut buf = Vec::new();
+    encoded_content.encode(&mut buf).unwrap();
+
+    let result = decode_actions(buf);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Unable to deserialize")
+    );
+
+    // invalid datetime value - number instead of datetime object
+    let malformed_timestamp_number = r#"{
+        "id": "actions2",
+        "description": "Test",
+        "actions": [
+            {
+                "id": "a1",
+                "label": "Action 1",
+                "image_url": null,
+                "style": null,
+                "expires_at": 12345
+            }
+        ],
+        "expires_at": 67890
+    }"#;
+
+    let encoded_content = EncodedContent {
+        content: malformed_timestamp_number.as_bytes().to_vec(),
+        ..Default::default()
+    };
+
+    let mut buf = Vec::new();
+    encoded_content.encode(&mut buf).unwrap();
+
+    let result = decode_actions(buf);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Unable to deserialize")
+    );
+
+    // malformed JSON in timestamp field
+    let malformed_json_timestamp = r#"{
+        "id": "actions3",
+        "description": "Test",
+        "actions": [
+            {
+                "id": "a1",
+                "label": "Action 1",
+                "image_url": null,
+                "style": null,
+                "expires_at": {invalid json}
+            }
+        ],
+        "expires_at": null
+    }"#;
+
+    let encoded_content = EncodedContent {
+        content: malformed_json_timestamp.as_bytes().to_vec(),
+        ..Default::default()
+    };
+
+    let mut buf = Vec::new();
+    encoded_content.encode(&mut buf).unwrap();
+
+    let result = decode_actions(buf);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Unable to deserialize")
+    );
+
+    // Year 2800 is > 584 years from now and will overflow i64 nanoseconds
+    let far_future_date = NaiveDate::from_ymd_opt(2800, 1, 1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap();
+
+    let actions_far_future = Actions {
+        id: "far_future_actions".to_string(),
+        description: "Test far future".to_string(),
+        actions: vec![Action {
+            id: "a1".to_string(),
+            label: "Action 1".to_string(),
+            image_url: None,
+            style: None,
+            expires_at: None,
+        }],
+        expires_at: Some(far_future_date),
+    };
+
+    // Conversion should fail because the timestamp is out of range
+    let result: Result<FfiActions, _> = actions_far_future.try_into();
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("out of valid range")
+    );
+
+    // Test egress: action (not actions) with expiration > 584 years in the future
+    let actions_with_far_future_action = Actions {
+        id: "far_future_action".to_string(),
+        description: "Test far future action".to_string(),
+        actions: vec![Action {
+            id: "a1".to_string(),
+            label: "Action 1".to_string(),
+            image_url: None,
+            style: None,
+            expires_at: Some(far_future_date),
+        }],
+        expires_at: None,
+    };
+
+    // Conversion should fail because one of the actions has an out-of-range timestamp
+    let result: Result<FfiActions, _> = actions_with_far_future_action.try_into();
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("out of valid range")
+    );
+}
