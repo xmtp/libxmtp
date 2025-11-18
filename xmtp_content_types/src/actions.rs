@@ -77,19 +77,19 @@ impl ContentCodec<Actions> for ActionsCodec {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct Actions {
-    id: String,
-    description: String,
-    actions: Vec<Action>,
-    expires_at: Option<NaiveDateTime>,
+    pub id: String,
+    pub description: String,
+    pub actions: Vec<Action>,
+    pub expires_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct Action {
-    id: String,
-    label: String,
-    image_url: Option<String>,
-    style: Option<ActionStyle>,
-    expires_at: Option<NaiveDateTime>,
+    pub id: String,
+    pub label: String,
+    pub image_url: Option<String>,
+    pub style: Option<ActionStyle>,
+    pub expires_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]

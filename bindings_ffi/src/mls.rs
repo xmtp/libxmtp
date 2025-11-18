@@ -2,7 +2,9 @@ use crate::fork_recovery::FfiForkRecoveryOpts;
 use crate::identity::{FfiCollectionExt, FfiCollectionTryExt, FfiIdentifier};
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
-use crate::message::{FfiDecodedMessage, FfiDeliveryStatus, FfiReactionPayload};
+use crate::message::{
+    FfiActions, FfiDecodedMessage, FfiDeliveryStatus, FfiIntent, FfiReactionPayload,
+};
 use crate::worker::FfiSyncWorker;
 use crate::worker::FfiSyncWorkerMode;
 use crate::{FfiReply, FfiSubscribeError, GenericError};
@@ -14,8 +16,10 @@ use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_d14n::{ClientBundle, MessageBackendBuilder};
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
+use xmtp_content_types::actions::{Actions, ActionsCodec};
 use xmtp_content_types::attachment::Attachment;
 use xmtp_content_types::attachment::AttachmentCodec;
+use xmtp_content_types::intent::{Intent, IntentCodec};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::read_receipt::ReadReceipt;
@@ -2961,6 +2965,62 @@ pub fn decode_remote_attachment(bytes: Vec<u8>) -> Result<FfiRemoteAttachment, G
     RemoteAttachmentCodec::decode(encoded_content)
         .map(Into::into)
         .map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
+// Intent FFI encode/decode functions
+
+#[uniffi::export]
+pub fn encode_intent(intent: FfiIntent) -> Result<Vec<u8>, GenericError> {
+    let intent: Intent = intent.try_into()?;
+
+    let encoded =
+        IntentCodec::encode(intent).map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_intent(bytes: Vec<u8>) -> Result<FfiIntent, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let intent = IntentCodec::decode(encoded_content)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    intent.try_into()
+}
+
+// Actions FFI encode/decode functions
+
+#[uniffi::export]
+pub fn encode_actions(actions: FfiActions) -> Result<Vec<u8>, GenericError> {
+    let actions: Actions = actions.into();
+
+    let encoded =
+        ActionsCodec::encode(actions).map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_actions(bytes: Vec<u8>) -> Result<FfiActions, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let actions = ActionsCodec::decode(encoded_content)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    actions.try_into()
 }
 
 #[derive(uniffi::Record, Clone)]

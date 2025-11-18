@@ -1,8 +1,10 @@
 use napi_derive::napi;
 use xmtp_mls::messages::decoded_message::MessageBody;
 
+use super::actions::Actions;
 use super::attachment::Attachment;
 use super::group_updated::GroupUpdated;
+use super::intent::Intent;
 use super::multi_remote_attachment::MultiRemoteAttachmentPayload;
 use super::reaction::ReactionPayload;
 use super::read_receipt::ReadReceipt;
@@ -25,6 +27,8 @@ pub struct DecodedMessageBody {
   pub group_updated_content: Option<GroupUpdated>,
   pub read_receipt_content: Option<ReadReceipt>,
   pub wallet_send_calls_content: Option<WalletSendCalls>,
+  pub intent_content: Option<Intent>,
+  pub actions_content: Option<Actions>,
   pub delete_message_content: Option<bool>,
   pub deleted_message_content: Option<bool>,
   pub custom_content: Option<EncodedContent>,
@@ -42,6 +46,8 @@ impl From<MessageBody> for DecodedMessageBody {
       group_updated_content: None,
       read_receipt_content: None,
       wallet_send_calls_content: None,
+      intent_content: None,
+      actions_content: None,
       delete_message_content: None,
       deleted_message_content: None,
       custom_content: None,
@@ -61,6 +67,19 @@ impl From<MessageBody> for DecodedMessageBody {
       MessageBody::GroupUpdated(gu) => result.group_updated_content = Some(gu.into()),
       MessageBody::ReadReceipt(rr) => result.read_receipt_content = Some(rr.into()),
       MessageBody::WalletSendCalls(wsc) => result.wallet_send_calls_content = Some(wsc.into()),
+      MessageBody::Intent(intent) => result.intent_content = intent.map(Into::into),
+      MessageBody::Actions(actions) => {
+        result.actions_content = match actions {
+          Some(actions) => match actions.try_into() {
+            Ok(actions) => Some(actions),
+            Err(e) => {
+              tracing::error!("Failed to convert Actions: {}", e);
+              None
+            }
+          },
+          None => None,
+        };
+      }
       MessageBody::DeleteMessage(_) => result.delete_message_content = Some(true),
       MessageBody::DeletedMessage { .. } => result.deleted_message_content = Some(true),
       MessageBody::Custom(c) => result.custom_content = Some(c.into()),

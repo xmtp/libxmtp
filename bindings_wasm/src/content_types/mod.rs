@@ -1,9 +1,11 @@
 use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_db::group_message::ContentType as XmtpContentType;
 
+pub mod actions;
 pub mod attachment;
 pub mod decoded_message_content;
 pub mod group_updated;
+pub mod intent;
 pub mod multi_remote_attachment;
 pub mod reaction;
 pub mod read_receipt;
