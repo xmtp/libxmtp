@@ -623,4 +623,69 @@ mod tests {
             panic!("Expected reply message");
         }
     }
+
+    #[tokio::test]
+    async fn test_find_messages_reply_to_attachment() {
+        let (group, context) = setup_test_group().await;
+        let conn = context.db();
+
+        // Store an attachment message
+        let attachment_id = vec![1, 2, 3];
+        let attachment_id_hex = attachment_id.encode_hex();
+        create_and_store_message(
+            &conn,
+            &group.group_id,
+            attachment_id.clone(),
+            TestContentGenerator::attachment_content("test.pdf", b"file contents".to_vec()),
+            0,
+            "sender1",
+        );
+
+        // Store a reply to the attachment with text content
+        let reply_id = create_and_store_message(
+            &conn,
+            &group.group_id,
+            vec![4, 5, 6],
+            TestContentGenerator::reply_content(
+                &attachment_id_hex,
+                TextCodec::content_type(),
+                b"Reply text content".to_vec(),
+            ),
+            1000,
+            "replier1",
+        );
+
+        // Query messages
+        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+
+        assert_message_count(&messages, 2);
+
+        // Find the reply message and verify it references the attachment
+        let reply_msg = find_message_by_id(&messages, &reply_id);
+        assert_reply_references(reply_msg, &attachment_id);
+
+        // Verify the reply's text content is preserved
+        if let MessageBody::Reply(reply) = &reply_msg.content {
+            // Verify we have a reference to the attachment
+            let referenced_msg = reply.in_reply_to.as_ref().unwrap();
+            assert_eq!(referenced_msg.metadata.id, attachment_id);
+
+            // Verify the referenced message is an attachment
+            if let MessageBody::Attachment(attachment) = &referenced_msg.content {
+                assert_eq!(attachment.filename, Some("test.pdf".to_string()));
+                assert_eq!(attachment.content, b"file contents".to_vec());
+            } else {
+                panic!("Expected attachment content in referenced message");
+            }
+
+            // Verify the reply text content is still accessible
+            if let MessageBody::Text(text) = reply.content.as_ref() {
+                assert_eq!(text.content, "Reply text content");
+            } else {
+                panic!("Expected text content in reply");
+            }
+        } else {
+            panic!("Expected reply message");
+        }
+    }
 }
