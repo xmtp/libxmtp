@@ -1,6 +1,12 @@
 use std::collections::HashMap;
 
+use napi::bindgen_prelude::{Result, Uint8Array};
 use napi_derive::napi;
+use prost::Message;
+use xmtp_content_types::{ContentCodec, wallet_send_calls::WalletSendCallsCodec};
+use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+
+use crate::ErrorWrapper;
 
 #[derive(Clone)]
 #[napi(object)]
@@ -18,7 +24,19 @@ impl From<xmtp_content_types::wallet_send_calls::WalletSendCalls> for WalletSend
       version: wsc.version,
       chain_id: wsc.chain_id,
       from: wsc.from,
-      calls: wsc.calls.into_iter().map(|c| c.into()).collect(),
+      calls: wsc.calls.into_iter().map(Into::into).collect(),
+      capabilities: wsc.capabilities,
+    }
+  }
+}
+
+impl From<WalletSendCalls> for xmtp_content_types::wallet_send_calls::WalletSendCalls {
+  fn from(wsc: WalletSendCalls) -> Self {
+    Self {
+      version: wsc.version,
+      chain_id: wsc.chain_id,
+      from: wsc.from,
+      calls: wsc.calls.into_iter().map(Into::into).collect(),
       capabilities: wsc.capabilities,
     }
   }
@@ -41,7 +59,19 @@ impl From<xmtp_content_types::wallet_send_calls::WalletCall> for WalletCall {
       data: call.data,
       value: call.value,
       gas: call.gas,
-      metadata: call.metadata.map(|m| m.into()),
+      metadata: call.metadata.map(Into::into),
+    }
+  }
+}
+
+impl From<WalletCall> for xmtp_content_types::wallet_send_calls::WalletCall {
+  fn from(call: WalletCall) -> Self {
+    Self {
+      to: call.to,
+      data: call.data,
+      value: call.value,
+      gas: call.gas,
+      metadata: call.metadata.map(Into::into),
     }
   }
 }
@@ -62,4 +92,39 @@ impl From<xmtp_content_types::wallet_send_calls::WalletCallMetadata> for WalletC
       extra: meta.extra,
     }
   }
+}
+
+impl From<WalletCallMetadata> for xmtp_content_types::wallet_send_calls::WalletCallMetadata {
+  fn from(meta: WalletCallMetadata) -> Self {
+    Self {
+      description: meta.description,
+      transaction_type: meta.transaction_type,
+      extra: meta.extra,
+    }
+  }
+}
+
+#[napi]
+pub fn encode_wallet_send_calls(wallet_send_calls: WalletSendCalls) -> Result<Uint8Array> {
+  // Use WalletSendCallsCodec to encode the wallet send calls
+  let encoded =
+    WalletSendCallsCodec::encode(wallet_send_calls.into()).map_err(ErrorWrapper::from)?;
+
+  // Encode the EncodedContent to bytes
+  let mut buf = Vec::new();
+  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
+
+  Ok(buf.into())
+}
+
+#[napi]
+pub fn decode_wallet_send_calls(bytes: Uint8Array) -> Result<WalletSendCalls> {
+  // Decode bytes into EncodedContent
+  let encoded_content =
+    EncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
+
+  // Use WalletSendCallsCodec to decode into WalletSendCalls and convert to WalletSendCalls
+  WalletSendCallsCodec::decode(encoded_content)
+    .map(Into::into)
+    .map_err(|e| napi::Error::from_reason(e.to_string()))
 }

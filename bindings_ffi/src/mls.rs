@@ -7,7 +7,7 @@ use crate::message::{
 };
 use crate::worker::FfiSyncWorker;
 use crate::worker::FfiSyncWorkerMode;
-use crate::{FfiGroupUpdated, FfiReply, FfiSubscribeError, GenericError};
+use crate::{FfiGroupUpdated, FfiReply, FfiSubscribeError, FfiWalletSendCalls, GenericError};
 use futures::future::try_join_all;
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
@@ -32,6 +32,7 @@ use xmtp_content_types::reply::ReplyCodec;
 use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::transaction_reference::TransactionReference;
 use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
+use xmtp_content_types::wallet_send_calls::{WalletSendCalls, WalletSendCallsCodec};
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
 use xmtp_db::NativeDb;
 use xmtp_db::group::DmIdExt;
@@ -3105,6 +3106,31 @@ pub fn decode_text(bytes: Vec<u8>) -> Result<String, GenericError> {
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;
 
     TextCodec::decode(encoded_content).map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
+#[uniffi::export]
+pub fn encode_wallet_send_calls(
+    wallet_send_calls: FfiWalletSendCalls,
+) -> Result<Vec<u8>, GenericError> {
+    let encoded = WalletSendCallsCodec::encode(wallet_send_calls.into())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_wallet_send_calls(bytes: Vec<u8>) -> Result<FfiWalletSendCalls, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    WalletSendCallsCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
 }
 
 #[derive(uniffi::Record, Clone)]
