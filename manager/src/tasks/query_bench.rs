@@ -84,9 +84,45 @@ impl DbBencher {
         if let Err(err) = self.bench_message_queries() {
             tracing::error!("bench_message_queries: {err:?}");
         };
-        dbg!(&self.measurements);
+
+        self.print_results();
 
         Ok(())
+    }
+
+    fn print_results(&self) {
+        // Sort measurements by execution time (greatest to least)
+        let mut sorted_measurements: Vec<_> = self.measurements.iter().collect();
+        sorted_measurements.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
+
+        println!("\n{}", "=".repeat(80));
+        println!("{:^80}", "Database Benchmark Results");
+        println!("{}", "=".repeat(80));
+        println!("{:<50} {:>15} {:>10}", "Query", "Time (ms)", "Relative");
+        println!("{}", "-".repeat(80));
+
+        let max_time = sorted_measurements.first().map(|(_, t)| **t).unwrap_or(1.0);
+
+        for (query, time_ms) in sorted_measurements.into_iter() {
+            let relative = time_ms / max_time;
+            let bar_length = (relative * 30.0) as usize;
+            let bar = "█".repeat(bar_length);
+
+            println!(
+                "{:<50} {:>12.3} ms {:>7.1}% {}",
+                query,
+                time_ms,
+                relative * 100.0,
+                bar
+            );
+        }
+
+        println!("{}", "=".repeat(80));
+        println!(
+            "Total queries benchmarked: {} | Average time: {:.3} ms\n",
+            self.measurements.len(),
+            self.measurements.values().sum::<f32>() / self.measurements.len() as f32
+        );
     }
 
     pub fn bench_message_queries(&mut self) -> Result<()> {
