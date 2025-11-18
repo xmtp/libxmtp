@@ -128,23 +128,6 @@ impl From<MetadataFieldChange>
   }
 }
 
-#[wasm_bindgen(js_name = "encodeGroupUpdated")]
-pub fn encode_group_updated(
-  #[wasm_bindgen(js_name = "groupUpdated")] group_updated: GroupUpdated,
-) -> Result<Uint8Array, JsError> {
-  // Use GroupUpdatedCodec to encode the GroupUpdated
-  let encoded =
-    GroupUpdatedCodec::encode(group_updated.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
-  let mut buf = Vec::new();
-
-  // Encode the EncodedContent to bytes
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
-}
-
 #[wasm_bindgen(js_name = "decodeGroupUpdated")]
 pub fn decode_group_updated(bytes: Uint8Array) -> Result<GroupUpdated, JsError> {
   // Decode bytes into EncodedContent

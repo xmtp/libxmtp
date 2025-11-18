@@ -993,6 +993,18 @@ async fn test_actions_codec() {
 
 #[tokio::test]
 async fn test_group_updated_codec() {
+    fn encode_group_updated(group_updated: FfiGroupUpdated) -> Result<Vec<u8>, GenericError> {
+        let encoded = GroupUpdatedCodec::encode(group_updated.into())
+            .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+        let mut buf = Vec::new();
+        encoded
+            .encode(&mut buf)
+            .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+        Ok(buf)
+    }
+
     // Test basic roundtrip with typical data
     let basic = FfiGroupUpdated {
         initiated_by_inbox_id: "inbox_123".to_string(),
@@ -1025,7 +1037,10 @@ async fn test_group_updated_codec() {
     let decoded = decode_group_updated(encoded).unwrap();
     assert_eq!(decoded.initiated_by_inbox_id, basic.initiated_by_inbox_id);
     assert_eq!(decoded.added_inboxes.len(), 2);
-    assert_eq!(decoded.added_inboxes[0].inbox_id, basic.added_inboxes[0].inbox_id);
+    assert_eq!(
+        decoded.added_inboxes[0].inbox_id,
+        basic.added_inboxes[0].inbox_id
+    );
     assert_eq!(decoded.removed_inboxes.len(), 1);
     assert_eq!(decoded.metadata_field_changes.len(), 2);
 
@@ -1063,8 +1078,14 @@ async fn test_group_updated_codec() {
     let encoded = encode_group_updated(with_left.clone()).unwrap();
     let decoded = decode_group_updated(encoded).unwrap();
     assert_eq!(decoded.left_inboxes.len(), 2);
-    assert_eq!(decoded.left_inboxes[0].inbox_id, with_left.left_inboxes[0].inbox_id);
-    assert_eq!(decoded.left_inboxes[1].inbox_id, with_left.left_inboxes[1].inbox_id);
+    assert_eq!(
+        decoded.left_inboxes[0].inbox_id,
+        with_left.left_inboxes[0].inbox_id
+    );
+    assert_eq!(
+        decoded.left_inboxes[1].inbox_id,
+        with_left.left_inboxes[1].inbox_id
+    );
 
     // Test metadata changes with various null value combinations
     let with_metadata = FfiGroupUpdated {
@@ -1102,12 +1123,24 @@ async fn test_group_updated_codec() {
     let encoded = encode_group_updated(with_metadata.clone()).unwrap();
     let decoded = decode_group_updated(encoded).unwrap();
     assert_eq!(decoded.metadata_field_changes.len(), 4);
-    assert_eq!(decoded.metadata_field_changes[0].old_value, Some("old value".to_string()));
+    assert_eq!(
+        decoded.metadata_field_changes[0].old_value,
+        Some("old value".to_string())
+    );
     assert_eq!(decoded.metadata_field_changes[0].new_value, None);
     assert_eq!(decoded.metadata_field_changes[1].old_value, None);
-    assert_eq!(decoded.metadata_field_changes[1].new_value, Some("new value".to_string()));
-    assert_eq!(decoded.metadata_field_changes[2].old_value, Some("before".to_string()));
-    assert_eq!(decoded.metadata_field_changes[2].new_value, Some("after".to_string()));
+    assert_eq!(
+        decoded.metadata_field_changes[1].new_value,
+        Some("new value".to_string())
+    );
+    assert_eq!(
+        decoded.metadata_field_changes[2].old_value,
+        Some("before".to_string())
+    );
+    assert_eq!(
+        decoded.metadata_field_changes[2].new_value,
+        Some("after".to_string())
+    );
     assert_eq!(decoded.metadata_field_changes[3].old_value, None);
     assert_eq!(decoded.metadata_field_changes[3].new_value, None);
 
@@ -1165,9 +1198,18 @@ async fn test_group_updated_codec() {
         assert_eq!(inbox.inbox_id, complex.added_inboxes[i].inbox_id);
     }
     for (i, change) in decoded.metadata_field_changes.iter().enumerate() {
-        assert_eq!(change.field_name, complex.metadata_field_changes[i].field_name);
-        assert_eq!(change.old_value, complex.metadata_field_changes[i].old_value);
-        assert_eq!(change.new_value, complex.metadata_field_changes[i].new_value);
+        assert_eq!(
+            change.field_name,
+            complex.metadata_field_changes[i].field_name
+        );
+        assert_eq!(
+            change.old_value,
+            complex.metadata_field_changes[i].old_value
+        );
+        assert_eq!(
+            change.new_value,
+            complex.metadata_field_changes[i].new_value
+        );
     }
 
     // Test decoding invalid bytes

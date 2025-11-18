@@ -121,18 +121,6 @@ impl From<MetadataFieldChange>
 }
 
 #[napi]
-pub fn encode_group_updated(updated: GroupUpdated) -> Result<Uint8Array> {
-  // Use GroupUpdatedCodec to encode the GroupUpdated
-  let encoded = GroupUpdatedCodec::encode(updated.into()).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(buf.into())
-}
-
-#[napi]
 pub fn decode_group_updated(bytes: Uint8Array) -> Result<GroupUpdated> {
   // Decode bytes into EncodedContent
   let encoded = EncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;

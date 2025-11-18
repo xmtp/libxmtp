@@ -3065,19 +3065,6 @@ pub fn decode_actions(bytes: Vec<u8>) -> Result<FfiActions, GenericError> {
 }
 
 #[uniffi::export]
-pub fn encode_group_updated(group_updated: FfiGroupUpdated) -> Result<Vec<u8>, GenericError> {
-    let encoded = GroupUpdatedCodec::encode(group_updated.into())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    let mut buf = Vec::new();
-    encoded
-        .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
-
-    Ok(buf)
-}
-
-#[uniffi::export]
 pub fn decode_group_updated(bytes: Vec<u8>) -> Result<FfiGroupUpdated, GenericError> {
     let encoded_content = EncodedContent::decode(bytes.as_slice())
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;
