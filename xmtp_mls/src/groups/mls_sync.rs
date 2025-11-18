@@ -47,7 +47,7 @@ use xmtp_db::{
     events::EventLevel,
     group::{ConversationType, StoredGroup},
     group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
-    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    group_message::{ContentType, Deletable, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
     message_deletion::StoredMessageDeletion,
     remote_commit_log::CommitResult,
     sql_key_store,
@@ -1279,10 +1279,8 @@ where
         storage: &impl XmtpMlsStorageProvider,
         message: &StoredGroupMessage,
     ) -> Result<(), GroupMessageProcessingError> {
-        // First decode the EncodedContent wrapper
         let encoded_content = EncodedContent::decode(message.decrypted_message_bytes.as_slice())?;
 
-        // Then decode the DeleteMessage from the content field
         let delete_msg = DeleteMessage::decode(encoded_content.content.as_slice())?;
 
         let target_message_id = hex::decode(&delete_msg.message_id)
@@ -1303,19 +1301,39 @@ where
             return Ok(());
         }
 
-        let is_authorized = if let Some(ref original_msg) = original_msg_opt {
-            // Check if sender matches the original message sender
-            if original_msg.sender_inbox_id == message.sender_inbox_id {
-                true
-            } else {
-                // Check if sender is a super admin at the time of deletion
-                self.is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
-                    .unwrap_or(false)
+        if let Some(ref original_msg) = original_msg_opt {
+            // Cannot delete non-deletable messages (system messages, metadata, transcript messages)
+            if !original_msg.kind.is_deletable() || !original_msg.content_type.is_deletable() {
+                tracing::warn!(
+                    "Attempted to delete non-deletable message {} (kind: {:?}, content_type: {:?})",
+                    delete_msg.message_id,
+                    original_msg.kind,
+                    original_msg.content_type
+                );
+                return Ok(());
             }
+        }
+
+        // Determine sender status and authorization
+        // Check if the deleter is the original sender
+        let is_sender = original_msg_opt
+            .as_ref()
+            .map(|msg| msg.sender_inbox_id == message.sender_inbox_id)
+            .unwrap_or(false);
+
+        // Determine if this is a super admin deletion
+        // It's only a super admin deletion if:
+        // 1. The deleter is a super admin, AND
+        // 2. The deleter is NOT the original sender (deleting someone else's message)
+        let is_super_admin_deletion = if is_sender {
+            false
         } else {
             self.is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
                 .unwrap_or(false)
         };
+
+        // Authorization check: must be either the original sender OR a super admin
+        let is_authorized = is_sender || is_super_admin_deletion;
 
         if !is_authorized {
             tracing::warn!(
@@ -1325,42 +1343,6 @@ where
             );
             return Ok(());
         }
-
-        if let Some(ref original_msg) = original_msg_opt {
-            // Cannot delete transcript messages or membership changes
-            if original_msg.kind == GroupMessageKind::MembershipChange {
-                tracing::warn!(
-                    "Attempted to delete membership change message {}",
-                    delete_msg.message_id
-                );
-                return Ok(());
-            }
-
-            // Cannot delete GroupUpdated messages
-            if original_msg.content_type == ContentType::GroupUpdated {
-                tracing::warn!(
-                    "Attempted to delete GroupUpdated message {}",
-                    delete_msg.message_id
-                );
-                return Ok(());
-            }
-        }
-
-        // Determine if this is a super admin deletion
-        // It's only a super admin deletion if:
-        // 1. The deleter is a super admin, AND
-        // 2. The deleter is NOT the original sender (deleting someone else's message)
-        let is_sender = original_msg_opt
-            .as_ref()
-            .map(|msg| msg.sender_inbox_id == message.sender_inbox_id)
-            .unwrap_or(false);
-
-        let is_super_admin_deletion = if is_sender {
-            false
-        } else {
-            self.is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
-                .unwrap_or(false)
-        };
 
         // Store the deletion record (or ignore if already exists)
         let deletion = StoredMessageDeletion {
