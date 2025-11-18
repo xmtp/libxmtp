@@ -990,3 +990,188 @@ async fn test_actions_codec() {
             .contains("out of valid range")
     );
 }
+
+#[tokio::test]
+async fn test_group_updated_codec() {
+    // Test basic roundtrip with typical data
+    let basic = FfiGroupUpdated {
+        initiated_by_inbox_id: "inbox_123".to_string(),
+        added_inboxes: vec![
+            FfiInbox {
+                inbox_id: "inbox_456".to_string(),
+            },
+            FfiInbox {
+                inbox_id: "inbox_789".to_string(),
+            },
+        ],
+        removed_inboxes: vec![FfiInbox {
+            inbox_id: "inbox_000".to_string(),
+        }],
+        left_inboxes: vec![],
+        metadata_field_changes: vec![
+            FfiMetadataFieldChange {
+                field_name: "group_name".to_string(),
+                old_value: Some("Old Name".to_string()),
+                new_value: Some("New Name".to_string()),
+            },
+            FfiMetadataFieldChange {
+                field_name: "description".to_string(),
+                old_value: None,
+                new_value: Some("Added description".to_string()),
+            },
+        ],
+    };
+    let encoded = encode_group_updated(basic.clone()).unwrap();
+    let decoded = decode_group_updated(encoded).unwrap();
+    assert_eq!(decoded.initiated_by_inbox_id, basic.initiated_by_inbox_id);
+    assert_eq!(decoded.added_inboxes.len(), 2);
+    assert_eq!(decoded.added_inboxes[0].inbox_id, basic.added_inboxes[0].inbox_id);
+    assert_eq!(decoded.removed_inboxes.len(), 1);
+    assert_eq!(decoded.metadata_field_changes.len(), 2);
+
+    // Test with minimal data - all lists empty
+    let minimal = FfiGroupUpdated {
+        initiated_by_inbox_id: "initiator_inbox".to_string(),
+        added_inboxes: vec![],
+        removed_inboxes: vec![],
+        left_inboxes: vec![],
+        metadata_field_changes: vec![],
+    };
+    let encoded = encode_group_updated(minimal.clone()).unwrap();
+    let decoded = decode_group_updated(encoded).unwrap();
+    assert_eq!(decoded.initiated_by_inbox_id, minimal.initiated_by_inbox_id);
+    assert_eq!(decoded.added_inboxes.len(), 0);
+    assert_eq!(decoded.removed_inboxes.len(), 0);
+    assert_eq!(decoded.left_inboxes.len(), 0);
+    assert_eq!(decoded.metadata_field_changes.len(), 0);
+
+    // Test with members leaving
+    let with_left = FfiGroupUpdated {
+        initiated_by_inbox_id: "inbox_admin".to_string(),
+        added_inboxes: vec![],
+        removed_inboxes: vec![],
+        left_inboxes: vec![
+            FfiInbox {
+                inbox_id: "inbox_left_1".to_string(),
+            },
+            FfiInbox {
+                inbox_id: "inbox_left_2".to_string(),
+            },
+        ],
+        metadata_field_changes: vec![],
+    };
+    let encoded = encode_group_updated(with_left.clone()).unwrap();
+    let decoded = decode_group_updated(encoded).unwrap();
+    assert_eq!(decoded.left_inboxes.len(), 2);
+    assert_eq!(decoded.left_inboxes[0].inbox_id, with_left.left_inboxes[0].inbox_id);
+    assert_eq!(decoded.left_inboxes[1].inbox_id, with_left.left_inboxes[1].inbox_id);
+
+    // Test metadata changes with various null value combinations
+    let with_metadata = FfiGroupUpdated {
+        initiated_by_inbox_id: "inbox_initiator".to_string(),
+        added_inboxes: vec![],
+        removed_inboxes: vec![],
+        left_inboxes: vec![],
+        metadata_field_changes: vec![
+            // Field removed (had value, now null)
+            FfiMetadataFieldChange {
+                field_name: "removed_field".to_string(),
+                old_value: Some("old value".to_string()),
+                new_value: None,
+            },
+            // Field added (was null, now has value)
+            FfiMetadataFieldChange {
+                field_name: "added_field".to_string(),
+                old_value: None,
+                new_value: Some("new value".to_string()),
+            },
+            // Field changed (both values present)
+            FfiMetadataFieldChange {
+                field_name: "changed_field".to_string(),
+                old_value: Some("before".to_string()),
+                new_value: Some("after".to_string()),
+            },
+            // Both null (edge case)
+            FfiMetadataFieldChange {
+                field_name: "null_field".to_string(),
+                old_value: None,
+                new_value: None,
+            },
+        ],
+    };
+    let encoded = encode_group_updated(with_metadata.clone()).unwrap();
+    let decoded = decode_group_updated(encoded).unwrap();
+    assert_eq!(decoded.metadata_field_changes.len(), 4);
+    assert_eq!(decoded.metadata_field_changes[0].old_value, Some("old value".to_string()));
+    assert_eq!(decoded.metadata_field_changes[0].new_value, None);
+    assert_eq!(decoded.metadata_field_changes[1].old_value, None);
+    assert_eq!(decoded.metadata_field_changes[1].new_value, Some("new value".to_string()));
+    assert_eq!(decoded.metadata_field_changes[2].old_value, Some("before".to_string()));
+    assert_eq!(decoded.metadata_field_changes[2].new_value, Some("after".to_string()));
+    assert_eq!(decoded.metadata_field_changes[3].old_value, None);
+    assert_eq!(decoded.metadata_field_changes[3].new_value, None);
+
+    // Test with all fields populated
+    let complex = FfiGroupUpdated {
+        initiated_by_inbox_id: "admin_inbox_id".to_string(),
+        added_inboxes: vec![
+            FfiInbox {
+                inbox_id: "new_member_1".to_string(),
+            },
+            FfiInbox {
+                inbox_id: "new_member_2".to_string(),
+            },
+            FfiInbox {
+                inbox_id: "new_member_3".to_string(),
+            },
+        ],
+        removed_inboxes: vec![FfiInbox {
+            inbox_id: "removed_member_1".to_string(),
+        }],
+        left_inboxes: vec![
+            FfiInbox {
+                inbox_id: "left_member_1".to_string(),
+            },
+            FfiInbox {
+                inbox_id: "left_member_2".to_string(),
+            },
+        ],
+        metadata_field_changes: vec![
+            FfiMetadataFieldChange {
+                field_name: "group_name".to_string(),
+                old_value: Some("Old Group Name".to_string()),
+                new_value: Some("New Group Name".to_string()),
+            },
+            FfiMetadataFieldChange {
+                field_name: "group_image_url".to_string(),
+                old_value: Some("https://old-image.com/image.png".to_string()),
+                new_value: Some("https://new-image.com/image.png".to_string()),
+            },
+            FfiMetadataFieldChange {
+                field_name: "description".to_string(),
+                old_value: None,
+                new_value: Some("A new description was added".to_string()),
+            },
+        ],
+    };
+    let encoded = encode_group_updated(complex.clone()).unwrap();
+    let decoded = decode_group_updated(encoded).unwrap();
+    assert_eq!(decoded.initiated_by_inbox_id, complex.initiated_by_inbox_id);
+    assert_eq!(decoded.added_inboxes.len(), 3);
+    assert_eq!(decoded.removed_inboxes.len(), 1);
+    assert_eq!(decoded.left_inboxes.len(), 2);
+    assert_eq!(decoded.metadata_field_changes.len(), 3);
+    for (i, inbox) in decoded.added_inboxes.iter().enumerate() {
+        assert_eq!(inbox.inbox_id, complex.added_inboxes[i].inbox_id);
+    }
+    for (i, change) in decoded.metadata_field_changes.iter().enumerate() {
+        assert_eq!(change.field_name, complex.metadata_field_changes[i].field_name);
+        assert_eq!(change.old_value, complex.metadata_field_changes[i].old_value);
+        assert_eq!(change.new_value, complex.metadata_field_changes[i].new_value);
+    }
+
+    // Test decoding invalid bytes
+    let invalid_bytes = vec![0xFF, 0xFF, 0xFF, 0xFF];
+    let result = decode_group_updated(invalid_bytes);
+    assert!(result.is_err());
+}
