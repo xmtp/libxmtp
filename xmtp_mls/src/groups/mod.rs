@@ -721,6 +721,8 @@ where
             originator_id: 0,
             expire_at_ns: None,
             inserted_at_ns: 0, // Will be set by database
+            // we haven't published it yet
+            published_in_epoch: None,
         };
         group_message.store(&self.context.db())?;
 

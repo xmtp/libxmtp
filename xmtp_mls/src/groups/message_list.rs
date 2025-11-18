@@ -89,6 +89,7 @@ mod tests {
             originator_id: Originators::APPLICATION_MESSAGES.into(),
             expire_at_ns: None,
             inserted_at_ns: 0,
+            published_in_epoch: None,
         }
     }
 
@@ -132,6 +133,7 @@ mod tests {
             originator_id: Originators::APPLICATION_MESSAGES.into(),
             expire_at_ns: None,
             inserted_at_ns: 0,
+            published_in_epoch: None,
         }
     }
 

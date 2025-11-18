@@ -744,6 +744,8 @@ where
         );
 
         if let Some((staged_commit, validated_commit)) = commit {
+            let before_commit_applied_epoch = mls_group.epoch().as_u64();
+
             tracing::info!(
                 "[{}] merging pending commit for intent {}",
                 self.context.inbox_id(),
@@ -799,6 +801,7 @@ where
                     envelope_timestamp_ns as u64,
                     *cursor,
                     storage,
+                    before_commit_applied_epoch,
                 )
                 .map_err(|err| IntentResolutionError {
                     processing_error: err,
@@ -1083,6 +1086,7 @@ where
                             originator_id: cursor.originator_id as i64,
                             expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                             inserted_at_ns: 0, // Will be set by database
+                            published_in_epoch: Some(msg_epoch as i64),
                         };
                         message.store_or_ignore(&storage.db())?;
                         // make sure internal id is on return type after its stored successfully
@@ -1132,7 +1136,7 @@ where
                 let staged_commit = *staged_commit;
                 let validated_commit =
                     validated_commit.expect("Needs to be present when this is a staged commit");
-
+                let before_commit_apply_epoch = mls_group.epoch().as_u64();
                 tracing::info!(
                     inbox_id = self.context.inbox_id(),
                     sender_inbox_id = sender_inbox_id,
@@ -1195,6 +1199,7 @@ where
                     envelope_timestamp_ns as u64,
                     *cursor,
                     storage,
+                    before_commit_apply_epoch,
                 )?;
 
                 // remove left/removed members from the pending_remove list
@@ -1953,6 +1958,7 @@ where
         timestamp_ns: u64,
         cursor: Cursor,
         storage: &impl XmtpMlsStorageProvider,
+        published_in_epoch: u64,
     ) -> Result<Option<StoredGroupMessage>, GroupMessageProcessingError> {
         if validated_commit.is_empty() {
             return Ok(None);
@@ -2012,6 +2018,7 @@ where
             originator_id: cursor.originator_id as i64,
             expire_at_ns: None,
             inserted_at_ns: 0, // Will be set by database
+            published_in_epoch: Some(published_in_epoch as i64),
         };
         msg.store_or_ignore(&storage.db())?;
         Ok(Some(msg))

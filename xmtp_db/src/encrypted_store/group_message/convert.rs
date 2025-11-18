@@ -32,6 +32,7 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
                 .unwrap_or(Originators::APPLICATION_MESSAGES.into()),
             expire_at_ns: None,
             inserted_at_ns: 0, // Will be set by database
+            published_in_epoch: value.published_in_epoch,
         })
     }
 }
@@ -109,6 +110,7 @@ impl From<StoredGroupMessage> for GroupMessageSave {
             reference_id: value.reference_id,
             sequence_id: Some(value.sequence_id),
             originator_id: Some(value.originator_id),
+            published_in_epoch: value.published_in_epoch,
         }
     }
 }

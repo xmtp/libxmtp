@@ -808,6 +808,7 @@ mod tests {
       originator_id: 0,
       sequence_id: 0,
       expire_at_ns: None,
+      published_in_epoch: None,
     };
     crate::to_value(&stored_message).unwrap();
   }

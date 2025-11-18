@@ -128,5 +128,6 @@ pub fn generate_stored_msg(cursor: Cursor, group_id: Vec<u8>) -> StoredGroupMess
         originator_id: cursor.originator_id as i64,
         expire_at_ns: None,
         inserted_at_ns: 0,
+        published_in_epoch: None,
     }
 }

@@ -31,6 +31,7 @@ pub(crate) fn generate_message(
         originator_id: 0,
         expire_at_ns,
         inserted_at_ns: 0, // Will be set by database
+        published_in_epoch: None,
     }
 }
 
@@ -608,6 +609,7 @@ pub(crate) fn generate_message_with_reference<C: ConnectionExt>(
         originator_id: 0,
         expire_at_ns: None,
         inserted_at_ns: 0, // Will be set by database
+        published_in_epoch: None,
     };
     message.store(conn).unwrap();
     message

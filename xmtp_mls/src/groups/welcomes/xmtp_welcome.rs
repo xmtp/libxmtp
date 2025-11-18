@@ -487,6 +487,9 @@ where
             originator_id: Originators::MLS_COMMITS as i64,
             expire_at_ns: None,
             inserted_at_ns: 0, // Will be set by database
+            // when we get a welcome we join in the epoch we send messages
+            // so the commit the commit the welcome created is the _previous_ epoch
+            published_in_epoch: Some(mls_group.epoch().as_u64() as i64 - 1),
         };
 
         added_msg.store_or_ignore(&db)?;

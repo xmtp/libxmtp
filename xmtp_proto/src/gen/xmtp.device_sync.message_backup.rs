@@ -32,6 +32,8 @@ pub struct GroupMessageSave {
     pub sequence_id: ::core::option::Option<i64>,
     #[prost(int64, optional, tag = "15")]
     pub originator_id: ::core::option::Option<i64>,
+    #[prost(int64, optional, tag = "16")]
+    pub published_in_epoch: ::core::option::Option<i64>,
 }
 impl ::prost::Name for GroupMessageSave {
     const NAME: &'static str = "GroupMessageSave";
