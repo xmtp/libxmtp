@@ -1686,11 +1686,12 @@ where
                     cursor = %envelope.cursor,
                     intent_id,
                     intent.kind = %intent.kind,
-                    "client [{}] is about to process own envelope [{}] for intent [{}] [{}]",
+                    "client [{}] is about to process own envelope [{}] for intent [{}] [{}] with current epoch authenticator [{}]",
                     self.context.inbox_id(),
                     envelope.cursor,
                     intent_id,
-                    intent.kind
+                    intent.kind,
+                    hex::encode(mls_group.epoch_authenticator().as_slice())
                 );
 
                 let validation_result = self
@@ -1784,9 +1785,10 @@ where
                     installation_id = %self.context.installation_id(),
                     group_id = hex::encode(&self.group_id),
                     cursor = %envelope.cursor,
-                    "client [{}] is about to process external envelope [{}]",
+                    "client [{}] is about to process external envelope [{}] with current epoch authenticator [{}]",
                     self.context.inbox_id(),
-                    envelope.cursor
+                    envelope.cursor,
+                    hex::encode(mls_group.epoch_authenticator().as_slice())
                 );
                 let identifier = self
                     .validate_and_process_external_message(
@@ -2228,10 +2230,11 @@ where
                             intent.id,
                             intent.kind = %intent.kind,
                             group_id = hex::encode(&self.group_id),
-                            "[{}] set stored intent [{}] with hash [{}] to state `published`",
+                            "[{}] set stored intent [{}] with hash [{}] to state `published` using epoch authenticator [{}]",
                             self.context.inbox_id(),
                             intent.id,
-                            hex::encode(&intent_hash)
+                            hex::encode(&intent_hash),
+                            hex::encode(mls_group.epoch_authenticator().as_slice())
                         );
 
                         let messages = self.prepare_group_messages(vec![(payload_slice, should_send_push_notification)])?;
