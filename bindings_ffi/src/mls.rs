@@ -99,8 +99,8 @@ use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::types::ApiIdentifier;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
-use xmtp_proto::xmtp::mls::message_contents::content_types::{MultiRemoteAttachment, ReactionV2};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+use xmtp_proto::xmtp::mls::message_contents::content_types::{MultiRemoteAttachment, ReactionV2};
 
 // Re-export types from message module that are used in public APIs
 pub use crate::message::{
@@ -3084,6 +3084,27 @@ pub fn decode_group_updated(bytes: Vec<u8>) -> Result<FfiGroupUpdated, GenericEr
     GroupUpdatedCodec::decode(encoded_content)
         .map(Into::into)
         .map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
+#[uniffi::export]
+pub fn encode_text(text: String) -> Result<Vec<u8>, GenericError> {
+    let encoded =
+        TextCodec::encode(text).map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_text(bytes: Vec<u8>) -> Result<String, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    TextCodec::decode(encoded_content).map_err(|e| GenericError::Generic { err: e.to_string() })
 }
 
 #[derive(uniffi::Record, Clone)]

@@ -1175,3 +1175,59 @@ async fn test_group_updated_codec() {
     let result = decode_group_updated(invalid_bytes);
     assert!(result.is_err());
 }
+
+#[tokio::test]
+async fn test_text_codec() {
+    // Test basic text encoding/decoding
+    let basic_text = "Hello, World!".to_string();
+    let encoded = encode_text(basic_text.clone()).unwrap();
+    let decoded = decode_text(encoded).unwrap();
+    assert_eq!(decoded, basic_text);
+
+    // Test empty string
+    let empty_text = "".to_string();
+    let encoded = encode_text(empty_text.clone()).unwrap();
+    let decoded = decode_text(encoded).unwrap();
+    assert_eq!(decoded, empty_text);
+
+    // Test text with unicode characters
+    let unicode_text = "Hello 👋 World 🌍! こんにちは 🎉".to_string();
+    let encoded = encode_text(unicode_text.clone()).unwrap();
+    let decoded = decode_text(encoded).unwrap();
+    assert_eq!(decoded, unicode_text);
+
+    // Test text with newlines and special characters
+    let special_text = "Line 1\nLine 2\tTabbed\r\nWindows newline".to_string();
+    let encoded = encode_text(special_text.clone()).unwrap();
+    let decoded = decode_text(encoded).unwrap();
+    assert_eq!(decoded, special_text);
+
+    // Test long text
+    let long_text = "a".repeat(10000);
+    let encoded = encode_text(long_text.clone()).unwrap();
+    let decoded = decode_text(encoded).unwrap();
+    assert_eq!(decoded, long_text);
+
+    // Test text with various emoji combinations
+    let emoji_text = "😀😃😄😁🥰😍🤩😎🤓🧐".to_string();
+    let encoded = encode_text(emoji_text.clone()).unwrap();
+    let decoded = decode_text(encoded).unwrap();
+    assert_eq!(decoded, emoji_text);
+
+    // Test text with mixed scripts
+    let mixed_script = "English, العربية, 中文, Русский, हिन्दी".to_string();
+    let encoded = encode_text(mixed_script.clone()).unwrap();
+    let decoded = decode_text(encoded).unwrap();
+    assert_eq!(decoded, mixed_script);
+
+    // Test text with control characters
+    let control_chars = "Text with \0 null \x01 and \x1F control chars".to_string();
+    let encoded = encode_text(control_chars.clone()).unwrap();
+    let decoded = decode_text(encoded).unwrap();
+    assert_eq!(decoded, control_chars);
+
+    // Test decoding invalid bytes
+    let invalid_bytes = vec![0xFF, 0xFF, 0xFF, 0xFF];
+    let result = decode_text(invalid_bytes);
+    assert!(result.is_err());
+}
