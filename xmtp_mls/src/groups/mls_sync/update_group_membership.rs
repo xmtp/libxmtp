@@ -1,4 +1,5 @@
 use super::*;
+use xmtp_cryptography::hash::sha256_bytes as sha256;
 use crate::groups::{
     GroupError, build_group_membership_extension,
     intents::{PostCommitAction, UpdateGroupMembershipIntentData},
@@ -97,6 +98,23 @@ async fn compute_publish_data_for_group_membership_update(
 
             let staged_commit = get_and_clear_pending_commit(openmls_group, provider.storage())?
                 .ok_or_else(|| GroupError::MissingPendingCommit)?;
+
+            // Log the epoch, epoch authenticator, and a hash of the commit message at the moment
+            // we construct the post-commit action. This lets us correlate this local operation
+            // with later processing/validation of the same commit on any installation.
+            if let Ok(commit_bytes) = commit.tls_serialize_detached() {
+                let commit_hash = sha256(&commit_bytes);
+                tracing::info!(
+                    "Preparing PostCommitAction for group membership update: epoch = {}, epoch_authenticator = {}, commit_hash = {}",
+                    openmls_group.epoch().as_u64(),
+                    hex::encode(openmls_group.epoch_authenticator().as_slice()),
+                    hex::encode(&commit_hash),
+                );
+            } else {
+                tracing::warn!(
+                    "Preparing PostCommitAction for group membership update: failed to serialize commit for hashing"
+                );
+            }
 
             Ok::<_, GroupError>((commit, post_commit_action, staged_commit))
         })?;
