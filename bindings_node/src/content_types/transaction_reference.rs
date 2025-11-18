@@ -1,4 +1,10 @@
+use napi::bindgen_prelude::{Result, Uint8Array};
 use napi_derive::napi;
+use prost::Message;
+use xmtp_content_types::{ContentCodec, transaction_reference::TransactionReferenceCodec};
+use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+
+use crate::ErrorWrapper;
 
 #[derive(Clone)]
 #[napi(object)]
@@ -17,7 +23,20 @@ impl From<xmtp_content_types::transaction_reference::TransactionReference>
       namespace: tr.namespace,
       network_id: tr.network_id,
       reference: tr.reference,
-      metadata: tr.metadata.map(|m| m.into()),
+      metadata: tr.metadata.map(Into::into),
+    }
+  }
+}
+
+impl From<TransactionReference>
+  for xmtp_content_types::transaction_reference::TransactionReference
+{
+  fn from(tr: TransactionReference) -> Self {
+    Self {
+      namespace: tr.namespace,
+      network_id: tr.network_id,
+      reference: tr.reference,
+      metadata: tr.metadata.map(Into::into),
     }
   }
 }
@@ -44,4 +63,44 @@ impl From<xmtp_content_types::transaction_reference::TransactionMetadata> for Tr
       to_address: meta.to_address,
     }
   }
+}
+
+impl From<TransactionMetadata> for xmtp_content_types::transaction_reference::TransactionMetadata {
+  fn from(meta: TransactionMetadata) -> Self {
+    Self {
+      transaction_type: meta.transaction_type,
+      currency: meta.currency,
+      amount: meta.amount,
+      decimals: meta.decimals,
+      from_address: meta.from_address,
+      to_address: meta.to_address,
+    }
+  }
+}
+
+#[napi]
+pub fn encode_transaction_reference(
+  transaction_reference: TransactionReference,
+) -> Result<Uint8Array> {
+  // Use TransactionReferenceCodec to encode the transaction reference
+  let encoded =
+    TransactionReferenceCodec::encode(transaction_reference.into()).map_err(ErrorWrapper::from)?;
+
+  // Encode the EncodedContent to bytes
+  let mut buf = Vec::new();
+  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
+
+  Ok(buf.into())
+}
+
+#[napi]
+pub fn decode_transaction_reference(bytes: Uint8Array) -> Result<TransactionReference> {
+  // Decode bytes into EncodedContent
+  let encoded_content =
+    EncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
+
+  // Use TransactionReferenceCodec to decode into TransactionReference and convert to TransactionReference
+  TransactionReferenceCodec::decode(encoded_content)
+    .map(Into::into)
+    .map_err(|e| napi::Error::from_reason(e.to_string()))
 }
