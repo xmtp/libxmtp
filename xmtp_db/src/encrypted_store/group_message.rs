@@ -129,10 +129,21 @@ where
     }
 }
 
-/// Trait for determining if a content type can be deleted by users.
+/// Trait for determining if a message can be deleted by users.
 pub trait Deletable {
-    /// Returns whether this content type can be deleted by users.
+    /// Returns whether this message can be deleted by users.
     fn is_deletable(&self) -> bool;
+}
+
+impl Deletable for GroupMessageKind {
+    fn is_deletable(&self) -> bool {
+        match self {
+            // Application messages are deletable
+            GroupMessageKind::Application => true,
+            // Membership changes are transcript messages - not deletable
+            GroupMessageKind::MembershipChange => false,
+        }
+    }
 }
 
 //Legacy content types found at https://github.com/xmtp/xmtp-js/tree/main/content-types

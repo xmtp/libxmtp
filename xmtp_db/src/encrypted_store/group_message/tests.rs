@@ -2364,3 +2364,36 @@ async fn test_exclude_sender_inbox_ids_filter() {
     })
     .await
 }
+
+#[test]
+fn test_content_type_is_deletable() {
+    // User content should be deletable
+    assert!(ContentType::Text.is_deletable());
+    assert!(ContentType::Reply.is_deletable());
+    assert!(ContentType::Attachment.is_deletable());
+    assert!(ContentType::RemoteAttachment.is_deletable());
+    assert!(ContentType::TransactionReference.is_deletable());
+    assert!(ContentType::WalletSendCalls.is_deletable());
+    assert!(ContentType::Unknown.is_deletable());
+
+    // System messages should NOT be deletable
+    assert!(!ContentType::GroupMembershipChange.is_deletable());
+    assert!(!ContentType::GroupUpdated.is_deletable());
+    assert!(!ContentType::LeaveRequest.is_deletable());
+
+    // Metadata should NOT be deletable
+    assert!(!ContentType::Reaction.is_deletable());
+    assert!(!ContentType::ReadReceipt.is_deletable());
+
+    // Delete messages should NOT be deletable (prevents recursive deletion)
+    assert!(!ContentType::DeleteMessage.is_deletable());
+}
+
+#[test]
+fn test_group_message_kind_is_deletable() {
+    // Application messages should be deletable
+    assert!(GroupMessageKind::Application.is_deletable());
+
+    // Membership changes are transcript messages - should NOT be deletable
+    assert!(!GroupMessageKind::MembershipChange.is_deletable());
+}

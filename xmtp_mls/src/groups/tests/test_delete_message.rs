@@ -154,10 +154,10 @@ async fn test_cannot_delete_transcript_messages() {
     let result = alix_group.delete_message(membership_message_id);
     assert!(result.is_err());
 
-    if let Err(GroupError::DeleteMessage(DeleteMessageError::CannotDeleteTranscript)) = result {
+    if let Err(GroupError::DeleteMessage(DeleteMessageError::NonDeletableMessage)) = result {
         // Expected error
     } else {
-        panic!("Expected CannotDeleteTranscript error, got: {:?}", result);
+        panic!("Expected NonDeletableMessage error, got: {:?}", result);
     }
 }
 
@@ -585,7 +585,7 @@ async fn test_cannot_delete_delete_message() {
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        GroupError::DeleteMessage(DeleteMessageError::CannotDeleteTranscript)
+        GroupError::DeleteMessage(DeleteMessageError::NonDeletableMessage)
     ));
 
     // Verify the delete message is NOT deleted

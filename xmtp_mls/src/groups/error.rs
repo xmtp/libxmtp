@@ -194,8 +194,8 @@ pub enum DeleteMessageError {
     MessageNotFound(String),
     #[error("Not authorized to delete this message")]
     NotAuthorized,
-    #[error("Cannot delete transcript or membership change messages")]
-    CannotDeleteTranscript,
+    #[error("Cannot delete this message type")]
+    NonDeletableMessage,
     #[error("Message already deleted")]
     MessageAlreadyDeleted,
 }

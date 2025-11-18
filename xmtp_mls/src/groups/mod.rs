@@ -663,22 +663,21 @@ where
     /// Delete a message by its ID. Returns the ID of the deletion message.
     ///
     /// Only the original sender or a super admin can delete a message.
-    /// Transcript messages (GroupUpdated, membership changes) cannot be deleted.
     ///
     /// # Arguments
-    /// * `message_id_bytes` - The message ID as bytes (not hex encoded)
+    /// * `message_id` - The message ID as bytes
     ///
     /// # Returns
     /// The ID of the deletion message
-    pub fn delete_message(&self, message_id_bytes: Vec<u8>) -> Result<Vec<u8>, GroupError> {
+    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<Vec<u8>, GroupError> {
         use error::DeleteMessageError;
 
         let conn = self.context.db();
 
         // Load the original message
         let original_msg = conn
-            .get_group_message(&message_id_bytes)?
-            .ok_or_else(|| DeleteMessageError::MessageNotFound(hex::encode(&message_id_bytes)))?;
+            .get_group_message(&message_id)?
+            .ok_or_else(|| DeleteMessageError::MessageNotFound(hex::encode(&message_id)))?;
 
         // Validate message belongs to this group (prevent cross-group deletion)
         if original_msg.group_id != self.group_id {
@@ -686,7 +685,7 @@ where
         }
 
         // Check if message is already deleted
-        if conn.is_message_deleted(&message_id_bytes)? {
+        if conn.is_message_deleted(&message_id)? {
             return Err(DeleteMessageError::MessageAlreadyDeleted.into());
         }
 
@@ -699,19 +698,15 @@ where
             return Err(DeleteMessageError::NotAuthorized.into());
         }
 
-        // Restriction: cannot delete transcript messages
-        if original_msg.kind == GroupMessageKind::MembershipChange {
-            return Err(DeleteMessageError::CannotDeleteTranscript.into());
-        }
-
-        // Restriction: cannot delete system messages, metadata, or non-deletable content types
-        if !original_msg.content_type.is_deletable() {
-            return Err(DeleteMessageError::CannotDeleteTranscript.into());
+        // Restriction: cannot delete non-deletable messages
+        // This includes: transcript messages, system messages, metadata, etc.
+        if !original_msg.kind.is_deletable() || !original_msg.content_type.is_deletable() {
+            return Err(DeleteMessageError::NonDeletableMessage.into());
         }
 
         // Create DeleteMessage proto
-        let delete_msg = xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage {
-            message_id: hex::encode(&message_id_bytes),
+        let delete_msg = DeleteMessage {
+            message_id: hex::encode(&message_id),
         };
 
         // Encode the delete message
@@ -731,7 +726,7 @@ where
         let deletion = StoredMessageDeletion {
             id: deletion_message_id.clone(),
             group_id: self.group_id.clone(),
-            deleted_message_id: message_id_bytes,
+            deleted_message_id: message_id,
             deleted_by_inbox_id: sender_inbox_id.to_string(),
             is_super_admin_deletion,
             deleted_at_ns: now_ns(),
