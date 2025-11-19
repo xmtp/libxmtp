@@ -9,6 +9,7 @@ use super::{
         groups::dsl as groups_dsl,
     },
 };
+use crate::group::StoredGroup;
 use crate::impl_fetch;
 use derive_builder::Builder;
 use diesel::{
@@ -35,8 +36,22 @@ pub mod messages_newer_than_tests;
 #[cfg(test)]
 pub mod tests;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Queryable, Identifiable, Eq, PartialEq)]
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Insertable,
+    Identifiable,
+    Queryable,
+    Eq,
+    PartialEq,
+    QueryableByName,
+    Selectable,
+    Associations,
+)]
 #[diesel(table_name = group_messages)]
+#[diesel(belongs_to(StoredGroup, foreign_key = group_id))]
 #[diesel(primary_key(id))]
 #[diesel(check_for_backend(Sqlite))]
 /// Successfully processed messages to be returned to the User.

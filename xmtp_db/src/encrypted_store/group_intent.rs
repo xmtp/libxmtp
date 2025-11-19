@@ -1,12 +1,16 @@
+use std::collections::HashMap;
+
 use derive_builder::Builder;
 use diesel::{
     backend::Backend,
+    connection::DefaultLoadingMode,
     deserialize::{self, FromSql, FromSqlRow},
     expression::AsExpression,
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
 };
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use xmtp_common::fmt;
 use xmtp_proto::types::Cursor;
@@ -18,9 +22,17 @@ use super::{
     schema::group_intents::{self, dsl},
 };
 use crate::{
-    Delete, NotFound, StorageError, group_message::QueryGroupMessage, impl_fetch, impl_store,
+    Delete, NotFound, StorageError,
+    group::StoredGroup,
+    group_message::{GroupMessageKind, QueryGroupMessage},
+    impl_fetch, impl_store,
 };
 pub type ID = i32;
+
+mod error;
+mod types;
+pub use error::*;
+pub use types::*;
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow, Serialize, Deserialize)]
@@ -61,7 +73,8 @@ pub enum IntentState {
     Processed = 5,
 }
 
-#[derive(Queryable, Identifiable, PartialEq, Clone)]
+#[derive(Queryable, Identifiable, Selectable, Associations, PartialEq, Clone)]
+#[diesel(belongs_to(StoredGroup, foreign_key = group_id))]
 #[diesel(table_name = group_intents)]
 #[diesel(primary_key(id))]
 pub struct StoredGroupIntent {
@@ -210,6 +223,11 @@ pub trait QueryGroupIntent {
         payload_hash: &[u8],
     ) -> Result<Option<StoredGroupIntent>, StorageError>;
 
+    /// find the messages these intents depend on, returning results in the same order as the input hashes
+    fn find_dependant_commits<P: AsRef<[u8]>>(
+        &self,
+        payload_hashes: &[P],
+    ) -> Result<HashMap<PayloadHash, IntentDependency>, StorageError>;
     fn increment_intent_publish_attempt_count(&self, intent_id: ID) -> Result<(), StorageError>;
 
     fn set_group_intent_error_and_fail_msg(
@@ -281,6 +299,13 @@ where
         payload_hash: &[u8],
     ) -> Result<Option<StoredGroupIntent>, StorageError> {
         (**self).find_group_intent_by_payload_hash(payload_hash)
+    }
+
+    fn find_dependant_commits<P: AsRef<[u8]>>(
+        &self,
+        payload_hashes: &[P],
+    ) -> Result<HashMap<PayloadHash, IntentDependency>, StorageError> {
+        (**self).find_dependant_commits(payload_hashes)
     }
 
     fn increment_intent_publish_attempt_count(&self, intent_id: ID) -> Result<(), StorageError> {
@@ -485,6 +510,80 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         Ok(result)
     }
 
+    /// try to find dependencies of [`payload_hash`].
+    /// a message should always have a dependency.
+    fn find_dependant_commits<P: AsRef<[u8]>>(
+        &self,
+        payload_hashes: &[P],
+    ) -> Result<HashMap<PayloadHash, IntentDependency>, StorageError> {
+        use super::schema::group_messages;
+        let hashes = payload_hashes
+            .iter()
+            .map(|h| PayloadHashRef::from(h.as_ref()));
+        // Query all dependencies in a single database call
+        let map: HashMap<PayloadHash, Vec<IntentDependency>> = self.raw_query_read(|conn| {
+            dsl::group_intents
+                .filter(dsl::payload_hash.eq_any(hashes))
+                .filter(dsl::published_in_epoch.is_not_null())
+                .inner_join(
+                    group_messages::table.on(group_messages::group_id
+                        .eq(dsl::group_id)
+                        .and(group_messages::kind.eq(GroupMessageKind::MembershipChange))
+                        .and(group_messages::published_in_epoch.eq(dsl::published_in_epoch - 1))),
+                )
+                .select((
+                    dsl::payload_hash.assume_not_null(),
+                    group_messages::sequence_id,
+                    group_messages::originator_id,
+                    dsl::group_id,
+                ))
+                .load_iter::<(Vec<u8>, i64, i64, Vec<u8>), DefaultLoadingMode>(conn)?
+                .map_ok(|(hash, sequence_id, originator_id, group_id)| {
+                    (
+                        PayloadHash::from(hash),
+                        IntentDependency {
+                            cursor: Cursor {
+                                sequence_id: sequence_id as u64,
+                                originator_id: originator_id as u32,
+                            },
+                            group_id: group_id.into(),
+                        },
+                    )
+                })
+                .process_results(|iter| iter.into_grouping_map().collect())
+        })?;
+
+        // Check for multiple dependencies and build result in input order
+        // NOTE: since we halt processing if a single hash has more than one dependency,
+        // it is possible that other groups are valid but their hashes will not be sent b/c of the
+        // error.
+        // in practice, we send one message at a time so this should not pose an issue.
+        for (hash, deps) in &map {
+            if deps.len() > 1 {
+                return Err(GroupIntentError::MoreThanTwoDependencies {
+                    payload_hash: hash.clone(),
+                    cursors: deps.iter().map(|d| d.cursor).collect(),
+                    group_id: deps[0].group_id.clone(),
+                }
+                .into());
+            }
+        }
+
+        map.into_iter()
+            .map(|(hash, mut d)| {
+                // this should be impossible since the sql query wouldnt return anything for
+                // an empty payload hash.
+                let dep = d
+                    .pop()
+                    .ok_or_else(|| GroupIntentError::NoDependencyFound {
+                        hash: hash.clone().into(),
+                    })
+                    .map_err(StorageError::from)?;
+                Ok((hash, dep))
+            })
+            .try_collect()
+    }
+
     fn increment_intent_publish_attempt_count(&self, intent_id: ID) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
             diesel::update(dsl::group_intents)
@@ -574,6 +673,7 @@ pub(crate) mod tests {
         group::{GroupMembershipState, StoredGroup},
         test_utils::with_connection,
     };
+    use proptest::{collection, prelude::*};
     use xmtp_common::rand_vec;
 
     fn insert_group<C: ConnectionExt>(conn: &DbConnection<C>, group_id: Vec<u8>) {
@@ -926,6 +1026,210 @@ pub(crate) mod tests {
                 .unwrap();
             intent = find_first_intent(conn, group_id.clone());
             assert_eq!(intent.publish_attempts, 2);
+        })
+        .await
+    }
+
+    fn make_membership_change_message<C: ConnectionExt>(
+        conn: &DbConnection<C>,
+        group_id: Vec<u8>,
+        sequence_id: i64,
+        originator_id: i64,
+        published_in_epoch: Option<i64>,
+    ) {
+        use crate::group_message::{
+            ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
+        };
+
+        StoredGroupMessage {
+            id: rand_vec::<24>(),
+            group_id,
+            decrypted_message_bytes: vec![],
+            sent_at_ns: 0,
+            kind: GroupMessageKind::MembershipChange,
+            sender_installation_id: vec![],
+            sender_inbox_id: String::new(),
+            delivery_status: DeliveryStatus::Published,
+            content_type: ContentType::GroupMembershipChange,
+            version_major: 0,
+            version_minor: 0,
+            authority_id: String::new(),
+            reference_id: None,
+            inserted_at_ns: 0,
+            expire_at_ns: None,
+            sequence_id,
+            originator_id,
+            published_in_epoch,
+        }
+        .store(conn)
+        .unwrap()
+    }
+
+    #[derive(Debug, Clone, Hash)]
+    struct IntentWithDependency {
+        payload_hash: PayloadHash,
+        intent_epoch: usize,
+        dependency: MessageDep,
+    }
+
+    #[derive(Clone, Debug, Hash, Copy, PartialEq, Eq)]
+    struct MessageDep {
+        cursor: Cursor,
+        epoch: usize,
+    }
+
+    prop_compose! {
+        // ensures epoch is always unique
+       fn messages(length: usize)(epochs in collection::hash_set(1usize..50usize, 1..length), oid in 0u32..100, sid in 0u64..1000) -> Vec<MessageDep> {
+            epochs.into_iter().map(|epoch| {
+                MessageDep {
+                    cursor: Cursor {
+                        sequence_id: sid,
+                        originator_id: oid
+                    },
+                    epoch
+                }
+            }).collect()
+        }
+    }
+
+    prop_compose! {
+        fn intent_data_vec(msg_len: usize, intents: usize)
+            (
+                msgs in messages(msg_len),
+                indices in prop::collection::vec(any::<prop::sample::Index>(), 0..intents)
+            ) -> Vec<IntentWithDependency> {
+            let mut deps = Vec::new();
+            for index in indices {
+                let dependency = index.get(&msgs);
+                deps.push(IntentWithDependency {
+                    payload_hash: rand_vec::<24>().into(),
+                    intent_epoch: dependency.epoch + 1,
+                    dependency: *dependency
+                })
+            }
+            deps
+        }
+    }
+
+    #[xmtp_common::test]
+    fn proptest_find_dependant_commits() {
+        use futures::FutureExt;
+
+        proptest!(|(intents_data in intent_data_vec(10, 20))| {
+            let group_id = rand_vec::<16>();
+            with_connection(|conn| {
+                insert_group(conn, group_id.clone());
+
+                let payload_hashes: Vec<PayloadHash> = intents_data.iter().cloned().map(|i| i.payload_hash).collect();
+                intents_data.iter().map(|d| d.dependency).unique().for_each(|d| {
+                    make_membership_change_message(
+                        conn,
+                        group_id.clone(),
+                        d.cursor.sequence_id as i64,
+                        d.cursor.originator_id as i64,
+                        Some(d.epoch as i64),
+                    );
+                });
+
+                for intent_data in &intents_data {
+                    // Create and publish intent
+                    let intent = NewGroupIntent::new(
+                        IntentKind::SendMessage,
+                        group_id.clone(),
+                        rand_vec::<24>(),
+                        false,
+                    );
+                    let stored_intent = conn.insert_group_intent(intent).unwrap();
+                    conn.set_group_intent_published(
+                        stored_intent.id,
+                        &intent_data.payload_hash,
+                        None,
+                        None,
+                        intent_data.intent_epoch as i64
+                    ).unwrap();
+                }
+                // Query all dependencies at once
+                let results = conn.find_dependant_commits(&payload_hashes).unwrap();
+
+                prop_assert_eq!(results.len(), intents_data.len());
+                Ok(())
+            }).now_or_never();
+        });
+    }
+
+    #[xmtp_common::test]
+    async fn test_find_dependant_commits_none_found() {
+        let group_id = rand_vec::<24>();
+
+        with_connection(|conn| {
+            insert_group(conn, group_id.clone());
+
+            // Create and publish an intent
+            let intent = NewGroupIntent::new(
+                IntentKind::SendMessage,
+                group_id.clone(),
+                rand_vec::<24>(),
+                false,
+            );
+            let stored_intent = conn.insert_group_intent(intent).unwrap();
+            let payload_hash = rand_vec::<24>();
+            conn.set_group_intent_published(
+                stored_intent.id,
+                &payload_hash,
+                None,
+                None,
+                5, // Published in epoch 5
+            )
+            .unwrap();
+            let result = conn.find_dependant_commits(&[&payload_hash]).unwrap();
+            assert!(result.is_empty());
+        })
+        .await
+    }
+
+    #[xmtp_common::test]
+    async fn test_find_dependant_commits_multiple_dependencies_error() {
+        let group_id = rand_vec::<24>();
+
+        with_connection(|conn| {
+            insert_group(conn, group_id.clone());
+
+            // Create and publish an intent in epoch 5
+            let intent = NewGroupIntent::new(
+                IntentKind::SendMessage,
+                group_id.clone(),
+                rand_vec::<24>(),
+                false,
+            );
+            let stored_intent = conn.insert_group_intent(intent).unwrap();
+            let payload_hash = rand_vec::<24>();
+            conn.set_group_intent_published(
+                stored_intent.id,
+                &payload_hash,
+                None,
+                None,
+                5, // Published in epoch 5
+            )
+            .unwrap();
+
+            // Create TWO membership change messages in epoch 4 (the dependency epoch)
+            make_membership_change_message(conn, group_id.clone(), 100, 1, Some(4));
+            make_membership_change_message(conn, group_id.clone(), 200, 2, Some(4));
+
+            // Should return an error due to multiple dependencies
+            let result = conn.find_dependant_commits(&[&payload_hash]);
+
+            assert!(result.is_err());
+            match result.unwrap_err() {
+                StorageError::GroupIntent(GroupIntentError::MoreThanTwoDependencies {
+                    payload_hash: hash,
+                    ..
+                }) => {
+                    assert_eq!(hash, payload_hash.into());
+                }
+                other => panic!("Expected MoreThanTwoDependencies error, got: {:?}", other),
+            }
         })
         .await
     }

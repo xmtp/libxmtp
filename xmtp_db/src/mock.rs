@@ -320,6 +320,12 @@ mock! {
             payload_hash: &[u8],
         ) -> Result<Option<crate::group_intent::StoredGroupIntent>, StorageError>;
 
+        #[mockall::concretize]
+        fn find_dependant_commits<P: AsRef<[u8]>>(
+            &self,
+            payload_hashes: &[P],
+        ) -> Result<HashMap<crate::group_intent::PayloadHash, crate::group_intent::IntentDependency>, StorageError>;
+
         fn increment_intent_publish_attempt_count(
             &self,
             intent_id: crate::group_intent::ID,

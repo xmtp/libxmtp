@@ -1,6 +1,8 @@
 use diesel::result::DatabaseErrorKind;
 use thiserror::Error;
 
+use crate::group_intent::GroupIntentError;
+
 use super::{
     refresh_state::EntityKind,
     sql_key_store::{self, SqlKeyStoreError},
@@ -44,6 +46,8 @@ pub enum StorageError {
     InvalidHmacLength,
     #[error("{0:?} is not supported for this query")]
     EntityNotSupported(Vec<EntityKind>),
+    #[error(transparent)]
+    GroupIntent(#[from] GroupIntentError),
 }
 
 impl From<std::convert::Infallible> for StorageError {
@@ -153,6 +157,7 @@ impl RetryableError for StorageError {
             Self::OpenMlsStorage(storage) => retryable!(storage),
             Self::Platform(p) => retryable!(p),
             Self::Connection(e) => retryable!(e),
+            Self::GroupIntent(e) => retryable!(e),
             Self::MigrationError(_)
             | Self::Conversion(_)
             | Self::NotFound(_)
