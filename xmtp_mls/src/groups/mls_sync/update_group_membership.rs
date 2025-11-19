@@ -1,5 +1,4 @@
 use super::*;
-use xmtp_cryptography::hash::sha256_bytes as sha256;
 use crate::groups::{
     GroupError, build_group_membership_extension,
     intents::{PostCommitAction, UpdateGroupMembershipIntentData},
@@ -10,6 +9,7 @@ use openmls::{
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, tls_codec::Serialize},
 };
 use openmls_traits::signatures::Signer;
+use xmtp_cryptography::hash::sha256_bytes as sha256;
 
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
 // returning the commit and post_commit_action
