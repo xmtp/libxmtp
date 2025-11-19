@@ -1,5 +1,4 @@
 use anyhow::{Result, bail};
-use diesel_migrations::MigrationHarness;
 use std::collections::HashMap;
 use xmtp_db::{
     EncryptedMessageStore, NativeDb,

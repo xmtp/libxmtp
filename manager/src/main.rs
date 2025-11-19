@@ -47,7 +47,7 @@ fn main() -> Result<()> {
                         "
                     );
                 };
-                db_vacuum(args.db, dest)?;
+                db_vacuum(&manager.store, dest)?;
             }
             Task::DbRevert => {
                 let Some(target) = &args.version else {
