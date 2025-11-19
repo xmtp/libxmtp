@@ -7,7 +7,7 @@ use xmtp_proto::api::BodyError;
 use crate::protocol::{Envelope, EnvelopeError, types::MissingEnvelope};
 
 pub struct Resolved<E> {
-    pub envelopes: Vec<E>,
+    pub resolved: Vec<E>,
     /// list of envelopes that could not be resolved with this strategy
     pub unresolved: Option<HashSet<MissingEnvelope>>,
 }
@@ -15,7 +15,7 @@ pub struct Resolved<E> {
 impl<E> Resolved<E> {
     pub fn new(envelopes: Vec<E>, unresolved: Option<HashSet<MissingEnvelope>>) -> Self {
         Self {
-            envelopes,
+            resolved: envelopes,
             unresolved,
         }
     }
@@ -60,7 +60,7 @@ impl ResolveDependencies for NoopResolver {
     type ResolvedEnvelope = ();
     async fn resolve(&self, m: HashSet<MissingEnvelope>) -> Result<Resolved<()>, ResolutionError> {
         Ok(Resolved {
-            envelopes: vec![],
+            resolved: vec![],
             unresolved: Some(m),
         })
     }

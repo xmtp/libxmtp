@@ -70,3 +70,16 @@ impl VectorClock for GlobalCursor {
         *entry = (*entry).max(*seq)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test]
+    fn dominates_empty() {
+        let empty = GlobalCursor::default();
+        let mut not_empty = GlobalCursor::default();
+        not_empty.insert(1, 1);
+        assert!(not_empty.dominates(&empty));
+    }
+}

@@ -32,7 +32,7 @@ pub async fn test_resolve_all_found_immediately<R>(
     assert!(result.is_ok(), "Resolution should succeed");
     let resolved = result.unwrap();
     assert_eq!(
-        resolved.envelopes.len(),
+        resolved.resolved.len(),
         expected_count,
         "Should resolve exactly {} envelopes",
         expected_count
@@ -76,7 +76,7 @@ pub async fn test_resolve_partial_resolution<R>(
     let resolved = result.unwrap();
 
     assert_eq!(
-        resolved.envelopes.len(),
+        resolved.resolved.len(),
         expected_resolved_count,
         "Should resolve exactly {} envelopes",
         expected_resolved_count
@@ -127,7 +127,7 @@ where
 
     assert!(result.is_ok(), "Resolution should succeed with empty set");
     let resolved = result.unwrap();
-    assert!(resolved.envelopes.is_empty(), "Should resolve no envelopes");
+    assert!(resolved.resolved.is_empty(), "Should resolve no envelopes");
     assert!(
         resolved.unresolved.is_none() || resolved.unresolved.as_ref().unwrap().is_empty(),
         "Should have no unresolved envelopes"
