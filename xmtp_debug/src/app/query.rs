@@ -5,7 +5,7 @@ use crate::{
     },
     args,
 };
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, eyre};
 use openmls_rust_crypto::RustCrypto;
 use std::{collections::HashSet, sync::Arc};
 use xmtp_cryptography::XmtpInstallationCredential;
@@ -200,28 +200,32 @@ impl Query {
     pub async fn all_key_packages(&self) -> Result<()> {
         let store: IdentityStore = self.db.clone().into();
         let network = u64::from(&self.network);
-        if let Some(identities) = store.load(network)? {
-            let keys: Vec<[u8; 32]> = identities
-                .map(|i| {
-                    let cred = XmtpInstallationCredential::from_bytes(&i.value().installation_key)
-                        .unwrap();
-                    *cred.public_bytes()
-                })
-                .collect();
-            let client = self.network.connect()?;
-            tracing::info!(
-                installation_keys = ?keys.iter().map(hex::encode).collect::<Vec<_>>(),
-                "fetching key packages"
-            );
-            let res = client
-                .fetch_key_packages(xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest {
-                    installation_keys: keys.iter().map(Vec::from).collect(),
-                })
-                .await?;
-            print_kps(&res.key_packages, keys.iter().map(Vec::from).collect())?;
-        } else {
-            tracing::warn!("no identities in database, try generating some.");
-        }
+        let identities = store
+            .load(network)?
+            .ok_or(eyre!("no identities in db, try generating some"))?;
+        let keys: Vec<[u8; 32]> = identities
+            .map(|i| {
+                let cred =
+                    XmtpInstallationCredential::from_bytes(&i.value().installation_key).unwrap();
+                *cred.public_bytes()
+            })
+            .collect();
+        let client = self.network.connect()?;
+        tracing::info!(
+            installation_keys = ?keys.iter().map(hex::encode).collect::<Vec<_>>(),
+            "fetching key packages"
+        );
+        let res = client
+            .fetch_key_packages(xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest {
+                installation_keys: keys.iter().map(Vec::from).collect(),
+            })
+            .await?;
+        print_kps(&res.key_packages, keys.iter().map(Vec::from).collect())?;
+        tracing::info!(
+            "{} total KeyPackages for {} identities",
+            res.key_packages.len(),
+            keys.len()
+        );
         Ok(())
     }
 }

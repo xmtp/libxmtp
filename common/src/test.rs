@@ -100,8 +100,6 @@ where
             .then(|| {
                 tracing_subscriber::fmt::layer()
                     .json()
-                    .flatten_event(true)
-                    .with_level(true)
                     .with_filter(filter())
             })
             .boxed(),

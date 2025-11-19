@@ -77,6 +77,7 @@ where
             .build()?
             .query(&self.client)
             .await?;
+        tracing::info!("got {} envelopes", result.results.len());
         let extractor = CollectionExtractor::new(result.results, KeyPackagesExtractor::new());
         let key_packages = extractor.get()?;
         Ok(mls_v1::FetchKeyPackagesResponse { key_packages })
