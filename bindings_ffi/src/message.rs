@@ -347,6 +347,7 @@ pub struct FfiDecodedMessageMetadata {
     pub sender_inbox_id: String,
     pub content_type: FfiContentTypeId,
     pub conversation_id: Vec<u8>,
+    pub inserted_at_ns: i64,
 }
 
 #[derive(uniffi::Enum, Clone, Debug)]
@@ -896,6 +897,7 @@ impl From<DecodedMessageMetadata> for FfiDecodedMessageMetadata {
             conversation_id: metadata.group_id,
             sender_inbox_id: metadata.sender_inbox_id,
             content_type: metadata.content_type.into(),
+            inserted_at_ns: metadata.inserted_at_ns,
         }
     }
 }
@@ -1051,6 +1053,7 @@ pub struct FfiDecodedMessage {
     reactions: Vec<Arc<FfiDecodedMessage>>,
     delivery_status: FfiDeliveryStatus,
     num_replies: u64,
+    inserted_at_ns: i64,
 }
 
 #[uniffi::export]
@@ -1112,6 +1115,10 @@ impl FfiDecodedMessage {
     pub fn reaction_count(&self) -> u64 {
         self.reactions.len() as u64
     }
+
+    pub fn inserted_at_ns(&self) -> i64 {
+        self.inserted_at_ns
+    }
 }
 
 impl From<DecodedMessage> for FfiDecodedMessage {
@@ -1139,6 +1146,7 @@ impl From<DecodedMessage> for FfiDecodedMessage {
                 .map(Arc::new)
                 .collect(),
             num_replies: item.num_replies as u64,
+            inserted_at_ns: metadata.inserted_at_ns,
         }
     }
 }
