@@ -10,6 +10,7 @@ clap.workspace = true
 hex.workspace = true
 tracing.workspace = true
 xmtp_db.workspace = true
+diesel_migrations = { workspace = true, features = ["sqlite"] }
 
 [lints]
 workspace = true

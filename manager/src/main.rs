@@ -1,6 +1,8 @@
-use crate::tasks::{DbBencher, db_vacuum};
+use crate::tasks::{DbBencher, db_vacuum, revert_migrations, run_pending_migrations};
 use anyhow::{Result, bail};
 use clap::{Parser, ValueEnum};
+use std::io::{self, Write};
+use tracing::info;
 use xmtp_db::{EncryptedMessageStore, NativeDb, StorageOption};
 
 mod tasks;
@@ -47,7 +49,32 @@ fn main() -> Result<()> {
                 };
                 db_vacuum(args.db, dest)?;
             }
+            Task::DbRevert => {
+                let Some(target) = &args.version else {
+                    bail!(
+                        "--version argument must be provided for this task.\n\
+                        This is the target version you want to roll the database back to."
+                    );
+                };
+
+                print!(
+                    "Please confirm that you have backed up your database. This action can result in loss of data. (y/n): "
+                );
+                io::stdout().flush().unwrap();
+
+                let mut input = String::new();
+                io::stdin().read_line(&mut input).unwrap();
+
+                if matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
+                    revert_migrations(&manager.store, target)?;
+                }
+            }
+            Task::DbMigrate => {
+                run_pending_migrations(&manager.store)?;
+            }
         }
+
+        info!("Finished {task:?}.");
     }
 
     Ok(())
@@ -68,13 +95,17 @@ struct Args {
     /// Run a specific task
     #[arg(long, value_enum)]
     task: Option<Task>,
+
+    #[arg(long)]
+    version: Option<String>,
 }
 
-#[derive(ValueEnum, Clone)]
+#[derive(ValueEnum, Clone, Debug)]
 enum Task {
     /// Measure the performance of database queries
     /// to identify problematic performers.
     QueryBench,
-
     DbVacuum,
+    DbRevert,
+    DbMigrate,
 }

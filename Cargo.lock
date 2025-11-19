@@ -8386,6 +8386,7 @@ dependencies = [
  "anyhow",
  "clap",
  "const-hex",
+ "diesel_migrations",
  "tracing",
  "xmtp_db",
 ]
