@@ -27,7 +27,7 @@ use crate::{EncryptionKey, StorageOption, XmtpDb};
 
 use super::PersistentOrMem;
 
-trait XmtpConnection:
+pub(crate) trait XmtpConnection:
     ValidatedConnection
     + ConnectionOptions
     + CustomizeConnection<SqliteConnection, r2d2::Error>

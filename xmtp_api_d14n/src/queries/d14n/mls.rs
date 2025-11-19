@@ -11,9 +11,11 @@ use crate::protocol::MessageMetadataExtractor;
 use crate::protocol::ProtocolEnvelope;
 use crate::protocol::SequencedExtractor;
 use crate::protocol::WelcomeMessageExtractor;
+use crate::protocol::resolve;
 use crate::protocol::traits::Envelope;
 use crate::protocol::traits::EnvelopeCollection;
 use crate::protocol::traits::Extractor;
+use crate::queries::D14nCombinatorExt;
 use xmtp_common::RetryableError;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api;
@@ -25,11 +27,11 @@ use xmtp_proto::mls_v1::BatchQueryCommitLogResponse;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::types::GroupMessageMetadata;
 use xmtp_proto::types::InstallationId;
+use xmtp_proto::types::TopicCursor;
 use xmtp_proto::types::TopicKind;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeResponse;
-use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -75,6 +77,7 @@ where
             .build()?
             .query(&self.client)
             .await?;
+        tracing::info!("got {} envelopes", result.results.len());
         let extractor = CollectionExtractor::new(result.results, KeyPackagesExtractor::new());
         let key_packages = extractor.get()?;
         Ok(mls_v1::FetchKeyPackagesResponse { key_packages })
@@ -122,16 +125,20 @@ where
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
         let topic = TopicKind::GroupMessagesV1.create(&group_id);
         let lcc = self.cursor_store.lowest_common_cursor(&[&topic])?;
-        let response: QueryEnvelopesResponse = QueryEnvelope::builder()
+        let mut topic_cursor = TopicCursor::default();
+        topic_cursor.insert(topic.clone(), lcc.clone());
+        let resolver = resolve::network_backoff(&self.client);
+        let response = QueryEnvelope::builder()
             .topic(topic)
             .last_seen(lcc)
             .limit(MAX_PAGE_SIZE)
             .build()?
+            .ordered(resolver, topic_cursor)
             .query(&self.client)
             .await?;
 
         let messages = SequencedExtractor::builder()
-            .envelopes(response.envelopes)
+            .envelopes(response)
             .build::<GroupMessageExtractor>()
             .get()?;
         Ok(messages

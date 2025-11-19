@@ -1,5 +1,9 @@
+use tokio_stream::StreamExt;
+use xmtp_common::NS_IN_DAY;
+use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::consent_record::{ConsentState, ConsentType};
+use xmtp_db::group::{ConversationType, GroupQueryArgs};
 use xmtp_db::prelude::*;
 
 use crate::tester;
@@ -65,4 +69,35 @@ async fn test_dm_welcome_with_preexisting_consent() {
             .group_id,
         a_group.group_id
     );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_gm() {
+    tester!(gm, snapshot_file: "../dev.db3", dev);
+    tester!(bo);
+
+    tracing::info!("inbox {}", gm.inbox_id());
+
+    let dm = gm
+        .find_or_create_dm_by_inbox_id(bo.inbox_id(), Default::default())
+        .await?;
+    dm.send_message(b"hi", Default::default()).await?;
+
+    let dm = gm
+        .find_groups(GroupQueryArgs {
+            conversation_type: Some(ConversationType::Dm),
+            last_activity_after_ns: Some(now_ns() - NS_IN_DAY * 7),
+            ..Default::default()
+        })?
+        .pop()
+        .unwrap();
+    dm.send_message(b"gm", Default::default()).await?;
+
+    let r = gm.sync_all_welcomes_and_groups(None).await?;
+    let mut a = gm.stream_all_messages_owned_with_stats(None, None).await?;
+
+    while let Some(v) = a.next().await {
+        let msg = String::from_utf8_lossy(&v.unwrap().decrypted_message_bytes).to_string();
+        tracing::info!("{msg}");
+    }
 }

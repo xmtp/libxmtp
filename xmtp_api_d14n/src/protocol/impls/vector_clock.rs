@@ -31,7 +31,7 @@ impl VectorClock for GlobalCursor {
 
     fn merge_least(&mut self, other: &Self) {
         for (&node, &seq) in other {
-            let entry = self.entry(node).or_insert(0);
+            let entry = self.entry(node).or_insert(seq);
             *entry = (*entry).min(seq);
         }
     }
@@ -68,5 +68,18 @@ impl VectorClock for GlobalCursor {
         } = &cursor;
         let entry = self.entry(*node).or_insert(0);
         *entry = (*entry).max(*seq)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test]
+    fn dominates_empty() {
+        let empty = GlobalCursor::default();
+        let mut not_empty = GlobalCursor::default();
+        not_empty.insert(1, 1);
+        assert!(not_empty.dominates(&empty));
     }
 }

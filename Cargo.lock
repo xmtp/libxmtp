@@ -1222,6 +1222,7 @@ dependencies = [
  "napi-build",
  "napi-derive",
  "prost",
+ "serde_json",
  "tokio",
  "toxiproxy_rust",
  "tracing",
@@ -1254,6 +1255,7 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_bytes",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -8421,6 +8423,7 @@ dependencies = [
 name = "xmtp_api_d14n"
 version = "1.7.0-dev"
 dependencies = [
+ "arc-swap",
  "async-trait",
  "chrono",
  "const-hex",
@@ -8888,6 +8891,7 @@ dependencies = [
  "parking_lot 0.12.4",
  "prost",
  "rand 0.8.5",
+ "serde_json",
  "thiserror 2.0.16",
  "tokio",
  "tracing",

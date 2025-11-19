@@ -191,7 +191,8 @@ impl ExponentialBackoffBuilder {
             duration: self.duration.unwrap_or(Duration::from_millis(25)),
             max_jitter: self.max_jitter.unwrap_or(Duration::from_millis(25)),
             multiplier: self.multiplier.unwrap_or(3),
-            ..Default::default()
+            total_wait_max: self.total_wait_max.unwrap_or(Duration::from_secs(120)),
+            individual_wait_max: Duration::from_secs(30),
         }
     }
 }

@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
+use std::path::Path;
+
 use crate::{DbConnection, EncryptedMessageStore, StorageOption};
 mod impls;
 mod mls_memory_storage;
@@ -15,6 +17,7 @@ pub trait XmtpTestDb {
 
     async fn create_ephemeral_store_from_snapshot(
         snapshot: &[u8],
+        path: Option<impl AsRef<Path>>,
     ) -> EncryptedMessageStore<crate::DefaultDatabase>;
 
     /// Create a validated, persistent database running the migrations
@@ -154,11 +157,13 @@ mod wasm {
 pub use native::*;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 mod native {
-    use std::sync::Arc;
-
-    use crate::{EphemeralDbConnection, NativeDbConnection, PersistentOrMem};
-
     use super::*;
+    use crate::{
+        ConnectionExt, EphemeralDbConnection, MIGRATIONS, NativeDbConnection, PersistentOrMem,
+    };
+    use diesel::{Connection, SqliteConnection, connection::SimpleConnection};
+    use diesel_migrations::MigrationHarness;
+    use std::sync::Arc;
 
     impl XmtpTestDb for super::TestDb {
         async fn create_ephemeral_store() -> crate::DefaultStore {
@@ -166,13 +171,53 @@ mod native {
             let db = crate::database::NativeDb::new_unencrypted(&opts).unwrap();
             EncryptedMessageStore::new(db).unwrap()
         }
-        async fn create_ephemeral_store_from_snapshot(snapshot: &[u8]) -> crate::DefaultStore {
-            let opts = StorageOption::Ephemeral;
-            let db = crate::database::NativeDb::new_unencrypted(&opts).unwrap();
-            let store = EncryptedMessageStore::new_uninit(db).unwrap();
+        async fn create_ephemeral_store_from_snapshot(
+            mut snapshot: &[u8],
+            path: Option<impl AsRef<Path>>,
+        ) -> crate::DefaultStore {
+            let path = path.as_ref();
+            let mut buffer;
+
+            let mut i = 0;
+            let store = loop {
+                let opts = StorageOption::Ephemeral;
+                let db = crate::database::NativeDb::new_unencrypted(&opts).unwrap();
+                let store = EncryptedMessageStore::new_uninit(db).unwrap();
+                let result = store.db().raw_query_write(|conn| {
+                    conn.deserialize_database_from_buffer(snapshot)?;
+                    conn.batch_execute("PRAGMA journal_mode = DELETE")?;
+                    Ok(())
+                });
+
+                if result.is_ok() {
+                    break store;
+                } else if i >= 1 {
+                    result.unwrap();
+                }
+
+                if let Some(path) = path {
+                    let path = path.as_ref();
+                    // WAL is not compatible with ephemeral databases. Attempt to update and try one more time.
+                    {
+                        let mut conn =
+                            SqliteConnection::establish(&path.to_string_lossy().to_string())
+                                .unwrap();
+                        conn.batch_execute("PRAGMA journal_mode = DELETE").unwrap();
+                    }
+
+                    buffer = tokio::fs::read(path).await.unwrap();
+                    snapshot = &buffer;
+                };
+
+                i += 1;
+            };
+
             store
-                .db()
-                .raw_query_write(|conn| conn.deserialize_database_from_buffer(snapshot))
+                .conn()
+                .raw_query_write(|c| {
+                    c.run_pending_migrations(MIGRATIONS).unwrap();
+                    Ok(())
+                })
                 .unwrap();
 
             store
