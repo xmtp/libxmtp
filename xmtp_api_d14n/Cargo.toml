@@ -51,9 +51,8 @@ hex.workspace = true
 mockall.workspace = true
 rstest.workspace = true
 tokio.workspace = true
-xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
-xmtp_common = { workspace = true, features = ["test-utils"] }
-xmtp_proto = { workspace = true, features = ["test-utils"] }
+# add self to auto enable test utils
+xmtp_api_d14n = { path = ".", features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true
@@ -74,6 +73,8 @@ proptest = { workspace = true, features = ["std"] }
 [features]
 test-utils = [
   "xmtp_api_grpc/test-utils",
+  "xmtp_common/test-utils",
+  "xmtp_proto/test-utils",
   "dep:mockall",
   "dep:ctor",
   "dep:wasm-bindgen-test",

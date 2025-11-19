@@ -1,8 +1,10 @@
+use crate::types::GlobalCursor;
 /// implementations for some generated types
 use crate::xmtp::mls::api::v1::welcome_message::Version;
 use crate::xmtp::mls::message_contents::{
     WelcomePointeeEncryptionAeadType, WelcomePointeeEncryptionAeadTypesExtension,
 };
+use crate::xmtp::xmtpv4::envelopes::AuthenticatedData;
 use crate::xmtp::xmtpv4::envelopes::client_envelope::Payload;
 
 impl std::fmt::Display for Payload {
@@ -15,6 +17,22 @@ impl std::fmt::Display for Payload {
             Payload::PayerReport(_) => write!(f, "Payload::PayerReport"),
             Payload::PayerReportAttestation(_) => write!(f, "Payload::PayerReportAttestation"),
         }
+    }
+}
+
+impl std::fmt::Display for AuthenticatedData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(d) = &self.depends_on {
+            let cursor: GlobalCursor = d.clone().into();
+            write!(f, "aad[{} -> {}]", hex::encode(&self.target_topic), cursor)?;
+        } else {
+            write!(
+                f,
+                "aad[{} -> (no dependency)]",
+                hex::encode(&self.target_topic)
+            )?;
+        }
+        Ok(())
     }
 }
 

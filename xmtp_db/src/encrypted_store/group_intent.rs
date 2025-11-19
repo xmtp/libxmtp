@@ -181,9 +181,9 @@ pub trait QueryGroupIntent {
     ) -> Result<StoredGroupIntent, crate::ConnectionError>;
 
     // Query for group_intents by group_id, optionally filtering by state and kind
-    fn find_group_intents(
+    fn find_group_intents<Id: AsRef<[u8]>>(
         &self,
-        group_id: Vec<u8>,
+        group_id: Id,
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError>;
@@ -246,9 +246,9 @@ where
         (**self).insert_group_intent(to_save)
     }
 
-    fn find_group_intents(
+    fn find_group_intents<Id: AsRef<[u8]>>(
         &self,
-        group_id: Vec<u8>,
+        group_id: Id,
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
@@ -333,13 +333,14 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     }
 
     // Query for group_intents by group_id, optionally filtering by state and kind
-    #[tracing::instrument(level = "trace", skip(self))]
-    fn find_group_intents(
+    #[tracing::instrument(level = "trace", skip(self), fields(group_id = hex::encode(group_id.as_ref())))]
+    fn find_group_intents<Id: AsRef<[u8]>>(
         &self,
-        group_id: Vec<u8>,
+        group_id: Id,
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
+        let group_id = group_id.as_ref();
         let mut query = dsl::group_intents
             .into_boxed()
             .filter(dsl::group_id.eq(group_id));
@@ -1014,7 +1015,6 @@ pub(crate) mod tests {
             assert_eq!(intent.publish_attempts, 2);
         })
     }
-
     #[xmtp_common::test]
     fn test_find_dependant_commits() {
         use crate::encrypted_store::refresh_state::{EntityKind, QueryRefreshState};

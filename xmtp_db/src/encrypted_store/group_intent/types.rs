@@ -70,3 +70,9 @@ impl<'a> From<&'a [u8]> for PayloadHashRef<'a> {
         PayloadHashRef(Cow::from(value))
     }
 }
+
+impl<'a> From<PayloadHashRef<'a>> for Vec<u8> {
+    fn from(value: PayloadHashRef<'a>) -> Vec<u8> {
+        value.0.into_owned()
+    }
+}

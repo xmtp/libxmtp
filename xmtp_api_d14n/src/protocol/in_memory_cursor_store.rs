@@ -1,7 +1,7 @@
-use crate::protocol::{CursorStore, VectorClock};
+use crate::protocol::{CursorStore, CursorStoreError, VectorClock};
 use std::collections::HashMap;
 use std::fmt;
-use xmtp_proto::types::{GlobalCursor, OriginatorId, Topic};
+use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId, Topic};
 
 #[derive(Default, Clone)]
 pub struct InMemoryCursorStore {
@@ -92,6 +92,16 @@ impl CursorStore for InMemoryCursorStore {
         Ok(topics
             .map(|topic| (topic.clone(), self.latest(topic).unwrap_or_default()))
             .collect())
+    }
+
+    fn find_message_dependencies(
+        &self,
+        hash: &[&[u8]],
+    ) -> Result<HashMap<Vec<u8>, Cursor>, super::CursorStoreError> {
+        // in mem does not keep track of deps/commits
+        Err(CursorStoreError::NoDependenciesFound(
+            hash.iter().map(hex::encode).collect(),
+        ))
     }
 }
 

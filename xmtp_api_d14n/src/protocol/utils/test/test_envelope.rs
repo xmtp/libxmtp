@@ -82,4 +82,8 @@ impl Envelope<'_> for TestEnvelope {
     fn depends_on(&self) -> Result<Option<xmtp_proto::types::GlobalCursor>, EnvelopeError> {
         Ok(Some(self.depends_on.clone()))
     }
+
+    fn sha256_hash(&self) -> Result<Vec<u8>, EnvelopeError> {
+        unreachable!()
+    }
 }
