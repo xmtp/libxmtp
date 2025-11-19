@@ -16,7 +16,6 @@
 , sqlcipher
 , sqlite
 , corepack
-, lnav
 , zstd
 , foundry-bin
 , graphite-cli
@@ -40,7 +39,6 @@
 , xmtp
 , omnix
 , toxiproxy
-, rr
 , vscode-extensions
 , lldb
 , ...
@@ -90,7 +88,6 @@ mkShell {
       cargo-nextest
       cargo-machete
       inferno
-      lnav
       jq
       curl
       lcov
@@ -98,7 +95,6 @@ mkShell {
       binaryen
       wasm-pack
       binaryen
-      rr
       vscode-extensions.vadimcn.vscode-lldb
       lldb
 
