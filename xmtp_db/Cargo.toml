@@ -61,6 +61,7 @@ diesel = { workspace = true, features = [
   "32-column-tables",
   "serde_json",
 ] }
+tokio.workspace = true
 dyn-clone.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
