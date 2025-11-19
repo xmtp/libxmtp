@@ -28,6 +28,7 @@ use color_eyre::eyre::{self, Result};
 use directories::ProjectDirs;
 use redb::DatabaseError;
 use std::{fs, path::PathBuf, sync::Arc};
+pub use types::Identity;
 use xmtp_db::{EncryptedMessageStore, StorageOption};
 use xmtp_id::InboxOwner;
 use xmtp_mls::identity::IdentityStrategy;

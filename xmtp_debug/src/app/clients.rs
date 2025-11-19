@@ -27,29 +27,6 @@ pub async fn new_unregistered_client(
     new_client_inner(network, &local_wallet, None).await
 }
 
-/// Create a new client + Identity
-pub async fn temp_client(
-    network: &args::BackendOpts,
-    wallet: Option<&types::EthereumWallet>,
-) -> Result<crate::DbgClient> {
-    let local_wallet = if let Some(w) = wallet {
-        w.clone().into_alloy()
-    } else {
-        generate_wallet().into_alloy()
-    };
-
-    let tmp_dir = (*crate::constants::TMPDIR).path();
-    let public = local_wallet.get_identifier()?;
-    let name = format!("{public}:{}.db3", u64::from(network));
-
-    new_client_inner(
-        network,
-        &local_wallet,
-        Some(tmp_dir.to_path_buf().join(name)),
-    )
-    .await
-}
-
 /// Get the XMTP Client from an [`Identity`]
 pub fn client_from_identity(
     identity: &Identity,
