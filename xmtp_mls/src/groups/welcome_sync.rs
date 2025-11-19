@@ -68,7 +68,21 @@ where
             .await;
 
         match result {
-            Ok(mls_group) => Ok(mls_group),
+            Ok(mls_group) => {
+                if let Some(ref g) = mls_group {
+                    tracing::info!(
+                        welcome_cursor = %welcome.cursor,
+                        "Welcome processed successfully for group_id {group_id}",
+                        group_id = hex::encode(g.group_id.as_slice()),
+                    );
+                } else {
+                    tracing::info!(
+                        welcome_cursor = %welcome.cursor,
+                        "Welcome processed successfully but no group was created (mls_group = None)",
+                    );
+                }
+                Ok(mls_group)
+            }
             Err(err) => {
                 use crate::DuplicateItem::*;
                 use crate::StorageError::*;
