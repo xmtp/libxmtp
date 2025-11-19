@@ -44,6 +44,7 @@ xmtp_configuration.workspace = true
 xmtp_proto.workspace = true
 zeroize.workspace = true
 
+futures = { workspace = true, optional = true }
 mockall = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = [
   "macros",
@@ -94,6 +95,7 @@ wasm-bindgen-test.workspace = true
 [features]
 update-schema = ["dep:toml"]
 test-utils = [
+  "dep:futures",
   "xmtp_common/test-utils",
   "dep:mockall",
   "xmtp_configuration/test-utils",

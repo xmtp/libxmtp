@@ -35,16 +35,15 @@ pub(crate) fn generate_message(
 }
 
 #[xmtp_common::test]
-async fn it_does_not_error_on_empty_messages() {
+fn it_does_not_error_on_empty_messages() {
     with_connection(|conn| {
         let id = vec![0x0];
         assert_eq!(conn.get_group_message(id).unwrap(), None);
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_exclude_content_types_filter() {
+fn test_exclude_content_types_filter() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -112,11 +111,10 @@ async fn test_exclude_content_types_filter() {
         let count = conn.count_group_messages(&group.id, &exclude_args).unwrap();
         assert_eq!(count, 3);
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn it_gets_messages() {
+fn it_gets_messages() {
     with_connection(|conn| {
         let group = generate_group(None);
         let message = generate_message(None, Some(&group.id), None, None, None, None);
@@ -131,11 +129,10 @@ async fn it_gets_messages() {
             message.decrypted_message_bytes
         );
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn it_cannot_insert_message_without_group() {
+fn it_cannot_insert_message_without_group() {
     use diesel::result::DatabaseErrorKind::ForeignKeyViolation;
     with_connection(|conn| {
         let message = generate_message(None, None, None, None, None, None);
@@ -147,11 +144,10 @@ async fn it_cannot_insert_message_without_group() {
             ))
         );
     })
-    .await;
 }
 
 #[xmtp_common::test]
-async fn it_gets_many_messages() {
+fn it_gets_many_messages() {
     use crate::encrypted_store::schema::group_messages::dsl;
 
     with_connection(|conn| {
@@ -182,11 +178,10 @@ async fn it_gets_many_messages() {
             msg.sent_at_ns
         });
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn it_gets_messages_by_time() {
+fn it_gets_messages_by_time() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -233,11 +228,10 @@ async fn it_gets_messages_by_time() {
             .unwrap();
         assert_eq!(messages.len(), 2);
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn it_deletes_middle_message_by_expiration_time() {
+fn it_deletes_middle_message_by_expiration_time() {
     with_connection(|conn| {
         let mut group = generate_group(None);
 
@@ -295,11 +289,10 @@ async fn it_deletes_middle_message_by_expiration_time() {
                 .any(|msg| msg.sent_at_ns == 2_000_000_000_000_000_000)
         ); // Message 3
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn it_gets_messages_by_kind() {
+fn it_gets_messages_by_kind() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -354,11 +347,10 @@ async fn it_gets_messages_by_kind() {
             .unwrap();
         assert_eq!(membership_changes.len(), 15);
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn it_orders_messages_by_sent() {
+fn it_orders_messages_by_sent() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -407,11 +399,10 @@ async fn it_orders_messages_by_sent() {
         assert_eq!(messages_desc[2].sent_at_ns, 10_000);
         assert_eq!(messages_desc[3].sent_at_ns, 1_000);
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn it_gets_messages_by_content_type() {
+fn it_gets_messages_by_content_type() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -490,11 +481,10 @@ async fn it_gets_messages_by_content_type() {
         assert_eq!(updated_messages[0].content_type, ContentType::GroupUpdated);
         assert_eq!(updated_messages[0].sent_at_ns, 3_000);
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn it_dedupes_group_updated_messages_from_dm_by_default() {
+fn it_dedupes_group_updated_messages_from_dm_by_default() {
     with_connection(|conn| {
         // Create a DM group
         let mut group = generate_group(None);
@@ -580,7 +570,6 @@ async fn it_dedupes_group_updated_messages_from_dm_by_default() {
         );
         assert_eq!(messages_with_group_updated[0].sent_at_ns, 5_000);
     })
-    .await
 }
 
 pub(crate) fn generate_message_with_reference<C: ConnectionExt>(
@@ -614,7 +603,7 @@ pub(crate) fn generate_message_with_reference<C: ConnectionExt>(
 }
 
 #[xmtp_common::test]
-async fn test_inbound_relations_with_results() {
+fn test_inbound_relations_with_results() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -686,11 +675,10 @@ async fn test_inbound_relations_with_results() {
         // msg3 should not be in inbound_relations
         assert!(!inbound_relations.contains_key(&msg3.id));
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_relations_when_no_references_exist() {
+fn test_relations_when_no_references_exist() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -742,11 +730,10 @@ async fn test_relations_when_no_references_exist() {
             "No outbound relations should exist"
         );
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_inbound_relations_no_main_query_results() {
+fn test_inbound_relations_no_main_query_results() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -766,11 +753,10 @@ async fn test_inbound_relations_no_main_query_results() {
 
         assert_eq!(inbound_relations.len(), 0);
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_inbound_relations_with_limit() {
+fn test_inbound_relations_with_limit() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -818,11 +804,10 @@ async fn test_inbound_relations_with_limit() {
         let msg1_reactions = inbound_relations.get(&msg1.id).unwrap();
         assert!(msg1_reactions.len() <= 3); // Limited to 3
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_relations_with_content_type_filters() {
+fn test_relations_with_content_type_filters() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -923,11 +908,10 @@ async fn test_relations_with_content_type_filters() {
         assert!(outbound_relations.contains_key(&text_msg.id));
         assert!(!outbound_relations.contains_key(&attachment_msg.id));
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_outbound_relations_with_results() {
+fn test_outbound_relations_with_results() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -986,11 +970,10 @@ async fn test_outbound_relations_with_results() {
         assert!(outbound_relations.contains_key(&original_msg1.id));
         assert!(outbound_relations.contains_key(&original_msg2.id));
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_outbound_relations_no_main_query_results() {
+fn test_outbound_relations_no_main_query_results() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -1033,11 +1016,10 @@ async fn test_outbound_relations_no_main_query_results() {
 
         assert_eq!(outbound_relations.len(), 0);
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_outbound_relations_with_limit() {
+fn test_outbound_relations_with_limit() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -1092,11 +1074,10 @@ async fn test_outbound_relations_with_limit() {
 
         assert_eq!(outbound_relations.len(), 2); // Limited to 2
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_both_inbound_and_outbound_relations() {
+fn test_both_inbound_and_outbound_relations() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -1175,11 +1156,10 @@ async fn test_both_inbound_and_outbound_relations() {
         assert_eq!(outbound_relations.len(), 1);
         assert!(outbound_relations.contains_key(&original.id));
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_relation_filters_none_behavior() {
+fn test_relation_filters_none_behavior() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -1276,11 +1256,10 @@ async fn test_relation_filters_none_behavior() {
         );
         assert!(outbound_relations.contains_key(&msg1.id));
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_complex_relation_chain() {
+fn test_complex_relation_chain() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -1349,11 +1328,10 @@ async fn test_complex_relation_chain() {
         assert!(content_types.contains(&ContentType::Reply));
         assert!(content_types.contains(&ContentType::Reaction));
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_inbound_relation_counts() {
+fn test_inbound_relation_counts() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -1440,11 +1418,10 @@ async fn test_inbound_relation_counts() {
         assert_eq!(reply_counts.get(&msg2.id).unwrap(), &3); // 3 replies
         assert!(!reply_counts.contains_key(&msg3.id)); // No replies
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_get_latest_message_times_by_sender_single_sender() {
+fn test_get_latest_message_times_by_sender_single_sender() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -1488,11 +1465,10 @@ async fn test_get_latest_message_times_by_sender_single_sender() {
         assert_eq!(latest_times.len(), 1);
         assert_eq!(latest_times.get(&sender_id).unwrap(), &5000);
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_get_latest_message_times_by_sender_multiple_senders() {
+fn test_get_latest_message_times_by_sender_multiple_senders() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -1560,11 +1536,10 @@ async fn test_get_latest_message_times_by_sender_multiple_senders() {
         assert_eq!(latest_times.get(&sender2_id).unwrap(), &8000);
         assert_eq!(latest_times.get(&sender3_id).unwrap(), &3000);
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_get_latest_message_times_by_sender_empty_results() {
+fn test_get_latest_message_times_by_sender_empty_results() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -1596,11 +1571,10 @@ async fn test_get_latest_message_times_by_sender_empty_results() {
 
         assert_eq!(latest_times.len(), 0);
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_get_latest_message_times_by_sender_dm_group() {
+fn test_get_latest_message_times_by_sender_dm_group() {
     with_connection(|conn| {
         // Create multiple DM groups that share the same dm_id
         let shared_dm_id = "dm_123".to_string();
@@ -1706,11 +1680,10 @@ async fn test_get_latest_message_times_by_sender_dm_group() {
         assert_eq!(latest_times_group3.len(), 1);
         assert_eq!(latest_times_group3.get(&sender_id).unwrap(), &6000);
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_count_group_messages() {
+fn test_count_group_messages() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -1939,11 +1912,10 @@ async fn test_count_group_messages() {
             1
         );
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_count_group_messages_dm_vs_regular_groups() {
+fn test_count_group_messages_dm_vs_regular_groups() {
     with_connection(|conn| {
         // Test DM group behavior
         let mut dm_group = generate_group(None);
@@ -2051,11 +2023,10 @@ async fn test_count_group_messages_dm_vs_regular_groups() {
             2
         );
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_count_group_messages_empty_groups() {
+fn test_count_group_messages_empty_groups() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -2092,11 +2063,10 @@ async fn test_count_group_messages_empty_groups() {
             0
         );
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_get_latest_message_times_by_sender_mixed_content_types() {
+fn test_get_latest_message_times_by_sender_mixed_content_types() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -2190,11 +2160,10 @@ async fn test_get_latest_message_times_by_sender_mixed_content_types() {
         assert_eq!(latest_times_both.get(&sender1_id).unwrap(), &8000); // Latest overall
         assert_eq!(latest_times_both.get(&sender2_id).unwrap(), &6000); // Latest text
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn it_deletes_message_by_id() {
+fn it_deletes_message_by_id() {
     with_connection(|conn| {
         let group = generate_group(None);
         assert_ok!(group.store(conn));
@@ -2226,11 +2195,10 @@ async fn it_deletes_message_by_id() {
             "Deleting non-existent message should return 0"
         );
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_exclude_sender_inbox_ids_filter() {
+fn test_exclude_sender_inbox_ids_filter() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -2364,11 +2332,10 @@ async fn test_exclude_sender_inbox_ids_filter() {
                 .all(|m| m.sender_inbox_id != sender1 && m.sent_at_ns > 2_000)
         );
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_sort_by_sent_at() {
+fn test_sort_by_sent_at() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -2405,12 +2372,11 @@ async fn test_sort_by_sent_at() {
         assert_eq!(desc_messages[1].sent_at_ns, 2000);
         assert_eq!(desc_messages[2].sent_at_ns, 1000);
     })
-    .await
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test]
-async fn test_sort_by_inserted_at() {
+fn test_sort_by_inserted_at() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -2449,12 +2415,11 @@ async fn test_sort_by_inserted_at() {
         assert!(inserted2 > inserted1);
         assert!(inserted3 > inserted2);
     })
-    .await
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test]
-async fn test_inserted_after_filter() {
+fn test_inserted_after_filter() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -2512,12 +2477,11 @@ async fn test_inserted_after_filter() {
             );
         }
     })
-    .await
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test]
-async fn test_inserted_before_filter() {
+fn test_inserted_before_filter() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -2563,12 +2527,11 @@ async fn test_inserted_before_filter() {
         assert_eq!(before_messages[1].sent_at_ns, 2000);
         assert_eq!(before_messages[2].sent_at_ns, 3000);
     })
-    .await
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test]
-async fn test_inserted_at_based_pagination() {
+fn test_inserted_at_based_pagination() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -2626,11 +2589,10 @@ async fn test_inserted_at_based_pagination() {
         let unique_ids: std::collections::HashSet<_> = all_page_ids.iter().collect();
         assert_eq!(all_page_ids.len(), unique_ids.len());
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_inserted_at_populated_in_all_queries() {
+fn test_inserted_at_populated_in_all_queries() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -2654,11 +2616,10 @@ async fn test_inserted_at_populated_in_all_queries() {
         assert_eq!(sync_messages.len(), 1);
         assert!(sync_messages[0].inserted_at_ns > 0);
     })
-    .await
 }
 
 #[xmtp_common::test]
-async fn test_expired_messages_excluded_from_queries() {
+fn test_expired_messages_excluded_from_queries() {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -2725,5 +2686,4 @@ async fn test_expired_messages_excluded_from_queries() {
             "Should exclude expired message"
         );
     })
-    .await
 }

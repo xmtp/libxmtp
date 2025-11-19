@@ -126,7 +126,7 @@ pub(super) mod tests {
     }
 
     #[xmtp_common::test]
-    async fn test_dm_stitching() {
+    fn test_dm_stitching() {
         with_connection(|conn| {
             StoredGroup::builder()
                 .id(rand_vec::<24>())
@@ -153,11 +153,10 @@ pub(super) mod tests {
 
             assert_eq!(all_groups.len(), 1);
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_dm_deduplication() {
+    fn test_dm_deduplication() {
         with_connection(|conn| {
             let now = now_ns();
             let base_time = now - 1_000_000_000; // 1 second ago
@@ -269,6 +268,5 @@ pub(super) mod tests {
             // Should have all 5 groups
             assert_eq!(all_groups.len(), 5);
         })
-        .await
     }
 }

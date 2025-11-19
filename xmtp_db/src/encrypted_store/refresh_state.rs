@@ -780,7 +780,7 @@ pub(crate) mod tests {
     use rstest::rstest;
 
     #[xmtp_common::test]
-    async fn get_cursor_with_no_existing_state() {
+    fn get_cursor_with_no_existing_state() {
         with_connection(|conn| {
             let id = vec![1, 2, 3];
             let kind = EntityKind::ApplicationMessage;
@@ -801,11 +801,10 @@ pub(crate) mod tests {
                 .unwrap();
             assert!(entry.is_some());
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn get_cursor_with_no_existing_state_originator() {
+    fn get_cursor_with_no_existing_state_originator() {
         with_connection(|conn| {
             let id = vec![1, 2, 3];
             let kind = EntityKind::ApplicationMessage;
@@ -826,11 +825,10 @@ pub(crate) mod tests {
                 .unwrap();
             assert!(entry.is_some());
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn get_timestamp_with_existing_state() {
+    fn get_timestamp_with_existing_state() {
         with_connection(|conn| {
             let id = vec![1, 2, 3];
             let entity_kind = EntityKind::Welcome;
@@ -850,11 +848,10 @@ pub(crate) mod tests {
                 }
             );
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn update_timestamp_when_bigger() {
+    fn update_timestamp_when_bigger() {
         with_connection(|conn| {
             let id = vec![1, 2, 3];
             let entity_kind = EntityKind::ApplicationMessage;
@@ -878,11 +875,10 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(entry.unwrap().sequence_id, 124);
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn dont_update_timestamp_when_smaller() {
+    fn dont_update_timestamp_when_smaller() {
         with_connection(|conn| {
             let entity_id = vec![1, 2, 3];
             let entity_kind = EntityKind::Welcome;
@@ -908,11 +904,10 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(entry.unwrap().sequence_id, 123);
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn allow_installation_and_welcome_same_id() {
+    fn allow_installation_and_welcome_same_id() {
         with_connection(|conn| {
             let entity_id = vec![1, 2, 3];
             let welcome_state = RefreshState {
@@ -947,7 +942,6 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(group_state_retrieved.sequence_id, 456);
         })
-        .await
     }
 
     // Helper function to create and store a RefreshState
@@ -1041,7 +1035,6 @@ pub(crate) mod tests {
                 assert!(state.is_some(), "Originator {} should be persisted", orig);
             }
         })
-        .await
     }
 
     #[rstest]
@@ -1121,7 +1114,6 @@ pub(crate) mod tests {
                 );
             }
         })
-        .await
     }
 
     #[rstest]
@@ -1213,11 +1205,10 @@ pub(crate) mod tests {
                 );
             }
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn lowest_common_cursor_empty_topics() {
+    fn lowest_common_cursor_empty_topics() {
         with_connection(|conn| {
             create_state(conn, &[1, 2, 3], EntityKind::ApplicationMessage, 0, 100);
             create_identity_update(conn, 1, 100);
@@ -1232,11 +1223,10 @@ pub(crate) mod tests {
                 }
             }
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn lowest_common_cursor_no_matching_states() {
+    fn lowest_common_cursor_no_matching_states() {
         with_connection(|conn| {
             let topics = [
                 TopicKind::GroupMessagesV1.create(vec![99, 99, 99]),
@@ -1249,18 +1239,16 @@ pub(crate) mod tests {
             let cursor = conn.lowest_common_cursor(&topic_refs).unwrap();
             assert_eq!(cursor.len(), 0);
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn get_last_cursor_for_ids_empty() {
+    fn get_last_cursor_for_ids_empty() {
         with_connection(|conn| {
             let ids: Vec<Vec<u8>> = vec![];
             let entities = vec![EntityKind::ApplicationMessage];
             let result = conn.get_last_cursor_for_ids(&ids, &entities).unwrap();
             assert!(result.is_empty());
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -1281,11 +1269,10 @@ pub(crate) mod tests {
             let cursor = result.get(&id).expect("Should have cursor for id");
             assert_eq!(cursor.get(&10), 456);
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn get_last_cursor_for_ids_multiple_mixed() {
+    fn get_last_cursor_for_ids_multiple_mixed() {
         with_connection(|conn| {
             let entity_kind = EntityKind::ApplicationMessage;
 
@@ -1311,11 +1298,10 @@ pub(crate) mod tests {
             assert_eq!(result.get(&id3).unwrap().get(&10), 300);
             assert!(!result.contains_key(&id4));
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn get_last_cursor_for_ids_exactly_900() {
+    fn get_last_cursor_for_ids_exactly_900() {
         with_connection(|conn| {
             let entity_kind = EntityKind::ApplicationMessage;
 
@@ -1336,11 +1322,10 @@ pub(crate) mod tests {
                 assert_eq!(result.get(id).unwrap().get(&10), idx as u64);
             }
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn get_last_cursor_for_ids_over_900() {
+    fn get_last_cursor_for_ids_over_900() {
         with_connection(|conn| {
             let entity_kind = EntityKind::ApplicationMessage;
 
@@ -1366,11 +1351,10 @@ pub(crate) mod tests {
                 );
             }
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn get_last_cursor_for_ids_over_1800() {
+    fn get_last_cursor_for_ids_over_1800() {
         with_connection(|conn| {
             let entity_kind = EntityKind::ApplicationMessage;
 
@@ -1396,11 +1380,10 @@ pub(crate) mod tests {
                 );
             }
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn get_last_cursor_for_ids_different_entity_kinds() {
+    fn get_last_cursor_for_ids_different_entity_kinds() {
         with_connection(|conn| {
             let id1 = vec![1, 2, 3];
             let id2 = vec![4, 5, 6];
@@ -1429,6 +1412,5 @@ pub(crate) mod tests {
             assert_eq!(result.get(&id1).unwrap().get(&10), 200);
             assert!(!result.contains_key(&id2));
         })
-        .await
     }
 }

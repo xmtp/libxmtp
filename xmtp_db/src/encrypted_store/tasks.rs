@@ -200,32 +200,29 @@ pub(crate) mod tests {
     use crate::test_utils::with_connection;
 
     #[xmtp_common::test]
-    async fn get_tasks_returns_empty_list_initially() {
+    fn get_tasks_returns_empty_list_initially() {
         with_connection(|conn| {
             let tasks = conn.get_tasks().unwrap();
             assert!(tasks.is_empty());
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn update_task_returns_error_when_not_found() {
+    fn update_task_returns_error_when_not_found() {
         with_connection(|conn| {
             // Try to update a task that doesn't exist
             let result = conn.update_task(999, 5, 1000, 2000);
             // The update should fail when the task doesn't exist
             assert!(result.is_err());
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn delete_task_returns_false_when_not_found() {
+    fn delete_task_returns_false_when_not_found() {
         with_connection(|conn| {
             let deleted = conn.delete_task(999).unwrap();
             assert!(!deleted);
         })
-        .await
     }
 
     // Generate a random task data for testing to ensure that the hashes are unique
@@ -248,7 +245,7 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    async fn all_task_operations_work_together() {
+    fn all_task_operations_work_together() {
         with_connection(|conn| {
             let now = xmtp_common::time::now_ns();
 
@@ -378,6 +375,5 @@ pub(crate) mod tests {
             let deleted_again = conn.delete_task(task1_id).unwrap();
             assert!(!deleted_again);
         })
-        .await
     }
 }
