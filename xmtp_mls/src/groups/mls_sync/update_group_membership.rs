@@ -80,6 +80,12 @@ async fn compute_publish_data_for_group_membership_update(
             let storage = conn.key_store();
             let provider = XmtpOpenMlsProvider::new(storage);
             // Create the commit
+            tracing::debug!(
+                "Before creating commit for group membership we have epoch [{}] and epoch authenticator [{}], own leaf index [{}]",
+                openmls_group.epoch().as_u64(),
+                hex::encode(openmls_group.epoch_authenticator().as_slice()),
+                openmls_group.own_leaf_index().u32()
+            );
             let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
                 &provider,
                 &signer,

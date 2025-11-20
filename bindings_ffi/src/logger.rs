@@ -345,6 +345,7 @@ pub fn exit_debug_writer() -> Result<(), GenericError> {
 }
 
 pub fn init_logger() {
+    let _ = tracing_log::LogTracer::init();
     let _ = *LOGGER;
 }
 

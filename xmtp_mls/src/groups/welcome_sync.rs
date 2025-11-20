@@ -75,6 +75,11 @@ where
                         "Welcome processed successfully for group_id {group_id}",
                         group_id = hex::encode(g.group_id.as_slice()),
                     );
+                    tracing::info!(
+                        group_id = %hex::encode(g.group_id.as_slice()),
+                        op = "process welcome", // or "create_commit", "apply_welcome"
+                        "mls_mutation_attempt"
+                    );
                 } else {
                     tracing::info!(
                         welcome_cursor = %welcome.cursor,

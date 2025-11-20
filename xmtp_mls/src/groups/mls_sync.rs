@@ -893,16 +893,53 @@ where
             let storage = conn.key_store();
             let provider = XmtpOpenMlsProvider::new(storage);
             processed_message = Some(mls_group.process_message(&provider, message.clone()));
+            tracing::debug!(
+                inbox_id = self.context.inbox_id(),
+                installation_id = %self.context.installation_id(),
+                group_id = hex::encode(&self.group_id),
+                current_epoch = mls_group.epoch().as_u64(),
+                cursor = %cursor,
+                "Temporarily updated group state for group_id [{}] with cursor [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                hex::encode(&self.group_id),
+                *cursor,
+                mls_group.epoch().as_u64(),
+                hex::encode(mls_group.epoch_authenticator().as_slice())
+            );
             // Rollback the transaction. We want to synchronize with the server before committing.
             Err::<(), StorageError>(StorageError::IntentionalRollback)
         });
         if !matches!(result, Err(StorageError::IntentionalRollback)) {
             result.inspect_err(|e| tracing::debug!("immutable process message failed {}", e))?;
         }
+        tracing::debug!(
+            inbox_id = self.context.inbox_id(),
+            installation_id = %self.context.installation_id(),
+            group_id = hex::encode(&self.group_id),
+            current_epoch = mls_group.epoch().as_u64(),
+            cursor = %cursor,
+            "Rolled back transaction for group_id [{}] with cursor [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+            hex::encode(&self.group_id),
+            *cursor,
+            mls_group.epoch().as_u64(),
+            hex::encode(mls_group.epoch_authenticator().as_slice())
+        );
         let processed_message = processed_message.expect("Was just set to Some")?;
 
         // Reload the mlsgroup to clear the it's internal cache
         mls_group.reload(provider.storage())?;
+
+        tracing::debug!(
+            inbox_id = self.context.inbox_id(),
+            installation_id = %self.context.installation_id(),
+            group_id = hex::encode(&self.group_id),
+            current_epoch = mls_group.epoch().as_u64(),
+            cursor = %cursor,
+            "Reloaded mlsgroup for group_id [{}] with cursor [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+            hex::encode(&self.group_id),
+            *cursor,
+            mls_group.epoch().as_u64(),
+            hex::encode(mls_group.epoch_authenticator().as_slice())
+        );
 
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns as u64)?;
@@ -1686,12 +1723,13 @@ where
                     cursor = %envelope.cursor,
                     intent_id,
                     intent.kind = %intent.kind,
-                    "client [{}] is about to process own envelope [{}] for intent [{}] [{}] with current epoch authenticator [{}]",
+                    "client [{}] is about to process own envelope [{}] for intent [{}] [{}] with current epoch authenticator [{}] in epoch [{}]",
                     self.context.inbox_id(),
                     envelope.cursor,
                     intent_id,
                     intent.kind,
-                    hex::encode(mls_group.epoch_authenticator().as_slice())
+                    hex::encode(mls_group.epoch_authenticator().as_slice()),
+                    mls_group.epoch().as_u64()
                 );
 
                 let validation_result = self
@@ -1785,10 +1823,11 @@ where
                     installation_id = %self.context.installation_id(),
                     group_id = hex::encode(&self.group_id),
                     cursor = %envelope.cursor,
-                    "client [{}] is about to process external envelope [{}] with current epoch authenticator [{}]",
+                    "client [{}] is about to process external envelope [{}] with current group epoch authenticator [{}] from epoch [{}]",
                     self.context.inbox_id(),
                     envelope.cursor,
-                    hex::encode(mls_group.epoch_authenticator().as_slice())
+                    hex::encode(mls_group.epoch_authenticator().as_slice()),
+                    mls_group.epoch().as_u64()
                 );
                 let identifier = self
                     .validate_and_process_external_message(
@@ -2216,13 +2255,27 @@ where
                         self.context.mls_storage().transaction(|conn| {
                             let storage = conn.key_store();
                             let db = storage.db();
-                            db.set_group_intent_published(
+                            let result = db.set_group_intent_published(
                                 intent.id,
                                 &intent_hash,
                                 post_commit_action,
                                 staged_commit,
                                 mls_group.epoch().as_u64() as i64,
-                            )
+                            );
+                            tracing::debug!(
+                                inbox_id = self.context.inbox_id(),
+                                installation_id = %self.context.installation_id(),
+                                intent.id,
+                                intent.kind = %intent.kind,
+                                group_id = hex::encode(&self.group_id),
+                                "[{}] set stored intent [{}] with hash [{}] to state `published` with (before commit) epoch authenticator [{}] in epoch [{}]",
+                                self.context.inbox_id(),
+                                intent.id,
+                                hex::encode(&intent_hash),
+                                hex::encode(mls_group.epoch_authenticator().as_slice()),
+                                mls_group.epoch().as_u64()
+                            );
+                            result
                         })?;
                         tracing::debug!(
                             inbox_id = self.context.inbox_id(),
@@ -2230,11 +2283,12 @@ where
                             intent.id,
                             intent.kind = %intent.kind,
                             group_id = hex::encode(&self.group_id),
-                            "[{}] set stored intent [{}] with hash [{}] to state `published` using epoch authenticator [{}]",
+                            "Succeeded - [{}] set stored intent [{}] with hash [{}] to state `published` with (before commit) epoch authenticator [{}] in epoch [{}]",
                             self.context.inbox_id(),
                             intent.id,
                             hex::encode(&intent_hash),
-                            hex::encode(mls_group.epoch_authenticator().as_slice())
+                            hex::encode(mls_group.epoch_authenticator().as_slice()),
+                            mls_group.epoch().as_u64()
                         );
 
                         let messages = self.prepare_group_messages(vec![(payload_slice, should_send_push_notification)])?;
@@ -2249,7 +2303,7 @@ where
                             inbox_id = self.context.inbox_id(),
                             installation_id = %self.context.installation_id(),
                             group_id = hex::encode(&self.group_id),
-                            "[{}] published intent [{}] of type [{}] with hash [{}]",
+                            "Sent to api server - [{}] published intent [{}] of type [{}] with hash [{}]",
                             self.context.inbox_id(),
                             intent.id,
                             intent.kind,
@@ -2330,7 +2384,19 @@ where
                 let (bundle, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
+                        tracing::debug!(
+                            "Errored while getting key update commit for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                            hex::encode(&self.group_id),
+                            openmls_group.epoch().as_u64(),
+                            hex::encode(openmls_group.epoch_authenticator().as_slice())
+                        );
                         openmls_group.reload(storage)?;
+                        tracing::debug!(
+                            "Reloaded mlsgroup for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                            hex::encode(&self.group_id),
+                            openmls_group.epoch().as_u64(),
+                            hex::encode(openmls_group.epoch_authenticator().as_slice())
+                        );
                         return Err(e);
                     }
                 };
@@ -2364,7 +2430,19 @@ where
                 let (commit, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
+                        tracing::debug!(
+                            "Errored while getting metadata update commit for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                            hex::encode(&self.group_id),
+                            openmls_group.epoch().as_u64(),
+                            hex::encode(openmls_group.epoch_authenticator().as_slice())
+                        );
                         openmls_group.reload(storage)?;
+                        tracing::debug!(
+                            "Reloaded mlsgroup for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                            hex::encode(&self.group_id),
+                            openmls_group.epoch().as_u64(),
+                            hex::encode(openmls_group.epoch_authenticator().as_slice())
+                        );
                         return Err(e);
                     }
                 };
@@ -2401,7 +2479,19 @@ where
                 let (commit, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
+                        tracing::debug!(
+                            "Errored while getting admin list update commit for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                            hex::encode(&self.group_id),
+                            openmls_group.epoch().as_u64(),
+                            hex::encode(openmls_group.epoch_authenticator().as_slice())
+                        );
                         openmls_group.reload(storage)?;
+                        tracing::debug!(
+                            "Reloaded mlsgroup for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                            hex::encode(&self.group_id),
+                            openmls_group.epoch().as_u64(),
+                            hex::encode(openmls_group.epoch_authenticator().as_slice())
+                        );
                         return Err(e);
                     }
                 };
@@ -2438,7 +2528,19 @@ where
                 let (commit, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
+                        tracing::debug!(
+                            "Errored while getting update permissions commit for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                            hex::encode(&self.group_id),
+                            openmls_group.epoch().as_u64(),
+                            hex::encode(openmls_group.epoch_authenticator().as_slice())
+                        );
                         openmls_group.reload(storage)?;
+                        tracing::debug!(
+                            "Reloaded mlsgroup for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                            hex::encode(&self.group_id),
+                            openmls_group.epoch().as_u64(),
+                            hex::encode(openmls_group.epoch_authenticator().as_slice())
+                        );
                         return Err(e);
                     }
                 };
@@ -3067,7 +3169,17 @@ fn get_and_clear_pending_commit(
         .as_ref()
         .map(xmtp_db::db_serialize)
         .transpose()?;
+    tracing::info!(
+        group_id = %hex::encode(openmls_group.group_id().as_slice()),
+        op = "get and clear pending commit - mutated", // or "create_commit", "apply_welcome"
+        "mls_mutation_attempt"
+    );
     openmls_group.clear_pending_commit(s)?;
+    tracing::info!(
+        group_id = %hex::encode(openmls_group.group_id().as_slice()),
+        op = "get and clear pending commit - cleared", // or "create_commit", "apply_welcome"
+        "mls_mutation_attempt"
+    );
     Ok(commit)
 }
 
