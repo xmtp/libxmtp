@@ -20,7 +20,6 @@ pub struct GroupMember {
     pub consent_state: ConsentState,
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PermissionLevel {
     Member,

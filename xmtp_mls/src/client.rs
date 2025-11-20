@@ -821,7 +821,6 @@ where
             .collect())
     }
 
-
     /// Upload a Key Package to the network and publish the signed identity update
     /// from the provided SignatureRequest
     pub async fn register_identity(
@@ -2038,5 +2037,4 @@ pub(crate) mod tests {
             "Deleting non-existent message should return 0"
         );
     }
-
 }

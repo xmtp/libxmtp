@@ -51,6 +51,11 @@ impl AsRef<ContactQueryArgs> for ContactQueryArgs {
     }
 }
 
+// Type aliases to reduce complexity
+type GroupMembersMap = HashMap<Vec<u8>, Vec<(String, i64)>>;
+type MemberRequests = HashSet<(String, i64)>;
+type ContactMap = HashMap<String, (AssociationState, HashSet<Vec<u8>>, ConsentState)>;
+
 /// Filter groups by allow/deny lists
 fn filter_groups_by_allow_deny_lists(
     stored_groups: Vec<StoredGroup>,
@@ -86,13 +91,13 @@ fn filter_groups_by_allow_deny_lists(
 fn extract_group_members<Context>(
     context: &Context,
     filtered_groups: &[StoredGroup],
-) -> (HashMap<Vec<u8>, Vec<(String, i64)>>, HashSet<(String, i64)>)
+) -> (GroupMembersMap, MemberRequests)
 where
     Context: XmtpSharedContext,
 {
     let storage = context.mls_storage();
-    let mut group_members_map: HashMap<Vec<u8>, Vec<(String, i64)>> = HashMap::new();
-    let mut all_member_requests: HashSet<(String, i64)> = HashSet::new();
+    let mut group_members_map: GroupMembersMap = HashMap::new();
+    let mut all_member_requests: MemberRequests = HashSet::new();
 
     for stored_group in filtered_groups {
         let mls_group = crate::groups::MlsGroup::new(
@@ -187,9 +192,9 @@ where
 fn build_contact_map<Context>(
     context: &Context,
     filtered_groups: &[StoredGroup],
-    group_members_map: &HashMap<Vec<u8>, Vec<(String, i64)>>,
+    group_members_map: &GroupMembersMap,
     association_map: &HashMap<String, AssociationState>,
-) -> Result<HashMap<String, (AssociationState, HashSet<Vec<u8>>, ConsentState)>, ClientError>
+) -> Result<ContactMap, ClientError>
 where
     Context: XmtpSharedContext,
 {
@@ -209,8 +214,7 @@ where
 
     // Build contact map using the batch-loaded data
     // Use HashSet for conversation_ids during construction to guarantee uniqueness
-    let mut contact_map: HashMap<String, (AssociationState, HashSet<Vec<u8>>, ConsentState)> =
-        HashMap::new();
+    let mut contact_map: ContactMap = HashMap::new();
 
     for stored_group in filtered_groups {
         let group_id = &stored_group.id;
@@ -347,8 +351,7 @@ where
             .collect();
 
         // Apply final filters (own inbox_id, consent states)
-        let filtered_contacts =
-            apply_contact_filters(contacts, &self.inbox_id(), &consent_states);
+        let filtered_contacts = apply_contact_filters(contacts, self.inbox_id(), &consent_states);
 
         Ok(filtered_contacts)
     }
