@@ -10,6 +10,7 @@ workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+async-trait.workspace = true
 chrono.workspace = true
 console_error_panic_hook.workspace = true
 futures.workspace = true

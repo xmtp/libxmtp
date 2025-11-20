@@ -10,9 +10,11 @@ workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
+async-trait.workspace = true
 chrono = { workspace = true, features = ["serde"] }
 futures.workspace = true
 hex.workspace = true
+# Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
 napi = { version = "3.4.0", default-features = false, features = [
   "napi6",
   "async",
@@ -37,9 +39,9 @@ xmtp_cryptography.workspace = true
 xmtp_db.workspace = true
 xmtp_id.workspace = true
 xmtp_mls.workspace = true
-xmtp_proto = { workspace = true, features = [] }
+xmtp_proto.workspace = true
 
-toxiproxy_rust = { workspace = true, optional = true }
+# For some reason these don't work when added as dev-dependencies
 xmtp_api_grpc = { workspace = true, optional = true }
 xmtp_configuration = { workspace = true, optional = true }
 
@@ -47,20 +49,19 @@ xmtp_configuration = { workspace = true, optional = true }
 napi-build = "2.0.1"
 
 [dev-dependencies]
-chrono = { workspace = true }
+# Add self as dev dependency to automatically enable the test-utils feature
+bindings_node = { path = ".", features = ["test-utils"] }
+chrono.workspace = true
 toxiproxy_rust.workspace = true
-xmtp_api_grpc.workspace = true
-xmtp_configuration.workspace = true
-xmtp_proto = { workspace = true, features = ["test-utils"] }
 
 [package.metadata.cross.build.env]
 volumes = ["__LIB12_DEP=../"]
 
 [features]
 test-utils = [
-  "xmtp_mls/test-utils",
-  "dep:toxiproxy_rust",
-  "xmtp_proto/test-utils",
-  "dep:xmtp_configuration",
   "dep:xmtp_api_grpc",
+  "dep:xmtp_configuration",
+  "xmtp_api_grpc/test-utils",
+  "xmtp_mls/test-utils",
+  "xmtp_proto/test-utils",
 ]

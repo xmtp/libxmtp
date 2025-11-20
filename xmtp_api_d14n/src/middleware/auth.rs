@@ -5,14 +5,12 @@ use tokio::sync::OnceCell;
 use xmtp_common::{BoxDynError, MaybeSend, MaybeSync};
 use xmtp_proto::api::{ApiClientError, Client, IsConnectedCheck};
 
-xmtp_common::if_not_test! {
-    use xmtp_common::time::now_secs;
-}
-// override now so we don't ahve flaky tests
-xmtp_common::if_test! {
-    fn now_secs() -> i64 {
-        1_000_000
-    }
+#[cfg(not(test))]
+use xmtp_common::time::now_secs;
+// override now_secs so we don't have flaky tests
+#[cfg(test)]
+fn now_secs() -> i64 {
+    1_000_000
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -348,7 +346,7 @@ mod tests {
             credential.expires_at_seconds += count;
             xmtp_common::time::sleep(std::time::Duration::from_millis(10)).await;
             tracing::debug!("credential: {credential:?}, {}, {count}", now_secs());
-            Ok(credential.clone())
+            Ok(credential)
         }
     }
 
