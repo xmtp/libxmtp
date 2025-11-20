@@ -999,7 +999,8 @@ where
             .collect();
 
         // Step 4: Build contact map using the batch-loaded data
-        let mut contact_map: HashMap<String, Contact> = HashMap::new();
+        // Use HashSet for conversation_ids during construction to guarantee uniqueness
+        let mut contact_map: HashMap<String, (AssociationState, HashSet<Vec<u8>>, xmtp_db::consent_record::ConsentState)> = HashMap::new();
 
         for stored_group in &filtered_groups {
             let group_id = &stored_group.id;
@@ -1014,17 +1015,13 @@ where
 
                         contact_map
                             .entry(inbox_id.clone())
-                            .and_modify(|contact| {
-                                if !contact.conversation_ids.contains(group_id) {
-                                    contact.conversation_ids.push(group_id.clone());
-                                }
+                            .and_modify(|(_, conversation_ids, _)| {
+                                conversation_ids.insert(group_id.clone());
                             })
-                            .or_insert_with(|| Contact {
-                                inbox_id: inbox_id.clone(),
-                                account_identifiers: association_state.identifiers(),
-                                installation_ids: association_state.installation_ids(),
-                                conversation_ids: vec![group_id.clone()],
-                                consent_state,
+                            .or_insert_with(|| {
+                                let mut conversation_ids = HashSet::new();
+                                conversation_ids.insert(group_id.clone());
+                                (association_state.clone(), conversation_ids, consent_state)
                             });
                     }
                 }
@@ -1032,7 +1029,16 @@ where
         }
 
         // Convert map to vec and apply filters
-        let mut contacts: Vec<Contact> = contact_map.into_values().collect();
+        let mut contacts: Vec<Contact> = contact_map
+            .into_iter()
+            .map(|(inbox_id, (association_state, conversation_ids, consent_state))| Contact {
+                inbox_id,
+                account_identifiers: association_state.identifiers(),
+                installation_ids: association_state.installation_ids(),
+                conversation_ids: conversation_ids.into_iter().collect(),
+                consent_state,
+            })
+            .collect();
 
         // Filter out the client's own inbox_id
         let own_inbox_id = self.inbox_id().to_string();
