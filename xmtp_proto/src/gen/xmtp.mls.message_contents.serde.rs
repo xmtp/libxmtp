@@ -1499,6 +1499,18 @@ impl serde::Serialize for GroupUpdated {
         if !self.left_inboxes.is_empty() {
             len += 1;
         }
+        if !self.added_admin_inboxes.is_empty() {
+            len += 1;
+        }
+        if !self.removed_admin_inboxes.is_empty() {
+            len += 1;
+        }
+        if !self.added_super_admin_inboxes.is_empty() {
+            len += 1;
+        }
+        if !self.removed_super_admin_inboxes.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupUpdated", len)?;
         if !self.initiated_by_inbox_id.is_empty() {
             struct_ser.serialize_field("initiated_by_inbox_id", &self.initiated_by_inbox_id)?;
@@ -1514,6 +1526,18 @@ impl serde::Serialize for GroupUpdated {
         }
         if !self.left_inboxes.is_empty() {
             struct_ser.serialize_field("left_inboxes", &self.left_inboxes)?;
+        }
+        if !self.added_admin_inboxes.is_empty() {
+            struct_ser.serialize_field("added_admin_inboxes", &self.added_admin_inboxes)?;
+        }
+        if !self.removed_admin_inboxes.is_empty() {
+            struct_ser.serialize_field("removed_admin_inboxes", &self.removed_admin_inboxes)?;
+        }
+        if !self.added_super_admin_inboxes.is_empty() {
+            struct_ser.serialize_field("added_super_admin_inboxes", &self.added_super_admin_inboxes)?;
+        }
+        if !self.removed_super_admin_inboxes.is_empty() {
+            struct_ser.serialize_field("removed_super_admin_inboxes", &self.removed_super_admin_inboxes)?;
         }
         struct_ser.end()
     }
@@ -1535,6 +1559,14 @@ impl<'de> serde::Deserialize<'de> for GroupUpdated {
             "metadataFieldChanges",
             "left_inboxes",
             "leftInboxes",
+            "added_admin_inboxes",
+            "addedAdminInboxes",
+            "removed_admin_inboxes",
+            "removedAdminInboxes",
+            "added_super_admin_inboxes",
+            "addedSuperAdminInboxes",
+            "removed_super_admin_inboxes",
+            "removedSuperAdminInboxes",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1544,6 +1576,10 @@ impl<'de> serde::Deserialize<'de> for GroupUpdated {
             RemovedInboxes,
             MetadataFieldChanges,
             LeftInboxes,
+            AddedAdminInboxes,
+            RemovedAdminInboxes,
+            AddedSuperAdminInboxes,
+            RemovedSuperAdminInboxes,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1571,6 +1607,10 @@ impl<'de> serde::Deserialize<'de> for GroupUpdated {
                             "removedInboxes" | "removed_inboxes" => Ok(GeneratedField::RemovedInboxes),
                             "metadataFieldChanges" | "metadata_field_changes" => Ok(GeneratedField::MetadataFieldChanges),
                             "leftInboxes" | "left_inboxes" => Ok(GeneratedField::LeftInboxes),
+                            "addedAdminInboxes" | "added_admin_inboxes" => Ok(GeneratedField::AddedAdminInboxes),
+                            "removedAdminInboxes" | "removed_admin_inboxes" => Ok(GeneratedField::RemovedAdminInboxes),
+                            "addedSuperAdminInboxes" | "added_super_admin_inboxes" => Ok(GeneratedField::AddedSuperAdminInboxes),
+                            "removedSuperAdminInboxes" | "removed_super_admin_inboxes" => Ok(GeneratedField::RemovedSuperAdminInboxes),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1595,6 +1635,10 @@ impl<'de> serde::Deserialize<'de> for GroupUpdated {
                 let mut removed_inboxes__ = None;
                 let mut metadata_field_changes__ = None;
                 let mut left_inboxes__ = None;
+                let mut added_admin_inboxes__ = None;
+                let mut removed_admin_inboxes__ = None;
+                let mut added_super_admin_inboxes__ = None;
+                let mut removed_super_admin_inboxes__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::InitiatedByInboxId => {
@@ -1627,6 +1671,30 @@ impl<'de> serde::Deserialize<'de> for GroupUpdated {
                             }
                             left_inboxes__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::AddedAdminInboxes => {
+                            if added_admin_inboxes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("addedAdminInboxes"));
+                            }
+                            added_admin_inboxes__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::RemovedAdminInboxes => {
+                            if removed_admin_inboxes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("removedAdminInboxes"));
+                            }
+                            removed_admin_inboxes__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::AddedSuperAdminInboxes => {
+                            if added_super_admin_inboxes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("addedSuperAdminInboxes"));
+                            }
+                            added_super_admin_inboxes__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::RemovedSuperAdminInboxes => {
+                            if removed_super_admin_inboxes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("removedSuperAdminInboxes"));
+                            }
+                            removed_super_admin_inboxes__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1638,6 +1706,10 @@ impl<'de> serde::Deserialize<'de> for GroupUpdated {
                     removed_inboxes: removed_inboxes__.unwrap_or_default(),
                     metadata_field_changes: metadata_field_changes__.unwrap_or_default(),
                     left_inboxes: left_inboxes__.unwrap_or_default(),
+                    added_admin_inboxes: added_admin_inboxes__.unwrap_or_default(),
+                    removed_admin_inboxes: removed_admin_inboxes__.unwrap_or_default(),
+                    added_super_admin_inboxes: added_super_admin_inboxes__.unwrap_or_default(),
+                    removed_super_admin_inboxes: removed_super_admin_inboxes__.unwrap_or_default(),
                 })
             }
         }
