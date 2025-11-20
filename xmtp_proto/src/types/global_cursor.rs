@@ -49,6 +49,14 @@ impl GlobalCursor {
         self.inner.get(originator).copied().unwrap_or(0)
     }
 
+    /// get the full [`super::Cursor`] that belongs to this [`OriginatorId``
+    pub fn cursor(&self, originator: &OriginatorId) -> super::Cursor {
+        super::Cursor {
+            originator_id: *originator,
+            sequence_id: self.get(originator),
+        }
+    }
+
     /// Get the max sequence id across all originator ids
     pub fn max(&self) -> SequenceId {
         self.inner.values().copied().max().unwrap_or(0)
