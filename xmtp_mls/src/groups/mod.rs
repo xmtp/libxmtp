@@ -345,7 +345,27 @@ where
         }
     }
 
-    // Load the stored OpenMLS group from the OpenMLS provider's keystore
+    // Load the stored OpenMLS group from the OpenMLS provider's keystore or return an error if the group is locked.
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub(crate) fn load_mls_group<F, R>(
+        &self,
+        storage: &impl XmtpMlsStorageProvider,
+        operation: F,
+    ) -> Result<R, GroupError>
+    where
+        F: Fn(OpenMlsGroup) -> Result<R, GroupError>,
+    {
+        // Load the MLS group
+        let mls_group = OpenMlsGroup::load(storage, &GroupId::from_slice(&self.group_id))
+            .map_err(|_| NotFound::MlsGroup)?
+            .ok_or(NotFound::MlsGroup)?;
+
+        // Perform the operation with the MLS group
+        operation(mls_group)
+    }
+
+    // Load the stored OpenMLS group from the OpenMLS provider's keystore or return an error if the group is locked.
+    #[allow(dead_code)]
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn load_mls_group_with_lock<F, R>(
         &self,
@@ -358,8 +378,8 @@ where
         // Get the group ID for locking
         let group_id = self.group_id.clone();
 
-        // Acquire the lock synchronously using blocking_lock
-        let _lock = self.mls_commit_lock.get_lock_sync(group_id.clone());
+        // Acquire the lock synchronously or error if the group is locked
+        let _lock = self.mls_commit_lock.get_lock_sync(group_id.clone())?;
         // Load the MLS group
         let mls_group = OpenMlsGroup::load(storage, &GroupId::from_slice(&self.group_id))
             .map_err(|_| NotFound::MlsGroup)?
@@ -1834,7 +1854,7 @@ where
             return Ok(false);
         }
 
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
+        self.load_mls_group(self.context.mls_storage(), |mls_group| {
             Ok(mls_group.is_active())
         })
     }
@@ -1853,7 +1873,7 @@ where
 
     /// Get the `GroupMutableMetadata` of the group.
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
+        self.load_mls_group(self.context.mls_storage(), |mls_group| {
             GroupMutableMetadata::try_from(&mls_group)
                 .map_err(MetadataPermissionsError::from)
                 .map_err(GroupError::from)
@@ -1861,7 +1881,7 @@ where
     }
 
     pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
+        self.load_mls_group(self.context.mls_storage(), |mls_group| {
             Ok(extract_group_permissions(&mls_group).map_err(MetadataPermissionsError::from)?)
         })
     }

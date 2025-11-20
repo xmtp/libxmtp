@@ -1006,7 +1006,7 @@ pub(crate) mod tests {
 
         let storage = group.context.mls_storage();
         let decrypted_message = group
-            .load_mls_group_with_lock(storage, |mut mls_group| {
+            .load_mls_group(storage, |mut mls_group| {
                 Ok(mls_group
                     .process_message(&XmtpOpenMlsProviderRef::new(storage), mls_message.clone())
                     .unwrap())
