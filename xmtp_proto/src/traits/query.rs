@@ -23,8 +23,7 @@ pub(super) async fn request<C: Client>(
 }
 
 // blanket Query implementation for a bare Endpoint
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<Q, C> Query<C> for Q
 where
     Q: Endpoint,
@@ -40,8 +39,7 @@ where
 }
 
 // blanket QueryRaw implementation for a bare Endpoint
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<E, C> QueryRaw<C> for E
 where
     E: Endpoint,
@@ -54,8 +52,7 @@ where
 }
 
 // blanket Query implementation for a bare Endpoint
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<E, T, C> QueryStream<T, C> for E
 where
     E: Endpoint,

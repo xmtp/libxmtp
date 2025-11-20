@@ -97,9 +97,7 @@ pub trait Paged: MaybeSend + MaybeSync {
 
 /// Represents the backend API required for an MLS Delivery Service
 /// to be compatible with XMTP
-#[allow(async_fn_in_trait)]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait XmtpMlsClient: MaybeSend + MaybeSync {
     type Error: RetryableError + MaybeSend + MaybeSync + 'static;
     async fn upload_key_package(&self, request: UploadKeyPackageRequest)
@@ -144,8 +142,7 @@ pub trait XmtpMlsClient: MaybeSend + MaybeSync {
 
 /// Represents the backend API required for an MLS Delivery Service
 /// to be compatible with XMTP streaming
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait XmtpMlsStreams: MaybeSend + MaybeSync {
     type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>> + MaybeSend;
 
@@ -169,8 +166,7 @@ pub trait XmtpMlsStreams: MaybeSend + MaybeSync {
 
 /// Represents the backend API required for the XMTP
 /// Identity Service described by [XIP-46 Multi-Wallet Identity](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-46-multi-wallet-identity.md)
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait XmtpIdentityClient: MaybeSend + MaybeSync {
     type Error: RetryableError + MaybeSend + MaybeSync + 'static;
     async fn publish_identity_update(

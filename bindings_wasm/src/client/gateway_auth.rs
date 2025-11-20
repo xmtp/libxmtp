@@ -41,7 +41,7 @@ extern "C" {
   pub async fn on_auth_required(this: &AuthCallback) -> Result<JsValue, JsValue>;
 }
 
-#[async_trait::async_trait(?Send)]
+#[xmtp_common::async_trait]
 impl xmtp_api_d14n::AuthCallback for AuthCallback {
   async fn on_auth_required(&self) -> Result<xmtp_api_d14n::Credential, BoxDynError> {
     let cred: JsValue = self.on_auth_required().await.map_err(|e| {

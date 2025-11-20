@@ -1,4 +1,6 @@
 //! Common types shared among all XMTP Crates
+// required to be able to use xmtp_macros::async_trait in this crate
+extern crate self as xmtp_common;
 
 mod macros;
 
@@ -10,6 +12,9 @@ pub use test::*;
 #[doc(inline)]
 #[cfg(any(test, feature = "test-utils"))]
 pub use xmtp_macro::test;
+
+#[doc(inline)]
+pub use xmtp_macro::async_trait;
 
 #[cfg(feature = "bench")]
 pub mod bench;

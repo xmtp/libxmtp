@@ -67,8 +67,7 @@ impl AuthHandle {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait AuthCallback: MaybeSend + MaybeSync {
     async fn on_auth_required(&self) -> Result<Credential, BoxDynError>;
 }
@@ -161,8 +160,7 @@ impl<C> AuthMiddleware<C> {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C: Client> Client for AuthMiddleware<C> {
     type Error = C::Error;
 
@@ -189,8 +187,7 @@ impl<C: Client> Client for AuthMiddleware<C> {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C: IsConnectedCheck> IsConnectedCheck for AuthMiddleware<C> {
     async fn is_connected(&self) -> bool {
         self.inner.is_connected().await
@@ -241,8 +238,7 @@ mod tests {
         }
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    #[xmtp_common::async_trait]
     impl Client for TestClient {
         type Error = core::convert::Infallible;
         type Stream = futures::stream::Once<
@@ -333,8 +329,7 @@ mod tests {
         count: Arc<std::sync::atomic::AtomicI64>,
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    #[xmtp_common::async_trait]
     impl AuthCallback for TestCallback {
         async fn on_auth_required(&self) -> Result<Credential, BoxDynError> {
             // Add sleeps so we can test concurrent requests

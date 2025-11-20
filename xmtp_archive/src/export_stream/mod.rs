@@ -114,8 +114,7 @@ impl Stream for BatchExportStream {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub(crate) trait BackupRecordProvider: MaybeSend + Sized + 'static {
     const BATCH_SIZE: i64;
     async fn backup_records<D>(

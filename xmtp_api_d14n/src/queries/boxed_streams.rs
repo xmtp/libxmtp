@@ -26,8 +26,7 @@ impl<C> BoxedStreamsClient<C> {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C> XmtpMlsClient for BoxedStreamsClient<C>
 where
     C: XmtpMlsClient,
@@ -104,8 +103,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C> XmtpIdentityClient for BoxedStreamsClient<C>
 where
     C: XmtpIdentityClient,
@@ -143,8 +141,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C> XmtpMlsStreams for BoxedStreamsClient<C>
 where
     C: XmtpMlsStreams,
@@ -200,8 +197,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C> IsConnectedCheck for BoxedStreamsClient<C>
 where
     C: IsConnectedCheck,
@@ -211,8 +207,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C: XmtpQuery> XmtpQuery for BoxedStreamsClient<C> {
     type Error = <C as XmtpQuery>::Error;
 

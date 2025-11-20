@@ -117,8 +117,7 @@ impl std::fmt::Debug for AggregateStats {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> XmtpMlsClient for Box<T>
 where
     T: XmtpMlsClient + ?Sized,
@@ -196,8 +195,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> XmtpMlsClient for Arc<T>
 where
     T: XmtpMlsClient + ?Sized,
@@ -275,8 +273,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> XmtpMlsStreams for Box<T>
 where
     T: XmtpMlsStreams + Sync + ?Sized,
@@ -311,8 +308,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> XmtpMlsStreams for Arc<T>
 where
     T: XmtpMlsStreams + ?Sized,
@@ -347,8 +343,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> XmtpIdentityClient for Box<T>
 where
     T: XmtpIdentityClient + ?Sized,
@@ -386,8 +381,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> XmtpIdentityClient for Arc<T>
 where
     T: XmtpIdentityClient + ?Sized,

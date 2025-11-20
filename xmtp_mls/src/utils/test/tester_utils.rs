@@ -17,7 +17,6 @@ use crate::{
     worker::metrics::WorkerMetrics,
 };
 use alloy::signers::local::PrivateKeySigner;
-use async_trait::async_trait;
 use diesel::QueryableByName;
 use futures::Stream;
 use futures_executor::block_on;
@@ -125,16 +124,14 @@ struct TableName {
     name: String,
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait LocalTester {
     async fn new() -> Self;
     async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient>;
     fn builder() -> TesterBuilder<PrivateKeySigner>;
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl LocalTester for Tester<PrivateKeySigner, FullXmtpClient> {
     async fn new() -> Self {
         let wallet = generate_local_wallet();

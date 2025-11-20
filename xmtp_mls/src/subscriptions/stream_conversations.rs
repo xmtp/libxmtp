@@ -16,7 +16,7 @@ use std::{
     task::{Poll, ready},
 };
 use tokio_stream::wrappers::BroadcastStream;
-use xmtp_common::{FutureWrapper, MaybeSend};
+use xmtp_common::{BoxDynFuture, MaybeSend};
 use xmtp_db::prelude::*;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::{Cursor, WelcomeMessage};
@@ -180,7 +180,7 @@ pin_project! {
         /// State that indicates the stream is waiting on a IO/Network future to finish processing the current message
         /// before moving on to the next one
         Processing {
-            #[pin] future: FutureWrapper<'a, Result<ProcessWelcomeResult<Context>>>
+            #[pin] future: BoxDynFuture<'a, Result<ProcessWelcomeResult<Context>>>
         }
     }
 }
