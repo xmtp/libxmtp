@@ -897,6 +897,7 @@ where
                 inbox_id = self.context.inbox_id(),
                 installation_id = %self.context.installation_id(),
                 group_id = hex::encode(&self.group_id),
+                group_ptr = ?format_args!("{:p}", mls_group),
                 current_epoch = mls_group.epoch().as_u64(),
                 cursor = %cursor,
                 "Temporarily updated group state for group_id [{}] with cursor [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
@@ -915,6 +916,7 @@ where
             inbox_id = self.context.inbox_id(),
             installation_id = %self.context.installation_id(),
             group_id = hex::encode(&self.group_id),
+            group_ptr = ?format_args!("{:p}", mls_group),
             current_epoch = mls_group.epoch().as_u64(),
             cursor = %cursor,
             "Rolled back transaction for group_id [{}] with cursor [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
@@ -932,6 +934,7 @@ where
             inbox_id = self.context.inbox_id(),
             installation_id = %self.context.installation_id(),
             group_id = hex::encode(&self.group_id),
+            group_ptr = ?format_args!("{:p}", mls_group),
             current_epoch = mls_group.epoch().as_u64(),
             cursor = %cursor,
             "Reloaded mlsgroup for group_id [{}] with cursor [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
@@ -1720,6 +1723,7 @@ where
                     inbox_id = self.context.inbox_id(),
                     installation_id = %self.context.installation_id(),
                     group_id = hex::encode(&self.group_id),
+                    group_ptr = ?format_args!("{:p}", mls_group),
                     cursor = %envelope.cursor,
                     intent_id,
                     intent.kind = %intent.kind,
@@ -1822,6 +1826,7 @@ where
                     inbox_id = self.context.inbox_id(),
                     installation_id = %self.context.installation_id(),
                     group_id = hex::encode(&self.group_id),
+                    group_ptr = ?format_args!("{:p}", mls_group),
                     cursor = %envelope.cursor,
                     "client [{}] is about to process external envelope [{}] with current group epoch authenticator [{}] from epoch [{}]",
                     self.context.inbox_id(),
@@ -2268,6 +2273,7 @@ where
                                 intent.id,
                                 intent.kind = %intent.kind,
                                 group_id = hex::encode(&self.group_id),
+                                group_ptr = ?format_args!("{:p}", &self),
                                 "[{}] set stored intent [{}] with hash [{}] to state `published` with (before commit) epoch authenticator [{}] in epoch [{}]",
                                 self.context.inbox_id(),
                                 intent.id,
@@ -2283,6 +2289,7 @@ where
                             intent.id,
                             intent.kind = %intent.kind,
                             group_id = hex::encode(&self.group_id),
+                            group_ptr = ?format_args!("{:p}", &self),
                             "Succeeded - [{}] set stored intent [{}] with hash [{}] to state `published` with (before commit) epoch authenticator [{}] in epoch [{}]",
                             self.context.inbox_id(),
                             intent.id,
@@ -2385,17 +2392,19 @@ where
                     Ok(res) => res,
                     Err(e) => {
                         tracing::debug!(
-                            "Errored while getting key update commit for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                            "Errored while getting key update commit for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}], group ptr [{}]",
                             hex::encode(&self.group_id),
                             openmls_group.epoch().as_u64(),
-                            hex::encode(openmls_group.epoch_authenticator().as_slice())
+                            hex::encode(openmls_group.epoch_authenticator().as_slice()),
+                            format_args!("{:p}", &self),
                         );
                         openmls_group.reload(storage)?;
                         tracing::debug!(
-                            "Reloaded mlsgroup for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                            "Reloaded mlsgroup for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}], group ptr [{}]",
                             hex::encode(&self.group_id),
                             openmls_group.epoch().as_u64(),
-                            hex::encode(openmls_group.epoch_authenticator().as_slice())
+                            hex::encode(openmls_group.epoch_authenticator().as_slice()),
+                            format_args!("{:p}", &self),
                         );
                         return Err(e);
                     }
@@ -2431,17 +2440,19 @@ where
                     Ok(res) => res,
                     Err(e) => {
                         tracing::debug!(
-                            "Errored while getting metadata update commit for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                            "Errored while getting metadata update commit for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}], group ptr [{}]",
                             hex::encode(&self.group_id),
                             openmls_group.epoch().as_u64(),
-                            hex::encode(openmls_group.epoch_authenticator().as_slice())
+                            hex::encode(openmls_group.epoch_authenticator().as_slice()),
+                            format_args!("{:p}", &self),
                         );
                         openmls_group.reload(storage)?;
                         tracing::debug!(
-                            "Reloaded mlsgroup for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                            "Reloaded mlsgroup for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}], group ptr [{}]",
                             hex::encode(&self.group_id),
                             openmls_group.epoch().as_u64(),
-                            hex::encode(openmls_group.epoch_authenticator().as_slice())
+                            hex::encode(openmls_group.epoch_authenticator().as_slice()),
+                            format_args!("{:p}", &self),
                         );
                         return Err(e);
                     }
@@ -2480,17 +2491,19 @@ where
                     Ok(res) => res,
                     Err(e) => {
                         tracing::debug!(
-                            "Errored while getting admin list update commit for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                            "Errored while getting admin list update commit for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}], group ptr [{}]",
                             hex::encode(&self.group_id),
                             openmls_group.epoch().as_u64(),
-                            hex::encode(openmls_group.epoch_authenticator().as_slice())
+                            hex::encode(openmls_group.epoch_authenticator().as_slice()),
+                            format_args!("{:p}", &self),
                         );
                         openmls_group.reload(storage)?;
                         tracing::debug!(
-                            "Reloaded mlsgroup for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                            "Reloaded mlsgroup for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}], group ptr [{}]",
                             hex::encode(&self.group_id),
                             openmls_group.epoch().as_u64(),
-                            hex::encode(openmls_group.epoch_authenticator().as_slice())
+                            hex::encode(openmls_group.epoch_authenticator().as_slice()),
+                            format_args!("{:p}", &self),
                         );
                         return Err(e);
                     }
@@ -2529,17 +2542,19 @@ where
                     Ok(res) => res,
                     Err(e) => {
                         tracing::debug!(
-                            "Errored while getting update permissions commit for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                            "Errored while getting update permissions commit for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}], group ptr [{}]",
                             hex::encode(&self.group_id),
                             openmls_group.epoch().as_u64(),
-                            hex::encode(openmls_group.epoch_authenticator().as_slice())
+                            hex::encode(openmls_group.epoch_authenticator().as_slice()),
+                            format_args!("{:p}", &self),
                         );
                         openmls_group.reload(storage)?;
                         tracing::debug!(
-                            "Reloaded mlsgroup for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}]",
+                            "Reloaded mlsgroup for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}], group ptr [{}]",
                             hex::encode(&self.group_id),
                             openmls_group.epoch().as_u64(),
-                            hex::encode(openmls_group.epoch_authenticator().as_slice())
+                            hex::encode(openmls_group.epoch_authenticator().as_slice()),
+                            format_args!("{:p}", &self),
                         );
                         return Err(e);
                     }

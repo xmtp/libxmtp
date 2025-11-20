@@ -81,10 +81,11 @@ async fn compute_publish_data_for_group_membership_update(
             let provider = XmtpOpenMlsProvider::new(storage);
             // Create the commit
             tracing::debug!(
-                "Before creating commit for group membership we have epoch [{}] and epoch authenticator [{}], own leaf index [{}]",
+d                "Before creating commit for group membership we have epoch [{}] and epoch authenticator [{}], own leaf index [{}] and group ptr [{}]",
                 openmls_group.epoch().as_u64(),
                 hex::encode(openmls_group.epoch_authenticator().as_slice()),
-                openmls_group.own_leaf_index().u32()
+                openmls_group.own_leaf_index().u32(),
+                format_args!("{:p}", openmls_group)
             );
             let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
                 &provider,
@@ -111,10 +112,11 @@ async fn compute_publish_data_for_group_membership_update(
             if let Ok(commit_bytes) = commit.tls_serialize_detached() {
                 let commit_hash = sha256(&commit_bytes);
                 tracing::info!(
-                    "Preparing PostCommitAction for group membership update: epoch = {}, epoch_authenticator = {}, commit_hash = {}",
+                    "Preparing PostCommitAction for group membership update: epoch = {}, epoch_authenticator = {}, commit_hash = {}, using group ptr = {}",
                     openmls_group.epoch().as_u64(),
                     hex::encode(openmls_group.epoch_authenticator().as_slice()),
                     hex::encode(&commit_hash),
+                    format_args!("{:p}", openmls_group)
                 );
             } else {
                 tracing::warn!(

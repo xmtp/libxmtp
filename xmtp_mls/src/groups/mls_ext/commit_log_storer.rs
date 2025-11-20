@@ -169,6 +169,13 @@ impl CommitLogStorer for MlsGroup {
         sequence_id: i64,
     ) -> Result<(), GroupMessageProcessingError> {
         let last_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
+        tracing::info!(
+            "Last Epoch authenticator logged to local commit log using mls group instance [{}] and epoch [{}] and epoch authenticator [{}] for group id [{}]",
+            format_args!("{:p}", &self),
+            hex::encode(&self.epoch_authenticator().as_slice()),
+            &self.epoch().as_u64(),
+            hex::encode(&self.group_id().to_vec())
+        );
         self.merge_staged_commit(provider, staged_commit)?;
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
@@ -216,6 +223,14 @@ impl CommitLogStorer for MlsGroup {
         if commit_epoch.as_u64() <= last_epoch_number.as_u64() && maybe_recently_welcomed {
             return Ok(());
         }
+
+        tracing::info!(
+            "Last Epoch authenticator logged to local commit FAILURE log using mls group instance [{}] and epoch [{}] and epoch authenticator [{}] for group id [{}]",
+            format_args!("{:p}", &self),
+            hex::encode(&self.epoch_authenticator().as_slice()),
+            &self.epoch().as_u64(),
+            hex::encode(&self.group_id().to_vec())
+        );
 
         NewLocalCommitLog {
             group_id: group_id.to_vec(),
