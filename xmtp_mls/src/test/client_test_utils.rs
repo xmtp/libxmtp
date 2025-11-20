@@ -94,9 +94,11 @@ where
         assert_eq!(epoch, other_epoch);
 
         let ratchet_tree = sync_group
-            .load_mls_group(self.context.mls_storage(), |g| Ok(g.export_ratchet_tree()))?;
+            .load_mls_group(self.context.mls_storage())?
+            .export_ratchet_tree();
         let other_ratchet_tree = other_sync_group
-            .load_mls_group(other.context.mls_storage(), |g| Ok(g.export_ratchet_tree()))?;
+            .load_mls_group(other.context.mls_storage())?
+            .export_ratchet_tree();
         assert_eq!(ratchet_tree, other_ratchet_tree);
         let sync_group_verified = format!(
             "verified [{}] has same sync group as [{}]",

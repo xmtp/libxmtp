@@ -40,13 +40,12 @@ use crate::groups::{
     mls_ext::CommitLogStorer,
     validated_commit::LibXMTPVersion,
 };
-use crate::{GroupCommitLock, context::XmtpSharedContext};
+use crate::{GroupCommitLock, MlsGroupGuard, context::XmtpSharedContext};
 use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
 use crate::{subscriptions::SyncWorkerEvent, track};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
 use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
-use mls_sync::GroupMessageProcessingError;
 use openmls::{
     credentials::CredentialType,
     extensions::{
@@ -57,12 +56,9 @@ use openmls::{
     messages::proposals::ProposalType,
     prelude::{Capabilities, GroupId, MlsGroup as OpenMlsGroup, WireFormatPolicy},
 };
-use openmls_traits::storage::CURRENT_VERSION;
 use prost::Message;
 use std::collections::HashMap;
-use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
-use tokio::sync::Mutex;
 use xmtp_common::time::now_ns;
 use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
@@ -129,8 +125,7 @@ pub struct MlsGroup<Context> {
     pub conversation_type: ConversationType,
     pub created_at_ns: i64,
     pub context: Context,
-    mls_commit_lock: Arc<GroupCommitLock>,
-    mutex: Arc<Mutex<()>>,
+    pub mls_commit_lock: Arc<GroupCommitLock>,
 }
 
 impl<C> std::hash::Hash for MlsGroup<C> {
@@ -181,7 +176,6 @@ impl<Context: XmtpSharedContext> Clone for MlsGroup<Context> {
             conversation_type: self.conversation_type,
             created_at_ns: self.created_at_ns,
             context: self.context.clone(),
-            mutex: self.mutex.clone(),
             mls_commit_lock: self.mls_commit_lock.clone(),
         }
     }
@@ -267,7 +261,6 @@ impl<Context: Clone> From<MlsGroup<&Context>> for MlsGroup<Context> {
             dm_id: group.dm_id,
             created_at_ns: group.created_at_ns,
             mls_commit_lock: group.mls_commit_lock,
-            mutex: group.mutex,
             conversation_type: group.conversation_type,
         }
     }
@@ -333,95 +326,32 @@ where
         conversation_type: ConversationType,
         created_at_ns: i64,
     ) -> Self {
-        let mut mutexes = context.mutexes().clone();
         Self {
             group_id: group_id.clone(),
             dm_id,
             conversation_type,
             created_at_ns,
-            mutex: mutexes.get_mutex(group_id),
             context: context.clone(),
             mls_commit_lock: Arc::clone(context.mls_commit_lock()),
         }
     }
 
-    // Load the stored OpenMLS group from the OpenMLS provider's keystore or return an error if the group is locked.
-    #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) fn load_mls_group<F, R>(
-        &self,
-        storage: &impl XmtpMlsStorageProvider,
-        operation: F,
-    ) -> Result<R, GroupError>
-    where
-        F: Fn(OpenMlsGroup) -> Result<R, GroupError>,
-    {
-        // Load the MLS group
-        let mls_group = OpenMlsGroup::load(storage, &GroupId::from_slice(&self.group_id))
-            .map_err(|_| NotFound::MlsGroup)?
-            .ok_or(NotFound::MlsGroup)?;
-
-        // Perform the operation with the MLS group
-        operation(mls_group)
-    }
-
-    // Load the stored OpenMLS group from the OpenMLS provider's keystore or return an error if the group is locked.
-    #[allow(dead_code)]
-    #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) fn load_mls_group_with_lock<F, R>(
-        &self,
-        storage: &impl XmtpMlsStorageProvider,
-        operation: F,
-    ) -> Result<R, GroupError>
-    where
-        F: Fn(OpenMlsGroup) -> Result<R, GroupError>,
-    {
-        // Get the group ID for locking
-        let group_id = self.group_id.clone();
-
-        // Acquire the lock synchronously or error if the group is locked
-        let _lock = self.mls_commit_lock.get_lock_sync(group_id.clone())?;
-        // Load the MLS group
-        let mls_group = OpenMlsGroup::load(storage, &GroupId::from_slice(&self.group_id))
-            .map_err(|_| NotFound::MlsGroup)?
-            .ok_or(NotFound::MlsGroup)?;
-
-        // Perform the operation with the MLS group
-        operation(mls_group)
+    pub async fn lock(&self) -> MlsGroupGuard {
+        self.mls_commit_lock
+            .get_lock_async(self.group_id.clone())
+            .await
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
-    #[tracing::instrument(level = "trace", skip(operation))]
-    pub(crate) async fn load_mls_group_with_lock_async<F, E, R, Fut>(
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub(crate) fn load_mls_group(
         &self,
-        operation: F,
-    ) -> Result<R, E>
-    where
-        F: FnOnce(OpenMlsGroup) -> Fut,
-        Fut: Future<Output = Result<R, E>>,
-        E:
-            From<GroupMessageProcessingError>
-                + From<crate::StorageError>
-                + From<
-                    <Context::MlsStorage as openmls_traits::storage::StorageProvider<
-                        CURRENT_VERSION,
-                    >>::Error,
-                >,
-    {
-        let mls_storage = self.context.mls_storage();
-        // Get the group ID for locking
-        let group_id = self.group_id.clone();
+        storage: &impl XmtpMlsStorageProvider,
+    ) -> Result<OpenMlsGroup, StorageError> {
+        let mls_group = OpenMlsGroup::load(storage, &GroupId::from_slice(&self.group_id))?
+            .ok_or(NotFound::MlsGroup)?;
 
-        // Acquire the lock asynchronously
-        let _lock = self.mls_commit_lock.get_lock_async(group_id.clone()).await;
-
-        // Load the MLS group
-        let mls_group = OpenMlsGroup::load(mls_storage, &GroupId::from_slice(&self.group_id))?
-            .ok_or(StorageError::from(NotFound::GroupById(
-                self.group_id.to_vec(),
-            )))?;
-
-        // Perform the operation with the MLS group
-        operation(mls_group).await
+        Ok(mls_group)
     }
 
     // Create a new group and save it to the DB
@@ -869,6 +799,7 @@ where
             .iter()
             .map(AsIdRef::as_ref)
             .collect::<Vec<&str>>();
+
         let intent_data = self
             .get_membership_update_intent(ids.as_slice(), &[])
             .await?;
@@ -1753,10 +1684,8 @@ where
 
     /// Get the current epoch number of the group.
     pub async fn epoch(&self) -> Result<u64, GroupError> {
-        self.load_mls_group_with_lock_async(|mls_group| {
-            futures::future::ready(Ok(mls_group.epoch().as_u64()))
-        })
-        .await
+        let mls_group = self.load_mls_group(self.context.mls_storage())?;
+        Ok(mls_group.epoch().as_u64())
     }
 
     /// Get the encryption state of the current epoch. Should match for all installations
@@ -1764,10 +1693,8 @@ where
     #[cfg(test)]
     #[allow(unused)]
     pub(crate) async fn epoch_authenticator(&self) -> Result<Vec<u8>, GroupError> {
-        self.load_mls_group_with_lock_async(|mls_group| {
-            futures::future::ready(Ok(mls_group.epoch_authenticator().as_slice().to_vec()))
-        })
-        .await
+        let mls_group = self.load_mls_group(self.context.mls_storage())?;
+        Ok(mls_group.epoch_authenticator().as_slice().to_vec())
     }
 
     pub async fn cursor(&self) -> Result<[Cursor; 2], GroupError> {
@@ -1854,36 +1781,29 @@ where
             return Ok(false);
         }
 
-        self.load_mls_group(self.context.mls_storage(), |mls_group| {
-            Ok(mls_group.is_active())
-        })
+        let mls_group = self.load_mls_group(self.context.mls_storage())?;
+        Ok(mls_group.is_active())
     }
 
     /// Get the `GroupMetadata` of the group.
     pub async fn metadata(&self) -> Result<GroupMetadata, GroupError> {
-        self.load_mls_group_with_lock_async(|mls_group| {
-            futures::future::ready(
-                extract_group_metadata(mls_group.extensions())
-                    .map_err(MetadataPermissionsError::from)
-                    .map_err(Into::into),
-            )
-        })
-        .await
+        let mls_group = self.load_mls_group(self.context.mls_storage())?;
+        extract_group_metadata(mls_group.extensions())
+            .map_err(MetadataPermissionsError::from)
+            .map_err(Into::into)
     }
 
     /// Get the `GroupMutableMetadata` of the group.
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
-        self.load_mls_group(self.context.mls_storage(), |mls_group| {
-            GroupMutableMetadata::try_from(&mls_group)
-                .map_err(MetadataPermissionsError::from)
-                .map_err(GroupError::from)
-        })
+        let mls_group = self.load_mls_group(self.context.mls_storage())?;
+        GroupMutableMetadata::try_from(&mls_group)
+            .map_err(MetadataPermissionsError::from)
+            .map_err(GroupError::from)
     }
 
     pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
-        self.load_mls_group(self.context.mls_storage(), |mls_group| {
-            Ok(extract_group_permissions(&mls_group).map_err(MetadataPermissionsError::from)?)
-        })
+        let mls_group = self.load_mls_group(self.context.mls_storage())?;
+        Ok(extract_group_permissions(&mls_group).map_err(MetadataPermissionsError::from)?)
     }
 
     /// Fetches the message disappearing settings for a given group ID.

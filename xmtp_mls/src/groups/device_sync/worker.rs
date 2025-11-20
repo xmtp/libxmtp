@@ -339,7 +339,7 @@ where
     ) -> Result<(), DeviceSyncError> {
         let sync_group = self.mls_store.group(&message.group_id)?;
         // Pull down any new messages
-        sync_group.sync_with_conn().await?;
+        sync_group.sync_inner(&mut sync_group.lock().await).await?;
 
         let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
 
@@ -463,7 +463,7 @@ where
 
         let sync_group = self.get_sync_group().await?;
         sync_group
-            .sync_with_conn()
+            .sync_inner(&mut sync_group.lock().await)
             .await
             .map_err(GroupError::from)?;
 

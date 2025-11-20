@@ -61,7 +61,6 @@ async fn test_spoofed_inbox_id() {
         sync_api_client: alix.context.sync_api_client.clone(),
         store: alix.context.store.clone(),
         mls_storage: alix.context.mls_storage.clone(),
-        mutexes: alix.context.mutexes.clone(),
         mls_commit_lock: alix.context.mls_commit_lock.clone(),
         version_info: alix.context.version_info.clone(),
         local_events: alix.context.local_events.clone(),
@@ -84,29 +83,29 @@ async fn test_spoofed_inbox_id() {
     // Now we send a welcome from this group. To disable validation on Alix's side (as Alix is malicious),
     // we reach into some internals.
     let intent = group
-        .get_membership_update_intent(&[bo.inbox_id()], &[])
+        .get_membership_update_intent(&mut group.lock().await, &[bo.inbox_id()], &[])
         .await?;
     let signer = &group.context.identity().installation_keys;
     let context = &group.context;
-    let send_welcome_action = group
-        .load_mls_group_with_lock_async(|mut openmls_group| async move {
-            let publish_intent_data =
-                apply_update_group_membership_intent(&context, &mut openmls_group, intent, signer)
-                    .await?
-                    .unwrap();
-            let post_commit_action = PostCommitAction::from_bytes(
-                publish_intent_data.post_commit_data().unwrap().as_slice(),
-            )?;
-            let PostCommitAction::SendWelcomes(action) = post_commit_action;
-            let staged_commit = publish_intent_data.staged_commit().unwrap();
-            openmls_group.merge_staged_commit(
-                &XmtpOpenMlsProviderRef::new(context.mls_storage()),
-                decode_staged_commit(staged_commit.as_slice())?,
-            )?;
 
-            Ok::<_, GroupError>(action)
-        })
-        .await?;
+    let send_welcome_action = {
+        let mut openmls_group = group.load_mls_group(context.mls_storage())?;
+        let publish_intent_data =
+            apply_update_group_membership_intent(&context, &mut openmls_group, intent, signer)
+                .await?
+                .unwrap();
+        let post_commit_action = PostCommitAction::from_bytes(
+            publish_intent_data.post_commit_data().unwrap().as_slice(),
+        )?;
+        let PostCommitAction::SendWelcomes(action) = post_commit_action;
+        let staged_commit = publish_intent_data.staged_commit().unwrap();
+        openmls_group.merge_staged_commit(
+            &XmtpOpenMlsProviderRef::new(context.mls_storage()),
+            decode_staged_commit(staged_commit.as_slice())?,
+        )?;
+
+        Ok::<_, GroupError>(action)
+    }?;
     group.send_welcomes(send_welcome_action, None).await?;
 
     // We want Bo to reject this welcome, because the inbox ID is spoofed

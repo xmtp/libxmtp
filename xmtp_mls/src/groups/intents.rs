@@ -1005,12 +1005,9 @@ pub(crate) mod tests {
         };
 
         let storage = group.context.mls_storage();
-        let decrypted_message = group
-            .load_mls_group(storage, |mut mls_group| {
-                Ok(mls_group
-                    .process_message(&XmtpOpenMlsProviderRef::new(storage), mls_message.clone())
-                    .unwrap())
-            })
+        let mut openmls_group = group.load_mls_group(storage).unwrap();
+        let decrypted_message = openmls_group
+            .process_message(&XmtpOpenMlsProviderRef::new(storage), mls_message.clone())
             .unwrap();
 
         let staged_commit = match decrypted_message.into_content() {

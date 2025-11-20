@@ -6,35 +6,34 @@ use crate::groups::GroupError;
 use crate::tester;
 
 #[xmtp_common::test]
-async fn test_load_mls_group_with_lock_returns_error_when_locked() {
+async fn test_lock_sync_returns_error_when_locked() {
     tester!(alix);
 
     let group = alix.create_group(None, None).unwrap();
-    let group_clone = group.clone();
+
+    let commit_lock = alix.context.mls_commit_lock().clone();
+    let group_id = group.group_id.clone();
 
     // Acquire the lock in a background task and hold it
     let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
 
+    let commit_lock_clone = commit_lock.clone();
+    let group_id_clone = group_id.clone();
+
     let handle = tokio::spawn(async move {
-        group_clone
-            .load_mls_group_with_lock_async(|_mls_group| async move {
-                // Signal that the lock is held
-                let _ = ready_tx.send(());
-                // Hold the lock until signaled to release
-                let _ = done_rx.await;
-                Ok::<_, GroupError>(())
-            })
-            .await
-            .unwrap();
+        let _guard = commit_lock_clone.get_lock_async(group_id_clone).await;
+        // Signal that the lock is held
+        let _ = ready_tx.send(());
+        // Hold the lock until signaled to release
+        let _ = done_rx.await;
     });
 
     // Wait for the lock to be acquired
     ready_rx.await.unwrap();
 
-    // Now try to use load_mls_group_with_lock - it should return LockUnavailable error
-    let storage = alix.context.mls_storage();
-    let result = group.load_mls_group_with_lock(storage, |_mls_group| Ok(()));
+    // Now try to acquire lock synchronously - it should return LockUnavailable error
+    let result = commit_lock.get_lock_sync(group_id);
 
     // The sync version uses try_lock, so it should fail with LockUnavailable
     assert!(
@@ -48,9 +47,9 @@ async fn test_load_mls_group_with_lock_returns_error_when_locked() {
     handle.await.unwrap();
 }
 
-/// Test that `load_mls_group_with_lock_async` waits for the lock to be released
+/// Test that `get_lock_async` waits for the lock to be released
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_load_mls_group_with_lock_async_waits_for_lock() {
+async fn test_lock_async_waits_for_lock() {
     tester!(alix);
 
     let group = alix.create_group(None, None)?;
@@ -66,9 +65,12 @@ async fn test_load_mls_group_with_lock_async_waits_for_lock() {
     // Acquire the lock in a background task and hold it briefly
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
 
+    let commit_lock_clone = commit_lock.clone();
+    let group_id_clone = group_id.clone();
+
     let handle = tokio::spawn(async move {
         // Acquire the lock
-        let _guard = commit_lock.get_lock_async(group_id).await;
+        let _guard = commit_lock_clone.get_lock_async(group_id_clone).await;
         execution_order_clone.lock().unwrap().push(1);
         // Signal that the lock is held
         let _ = ready_tx.send(());
@@ -81,16 +83,11 @@ async fn test_load_mls_group_with_lock_async_waits_for_lock() {
     // Wait for the lock to be acquired
     ready_rx.await.unwrap();
 
-    // Now try to use load_mls_group_with_lock_async - it should wait
+    // Now try to acquire lock async - it should wait
     let execution_order_clone2 = execution_order.clone();
-    let result: Result<(), GroupError> = group
-        .load_mls_group_with_lock_async(|_mls_group| async move {
-            execution_order_clone2.lock().unwrap().push(3);
-            Ok(())
-        })
-        .await;
 
-    assert!(result.is_ok(), "Expected success, got: {:?}", result);
+    let _guard = commit_lock.get_lock_async(group_id).await;
+    execution_order_clone2.lock().unwrap().push(3);
 
     handle.await.unwrap();
 
@@ -104,38 +101,36 @@ async fn test_load_mls_group_with_lock_async_waits_for_lock() {
     );
 }
 
-/// Test that concurrent calls to load_mls_group_with_lock on different groups work independently
+/// Test that locking different groups works independently
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_load_mls_group_with_lock_different_groups_independent() {
+async fn test_lock_different_groups_independent() {
     tester!(alix);
 
     let group1 = alix.create_group(None, None)?;
     let group2 = alix.create_group(None, None)?;
-    let group1_clone = group1.clone();
+
+    let commit_lock = alix.context.mls_commit_lock().clone();
 
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
 
+    let commit_lock_clone = commit_lock.clone();
+    let group1_id = group1.group_id.clone();
+
     let handle = tokio::spawn(async move {
-        group1_clone
-            .load_mls_group_with_lock_async(|_mls_group| async move {
-                let _ = ready_tx.send(());
-                let _ = rx.await;
-                Ok::<_, GroupError>(())
-            })
-            .await
-            .unwrap();
+        let _guard = commit_lock_clone.get_lock_async(group1_id).await;
+        let _ = ready_tx.send(());
+        let _ = rx.await;
     });
 
     ready_rx.await.unwrap();
 
-    // group1 should be locked
-    let storage = alix.context.mls_storage();
-    let result1 = group1.load_mls_group(storage, |_| Ok(()));
+    // group1 should be locked (sync acquisition fails)
+    let result1 = commit_lock.get_lock_sync(group1.group_id.clone());
     assert!(matches!(result1, Err(GroupError::LockUnavailable)));
 
     // group2 should NOT be locked - it's a different group
-    let result2 = group2.load_mls_group(storage, |_| Ok(()));
+    let result2 = commit_lock.get_lock_sync(group2.group_id.clone());
     assert!(
         result2.is_ok(),
         "group2 should not be locked: {:?}",

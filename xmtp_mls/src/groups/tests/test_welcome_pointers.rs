@@ -574,29 +574,34 @@ async fn test_welcome_pointer_task_retry_resolution() {
     // Now we send a welcome from this group to bo. To get the delay we want,
     // we reach into some internals.
     let intent = group
-        .get_membership_update_intent(&[bo.inbox_id()], &[])
+        .get_membership_update_intent(&mut group.lock().await, &[bo.inbox_id()], &[])
         .await?;
     let signer = &group.context.identity().installation_keys;
     let context = &group.context;
-    let send_welcome_action = group
-        .load_mls_group_with_lock_async(|mut openmls_group| async move {
-            let publish_intent_data =
-                crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent(&context, &mut openmls_group, intent, signer)
-                    .await?
-                    .unwrap();
-            let post_commit_action = crate::groups::intents::PostCommitAction::from_bytes(
-                publish_intent_data.post_commit_data().unwrap().as_slice(),
-            )?;
-            let crate::groups::intents::PostCommitAction::SendWelcomes(action) = post_commit_action;
-            let staged_commit = publish_intent_data.staged_commit().unwrap();
-            openmls_group.merge_staged_commit(
-                &xmtp_db::XmtpOpenMlsProviderRef::new(context.mls_storage()),
-                crate::groups::mls_sync::decode_staged_commit(staged_commit.as_slice())?,
-            )?;
+    let send_welcome_action = {
+        let mut openmls_group = group.load_mls_group(context.mls_storage())?;
 
-            Ok::<_, crate::groups::GroupError>(action)
-        })
-        .await?;
+        let publish_intent_data =
+            crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent(
+                &context,
+                &mut openmls_group,
+                intent,
+                signer,
+            )
+            .await?
+            .unwrap();
+        let post_commit_action = crate::groups::intents::PostCommitAction::from_bytes(
+            publish_intent_data.post_commit_data().unwrap().as_slice(),
+        )?;
+        let crate::groups::intents::PostCommitAction::SendWelcomes(action) = post_commit_action;
+        let staged_commit = publish_intent_data.staged_commit().unwrap();
+        openmls_group.merge_staged_commit(
+            &xmtp_db::XmtpOpenMlsProviderRef::new(context.mls_storage()),
+            crate::groups::mls_sync::decode_staged_commit(staged_commit.as_slice())?,
+        )?;
+
+        Ok::<_, crate::groups::GroupError>(action)
+    }?;
     let data = wrap_welcome_symmetric(
         &send_welcome_action.welcome_message,
         WelcomePointersExtension::preferred_type(),

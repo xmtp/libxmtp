@@ -35,9 +35,8 @@ where
     pub async fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
         let db = self.context.db();
         let storage = self.context.mls_storage();
-        let group_membership = self.load_mls_group(storage, |mls_group| {
-            Ok(extract_group_membership(mls_group.extensions())?)
-        })?;
+        let mls_group = self.load_mls_group(storage)?;
+        let group_membership = extract_group_membership(mls_group.extensions())?;
         let requests = group_membership
             .members
             .into_iter()

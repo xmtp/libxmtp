@@ -224,7 +224,8 @@ async fn test_commit_log_retriable_error() {
         bo.for_each_proxy(async |p| p.enable().await.unwrap()).await;
         // This currently fails with error SyncFailedToWait, because the intent has been marked as 'published'
         // despite not being published. We need to fix the intent publishing flow for this test to work.
-        b.sync_until_last_intent_resolved().await?;
+        b.sync_until_last_intent_resolved(&mut b.lock().await)
+            .await?;
         a.sync().await?;
         // KeyUpdate should have been added to the commit log (SendMessage is not logged because it is not a commit)
         assert_eq!(a.local_commit_log().await?.len(), 3);

@@ -332,7 +332,8 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
         ..Default::default()
     })?;
     for group in groups {
-        group.maybe_update_installations(None).await?;
+        let mut guard = group.lock().await;
+        group.maybe_update_installations(None, &mut guard).await?;
     }
 
     // alix1 should have it's own created sync group and alix2's sync group

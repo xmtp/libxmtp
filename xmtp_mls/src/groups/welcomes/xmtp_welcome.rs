@@ -206,6 +206,13 @@ where
             .check_initial_membership(staged_welcome)
             .await?;
         let group_id = staged_welcome.public_group().group_id();
+
+        // Acquire lock for the group
+        let _guard = self
+            .context
+            .mls_commit_lock()
+            .get_lock_async(group_id.as_slice().to_vec())
+            .await;
         // try to load the group this welcome represents
         // defensive to avoid race conditions & duplicates
         if db.find_group(group_id.as_slice())?.is_some() {
@@ -301,6 +308,10 @@ where
             added_by_installation_id,
             welcome_metadata,
         } = decrypted_welcome;
+
+        // Acquire lock for the group
+        let group_id = staged_welcome.public_group().group_id().as_slice().to_vec();
+        let _guard = context.mls_commit_lock().get_lock_sync(group_id)?;
 
         tracing::debug!("calling update cursor for welcome {}", welcome.cursor);
         let requires_processing =

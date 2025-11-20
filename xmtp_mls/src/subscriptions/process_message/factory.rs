@@ -110,7 +110,7 @@ where
         );
 
         group
-            .process_message(msg, false)
+            .process_message(&mut group.lock().await, msg, false)
             .instrument(tracing::debug_span!("process_message"))
             .await
             .map_err(|e| SubscribeError::ReceiveGroup(Box::new(e)))
@@ -124,7 +124,9 @@ where
             ConversationType::Group,
             msg.timestamp(),
         );
-        match group.sync_with_conn().await {
+        let mut guard = group.lock().await;
+
+        match group.sync_inner(&mut guard).await {
             Ok(summary) => {
                 let epoch = group.epoch().await.unwrap_or(0);
                 tracing::debug!(

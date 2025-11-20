@@ -264,7 +264,7 @@ where
                     hex::encode(&sync_group.group_id)
                 );
                 sync_group.add_missing_installations().await?;
-                sync_group.sync_with_conn().await?;
+                sync_group.sync_inner().await?;
 
                 self.metrics.increment_metric(SyncMetric::SyncGroupCreated);
 

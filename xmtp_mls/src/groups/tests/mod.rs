@@ -185,7 +185,7 @@ async fn test_receive_self_message() {
         .await
         .expect("send message");
 
-    group.receive().await?;
+    group.receive(&mut group.lock().await).await?;
     // Check for messages
     let messages = group.find_messages(&MsgQueryArgs::default())?;
     assert_eq!(messages.len(), 1);
@@ -301,26 +301,29 @@ async fn test_add_member_conflict() {
         .await
         .expect("bola's add should succeed in a no-op");
 
-    let summary = amal_group.receive().await.unwrap();
+    let summary = amal_group
+        .receive(&mut amal_group.lock().await)
+        .await
+        .unwrap();
     assert!(summary.is_errored());
 
     // Check Amal's MLS group state.
     let amal_db = amal.context.db();
     let amal_members_len = amal_group
-        .load_mls_group(amal.context.mls_storage(), |mls_group| {
-            Ok(mls_group.members().count())
-        })
-        .unwrap();
+        .load_mls_group(amal.context.mls_storage())
+        .unwrap()
+        .members()
+        .count();
 
     assert_eq!(amal_members_len, 3);
 
     // Check Bola's MLS group state.
     let bola_db = bola.context.db();
     let bola_members_len = bola_group
-        .load_mls_group(amal.context.mls_storage(), |mls_group| {
-            Ok(mls_group.members().count())
-        })
-        .unwrap();
+        .load_mls_group(amal.context.mls_storage())
+        .unwrap()
+        .members()
+        .count();
 
     assert_eq!(bola_members_len, 3);
 
@@ -379,25 +382,22 @@ fn test_create_from_welcome_validation() {
         let provider = alix.context.mls_provider();
         // Doctor the group membership
         let mut mls_group = alix_group
-            .load_mls_group_with_lock(alix.context.mls_storage(), |mut mls_group| {
-                let mut existing_extensions = mls_group.extensions().clone();
-                let mut group_membership = GroupMembership::new();
-                group_membership.add("deadbeef".to_string(), 1);
-                existing_extensions
-                    .add_or_replace(build_group_membership_extension(&group_membership));
-
-                mls_group
-                    .update_group_context_extensions(
-                        &provider,
-                        existing_extensions.clone(),
-                        &alix.identity().installation_keys,
-                    )
-                    .unwrap();
-                mls_group.merge_pending_commit(&provider).unwrap();
-
-                Ok(mls_group) // Return the updated group if necessary
-            })
+            .load_mls_group(alix.context.mls_storage())
             .unwrap();
+
+        let mut existing_extensions = mls_group.extensions().clone();
+        let mut group_membership = GroupMembership::new();
+        group_membership.add("deadbeef".to_string(), 1);
+        existing_extensions.add_or_replace(build_group_membership_extension(&group_membership));
+
+        mls_group
+            .update_group_context_extensions(
+                &provider,
+                existing_extensions.clone(),
+                &alix.identity().installation_keys,
+            )
+            .unwrap();
+        mls_group.merge_pending_commit(&provider).unwrap();
 
         // Now add bo to the group
         force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
@@ -2141,11 +2141,10 @@ async fn test_key_update() {
     assert_eq!(messages.len(), 2);
 
     let pending_commit_is_none = group
-        .load_mls_group_with_lock(client.context.mls_storage(), |mls_group| {
-            Ok(mls_group.pending_commit().is_none())
-        })
-        .unwrap();
-
+        .load_mls_group(client.context.mls_storage())
+        .unwrap()
+        .pending_commit()
+        .is_none();
     assert!(pending_commit_is_none);
 
     group
@@ -2320,15 +2319,17 @@ async fn test_add_missing_installations() {
     let _amal_2nd = ClientBuilder::new_test_client(&amal_wallet).await;
 
     // test if adding the new installation(s) worked
-    let new_installations_were_added = group.add_missing_installations().await;
+    let new_installations_were_added = group
+        .add_missing_installations(&mut group.lock().await)
+        .await;
     assert!(new_installations_were_added.is_ok());
 
     group.sync().await.unwrap();
     let num_members = group
-        .load_mls_group_with_lock(amal.context.mls_storage(), |mls_group| {
-            Ok(mls_group.members().collect::<Vec<_>>().len())
-        })
-        .unwrap();
+        .load_mls_group(amal.context.mls_storage())
+        .unwrap()
+        .members()
+        .count();
 
     assert_eq!(num_members, 3);
 }
@@ -3482,7 +3483,9 @@ async fn process_messages_abort_on_retryable_error() {
     })
     .unwrap();
 
-    let process_result = bo_group.process_messages(bo_messages).await;
+    let process_result = bo_group
+        .process_messages(&mut bo_group.lock().await, bo_messages)
+        .await;
     assert!(process_result.is_errored());
     assert_eq!(process_result.errored.len(), 1);
     assert!(process_result.errored.iter().any(|(_, err)| {
@@ -3525,7 +3528,7 @@ async fn skip_already_processed_messages() {
     // messages are either commits or application messages which effects
     // the sequence_id semantics here
     let _process_result = bo_group
-        .process_messages(bo_messages_from_api.clone())
+        .process_messages(&mut bo_group.lock().await, bo_messages_from_api.clone())
         .await;
     alix_group
         .send_message(&alix_message, SendMessageOpts::default())
@@ -3540,7 +3543,9 @@ async fn skip_already_processed_messages() {
         .unwrap();
     bo_messages_from_api.extend(new_message);
 
-    let process_result = bo_group.process_messages(bo_messages_from_api).await;
+    let process_result = bo_group
+        .process_messages(&mut bo_group.lock().await, bo_messages_from_api)
+        .await;
     assert_eq!(process_result.new_messages.len(), 3);
     // We no longer error when the message is previously processed
     assert_eq!(process_result.errored.len(), 0);
@@ -3577,7 +3582,9 @@ async fn skip_already_processed_intents() {
         .unwrap();
     assert_eq!(intent.len(), 2); //key_update and send_message
 
-    let process_result = bo_group.sync_until_intent_resolved(intent[1].id).await;
+    let process_result = bo_group
+        .sync_until_intent_resolved(&mut bo_group.lock().await, intent[1].id)
+        .await;
     assert_ok!(process_result);
 }
 
@@ -3666,7 +3673,10 @@ async fn test_parallel_syncs() {
 
 // Create a membership update intent, but don't sync it yet
 async fn create_membership_update_no_sync(group: &TestMlsGroup) {
-    let intent_data = group.get_membership_update_intent(&[], &[]).await.unwrap();
+    let intent_data = group
+        .get_membership_update_intent(&mut group.lock().await, &[], &[])
+        .await
+        .unwrap();
 
     // If there is nothing to do, stop here
     if intent_data.is_empty() {
@@ -3703,17 +3713,23 @@ async fn add_missing_installs_reentrancy() {
 
     // Now I am going to run publish intents multiple times
     alix1_group
-        .publish_intents()
+        .publish_intents(&mut alix1_group.lock().await)
         .await
         .expect("Expect publish to be OK");
     alix1_group
-        .publish_intents()
+        .publish_intents(&mut alix1_group.lock().await)
         .await
         .expect("Expected publish to be OK");
 
     // Now I am going to sync twice
-    alix1_group.sync_with_conn().await.unwrap();
-    alix1_group.sync_with_conn().await.unwrap();
+    alix1_group
+        .sync_inner(&mut alix1_group.lock().await)
+        .await
+        .unwrap();
+    alix1_group
+        .sync_inner(&mut alix1_group.lock().await)
+        .await
+        .unwrap();
 
     // Make sure that only one welcome was sent
     let alix2_welcomes = alix1
@@ -3799,7 +3815,9 @@ async fn respect_allow_epoch_increment() {
 
     let first_message = messages.first().unwrap();
 
-    let process_result = group.process_message(first_message, false).await;
+    let process_result = group
+        .process_message(&mut group.lock().await, first_message, false)
+        .await;
 
     assert_err!(
         process_result,
@@ -3957,13 +3975,11 @@ async fn test_validate_dm_group() {
         None,
     )
     .unwrap();
-    assert!(
-        valid_dm_group
-            .load_mls_group_with_lock(client.context.mls_storage(), |mls_group| {
-                validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
-            })
-            .is_ok()
-    );
+    let mls_group = valid_dm_group
+        .load_mls_group(client.context.mls_storage())
+        .unwrap();
+
+    assert!(validate_dm_group(&client.context, &mls_group, added_by_inbox).is_ok());
 
     // Test case 2: Invalid conversation type
     let invalid_protected_metadata =
@@ -3979,12 +3995,12 @@ async fn test_validate_dm_group() {
         None,
     )
     .unwrap();
-    let err =
-        invalid_type_group.load_mls_group_with_lock(client.context.mls_storage(), |mls_group| {
-            validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
-        });
+    let mls_group = invalid_type_group
+        .load_mls_group(client.context.mls_storage())
+        .unwrap();
+
     assert!(matches!(
-        err,
+        validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into),
         Err(GroupError::MetadataPermissionsError(
             MetadataPermissionsError::DmValidation(DmValidationError::InvalidConversationType)
         ))
@@ -4006,14 +4022,12 @@ async fn test_validate_dm_group() {
         None,
     )
     .unwrap();
-    let err = mismatched_dm_members_group.load_mls_group_with_lock(
-        client.context.mls_storage(),
-        |mls_group| {
-            validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
-        },
-    );
+    let mismatched_dm_members_mls = mismatched_dm_members_group
+        .load_mls_group(client.context.mls_storage())
+        .unwrap();
     assert!(matches!(
-        err,
+        validate_dm_group(&client.context, &mismatched_dm_members_mls, added_by_inbox)
+            .map_err(Into::into),
         Err(GroupError::MetadataPermissionsError(
             MetadataPermissionsError::DmValidation(DmValidationError::ExpectedInboxesDoNotMatch)
         ))
@@ -4033,13 +4047,11 @@ async fn test_validate_dm_group() {
         None,
     )
     .unwrap();
+    let non_empty_mls_group = non_empty_admin_list_group
+        .load_mls_group(client.context.mls_storage())
+        .unwrap();
     assert!(matches!(
-        non_empty_admin_list_group.load_mls_group_with_lock(
-            client.context.mls_storage(),
-            |mls_group| {
-                validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
-            }
-        ),
+        validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into),
         Err(GroupError::MetadataPermissionsError(
             MetadataPermissionsError::DmValidation(
                 DmValidationError::MustHaveEmptyAdminAndSuperAdmin
@@ -4063,12 +4075,14 @@ async fn test_validate_dm_group() {
     )
     .unwrap();
     assert!(matches!(
-        invalid_permissions_group.load_mls_group_with_lock(
-            client.context.mls_storage(),
-            |mls_group| {
-                validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
-            }
-        ),
+        validate_dm_group(
+            &client.context,
+            &invalid_permissions_group
+                .load_mls_group(client.context.mls_storage())
+                .unwrap(),
+            added_by_inbox
+        )
+        .map_err(Into::into),
         Err(GroupError::MetadataPermissionsError(
             MetadataPermissionsError::DmValidation(DmValidationError::InvalidPermissions)
         ))
@@ -4769,7 +4783,10 @@ async fn can_stream_out_of_order_without_forking() {
     group_a
         .send_message_optimistic("Message a1".as_bytes(), SendMessageOpts::default())
         .unwrap();
-    group_a.publish_intents().await.unwrap();
+    group_a
+        .publish_intents(&mut group_a.lock().await)
+        .await
+        .unwrap();
 
     group_a.sync().await.unwrap();
     group_b.sync().await.unwrap();
@@ -4778,7 +4795,10 @@ async fn can_stream_out_of_order_without_forking() {
     group_b
         .send_message_optimistic("Message b1".as_bytes(), SendMessageOpts::default())
         .unwrap();
-    group_b.publish_intents().await.unwrap();
+    group_b
+        .publish_intents(&mut group_b.lock().await)
+        .await
+        .unwrap();
 
     group_a.sync().await.unwrap();
     group_b.sync().await.unwrap();
@@ -4787,7 +4807,10 @@ async fn can_stream_out_of_order_without_forking() {
     group_c
         .send_message_optimistic("Message c1".as_bytes(), SendMessageOpts::default())
         .unwrap();
-    group_c.publish_intents().await.unwrap();
+    group_c
+        .publish_intents(&mut group_c.lock().await)
+        .await
+        .unwrap();
 
     // Sync the groups
     group_a.sync().await.unwrap();
@@ -4810,7 +4833,10 @@ async fn can_stream_out_of_order_without_forking() {
     group_c
         .send_message_optimistic("Message c2".as_bytes(), SendMessageOpts::default())
         .unwrap();
-    group_c.publish_intents().await.unwrap();
+    group_c
+        .publish_intents(&mut group_c.lock().await)
+        .await
+        .unwrap();
     group_b.sync().await.unwrap();
 
     // Retrieve all messages from group B, verify they contain the two messages from client c even though they were sent from the wrong epoch
@@ -4860,18 +4886,16 @@ async fn non_retryable_error_increments_cursor() {
     // since we are also trying to decrypt our own message, this is also non-retryable.
     let invalid_payload_message = PlaintextEnvelope { content: None };
     let invalid_message_bytes = invalid_payload_message.encode_to_vec();
-    let message = group
-        .load_mls_group_with_lock(storage, |mut mls_group| {
-            let m = mls_group
-                .create_message(
-                    &XmtpOpenMlsProviderRef::new(storage),
-                    &alice.context.identity().installation_keys,
-                    invalid_message_bytes.as_slice(),
-                )
-                .unwrap();
-            Ok(m)
-        })
-        .unwrap();
+    let message = {
+        let mut mls_group = group.load_mls_group(storage).unwrap();
+        mls_group
+            .create_message(
+                &XmtpOpenMlsProviderRef::new(storage),
+                &alice.context.identity().installation_keys,
+                invalid_message_bytes.as_slice(),
+            )
+            .unwrap()
+    };
 
     // what the new cursor should be
     // set cursor to the max u64 value -1_000 to ensure its higher than the cursor in the backend

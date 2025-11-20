@@ -1367,9 +1367,18 @@ async fn test_update_commit_log_signer_sync_across_parties() {
 
     // Now everyone syncs
     println!("All parties syncing...");
-    alix_group.sync_with_conn().await.unwrap();
-    bo_group.sync_with_conn().await.unwrap();
-    charlie_group.sync_with_conn().await.unwrap();
+    alix_group
+        .sync_inner(&mut alix_group.lock().await)
+        .await
+        .unwrap();
+    bo_group
+        .sync_inner(&mut bo_group.lock().await)
+        .await
+        .unwrap();
+    charlie_group
+        .sync_inner(&mut charlie_group.lock().await)
+        .await
+        .unwrap();
 
     // After sync, everyone should see the new signer
     let final_alix_signer = alix_group

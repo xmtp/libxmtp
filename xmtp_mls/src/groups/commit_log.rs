@@ -799,7 +799,7 @@ where
             "Processing readd requests for group"
         );
 
-        mls_group.sync_with_conn().await?;
+        mls_group.sync_inner().await?;
 
         if mls_group.consent_state()? != ConsentState::Allowed {
             return Err(CommitLogError::GroupReaddValidationError(
@@ -840,18 +840,17 @@ where
             .map(|readd_status| readd_status.installation_id.clone())
             .collect::<HashSet<_>>();
 
-        let (unverified, verified) = mls_group
-            .load_mls_group_with_lock_async(|openmls_group| async move {
-                let mut verified = HashSet::new();
-                for member in openmls_group.members() {
-                    if unverified.contains(&member.signature_key) {
-                        unverified.remove(&member.signature_key);
-                        verified.insert(member.signature_key);
-                    }
+        let (unverified, verified) = {
+            let openmls_group = mls_group.load_mls_group(self.context.mls_storage())?;
+            let mut verified = HashSet::new();
+            for member in openmls_group.members() {
+                if unverified.contains(&member.signature_key) {
+                    unverified.remove(&member.signature_key);
+                    verified.insert(member.signature_key);
                 }
-                Ok::<_, GroupError>((unverified, verified))
-            })
-            .await?;
+            }
+            (unverified, verified)
+        };
         tracing::debug!(
             group_id = hex::encode(&mls_group.group_id),
             "{} readd requests were for non-members, while {} were for members",

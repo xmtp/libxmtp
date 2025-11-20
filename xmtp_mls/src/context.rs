@@ -2,15 +2,12 @@ use crate::GroupCommitLock;
 use crate::builder::{ForkRecoveryOpts, SyncWorkerMode};
 use crate::client::DeviceSync;
 use crate::groups::device_sync::worker::SyncMetric;
+use crate::identity::{Identity, IdentityError};
 use crate::subscriptions::{LocalEvents, SyncWorkerEvent};
 use crate::tasks::TaskWorkerChannels;
 use crate::utils::VersionInfo;
 use crate::worker::metrics::WorkerMetrics;
 use crate::worker::{DynMetrics, MetricsCasting, WorkerKind};
-use crate::{
-    identity::{Identity, IdentityError},
-    mutex_registry::MutexRegistry,
-};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -41,7 +38,6 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     /// XMTP Local Storage
     pub(crate) store: Db,
     pub(crate) mls_storage: S,
-    pub(crate) mutexes: MutexRegistry,
     pub(crate) mls_commit_lock: Arc<GroupCommitLock>,
     pub(crate) version_info: VersionInfo,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
@@ -113,7 +109,6 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             sync_api_client: self.sync_api_client,
             store: self.store,
             mls_storage: mls_store,
-            mutexes: self.mutexes,
             mls_commit_lock: self.mls_commit_lock,
             version_info: self.version_info,
             local_events: self.local_events,
@@ -223,7 +218,6 @@ where
     fn task_channels(&self) -> &TaskWorkerChannels;
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
-    fn mutexes(&self) -> &MutexRegistry;
 }
 
 impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
@@ -304,10 +298,6 @@ where
             .lock()
             .get(&WorkerKind::DeviceSync)?
             .as_sync_metrics()
-    }
-
-    fn mutexes(&self) -> &MutexRegistry {
-        &self.mutexes
     }
 }
 
@@ -390,9 +380,5 @@ where
 
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
         <T as XmtpSharedContext>::sync_metrics(self)
-    }
-
-    fn mutexes(&self) -> &MutexRegistry {
-        <T as XmtpSharedContext>::mutexes(self)
     }
 }

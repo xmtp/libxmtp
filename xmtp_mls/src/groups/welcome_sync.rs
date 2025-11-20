@@ -16,6 +16,7 @@ use std::sync::{
 use xmtp_common::{Retry, retry_async};
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
+use xmtp_mls_common::group;
 use xmtp_proto::types::GlobalCursor;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::types::GroupMessageMetadata;
@@ -151,12 +152,10 @@ where
                         self.context.inbox_id()
                     );
                     let is_active = group
-                        .load_mls_group_with_lock_async(|mls_group| async move {
-                            Ok::<bool, GroupError>(mls_group.is_active())
-                        })
-                        .await?;
+                        .load_mls_group(group.context.mls_storage())?
+                        .is_active();
                     if is_active {
-                        group.sync_with_conn().await?;
+                        group.sync_inner().await?;
                         group.maybe_update_installations(None).await?;
                         active_group_count.fetch_add(1, Ordering::SeqCst);
                     }
@@ -283,23 +282,11 @@ where
 
                 async move {
                     tracing::info!(inbox_id, "[{}] syncing group", inbox_id);
-
-                    let is_active_res = group
-                        .load_mls_group_with_lock_async(|mls_group| async move {
-                            Ok::<bool, GroupError>(mls_group.is_active())
-                        })
-                        .await;
-
-                    match is_active_res {
-                        Ok(is_active) if is_active => {
-                            if let Err(err) = group.sync_with_conn().await {
-                                tracing::warn!(?err, "sync_with_conn failed");
-                                failed_group_count.fetch_add(1, Ordering::SeqCst);
-                                return;
-                            }
-
-                            if let Err(err) = group.maybe_update_installations(None).await {
-                                tracing::warn!(?err, "maybe_update_installations failed");
+                    let mls_group = group.load_mls_group(group.context.mls_storage());
+                    match mls_group {
+                        Ok(mls_group) if mls_group.is_active() => {
+                            if let Err(err) = group.sync_inner().await {
+                                tracing::warn!(?err, "sync failed");
                                 failed_group_count.fetch_add(1, Ordering::SeqCst);
                                 return;
                             }
@@ -308,7 +295,7 @@ where
                         }
                         Ok(_) => { /* group inactive, skip */ }
                         Err(err) => {
-                            tracing::warn!(?err, "load_mls_group_with_lock_async failed");
+                            tracing::warn!(?err, "load_mls_group failed");
                             failed_group_count.fetch_add(1, Ordering::SeqCst);
                         }
                     }

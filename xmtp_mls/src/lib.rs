@@ -12,7 +12,6 @@ pub mod identity_updates;
 mod intents;
 pub mod messages;
 pub mod mls_store;
-mod mutex_registry;
 pub mod subscriptions;
 pub mod tasks;
 pub mod utils;
@@ -94,6 +93,7 @@ impl GroupCommitLock {
     }
 }
 /// A guard that releases the semaphore when dropped
+#[derive(Debug)]
 pub struct MlsGroupGuard {
     _permit: tokio::sync::OwnedMutexGuard<()>,
 }
