@@ -480,6 +480,7 @@ where
             sequence_id: welcome.sequence_id() as i64,
             originator_id: welcome.originator_id() as i64,
             expire_at_ns: None,
+            inserted_at_ns: 0, // Will be set by database
         };
 
         added_msg.store_or_ignore(&db)?;

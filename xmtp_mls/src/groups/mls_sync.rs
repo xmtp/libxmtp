@@ -1082,6 +1082,7 @@ where
                             sequence_id: cursor.sequence_id as i64,
                             originator_id: cursor.originator_id as i64,
                             expire_at_ns: Self::get_message_expire_at_ns(mls_group),
+                            inserted_at_ns: 0, // Will be set by database
                         };
                         message.store_or_ignore(&storage.db())?;
                         // make sure internal id is on return type after its stored successfully
@@ -2010,6 +2011,7 @@ where
             sequence_id: cursor.sequence_id as i64,
             originator_id: cursor.originator_id as i64,
             expire_at_ns: None,
+            inserted_at_ns: 0, // Will be set by database
         };
         msg.store_or_ignore(&storage.db())?;
         Ok(Some(msg))
