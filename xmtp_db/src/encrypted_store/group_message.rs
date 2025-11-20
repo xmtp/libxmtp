@@ -78,6 +78,15 @@ pub struct StoredGroupMessage {
     pub expire_at_ns: Option<i64>,
 }
 
+impl StoredGroupMessage {
+    pub fn cursor(&self) -> Cursor {
+        Cursor {
+            sequence_id: self.sequence_id as u64,
+            originator_id: self.originator_id as u32,
+        }
+    }
+}
+
 // Separate Insertable struct that excludes inserted_at_ns to let the database set it
 #[derive(Debug, Clone, Insertable)]
 #[diesel(table_name = group_messages)]
