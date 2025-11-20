@@ -10,7 +10,7 @@ use xmtp_db::{
 
 macro_rules! bench {
     ($self:ident, $fn:ident($($args:expr),*)) => {{
-        let key = stringify!($fn);
+        let key = stringify!($fn($($args),*));
         let store = $self.store.clone();
         let result = $self.bench_with_key(key, || store.db().$fn($($args),*));
         result
@@ -35,7 +35,7 @@ impl DbBencher {
         )?;
         let mut groups = store.db().find_groups_by_id_paged(
             GroupQueryArgs {
-                conversation_type: Some(ConversationType::Dm),
+                conversation_type: Some(ConversationType::Group),
                 ..Default::default()
             },
             0,
