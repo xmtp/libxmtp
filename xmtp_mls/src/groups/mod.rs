@@ -381,6 +381,7 @@ where
         E:
             From<GroupMessageProcessingError>
                 + From<crate::StorageError>
+                + From<crate::CommitLockError>
                 + From<
                     <Context::MlsStorage as openmls_traits::storage::StorageProvider<
                         CURRENT_VERSION,
@@ -392,7 +393,10 @@ where
         let group_id = self.group_id.clone();
 
         // Acquire the lock asynchronously
-        let _lock = self.mls_commit_lock.get_lock_async(group_id.clone()).await;
+        let _lock = self
+            .mls_commit_lock
+            .get_lock_async(group_id.clone())
+            .await?;
 
         // Load the MLS group
         let mls_group = OpenMlsGroup::load(mls_storage, &GroupId::from_slice(&self.group_id))?
