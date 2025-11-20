@@ -5,6 +5,7 @@ use xmtp_db::prelude::*;
 use xmtp_db::{
     StorageError,
     consent_record::{ConsentState, ConsentType},
+    group::{ConversationType, GroupMembershipState},
 };
 use xmtp_id::{
     InboxId,
@@ -18,6 +19,43 @@ pub struct GroupMember {
     pub installation_ids: Vec<Vec<u8>>,
     pub permission_level: PermissionLevel,
     pub consent_state: ConsentState,
+}
+
+/// Represents a contact aggregated across all conversations
+#[derive(Debug, Clone)]
+pub struct Contact {
+    pub inbox_id: InboxId,
+    pub account_identifiers: Vec<Identifier>,
+    pub installation_ids: Vec<Vec<u8>>,
+    pub conversation_ids: Vec<Vec<u8>>,
+    pub consent_state: ConsentState,
+}
+
+/// Query arguments for filtering contacts
+#[derive(Debug, Default, Clone)]
+pub struct ContactQueryArgs {
+    /// Filter by specific group IDs (allow list)
+    pub allowed_group_ids: Option<Vec<Vec<u8>>>,
+    /// Exclude specific group IDs (deny list)
+    pub denied_group_ids: Option<Vec<Vec<u8>>>,
+    /// Filter by consent states
+    pub consent_states: Option<Vec<ConsentState>>,
+    /// Filter by conversation type
+    pub conversation_type: Option<ConversationType>,
+    /// Filter by membership state
+    pub allowed_states: Option<Vec<GroupMembershipState>>,
+    /// Only include contacts from groups created after this timestamp
+    pub created_after_ns: Option<i64>,
+    /// Only include contacts from groups created before this timestamp
+    pub created_before_ns: Option<i64>,
+    /// Limit the number of results
+    pub limit: Option<i64>,
+}
+
+impl AsRef<ContactQueryArgs> for ContactQueryArgs {
+    fn as_ref(&self) -> &ContactQueryArgs {
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
