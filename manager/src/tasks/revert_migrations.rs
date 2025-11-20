@@ -27,14 +27,6 @@ pub fn revert_migrations(store: &EncryptedMessageStore<NativeDb>, target: &str) 
     Ok(())
 }
 
-pub fn run_pending_migrations(store: &EncryptedMessageStore<NativeDb>) -> Result<()> {
-    store.db().raw_query_write(|c| {
-        c.run_pending_migrations(xmtp_db::MIGRATIONS).unwrap();
-        Ok(())
-    })?;
-    Ok(())
-}
-
 fn applied_migrations(
     store: &EncryptedMessageStore<NativeDb>,
 ) -> Result<Vec<MigrationVersion<'static>>> {

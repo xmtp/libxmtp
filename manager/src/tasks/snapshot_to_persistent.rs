@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::path::Path;
-use xmtp_db::{EncryptedMessageStore, NativeDb, diesel::connection::SimpleConnection};
+use xmtp_db::{EncryptedMessageStore, NativeDb};
 
 pub fn db_vacuum(store: &EncryptedMessageStore<NativeDb>, dest: impl AsRef<Path>) -> Result<()> {
     let buff = store.db().raw_query_write(|conn| {
