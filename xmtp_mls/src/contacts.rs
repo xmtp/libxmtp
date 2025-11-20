@@ -43,8 +43,6 @@ pub struct ContactQueryArgs {
     pub created_after_ns: Option<i64>,
     /// Only include contacts from groups created before this timestamp
     pub created_before_ns: Option<i64>,
-    /// Limit the number of results
-    pub limit: Option<i64>,
 }
 
 impl AsRef<ContactQueryArgs> for ContactQueryArgs {
@@ -243,12 +241,11 @@ where
     Ok(contact_map)
 }
 
-/// Apply final filters to contacts (own inbox_id, consent states, limit)
+/// Apply final filters to contacts (own inbox_id, consent states)
 fn apply_contact_filters(
     mut contacts: Vec<Contact>,
     own_inbox_id: &str,
     consent_states: &Option<Vec<ConsentState>>,
-    limit: Option<i64>,
 ) -> Vec<Contact> {
     // Filter out the client's own inbox_id
     contacts.retain(|contact| contact.inbox_id != own_inbox_id);
@@ -256,11 +253,6 @@ fn apply_contact_filters(
     // Filter by consent states if specified
     if let Some(states) = consent_states {
         contacts.retain(|contact| states.contains(&contact.consent_state));
-    }
-
-    // Apply limit if specified
-    if let Some(limit_val) = limit {
-        contacts.truncate(limit_val as usize);
     }
 
     contacts
@@ -283,7 +275,6 @@ where
     /// - conversation_type: filter by conversation type (Group or Dm)
     /// - allowed_states: only include contacts from groups with the given membership states
     /// - created_after_ns/created_before_ns: filter by group creation time
-    /// - limit: limit the number of contacts returned
     pub async fn list_contacts(&self, args: ContactQueryArgs) -> Result<Vec<Contact>, ClientError> {
         let ContactQueryArgs {
             allowed_group_ids,
@@ -293,7 +284,6 @@ where
             allowed_states,
             created_after_ns,
             created_before_ns,
-            limit,
         } = args;
 
         // Build group query args from contact query args
@@ -356,9 +346,9 @@ where
             )
             .collect();
 
-        // Apply final filters (own inbox_id, consent states, limit)
+        // Apply final filters (own inbox_id, consent states)
         let filtered_contacts =
-            apply_contact_filters(contacts, &self.inbox_id(), &consent_states, limit);
+            apply_contact_filters(contacts, &self.inbox_id(), &consent_states);
 
         Ok(filtered_contacts)
     }
@@ -666,18 +656,7 @@ mod tests {
             "Should have at least 3 early contacts"
         );
 
-        // Test 12: Test limit
-        let limited_contacts = alice
-            .list_contacts(ContactQueryArgs {
-                limit: Some(3),
-                ..Default::default()
-            })
-            .await
-            .unwrap();
-
-        assert_eq!(limited_contacts.len(), 3, "Should respect limit of 3");
-
-        // Test 13: Verify conversation_ids are populated correctly
+        // Test 12: Verify conversation_ids are populated correctly
         let bob_contact = all_contacts
             .iter()
             .find(|c| c.inbox_id == bob.inbox_id())
@@ -698,7 +677,7 @@ mod tests {
             "Jack should be in 1 conversation (DM only)"
         );
 
-        // Test 14: Combined filters - allowed_group_ids + consent_states
+        // Test 13: Combined filters - allowed_group_ids + consent_states
         let group1_allowed = alice
             .list_contacts(ContactQueryArgs {
                 allowed_group_ids: Some(vec![group1.group_id.clone()]),
@@ -712,22 +691,21 @@ mod tests {
         assert_eq!(group1_allowed.len(), 1);
         assert_eq!(group1_allowed[0].inbox_id, bob.inbox_id());
 
-        // Test 15: Combined filters - conversation_type + consent_states + limit
-        let dm_unknown_limited = alice
+        // Test 14: Combined filters - conversation_type + consent_states
+        let dm_unknown = alice
             .list_contacts(ContactQueryArgs {
                 conversation_type: Some(ConversationType::Dm),
                 consent_states: Some(vec![ConsentState::Unknown]),
-                limit: Some(1),
                 ..Default::default()
             })
             .await
             .unwrap();
 
-        assert_eq!(dm_unknown_limited.len(), 1);
+        assert_eq!(dm_unknown.len(), 1);
         // Should be Jack (the only Unknown contact in DMs only)
-        assert_eq!(dm_unknown_limited[0].inbox_id, jack.inbox_id());
+        assert_eq!(dm_unknown[0].inbox_id, jack.inbox_id());
 
-        // Test 16: Verify account_identifiers and installation_ids are populated
+        // Test 15: Verify account_identifiers and installation_ids are populated
         assert!(
             !bob_contact.account_identifiers.is_empty(),
             "Bob should have account identifiers"
@@ -737,7 +715,7 @@ mod tests {
             "Bob should have installation IDs"
         );
 
-        // Test 17: Edge case - deny all DMs
+        // Test 16: Edge case - deny all DMs
         let no_dms = alice
             .list_contacts(ContactQueryArgs {
                 denied_group_ids: Some(vec![
