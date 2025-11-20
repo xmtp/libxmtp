@@ -135,6 +135,7 @@ tokio = { workspace = true, features = [
 ] }
 chrono = { workspace = true, features = ["clock"] }
 dyn-clone.workspace = true
+fd-lock = "4.0"
 openmls.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]

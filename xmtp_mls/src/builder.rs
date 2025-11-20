@@ -294,6 +294,15 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         let (worker_tx, _) = broadcast::channel(32);
         let (events, _) = broadcast::channel(32);
         let mut workers = WorkerRunner::new();
+
+        // Create the commit lock with db_path and installation_id
+        let db_path = match store.opts() {
+            xmtp_db::StorageOption::Persistent(path) => std::path::PathBuf::from(path),
+            xmtp_db::StorageOption::Ephemeral => std::env::temp_dir().join("xmtp_ephemeral"),
+        };
+        let installation_id = hex::encode(identity.installation_keys.public_bytes());
+        let mls_commit_lock = Arc::new(GroupCommitLock::new(db_path, &installation_id));
+
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
             mls_storage,
@@ -302,7 +311,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info,
             scw_verifier: Arc::new(scw_verifier),
             mutexes: MutexRegistry::new(),
-            mls_commit_lock: Arc::new(GroupCommitLock::new()),
+            mls_commit_lock,
             local_events: local_events.clone(),
             worker_events: worker_tx.clone(),
             events,

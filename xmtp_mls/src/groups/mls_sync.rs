@@ -181,6 +181,8 @@ pub enum GroupMessageProcessingError {
     Builder(#[from] derive_builder::UninitializedFieldError),
     #[error(transparent)]
     Diesel(#[from] xmtp_db::diesel::result::Error),
+    #[error("commit lock error: {0}")]
+    CommitLock(#[from] crate::CommitLockError),
 }
 
 impl RetryableError for GroupMessageProcessingError {
@@ -217,6 +219,7 @@ impl RetryableError for GroupMessageProcessingError {
             | Self::FutureEpoch(_, _)
             | Self::OldEpoch(_, _) => false,
             Self::Builder(_) => false,
+            Self::CommitLock(_) => true,
         }
     }
 }

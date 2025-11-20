@@ -3,6 +3,7 @@ use super::mls_ext::{UnwrapWelcomeError, WrapWelcomeError};
 use super::mls_sync::GroupMessageProcessingError;
 use super::summary::SyncSummary;
 use super::{intents::IntentError, validated_commit::CommitValidationError};
+use crate::commit_lock::CommitLockError;
 use crate::identity::IdentityError;
 use crate::messages::enrichment::EnrichMessageError;
 use crate::mls_store::MlsStoreError;
@@ -150,6 +151,8 @@ pub enum GroupError {
     ProcessIntent(#[from] ProcessIntentError),
     #[error("Failed to load lock")]
     LockUnavailable,
+    #[error("Commit lock error: {0}")]
+    CommitLock(String),
     #[error("Exceeded max characters for this field. Must be under: {length}")]
     TooManyCharacters { length: usize },
     #[error("Group is paused until version {0} is available")]
@@ -201,6 +204,15 @@ impl From<prost::DecodeError> for GroupError {
 impl From<SyncSummary> for GroupError {
     fn from(value: SyncSummary) -> Self {
         GroupError::Sync(Box::new(value))
+    }
+}
+
+impl From<CommitLockError> for GroupError {
+    fn from(value: CommitLockError) -> Self {
+        match value {
+            CommitLockError::LockUnavailable => GroupError::LockUnavailable,
+            e => GroupError::CommitLock(e.to_string()),
+        }
     }
 }
 
@@ -296,7 +308,7 @@ impl RetryableError for GroupError {
             Self::WrappedApi(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),
             Self::LocalEvent(err) => err.is_retryable(),
-            Self::LockUnavailable => true,
+            Self::LockUnavailable | Self::CommitLock(_) => true,
             Self::SyncFailedToWait(_) => true,
             Self::CodecError(_) => true,
             Self::Sync(s) => s.is_retryable(),
