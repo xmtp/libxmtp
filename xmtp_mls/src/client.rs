@@ -901,6 +901,13 @@ where
             })
             .collect();
 
+        if filtered_groups.is_empty() {
+            tracing::debug!(
+                "No groups remaining after applying filters. Query returned 0 contacts."
+            );
+            return Ok(vec![]);
+        }
+
         // Step 1: Extract all member inbox_ids from all groups in one pass
         // Map: group_id -> Vec<(inbox_id, sequence_id)>
         let storage = self.context.mls_storage();
@@ -1000,7 +1007,14 @@ where
 
         // Step 4: Build contact map using the batch-loaded data
         // Use HashSet for conversation_ids during construction to guarantee uniqueness
-        let mut contact_map: HashMap<String, (AssociationState, HashSet<Vec<u8>>, xmtp_db::consent_record::ConsentState)> = HashMap::new();
+        let mut contact_map: HashMap<
+            String,
+            (
+                AssociationState,
+                HashSet<Vec<u8>>,
+                xmtp_db::consent_record::ConsentState,
+            ),
+        > = HashMap::new();
 
         for stored_group in &filtered_groups {
             let group_id = &stored_group.id;
@@ -1031,13 +1045,15 @@ where
         // Convert map to vec and apply filters
         let mut contacts: Vec<Contact> = contact_map
             .into_iter()
-            .map(|(inbox_id, (association_state, conversation_ids, consent_state))| Contact {
-                inbox_id,
-                account_identifiers: association_state.identifiers(),
-                installation_ids: association_state.installation_ids(),
-                conversation_ids: conversation_ids.into_iter().collect(),
-                consent_state,
-            })
+            .map(
+                |(inbox_id, (association_state, conversation_ids, consent_state))| Contact {
+                    inbox_id,
+                    account_identifiers: association_state.identifiers(),
+                    installation_ids: association_state.installation_ids(),
+                    conversation_ids: conversation_ids.into_iter().collect(),
+                    consent_state,
+                },
+            )
             .collect();
 
         // Filter out the client's own inbox_id
