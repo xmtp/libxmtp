@@ -35,7 +35,7 @@ pub(crate) trait XmtpConnection:
 {
 }
 
-trait ConnectionOptions {
+pub(crate) trait ConnectionOptions {
     fn options(&self) -> &StorageOption;
     fn is_persistent(&self) -> bool {
         matches!(self.options(), StorageOption::Persistent(_))

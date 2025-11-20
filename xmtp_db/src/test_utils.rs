@@ -192,6 +192,7 @@ mod native {
                 if result.is_ok() {
                     break store;
                 } else if i >= 1 {
+                    #[allow(clippy::panicking_unwrap)]
                     result.unwrap();
                 }
 
@@ -200,8 +201,7 @@ mod native {
                     // WAL is not compatible with ephemeral databases. Attempt to update and try one more time.
                     {
                         let mut conn =
-                            SqliteConnection::establish(&path.to_string_lossy().to_string())
-                                .unwrap();
+                            SqliteConnection::establish(path.to_string_lossy().as_ref()).unwrap();
                         conn.batch_execute("PRAGMA journal_mode = DELETE").unwrap();
                     }
 
