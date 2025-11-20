@@ -3,6 +3,7 @@
 
 pub mod builder;
 pub mod client;
+pub mod contacts;
 pub mod context;
 pub mod cursor_store;
 mod definitions;

@@ -25,7 +25,7 @@ mod welcomes;
 pub use welcomes::*;
 
 pub use self::group_permissions::PreconfiguredPolicies;
-pub use self::members::{Contact, ContactQueryArgs, GroupMember, PermissionLevel};
+pub use self::members::{GroupMember, PermissionLevel};
 use self::{
     group_membership::GroupMembership,
     group_permissions::PolicySet,
