@@ -1,4 +1,4 @@
-use crate::tasks::{DbBencher, db_vacuum, revert_migrations, run_pending_migrations};
+use crate::tasks::DbBencher;
 use anyhow::{Result, bail};
 use clap::{Parser, ValueEnum};
 use std::io::{self, Write};
@@ -40,41 +40,58 @@ fn main() -> Result<()> {
                 manager.new_bencher()?.bench()?;
             }
             Task::DbVacuum => {
-                let Some(dest) = &args.dest else {
+                let Some(dest) = &args.target else {
                     bail!(
-                        "--dest argument must be provided for this task.\n\
+                        "dest argument must be provided for this task.\n\
                         This is where the persistent database will be written to.
                         "
                     );
                 };
-                db_vacuum(&manager.store, dest)?;
+                tasks::db_vacuum(&manager.store, dest)?;
             }
             Task::DbRevert => {
-                let Some(target) = &args.version else {
+                let Some(target) = &args.target else {
                     bail!(
                         "--version argument must be provided for this task.\n\
                         This is the target version you want to roll the database back to."
                     );
                 };
 
-                print!(
-                    "Please confirm that you have backed up your database. This action can result in loss of data. (y/n): "
-                );
-                io::stdout().flush().unwrap();
-
-                let mut input = String::new();
-                io::stdin().read_line(&mut input).unwrap();
-
-                if matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
-                    revert_migrations(&manager.store, target)?;
-                }
+                tasks::revert_migrations(&manager.store, target)?;
             }
-            Task::DbMigrate => {
-                run_pending_migrations(&manager.store)?;
+            Task::DbClearAllMessages => {
+                tasks::clear_all_messages(&manager.store)?;
+            }
+            Task::DbClearMessages => {
+                let Some(group_id) = &args.target else {
+                    bail!(
+                        "A hex-encoded group_id must be provided as the --target param for this task."
+                    );
+                };
+
+                let group_id = hex::decode(group_id)?;
+
+                tasks::clear_all_messages_for_group(&manager.store, &group_id)?;
             }
         }
 
         info!("Finished {task:?}.");
+    }
+
+    Ok(())
+}
+
+fn confirm_destructive() -> Result<()> {
+    print!(
+        "Please confirm that you have backed up your database. This action can result in loss of data. (y/n): "
+    );
+    io::stdout().flush().unwrap();
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+
+    if !matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
+        bail!("Operation cancelled");
     }
 
     Ok(())
@@ -85,8 +102,9 @@ struct Args {
     /// Database path
     db: String,
 
-    /// Destination path - used for some tasks
-    dest: Option<String>,
+    /// Target - purpose varies by task
+    #[arg(long)]
+    target: Option<String>,
 
     /// A hex encoded database encryption key
     #[arg(long)]
@@ -95,9 +113,6 @@ struct Args {
     /// Run a specific task
     #[arg(long, value_enum)]
     task: Option<Task>,
-
-    #[arg(long)]
-    version: Option<String>,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -105,7 +120,14 @@ enum Task {
     /// Measure the performance of database queries
     /// to identify problematic performers.
     QueryBench,
+    /// Dump an encrypted database into an un-encrypted file.
     DbVacuum,
+    /// Attempt to revert database to a specific db version.
+    /// Requires migration name as --target param.
     DbRevert,
-    DbMigrate,
+    /// Clear all messages in the database.
+    DbClearMessages,
+    /// Clear all messages in a group.
+    /// Requirese hex-encoded group_id as --target param.
+    DbClearAllMessages,
 }

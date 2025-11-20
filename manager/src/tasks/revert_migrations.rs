@@ -3,7 +3,11 @@ use diesel_migrations::MigrationHarness;
 use tracing::info;
 use xmtp_db::{EncryptedMessageStore, NativeDb, diesel::migration::MigrationVersion};
 
+use crate::confirm_destructive;
+
 pub fn revert_migrations(store: &EncryptedMessageStore<NativeDb>, target: &str) -> Result<()> {
+    confirm_destructive()?;
+
     let target: String = target.chars().filter(|c| c.is_numeric()).collect();
     while let Some(version) = applied_migrations(store)?.first() {
         if version.to_string() > target {

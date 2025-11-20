@@ -1,0 +1,30 @@
+use anyhow::{Result, bail};
+use xmtp_db::{
+    ConnectionExt, EncryptedMessageStore, NativeDb,
+    diesel::{self, ExpressionMethods, QueryDsl, RunQueryDsl},
+    schema::group_messages::dsl as messages_dsl,
+};
+
+use crate::confirm_destructive;
+
+pub fn clear_all_messages(store: &EncryptedMessageStore<NativeDb>) -> Result<()> {
+    confirm_destructive()?;
+
+    store
+        .conn()
+        .raw_query_write(|c| diesel::delete(messages_dsl::group_messages).execute(c))?;
+    Ok(())
+}
+
+pub fn clear_all_messages_for_group(
+    store: &EncryptedMessageStore<NativeDb>,
+    group_id: &[u8],
+) -> Result<()> {
+    confirm_destructive()?;
+
+    store.conn().raw_query_write(|c| {
+        diesel::delete(messages_dsl::group_messages.filter(messages_dsl::group_id.eq(group_id)))
+            .execute(c)
+    })?;
+    Ok(())
+}
