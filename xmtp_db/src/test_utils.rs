@@ -192,7 +192,7 @@ mod native {
 
                 if result.is_ok() {
                     break store;
-                } else if i >= 1 {
+                } else if i >= 1 || path.is_none() {
                     #[allow(clippy::panicking_unwrap)]
                     result.unwrap();
                 }
