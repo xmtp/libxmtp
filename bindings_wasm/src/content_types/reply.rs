@@ -110,8 +110,7 @@ pub fn decode_reply(bytes: Uint8Array) -> Result<Reply, JsError> {
     .map_err(|e| JsError::new(&format!("{}", e)))?;
 
   // Use ReplyCodec to decode and convert to Reply
-  let reply =
-    ReplyCodec::decode(encoded_content.clone()).map_err(|e| JsError::new(&format!("{}", e)))?;
+  let reply = ReplyCodec::decode(encoded_content).map_err(|e| JsError::new(&format!("{}", e)))?;
 
   Ok(Reply {
     content: reply.content.into(),

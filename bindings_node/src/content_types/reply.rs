@@ -94,7 +94,7 @@ pub fn decode_reply(bytes: Uint8Array) -> Result<Reply> {
     XmtpEncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
 
   // Use ReplyCodec to decode and convert to Reply
-  let reply = ReplyCodec::decode(encoded_content.clone()).map_err(ErrorWrapper::from)?;
+  let reply = ReplyCodec::decode(encoded_content).map_err(ErrorWrapper::from)?;
 
   Ok(Reply {
     content: reply.content.into(),
