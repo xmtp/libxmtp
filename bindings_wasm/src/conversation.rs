@@ -795,6 +795,7 @@ mod tests {
       group_id: xmtp_common::rand_vec::<32>(),
       decrypted_message_bytes: xmtp_common::rand_vec::<32>(),
       sent_at_ns: 1738354508964432000,
+      inserted_at_ns: 1738354508964432000,
       kind: GroupMessageKind::Application,
       sender_installation_id: xmtp_common::rand_vec::<32>(),
       sender_inbox_id: String::from("test"),
