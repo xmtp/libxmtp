@@ -114,6 +114,23 @@ async fn test_group_updated_admin_changes() {
 
     bola_group.sync().await.expect("Failed to sync");
 
+    // Verify admin_list() returns Bola
+    let admin_list = bola_group.admin_list().expect("Failed to get admin list");
+    assert!(
+        admin_list.contains(&bola.inbox_id().to_string()),
+        "Bola should be in admin list"
+    );
+    assert_eq!(admin_list.len(), 1, "Should have 1 admin");
+
+    // Verify super_admin_list() contains only Alix (creator)
+    let super_admin_list = bola_group
+        .super_admin_list()
+        .expect("Failed to get super admin list");
+    assert!(
+        super_admin_list.contains(&alix.inbox_id().to_string()),
+        "Alix should be in super admin list"
+    );
+
     let messages = bola_group
         .find_messages(&MsgQueryArgs::default())
         .expect("Failed to find messages");
@@ -152,6 +169,28 @@ async fn test_group_updated_admin_changes() {
         .expect("Failed to add Caro as super admin");
 
     caro_group.sync().await.expect("Failed to sync");
+
+    // Verify super_admin_list() contains Alix and Caro
+    let super_admin_list = caro_group
+        .super_admin_list()
+        .expect("Failed to get super admin list");
+    assert!(
+        super_admin_list.contains(&alix.inbox_id().to_string()),
+        "Alix should be in super admin list"
+    );
+    assert!(
+        super_admin_list.contains(&caro.inbox_id().to_string()),
+        "Caro should be in super admin list"
+    );
+    assert_eq!(super_admin_list.len(), 2, "Should have 2 super admins");
+
+    // Verify admin_list() still contains only Bola
+    let admin_list = caro_group.admin_list().expect("Failed to get admin list");
+    assert!(
+        admin_list.contains(&bola.inbox_id().to_string()),
+        "Bola should still be in admin list"
+    );
+    assert_eq!(admin_list.len(), 1, "Should have 1 admin");
 
     let messages = caro_group
         .find_messages(&MsgQueryArgs::default())
@@ -198,6 +237,36 @@ async fn test_group_updated_admin_changes() {
     devon_group.sync().await.expect("Failed to sync");
     erin_group.sync().await.expect("Failed to sync");
 
+    // Verify admin_list() contains Bola and Devon
+    let admin_list = devon_group.admin_list().expect("Failed to get admin list");
+    assert!(
+        admin_list.contains(&bola.inbox_id().to_string()),
+        "Bola should be in admin list"
+    );
+    assert!(
+        admin_list.contains(&devon.inbox_id().to_string()),
+        "Devon should be in admin list"
+    );
+    assert_eq!(admin_list.len(), 2, "Should have 2 admins");
+
+    // Verify super_admin_list() contains Alix, Caro, and Erin
+    let super_admin_list = erin_group
+        .super_admin_list()
+        .expect("Failed to get super admin list");
+    assert!(
+        super_admin_list.contains(&alix.inbox_id().to_string()),
+        "Alix should be in super admin list"
+    );
+    assert!(
+        super_admin_list.contains(&caro.inbox_id().to_string()),
+        "Caro should be in super admin list"
+    );
+    assert!(
+        super_admin_list.contains(&erin.inbox_id().to_string()),
+        "Erin should be in super admin list"
+    );
+    assert_eq!(super_admin_list.len(), 3, "Should have 3 super admins");
+
     // Verify Devon's admin addition
     let devon_messages = devon_group
         .find_messages(&MsgQueryArgs::default())
@@ -205,8 +274,7 @@ async fn test_group_updated_admin_changes() {
     let devon_admin_msg = devon_messages
         .iter()
         .rev()
-        .skip(1) // Skip Erin's super admin message
-        .next()
+        .nth(1) // Skip Erin's super admin message
         .expect("Should have Devon's admin message");
     let devon_msg = decode_group_updated(&devon_admin_msg.decrypted_message_bytes);
 
@@ -245,6 +313,18 @@ async fn test_group_updated_admin_changes() {
         .expect("Failed to remove Bola as admin");
 
     bola_group.sync().await.expect("Failed to sync");
+
+    // Verify admin_list() no longer contains Bola, only Devon
+    let admin_list = bola_group.admin_list().expect("Failed to get admin list");
+    assert!(
+        !admin_list.contains(&bola.inbox_id().to_string()),
+        "Bola should not be in admin list"
+    );
+    assert!(
+        admin_list.contains(&devon.inbox_id().to_string()),
+        "Devon should still be in admin list"
+    );
+    assert_eq!(admin_list.len(), 1, "Should have 1 admin");
 
     let messages = bola_group
         .find_messages(&MsgQueryArgs::default())
@@ -287,6 +367,32 @@ async fn test_group_updated_admin_changes() {
         .expect("Failed to remove Caro as super admin");
 
     caro_group.sync().await.expect("Failed to sync");
+
+    // Verify super_admin_list() no longer contains Caro, but still contains Alix and Erin
+    let super_admin_list = caro_group
+        .super_admin_list()
+        .expect("Failed to get super admin list");
+    assert!(
+        !super_admin_list.contains(&caro.inbox_id().to_string()),
+        "Caro should not be in super admin list"
+    );
+    assert!(
+        super_admin_list.contains(&alix.inbox_id().to_string()),
+        "Alix should still be in super admin list"
+    );
+    assert!(
+        super_admin_list.contains(&erin.inbox_id().to_string()),
+        "Erin should still be in super admin list"
+    );
+    assert_eq!(super_admin_list.len(), 2, "Should have 2 super admins");
+
+    // Verify admin_list() still contains only Devon
+    let admin_list = caro_group.admin_list().expect("Failed to get admin list");
+    assert!(
+        admin_list.contains(&devon.inbox_id().to_string()),
+        "Devon should still be in admin list"
+    );
+    assert_eq!(admin_list.len(), 1, "Should have 1 admin");
 
     let messages = caro_group
         .find_messages(&MsgQueryArgs::default())
@@ -334,6 +440,20 @@ async fn test_group_updated_admin_changes() {
         .iter()
         .find(|g| g.group_id != bola_group.group_id)
         .expect("Should find new group");
+
+    // Verify admin_list() is empty (Bola is not an admin)
+    let admin_list = new_group.admin_list().expect("Failed to get admin list");
+    assert_eq!(admin_list.len(), 0, "Should have no admins");
+
+    // Verify super_admin_list() contains only Alix (the creator)
+    let super_admin_list = new_group
+        .super_admin_list()
+        .expect("Failed to get super admin list");
+    assert!(
+        super_admin_list.contains(&alix.inbox_id().to_string()),
+        "Alix should be in super admin list as creator"
+    );
+    assert_eq!(super_admin_list.len(), 1, "Should have 1 super admin");
 
     let new_group_messages = new_group.find_messages(&MsgQueryArgs::default()).unwrap();
     let member_only_msg = decode_group_updated(&new_group_messages[0].decrypted_message_bytes);
