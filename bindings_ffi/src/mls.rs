@@ -57,7 +57,6 @@ use xmtp_id::{
     },
 };
 use xmtp_mls::client::inbox_addresses_with_verifier;
-use xmtp_mls::context::ClientMode;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::ConversationDebugInfo;
 use xmtp_mls::groups::device_sync::DeviceSyncError;
@@ -485,22 +484,6 @@ pub enum FfiClientMode {
     #[default]
     Default,
     Notification,
-}
-impl From<ClientMode> for FfiClientMode {
-    fn from(mode: ClientMode) -> Self {
-        match mode {
-            ClientMode::Default => Self::Default,
-            ClientMode::Notification => Self::Notification,
-        }
-    }
-}
-impl From<FfiClientMode> for ClientMode {
-    fn from(mode: FfiClientMode) -> Self {
-        match mode {
-            FfiClientMode::Default => Self::Default,
-            FfiClientMode::Notification => Self::Notification,
-        }
-    }
 }
 
 #[derive(uniffi::Object)]

@@ -11,7 +11,6 @@ use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::SyncWorkerMode;
-use xmtp_mls::context::{ClientMode as XmtpClientMode};
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
@@ -78,15 +77,6 @@ pub enum ClientMode {
     #[default]
     Default,
     Notification
-}
-
-impl From<ClientMode> for XmtpClientMode {
-    fn from(mode: ClientMode) -> Self {
-        match mode {
-            ClientMode::Default => Self::Default,
-            ClientMode::Notification => Self::Notification
-        }
-    }
 }
 
 /// Specify options for the logger
@@ -267,7 +257,6 @@ pub async fn create_client(
     .with_remote_verifier()?
     .with_allow_offline(allow_offline)
     .with_disable_events(disable_events)
-    .with_client_mode(client_mode.map(Into::into))
     .store(store);
 
   if let Some(u) = device_sync_server_url {

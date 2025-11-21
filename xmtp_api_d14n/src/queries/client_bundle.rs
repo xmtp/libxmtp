@@ -2,7 +2,7 @@ use std::{error::Error, sync::Arc, time::Duration};
 
 use crate::{
     AuthCallback, AuthHandle, MessageBackendBuilderError, MiddlewareBuilder, ReadWriteClient,
-    ReadonlyClient, ReadonlyClientBuilder,
+    ReadonlyClient,
 };
 use derive_builder::Builder;
 use http::{request, uri::PathAndQuery};
@@ -11,7 +11,7 @@ use xmtp_api_grpc::{GrpcClient, error::GrpcError};
 use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_configuration::{MULTI_NODE_TIMEOUT_MS, PAYER_WRITE_FILTER};
 use xmtp_proto::{
-    api::{ApiClientError, ArcClient, BoxClientT, Client, IsConnectedCheck, ToBoxedClient},
+    api::{ApiClientError, ArcClient, Client, IsConnectedCheck, ToBoxedClient},
     prelude::{ApiBuilder, NetConnectConfig},
     types::AppVersion,
 };

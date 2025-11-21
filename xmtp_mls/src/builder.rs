@@ -1,7 +1,7 @@
 use crate::{
     GroupCommitLock, StorageError, XmtpApi,
     client::{Client, DeviceSync},
-    context::{ClientMode, XmtpMlsLocalContext},
+    context::XmtpMlsLocalContext,
     groups::{
         device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
         key_package_cleaner_worker::KeyPackagesCleanerWorker,
