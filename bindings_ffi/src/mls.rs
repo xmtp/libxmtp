@@ -839,17 +839,23 @@ impl FfiXmtpClient {
 
     /**
      * Revokes all installations except the one the client is currently using
+     * Returns Some FfiSignatureRequest if we have installations to revoke.
+     * If we have no other installations to revoke, returns None.
      */
-    pub async fn revoke_all_other_installations(
+    pub async fn revoke_all_other_installations_signature_request(
         &self,
-    ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
+    ) -> Result<Option<Arc<FfiSignatureRequest>>, GenericError> {
         let installation_id = self.inner_client.installation_public_key();
         let inbox_state = self.inner_client.inbox_state(true).await?;
-        let other_installation_ids = inbox_state
+        let other_installation_ids: Vec<Vec<u8>> = inbox_state
             .installation_ids()
             .into_iter()
             .filter(|id| id != installation_id)
             .collect();
+
+        if other_installation_ids.is_empty() {
+            return Ok(None);
+        }
 
         let signature_request = self
             .inner_client
@@ -857,10 +863,10 @@ impl FfiXmtpClient {
             .revoke_installations(other_installation_ids)
             .await?;
 
-        Ok(Arc::new(FfiSignatureRequest {
+        Ok(Some(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
             scw_verifier: self.inner_client.scw_verifier().clone(),
-        }))
+        })))
     }
 
     /**
@@ -7087,7 +7093,14 @@ mod tests {
         assert_eq!(client_1_state.installations.len(), 2);
         assert_eq!(client_2_state.installations.len(), 2);
 
-        let signature_request = client_1.revoke_all_other_installations().await.unwrap();
+        let Some(signature_request) = client_1
+            .revoke_all_other_installations_signature_request()
+            .await
+            .unwrap()
+        else {
+            panic!("No signature request found");
+        };
+
         signature_request.add_wallet_signature(&wallet).await;
         client_1
             .apply_signature_request(signature_request)
@@ -7108,6 +7121,54 @@ mod tests {
         );
         assert_eq!(
             client_2_state_after_revoke
+                .installations
+                .first()
+                .unwrap()
+                .id,
+            client_1.installation_id()
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_revoke_all_installations_no_crash() {
+        let wallet = PrivateKeySigner::random();
+        let client_1 = new_test_client_with_wallet(wallet.clone()).await;
+
+        let client_1_state = client_1.inbox_state(true).await.unwrap();
+        assert_eq!(client_1_state.installations.len(), 1);
+
+        // revoke all other installations should return None since we only have 1 installation
+        let signature_request = client_1
+            .revoke_all_other_installations_signature_request()
+            .await
+            .unwrap();
+        assert!(signature_request.is_none());
+
+        // Now we should have two installations
+        let _client_2 = new_test_client_with_wallet(wallet.clone()).await;
+        let client_1_state = client_1.inbox_state(true).await.unwrap();
+        assert_eq!(client_1_state.installations.len(), 2);
+
+        let signature_request = client_1
+            .revoke_all_other_installations_signature_request()
+            .await
+            .unwrap();
+        assert!(signature_request.is_some());
+
+        let Some(signature_request) = signature_request else {
+            panic!("No signature request found");
+        };
+        signature_request.add_wallet_signature(&wallet).await;
+        let result = client_1.apply_signature_request(signature_request).await;
+
+        // should not error
+        assert!(result.is_ok());
+
+        // Should still have 1 installation
+        let client_1_state_after_revoke = client_1.inbox_state(true).await.unwrap();
+        assert_eq!(client_1_state_after_revoke.installations.len(), 1);
+        assert_eq!(
+            client_1_state_after_revoke
                 .installations
                 .first()
                 .unwrap()
