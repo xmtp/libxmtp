@@ -103,6 +103,11 @@ impl MessageBackendBuilder {
         self
     }
 
+    pub fn readonly(&mut self, readonly: bool) -> &mut Self {
+        self.client_bundle.readonly(readonly);
+        self
+    }
+
     pub fn from_bundle(
         &mut self,
         bundle: ClientBundle<GrpcError>,

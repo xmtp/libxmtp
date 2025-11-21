@@ -65,6 +65,15 @@ pub enum SyncWorkerMode {
   disabled,
 }
 
+#[napi(string_enum)]
+#[derive(Debug, Default)]
+#[allow(non_camel_case_types)]
+pub enum ClientMode {
+  #[default]
+  default,
+  notification,
+}
+
 impl From<SyncWorkerMode> for XmtpSyncWorkerMode {
   fn from(value: SyncWorkerMode) -> Self {
     match value {
@@ -170,13 +179,16 @@ pub async fn create_client(
   nonce: Option<BigInt>,
   auth_callback: Option<&gateway_auth::FfiAuthCallback>,
   auth_handle: Option<&gateway_auth::FfiAuthHandle>,
+  client_mode: Option<ClientMode>,
 ) -> Result<Client> {
+  let client_mode = client_mode.unwrap_or_default();
   let root_identifier = account_identifier.clone();
   init_logging(log_options.unwrap_or_default())?;
   let mut backend = MessageBackendBuilder::default();
   backend
     .v3_host(&v3_host)
     .maybe_gateway_host(gateway_host)
+    .readonly(matches!(client_mode, ClientMode::notification))
     .maybe_auth_callback(auth_callback.map(|c| Arc::new(c.clone()) as _))
     .maybe_auth_handle(auth_handle.map(|h| h.clone().into()))
     .app_version(app_version.clone().unwrap_or_default())

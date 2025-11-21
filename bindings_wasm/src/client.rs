@@ -206,6 +206,9 @@ pub async fn create_client(
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
   tracing::info!(host, gateway_host, "Creating client in rust");
+
+  let client_mode = client_mode.unwrap_or_default();
+
   let mut backend = MessageBackendBuilder::default();
   let is_secure =
     host.starts_with("https") && gateway_host.as_ref().is_none_or(|h| h.starts_with("https"));
@@ -214,6 +217,7 @@ pub async fn create_client(
     .maybe_gateway_host(gateway_host)
     .app_version(app_version.clone().unwrap_or_default())
     .is_secure(is_secure)
+    .readonly(matches!(client_mode, ClientMode::Notification))
     .maybe_auth_callback(auth_callback.map(|c| Arc::new(c) as _))
     .maybe_auth_handle(auth_handle.map(|h| h.handle));
 
