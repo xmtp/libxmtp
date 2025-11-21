@@ -104,12 +104,15 @@ xmtp_common::if_test! {
 
 #[cfg(test)]
 mod tests {
-    use crate::v3::PublishIdentityUpdate;
+    use crate::{d14n::PublishClientEnvelopes, v3::PublishIdentityUpdate};
 
     use super::*;
     use rstest::*;
 
-    use xmtp_proto::api::{Query, mock::MockNetworkClient};
+    use xmtp_proto::{
+        api::{Query, mock::MockNetworkClient},
+        xmtp::xmtpv4::envelopes::ClientEnvelope,
+    };
     type MockClient = ReadonlyClient<MockNetworkClient>;
 
     #[fixture]
@@ -117,6 +120,19 @@ mod tests {
         ReadonlyClient {
             inner: MockNetworkClient::default(),
         }
+    }
+
+    #[rstest]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_forwards_to_inner(mut ro: MockClient) {
+        ro.inner
+            .expect_request()
+            .times(1)
+            .returning(|_, _, _| Ok(http::Response::new(vec![].into())));
+        let mut e = PublishClientEnvelopes::builder()
+            .envelope(ClientEnvelope::default())
+            .build()?;
+        e.query(&ro).await?;
     }
 
     #[rstest]

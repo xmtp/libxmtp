@@ -29,13 +29,6 @@ use xmtp_proto::types::InstallationId;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::DeviceSyncClient;
 
-#[derive(Default, Clone, Copy)]
-pub enum ClientMode {
-    #[default]
-    Default,
-    Notification,
-}
-
 /// The local context a XMTP MLS needs to function:
 /// - Sqlite Database
 /// - Identity for the User

@@ -5,7 +5,6 @@ use xmtp_db::{MemoryStorage, group_message::StoredGroupMessage, sql_key_store::S
 use xmtp_proto::types::Cursor;
 
 use crate::{
-    context::ClientMode,
     groups::{mls_sync::GroupMessageProcessingError, summary::ProcessSummary},
     tasks::TaskWorkerChannels,
 };
@@ -38,7 +37,6 @@ pub fn context() -> NewMockContext {
         sync_api_client: ApiClientWrapper::new(MockApiClient::new(), Default::default()),
         task_channels: TaskWorkerChannels::default(),
         worker_metrics: Arc::default(),
-        mode: ClientMode::default(),
     }
 }
 
