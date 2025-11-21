@@ -121,6 +121,7 @@ pub(crate) trait BackupRecordProvider: MaybeSend + Sized + 'static {
         db: Arc<D>,
         start_ns: Option<i64>,
         end_ns: Option<i64>,
+        exclude_disappearing_messages: bool,
         cursor: i64,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
@@ -133,6 +134,7 @@ pin_project! {
         db: Arc<D>,
         start_ns: Option<i64>,
         end_ns: Option<i64>,
+        exclude_disappearing_messages: bool,
         #[pin] current_future: Option<Pin<Box<dyn MaybeSendFuture<Output = Result<Vec<BackupElement>, StorageError>>>>>,
         _phantom: PhantomData<R>,
     }
@@ -149,6 +151,7 @@ where
             db,
             start_ns: opts.start_ns,
             end_ns: opts.end_ns,
+            exclude_disappearing_messages: opts.exclude_disappearing_messages,
             _phantom: PhantomData,
             current_future: None,
         })
@@ -166,8 +169,13 @@ where
 
         // Create the future if it doesn't exist
         if this.current_future.is_none() {
-            let fut =
-                R::backup_records(this.db.clone(), *this.start_ns, *this.end_ns, *this.cursor);
+            let fut = R::backup_records(
+                this.db.clone(),
+                *this.start_ns,
+                *this.end_ns,
+                *this.exclude_disappearing_messages,
+                *this.cursor,
+            );
             this.current_future.set(Some(Box::pin(fut)));
         }
 

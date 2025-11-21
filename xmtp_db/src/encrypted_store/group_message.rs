@@ -394,6 +394,8 @@ pub struct MsgQueryArgs {
     pub inserted_after_ns: Option<i64>,
     #[builder(default = None)]
     pub inserted_before_ns: Option<i64>,
+    #[builder(default = false)]
+    pub exclude_disappearing: bool,
 }
 
 impl MsgQueryArgs {
@@ -877,6 +879,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             sent_after_ns,
             sent_before_ns,
             limit,
+            exclude_disappearing,
             ..
         } = args;
 
@@ -892,6 +895,9 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         }
         if let Some(end_ns) = sent_before_ns {
             query = query.filter(group_messages::sent_at_ns.le(end_ns));
+        }
+        if *exclude_disappearing {
+            query = query.filter(group_messages::expire_at_ns.is_null());
         }
 
         query = query.limit(limit.unwrap_or(100)).offset(offset);

@@ -124,6 +124,7 @@ mod tests {
                 BackupElementSelection::Messages as i32,
                 BackupElementSelection::Consent as i32,
             ],
+            exclude_disappearing_messages: false,
         };
 
         let key = vec![7; 32];
@@ -221,6 +222,7 @@ mod tests {
                 BackupElementSelection::Messages.into(),
                 BackupElementSelection::Consent.into(),
             ],
+            exclude_disappearing_messages: false,
         };
 
         let key = xmtp_common::rand_vec::<32>();

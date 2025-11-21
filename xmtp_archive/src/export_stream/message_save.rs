@@ -9,6 +9,7 @@ impl BackupRecordProvider for GroupMessageSave {
         db: Arc<D>,
         start_ns: Option<i64>,
         end_ns: Option<i64>,
+        exclude_disappearing_messages: bool,
         cursor: i64,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
@@ -18,6 +19,7 @@ impl BackupRecordProvider for GroupMessageSave {
         let args = MsgQueryArgs::builder()
             .sent_after_ns(start_ns)
             .sent_before_ns(end_ns)
+            .exclude_disappearing(exclude_disappearing_messages)
             .limit(Self::BATCH_SIZE)
             .build()
             .expect("could not build");

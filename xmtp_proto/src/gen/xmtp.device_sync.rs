@@ -63,6 +63,8 @@ pub struct BackupOptions {
     pub start_ns: ::core::option::Option<i64>,
     #[prost(int64, optional, tag = "3")]
     pub end_ns: ::core::option::Option<i64>,
+    #[prost(bool, tag = "4")]
+    pub exclude_disappearing_messages: bool,
 }
 impl ::prost::Name for BackupOptions {
     const NAME: &'static str = "BackupOptions";
