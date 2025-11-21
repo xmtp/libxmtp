@@ -87,6 +87,7 @@ impl Args {
         let group_ids = group_id
             .split(",")
             .into_iter()
+            .filter(|id| !id.trim().is_empty())
             .map(hex::decode)
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -138,9 +139,9 @@ enum Task {
     /// Attempt to revert database to a specific db version.
     /// Requires migration name as --target param.
     DbRevert,
-    /// Clear all messages in the database.
-    DbClearMessages,
     /// Clear all messages in a group.
+    DbClearMessages,
+    /// Clear all messages in the database.
     /// Requirese hex-encoded group_id as --target param.
     DbClearAllMessages,
     /// Disable a group.
