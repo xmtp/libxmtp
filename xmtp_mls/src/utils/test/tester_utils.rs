@@ -114,7 +114,7 @@ where
 
     pub fn save_db_snapshot_to_file(&self, path: impl AsRef<Path>) {
         let snapshot = self.db_snapshot();
-        std::fs::write(path, &snapshot);
+        std::fs::write(path, &snapshot).unwrap();
     }
 }
 
@@ -180,7 +180,8 @@ where
         if self.ephemeral_db || self.snapshot.is_some() {
             let db = if let Some(snapshot) = &self.snapshot {
                 client.allow_offline = true;
-                TestDb::create_ephemeral_store_from_snapshot(snapshot).await
+                TestDb::create_ephemeral_store_from_snapshot(snapshot, self.snapshot_path.as_ref())
+                    .await
             } else {
                 TestDb::create_ephemeral_store().await
             };
@@ -368,6 +369,7 @@ where
     pub triggers: bool,
     pub external_identity: Option<Identity>,
     pub snapshot: Option<Arc<Vec<u8>>>,
+    pub snapshot_path: Option<PathBuf>,
     /// whether this builder represents a second installation
     pub installation: bool,
     pub disable_workers: bool,
@@ -406,6 +408,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             api_endpoint: ApiEndpoint::Local,
             external_identity: None,
             snapshot: None,
+            snapshot_path: None,
             disable_workers: false,
         }
     }
@@ -438,6 +441,7 @@ where
             triggers: self.triggers,
             external_identity: self.external_identity,
             snapshot: self.snapshot,
+            snapshot_path: self.snapshot_path,
             disable_workers: self.disable_workers,
         }
     }
@@ -493,7 +497,9 @@ where
     }
 
     pub fn snapshot_file(mut self, snapshot_path: impl Into<PathBuf>) -> Self {
-        let snapshot = std::fs::read(snapshot_path.into()).unwrap();
+        let snapshot_path = snapshot_path.into();
+        let snapshot = std::fs::read(&snapshot_path).unwrap();
+        self.snapshot_path = Some(snapshot_path);
         self.snapshot(Arc::new(snapshot))
     }
 

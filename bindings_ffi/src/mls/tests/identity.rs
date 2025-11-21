@@ -276,7 +276,14 @@ async fn test_revoke_all_installations() {
     assert_eq!(client_1_state.installations.len(), 2);
     assert_eq!(client_2_state.installations.len(), 2);
 
-    let signature_request = client_1.revoke_all_other_installations().await.unwrap();
+    let Some(signature_request) = client_1
+        .revoke_all_other_installations_signature_request()
+        .await
+        .unwrap()
+    else {
+        panic!("No signature request found");
+    };
+
     signature_request.add_wallet_signature(&wallet).await;
     client_1
         .apply_signature_request(signature_request)
@@ -297,6 +304,54 @@ async fn test_revoke_all_installations() {
     );
     assert_eq!(
         client_2_state_after_revoke
+            .installations
+            .first()
+            .unwrap()
+            .id,
+        client_1.installation_id()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_revoke_all_installations_no_crash() {
+    let wallet = PrivateKeySigner::random();
+    let client_1 = new_test_client_with_wallet(wallet.clone()).await;
+
+    let client_1_state = client_1.inbox_state(true).await.unwrap();
+    assert_eq!(client_1_state.installations.len(), 1);
+
+    // revoke all other installations should return None since we only have 1 installation
+    let signature_request = client_1
+        .revoke_all_other_installations_signature_request()
+        .await
+        .unwrap();
+    assert!(signature_request.is_none());
+
+    // Now we should have two installations
+    let _client_2 = new_test_client_with_wallet(wallet.clone()).await;
+    let client_1_state = client_1.inbox_state(true).await.unwrap();
+    assert_eq!(client_1_state.installations.len(), 2);
+
+    let signature_request = client_1
+        .revoke_all_other_installations_signature_request()
+        .await
+        .unwrap();
+    assert!(signature_request.is_some());
+
+    let Some(signature_request) = signature_request else {
+        panic!("No signature request found");
+    };
+    signature_request.add_wallet_signature(&wallet).await;
+    let result = client_1.apply_signature_request(signature_request).await;
+
+    // should not error
+    assert!(result.is_ok());
+
+    // Should still have 1 installation
+    let client_1_state_after_revoke = client_1.inbox_state(true).await.unwrap();
+    assert_eq!(client_1_state_after_revoke.installations.len(), 1);
+    assert_eq!(
+        client_1_state_after_revoke
             .installations
             .first()
             .unwrap()
