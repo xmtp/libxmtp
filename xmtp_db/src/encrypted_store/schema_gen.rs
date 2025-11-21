@@ -48,6 +48,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    group_locks (group_id) {
+        group_id -> Binary,
+        locked_at_ns -> BigInt,
+        expires_at_ns -> BigInt,
+    }
+}
+
+diesel::table! {
     group_messages (id) {
         id -> Binary,
         group_id -> Binary,
@@ -252,6 +260,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     consent_records,
     events,
     group_intents,
+    group_locks,
     group_messages,
     groups,
     icebox,
