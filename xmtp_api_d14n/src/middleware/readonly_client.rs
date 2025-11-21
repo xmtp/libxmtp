@@ -102,16 +102,12 @@ xmtp_common::if_test! {
 
 #[cfg(test)]
 mod tests {
-    use crate::d14n::{PublishClientEnvelopes, QueryEnvelope};
+    use crate::v3::PublishIdentityUpdate;
 
     use super::*;
     use rstest::*;
 
-    use xmtp_proto::{
-        api::{Query, mock::MockNetworkClient},
-        types::TopicKind,
-        xmtp::xmtpv4::envelopes::ClientEnvelope,
-    };
+    use xmtp_proto::api::{Query, mock::MockNetworkClient};
     type MockClient = ReadonlyClient<MockNetworkClient>;
 
     #[fixture]
@@ -123,29 +119,9 @@ mod tests {
 
     #[rstest]
     #[xmtp_common::test(unwrap_try = true)]
-    async fn test_writes_when_matches(mut ro: MockClient) {
-        ro.inner
-            .expect_request()
-            .times(1)
-            .returning(|_, _, _| Ok(http::Response::new(vec![].into())));
-        let mut e = PublishClientEnvelopes::builder()
-            .envelope(ClientEnvelope::default())
-            .build()?;
-        e.query(&ro).await?;
-    }
-
-    #[rstest]
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn test_reads_when_matches(mut ro: MockClient) {
-        ro.inner
-            .expect_request()
-            .times(1)
-            .returning(|_, _, _| Ok(http::Response::new(vec![].into())));
-        let mut e = QueryEnvelope::builder()
-            .topic(TopicKind::GroupMessagesV1.create(vec![]))
-            .last_seen(Default::default())
-            .limit(0)
-            .build()?;
-        e.query(&ro).await?;
+    async fn test_errors_on_write(ro: MockClient) {
+        let mut e = PublishIdentityUpdate::builder().build()?;
+        let result = e.query(&ro).await;
+        assert!(matches!(result, Err(ApiClientError::WritesDisabled)));
     }
 }
