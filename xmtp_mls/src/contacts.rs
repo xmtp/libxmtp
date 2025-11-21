@@ -210,10 +210,13 @@ where
     let consent_map: HashMap<String, ConsentState> = all_inbox_ids
         .iter()
         .filter_map(|inbox_id| {
-            db.get_consent_record(inbox_id.clone(), ConsentType::InboxId)
-                .ok()
-                .flatten()
-                .map(|record| (inbox_id.clone(), record.state))
+            match db.get_consent_record(inbox_id.clone(), ConsentType::InboxId) {
+                Ok(record) => record.map(|record| (inbox_id.clone(), record.state)),
+                Err(e) => {
+                    tracing::warn!("Failed to load consent record for {}: {:?}", inbox_id, e);
+                    None
+                }
+            }
         })
         .collect();
 
