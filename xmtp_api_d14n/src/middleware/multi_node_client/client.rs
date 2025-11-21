@@ -140,6 +140,7 @@ mod tests {
             .filter(PAYER_WRITE_FILTER)
             .build()
             .unwrap();
+
         D14nClient::new(rw, NoCursorStore).unwrap()
     }
 
