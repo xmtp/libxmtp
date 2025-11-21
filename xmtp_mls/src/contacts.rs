@@ -786,7 +786,10 @@ mod tests {
 
         // Create a group and add Bob
         let group = alice.create_group(None, None).unwrap();
-        group.add_members_by_inbox_id(&[bob.inbox_id()]).await.unwrap();
+        group
+            .add_members_by_inbox_id(&[bob.inbox_id()])
+            .await
+            .unwrap();
 
         bob.sync_welcomes().await.unwrap();
 
@@ -799,7 +802,10 @@ mod tests {
         assert_eq!(contacts_before[0].inbox_id, bob.inbox_id());
 
         // Remove Bob from the group
-        group.remove_members_by_inbox_id(&[bob.inbox_id()]).await.unwrap();
+        group
+            .remove_members_by_inbox_id(&[bob.inbox_id()])
+            .await
+            .unwrap();
 
         // Sync to ensure removal is processed
         alice.sync_welcomes().await.unwrap();
@@ -826,7 +832,10 @@ mod tests {
 
         // Create initial group with Bob
         let group = alice.create_group(None, None).unwrap();
-        group.add_members_by_inbox_id(&[bob.inbox_id()]).await.unwrap();
+        group
+            .add_members_by_inbox_id(&[bob.inbox_id()])
+            .await
+            .unwrap();
         bob.sync_welcomes().await.unwrap();
 
         // Get initial contacts
@@ -837,7 +846,10 @@ mod tests {
         assert_eq!(contacts1.len(), 1);
 
         // Add Charlie to the group
-        group.add_members_by_inbox_id(&[charlie.inbox_id()]).await.unwrap();
+        group
+            .add_members_by_inbox_id(&[charlie.inbox_id()])
+            .await
+            .unwrap();
         charlie.sync_welcomes().await.unwrap();
 
         // Query again - should see both members
@@ -852,7 +864,10 @@ mod tests {
         assert!(inbox_ids.contains(&charlie.inbox_id().to_string()));
 
         // Remove Bob
-        group.remove_members_by_inbox_id(&[bob.inbox_id()]).await.unwrap();
+        group
+            .remove_members_by_inbox_id(&[bob.inbox_id()])
+            .await
+            .unwrap();
         alice.sync_welcomes().await.unwrap();
 
         // Query again - should only see Charlie
