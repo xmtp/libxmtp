@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 use xmtp_db::{
     ConnectionExt, EncryptedMessageStore, NativeDb,
     diesel::{self, ExpressionMethods, QueryDsl, RunQueryDsl},

@@ -63,15 +63,13 @@ fn main() -> Result<()> {
                 tasks::clear_all_messages(&manager.store)?;
             }
             Task::DbClearMessages => {
-                let Some(group_id) = &args.target else {
-                    bail!(
-                        "A hex-encoded group_id must be provided as the --target param for this task."
-                    );
-                };
-
-                let group_id = hex::decode(group_id)?;
-
-                tasks::clear_all_messages_for_group(&manager.store, &group_id)?;
+                tasks::clear_all_messages_for_group(&manager.store, &args.group_id()?)?;
+            }
+            Task::EnableGroup => {
+                tasks::enable_group(&manager.store, &args.group_id()?)?;
+            }
+            Task::DisableGroup => {
+                tasks::disable_group(&manager.store, &args.group_id()?)?;
             }
         }
 
@@ -79,6 +77,21 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+impl Args {
+    fn group_ids(&self) -> Result<Vec<Vec<u8>>> {
+        let Some(group_id) = &self.target else {
+            bail!("A hex-encoded group_id must be provided as the --target param for this task.");
+        };
+        let group_ids = group_id
+            .split(",")
+            .into_iter()
+            .map(hex::decode)
+            .try_collect()?;
+
+        Ok(group_ids)
+    }
 }
 
 fn confirm_destructive() -> Result<()> {
@@ -130,4 +143,10 @@ enum Task {
     /// Clear all messages in a group.
     /// Requirese hex-encoded group_id as --target param.
     DbClearAllMessages,
+    /// Disable a group.
+    /// Requirese hex-encoded group_id as --target param.
+    DisableGroup,
+    /// Enable a group.
+    /// Requirese hex-encoded group_id as --target param.
+    EnableGroup,
 }

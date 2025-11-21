@@ -8390,6 +8390,7 @@ dependencies = [
  "const-hex",
  "diesel_migrations",
  "tracing",
+ "xmtp_common",
  "xmtp_db",
 ]
 
