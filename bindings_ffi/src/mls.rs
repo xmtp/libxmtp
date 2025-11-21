@@ -286,7 +286,6 @@ pub async fn create_client(
     allow_offline: Option<bool>,
     disable_events: Option<bool>,
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
-    client_mode: Option<FfiClientMode>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -339,7 +338,6 @@ pub async fn create_client(
         .with_remote_verifier()?
         .with_allow_offline(allow_offline)
         .with_disable_events(disable_events)
-        .with_client_mode(client_mode.map(Into::into))
         .store(store);
 
     if let Some(sync_worker_mode) = device_sync_mode {

@@ -39,7 +39,6 @@ async fn test_can_add_wallet_to_inbox() {
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -138,7 +137,6 @@ async fn test_can_revoke_wallet() {
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -229,7 +227,6 @@ async fn test_invalid_external_signature() {
         inbox_owner.identifier(),
         nonce,
         None, // v2_signed_private_key_proto
-        None,
         None,
         None,
         None,
@@ -426,7 +423,6 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -465,7 +461,6 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
         nonce,
         None,
         Some(HISTORY_SYNC_URL.to_string()),
-        None,
         None,
         None,
         None,
@@ -556,7 +551,6 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
         None,
         None,
         None,
-        None,
     )
     .await;
 
@@ -594,7 +588,6 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -620,7 +613,6 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -639,7 +631,6 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
         1,
         None,
         Some(HISTORY_SYNC_URL.to_string()),
-        None,
         None,
         None,
         None,
@@ -673,7 +664,6 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
         1,
         None,
         Some(HISTORY_SYNC_URL.to_string()),
-        None,
         None,
         None,
         None,
@@ -787,7 +777,6 @@ async fn test_sorts_members_by_created_at_using_ffi_identifiers() {
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
-        None,
         None,
         None,
         None,

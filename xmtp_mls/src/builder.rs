@@ -87,7 +87,6 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) sync_api_client: Option<ApiClient>,
     pub(crate) cursor_store: Option<Arc<dyn CursorStore>>,
     pub(crate) disable_workers: bool,
-    pub(crate) client_mode: Option<ClientMode>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -152,7 +151,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: None,
             cursor_store: None,
             disable_workers: false,
-            client_mode: None,
         }
     }
 }
@@ -189,7 +187,6 @@ where
             sync_api_client: Some(cloned_sync_api),
             cursor_store: None,
             disable_workers: false,
-            client_mode: Some(client.context.mode),
         }
     }
 }
@@ -235,7 +232,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mut sync_api_client,
             // cursor_store,
             disable_workers,
-            client_mode,
             ..
         } = self;
 
@@ -319,7 +315,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client,
             worker_metrics: workers.metrics().clone(),
             task_channels: workers.task_channels().clone(),
-            mode: client_mode.unwrap_or_default(),
         });
 
         // register workers
@@ -406,7 +401,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
-            client_mode: self.client_mode,
         }
     }
 
@@ -444,7 +438,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
-            client_mode: self.client_mode,
         })
     }
 
@@ -466,7 +459,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
-            client_mode: self.client_mode,
         }
     }
 
@@ -531,7 +523,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: Some(sync_api_client),
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
-            client_mode: self.client_mode,
         }
     }
 
@@ -571,14 +562,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline: allow_offline.unwrap_or(false),
             ..self
         }
-    }
-
-    pub fn with_client_mode(
-        mut self,
-        client_mode: Option<ClientMode>,
-    ) -> ClientBuilder<ApiClient, S, Db> {
-        self.client_mode = client_mode;
-        self
     }
 
     #[cfg(not(test))]
@@ -669,7 +652,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             )),
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
-            client_mode: self.client_mode,
         })
     }
 
@@ -704,7 +686,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             )),
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
-            client_mode: self.client_mode,
         })
     }
 
@@ -730,7 +711,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
-            client_mode: self.client_mode,
         }
     }
 
@@ -765,7 +745,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
-            client_mode: self.client_mode,
         })
     }
 }
