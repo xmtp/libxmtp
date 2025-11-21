@@ -74,9 +74,9 @@ impl From<DeviceSyncWorkerMode> for SyncWorkerMode {
 #[wasm_bindgen]
 #[derive(Copy, Clone, Debug, Default)]
 pub enum ClientMode {
-    #[default]
-    Default,
-    Notification
+  #[default]
+  Default,
+  Notification,
 }
 
 /// Specify options for the logger
@@ -192,7 +192,7 @@ pub async fn create_client(
   nonce: Option<u64>,
   auth_callback: Option<gateway_auth::AuthCallback>,
   auth_handle: Option<gateway_auth::AuthHandle>,
-  client_mode: Option<ClientMode>
+  client_mode: Option<ClientMode>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
   tracing::info!(host, gateway_host, "Creating client in rust");
