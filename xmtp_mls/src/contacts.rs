@@ -375,10 +375,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::builder::ClientBuilder;
+    use crate::tester;
     use std::time::Duration;
     use xmtp_common::time::now_ns;
-    use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
 
     #[xmtp_common::test]
@@ -386,23 +385,16 @@ mod tests {
         use xmtp_db::group::ConversationType;
 
         // Create 10 clients
-        let clients: Vec<_> = (0..10).map(|_| generate_local_wallet()).collect::<Vec<_>>();
-
-        let mut client_instances = Vec::new();
-        for wallet in &clients {
-            client_instances.push(ClientBuilder::new_test_client(wallet).await);
-        }
-
-        let alice = &client_instances[0];
-        let bob = &client_instances[1];
-        let charlie = &client_instances[2];
-        let diana = &client_instances[3];
-        let eve = &client_instances[4];
-        let frank = &client_instances[5];
-        let grace = &client_instances[6];
-        let henry = &client_instances[7];
-        let iris = &client_instances[8];
-        let jack = &client_instances[9];
+        tester!(alice);
+        tester!(bob);
+        tester!(charlie);
+        tester!(diana);
+        tester!(eve);
+        tester!(frank);
+        tester!(grace);
+        tester!(henry);
+        tester!(iris);
+        tester!(jack);
 
         // Create Group 1: Alice, Bob, Charlie, Diana
         let group1 = alice.create_group(None, None).unwrap();
@@ -748,5 +740,195 @@ mod tests {
 
         // Should still have all contacts but only from groups
         assert_eq!(no_dms.len(), 8, "Should have 8 contacts from groups only");
+    }
+
+    #[xmtp_common::test]
+    async fn test_contacts_empty_groups() {
+        // Test edge case: groups with no members should not cause errors
+        tester!(client);
+
+        // Create an empty group (no members added)
+        let empty_group = client.create_group(None, None).unwrap();
+
+        // List contacts - should return empty without errors
+        let contacts = client
+            .contacts_list(ContactQueryArgs::default())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            contacts.len(),
+            0,
+            "Empty groups should result in no contacts"
+        );
+
+        // Filter specifically by this empty group
+        let empty_group_contacts = client
+            .contacts_list(ContactQueryArgs {
+                allowed_group_ids: Some(vec![empty_group.group_id.clone()]),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            empty_group_contacts.len(),
+            0,
+            "Filtering by empty group should return no contacts"
+        );
+    }
+
+    #[xmtp_common::test]
+    async fn test_contacts_removed_members() {
+        // Test edge case: groups where all members have been removed
+        tester!(alice);
+        tester!(bob);
+
+        // Create a group and add Bob
+        let group = alice.create_group(None, None).unwrap();
+        group.add_members_by_inbox_id(&[bob.inbox_id()]).await.unwrap();
+
+        bob.sync_welcomes().await.unwrap();
+
+        // Verify Bob is in the contacts
+        let contacts_before = alice
+            .contacts_list(ContactQueryArgs::default())
+            .await
+            .unwrap();
+        assert_eq!(contacts_before.len(), 1, "Should have Bob as a contact");
+        assert_eq!(contacts_before[0].inbox_id, bob.inbox_id());
+
+        // Remove Bob from the group
+        group.remove_members_by_inbox_id(&[bob.inbox_id()]).await.unwrap();
+
+        // Sync to ensure removal is processed
+        alice.sync_welcomes().await.unwrap();
+
+        // List contacts again - Bob should no longer appear since he's been removed
+        let contacts_after = alice
+            .contacts_list(ContactQueryArgs::default())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            contacts_after.len(),
+            0,
+            "Removed members should not appear in contacts"
+        );
+    }
+
+    #[xmtp_common::test]
+    async fn test_contacts_with_concurrent_modifications() {
+        // Test edge case: modifications to groups during query execution
+        tester!(alice);
+        tester!(bob);
+        tester!(charlie);
+
+        // Create initial group with Bob
+        let group = alice.create_group(None, None).unwrap();
+        group.add_members_by_inbox_id(&[bob.inbox_id()]).await.unwrap();
+        bob.sync_welcomes().await.unwrap();
+
+        // Get initial contacts
+        let contacts1 = alice
+            .contacts_list(ContactQueryArgs::default())
+            .await
+            .unwrap();
+        assert_eq!(contacts1.len(), 1);
+
+        // Add Charlie to the group
+        group.add_members_by_inbox_id(&[charlie.inbox_id()]).await.unwrap();
+        charlie.sync_welcomes().await.unwrap();
+
+        // Query again - should see both members
+        let contacts2 = alice
+            .contacts_list(ContactQueryArgs::default())
+            .await
+            .unwrap();
+        assert_eq!(contacts2.len(), 2, "Should see both Bob and Charlie");
+
+        let inbox_ids: Vec<String> = contacts2.iter().map(|c| c.inbox_id.clone()).collect();
+        assert!(inbox_ids.contains(&bob.inbox_id().to_string()));
+        assert!(inbox_ids.contains(&charlie.inbox_id().to_string()));
+
+        // Remove Bob
+        group.remove_members_by_inbox_id(&[bob.inbox_id()]).await.unwrap();
+        alice.sync_welcomes().await.unwrap();
+
+        // Query again - should only see Charlie
+        let contacts3 = alice
+            .contacts_list(ContactQueryArgs::default())
+            .await
+            .unwrap();
+        assert_eq!(contacts3.len(), 1, "Should only see Charlie");
+        assert_eq!(contacts3[0].inbox_id, charlie.inbox_id());
+    }
+
+    #[xmtp_common::test]
+    async fn test_contacts_missing_consent_records() {
+        // Test edge case: graceful handling when consent records are missing
+        // This exercises the error handling path in build_contact_map
+        tester!(alice);
+        tester!(bob);
+        tester!(charlie);
+
+        // Create a group with multiple members, but don't set any consent records
+        let group = alice.create_group(None, None).unwrap();
+        group
+            .add_members_by_inbox_id(&[bob.inbox_id(), charlie.inbox_id()])
+            .await
+            .unwrap();
+
+        bob.sync_welcomes().await.unwrap();
+        charlie.sync_welcomes().await.unwrap();
+
+        // Query contacts - should succeed with Unknown consent state
+        let contacts = alice
+            .contacts_list(ContactQueryArgs::default())
+            .await
+            .unwrap();
+
+        assert_eq!(contacts.len(), 2, "Should have 2 contacts");
+
+        // Verify all contacts have Unknown consent state (default when no record exists)
+        for contact in &contacts {
+            assert_eq!(
+                contact.consent_state,
+                ConsentState::Unknown,
+                "Contact {} should have Unknown consent state",
+                contact.inbox_id
+            );
+        }
+
+        // Set consent for one contact
+        alice
+            .set_consent_states(&[StoredConsentRecord::new(
+                ConsentType::InboxId,
+                ConsentState::Allowed,
+                bob.inbox_id().to_string(),
+            )])
+            .await
+            .unwrap();
+
+        // Query again
+        let contacts_after = alice
+            .contacts_list(ContactQueryArgs::default())
+            .await
+            .unwrap();
+
+        assert_eq!(contacts_after.len(), 2);
+
+        // Verify Bob is Allowed, Charlie is still Unknown
+        let bob_contact = contacts_after
+            .iter()
+            .find(|c| c.inbox_id == bob.inbox_id())
+            .unwrap();
+        assert_eq!(bob_contact.consent_state, ConsentState::Allowed);
+
+        let charlie_contact = contacts_after
+            .iter()
+            .find(|c| c.inbox_id == charlie.inbox_id())
+            .unwrap();
+        assert_eq!(charlie_contact.consent_state, ConsentState::Unknown);
     }
 }
