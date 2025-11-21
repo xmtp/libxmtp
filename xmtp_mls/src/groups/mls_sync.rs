@@ -1646,28 +1646,53 @@ where
                 return MessageIdentifierBuilder::from(envelope).build();
             }
         }
-
-        self.load_mls_group_with_lock_async(|mut mls_group| async move {
-            // ensure we are processing a private message
-            match &envelope.message {
-                ProtocolMessage::PrivateMessage(_) => (),
-                other => {
-                    return Err(GroupMessageProcessingError::UnsupportedMessageType(
-                        discriminant(other),
-                    ));
-                }
-            };
-            let mut result = self
-                .process_message_inner(&mut mls_group, envelope, trust_message_order)
-                .await;
-            if trust_message_order {
-                result = self
-                    .post_process_message(&mls_group, result, envelope)
+        use rand::Rng;
+        let random_identifier = rand::thread_rng().gen_range(100_000..999_999);
+        let _ = self
+            .load_mls_group_with_lock_async(|mls_group| async move {
+                self.print_group_authenticator_epoch_and_message_secrets(
+                    &random_identifier.to_string(),
+                    "Before process_message",
+                    &mls_group,
+                    self.context.mls_storage(),
+                );
+                Ok::<_, GroupError>(())
+            })
+            .await;
+        let result = self
+            .load_mls_group_with_lock_async(|mut mls_group| async move {
+                // ensure we are processing a private message
+                match &envelope.message {
+                    ProtocolMessage::PrivateMessage(_) => (),
+                    other => {
+                        return Err(GroupMessageProcessingError::UnsupportedMessageType(
+                            discriminant(other),
+                        ));
+                    }
+                };
+                let mut result = self
+                    .process_message_inner(&mut mls_group, envelope, trust_message_order)
                     .await;
-            }
-            result
-        })
-        .await
+                if trust_message_order {
+                    result = self
+                        .post_process_message(&mls_group, result, envelope)
+                        .await;
+                }
+                result
+            })
+            .await;
+        let _ = self
+            .load_mls_group_with_lock_async(|mls_group| async move {
+                self.print_group_authenticator_epoch_and_message_secrets(
+                    &random_identifier.to_string(),
+                    "After process_message",
+                    &mls_group,
+                    self.context.mls_storage(),
+                );
+                Ok::<_, GroupError>(())
+            })
+            .await;
+        result
     }
 
     #[tracing::instrument(skip(self, mls_group, envelope), level = "trace")]
@@ -2212,7 +2237,21 @@ where
     #[tracing::instrument]
     pub(super) async fn publish_intents(&self) -> Result<(), GroupError> {
         let db = self.context.db();
-        self.load_mls_group_with_lock_async(|mut mls_group| async move {
+        // Generate a random identifier for the publish_intents call
+        use rand::Rng;
+        let random_identifier = rand::thread_rng().gen_range(100000..999999);
+        self.load_mls_group_with_lock_async(|mls_group| async move {
+            self.print_group_authenticator_epoch_and_message_secrets(
+                &random_identifier.to_string(),
+                "Before publish_intents",
+                &mls_group,
+                self.context.mls_storage(),
+            );
+            Ok::<_, GroupError>(())
+        })
+        .await?;
+
+        let result = self.load_mls_group_with_lock_async(|mut mls_group| async move {
             let intents = db.find_group_intents(
                 self.group_id.clone(),
                 Some(vec![IntentState::ToPublish]),
@@ -2333,7 +2372,18 @@ where
             }
 
             Ok(())
-        }).await
+        }).await;
+        self.load_mls_group_with_lock_async(|mls_group| async move {
+            self.print_group_authenticator_epoch_and_message_secrets(
+                &random_identifier.to_string(),
+                "After publish_intents",
+                &mls_group,
+                self.context.mls_storage(),
+            );
+            Ok::<_, GroupError>(())
+        })
+        .await?;
+        result
     }
 
     // Takes a StoredGroupIntent and returns the payload and post commit data as a tuple
@@ -2352,7 +2402,11 @@ where
                     UpdateGroupMembershipIntentData::try_from(intent.data.as_slice())?;
                 let signer = &self.context.identity().installation_keys;
                 // CAMERON: MIGHT MUTATE MESSAGE_SECRET_STORE
-                self.print_group_authenticator_epoch_and_message_secrets("Before apply_update_group_membership_intent", openmls_group, storage);
+                // self.print_group_authenticator_epoch_and_message_secrets(
+                //     "Before apply_update_group_membership_intent",
+                //     openmls_group,
+                //     storage,
+                // );
                 apply_update_group_membership_intent(
                     &self.context,
                     openmls_group,
@@ -2360,10 +2414,14 @@ where
                     signer,
                 )
                 .await
-                .map(|result| {
-                    self.print_group_authenticator_epoch_and_message_secrets("After apply_update_group_membership_intent", openmls_group, storage);
-                    result
-                })
+                // .map(|result| {
+                //     self.print_group_authenticator_epoch_and_message_secrets(
+                //         "After apply_update_group_membership_intent",
+                //         openmls_group,
+                //         storage,
+                //     );
+                //     result
+                // })
             }
             IntentKind::SendMessage => {
                 // We can safely assume all SendMessage intents have data
@@ -2384,7 +2442,11 @@ where
             }
             IntentKind::KeyUpdate => {
                 // CAMERON: MIGHT MUTATE MESSAGE_SECRET_STORE
-                self.print_group_authenticator_epoch_and_message_secrets("Before self_update", openmls_group, storage);
+                // self.print_group_authenticator_epoch_and_message_secrets(
+                //     "Before self_update",
+                //     openmls_group,
+                //     storage,
+                // );
                 let result = storage.transaction(|conn| {
                     let storage = conn.key_store();
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
@@ -2396,7 +2458,11 @@ where
                     let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
                     Ok::<_, GroupError>((bundle, staged_commit))
                 });
-                self.print_group_authenticator_epoch_and_message_secrets("After self_update", openmls_group, storage);
+                // self.print_group_authenticator_epoch_and_message_secrets(
+                //     "After self_update",
+                //     openmls_group,
+                //     storage,
+                // );
                 let (bundle, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
@@ -2433,7 +2499,11 @@ where
                     metadata_intent.field_name,
                     metadata_intent.field_value,
                 )?;
-                self.print_group_authenticator_epoch_and_message_secrets("Before update_group_context_extensions", openmls_group, storage);
+                // self.print_group_authenticator_epoch_and_message_secrets(
+                //     "Before update_group_context_extensions",
+                //     openmls_group,
+                //     storage,
+                // );
                 let result = storage.transaction(|conn| {
                     let storage = conn.key_store();
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
@@ -2446,7 +2516,11 @@ where
 
                     Ok::<_, GroupError>((commit, staged_commit))
                 });
-                self.print_group_authenticator_epoch_and_message_secrets("After update_group_context_extensions", openmls_group, storage);
+                // self.print_group_authenticator_epoch_and_message_secrets(
+                //     "After update_group_context_extensions",
+                //     openmls_group,
+                //     storage,
+                // );
                 let (commit, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
@@ -2486,7 +2560,11 @@ where
                     openmls_group,
                     admin_list_update_intent,
                 )?;
-                self.print_group_authenticator_epoch_and_message_secrets("Before update_group_context_extensions", openmls_group, storage);
+                // self.print_group_authenticator_epoch_and_message_secrets(
+                //     "Before update_group_context_extensions",
+                //     openmls_group,
+                //     storage,
+                // );
                 let result = storage.transaction(|conn| {
                     let storage = conn.key_store();
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
@@ -2499,7 +2577,11 @@ where
 
                     Ok::<_, GroupError>((commit, staged_commit))
                 });
-                self.print_group_authenticator_epoch_and_message_secrets("After update_group_context_extensions", openmls_group, storage);
+                // self.print_group_authenticator_epoch_and_message_secrets(
+                //     "After update_group_context_extensions",
+                //     openmls_group,
+                //     storage,
+                // );
                 let (commit, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
@@ -2539,7 +2621,11 @@ where
                     openmls_group,
                     update_permissions_intent,
                 )?;
-                self.print_group_authenticator_epoch_and_message_secrets("Before update_group_context_extensions", openmls_group, storage);
+                // self.print_group_authenticator_epoch_and_message_secrets(
+                //     "Before update_group_context_extensions",
+                //     openmls_group,
+                //     storage,
+                // );
                 let result = storage.transaction(|conn| {
                     let storage = conn.key_store();
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
@@ -2552,7 +2638,11 @@ where
 
                     Ok::<_, GroupError>((commit, staged_commit))
                 });
-                self.print_group_authenticator_epoch_and_message_secrets("After update_group_context_extensions", openmls_group, storage);
+                // self.print_group_authenticator_epoch_and_message_secrets(
+                //     "After update_group_context_extensions",
+                //     openmls_group,
+                //     storage,
+                // );
                 let (commit, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
@@ -2587,18 +2677,32 @@ where
                 let intent_data = ReaddInstallationsIntentData::try_from(intent.data.as_slice())?;
                 let signer = &self.context.identity().installation_keys;
                 // CAMERON: MIGHT MUTATE MESSAGE_SECRET_STORE
-                self.print_group_authenticator_epoch_and_message_secrets("Before apply_readd_installations_intent", openmls_group, storage);
+                // self.print_group_authenticator_epoch_and_message_secrets(
+                //     "Before apply_readd_installations_intent",
+                //     openmls_group,
+                //     storage,
+                // );
                 apply_readd_installations_intent(&self.context, openmls_group, intent_data, signer)
                     .await
-                    .map(|result| {
-                        self.print_group_authenticator_epoch_and_message_secrets("After apply_readd_installations_intent", openmls_group, storage);
-                        result
-                    })
+                // .map(|result| {
+                //     self.print_group_authenticator_epoch_and_message_secrets(
+                //         "After apply_readd_installations_intent",
+                //         openmls_group,
+                //         storage,
+                //     );
+                //     result
+                // })
             }
         }
     }
 
-    fn print_group_authenticator_epoch_and_message_secrets(&self, description: &str, openmls_group: &OpenMlsGroup, storage: &<Context as XmtpSharedContext>::MlsStorage) {
+    fn print_group_authenticator_epoch_and_message_secrets(
+        &self,
+        identifier: &str,
+        description: &str,
+        openmls_group: &OpenMlsGroup,
+        storage: &<Context as XmtpSharedContext>::MlsStorage,
+    ) {
         let provider = XmtpOpenMlsProviderRef::new(storage);
         let binding = openmls_group.epoch_authenticator().clone();
         let authenticator = binding.as_slice();
@@ -2606,13 +2710,12 @@ where
         let sender_keys_hint = openmls_group.sender_data_secret_hint(&provider);
 
         tracing::info!(
-            "AEAD DEBUG {}: Group authenticator: {:?}", description, authenticator
-        );
-        tracing::info!(
-            "AEAD DEBUG {}: Group epoch: {:?}", description, group_epoch
-        );
-        tracing::info!(
-            "AEAD DEBUG {}: Sender keys hint: {:?}", description, sender_keys_hint
+            "AEAD DEBUG {:?}:\n Description: {:?}\n Group authenticator: {:?}\n  Group epoch: {:?}\n  Sender keys hint: {:?}",
+            identifier,
+            description,
+            authenticator,
+            group_epoch,
+            sender_keys_hint
         );
     }
 
