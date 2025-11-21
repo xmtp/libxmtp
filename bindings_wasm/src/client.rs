@@ -11,6 +11,7 @@ use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::SyncWorkerMode;
+use xmtp_mls::context::{ClientMode as XmtpClientMode};
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
@@ -69,6 +70,23 @@ impl From<DeviceSyncWorkerMode> for SyncWorkerMode {
       DeviceSyncWorkerMode::__Invalid => unreachable!("DeviceSyncWorkerMode is invalid."),
     }
   }
+}
+
+#[wasm_bindgen]
+#[derive(Copy, Clone, Debug, Default)]
+pub enum ClientMode {
+    #[default]
+    Default,
+    Notification
+}
+
+impl From<ClientMode> for XmtpClientMode {
+    fn from(mode: ClientMode) -> Self {
+        match mode {
+            ClientMode::Default => Self::Default,
+            ClientMode::Notification => Self::Notification
+        }
+    }
 }
 
 /// Specify options for the logger
@@ -184,6 +202,7 @@ pub async fn create_client(
   nonce: Option<u64>,
   auth_callback: Option<gateway_auth::AuthCallback>,
   auth_handle: Option<gateway_auth::AuthHandle>,
+  client_mode: Option<ClientMode>
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
   tracing::info!(host, gateway_host, "Creating client in rust");
@@ -244,6 +263,7 @@ pub async fn create_client(
     .with_remote_verifier()?
     .with_allow_offline(allow_offline)
     .with_disable_events(disable_events)
+    .with_client_mode(client_mode.map(Into::into))
     .store(store);
 
   if let Some(u) = device_sync_server_url {

@@ -305,6 +305,7 @@ pub(crate) async fn new_test_client_with_wallet_and_history_sync_url(
         None,
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -336,6 +337,7 @@ pub(crate) async fn new_test_client_no_panic(
         nonce,
         None,
         sync_server_url,
+        None,
         None,
         None,
         None,
