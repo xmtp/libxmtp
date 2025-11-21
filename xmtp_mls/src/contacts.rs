@@ -19,10 +19,15 @@ use xmtp_id::{
 /// Represents a contact aggregated across all conversations
 #[derive(Debug, Clone)]
 pub struct Contact {
+    /// The unique inbox identifier for this contact
     pub inbox_id: InboxId,
+    /// List of account addresses/identifiers associated with this contact's inbox
     pub account_identifiers: Vec<Identifier>,
+    /// List of installation IDs registered to this contact's inbox
     pub installation_ids: Vec<Vec<u8>>,
+    /// List of conversation IDs (groups and DMs) this contact is a member of
     pub conversation_ids: Vec<Vec<u8>>,
+    /// The consent state for this contact (Allowed, Denied, or Unknown)
     pub consent_state: ConsentState,
 }
 
@@ -53,7 +58,7 @@ impl AsRef<ContactQueryArgs> for ContactQueryArgs {
 
 // Type aliases to reduce complexity
 type GroupMembersMap = HashMap<Vec<u8>, Vec<(String, i64)>>;
-type MemberRequests = HashSet<(String, i64)>;
+type MemberRequestsSet = HashSet<(String, i64)>;
 type ContactMap = HashMap<String, (AssociationState, HashSet<Vec<u8>>, ConsentState)>;
 
 /// Filter groups by allow/deny lists
@@ -91,13 +96,13 @@ fn filter_groups_by_allow_deny_lists(
 fn extract_group_members<Context>(
     context: &Context,
     filtered_groups: &[StoredGroup],
-) -> (GroupMembersMap, MemberRequests)
+) -> (GroupMembersMap, MemberRequestsSet)
 where
     Context: XmtpSharedContext,
 {
     let storage = context.mls_storage();
     let mut group_members_map: GroupMembersMap = HashMap::new();
-    let mut all_member_requests: MemberRequests = HashSet::new();
+    let mut all_member_requests: MemberRequestsSet = HashSet::new();
 
     for stored_group in filtered_groups {
         let mls_group = crate::groups::MlsGroup::new(
