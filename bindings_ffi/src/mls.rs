@@ -130,11 +130,14 @@ pub async fn connect_to_backend(
     v3_host: String,
     gateway_host: Option<String>,
     is_secure: bool,
+    client_mode: Option<FfiClientMode>,
     app_version: Option<String>,
     auth_callback: Option<Arc<dyn gateway_auth::FfiAuthCallback>>,
     auth_handle: Option<Arc<gateway_auth::FfiAuthHandle>>,
 ) -> Result<Arc<XmtpApiClient>, GenericError> {
     init_logger();
+
+    let client_mode = client_mode.unwrap_or_default();
 
     log::info!(
         v3_host,
@@ -154,6 +157,7 @@ pub async fn connect_to_backend(
             auth_callback
                 .map(|callback| Arc::new(gateway_auth::FfiAuthCallbackBridge::new(callback)) as _),
         )
+        .writes_disabled(matches!(client_mode, FfiClientMode::Notification))
         .maybe_auth_handle(auth_handle.map(|handle| handle.as_ref().clone().into()))
         .build()?;
     Ok(Arc::new(XmtpApiClient(backend)))
