@@ -1150,6 +1150,30 @@ impl FromWith<ValidatedCommit> for GroupUpdatedProto {
                 .map(MetadataFieldChangeProto::from)
                 .collect(),
             left_inboxes: left_inboxes.iter().map(InboxProto::from).collect(),
+            added_admin_inboxes: commit
+                .metadata_validation_info
+                .admins_added
+                .iter()
+                .map(InboxProto::from)
+                .collect(),
+            removed_admin_inboxes: commit
+                .metadata_validation_info
+                .admins_removed
+                .iter()
+                .map(InboxProto::from)
+                .collect(),
+            added_super_admin_inboxes: commit
+                .metadata_validation_info
+                .super_admins_added
+                .iter()
+                .map(InboxProto::from)
+                .collect(),
+            removed_super_admin_inboxes: commit
+                .metadata_validation_info
+                .super_admins_removed
+                .iter()
+                .map(InboxProto::from)
+                .collect(),
         }
     }
 }
