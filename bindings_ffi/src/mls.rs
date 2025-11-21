@@ -36,7 +36,7 @@ use xmtp_db::NativeDb;
 use xmtp_db::group::DmIdExt;
 use xmtp_db::group::{ConversationType, GroupQueryOrderBy};
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
-use xmtp_db::group_message::{SortDirection, StoredGroupMessageWithReactions};
+use xmtp_db::group_message::{SortBy, SortDirection, StoredGroupMessageWithReactions};
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::{
     EncryptedMessageStore, EncryptionKey, StorageOption,
@@ -107,11 +107,11 @@ pub use crate::message::{
     FfiTransactionReference,
 };
 
-#[cfg(any(test, feature = "bench"))]
-pub mod test_utils;
-
+pub mod gateway_auth;
 #[cfg(any(test, feature = "bench"))]
 pub mod inbox_owner;
+#[cfg(any(test, feature = "bench"))]
+pub mod test_utils;
 
 pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
 pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
@@ -130,6 +130,8 @@ pub async fn connect_to_backend(
     gateway_host: Option<String>,
     is_secure: bool,
     app_version: Option<String>,
+    auth_callback: Option<Arc<dyn gateway_auth::FfiAuthCallback>>,
+    auth_handle: Option<Arc<gateway_auth::FfiAuthHandle>>,
 ) -> Result<Arc<XmtpApiClient>, GenericError> {
     init_logger();
 
@@ -147,6 +149,11 @@ pub async fn connect_to_backend(
         .maybe_gateway_host(gateway_host)
         .app_version(app_version.clone().unwrap_or_default())
         .is_secure(is_secure)
+        .maybe_auth_callback(
+            auth_callback
+                .map(|callback| Arc::new(gateway_auth::FfiAuthCallbackBridge::new(callback)) as _),
+        )
+        .maybe_auth_handle(auth_handle.map(|handle| handle.as_ref().clone().into()))
         .build()?;
     Ok(Arc::new(XmtpApiClient(backend)))
 }
@@ -2133,6 +2140,21 @@ impl From<FfiDirection> for SortDirection {
     }
 }
 
+#[derive(uniffi::Enum, Clone)]
+pub enum FfiSortBy {
+    SentAt,
+    InsertedAt,
+}
+
+impl From<FfiSortBy> for SortBy {
+    fn from(sort_by: FfiSortBy) -> Self {
+        match sort_by {
+            FfiSortBy::SentAt => SortBy::SentAt,
+            FfiSortBy::InsertedAt => SortBy::InsertedAt,
+        }
+    }
+}
+
 impl From<FfiMessageDisappearingSettings> for MessageDisappearingSettings {
     fn from(settings: FfiMessageDisappearingSettings) -> Self {
         MessageDisappearingSettings::new(settings.from_ns, settings.in_ns)
@@ -2149,6 +2171,9 @@ pub struct FfiListMessagesOptions {
     pub content_types: Option<Vec<FfiContentType>>,
     pub exclude_content_types: Option<Vec<FfiContentType>>,
     pub exclude_sender_inbox_ids: Option<Vec<String>>,
+    pub sort_by: Option<FfiSortBy>,
+    pub inserted_after_ns: Option<i64>,
+    pub inserted_before_ns: Option<i64>,
 }
 
 impl From<FfiListMessagesOptions> for MsgQueryArgs {
@@ -2167,6 +2192,9 @@ impl From<FfiListMessagesOptions> for MsgQueryArgs {
                 .exclude_content_types
                 .map(|types| types.into_iter().map(Into::into).collect()),
             exclude_sender_inbox_ids: opts.exclude_sender_inbox_ids,
+            sort_by: opts.sort_by.map(Into::into),
+            inserted_after_ns: opts.inserted_after_ns,
+            inserted_before_ns: opts.inserted_before_ns,
         }
     }
 }
@@ -3028,6 +3056,7 @@ pub struct FfiMessage {
     pub delivery_status: FfiDeliveryStatus,
     pub sequence_id: u64,
     pub originator_id: u32,
+    pub inserted_at_ns: i64,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -3042,6 +3071,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             delivery_status: msg.delivery_status.into(),
             sequence_id: msg.sequence_id as u64,
             originator_id: msg.originator_id as u32,
+            inserted_at_ns: msg.inserted_at_ns,
         }
     }
 }

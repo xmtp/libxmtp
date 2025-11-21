@@ -21,8 +21,7 @@ impl<E> Resolved<E> {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait ResolveDependencies: MaybeSend + MaybeSync {
     type ResolvedEnvelope: Envelope<'static> + MaybeSend + MaybeSync;
     /// Resolve dependencies, starting with a list of dependencies. Should try to resolve
@@ -36,8 +35,7 @@ pub trait ResolveDependencies: MaybeSend + MaybeSync {
     ) -> Result<Resolved<Self::ResolvedEnvelope>, ResolutionError>;
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> ResolveDependencies for &T
 where
     T: ResolveDependencies,
@@ -54,8 +52,7 @@ where
 /// A resolver that does not even attempt to try and get dependencies
 pub struct NoopResolver;
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl ResolveDependencies for NoopResolver {
     type ResolvedEnvelope = ();
     async fn resolve(&self, m: HashSet<MissingEnvelope>) -> Result<Resolved<()>, ResolutionError> {

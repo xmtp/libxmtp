@@ -32,8 +32,7 @@ impl MultiNodeClient {
 
 /// Implement the Client trait for the MultiNodeClient.
 /// This allows the MultiNodeClient to be used as a Client for any endpoint.
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl Client for MultiNodeClient {
     type Error = GrpcError;
     type Stream = <GrpcClient as Client>::Stream;
@@ -67,8 +66,7 @@ impl Client for MultiNodeClient {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl IsConnectedCheck for MultiNodeClient {
     async fn is_connected(&self) -> bool {
         self.gateway_client.is_connected().await

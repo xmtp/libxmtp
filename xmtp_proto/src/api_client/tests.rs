@@ -1,4 +1,4 @@
-use futures::{stream, StreamExt};
+use futures::{StreamExt, stream};
 use toxiproxy_rust::proxy::Proxy;
 
 pub trait XmtpTestClient {
@@ -8,8 +8,7 @@ pub trait XmtpTestClient {
 
 // _note:_ cannot use async fn in native b/c it creates lifetime errors in
 // tester
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait ToxicTestClient {
     /// returns all proxies relevant to this client
     async fn proxies() -> ToxicProxies;

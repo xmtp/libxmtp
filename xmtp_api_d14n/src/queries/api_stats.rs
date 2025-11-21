@@ -32,8 +32,7 @@ impl<C> TrackedStatsClient<C> {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C> XmtpMlsClient for TrackedStatsClient<C>
 where
     C: XmtpMlsClient,
@@ -120,8 +119,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C> XmtpIdentityClient for TrackedStatsClient<C>
 where
     C: XmtpIdentityClient,
@@ -165,8 +163,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C> XmtpMlsStreams for TrackedStatsClient<C>
 where
     C: XmtpMlsStreams,
@@ -251,8 +248,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C: XmtpQuery> XmtpQuery for TrackedStatsClient<C> {
     type Error = <C as XmtpQuery>::Error;
 
@@ -297,8 +293,7 @@ mod tests {
         }
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    #[xmtp_common::async_trait]
     impl<C> ToxicTestClient for TrackedStatsClient<C>
     where
         C: ToxicTestClient,

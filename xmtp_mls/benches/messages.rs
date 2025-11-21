@@ -8,11 +8,11 @@ use tokio::runtime::{Builder, Runtime};
 use tracing::{Instrument, trace_span};
 use xmtp_common::bench::{self, BENCH_ROOT_SPAN};
 use xmtp_db::encrypted_store::group_message::{
-    ContentType, DeliveryStatus, GroupMessageKind, MsgQueryArgs, SortDirection,
+    ContentType, DeliveryStatus, GroupMessageKind, MsgQueryArgs, SortBy, SortDirection,
 };
 use xmtp_mls::utils::bench::{MessageBenchSetup, new_client, setup_group_with_messages};
 
-pub const MESSAGE_COUNTS: [usize; 5] = [10, 100, 1000, 10000, 50000];
+pub const MESSAGE_COUNTS: [usize; 4] = [10, 1000, 10000, 50000];
 pub const SAMPLE_SIZE: usize = 10;
 
 fn setup_runtime() -> Runtime {
@@ -30,53 +30,258 @@ async fn setup_benchmark(total_messages: usize) -> Arc<MessageBenchSetup> {
     setup_group_with_messages(client, total_messages).await
 }
 
+/// Parameters for a single benchmark variation
+struct BenchmarkParams {
+    name: &'static str,
+    query_args: MsgQueryArgs,
+    expected_count: Option<usize>, // None = skip count assertion
+}
+
 fn bench_find_messages(c: &mut Criterion) {
     bench::logger();
-    let mut benchmark_group = c.benchmark_group("find_messages_shared");
+    let mut benchmark_group = c.benchmark_group("find_messages");
     benchmark_group.sample_size(SAMPLE_SIZE);
     benchmark_group.measurement_time(Duration::from_secs(30));
     benchmark_group.warm_up_time(Duration::from_secs(3));
+    benchmark_group.throughput(Throughput::Elements(10_u64)); // Limit of 10
 
     let runtime = Arc::new(setup_runtime());
 
     for &total_messages in MESSAGE_COUNTS.iter() {
-        benchmark_group.throughput(Throughput::Elements(10_u64)); // Limit of 10
-
         // Setup once per MESSAGE_COUNT - completely outside the benchmark
         let setup = runtime.block_on(setup_benchmark(total_messages));
-        let runtime_clone = runtime.clone();
 
-        benchmark_group.bench_function(
-            BenchmarkId::new("find_messages_limit_10", total_messages),
-            move |b| {
-                let span = trace_span!(BENCH_ROOT_SPAN, total_messages);
-                let setup = setup.clone();
-                let runtime = runtime_clone.clone();
+        // Calculate time filter values based on actual message timestamps
+        let sent_after_ns = setup.earliest_message_timestamp - 1;
+        let sent_before_ns = setup.latest_message_timestamp + 1;
 
-                b.iter(|| {
-                    runtime.block_on(
-                        async {
-                            let messages = setup
-                                .group
-                                .find_messages(&MsgQueryArgs {
-                                    limit: Some(10),
-                                    ..Default::default()
-                                })
-                                .unwrap();
-
-                            assert_eq!(
-                                messages.len(),
-                                10,
-                                "Expected exactly 10 messages, got {}",
-                                messages.len()
-                            );
-                            black_box(messages);
-                        }
-                        .instrument(span.clone()),
-                    )
-                });
+        // Define all benchmark variations for find_messages
+        let benchmark_params = vec![
+            // Basic limit tests with different sort fields
+            BenchmarkParams {
+                name: "sent_at_asc",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    sort_by: Some(SortBy::SentAt),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
             },
-        );
+            BenchmarkParams {
+                name: "sent_at_desc",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    sort_by: Some(SortBy::SentAt),
+                    direction: Some(SortDirection::Descending),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
+            },
+            BenchmarkParams {
+                name: "inserted_at_asc",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    sort_by: Some(SortBy::InsertedAt),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
+            },
+            BenchmarkParams {
+                name: "inserted_at_desc",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    sort_by: Some(SortBy::InsertedAt),
+                    direction: Some(SortDirection::Descending),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
+            },
+            // Time filter: sent_after_ns with different sort fields
+            BenchmarkParams {
+                name: "sent_after_sent_at",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    sent_after_ns: Some(sent_after_ns),
+                    sort_by: Some(SortBy::SentAt),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
+            },
+            BenchmarkParams {
+                name: "sent_after_inserted_at",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    sent_after_ns: Some(sent_after_ns),
+                    sort_by: Some(SortBy::InsertedAt),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
+            },
+            // Time filter: sent_before_ns with different sort fields
+            BenchmarkParams {
+                name: "sent_before_sent_at",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    sent_before_ns: Some(sent_before_ns),
+                    sort_by: Some(SortBy::SentAt),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
+            },
+            BenchmarkParams {
+                name: "sent_before_inserted_at",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    sent_before_ns: Some(sent_before_ns),
+                    sort_by: Some(SortBy::InsertedAt),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
+            },
+            BenchmarkParams {
+                name: "inserted_after_inserted_at_asc",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    inserted_after_ns: Some(100),
+                    sort_by: Some(SortBy::InsertedAt),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
+            },
+            BenchmarkParams {
+                name: "inserted_before_inserted_at_desc",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    inserted_before_ns: Some(sent_before_ns),
+                    sort_by: Some(SortBy::InsertedAt),
+                    direction: Some(SortDirection::Descending),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
+            },
+            // Kind filter with different sort fields
+            BenchmarkParams {
+                name: "kind_application_sent_at",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    kind: Some(GroupMessageKind::Application),
+                    sort_by: Some(SortBy::SentAt),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
+            },
+            BenchmarkParams {
+                name: "kind_application_inserted_at",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    kind: Some(GroupMessageKind::Application),
+                    sort_by: Some(SortBy::InsertedAt),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
+            },
+            // Delivery status filter with different sort fields
+            BenchmarkParams {
+                name: "delivery_unpublished",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    delivery_status: Some(DeliveryStatus::Unpublished),
+                    sort_by: Some(SortBy::SentAt),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
+            },
+            // Content type filter with different sort fields
+            BenchmarkParams {
+                name: "content_type_text_sent_at",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    content_types: Some(vec![ContentType::Text]),
+                    sort_by: Some(SortBy::SentAt),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
+            },
+            BenchmarkParams {
+                name: "content_type_text_inserted_at",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    content_types: Some(vec![ContentType::Text]),
+                    sort_by: Some(SortBy::InsertedAt),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
+            },
+            BenchmarkParams {
+                name: "content_type_no_results",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    content_types: Some(vec![ContentType::ReadReceipt]),
+                    sort_by: Some(SortBy::SentAt),
+                    ..Default::default()
+                },
+                expected_count: Some(0),
+            },
+            BenchmarkParams {
+                name: "exclude_content_types",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    exclude_content_types: Some(vec![ContentType::Text]),
+                    sort_by: Some(SortBy::SentAt),
+                    ..Default::default()
+                },
+                expected_count: Some(0),
+            },
+            BenchmarkParams {
+                name: "exclude_sender_inbox_ids",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    exclude_sender_inbox_ids: Some(vec!["foo".to_string()]),
+                    sort_by: Some(SortBy::SentAt),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
+            },
+        ];
+
+        // Run benchmarks for each variation
+        for params in benchmark_params {
+            let setup = setup.clone();
+            let runtime_clone = runtime.clone();
+            let query_args = params.query_args.clone();
+            let expected_count = params.expected_count;
+
+            benchmark_group.bench_with_input(
+                BenchmarkId::new(params.name, total_messages),
+                &total_messages,
+                move |b, &msg_count| {
+                    let span = trace_span!(BENCH_ROOT_SPAN, total_messages = msg_count);
+                    let setup = setup.clone();
+                    let runtime = runtime_clone.clone();
+                    let query_args = query_args.clone();
+
+                    b.iter(|| {
+                        runtime.block_on(
+                            async {
+                                let messages = setup.group.find_messages(&query_args).unwrap();
+
+                                if let Some(expected) = expected_count {
+                                    assert_eq!(
+                                        messages.len(),
+                                        expected,
+                                        "Expected exactly {} messages, got {}",
+                                        expected,
+                                        messages.len()
+                                    );
+                                }
+                                black_box(messages);
+                            }
+                            .instrument(span.clone()),
+                        )
+                    });
+                },
+            );
+        }
     }
 
     benchmark_group.finish();
@@ -84,386 +289,84 @@ fn bench_find_messages(c: &mut Criterion) {
 
 fn bench_find_messages_v2(c: &mut Criterion) {
     bench::logger();
-    let mut benchmark_group = c.benchmark_group("find_messages_v2_shared");
+    let mut benchmark_group = c.benchmark_group("find_messages_v2");
     benchmark_group.sample_size(SAMPLE_SIZE);
     benchmark_group.measurement_time(Duration::from_secs(30));
     benchmark_group.warm_up_time(Duration::from_secs(3));
+    benchmark_group.throughput(Throughput::Elements(10_u64)); // Limit of 10
 
     let runtime = Arc::new(setup_runtime());
 
     for &total_messages in MESSAGE_COUNTS.iter() {
-        benchmark_group.throughput(Throughput::Elements(10_u64)); // Limit of 10
-
         // Setup once per MESSAGE_COUNT - completely outside the benchmark
         let setup = runtime.block_on(setup_benchmark(total_messages));
-        let runtime_clone = runtime.clone();
 
-        benchmark_group.bench_function(
-            BenchmarkId::new("find_messages_v2_limit_10", total_messages),
-            move |b| {
-                let span = trace_span!(BENCH_ROOT_SPAN, total_messages);
-                let setup = setup.clone();
-                let runtime = runtime_clone.clone();
+        // Calculate time filter values based on actual message timestamps
+        let sent_after_ns = setup.earliest_message_timestamp - 1;
 
-                b.iter(|| {
-                    runtime.block_on(
-                        async {
-                            let messages = setup
-                                .group
-                                .find_messages_v2(&MsgQueryArgs {
-                                    limit: Some(10),
-                                    ..Default::default()
-                                })
-                                .unwrap();
-
-                            assert_eq!(
-                                messages.len(),
-                                10,
-                                "Expected exactly 10 messages from find_messages_v2, got {}",
-                                messages.len()
-                            );
-                            black_box(messages);
-                        }
-                        .instrument(span.clone()),
-                    )
-                });
+        // Define all benchmark variations for find_messages_v2
+        let benchmark_params = vec![
+            // Basic limit test
+            BenchmarkParams {
+                name: "limit_10",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    ..Default::default()
+                },
+                expected_count: Some(10),
             },
-        );
-    }
-
-    benchmark_group.finish();
-}
-
-fn bench_find_messages_with_time_filters(c: &mut Criterion) {
-    bench::logger();
-    let mut benchmark_group = c.benchmark_group("find_messages_time_filters_shared");
-    benchmark_group.sample_size(SAMPLE_SIZE);
-    benchmark_group.measurement_time(Duration::from_secs(30));
-    benchmark_group.warm_up_time(Duration::from_secs(3));
-
-    let runtime = Arc::new(setup_runtime());
-
-    for &total_messages in MESSAGE_COUNTS.iter() {
-        benchmark_group.throughput(Throughput::Elements(10_u64)); // Limit of 10
-
-        // Setup once per MESSAGE_COUNT - completely outside the benchmark
-        let setup = runtime.block_on(setup_benchmark(total_messages));
-        let runtime_clone = runtime.clone();
-
-        // Calculate time filter values based on actual message timestamps
-        // sent_after_ns: earliest timestamp - 1 to include all messages
-        // sent_before_ns: latest timestamp + 1 to include all messages
-        let sent_after_ns = setup.earliest_message_timestamp - 1;
-        let sent_before_ns = setup.latest_message_timestamp + 1;
-
-        // Benchmark with sent_after_ns filter
-        {
-            let setup_clone = setup.clone();
-            let runtime_clone = runtime_clone.clone();
-            benchmark_group.bench_function(
-                BenchmarkId::new("find_messages_sent_after", total_messages),
-                move |b| {
-                    let span = trace_span!(BENCH_ROOT_SPAN, total_messages);
-                    let setup = setup_clone.clone();
-                    let runtime = runtime_clone.clone();
-
-                    b.iter(|| {
-                        runtime.block_on(
-                            async {
-                                let messages = setup
-                                    .group
-                                    .find_messages(&MsgQueryArgs {
-                                        limit: Some(10),
-                                        sent_after_ns: Some(sent_after_ns),
-                                        ..Default::default()
-                                    })
-                                    .unwrap();
-
-                                assert_eq!(messages.len(), 10, "Expected exactly 10 messages with sent_after_ns filter, got {}", messages.len());
-                                black_box(messages);
-                            }
-                            .instrument(span.clone()),
-                        )
-                    });
+            // Time filter: sent_after_ns
+            BenchmarkParams {
+                name: "sent_after",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    sent_after_ns: Some(sent_after_ns),
+                    ..Default::default()
                 },
-            );
-        }
-
-        // Benchmark with sent_before_ns filter
-        {
-            let setup_clone = setup.clone();
-            let runtime_clone = runtime_clone.clone();
-            benchmark_group.bench_function(
-                BenchmarkId::new("find_messages_sent_before", total_messages),
-                move |b| {
-                    let span = trace_span!(BENCH_ROOT_SPAN, total_messages);
-                    let setup = setup_clone.clone();
-                    let runtime = runtime_clone.clone();
-
-                    b.iter(|| {
-                        runtime.block_on(
-                            async {
-                                let messages = setup
-                                    .group
-                                    .find_messages(&MsgQueryArgs {
-                                        limit: Some(10),
-                                        sent_before_ns: Some(sent_before_ns),
-                                        ..Default::default()
-                                    })
-                                    .unwrap();
-
-                                assert_eq!(messages.len(), 10, "Expected exactly 10 messages with sent_before_ns filter, got {}", messages.len());
-                                black_box(messages);
-                            }
-                            .instrument(span.clone()),
-                        )
-                    });
+                expected_count: Some(10),
+            },
+            // Kind filter
+            BenchmarkParams {
+                name: "kind_application",
+                query_args: MsgQueryArgs {
+                    limit: Some(10),
+                    kind: Some(GroupMessageKind::Application),
+                    ..Default::default()
                 },
-            );
-        }
-    }
+                expected_count: Some(10),
+            },
+        ];
 
-    benchmark_group.finish();
-}
+        // Run benchmarks for each variation
+        for params in benchmark_params {
+            let setup = setup.clone();
+            let runtime_clone = runtime.clone();
+            let query_args = params.query_args.clone();
+            let expected_count = params.expected_count;
 
-fn bench_find_messages_with_other_filters(c: &mut Criterion) {
-    bench::logger();
-    let mut benchmark_group = c.benchmark_group("find_messages_other_filters_shared");
-    benchmark_group.sample_size(SAMPLE_SIZE);
-    benchmark_group.measurement_time(Duration::from_secs(30));
-    benchmark_group.warm_up_time(Duration::from_secs(3));
-
-    let runtime = Arc::new(setup_runtime());
-
-    for &total_messages in MESSAGE_COUNTS.iter() {
-        benchmark_group.throughput(Throughput::Elements(10_u64)); // Limit of 10
-
-        // Setup once per MESSAGE_COUNT - completely outside the benchmark
-        let setup = runtime.block_on(setup_benchmark(total_messages));
-        let runtime_clone = runtime.clone();
-
-        // Benchmark with kind filter
-        {
-            let setup_clone = setup.clone();
-            let runtime_clone = runtime_clone.clone();
-            benchmark_group.bench_function(
-                BenchmarkId::new("find_messages_kind_application", total_messages),
-                move |b| {
-                    let span = trace_span!(BENCH_ROOT_SPAN, total_messages);
-                    let setup = setup_clone.clone();
+            benchmark_group.bench_with_input(
+                BenchmarkId::new(params.name, total_messages),
+                &total_messages,
+                move |b, &msg_count| {
+                    let span = trace_span!(BENCH_ROOT_SPAN, total_messages = msg_count);
+                    let setup = setup.clone();
                     let runtime = runtime_clone.clone();
+                    let query_args = query_args.clone();
 
                     b.iter(|| {
                         runtime.block_on(
                             async {
-                                let messages = setup
-                                    .group
-                                    .find_messages(&MsgQueryArgs {
-                                        limit: Some(10),
-                                        kind: Some(GroupMessageKind::Application),
-                                        ..Default::default()
-                                    })
-                                    .unwrap();
+                                let messages = setup.group.find_messages_v2(&query_args).unwrap();
 
-                                assert_eq!(
-                                    messages.len(),
-                                    10,
-                                    "Expected exactly 10 messages with kind filter, got {}",
-                                    messages.len()
-                                );
-                                black_box(messages);
-                            }
-                            .instrument(span.clone()),
-                        )
-                    });
-                },
-            );
-        }
-
-        // Benchmark with delivery_status filter
-        {
-            let setup_clone = setup.clone();
-            let runtime_clone = runtime_clone.clone();
-            benchmark_group.bench_function(
-                BenchmarkId::new("find_messages_delivery_unpublished", total_messages),
-                move |b| {
-                    let span = trace_span!(BENCH_ROOT_SPAN, total_messages);
-                    let setup = setup_clone.clone();
-                    let runtime = runtime_clone.clone();
-
-                    b.iter(|| {
-                        runtime.block_on(
-                            async {
-                                let messages = setup
-                                    .group
-                                    .find_messages(&MsgQueryArgs {
-                                        limit: Some(10),
-                                        delivery_status: Some(DeliveryStatus::Unpublished),
-                                        ..Default::default()
-                                    })
-                                    .unwrap();
-
-                                assert_eq!(messages.len(), 10, "Expected exactly 10 messages with delivery_status filter, got {}", messages.len());
-                                black_box(messages);
-                            }
-                            .instrument(span.clone()),
-                        )
-                    });
-                },
-            );
-        }
-
-        // Benchmark with content_types filter
-        {
-            let setup_clone = setup.clone();
-            let runtime_clone = runtime_clone.clone();
-            benchmark_group.bench_function(
-                BenchmarkId::new("find_messages_content_type_text", total_messages),
-                move |b| {
-                    let span = trace_span!(BENCH_ROOT_SPAN, total_messages);
-                    let setup = setup_clone.clone();
-                    let runtime = runtime_clone.clone();
-
-                    b.iter(|| {
-                        runtime.block_on(
-                            async {
-                                let messages = setup
-                                    .group
-                                    .find_messages(&MsgQueryArgs {
-                                        limit: Some(10),
-                                        content_types: Some(vec![ContentType::Text]),
-                                        ..Default::default()
-                                    })
-                                    .unwrap();
-
-                                assert_eq!(
-                                    messages.len(),
-                                    10,
-                                    "Expected exactly 10 messages with direction filter, got {}",
-                                    messages.len()
-                                );
-                                black_box(messages);
-                            }
-                            .instrument(span.clone()),
-                        )
-                    });
-                },
-            );
-        }
-
-        // Benchmark with direction filterin
-        {
-            let setup_clone = setup.clone();
-            let runtime_clone = runtime_clone.clone();
-            benchmark_group.bench_function(
-                BenchmarkId::new("find_messages_direction_descending", total_messages),
-                move |b| {
-                    let span = trace_span!(BENCH_ROOT_SPAN, total_messages);
-                    let setup = setup_clone.clone();
-                    let runtime = runtime_clone.clone();
-
-                    b.iter(|| {
-                        runtime.block_on(
-                            async {
-                                let messages = setup
-                                    .group
-                                    .find_messages(&MsgQueryArgs {
-                                        limit: Some(10),
-                                        direction: Some(SortDirection::Descending),
-                                        ..Default::default()
-                                    })
-                                    .unwrap();
-
-                                black_box(messages);
-                            }
-                            .instrument(span.clone()),
-                        )
-                    });
-                },
-            );
-        }
-    }
-
-    benchmark_group.finish();
-}
-
-fn bench_find_messages_v2_with_filters(c: &mut Criterion) {
-    bench::logger();
-    let mut benchmark_group = c.benchmark_group("find_messages_v2_filters_shared");
-    benchmark_group.sample_size(SAMPLE_SIZE);
-    benchmark_group.measurement_time(Duration::from_secs(30));
-    benchmark_group.warm_up_time(Duration::from_secs(3));
-
-    let runtime = Arc::new(setup_runtime());
-
-    for &total_messages in MESSAGE_COUNTS.iter() {
-        benchmark_group.throughput(Throughput::Elements(10_u64)); // Limit of 10
-
-        // Setup once per MESSAGE_COUNT - completely outside the benchmark
-        let setup = runtime.block_on(setup_benchmark(total_messages));
-        let runtime_clone = runtime.clone();
-
-        // Calculate time filter values based on actual message timestamps
-        // sent_after_ns: earliest timestamp - 1 to include all messages
-        let sent_after_ns = setup.earliest_message_timestamp - 1;
-
-        // Benchmark find_messages_v2 with sent_after_ns filter
-        {
-            let setup_clone = setup.clone();
-            let runtime_clone = runtime_clone.clone();
-            benchmark_group.bench_function(
-                BenchmarkId::new("find_messages_v2_sent_after", total_messages),
-                move |b| {
-                    let span = trace_span!(BENCH_ROOT_SPAN, total_messages);
-                    let setup = setup_clone.clone();
-                    let runtime = runtime_clone.clone();
-
-                    b.iter(|| {
-                        runtime.block_on(
-                            async {
-                                let messages = setup
-                                    .group
-                                    .find_messages_v2(&MsgQueryArgs {
-                                        limit: Some(10),
-                                        sent_after_ns: Some(sent_after_ns),
-                                        ..Default::default()
-                                    })
-                                    .unwrap();
-
-                                assert_eq!(messages.len(), 10, "Expected exactly 10 messages from find_messages_v2 with sent_after_ns filter, got {}", messages.len());
-                                black_box(messages);
-                            }
-                            .instrument(span.clone()),
-                        )
-                    });
-                },
-            );
-        }
-
-        // Benchmark find_messages_v2 with kind filter
-        {
-            let setup_clone = setup.clone();
-            let runtime_clone = runtime_clone.clone();
-            benchmark_group.bench_function(
-                BenchmarkId::new("find_messages_v2_kind_application", total_messages),
-                move |b| {
-                    let span = trace_span!(BENCH_ROOT_SPAN, total_messages);
-                    let setup = setup_clone.clone();
-                    let runtime = runtime_clone.clone();
-
-                    b.iter(|| {
-                        runtime.block_on(
-                            async {
-                                let messages = setup
-                                    .group
-                                    .find_messages_v2(&MsgQueryArgs {
-                                        limit: Some(10),
-                                        kind: Some(GroupMessageKind::Application),
-                                        ..Default::default()
-                                    })
-                                    .unwrap();
-
-                                assert_eq!(messages.len(), 10, "Expected exactly 10 messages from find_messages_v2 with kind filter, got {}", messages.len());
+                                if let Some(expected) = expected_count {
+                                    assert_eq!(
+                                        messages.len(),
+                                        expected,
+                                        "Expected exactly {} messages from find_messages_v2, got {}",
+                                        expected,
+                                        messages.len()
+                                    );
+                                }
                                 black_box(messages);
                             }
                             .instrument(span.clone()),
@@ -484,9 +387,6 @@ criterion_group!(
         .measurement_time(Duration::from_secs(30))
         .warm_up_time(Duration::from_secs(3));
     targets = bench_find_messages,
-             bench_find_messages_v2,
-             bench_find_messages_with_time_filters,
-             bench_find_messages_with_other_filters,
-             bench_find_messages_v2_with_filters
+             bench_find_messages_v2
 );
 criterion_main!(messages);

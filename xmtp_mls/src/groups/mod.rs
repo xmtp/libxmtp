@@ -720,6 +720,7 @@ where
             sequence_id: 0,
             originator_id: 0,
             expire_at_ns: None,
+            inserted_at_ns: 0, // Will be set by database
         };
         group_message.store(&self.context.db())?;
 

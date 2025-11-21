@@ -223,9 +223,16 @@ async fn test_is_connected_after_connect() {
 
     assert!(connected, "Expected API client to report as connected");
 
-    let api = connect_to_backend("http://127.0.0.1:59999".to_string(), None, false, None)
-        .await
-        .unwrap();
+    let api = connect_to_backend(
+        "http://127.0.0.1:59999".to_string(),
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
     let backend = MessageBackendBuilder::default()
         .from_bundle(api.0.clone())
         .unwrap();

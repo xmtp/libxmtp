@@ -13,7 +13,7 @@ failure-output = "immediate-final"
 fail-fast = false
 
 [[profile.ci.overrides]]
-platform = 'wasm32-unknown-unkown'
+platform = 'wasm32-unknown-unknown'
 slow-timeout = "1m"
 # test_db_migrates experiences random failures b/c of 'corrupted double-linked list' coming from glibc/sqlcipher https://github.com/xmtp/libxmtp/issues/2402
 [[profile.ci.overrides]]

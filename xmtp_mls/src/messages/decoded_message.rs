@@ -76,6 +76,8 @@ pub struct DecodedMessageMetadata {
     pub delivery_status: DeliveryStatus,
     // The content type of the message
     pub content_type: ContentTypeId,
+    // Time in nanoseconds the message was inserted into the database
+    pub inserted_at_ns: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -196,6 +198,7 @@ impl TryFrom<StoredGroupMessage> for DecodedMessage {
             sender_inbox_id: value.sender_inbox_id,
             delivery_status: value.delivery_status,
             content_type: content_type_id,
+            inserted_at_ns: value.inserted_at_ns,
         };
 
         // For now, we'll set default values for reactions and replies
