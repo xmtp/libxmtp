@@ -75,58 +75,57 @@ async fn compute_publish_data_for_group_membership_update(
     new_extensions: Extensions,
     signer: impl Signer,
 ) -> Result<PublishIntentData, GroupError> {
-    let (commit, post_commit_action, staged_commit) =
-        context.mls_storage().transaction(|conn| {
-            let storage = conn.key_store();
-            let provider = XmtpOpenMlsProvider::new(storage);
-            // Create the commit
-            tracing::debug!(
-                group_id = hex::encode(&openmls_group.group_id().to_vec()),
-                "Before creating commit for group membership we have epoch [{}] and epoch authenticator [{}], own leaf index [{}] and group ptr [{}]",
-                openmls_group.epoch().as_u64(),
-                hex::encode(openmls_group.epoch_authenticator().as_slice()),
-                openmls_group.own_leaf_index().u32(),
-                format_args!("{:p}", openmls_group)
-            );
-            let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
-                &provider,
+    tracing::debug!(
+        group_id = hex::encode(&openmls_group.group_id().to_vec()),
+        "Before creating commit for group membership we have epoch [{}] and epoch authenticator [{}], own leaf index [{}] and group ptr [{}]",
+        openmls_group.epoch().as_u64(),
+        hex::encode(openmls_group.epoch_authenticator().as_slice()),
+        openmls_group.own_leaf_index().u32(),
+        format_args!("{:p}", openmls_group)
+    );
+    
+    // Use savepoint pattern to create commit without persisting state
+    let ((commit, maybe_welcome_message, _), staged_commit) = generate_commit_with_rollback(
+        context.mls_storage(),
+        openmls_group,
+        |group, provider| {
+            group.update_group_membership(
+                provider,
                 &signer,
                 &key_packages_to_add,
                 &leaf_nodes_to_remove,
                 new_extensions,
-            )?;
+            )
+        },
+    )?;
+    
+    let staged_commit = staged_commit.ok_or_else(|| GroupError::MissingPendingCommit)?;
 
-            let post_commit_action = match maybe_welcome_message {
-                Some(welcome_message) => Some(PostCommitAction::from_welcome(
-                    welcome_message,
-                    installations_to_add,
-                )?),
-                None => None,
-            };
+    let post_commit_action = match maybe_welcome_message {
+        Some(welcome_message) => Some(PostCommitAction::from_welcome(
+            welcome_message,
+            installations_to_add,
+        )?),
+        None => None,
+    };
 
-            let staged_commit = get_and_clear_pending_commit(openmls_group, provider.storage())?
-                .ok_or_else(|| GroupError::MissingPendingCommit)?;
-
-            // Log the epoch, epoch authenticator, and a hash of the commit message at the moment
-            // we construct the post-commit action. This lets us correlate this local operation
-            // with later processing/validation of the same commit on any installation.
-            if let Ok(commit_bytes) = commit.tls_serialize_detached() {
-                let commit_hash = sha256(&commit_bytes);
-                tracing::info!(
-                    "Preparing PostCommitAction for group membership update: epoch = {}, epoch_authenticator = {}, commit_hash = {}, using group ptr = {}",
-                    openmls_group.epoch().as_u64(),
-                    hex::encode(openmls_group.epoch_authenticator().as_slice()),
-                    hex::encode(&commit_hash),
-                    format_args!("{:p}", openmls_group)
-                );
-            } else {
-                tracing::warn!(
-                    "Preparing PostCommitAction for group membership update: failed to serialize commit for hashing"
-                );
-            }
-
-            Ok::<_, GroupError>((commit, post_commit_action, staged_commit))
-        })?;
+    // Log the epoch, epoch authenticator, and a hash of the commit message at the moment
+    // we construct the post-commit action. This lets us correlate this local operation
+    // with later processing/validation of the same commit on any installation.
+    if let Ok(commit_bytes) = commit.tls_serialize_detached() {
+        let commit_hash = sha256(&commit_bytes);
+        tracing::info!(
+            "Preparing PostCommitAction for group membership update: epoch = {}, epoch_authenticator = {}, commit_hash = {}, using group ptr = {}",
+            openmls_group.epoch().as_u64(),
+            hex::encode(openmls_group.epoch_authenticator().as_slice()),
+            hex::encode(&commit_hash),
+            format_args!("{:p}", openmls_group)
+        );
+    } else {
+        tracing::warn!(
+            "Preparing PostCommitAction for group membership update: failed to serialize commit for hashing"
+        );
+    }
 
     Ok(PublishIntentData {
         payload_to_publish: commit.tls_serialize_detached()?,

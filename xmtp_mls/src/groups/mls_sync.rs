@@ -2441,49 +2441,20 @@ where
                 }))
             }
             IntentKind::KeyUpdate => {
-                // CAMERON: MIGHT MUTATE MESSAGE_SECRET_STORE
-                // self.print_group_authenticator_epoch_and_message_secrets(
-                //     "Before self_update",
-                //     openmls_group,
-                //     storage,
-                // );
-                let result = storage.transaction(|conn| {
-                    let storage = conn.key_store();
-                    let provider = XmtpOpenMlsProviderRef::new(&storage);
-                    let bundle = openmls_group.self_update(
-                        &provider,
-                        &self.context.identity().installation_keys,
-                        LeafNodeParameters::default(),
-                    )?;
-                    let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
-                    Ok::<_, GroupError>((bundle, staged_commit))
-                });
-                // self.print_group_authenticator_epoch_and_message_secrets(
-                //     "After self_update",
-                //     openmls_group,
-                //     storage,
-                // );
-                let (bundle, staged_commit) = match result {
-                    Ok(res) => res,
-                    Err(e) => {
-                        tracing::debug!(
-                            "Errored while getting key update commit for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}], group ptr [{}]",
-                            hex::encode(&self.group_id),
-                            openmls_group.epoch().as_u64(),
-                            hex::encode(openmls_group.epoch_authenticator().as_slice()),
-                            format_args!("{:p}", &self),
-                        );
-                        openmls_group.reload(storage)?;
-                        tracing::debug!(
-                            "Reloaded mlsgroup for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}], group ptr [{}]",
-                            hex::encode(&self.group_id),
-                            openmls_group.epoch().as_u64(),
-                            hex::encode(openmls_group.epoch_authenticator().as_slice()),
-                            format_args!("{:p}", &self),
-                        );
-                        return Err(e);
-                    }
-                };
+                // Use a savepoint pattern: create the commit in a transaction, extract the data,
+                // then rollback to avoid relying on clear_pending_commit
+                let keys = self.context.identity().installation_keys.clone();
+                let (bundle, staged_commit) = generate_commit_with_rollback(
+                    storage,
+                    openmls_group,
+                    |group, provider| {
+                        group.self_update(
+                            provider,
+                            &keys,
+                            LeafNodeParameters::default(),
+                        )
+                    },
+                )?;
                 Ok(Some(PublishIntentData {
                     payload_to_publish: bundle.commit().tls_serialize_detached()?,
                     staged_commit,
@@ -2492,56 +2463,25 @@ where
                 }))
             }
             IntentKind::MetadataUpdate => {
-                // CAMERON: MIGHT MUTATE MESSAGE_SECRET_STORE
                 let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
                 let mutable_metadata_extensions = build_extensions_for_metadata_update(
                     openmls_group,
                     metadata_intent.field_name,
                     metadata_intent.field_value,
                 )?;
-                // self.print_group_authenticator_epoch_and_message_secrets(
-                //     "Before update_group_context_extensions",
-                //     openmls_group,
-                //     storage,
-                // );
-                let result = storage.transaction(|conn| {
-                    let storage = conn.key_store();
-                    let provider = XmtpOpenMlsProviderRef::new(&storage);
-                    let (commit, _, _) = openmls_group.update_group_context_extensions(
-                        &provider,
-                        mutable_metadata_extensions,
-                        &self.context.identity().installation_keys,
-                    )?;
-                    let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
-
-                    Ok::<_, GroupError>((commit, staged_commit))
-                });
-                // self.print_group_authenticator_epoch_and_message_secrets(
-                //     "After update_group_context_extensions",
-                //     openmls_group,
-                //     storage,
-                // );
-                let (commit, staged_commit) = match result {
-                    Ok(res) => res,
-                    Err(e) => {
-                        tracing::debug!(
-                            "Errored while getting metadata update commit for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}], group ptr [{}]",
-                            hex::encode(&self.group_id),
-                            openmls_group.epoch().as_u64(),
-                            hex::encode(openmls_group.epoch_authenticator().as_slice()),
-                            format_args!("{:p}", &self),
-                        );
-                        openmls_group.reload(storage)?;
-                        tracing::debug!(
-                            "Reloaded mlsgroup for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}], group ptr [{}]",
-                            hex::encode(&self.group_id),
-                            openmls_group.epoch().as_u64(),
-                            hex::encode(openmls_group.epoch_authenticator().as_slice()),
-                            format_args!("{:p}", &self),
-                        );
-                        return Err(e);
-                    }
-                };
+                
+                let keys = self.context.identity().installation_keys.clone();
+                let ((commit, _, _), staged_commit) = generate_commit_with_rollback(
+                    storage,
+                    openmls_group,
+                    |group, provider| {
+                        group.update_group_context_extensions(
+                            provider,
+                            mutable_metadata_extensions.clone(),
+                            &keys,
+                        )
+                    },
+                )?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
@@ -2553,56 +2493,25 @@ where
                 }))
             }
             IntentKind::UpdateAdminList => {
-                // CAMERON: MIGHT MUTATE MESSAGE_SECRET_STORE
                 let admin_list_update_intent =
                     UpdateAdminListIntentData::try_from(intent.data.clone())?;
                 let mutable_metadata_extensions = build_extensions_for_admin_lists_update(
                     openmls_group,
                     admin_list_update_intent,
                 )?;
-                // self.print_group_authenticator_epoch_and_message_secrets(
-                //     "Before update_group_context_extensions",
-                //     openmls_group,
-                //     storage,
-                // );
-                let result = storage.transaction(|conn| {
-                    let storage = conn.key_store();
-                    let provider = XmtpOpenMlsProviderRef::new(&storage);
-                    let (commit, _, _) = openmls_group.update_group_context_extensions(
-                        &provider,
-                        mutable_metadata_extensions,
-                        &self.context.identity().installation_keys,
-                    )?;
-                    let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
-
-                    Ok::<_, GroupError>((commit, staged_commit))
-                });
-                // self.print_group_authenticator_epoch_and_message_secrets(
-                //     "After update_group_context_extensions",
-                //     openmls_group,
-                //     storage,
-                // );
-                let (commit, staged_commit) = match result {
-                    Ok(res) => res,
-                    Err(e) => {
-                        tracing::debug!(
-                            "Errored while getting admin list update commit for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}], group ptr [{}]",
-                            hex::encode(&self.group_id),
-                            openmls_group.epoch().as_u64(),
-                            hex::encode(openmls_group.epoch_authenticator().as_slice()),
-                            format_args!("{:p}", &self),
-                        );
-                        openmls_group.reload(storage)?;
-                        tracing::debug!(
-                            "Reloaded mlsgroup for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}], group ptr [{}]",
-                            hex::encode(&self.group_id),
-                            openmls_group.epoch().as_u64(),
-                            hex::encode(openmls_group.epoch_authenticator().as_slice()),
-                            format_args!("{:p}", &self),
-                        );
-                        return Err(e);
-                    }
-                };
+                
+                let keys = self.context.identity().installation_keys.clone();
+                let ((commit, _, _), staged_commit) = generate_commit_with_rollback(
+                    storage,
+                    openmls_group,
+                    |group, provider| {
+                        group.update_group_context_extensions(
+                            provider,
+                            mutable_metadata_extensions.clone(),
+                            &keys,
+                        )
+                    },
+                )?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
@@ -2614,56 +2523,25 @@ where
                 }))
             }
             IntentKind::UpdatePermission => {
-                // CAMERON: MIGHT MUTATE MESSAGE_SECRET_STORE
                 let update_permissions_intent =
                     UpdatePermissionIntentData::try_from(intent.data.clone())?;
                 let group_permissions_extensions = build_extensions_for_permissions_update(
                     openmls_group,
                     update_permissions_intent,
                 )?;
-                // self.print_group_authenticator_epoch_and_message_secrets(
-                //     "Before update_group_context_extensions",
-                //     openmls_group,
-                //     storage,
-                // );
-                let result = storage.transaction(|conn| {
-                    let storage = conn.key_store();
-                    let provider = XmtpOpenMlsProviderRef::new(&storage);
-                    let (commit, _, _) = openmls_group.update_group_context_extensions(
-                        &provider,
-                        group_permissions_extensions,
-                        &self.context.identity().installation_keys,
-                    )?;
-                    let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
-
-                    Ok::<_, GroupError>((commit, staged_commit))
-                });
-                // self.print_group_authenticator_epoch_and_message_secrets(
-                //     "After update_group_context_extensions",
-                //     openmls_group,
-                //     storage,
-                // );
-                let (commit, staged_commit) = match result {
-                    Ok(res) => res,
-                    Err(e) => {
-                        tracing::debug!(
-                            "Errored while getting update permissions commit for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}], group ptr [{}]",
-                            hex::encode(&self.group_id),
-                            openmls_group.epoch().as_u64(),
-                            hex::encode(openmls_group.epoch_authenticator().as_slice()),
-                            format_args!("{:p}", &self),
-                        );
-                        openmls_group.reload(storage)?;
-                        tracing::debug!(
-                            "Reloaded mlsgroup for group_id [{}] so we now have group epoch [{}] and epoch authenticator [{}], group ptr [{}]",
-                            hex::encode(&self.group_id),
-                            openmls_group.epoch().as_u64(),
-                            hex::encode(openmls_group.epoch_authenticator().as_slice()),
-                            format_args!("{:p}", &self),
-                        );
-                        return Err(e);
-                    }
-                };
+                
+                let keys = self.context.identity().installation_keys.clone();
+                let ((commit, _, _), staged_commit) = generate_commit_with_rollback(
+                    storage,
+                    openmls_group,
+                    |group, provider| {
+                        group.update_group_context_extensions(
+                            provider,
+                            group_permissions_extensions.clone(),
+                            &keys,
+                        )
+                    },
+                )?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
                 Ok(Some(PublishIntentData {
@@ -3317,28 +3195,68 @@ fn get_removed_leaf_nodes(
         .collect()
 }
 
-fn get_and_clear_pending_commit(
+/// Execute a commit-creating operation using a savepoint pattern.
+/// 
+/// This function:
+/// 1. Runs the operation in a transaction savepoint
+/// 2. Extracts the pending commit data
+/// 3. Rolls back the transaction (avoiding the need for clear_pending_commit)
+/// 4. Reloads the group to clear its internal cache
+/// 5. Returns the operation result and the staged commit
+///
+/// This is more reliable than using `clear_pending_commit` because it uses
+/// SQLite's built-in savepoint rollback mechanism.
+pub(super) fn generate_commit_with_rollback<S, R, E, F>(
+    storage: &S,
     openmls_group: &mut OpenMlsGroup,
-    s: &impl XmtpMlsStorageProvider,
-) -> Result<Option<Vec<u8>>, GroupError> {
-    let commit = openmls_group
-        .pending_commit()
-        .as_ref()
-        .map(xmtp_db::db_serialize)
-        .transpose()?;
-    tracing::info!(
-        group_id = %hex::encode(openmls_group.group_id().as_slice()),
-        op = "get and clear pending commit - mutated", // or "create_commit", "apply_welcome"
-        "mls_mutation_attempt"
-    );
-    openmls_group.clear_pending_commit(s)?;
-    tracing::info!(
-        group_id = %hex::encode(openmls_group.group_id().as_slice()),
-        op = "get and clear pending commit - cleared", // or "create_commit", "apply_welcome"
-        "mls_mutation_attempt"
-    );
-    Ok(commit)
+    operation: F,
+) -> Result<(R, Option<Vec<u8>>), GroupError>
+where
+    S: XmtpMlsStorageProvider,
+    E: Into<GroupError>,
+    F: for<'a> FnOnce(&mut OpenMlsGroup, &XmtpOpenMlsProviderRef<<S::TxQuery as TransactionalKeyStore>::Store<'a>>) -> Result<R, E>,
+{
+    let mut result = None;
+    let mut staged_commit = None;
+    
+    let transaction_result = storage.transaction(|conn| {
+        let key_store = conn.key_store();
+        let provider = XmtpOpenMlsProviderRef::new(&key_store);
+        
+        // Execute the operation (e.g., self_update, update_group_context_extensions, etc.)
+        result = Some(operation(openmls_group, &provider));
+        
+        // Extract the staged commit data before rollback
+        staged_commit = openmls_group
+            .pending_commit()
+            .as_ref()
+            .map(xmtp_db::db_serialize)
+            .transpose()
+            .ok();
+        
+        // Rollback the transaction to avoid persisting the commit
+        Err::<(), StorageError>(StorageError::IntentionalRollback)
+    });
+    
+    // Reload the group to clear its internal cache after rollback
+    openmls_group.reload(storage)?;
+    
+    // Check if the transaction was intentionally rolled back (expected)
+    // or if there was a real error
+    if let Err(e) = transaction_result {
+        if !matches!(e, StorageError::IntentionalRollback) {
+            return Err(e.into());
+        }
+    }
+    
+    // Extract and handle the operation result
+    let operation_result = result
+        .expect("Operation should have been called")
+        .map_err(|e| e.into())?;
+    
+    Ok((operation_result, staged_commit.flatten()))
 }
+
 
 pub(crate) fn decode_staged_commit(
     data: &[u8],
