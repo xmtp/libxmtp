@@ -12,7 +12,7 @@ use xmtp_proto::types::AppVersion;
 use crate::protocol::{CursorStore, FullXmtpApiArc, FullXmtpApiBox, NoCursorStore};
 use crate::{
     AuthCallback, AuthHandle, ClientBundle, ClientBundleBuilder, ClientKind, D14nClient,
-    MultiNodeClientBuilderError, ReadWriteClientBuilderError, V3Client,
+    MultiNodeClientBuilderError, ReadWriteClientBuilderError, ReadonlyClientBuilderError, V3Client,
 };
 
 mod impls;
@@ -39,6 +39,8 @@ pub enum MessageBackendBuilderError {
     CursorStoreNotReplaced(&'static str),
     #[error("error while building read/write api client {0},")]
     UninitializedField(#[from] ReadWriteClientBuilderError),
+    #[error(transparent)]
+    ReadonlyBuilder(#[from] ReadonlyClientBuilderError),
     #[error(transparent)]
     Builder(#[from] UninitializedFieldError),
     #[error("client kind {0} is currently unsupported")]
