@@ -57,6 +57,7 @@ use xmtp_id::{
     },
 };
 use xmtp_mls::client::inbox_addresses_with_verifier;
+use xmtp_mls::context::ClientMode;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::ConversationDebugInfo;
 use xmtp_mls::groups::device_sync::DeviceSyncError;
@@ -281,6 +282,7 @@ pub async fn create_client(
     allow_offline: Option<bool>,
     disable_events: Option<bool>,
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
+    client_mode: Option<FfiClientMode>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -333,6 +335,7 @@ pub async fn create_client(
         .with_remote_verifier()?
         .with_allow_offline(allow_offline)
         .with_disable_events(disable_events)
+        .with_client_mode(client_mode.map(Into::into))
         .store(store);
 
     if let Some(sync_worker_mode) = device_sync_mode {
@@ -472,6 +475,29 @@ impl FfiSignatureRequest {
             .iter()
             .map(|member| member.to_string())
             .collect())
+    }
+}
+
+#[derive(Default, Clone, Copy, uniffi::Enum)]
+pub enum FfiClientMode {
+    #[default]
+    Default,
+    Notification,
+}
+impl From<ClientMode> for FfiClientMode {
+    fn from(mode: ClientMode) -> Self {
+        match mode {
+            ClientMode::Default => Self::Default,
+            ClientMode::Notification => Self::Notification,
+        }
+    }
+}
+impl From<FfiClientMode> for ClientMode {
+    fn from(mode: FfiClientMode) -> Self {
+        match mode {
+            FfiClientMode::Default => Self::Default,
+            FfiClientMode::Notification => Self::Notification,
+        }
     }
 }
 
