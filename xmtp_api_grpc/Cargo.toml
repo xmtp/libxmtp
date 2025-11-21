@@ -56,7 +56,6 @@ tower = { workspace = true }
 futures-test.workspace = true
 rstest.workspace = true
 toxiproxy_rust = { workspace = true }
-uuid = { workspace = true, features = ["v4"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
@@ -64,6 +63,10 @@ tokio = { workspace = true, features = ["io-util"] }
 pbjson-types.workspace = true
 tokio-stream.workspace = true
 hyper-util = { version = "0.1" }
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
+getrandom = { workspace = true, features = ["wasm_js"] }
+wasm-bindgen-test.workspace = true
 
 [features]
 default = []
