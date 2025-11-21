@@ -63,13 +63,13 @@ fn main() -> Result<()> {
                 tasks::clear_all_messages(&manager.store)?;
             }
             Task::DbClearMessages => {
-                tasks::clear_all_messages_for_group(&manager.store, &args.group_id()?)?;
+                tasks::clear_all_messages_for_groups(&manager.store, &args.group_ids()?)?;
             }
             Task::EnableGroup => {
-                tasks::enable_group(&manager.store, &args.group_id()?)?;
+                tasks::enable_groups(&manager.store, &args.group_ids()?)?;
             }
             Task::DisableGroup => {
-                tasks::disable_group(&manager.store, &args.group_id()?)?;
+                tasks::disable_groups(&manager.store, &args.group_ids()?)?;
             }
         }
 
@@ -88,7 +88,7 @@ impl Args {
             .split(",")
             .into_iter()
             .map(hex::decode)
-            .try_collect()?;
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(group_ids)
     }
