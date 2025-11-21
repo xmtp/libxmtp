@@ -332,8 +332,15 @@ where
         let (group_members_map, all_member_requests) =
             extract_group_members(&self.context, &filtered_groups);
 
-        // Batch read and resolve association states
+        // Convert the member requests (inbox_id, sequence_id pairs) into a vector for batch processing
         let requests_vec: Vec<(String, i64)> = all_member_requests.into_iter().collect();
+
+        // Early return if no members were found across all filtered groups
+        if requests_vec.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Batch resolve association states for all unique members to get their identifiers and installation IDs
         let association_map = resolve_association_states(&self.context, requests_vec).await?;
 
         // Build contact map from group members, association states, and consent records
