@@ -284,7 +284,7 @@ where
     /// - conversation_type: filter by conversation type (Group or Dm)
     /// - allowed_states: only include contacts from groups with the given membership states
     /// - created_after_ns/created_before_ns: filter by group creation time
-    pub async fn list_contacts(&self, args: ContactQueryArgs) -> Result<Vec<Contact>, ClientError> {
+    pub async fn contacts_list(&self, args: ContactQueryArgs) -> Result<Vec<Contact>, ClientError> {
         let ContactQueryArgs {
             allowed_group_ids,
             denied_group_ids,
@@ -372,7 +372,7 @@ mod tests {
     use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
 
     #[xmtp_common::test]
-    async fn test_list_contacts() {
+    async fn test_contacts_list() {
         use xmtp_db::group::ConversationType;
 
         // Create 10 clients
@@ -487,7 +487,7 @@ mod tests {
 
         // Test 1: List all contacts (should have 9 contacts: all except Alice herself)
         let all_contacts = alice
-            .list_contacts(ContactQueryArgs::default())
+            .contacts_list(ContactQueryArgs::default())
             .await
             .unwrap();
 
@@ -501,7 +501,7 @@ mod tests {
 
         // Test 2: Filter by allowed_group_ids (only Group 1)
         let group1_contacts = alice
-            .list_contacts(ContactQueryArgs {
+            .contacts_list(ContactQueryArgs {
                 allowed_group_ids: Some(vec![group1.group_id.clone()]),
                 ..Default::default()
             })
@@ -517,7 +517,7 @@ mod tests {
 
         // Test 3: Filter by denied_group_ids (exclude Group 2)
         let without_group2 = alice
-            .list_contacts(ContactQueryArgs {
+            .contacts_list(ContactQueryArgs {
                 denied_group_ids: Some(vec![group2.group_id.clone()]),
                 ..Default::default()
             })
@@ -539,7 +539,7 @@ mod tests {
 
         // Test 4: Filter by consent_states (Allowed only)
         let allowed_contacts = alice
-            .list_contacts(ContactQueryArgs {
+            .contacts_list(ContactQueryArgs {
                 consent_states: Some(vec![ConsentState::Allowed]),
                 ..Default::default()
             })
@@ -556,7 +556,7 @@ mod tests {
 
         // Test 5: Filter by consent_states (Denied only)
         let denied_contacts = alice
-            .list_contacts(ContactQueryArgs {
+            .contacts_list(ContactQueryArgs {
                 consent_states: Some(vec![ConsentState::Denied]),
                 ..Default::default()
             })
@@ -568,7 +568,7 @@ mod tests {
 
         // Test 6: Filter by consent_states (Unknown only)
         let unknown_contacts = alice
-            .list_contacts(ContactQueryArgs {
+            .contacts_list(ContactQueryArgs {
                 consent_states: Some(vec![ConsentState::Unknown]),
                 ..Default::default()
             })
@@ -589,7 +589,7 @@ mod tests {
 
         // Test 7: Filter by consent_states (Allowed + Unknown)
         let allowed_or_unknown = alice
-            .list_contacts(ContactQueryArgs {
+            .contacts_list(ContactQueryArgs {
                 consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
                 ..Default::default()
             })
@@ -604,7 +604,7 @@ mod tests {
 
         // Test 8: Filter by conversation_type (Groups only)
         let group_contacts = alice
-            .list_contacts(ContactQueryArgs {
+            .contacts_list(ContactQueryArgs {
                 conversation_type: Some(ConversationType::Group),
                 ..Default::default()
             })
@@ -620,7 +620,7 @@ mod tests {
 
         // Test 9: Filter by conversation_type (DMs only)
         let dm_contacts = alice
-            .list_contacts(ContactQueryArgs {
+            .contacts_list(ContactQueryArgs {
                 conversation_type: Some(ConversationType::Dm),
                 ..Default::default()
             })
@@ -636,7 +636,7 @@ mod tests {
 
         // Test 10: Filter by created_after_ns
         let recent_contacts = alice
-            .list_contacts(ContactQueryArgs {
+            .contacts_list(ContactQueryArgs {
                 created_after_ns: Some(mid_time),
                 ..Default::default()
             })
@@ -651,7 +651,7 @@ mod tests {
 
         // Test 11: Filter by created_before_ns
         let early_contacts = alice
-            .list_contacts(ContactQueryArgs {
+            .contacts_list(ContactQueryArgs {
                 created_before_ns: Some(mid_time),
                 ..Default::default()
             })
@@ -687,7 +687,7 @@ mod tests {
 
         // Test 13: Combined filters - allowed_group_ids + consent_states
         let group1_allowed = alice
-            .list_contacts(ContactQueryArgs {
+            .contacts_list(ContactQueryArgs {
                 allowed_group_ids: Some(vec![group1.group_id.clone()]),
                 consent_states: Some(vec![ConsentState::Allowed]),
                 ..Default::default()
@@ -701,7 +701,7 @@ mod tests {
 
         // Test 14: Combined filters - conversation_type + consent_states
         let dm_unknown = alice
-            .list_contacts(ContactQueryArgs {
+            .contacts_list(ContactQueryArgs {
                 conversation_type: Some(ConversationType::Dm),
                 consent_states: Some(vec![ConsentState::Unknown]),
                 ..Default::default()
@@ -725,7 +725,7 @@ mod tests {
 
         // Test 16: Edge case - deny all DMs
         let no_dms = alice
-            .list_contacts(ContactQueryArgs {
+            .contacts_list(ContactQueryArgs {
                 denied_group_ids: Some(vec![
                     dm1.group_id.clone(),
                     dm2.group_id.clone(),
