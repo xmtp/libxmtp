@@ -60,10 +60,14 @@ fn main() -> Result<()> {
                 tasks::revert_migrations(&manager.store, target)?;
             }
             Task::DbClearAllMessages => {
-                tasks::clear_all_messages(&manager.store)?;
+                tasks::clear_all_messages(&manager.store, args.retain_days)?;
             }
             Task::DbClearMessages => {
-                tasks::clear_all_messages_for_groups(&manager.store, &args.group_ids()?)?;
+                tasks::clear_all_messages_for_groups(
+                    &manager.store,
+                    &args.group_ids()?,
+                    args.retain_days,
+                )?;
             }
             Task::EnableGroup => {
                 tasks::enable_groups(&manager.store, &args.group_ids()?)?;
@@ -127,6 +131,10 @@ struct Args {
     /// Run a specific task
     #[arg(long, value_enum)]
     task: Option<Task>,
+
+    /// Number of days worth of data you'd like to retain on delete tasks.
+    #[arg(long, value_enum)]
+    retain_days: Option<i64>,
 }
 
 #[derive(ValueEnum, Clone, Debug)]

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use xmtp_common::{NS_IN_DAY, time::now_ns};
 use xmtp_db::{
     ConnectionExt, EncryptedMessageStore, NativeDb,
     diesel::{self, ExpressionMethods, QueryDsl, RunQueryDsl},
@@ -7,27 +8,41 @@ use xmtp_db::{
 
 use crate::confirm_destructive;
 
-pub fn clear_all_messages(store: &EncryptedMessageStore<NativeDb>) -> Result<()> {
+pub fn clear_all_messages(
+    store: &EncryptedMessageStore<NativeDb>,
+    limit_days: Option<i64>,
+) -> Result<()> {
     confirm_destructive()?;
 
-    store
-        .conn()
-        .raw_query_write(|c| diesel::delete(messages_dsl::group_messages).execute(c))?;
+    let mut query = diesel::delete(messages_dsl::group_messages).into_boxed();
+
+    if let Some(days) = limit_days {
+        let limit = now_ns() - NS_IN_DAY * days;
+        query = query.filter(messages_dsl::sent_at_ns.lt(limit));
+    }
+
+    store.conn().raw_query_write(|c| query.execute(c))?;
     Ok(())
 }
 
 pub fn clear_all_messages_for_groups(
     store: &EncryptedMessageStore<NativeDb>,
     group_ids: &[Vec<u8>],
+    limit_days: Option<i64>,
 ) -> Result<()> {
     confirm_destructive()?;
 
-    for group_id in group_ids {
-        store.conn().raw_query_write(|c| {
-            diesel::delete(messages_dsl::group_messages.filter(messages_dsl::group_id.eq(group_id)))
-                .execute(c)
-        })?;
+    let mut query = diesel::delete(
+        messages_dsl::group_messages.filter(messages_dsl::group_id.eq_any(group_ids)),
+    )
+    .into_boxed();
+
+    if let Some(days) = limit_days {
+        let limit = now_ns() - NS_IN_DAY * days;
+        query = query.filter(messages_dsl::sent_at_ns.lt(limit));
     }
+
+    store.conn().raw_query_write(|c| query.execute(c))?;
 
     Ok(())
 }
