@@ -232,6 +232,7 @@ async fn test_is_connected_after_connect() {
         None,
         None,
         None,
+        None,
     )
     .await
     .unwrap();
