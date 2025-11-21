@@ -4,7 +4,7 @@ use crate::{
     api::{RetryQuery, V3Paged, XmtpStream, combinators::Ignore},
     api_client::{AggregateStats, ApiStats, IdentityStats},
 };
-use http::{request, status::InvalidStatusCode, uri::PathAndQuery};
+use http::{request, uri::PathAndQuery};
 use prost::bytes::Bytes;
 use std::{borrow::Cow, sync::Arc};
 use xmtp_common::{MaybeSend, MaybeSync, Retry};
