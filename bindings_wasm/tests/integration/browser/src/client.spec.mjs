@@ -3,6 +3,8 @@ import init, {
   Client,
   Conversation,
   createTestClient,
+  createAuthTestClient,
+  AuthHandle,
 } from "@xmtp/wasm-bindings";
 
 await init();
@@ -52,4 +54,44 @@ test("streams groups", async () => {
   }
   // let group_id = value.id();
   expect(groups[0].id()).toBe(g.id());
+});
+
+test("auth callback", async () => {
+  let handle = new AuthHandle();
+  console.log("creating client");
+  let called = false;
+  await createAuthTestClient(
+    {
+      on_auth_required: async () => {
+        console.log("on_auth_required js");
+        called = true;
+        return {
+          value: "Bearer 1234567890",
+          expires_at_seconds: Date.now() + 1000,
+        };
+      },
+    },
+    handle
+  );
+  expect(called).toBe(true);
+});
+
+test("auth callback throws error", async () => {
+  let handle = new AuthHandle();
+  console.log("creating client");
+  let called = false;
+  await expect(
+    createAuthTestClient(
+      {
+        on_auth_required: async () => {
+          console.log("on_auth_required js");
+          called = true;
+          throw new Error("on_auth_required js error");
+        },
+      },
+
+      handle
+    )
+  ).rejects.toThrow("Auth callback failed");
+  expect(called).toBe(true);
 });

@@ -14,6 +14,7 @@ use crate::{
     utils::{VersionInfo, events::EventWorker},
     worker::WorkerRunner,
 };
+use futures::FutureExt;
 use std::sync::{Arc, atomic::Ordering};
 use thiserror::Error;
 use tokio::sync::broadcast;
@@ -53,6 +54,8 @@ pub enum ClientBuilderError {
     GroupError(#[from] Box<crate::groups::GroupError>),
     #[error(transparent)]
     DeviceSync(#[from] Box<crate::groups::device_sync::DeviceSyncError>),
+    #[error("Offline build failed, builder tried to access the network")]
+    OfflineBuildFailed,
 }
 
 impl From<crate::groups::device_sync::DeviceSyncError> for ClientBuilderError {
@@ -191,6 +194,20 @@ where
 // TODO: the return type is temp and
 // will be modified in subsequent PRs
 impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
+    /// build a client in offline mode.
+    /// returns an error if the client failed to build as offline
+    pub fn build_offline(self) -> Result<Client<ContextParts<ApiClient, S, Db>>, ClientBuilderError>
+    where
+        ApiClient: XmtpApi + XmtpQuery + 'static,
+        Db: xmtp_db::XmtpDb + 'static,
+        S: XmtpMlsStorageProvider + 'static,
+    {
+        self.build()
+            .now_or_never()
+            .ok_or(ClientBuilderError::OfflineBuildFailed)
+            .flatten()
+    }
+
     pub async fn build(self) -> Result<Client<ContextParts<ApiClient, S, Db>>, ClientBuilderError>
     where
         ApiClient: XmtpApi + XmtpQuery + 'static,
@@ -273,8 +290,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             .await?;
         }
 
-        let (tx, _) = broadcast::channel(32);
+        let (local_events, _) = broadcast::channel(32);
         let (worker_tx, _) = broadcast::channel(32);
+        let (events, _) = broadcast::channel(32);
         let mut workers = WorkerRunner::new();
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
@@ -285,8 +303,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: Arc::new(scw_verifier),
             mutexes: MutexRegistry::new(),
             mls_commit_lock: Arc::new(GroupCommitLock::new()),
-            local_events: tx.clone(),
+            local_events: local_events.clone(),
             worker_events: worker_tx.clone(),
+            events,
             device_sync: DeviceSync {
                 server_url: device_sync_server_url,
                 mode: device_sync_worker_mode,
@@ -344,7 +363,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         let client = Client {
             context,
-            local_events: tx,
+            local_events,
             workers,
         };
 
@@ -352,7 +371,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         if let Err(err) = Events::clear_old_events(&client.db()) {
             tracing::warn!("ClientEvents clear old events: {err:?}");
         }
-        track!("Client Build");
+        track!(&client.context, "Client Build");
 
         Ok(client)
     }

@@ -22,6 +22,7 @@ use openmls::group::MlsGroup as OpenMlsGroup;
 use prost::Message;
 use xmtp_common::RetryableError;
 use xmtp_common::time::now_ns;
+use xmtp_configuration::Originators;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_db::{
@@ -422,6 +423,7 @@ where
 
         StoredConsentRecord::stitch_dm_consent(&db, &stored_group)?;
         track!(
+            &self.context,
             "Group Welcome",
             {
                 "conversation_type": stored_group.conversation_type,
@@ -462,6 +464,11 @@ where
             }
         });
 
+        let cursor = welcome_metadata
+            .map(|m| m.message_cursor as i64)
+            .unwrap_or_default();
+
+        // this is the commit that brought us into the group
         let added_msg = StoredGroupMessage {
             id: added_message_id,
             group_id: stored_group.id.clone(),
@@ -476,9 +483,10 @@ where
             version_minor: added_content_type.version_minor as i32,
             authority_id: added_content_type.authority_id,
             reference_id: None,
-            sequence_id: welcome.sequence_id() as i64,
-            originator_id: welcome.originator_id() as i64,
+            sequence_id: cursor,
+            originator_id: Originators::MLS_COMMITS as i64,
             expire_at_ns: None,
+            inserted_at_ns: 0, // Will be set by database
         };
 
         added_msg.store_or_ignore(&db)?;
@@ -501,10 +509,6 @@ where
             group.quietly_update_consent_state(ConsentState::Allowed, &db)?;
         }
 
-        // Set the message cursor
-        let cursor = welcome_metadata
-            .map(|m| m.message_cursor as i64)
-            .unwrap_or_default();
         db.update_cursor(
             &group.group_id,
             EntityKind::CommitMessage,

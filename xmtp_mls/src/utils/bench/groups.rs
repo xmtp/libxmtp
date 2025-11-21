@@ -5,8 +5,14 @@ use crate::utils::TestXmtpMlsContext;
 use indicatif::{ProgressBar, ProgressStyle};
 use prost::Message;
 use std::sync::Arc;
+use xmtp_common::time::now_ns;
 use xmtp_content_types::test_utils::TestContentGenerator;
+use xmtp_db::Store;
+use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
 use xmtp_db::encrypted_store::group_message::{MsgQueryArgs, SortDirection};
+use xmtp_db::group::{ConversationType, GroupMembershipState, StoredGroup};
+use xmtp_id::associations::Identifier;
+use xmtp_mls_common::group_metadata::DmMembers;
 
 use super::{BenchClient, Identity};
 
@@ -77,6 +83,73 @@ pub async fn setup_clients_from_identities(
     }
 
     clients
+}
+
+pub struct ConsentBenchSetup {
+    pub client: BenchClient,
+    pub dm_ids: Vec<String>,
+}
+
+pub async fn create_dm_with_consent(
+    client: BenchClient,
+    total_consents: usize,
+) -> Arc<ConsentBenchSetup> {
+    let style =
+        ProgressStyle::with_template("{bar} {pos}/{len} elapsed {elapsed} remaining {eta_precise}");
+    let bar = ProgressBar::new(total_consents as u64).with_style(style.unwrap());
+    bar.set_message("Creating dms");
+
+    let mut dm_ids = Vec::new();
+    for _ in 0..total_consents {
+        let ident = Identifier::rand_ethereum();
+        let inbox_id = ident.inbox_id(0).unwrap();
+        let dm_id = DmMembers {
+            member_one_inbox_id: inbox_id.as_str(),
+            member_two_inbox_id: client.inbox_id(),
+        }
+        .to_string();
+
+        let group_id = xmtp_common::rand_vec::<20>();
+        let consent_entity = hex::encode(&group_id);
+        let group = StoredGroup {
+            id: group_id,
+            dm_id: Some(dm_id.clone()),
+            added_by_inbox_id: client.inbox_id().to_string(),
+            created_at_ns: now_ns(),
+            conversation_type: ConversationType::Dm,
+            fork_details: Default::default(),
+            commit_log_public_key: None,
+            has_pending_leave_request: None,
+            installations_last_checked: now_ns(),
+            is_commit_log_forked: None,
+            last_message_ns: None,
+            maybe_forked: false,
+            membership_state: GroupMembershipState::Allowed,
+            message_disappear_from_ns: None,
+            message_disappear_in_ns: None,
+            originator_id: None,
+            paused_for_version: None,
+            rotated_at_ns: now_ns(),
+            sequence_id: None,
+            should_publish_commit_log: false,
+        };
+        group.store(&client.db()).unwrap();
+
+        let consent = StoredConsentRecord {
+            consented_at_ns: now_ns(),
+            entity: consent_entity,
+            entity_type: ConsentType::ConversationId,
+            state: ConsentState::Allowed,
+        };
+        consent.store(&client.db()).unwrap();
+
+        dm_ids.push(dm_id);
+        bar.inc(1);
+    }
+
+    bar.finish_with_message("Dms created");
+
+    Arc::new(ConsentBenchSetup { client, dm_ids })
 }
 
 /// Setup data for message benchmarks

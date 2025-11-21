@@ -706,7 +706,7 @@ impl Conversations {
     let stream_closer = RustXmtpClient::stream_message_deletions_with_callback(
       self.inner_client.clone(),
       move |message| match message {
-        Ok(message_id) => callback.on_message_deleted(message_id),
+        Ok(message_id) => callback.on_message_deleted(hex::encode(message_id)),
         Err(e) => callback.on_error(JsError::from(e)),
       },
     );

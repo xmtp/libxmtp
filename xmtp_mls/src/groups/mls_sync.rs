@@ -9,7 +9,6 @@ use super::{
     validated_commit::{CommitValidationError, LibXMTPVersion, extract_group_membership},
 };
 use crate::groups::{
-    device_sync_legacy::preference_sync_legacy::process_incoming_preference_update,
     intents::QueueIntent, mls_sync::update_group_membership::apply_readd_installations_intent,
 };
 use crate::groups::{
@@ -31,10 +30,7 @@ use crate::{
     track, track_err,
 };
 use crate::{
-    groups::{
-        device_sync_legacy::DeviceSyncContent, intents::UpdateMetadataIntentData,
-        validated_commit::ValidatedCommit,
-    },
+    groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     identity::{IdentityError, parse_credential},
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
@@ -109,7 +105,7 @@ use xmtp_proto::xmtp::mls::{
     },
     message_contents::{
         GroupUpdated, PlaintextEnvelope, WelcomePointer as WelcomePointerProto, group_updated,
-        plaintext_envelope::{Content, V1, V2, v2::MessageType},
+        plaintext_envelope::{Content, V1, V2},
     },
 };
 use zeroize::Zeroizing;
@@ -379,7 +375,7 @@ where
 
         // Even if publish fails, continue to receiving
         let result = self.publish_intents().await;
-        track_err!("Publish intents", &result, group: &self.group_id);
+        track_err!(&self.context, "Publish intents", &result, group: &self.group_id);
         if let Err(e) = result {
             tracing::error!("Sync: error publishing intents {e:?}",);
             summary.add_publish_err(e);
@@ -388,7 +384,7 @@ where
         // Even if receiving fails, we continue to post_commit
         // Errors are collected in the summary.
         let result = self.receive().await;
-        track_err!("Receive messages", &result, group: &self.group_id);
+        track_err!(&self.context, "Receive messages", &result, group: &self.group_id);
         match result {
             Ok(s) => summary.add_process(s),
             Err(e) => {
@@ -401,7 +397,7 @@ where
 
         let result = self.post_commit().await;
 
-        track_err!("Send Welcomes", &result, group: &self.group_id);
+        track_err!(&self.context, "Send Welcomes", &result, group: &self.group_id);
         if let Err(e) = result {
             tracing::error!("post commit error {e:?}",);
             summary.add_post_commit_err(e);
@@ -431,13 +427,14 @@ where
         };
 
         track!(
+            &self.context,
             "Syncing Intents",
             {"num_intents": intents.len()},
             group: &self.group_id,
             icon: "🔄"
         );
         let result = self.sync_until_intent_resolved(intent.id).await;
-        track_err!("Sync until intent resolved", &result, group: &self.group_id);
+        track_err!(&self.context, "Sync until intent resolved", &result, group: &self.group_id);
         result
     }
 
@@ -770,6 +767,7 @@ where
             }
             let epoch = mls_group.epoch().as_u64();
             track!(
+                &self.context,
                 "Commit merged",
                 {
                     "": format!("Epoch {epoch}"),
@@ -1084,6 +1082,7 @@ where
                             sequence_id: cursor.sequence_id as i64,
                             originator_id: cursor.originator_id as i64,
                             expire_at_ns: Self::get_message_expire_at_ns(mls_group),
+                            inserted_at_ns: 0, // Will be set by database
                         };
                         message.store_or_ignore(&storage.db())?;
                         // make sure internal id is on return type after its stored successfully
@@ -1111,104 +1110,10 @@ where
 
                         Ok::<_, GroupMessageProcessingError>(())
                     }
-                    Some(Content::V2(V2 {
-                        idempotency_key,
-                        message_type,
-                    })) => {
-                        match message_type {
-                            Some(MessageType::DeviceSyncRequest(history_request)) => {
-                                let content = DeviceSyncContent::Request(history_request);
-                                let content_bytes = serde_json::to_vec(&content)?;
-                                let message_id = calculate_message_id(
-                                    &self.group_id,
-                                    &content_bytes,
-                                    &idempotency_key,
-                                );
-
-                                // store the request message
-                                let message = StoredGroupMessage {
-                                    id: message_id.clone(),
-                                    group_id: self.group_id.clone(),
-                                    decrypted_message_bytes: content_bytes,
-                                    sent_at_ns: envelope_timestamp_ns,
-                                    kind: GroupMessageKind::Application,
-                                    sender_installation_id,
-                                    sender_inbox_id: sender_inbox_id.clone(),
-                                    delivery_status: DeliveryStatus::Published,
-                                    content_type: ContentType::Unknown,
-                                    version_major: 0,
-                                    version_minor: 0,
-                                    authority_id: "unknown".to_string(),
-                                    reference_id: None,
-                                    sequence_id: cursor.sequence_id as i64,
-                                    originator_id: cursor.originator_id as i64,
-                                    expire_at_ns: Self::get_message_expire_at_ns(mls_group),
-                                };
-                                message.store_or_ignore(&storage.db())?;
-                                identifier.internal_id(message_id.clone());
-
-                                tracing::info!("Received a history request.");
-                                // Send this event after the transaction completes
-                                deferred_events
-                                    .add_worker_event(SyncWorkerEvent::Request { message_id });
-                                Ok(())
-                            }
-                            Some(MessageType::DeviceSyncReply(history_reply)) => {
-                                let content = DeviceSyncContent::Reply(history_reply);
-                                let content_bytes = serde_json::to_vec(&content)?;
-                                let message_id = calculate_message_id(
-                                    &self.group_id,
-                                    &content_bytes,
-                                    &idempotency_key,
-                                );
-
-                                // store the reply message
-                                let message = StoredGroupMessage {
-                                    id: message_id.clone(),
-                                    group_id: self.group_id.clone(),
-                                    decrypted_message_bytes: content_bytes,
-                                    sent_at_ns: envelope_timestamp_ns,
-                                    kind: GroupMessageKind::Application,
-                                    sender_installation_id,
-                                    sender_inbox_id,
-                                    delivery_status: DeliveryStatus::Published,
-                                    content_type: ContentType::Unknown,
-                                    version_major: 0,
-                                    version_minor: 0,
-                                    authority_id: "unknown".to_string(),
-                                    reference_id: None,
-                                    sequence_id: cursor.sequence_id as i64,
-                                    originator_id: cursor.originator_id as i64,
-                                    expire_at_ns: Self::get_message_expire_at_ns(mls_group),
-                                };
-                                message.store_or_ignore(&storage.db())?;
-                                identifier.internal_id(message_id.clone());
-
-                                tracing::info!("Received a history reply.");
-                                // Send this event after the transaction completes
-                                deferred_events
-                                    .add_worker_event(SyncWorkerEvent::Reply { message_id });
-                                Ok(())
-                            }
-                            Some(MessageType::UserPreferenceUpdate(update)) => {
-                                // This function inserts the updates appropriately,
-                                // and returns a copy of what was inserted
-                                let updates = process_incoming_preference_update(
-                                    update,
-                                    &self.context,
-                                    storage,
-                                )?;
-
-                                // Broadcast those updates for integrators to be notified of changes
-                                // Send this event after the transaction completes
-                                deferred_events
-                                    .add_local_event(LocalEvents::PreferencesChanged(updates));
-                                Ok(())
-                            }
-                            _ => {
-                                return Err(GroupMessageProcessingError::InvalidPayload);
-                            }
-                        }
+                    Some(Content::V2(V2 { .. })) => {
+                        // V2 was used for DeviceSync V1, which is now removed.
+                        // Device Sync V2 reverted back to using V1 envelopes.
+                        Ok::<_, GroupMessageProcessingError>(())
                     }
                     None => {
                         return Err(GroupMessageProcessingError::InvalidPayload);
@@ -1271,6 +1176,7 @@ where
 
                 let epoch = mls_group.epoch().as_u64();
                 track!(
+                    &self.context,
                     "Commit merged",
                     {
                         "": format!("Epoch {epoch}"),
@@ -1867,7 +1773,7 @@ where
         process_result: Result<MessageIdentifier, GroupMessageProcessingError>,
         envelope: &xmtp_proto::types::GroupMessage,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
-        track_err!("Process message", &process_result, group: &self.group_id);
+        track_err!(&self.context, "Process message", &process_result, group: &self.group_id);
         let message = match process_result {
             Ok(m) => {
                 tracing::info!(
@@ -2007,6 +1913,7 @@ where
 
         let summary = self.process_messages(messages).await;
         track!(
+            &self.context,
             "Receive messages",
             {
                 "total": summary.total_messages.len(),
@@ -2104,6 +2011,7 @@ where
             sequence_id: cursor.sequence_id as i64,
             originator_id: cursor.originator_id as i64,
             expire_at_ns: None,
+            inserted_at_ns: 0, // Will be set by database
         };
         msg.store_or_ignore(&storage.db())?;
         Ok(Some(msg))
@@ -2142,6 +2050,7 @@ where
                     fork_details
                 );
                 track!(
+                    &self.context,
                     "Possible Fork",
                     {
                         "message_epoch": message_epoch,

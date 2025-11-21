@@ -1,17 +1,27 @@
-use crate::args;
-use color_eyre::eyre::Result;
-use std::collections::HashSet;
-use xmtp_mls::context::XmtpSharedContext;
+use crate::{
+    app::{
+        App,
+        store::{Database, IdentityStore},
+    },
+    args,
+};
+use color_eyre::eyre::{Result, eyre};
+use openmls_rust_crypto::RustCrypto;
+use std::{collections::HashSet, sync::Arc};
+use xmtp_cryptography::XmtpInstallationCredential;
+use xmtp_proto::mls_v1::fetch_key_packages_response;
 
 pub struct Query {
     opts: args::Query,
     #[allow(unused)]
     network: args::BackendOpts,
+    db: Arc<redb::ReadOnlyDatabase>,
 }
 
 impl Query {
     pub fn new(opts: args::Query, network: args::BackendOpts) -> Result<Self> {
-        Ok(Self { opts, network })
+        let db = App::readonly_db()?;
+        Ok(Self { opts, network, db })
     }
 
     pub async fn run(self) -> Result<()> {
@@ -19,17 +29,15 @@ impl Query {
             args::Query::Identity(opts) => self.identity(opts).await,
             args::Query::FetchKeyPackages(opts) => self.fetch_key_packages(opts).await,
             args::Query::BatchQueryCommitLog(opts) => self.batch_query_commit_log(opts).await,
+            args::Query::AllKeyPackages => self.all_key_packages().await,
         }
     }
 
     pub async fn identity(&self, opts: &args::Identity) -> Result<()> {
         tracing::info!("Fetching identity for inbox: {}", opts.inbox_id);
-        let client = crate::app::clients::temp_client(&self.network, None).await?;
+        let client = self.network.connect()?;
 
         let res = client
-            .context
-            .sync_api()
-            .api_client
             .get_identity_updates_v2(
                 xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesRequest {
                     requests: vec![
@@ -106,9 +114,7 @@ impl Query {
     }
 
     pub async fn fetch_key_packages(&self, opts: &args::FetchKeyPackages) -> Result<()> {
-        use openmls::prelude::OpenMlsProvider;
         tracing::info!("Fetching key packages");
-        let client = crate::app::clients::temp_client(&self.network, None).await?;
 
         let installation_keys = opts
             .installation_keys
@@ -116,58 +122,19 @@ impl Query {
             .map(|x| hex::decode(x).map_err(Into::into))
             .collect::<Result<HashSet<_>>>()?;
 
+        let client = self.network.connect()?;
         let res = client
-            .context
-            .sync_api()
-            .api_client
             .fetch_key_packages(xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest {
                 installation_keys: installation_keys.iter().cloned().collect(),
             })
             .await?;
-        for package in res.key_packages {
-            let verified = xmtp_mls::verified_key_package_v2::VerifiedKeyPackageV2::from_bytes(
-                client.context.mls_provider().crypto(),
-                package.key_package_tls_serialized.as_slice(),
-            )?;
-            let installation_id = verified.installation_id();
-            let is_verified = installation_keys.contains(&installation_id);
-            let wrapper_encryption = verified
-                .wrapper_encryption()
-                .ok()
-                .flatten()
-                .map(|e| e.algorithm);
-
-            let lifetime = verified.life_time().unwrap();
-            let not_before = lifetime.not_before;
-            let not_before_date = chrono::DateTime::from_timestamp(not_before as i64, 0).unwrap();
-            let not_after = lifetime.not_after;
-            let not_after_date = chrono::DateTime::from_timestamp(not_after as i64, 0).unwrap();
-            let last_resort = verified.inner.last_resort();
-
-            println!("  installation_id: {}", hex::encode(installation_id));
-            println!("    verified: {is_verified}");
-            println!(
-                "    wrapper_encryption: {:?}",
-                wrapper_encryption
-                    .map(|e| format!("{e:?}"))
-                    .unwrap_or_else(|| "Unknown".into())
-            );
-            println!("    not_before: {not_before_date}");
-            println!("    not_after: {not_after_date}");
-            println!("    last_resort: {last_resort}");
-            println!("    inbox_id: {}", verified.credential.inbox_id);
-            println!(
-                "    hpke_init_key: {}",
-                hex::encode(verified.hpke_init_key())
-            );
-        }
+        print_kps(&res.key_packages, installation_keys)?;
         Ok(())
     }
 
     pub async fn batch_query_commit_log(&self, opts: &args::BatchQueryCommitLog) -> Result<()> {
         use prost::Message;
         tracing::info!("Batch querying commit log");
-        let client = crate::app::clients::temp_client(&self.network, None).await?;
 
         let requests = opts
             .group_ids
@@ -183,10 +150,8 @@ impl Query {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
+        let client = self.network.connect()?;
         let res = client
-            .context
-            .sync_api()
-            .api_client
             .query_commit_log(xmtp_proto::xmtp::mls::api::v1::BatchQueryCommitLogRequest {
                 requests,
             })
@@ -230,4 +195,81 @@ impl Query {
         }
         Ok(())
     }
+
+    /// get all keypackages for installtion keys in the app database
+    pub async fn all_key_packages(&self) -> Result<()> {
+        let store: IdentityStore = self.db.clone().into();
+        let network = u64::from(&self.network);
+        let identities = store
+            .load(network)?
+            .ok_or(eyre!("no identities in db, try generating some"))?;
+        let keys: Vec<[u8; 32]> = identities
+            .map(|i| {
+                let cred =
+                    XmtpInstallationCredential::from_bytes(&i.value().installation_key).unwrap();
+                *cred.public_bytes()
+            })
+            .collect();
+        let client = self.network.connect()?;
+        tracing::info!(
+            installation_keys = ?keys.iter().map(hex::encode).collect::<Vec<_>>(),
+            "fetching key packages"
+        );
+        let res = client
+            .fetch_key_packages(xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest {
+                installation_keys: keys.iter().map(Vec::from).collect(),
+            })
+            .await?;
+        print_kps(&res.key_packages, keys.iter().map(Vec::from).collect())?;
+        tracing::info!(
+            "{} total KeyPackages for {} identities",
+            res.key_packages.len(),
+            keys.len()
+        );
+        Ok(())
+    }
+}
+
+fn print_kps(
+    kps: &[fetch_key_packages_response::KeyPackage],
+    keys: HashSet<Vec<u8>>,
+) -> Result<()> {
+    for package in kps {
+        let verified = xmtp_mls::verified_key_package_v2::VerifiedKeyPackageV2::from_bytes(
+            &RustCrypto::default(),
+            package.key_package_tls_serialized.as_slice(),
+        )?;
+        let installation_id = verified.installation_id();
+        let is_verified = keys.contains(&installation_id);
+        let wrapper_encryption = verified
+            .wrapper_encryption()
+            .ok()
+            .flatten()
+            .map(|e| e.algorithm);
+
+        let lifetime = verified.life_time().unwrap();
+        let not_before = lifetime.not_before;
+        let not_before_date = chrono::DateTime::from_timestamp(not_before as i64, 0).unwrap();
+        let not_after = lifetime.not_after;
+        let not_after_date = chrono::DateTime::from_timestamp(not_after as i64, 0).unwrap();
+        let last_resort = verified.inner.last_resort();
+
+        println!("  installation_id: {}", hex::encode(installation_id));
+        println!("    verified: {is_verified}");
+        println!(
+            "    wrapper_encryption: {:?}",
+            wrapper_encryption
+                .map(|e| format!("{e:?}"))
+                .unwrap_or_else(|| "Unknown".into())
+        );
+        println!("    not_before: {not_before_date}");
+        println!("    not_after: {not_after_date}");
+        println!("    last_resort: {last_resort}");
+        println!("    inbox_id: {}", verified.credential.inbox_id);
+        println!(
+            "    hpke_init_key: {}",
+            hex::encode(verified.hpke_init_key())
+        );
+    }
+    Ok(())
 }

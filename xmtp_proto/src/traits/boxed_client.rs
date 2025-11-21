@@ -38,16 +38,11 @@ pub trait BoxClientT<Err>:
 }
 
 impl<T, Err> BoxClientT<Err> for T where
-    T: ?Sized
-        + MaybeSend
-        + MaybeSync
-        + IsConnectedCheck
-        + Client<Error = Err, Stream = BoxedStreamT<Err>>
+    T: ?Sized + IsConnectedCheck + Client<Error = Err, Stream = BoxedStreamT<Err>>
 {
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C> Client for BoxedClient<C>
 where
     C: Client,
@@ -97,11 +92,10 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> IsConnectedCheck for BoxedClient<T>
 where
-    T: ?Sized + MaybeSend + MaybeSync + IsConnectedCheck,
+    T: ?Sized + IsConnectedCheck,
 {
     /// Check if a client is connected
     async fn is_connected(&self) -> bool {

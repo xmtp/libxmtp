@@ -1,7 +1,6 @@
 pub mod commit_log;
 pub mod commit_log_key;
 pub mod device_sync;
-pub mod device_sync_legacy;
 pub mod disappearing_messages;
 mod error;
 pub mod group_membership;
@@ -567,7 +566,7 @@ where
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
 
-        track!("Group Create", { "conversation_type": ConversationType::Dm }, group: &new_group.group_id);
+        track!(context, "Group Create", { "conversation_type": ConversationType::Dm }, group: &new_group.group_id);
 
         Ok(new_group)
     }
@@ -721,6 +720,7 @@ where
             sequence_id: 0,
             originator_id: 0,
             expire_at_ns: None,
+            inserted_at_ns: 0, // Will be set by database
         };
         group_message.store(&self.context.db())?;
 
@@ -869,6 +869,7 @@ where
 
         self.sync_until_intent_resolved(intent.id).await?;
         track!(
+            &self.context,
             "Group Membership Change",
             {
                 "added": ids,
@@ -934,6 +935,7 @@ where
         let _ = self.sync_until_intent_resolved(intent.id).await?;
 
         track!(
+            &self.context,
             "Group Membership Change",
             {
                 "added": (),
@@ -984,6 +986,7 @@ where
         let _ = self.sync_until_intent_resolved(intent.id).await?;
 
         track!(
+            &self.context,
             "Readd Installations",
             {
                 "installations": installations

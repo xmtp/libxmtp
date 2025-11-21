@@ -134,8 +134,7 @@ impl Stream for GrpcStream {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl Client for GrpcClient {
     type Error = GrpcError;
     type Stream = GrpcStream;
@@ -186,8 +185,7 @@ impl Client for GrpcClient {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl IsConnectedCheck for GrpcClient {
     async fn is_connected(&self) -> bool {
         self.inner.clone().ready().await.is_ok()

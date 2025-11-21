@@ -16,7 +16,6 @@
 , sqlcipher
 , sqlite
 , corepack
-, lnav
 , zstd
 , foundry-bin
 , graphite-cli
@@ -40,6 +39,8 @@
 , xmtp
 , omnix
 , toxiproxy
+, vscode-extensions
+, lldb
 , ...
 }:
 let
@@ -87,7 +88,6 @@ mkShell {
       cargo-nextest
       cargo-machete
       inferno
-      lnav
       jq
       curl
       lcov
@@ -95,6 +95,8 @@ mkShell {
       binaryen
       wasm-pack
       binaryen
+      vscode-extensions.vadimcn.vscode-lldb
+      lldb
 
       # Protobuf
       buf

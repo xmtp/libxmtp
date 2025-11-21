@@ -1,10 +1,10 @@
 use super::*;
-
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, consent_backup::ConsentSave};
 
+#[xmtp_common::async_trait]
 impl BackupRecordProvider for ConsentSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records<D>(
+    async fn backup_records<D>(
         db: Arc<D>,
         _start_ns: Option<i64>,
         _end_ns: Option<i64>,

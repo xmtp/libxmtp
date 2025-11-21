@@ -60,9 +60,9 @@ impl ContentCodec<Intent> for IntentCodec {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct Intent {
-    id: String,
-    action_id: String,
-    metadata: Option<HashMap<String, Value>>,
+    pub id: String,
+    pub action_id: String,
+    pub metadata: Option<HashMap<String, Value>>,
 }
 
 #[cfg(test)]
