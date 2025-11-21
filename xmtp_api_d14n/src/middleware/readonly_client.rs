@@ -1,6 +1,8 @@
 //! We define a very simple strategy for disabling writes on certain clients.
 
-mod test;
+xmtp_common::if_test! {
+    mod test;
+}
 
 use derive_builder::Builder;
 use prost::bytes::Bytes;
