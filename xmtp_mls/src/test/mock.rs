@@ -13,7 +13,7 @@ use crate::subscriptions::process_message::{
 use crate::worker::{MetricsCasting, WorkerKind};
 use crate::{
     builder::SyncWorkerMode, client::DeviceSync, context::XmtpMlsLocalContext, identity::Identity,
-    mutex_registry::MutexRegistry, utils::VersionInfo,
+    utils::VersionInfo,
 };
 use alloy::signers::local::PrivateKeySigner;
 use mockall::mock;
@@ -78,7 +78,6 @@ impl Clone for NewMockContext {
             sync_api_client: self.sync_api_client.clone(),
             store: self.store.clone(),
             mls_storage: self.mls_storage.clone(),
-            mutexes: self.mutexes.clone(),
             mls_commit_lock: self.mls_commit_lock.clone(),
             version_info: self.version_info.clone(),
             local_events: self.local_events.clone(),
@@ -151,10 +150,6 @@ impl XmtpSharedContext for NewMockContext {
 
     fn mls_commit_lock(&self) -> &Arc<crate::GroupCommitLock> {
         &self.mls_commit_lock
-    }
-
-    fn mutexes(&self) -> &MutexRegistry {
-        &self.mutexes
     }
 
     fn task_channels(&self) -> &crate::tasks::TaskWorkerChannels {
