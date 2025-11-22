@@ -2,6 +2,7 @@ use futures::{StreamExt, TryFutureExt, stream};
 use std::collections::HashSet;
 use std::future::Future;
 
+use crate::context::ClientMode;
 use crate::groups::intents::GROUP_KEY_ROTATION_INTERVAL_NS;
 use crate::groups::{GroupError, MlsGroup, XmtpSharedContext};
 use crate::track;
@@ -30,6 +31,10 @@ impl QueueIntentBuilder {
     where
         C: XmtpSharedContext,
     {
+        if group.context.mode() == ClientMode::Notification {
+            return Err(GroupError::IntentsDisabled);
+        }
+
         let intent = self.build()?;
         group.context.mls_storage().transaction(move |conn| {
             let storage = conn.key_store();
@@ -53,12 +58,17 @@ impl QueueIntentBuilder {
         GroupError: From<E>,
         E: std::fmt::Debug + std::error::Error,
     {
-        if groups.is_empty() {
-            return Ok(vec![]);
+        let context = {
+            let Some(first_group) = groups.iter().nth(0) else {
+                return Ok(vec![]);
+            };
+            first_group.context.clone()
+        };
+        if context.mode() == ClientMode::Notification {
+            return Err(GroupError::IntentsDisabled);
         }
 
-        let groups: Vec<MlsGroup<C>> = Vec::from_iter(groups);
-        let context: C = groups.first().expect("checked for empty").context.clone();
+        let groups = Vec::from_iter(groups);
 
         // get the intent data for each group
         let (groups, errors): (Vec<_>, Vec<_>) = stream::iter(groups)

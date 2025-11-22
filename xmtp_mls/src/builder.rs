@@ -563,6 +563,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     }
 
     pub fn with_client_mode(mut self, client_mode: Option<ClientMode>) -> Self {
+        self.disable_workers =
+            self.disable_workers || matches!(client_mode, Some(ClientMode::Notification));
         self.client_mode = client_mode;
         self
     }

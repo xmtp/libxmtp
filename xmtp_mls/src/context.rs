@@ -29,7 +29,7 @@ use xmtp_proto::types::InstallationId;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::DeviceSyncClient;
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, Eq, PartialEq)]
 pub enum ClientMode {
     #[default]
     Default,
@@ -233,6 +233,7 @@ where
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
     fn mutexes(&self) -> &MutexRegistry;
+    fn mode(&self) -> ClientMode;
 }
 
 impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
@@ -317,6 +318,10 @@ where
 
     fn mutexes(&self) -> &MutexRegistry {
         &self.mutexes
+    }
+
+    fn mode(&self) -> ClientMode {
+        self.mode
     }
 }
 
@@ -403,5 +408,9 @@ where
 
     fn mutexes(&self) -> &MutexRegistry {
         <T as XmtpSharedContext>::mutexes(self)
+    }
+
+    fn mode(&self) -> ClientMode {
+        <T as XmtpSharedContext>::mode(self)
     }
 }
