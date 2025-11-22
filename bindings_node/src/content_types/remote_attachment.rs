@@ -15,7 +15,7 @@ pub struct RemoteAttachment {
   pub salt: Vec<u8>,
   pub nonce: Vec<u8>,
   pub scheme: String,
-  pub content_length: i64,
+  pub content_length: u32,
   pub filename: Option<String>,
 }
 
@@ -28,7 +28,7 @@ impl From<xmtp_content_types::remote_attachment::RemoteAttachment> for RemoteAtt
       salt: remote.salt,
       nonce: remote.nonce,
       scheme: remote.scheme,
-      content_length: remote.content_length as i64,
+      content_length: remote.content_length as u32,
       filename: remote.filename,
     }
   }
