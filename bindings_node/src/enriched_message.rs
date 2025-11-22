@@ -87,7 +87,13 @@ impl DecodedMessage {
   #[napi(getter)]
   pub fn remote_attachment_content(&self) -> Option<RemoteAttachment> {
     match &self.inner.content {
-      MessageBody::RemoteAttachment(ra) => Some(ra.clone().into()),
+      MessageBody::RemoteAttachment(ra) => match ra.clone().try_into() {
+        Ok(ra) => Some(ra),
+        Err(e) => {
+          tracing::error!("Failed to convert RemoteAttachment: {}", e);
+          None
+        }
+      },
       _ => None,
     }
   }

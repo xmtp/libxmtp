@@ -2985,7 +2985,7 @@ pub fn decode_read_receipt(bytes: Vec<u8>) -> Result<FfiReadReceipt, GenericErro
 pub fn encode_remote_attachment(
     remote_attachment: FfiRemoteAttachment,
 ) -> Result<Vec<u8>, GenericError> {
-    let remote_attachment: RemoteAttachment = remote_attachment.into();
+    let remote_attachment: RemoteAttachment = remote_attachment.try_into()?;
 
     let encoded = RemoteAttachmentCodec::encode(remote_attachment)
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;

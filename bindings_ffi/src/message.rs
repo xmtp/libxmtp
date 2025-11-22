@@ -441,18 +441,29 @@ impl From<RemoteAttachment> for FfiRemoteAttachment {
     }
 }
 
-impl From<FfiRemoteAttachment> for RemoteAttachment {
-    fn from(ffi: FfiRemoteAttachment) -> Self {
-        RemoteAttachment {
+impl TryFrom<FfiRemoteAttachment> for RemoteAttachment {
+    type Error = GenericError;
+
+    fn try_from(ffi: FfiRemoteAttachment) -> Result<Self, Self::Error> {
+        let content_length =
+            usize::try_from(ffi.content_length).map_err(|_| GenericError::Generic {
+                err: format!(
+                    "content_length {} exceeds maximum value for this platform ({} bytes)",
+                    ffi.content_length,
+                    usize::MAX
+                ),
+            })?;
+
+        Ok(RemoteAttachment {
             url: ffi.url,
             content_digest: ffi.content_digest,
             secret: ffi.secret,
             salt: ffi.salt,
             nonce: ffi.nonce,
             scheme: ffi.scheme,
-            content_length: ffi.content_length as usize,
+            content_length,
             filename: ffi.filename,
-        }
+        })
     }
 }
 

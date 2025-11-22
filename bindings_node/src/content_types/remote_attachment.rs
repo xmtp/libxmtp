@@ -1,6 +1,7 @@
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
 use prost::Message;
+use std::convert::TryFrom;
 use xmtp_content_types::{ContentCodec, remote_attachment::RemoteAttachmentCodec};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -19,18 +20,30 @@ pub struct RemoteAttachment {
   pub filename: Option<String>,
 }
 
-impl From<xmtp_content_types::remote_attachment::RemoteAttachment> for RemoteAttachment {
-  fn from(remote: xmtp_content_types::remote_attachment::RemoteAttachment) -> Self {
-    Self {
+impl TryFrom<xmtp_content_types::remote_attachment::RemoteAttachment> for RemoteAttachment {
+  type Error = Error;
+
+  fn try_from(
+    remote: xmtp_content_types::remote_attachment::RemoteAttachment,
+  ) -> std::result::Result<Self, Self::Error> {
+    let content_length = u32::try_from(remote.content_length).map_err(|_| {
+      Error::from_reason(format!(
+        "content_length {} exceeds maximum value of {} bytes",
+        remote.content_length,
+        u32::MAX
+      ))
+    })?;
+
+    Ok(Self {
       url: remote.url,
       content_digest: remote.content_digest,
       secret: remote.secret,
       salt: remote.salt,
       nonce: remote.nonce,
       scheme: remote.scheme,
-      content_length: remote.content_length as u32,
+      content_length,
       filename: remote.filename,
-    }
+    })
   }
 }
 
@@ -68,8 +81,10 @@ pub fn decode_remote_attachment(bytes: Uint8Array) -> Result<RemoteAttachment> {
   let encoded_content =
     EncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
 
-  // Use RemoteAttachmentCodec to decode into RemoteAttachment and convert to RemoteAttachment
-  RemoteAttachmentCodec::decode(encoded_content)
-    .map(Into::into)
-    .map_err(|e| napi::Error::from_reason(e.to_string()))
+  // Use RemoteAttachmentCodec to decode into RemoteAttachment
+  let attachment = RemoteAttachmentCodec::decode(encoded_content)
+    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+  // Convert to bindings type with error handling
+  RemoteAttachment::try_from(attachment)
 }
