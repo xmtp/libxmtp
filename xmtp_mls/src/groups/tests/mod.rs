@@ -4910,3 +4910,114 @@ async fn non_retryable_error_increments_cursor() {
         .unwrap();
     assert_eq!(new_cursor, last_cursor);
 }
+
+#[xmtp_common::test(flavor = "multi_thread")]
+async fn test_concurrent_metadata_updates_with_recovery() {
+    let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+    // Alix creates a group and adds Bo
+    let alix_group = alix.create_group(None, None).unwrap();
+    alix_group
+        .add_members_by_inbox_id(&[bo.inbox_id()])
+        .await
+        .unwrap();
+
+    // Bo syncs and gets the group
+    bo.sync_welcomes().await.unwrap();
+    let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
+    let bo_group = bo_groups.first().unwrap();
+    bo_group.sync().await.unwrap();
+
+    // Both clients are now at the same epoch
+    let initial_epoch = alix_group.epoch().await.unwrap();
+    assert_eq!(bo_group.epoch().await.unwrap(), initial_epoch);
+
+    // Both clients attempt metadata updates at the same time (same epoch)
+    // This simulates a race condition where both commits are created from the same epoch
+    let alix_update = alix_group.update_group_name("Alix's Group".to_string());
+    let bo_update = bo_group.update_group_name("Bo's Group".to_string());
+
+    // Execute both updates concurrently
+    let (alix_result, bo_result) = tokio::join!(alix_update, bo_update);
+
+    // Both should succeed locally (creating intents)
+    assert!(alix_result.is_ok());
+    assert!(bo_result.is_ok());
+
+    // Sync both groups - one commit will succeed, the other will fail due to epoch mismatch
+    let alix_sync = alix_group.sync();
+    let bo_sync = bo_group.sync();
+    let (alix_sync_result, bo_sync_result) = tokio::join!(alix_sync, bo_sync);
+
+    // At least one sync should succeed
+    let alix_sync_ok = alix_sync_result.is_ok();
+    let bo_sync_ok = bo_sync_result.is_ok();
+
+    // Sync again to ensure both clients process all messages
+    alix_group.sync().await.unwrap();
+    bo_group.sync().await.unwrap();
+
+    // Both groups should now be at a higher epoch than initial
+    let final_alix_epoch = alix_group.epoch().await.unwrap();
+    let final_bo_epoch = bo_group.epoch().await.unwrap();
+
+    assert!(final_alix_epoch > initial_epoch);
+    assert!(final_bo_epoch > initial_epoch);
+    assert_eq!(final_alix_epoch, final_bo_epoch);
+
+    // Verify that both clients can still perform future operations
+    // Alix sends a message
+    alix_group
+        .send_message("Hello from Alix".as_bytes(), SendMessageOpts::default())
+        .await
+        .unwrap();
+
+    // Bo sends a message
+    bo_group
+        .send_message("Hello from Bo".as_bytes(), SendMessageOpts::default())
+        .await
+        .unwrap();
+
+    // Both sync and should be able to see each other's messages
+    alix_group.sync().await.unwrap();
+    bo_group.sync().await.unwrap();
+
+    // Verify both can see the messages
+    let alix_messages = alix_group
+        .find_messages(&MsgQueryArgs {
+            kind: Some(GroupMessageKind::Application),
+            ..Default::default()
+        })
+        .unwrap();
+    let bo_messages = bo_group
+        .find_messages(&MsgQueryArgs {
+            kind: Some(GroupMessageKind::Application),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(alix_messages.len(), 2);
+    assert_eq!(bo_messages.len(), 2);
+
+    // Verify both clients can see both messages
+    let alix_message_texts: Vec<String> = alix_messages
+        .iter()
+        .map(|m| String::from_utf8_lossy(&m.decrypted_message_bytes).to_string())
+        .collect();
+    let bo_message_texts: Vec<String> = bo_messages
+        .iter()
+        .map(|m| String::from_utf8_lossy(&m.decrypted_message_bytes).to_string())
+        .collect();
+
+    assert!(alix_message_texts.contains(&"Hello from Alix".to_string()));
+    assert!(alix_message_texts.contains(&"Hello from Bo".to_string()));
+    assert!(bo_message_texts.contains(&"Hello from Alix".to_string()));
+    assert!(bo_message_texts.contains(&"Hello from Bo".to_string()));
+
+    // Verify both clients are still at the same epoch after the message exchange
+    assert_eq!(
+        alix_group.epoch().await.unwrap(),
+        bo_group.epoch().await.unwrap()
+    );
+}
