@@ -37,6 +37,7 @@ pub fn context() -> NewMockContext {
         sync_api_client: ApiClientWrapper::new(MockApiClient::new(), Default::default()),
         task_channels: TaskWorkerChannels::default(),
         worker_metrics: Arc::default(),
+        mode: None,
     }
 }
 

@@ -57,6 +57,7 @@ use xmtp_id::{
     },
 };
 use xmtp_mls::client::inbox_addresses_with_verifier;
+use xmtp_mls::context::ClientMode;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::ConversationDebugInfo;
 use xmtp_mls::groups::device_sync::DeviceSyncError;
@@ -285,6 +286,7 @@ pub async fn create_client(
     allow_offline: Option<bool>,
     disable_events: Option<bool>,
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
+    client_mode: Option<FfiClientMode>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -337,6 +339,7 @@ pub async fn create_client(
         .with_remote_verifier()?
         .with_allow_offline(allow_offline)
         .with_disable_events(disable_events)
+        .with_client_mode(client_mode.map(Into::into))
         .store(store);
 
     if let Some(sync_worker_mode) = device_sync_mode {
@@ -493,6 +496,14 @@ pub struct FfiXmtpClient {
     worker: FfiSyncWorker,
     #[allow(dead_code)]
     account_identifier: FfiIdentifier,
+}
+impl From<FfiClientMode> for ClientMode {
+    fn from(mode: FfiClientMode) -> Self {
+        match mode {
+            FfiClientMode::Default => Self::Default,
+            FfiClientMode::Notification => Self::Notification,
+        }
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]

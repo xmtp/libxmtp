@@ -29,6 +29,13 @@ use xmtp_proto::types::InstallationId;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::DeviceSyncClient;
 
+#[derive(Default, Clone, Copy)]
+pub enum ClientMode {
+    #[default]
+    Default,
+    Notification,
+}
+
 /// The local context a XMTP MLS needs to function:
 /// - Sqlite Database
 /// - Identity for the User
@@ -53,6 +60,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     // pub(crate) workers: Arc<WorkerRunner>,
     pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
     pub(crate) task_channels: TaskWorkerChannels,
+    pub(crate) mode: ClientMode,
 }
 
 impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S>
@@ -124,6 +132,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             fork_recovery_opts: self.fork_recovery_opts,
             worker_metrics: self.worker_metrics,
             task_channels: self.task_channels,
+            mode: self.mode,
         }
     }
 }
