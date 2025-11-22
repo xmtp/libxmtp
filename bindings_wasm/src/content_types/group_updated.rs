@@ -18,27 +18,51 @@ pub struct GroupUpdated {
   pub left_inboxes: Vec<Inbox>,
   #[wasm_bindgen(js_name = "metadataFieldChanges")]
   pub metadata_field_changes: Vec<MetadataFieldChange>,
+  #[wasm_bindgen(js_name = "addedAdminInboxes")]
+  pub added_admin_inboxes: Vec<Inbox>,
+  #[wasm_bindgen(js_name = "removedAdminInboxes")]
+  pub removed_admin_inboxes: Vec<Inbox>,
+  #[wasm_bindgen(js_name = "addedSuperAdminInboxes")]
+  pub added_super_admin_inboxes: Vec<Inbox>,
+  #[wasm_bindgen(js_name = "removedSuperAdminInboxes")]
+  pub removed_super_admin_inboxes: Vec<Inbox>,
 }
 
 impl From<xmtp_proto::xmtp::mls::message_contents::GroupUpdated> for GroupUpdated {
   fn from(updated: xmtp_proto::xmtp::mls::message_contents::GroupUpdated) -> Self {
     Self {
       initiated_by_inbox_id: updated.initiated_by_inbox_id,
-      added_inboxes: updated
-        .added_inboxes
-        .into_iter()
-        .map(|i| i.into())
-        .collect(),
+      added_inboxes: updated.added_inboxes.into_iter().map(Into::into).collect(),
       removed_inboxes: updated
         .removed_inboxes
         .into_iter()
-        .map(|i| i.into())
+        .map(Into::into)
         .collect(),
-      left_inboxes: updated.left_inboxes.into_iter().map(|i| i.into()).collect(),
+      left_inboxes: updated.left_inboxes.into_iter().map(Into::into).collect(),
       metadata_field_changes: updated
         .metadata_field_changes
         .into_iter()
         .map(|c| c.into())
+        .collect(),
+      added_admin_inboxes: updated
+        .added_admin_inboxes
+        .into_iter()
+        .map(Into::into)
+        .collect(),
+      removed_admin_inboxes: updated
+        .removed_admin_inboxes
+        .into_iter()
+        .map(Into::into)
+        .collect(),
+      added_super_admin_inboxes: updated
+        .added_super_admin_inboxes
+        .into_iter()
+        .map(Into::into)
+        .collect(),
+      removed_super_admin_inboxes: updated
+        .removed_super_admin_inboxes
+        .into_iter()
+        .map(Into::into)
         .collect(),
     }
   }
@@ -48,21 +72,37 @@ impl From<GroupUpdated> for xmtp_proto::xmtp::mls::message_contents::GroupUpdate
   fn from(updated: GroupUpdated) -> Self {
     Self {
       initiated_by_inbox_id: updated.initiated_by_inbox_id,
-      added_inboxes: updated
-        .added_inboxes
-        .into_iter()
-        .map(|i| i.into())
-        .collect(),
+      added_inboxes: updated.added_inboxes.into_iter().map(Into::into).collect(),
       removed_inboxes: updated
         .removed_inboxes
         .into_iter()
-        .map(|i| i.into())
+        .map(Into::into)
         .collect(),
-      left_inboxes: updated.left_inboxes.into_iter().map(|i| i.into()).collect(),
+      left_inboxes: updated.left_inboxes.into_iter().map(Into::into).collect(),
       metadata_field_changes: updated
         .metadata_field_changes
         .into_iter()
         .map(|c| c.into())
+        .collect(),
+      added_admin_inboxes: updated
+        .added_admin_inboxes
+        .into_iter()
+        .map(Into::into)
+        .collect(),
+      removed_admin_inboxes: updated
+        .removed_admin_inboxes
+        .into_iter()
+        .map(Into::into)
+        .collect(),
+      added_super_admin_inboxes: updated
+        .added_super_admin_inboxes
+        .into_iter()
+        .map(Into::into)
+        .collect(),
+      removed_super_admin_inboxes: updated
+        .removed_super_admin_inboxes
+        .into_iter()
+        .map(Into::into)
         .collect(),
     }
   }

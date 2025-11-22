@@ -1032,6 +1032,18 @@ async fn test_group_updated_codec() {
                 new_value: Some("Added description".to_string()),
             },
         ],
+        added_admin_inboxes: vec![FfiInbox {
+            inbox_id: "inbox_admin_1".to_string(),
+        }],
+        removed_admin_inboxes: vec![FfiInbox {
+            inbox_id: "inbox_old_admin".to_string(),
+        }],
+        added_super_admin_inboxes: vec![FfiInbox {
+            inbox_id: "inbox_super_admin_1".to_string(),
+        }],
+        removed_super_admin_inboxes: vec![FfiInbox {
+            inbox_id: "inbox_old_super_admin".to_string(),
+        }],
     };
     let encoded = encode_group_updated(basic.clone()).unwrap();
     let decoded = decode_group_updated(encoded).unwrap();
@@ -1043,6 +1055,20 @@ async fn test_group_updated_codec() {
     );
     assert_eq!(decoded.removed_inboxes.len(), 1);
     assert_eq!(decoded.metadata_field_changes.len(), 2);
+    assert_eq!(decoded.added_admin_inboxes.len(), 1);
+    assert_eq!(decoded.added_admin_inboxes[0].inbox_id, "inbox_admin_1");
+    assert_eq!(decoded.removed_admin_inboxes.len(), 1);
+    assert_eq!(decoded.removed_admin_inboxes[0].inbox_id, "inbox_old_admin");
+    assert_eq!(decoded.added_super_admin_inboxes.len(), 1);
+    assert_eq!(
+        decoded.added_super_admin_inboxes[0].inbox_id,
+        "inbox_super_admin_1"
+    );
+    assert_eq!(decoded.removed_super_admin_inboxes.len(), 1);
+    assert_eq!(
+        decoded.removed_super_admin_inboxes[0].inbox_id,
+        "inbox_old_super_admin"
+    );
 
     // Test with minimal data - all lists empty
     let minimal = FfiGroupUpdated {
@@ -1051,6 +1077,10 @@ async fn test_group_updated_codec() {
         removed_inboxes: vec![],
         left_inboxes: vec![],
         metadata_field_changes: vec![],
+        added_admin_inboxes: vec![],
+        removed_admin_inboxes: vec![],
+        added_super_admin_inboxes: vec![],
+        removed_super_admin_inboxes: vec![],
     };
     let encoded = encode_group_updated(minimal.clone()).unwrap();
     let decoded = decode_group_updated(encoded).unwrap();
@@ -1074,6 +1104,10 @@ async fn test_group_updated_codec() {
             },
         ],
         metadata_field_changes: vec![],
+        added_admin_inboxes: vec![],
+        removed_admin_inboxes: vec![],
+        added_super_admin_inboxes: vec![],
+        removed_super_admin_inboxes: vec![],
     };
     let encoded = encode_group_updated(with_left.clone()).unwrap();
     let decoded = decode_group_updated(encoded).unwrap();
@@ -1119,6 +1153,10 @@ async fn test_group_updated_codec() {
                 new_value: None,
             },
         ],
+        added_admin_inboxes: vec![],
+        removed_admin_inboxes: vec![],
+        added_super_admin_inboxes: vec![],
+        removed_super_admin_inboxes: vec![],
     };
     let encoded = encode_group_updated(with_metadata.clone()).unwrap();
     let decoded = decode_group_updated(encoded).unwrap();
@@ -1186,6 +1224,10 @@ async fn test_group_updated_codec() {
                 new_value: Some("A new description was added".to_string()),
             },
         ],
+        added_admin_inboxes: vec![],
+        removed_admin_inboxes: vec![],
+        added_super_admin_inboxes: vec![],
+        removed_super_admin_inboxes: vec![],
     };
     let encoded = encode_group_updated(complex.clone()).unwrap();
     let decoded = decode_group_updated(encoded).unwrap();

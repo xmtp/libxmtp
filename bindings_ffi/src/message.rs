@@ -240,6 +240,10 @@ pub struct FfiGroupUpdated {
     pub removed_inboxes: Vec<FfiInbox>,
     pub left_inboxes: Vec<FfiInbox>,
     pub metadata_field_changes: Vec<FfiMetadataFieldChange>,
+    pub added_admin_inboxes: Vec<FfiInbox>,
+    pub removed_admin_inboxes: Vec<FfiInbox>,
+    pub added_super_admin_inboxes: Vec<FfiInbox>,
+    pub removed_super_admin_inboxes: Vec<FfiInbox>,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -598,6 +602,26 @@ impl From<GroupUpdated> for FfiGroupUpdated {
                 .into_iter()
                 .map(Into::into)
                 .collect(),
+            added_admin_inboxes: updated
+                .added_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            removed_admin_inboxes: updated
+                .removed_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            added_super_admin_inboxes: updated
+                .added_super_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            removed_super_admin_inboxes: updated
+                .removed_super_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }
@@ -615,6 +639,26 @@ impl From<FfiGroupUpdated> for GroupUpdated {
             left_inboxes: updated.left_inboxes.into_iter().map(Into::into).collect(),
             metadata_field_changes: updated
                 .metadata_field_changes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            added_admin_inboxes: updated
+                .added_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            removed_admin_inboxes: updated
+                .removed_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            added_super_admin_inboxes: updated
+                .added_super_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            removed_super_admin_inboxes: updated
+                .removed_super_admin_inboxes
                 .into_iter()
                 .map(Into::into)
                 .collect(),

@@ -14,6 +14,10 @@ pub struct GroupUpdated {
   pub removed_inboxes: Vec<Inbox>,
   pub left_inboxes: Vec<Inbox>,
   pub metadata_field_changes: Vec<MetadataFieldChange>,
+  pub added_admin_inboxes: Vec<Inbox>,
+  pub removed_admin_inboxes: Vec<Inbox>,
+  pub added_super_admin_inboxes: Vec<Inbox>,
+  pub removed_super_admin_inboxes: Vec<Inbox>,
 }
 
 impl From<xmtp_proto::xmtp::mls::message_contents::GroupUpdated> for GroupUpdated {
@@ -36,6 +40,26 @@ impl From<xmtp_proto::xmtp::mls::message_contents::GroupUpdated> for GroupUpdate
         .map(|c| c.into())
         .collect(),
       left_inboxes: updated.left_inboxes.into_iter().map(|i| i.into()).collect(),
+      added_admin_inboxes: updated
+        .added_admin_inboxes
+        .into_iter()
+        .map(|i| i.into())
+        .collect(),
+      removed_admin_inboxes: updated
+        .removed_admin_inboxes
+        .into_iter()
+        .map(|i| i.into())
+        .collect(),
+      added_super_admin_inboxes: updated
+        .added_super_admin_inboxes
+        .into_iter()
+        .map(|i| i.into())
+        .collect(),
+      removed_super_admin_inboxes: updated
+        .removed_super_admin_inboxes
+        .into_iter()
+        .map(|i| i.into())
+        .collect(),
     }
   }
 }
@@ -59,6 +83,26 @@ impl From<GroupUpdated> for xmtp_proto::xmtp::mls::message_contents::GroupUpdate
         .metadata_field_changes
         .into_iter()
         .map(|c| c.into())
+        .collect(),
+      added_admin_inboxes: updated
+        .added_admin_inboxes
+        .into_iter()
+        .map(|i| i.into())
+        .collect(),
+      removed_admin_inboxes: updated
+        .removed_admin_inboxes
+        .into_iter()
+        .map(|i| i.into())
+        .collect(),
+      added_super_admin_inboxes: updated
+        .added_super_admin_inboxes
+        .into_iter()
+        .map(|i| i.into())
+        .collect(),
+      removed_super_admin_inboxes: updated
+        .removed_super_admin_inboxes
+        .into_iter()
+        .map(|i| i.into())
         .collect(),
     }
   }
