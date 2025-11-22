@@ -5,16 +5,31 @@ PACKAGE="${1:-}"
 if [[ -n "${PACKAGE}" ]]; then
   PACKAGE=" -p ${PACKAGE}"
 else
-  PACKAGE=" --workspace --exclude xdbg --exclude xmtpv3 --exclude bindings_node --exclude mls_validation_service --exclude xmtp_cli --exclude xmtp_api_grpc --exclude xmtp_proto"
+  # wasm does not like --workspace flag
+  PACKAGE="-p xmtp_id -p xmtp_cryptography -p xmtp_api -p bindings_wasm -p xmtp_api_d14n -p xmtp_db -p xmtp_api_grpc"
+fi
+XMTP_NIX_ENV="${XMTP_NIX_ENV:-"no"}"
+
+if [[ "$XMTP_NIX_ENV" == "yes" ]]; then
+  echo "detected nix environment"
+  CARGO="cargo"
+else
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "Error: cargo is required to be installed"
+    exit 1
+  fi
+  if ! command -v geckodriver >/dev/null 2>&1; then
+    echo "Error: geckodriver must be installed and accessible"
+    exit 1
+  fi
+  CARGO="cargo"
 fi
 
 TESTS="${2:-}"
-
-export RUST_LOG=off
+export RUST_LOG=info
 export WASM_BINDGEN_TEST_ONLY_WEB=1
-export WASM_BINDGEN_SPLIT_LINKED_MODULES=1
+export WASM_BINDGEN_USE_DEDICATED_WORKER=1
 export WASM_BINDGEN_TEST_TIMEOUT=180
 export RSTEST_TIMEOUT=60
-cargo test --locked --release --target wasm32-unknown-unknown --timings \
-  $PACKAGE -- \
-  $TESTS
+$CARGO test --locked --release --target wasm32-unknown-unknown \
+  $PACKAGE -- $TESTS --nocapture
