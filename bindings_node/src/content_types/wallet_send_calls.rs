@@ -120,8 +120,7 @@ pub fn encode_wallet_send_calls(wallet_send_calls: WalletSendCalls) -> Result<Ui
 #[napi]
 pub fn decode_wallet_send_calls(bytes: Uint8Array) -> Result<WalletSendCalls> {
   // Decode bytes into EncodedContent
-  let encoded_content =
-    EncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
+  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use WalletSendCallsCodec to decode into WalletSendCalls and convert to WalletSendCalls
   WalletSendCallsCodec::decode(encoded_content)

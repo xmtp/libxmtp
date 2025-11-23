@@ -35,8 +35,7 @@ pub fn encode_text(text: String) -> Result<Uint8Array> {
 #[napi]
 pub fn decode_text(bytes: Uint8Array) -> Result<String> {
   // Decode bytes into EncodedContent
-  let encoded_content =
-    EncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
+  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use TextCodec to decode into String
   TextCodec::decode(encoded_content).map_err(|e| napi::Error::from_reason(e.to_string()))

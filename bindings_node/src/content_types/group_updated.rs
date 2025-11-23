@@ -167,7 +167,7 @@ impl From<MetadataFieldChange>
 #[napi]
 pub fn decode_group_updated(bytes: Uint8Array) -> Result<GroupUpdated> {
   // Decode bytes into EncodedContent
-  let encoded = EncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
+  let encoded = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use GroupUpdatedCodec to decode into GroupUpdated and convert to GroupUpdated
   GroupUpdatedCodec::decode(encoded)

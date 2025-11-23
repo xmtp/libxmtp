@@ -49,8 +49,7 @@ pub fn encode_attachment(attachment: Attachment) -> Result<Uint8Array> {
 #[napi]
 pub fn decode_attachment(bytes: Uint8Array) -> Result<Attachment> {
   // Decode bytes into EncodedContent
-  let encoded_content =
-    EncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
+  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use AttachmentCodec to decode into Attachment and convert to Attachment
   AttachmentCodec::decode(encoded_content)

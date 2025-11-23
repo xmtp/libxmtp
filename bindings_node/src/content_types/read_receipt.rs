@@ -37,8 +37,7 @@ pub fn encode_read_receipt(read_receipt: ReadReceipt) -> Result<Uint8Array> {
 #[napi]
 pub fn decode_read_receipt(bytes: Uint8Array) -> Result<ReadReceipt> {
   // Decode bytes into EncodedContent
-  let encoded_content =
-    EncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
+  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use ReadReceiptCodec to decode into ReadReceipt and convert to ReadReceipt
   ReadReceiptCodec::decode(encoded_content)

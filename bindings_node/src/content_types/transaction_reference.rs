@@ -96,8 +96,7 @@ pub fn encode_transaction_reference(
 #[napi]
 pub fn decode_transaction_reference(bytes: Uint8Array) -> Result<TransactionReference> {
   // Decode bytes into EncodedContent
-  let encoded_content =
-    EncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
+  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use TransactionReferenceCodec to decode into TransactionReference and convert to TransactionReference
   TransactionReferenceCodec::decode(encoded_content)

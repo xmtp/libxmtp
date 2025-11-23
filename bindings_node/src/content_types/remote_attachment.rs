@@ -78,8 +78,7 @@ pub fn encode_remote_attachment(remote_attachment: RemoteAttachment) -> Result<U
 #[napi]
 pub fn decode_remote_attachment(bytes: Uint8Array) -> Result<RemoteAttachment> {
   // Decode bytes into EncodedContent
-  let encoded_content =
-    EncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
+  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use RemoteAttachmentCodec to decode into RemoteAttachment
   let attachment = RemoteAttachmentCodec::decode(encoded_content)
