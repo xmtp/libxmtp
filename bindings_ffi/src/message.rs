@@ -75,7 +75,7 @@ pub struct FfiRemoteAttachment {
     pub salt: Vec<u8>,
     pub nonce: Vec<u8>,
     pub scheme: String,
-    pub content_length: u64,
+    pub content_length: u32,
     pub filename: Option<String>,
 }
 
@@ -435,7 +435,7 @@ impl From<RemoteAttachment> for FfiRemoteAttachment {
             salt: remote.salt,
             nonce: remote.nonce,
             scheme: remote.scheme,
-            content_length: remote.content_length as u64,
+            content_length: remote.content_length as u32,
             filename: remote.filename,
         }
     }
