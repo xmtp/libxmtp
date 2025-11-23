@@ -81,8 +81,7 @@ pub fn decode_remote_attachment(bytes: Uint8Array) -> Result<RemoteAttachment> {
   let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use RemoteAttachmentCodec to decode into RemoteAttachment
-  let attachment = RemoteAttachmentCodec::decode(encoded_content)
-    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+  let attachment = RemoteAttachmentCodec::decode(encoded_content).map_err(ErrorWrapper::from)?;
 
   // Convert to bindings type with error handling
   RemoteAttachment::try_from(attachment)

@@ -123,7 +123,9 @@ pub fn decode_wallet_send_calls(bytes: Uint8Array) -> Result<WalletSendCalls> {
   let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use WalletSendCallsCodec to decode into WalletSendCalls and convert to WalletSendCalls
-  WalletSendCallsCodec::decode(encoded_content)
-    .map(Into::into)
-    .map_err(|e| napi::Error::from_reason(e.to_string()))
+  Ok(
+    WalletSendCallsCodec::decode(encoded_content)
+      .map(Into::into)
+      .map_err(ErrorWrapper::from)?,
+  )
 }

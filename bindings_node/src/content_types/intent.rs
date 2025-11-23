@@ -55,7 +55,9 @@ pub fn decode_intent(bytes: Uint8Array) -> Result<Intent> {
   let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use IntentCodec to decode into Intent and convert to Intent
-  IntentCodec::decode(encoded_content)
-    .map(Into::into)
-    .map_err(|e| napi::Error::from_reason(e.to_string()))
+  Ok(
+    IntentCodec::decode(encoded_content)
+      .map(Into::into)
+      .map_err(ErrorWrapper::from)?,
+  )
 }

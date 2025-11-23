@@ -170,7 +170,9 @@ pub fn decode_group_updated(bytes: Uint8Array) -> Result<GroupUpdated> {
   let encoded = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use GroupUpdatedCodec to decode into GroupUpdated and convert to GroupUpdated
-  GroupUpdatedCodec::decode(encoded)
-    .map(Into::into)
-    .map_err(|e| napi::Error::from_reason(e.to_string()))
+  Ok(
+    GroupUpdatedCodec::decode(encoded)
+      .map(Into::into)
+      .map_err(ErrorWrapper::from)?,
+  )
 }

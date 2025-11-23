@@ -52,7 +52,9 @@ pub fn decode_attachment(bytes: Uint8Array) -> Result<Attachment> {
   let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use AttachmentCodec to decode into Attachment and convert to Attachment
-  AttachmentCodec::decode(encoded_content)
-    .map(Into::into)
-    .map_err(|e| napi::Error::from_reason(e.to_string()))
+  Ok(
+    AttachmentCodec::decode(encoded_content)
+      .map(Into::into)
+      .map_err(ErrorWrapper::from)?,
+  )
 }

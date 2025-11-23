@@ -72,9 +72,11 @@ pub fn decode_reaction(bytes: Uint8Array) -> Result<Reaction> {
   let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use ReactionCodec to decode into Reaction and convert to Reaction
-  ReactionCodec::decode(encoded_content)
-    .map(Into::into)
-    .map_err(|e| napi::Error::from_reason(e.to_string()))
+  Ok(
+    ReactionCodec::decode(encoded_content)
+      .map(Into::into)
+      .map_err(ErrorWrapper::from)?,
+  )
 }
 
 #[napi]

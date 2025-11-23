@@ -40,7 +40,9 @@ pub fn decode_read_receipt(bytes: Uint8Array) -> Result<ReadReceipt> {
   let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use ReadReceiptCodec to decode into ReadReceipt and convert to ReadReceipt
-  ReadReceiptCodec::decode(encoded_content)
-    .map(Into::into)
-    .map_err(|e| napi::Error::from_reason(e.to_string()))
+  Ok(
+    ReadReceiptCodec::decode(encoded_content)
+      .map(Into::into)
+      .map_err(ErrorWrapper::from)?,
+  )
 }

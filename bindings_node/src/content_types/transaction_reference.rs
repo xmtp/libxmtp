@@ -99,7 +99,9 @@ pub fn decode_transaction_reference(bytes: Uint8Array) -> Result<TransactionRefe
   let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use TransactionReferenceCodec to decode into TransactionReference and convert to TransactionReference
-  TransactionReferenceCodec::decode(encoded_content)
-    .map(Into::into)
-    .map_err(|e| napi::Error::from_reason(e.to_string()))
+  Ok(
+    TransactionReferenceCodec::decode(encoded_content)
+      .map(Into::into)
+      .map_err(ErrorWrapper::from)?,
+  )
 }
