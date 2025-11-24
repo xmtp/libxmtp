@@ -11,11 +11,11 @@ use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::SyncWorkerMode;
+use xmtp_mls::context::ClientMode as XmtpClientMode;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
-use xmtp_mls::context::ClientMode as XmtpClientMode;
 use xmtp_proto::api_client::AggregateStats;
 
 use crate::conversations::Conversations;
@@ -81,12 +81,12 @@ pub enum ClientMode {
 }
 
 impl From<ClientMode> for XmtpClientMode {
-    fn from(mode: ClientMode) -> Self {
-        match mode {
-            ClientMode::Default => Self::Default,
-            ClientMode::Notification => Self::Notification
-        }
+  fn from(mode: ClientMode) -> Self {
+    match mode {
+      ClientMode::Default => Self::Default,
+      ClientMode::Notification => Self::Notification,
     }
+  }
 }
 
 /// Specify options for the logger
