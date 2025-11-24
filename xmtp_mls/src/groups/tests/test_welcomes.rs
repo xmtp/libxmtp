@@ -255,7 +255,9 @@ async fn test_spoofed_inbox_id() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_welcomes_are_not_streamed_again() {
-    tester!(alix, sync_worker, sync_server);
+    // tester!(alix, sync_worker, sync_server);
+    tester!(alix, sync_worker, sync_server, snapshot_file: "tests/assets/alix.1.5.sqlite");
+
     tester!(alix2, from: alix);
     tester!(bo);
 
