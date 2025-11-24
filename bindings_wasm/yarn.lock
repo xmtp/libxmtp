@@ -741,7 +741,7 @@ __metadata:
   resolution: "@xmtp/wasm-bindings@workspace:."
   dependencies:
     "@sqlite.org/sqlite-wasm": "npm:^3.47.0-build1"
-    binaryen: "npm:^124.0.0"
+    binaryen: "npm:^125.0.0"
     tsx: "npm:^4.20.6"
     wasm-pack: "npm:^0.13.1"
   languageName: unknown
@@ -818,9 +818,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"binaryen@npm:^124.0.0":
-  version: 124.0.0
-  resolution: "binaryen@npm:124.0.0"
+"binaryen@npm:^125.0.0":
+  version: 125.0.0
+  resolution: "binaryen@npm:125.0.0"
   bin:
     wasm-as: bin/wasm-as
     wasm-ctor-eval: bin/wasm-ctor-eval
@@ -831,7 +831,7 @@ __metadata:
     wasm-reduce: bin/wasm-reduce
     wasm-shell: bin/wasm-shell
     wasm2js: bin/wasm2js
-  checksum: 10/cd163b34ce67a5cff29e07057b6cbd107928cf3921111b39310bba50fde8d29f7bf0ea02b36a9021e32f584f74ed6faafba6195cda3ed0c79083b1261d431b05
+  checksum: 10/9a9a5a019769748cb55882886f81095b1bae14a159266d3b831e42e842c10d9635974ed4b6d76b19c5fbc8069bea22eb58f9989325c3d9790cac10e700a34ab1
   languageName: node
   linkType: hard
 
