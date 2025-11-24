@@ -252,17 +252,6 @@ where
     }
 }
 
-impl<Builder> StatsBuilder<Builder>
-where
-    Builder: ApiBuilder,
-{
-    fn build_dyn(self) -> Result<BoxClient, <Builder as ApiBuilder>::Error> {
-        Ok(TrackedStatsClient::new(
-            Box::new(<Builder as ApiBuilder>::build(self.client)?) as Box<_>,
-        ))
-    }
-}
-
 #[xmtp_common::async_trait]
 impl<C: XmtpQuery> XmtpQuery for TrackedStatsClient<C> {
     type Error = <C as XmtpQuery>::Error;

@@ -396,7 +396,6 @@ where
         }
 
         let result = self.post_commit().await;
-
         track_err!(&self.context, "Send Welcomes", &result, group: &self.group_id);
         if let Err(e) = result {
             tracing::error!("post commit error {e:?}",);
@@ -2368,6 +2367,11 @@ where
 
     #[tracing::instrument(skip_all)]
     pub(crate) async fn post_commit(&self) -> Result<(), GroupError> {
+        if self.context.readonly_mode() {
+            tracing::info!("Skipping post_commit. Client is in read-only mode.");
+            return Ok(());
+        }
+
         let db = self.context.db();
         let intents = db.find_group_intents(
             self.group_id.clone(),
@@ -2401,6 +2405,11 @@ where
         &self,
         update_interval_ns: Option<i64>,
     ) -> Result<(), GroupError> {
+        if self.context.readonly_mode() {
+            tracing::info!("Skipping updating installations. Client is in read-only mode.");
+            return Ok(());
+        }
+
         let db = self.context.db();
         let Some(stored_group) = db.find_group(&self.group_id)? else {
             return Err(GroupError::NotFound(NotFound::GroupById(

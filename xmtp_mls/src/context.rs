@@ -234,6 +234,8 @@ where
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
     fn mutexes(&self) -> &MutexRegistry;
     fn mode(&self) -> ClientMode;
+
+    fn readonly_mode(&self) -> bool;
 }
 
 impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
@@ -322,6 +324,10 @@ where
 
     fn mode(&self) -> ClientMode {
         self.mode
+    }
+
+    fn readonly_mode(&self) -> bool {
+        matches!(self.mode, ClientMode::Notification)
     }
 }
 
@@ -412,5 +418,9 @@ where
 
     fn mode(&self) -> ClientMode {
         <T as XmtpSharedContext>::mode(self)
+    }
+
+    fn readonly_mode(&self) -> bool {
+        <T as XmtpSharedContext>::readonly_mode(self)
     }
 }
