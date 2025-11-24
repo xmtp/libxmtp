@@ -1,5 +1,7 @@
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::subscriptions::stream_messages::stream_stats::StreamWithStats;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::context::XmtpMlsLocalContext;
 use crate::context::XmtpSharedContext;
@@ -11,6 +13,8 @@ use crate::groups::mls_sync::decode_staged_commit;
 use crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent;
 use crate::identity::create_credential;
 use crate::tester;
+use tokio_stream::StreamExt;
+use xmtp_common::time::timeout;
 use xmtp_configuration::Originators;
 use xmtp_db::DbQuery;
 use xmtp_db::XmtpOpenMlsProviderRef;
@@ -247,4 +251,39 @@ async fn test_spoofed_inbox_id() {
 
         panic!("Test failed");
     }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_welcomes_are_not_streamed_again() {
+    tester!(alix, sync_worker, sync_server);
+    tester!(alix2, from: alix);
+    tester!(bo);
+
+    let bo_alix_group = bo
+        .create_group_with_inbox_ids(&[alix.inbox_id()], None, None)
+        .await?;
+    let bo_alix_dm = bo
+        .find_or_create_dm_by_inbox_id(alix.inbox_id(), None)
+        .await?;
+    bo_alix_group
+        .send_message(b"hi", Default::default())
+        .await?;
+
+    alix.sync_all_welcomes_and_groups(None).await?;
+    let mut stream = alix
+        .stream_all_messages_owned_with_stats(None, None)
+        .await?;
+    let stats = stream.stats();
+
+    while let Ok(_) = timeout(Duration::from_millis(100), stream.next()).await {}
+    let updates = stats.new_stats().await;
+
+    let mut stream2 = alix2
+        .stream_all_messages_owned_with_stats(None, None)
+        .await?;
+    let stats2 = stream2.stats();
+    while let Ok(_) = timeout(Duration::from_millis(100), stream2.next()).await {}
+    let updates = stats2.new_stats().await;
+
+    dbg!(updates);
 }
