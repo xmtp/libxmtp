@@ -63,4 +63,31 @@ async fn test_readonly_mode() {
     assert_eq!(notif_stats.upload_key_package.get_count(), 0);
     assert_eq!(notif_stats.send_group_messages.get_count(), 0);
     assert_eq!(notif_stats.publish_commit_log.get_count(), 0);
+
+    // Now we want to pass the snapshot of the notif client back to a normal client
+    // to ensure it can continue to function as normal.
+    let notif_snap = alix_notif.db_snapshot();
+    drop(alix_notif);
+    tester!(alix, snapshot: Arc::new(notif_snap));
+
+    // Run a sync.
+    alix.sync_all_welcomes_and_groups(None).await?;
+    tester!(derek);
+
+    // Get the group, add derek.
+    let alix_group = alix.group(&alix_group.group_id)?;
+    alix_group
+        .add_members_by_inbox_id(&[derek.inbox_id()])
+        .await?;
+
+    // Have derek receive the group
+    derek.sync_welcomes().await?;
+    let derek_group = derek.group(&alix_group.group_id)?;
+
+    // Have alix send a message.
+    alix_group
+        .send_message(b"I am alive", Default::default())
+        .await?;
+    derek_group.sync().await?;
+    assert_eq!(derek_group.test_last_message_bytes()??, b"I am alive");
 }
