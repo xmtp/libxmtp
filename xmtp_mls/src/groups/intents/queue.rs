@@ -162,10 +162,6 @@ impl QueueIntent {
     where
         Ctx: XmtpSharedContext,
     {
-        if group.context.readonly_mode() {
-            return Err(GroupError::IntentsDisabled);
-        }
-
         if self.kind == IntentKind::SendMessage {
             self.maybe_insert_key_update_intent(conn, group)?;
         }

@@ -184,8 +184,6 @@ pub enum GroupError {
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
     #[error(transparent)]
     EnrichMessage(#[from] EnrichMessageError),
-    #[error("Intents have been disabled.")]
-    IntentsDisabled,
 }
 
 impl From<prost::EncodeError> for GroupError {
@@ -335,8 +333,7 @@ impl RetryableError for GroupError {
             | Self::NoWelcomesToSend
             | Self::WelcomeDataNotFound(_)
             | Self::UninitializedField(_)
-            | Self::UninitializedResult
-            | Self::IntentsDisabled => false,
+            | Self::UninitializedResult => false,
         }
     }
 }
