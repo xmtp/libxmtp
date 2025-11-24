@@ -193,7 +193,7 @@ where
 
         let mut proxy = None;
         let store = Arc::new(SqliteCursorStore::new(client.store.as_ref().unwrap().db()));
-        let (local_client, sync_api_client) = match self.api_mode {
+        let (api_client, sync_api_client) = match self.api_mode {
             TesterApiMode::Local => (
                 LocalOnlyTestClientCreator::with_cursor_store(store.clone()),
                 LocalOnlyTestClientCreator::with_cursor_store(store.clone()),
@@ -215,7 +215,7 @@ where
             ),
         };
 
-        let api_client = local_client.build().unwrap();
+        let api_client = api_client.build().unwrap();
         let sync_api_client = sync_api_client.build().unwrap();
 
         let mut client = client
