@@ -206,7 +206,7 @@ mod native {
                         conn.batch_execute("PRAGMA journal_mode = DELETE").unwrap();
                     }
 
-                    buffer = tokio::fs::read(path).await.unwrap();
+                    buffer = std::fs::read(path).unwrap();
                     snapshot = &buffer;
                 };
 
