@@ -4910,3 +4910,72 @@ async fn non_retryable_error_increments_cursor() {
         .unwrap();
     assert_eq!(new_cursor, last_cursor);
 }
+
+#[xmtp_common::test]
+async fn test_generate_commit_with_rollback() {
+    tester!(alix);
+    tester!(bo);
+    let group = alix.create_group(None, None).unwrap();
+    group
+        .add_members_by_inbox_id(&[bo.inbox_id()])
+        .await
+        .unwrap();
+    group.sync().await.unwrap();
+
+    let provider = alix.context.mls_storage();
+    let hash = || provider.hash_all().map(hex::encode).unwrap();
+
+    let start_hash = hash();
+    tracing::info!("start_hash: {start_hash}");
+
+    let group_provider = group.context.mls_storage();
+    let installation_keys = group.context.identity().installation_keys.clone();
+    let mut in_generate_commit_before_hash = None;
+    let mut in_generate_commit_after_hash = None;
+    let in_generate_commit_before_hash_mut = &mut in_generate_commit_before_hash;
+    let in_generate_commit_after_hash_mut = &mut in_generate_commit_after_hash;
+    group
+        .load_mls_group_with_lock_async(|mut mls_group| async move {
+            let extensions = super::build_extensions_for_metadata_update(
+                &mls_group,
+                "foo".to_string(),
+                "bar".to_string(),
+            )
+            .unwrap();
+            // Simulate mutable metadata update
+            let (_, _) = super::mls_sync::generate_commit_with_rollback(
+                group_provider,
+                &mut mls_group,
+                |group, provider| {
+                    use xmtp_db::MlsProviderExt;
+                    *in_generate_commit_before_hash_mut =
+                        provider.key_store().hash_all().map(hex::encode).ok();
+                    let result = group.update_group_context_extensions(
+                        provider,
+                        extensions,
+                        &installation_keys,
+                    );
+                    *in_generate_commit_after_hash_mut =
+                        provider.key_store().hash_all().map(hex::encode).ok();
+                    result
+                },
+            )
+            .unwrap();
+            Ok::<_, GroupError>(())
+        })
+        .await
+        .unwrap();
+    let in_generate_commit_before_hash = in_generate_commit_before_hash.unwrap();
+    let in_generate_commit_after_hash = in_generate_commit_after_hash.unwrap();
+    tracing::info!("in_generate_commit_before_hash: {in_generate_commit_before_hash}");
+    tracing::info!("in_generate_commit_after_hash: {in_generate_commit_after_hash}");
+    let end_hash = hash();
+    tracing::info!("end_hash: {end_hash}");
+    assert_eq!(start_hash, end_hash);
+    assert_ne!(
+        in_generate_commit_before_hash,
+        in_generate_commit_after_hash
+    );
+    assert_eq!(start_hash, in_generate_commit_before_hash);
+    assert_ne!(end_hash, in_generate_commit_after_hash);
+}

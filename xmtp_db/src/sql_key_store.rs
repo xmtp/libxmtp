@@ -1,9 +1,7 @@
 use xmtp_common::{RetryableError, retryable};
 
-use crate::{
-    ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider,
-    sql_key_store::transactions::MutableTransactionConnection,
-};
+use self::transactions::MutableTransactionConnection;
+use crate::{ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider};
 
 use bincode;
 use diesel::{
@@ -25,6 +23,44 @@ const REPLACE_QUERY: &str =
 const UPDATE_QUERY: &str =
     "UPDATE openmls_key_value SET value_bytes = ? WHERE key_bytes = ? AND version = ?";
 const DELETE_QUERY: &str = "DELETE FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
+
+#[cfg(feature = "test-utils")]
+#[derive(
+    Selectable, Queryable, QueryableByName, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+#[diesel(table_name = crate::schema::openmls_key_value)]
+pub struct OpenMlsKeyValue {
+    pub version: i32,
+    pub key_bytes: Vec<u8>,
+    pub value_bytes: Vec<u8>,
+}
+
+#[cfg(feature = "test-utils")]
+impl OpenMlsKeyValue {
+    pub fn hash_all(conn: &mut SqliteConnection) -> Result<Vec<u8>, diesel::result::Error> {
+        use crate::schema::openmls_key_value;
+        use xmtp_common::Sha2Digest;
+        let values = openmls_key_value::table
+            .order(openmls_key_value::version.asc())
+            .order(openmls_key_value::key_bytes.asc())
+            .load_iter::<OpenMlsKeyValue, _>(conn)?;
+
+        let mut hasher = xmtp_common::Sha256Digest::new();
+        for (i, result) in values.enumerate() {
+            let value = result?;
+            hasher.update(b"version");
+            hasher.update(value.version.to_be_bytes());
+            hasher.update(b"key_bytes");
+            hasher.update(&value.key_bytes);
+            hasher.update(b"value_bytes");
+            hasher.update(&value.value_bytes);
+            hasher.update(b"index");
+            hasher.update(i.to_be_bytes());
+            hasher.update(b"\n");
+        }
+        Ok(hasher.finalize().to_vec())
+    }
+}
 
 #[derive(QueryableByName, Debug, Clone, PartialEq, Eq)]
 #[diesel(table_name = openmls_key_value)]

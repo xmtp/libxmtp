@@ -74,7 +74,7 @@ mod wasm {
 
         async fn create_ephemeral_store_from_snapshot(
             snapshot: &[u8],
-            path: Option<impl AsRef<Path>>,
+            _path: Option<impl AsRef<Path>>,
         ) -> EncryptedMessageStore<crate::DefaultDatabase> {
             let db = crate::database::WasmDb::new(&StorageOption::Ephemeral)
                 .await
@@ -206,7 +206,7 @@ mod native {
                         conn.batch_execute("PRAGMA journal_mode = DELETE").unwrap();
                     }
 
-                    buffer = tokio::fs::read(path).await.unwrap();
+                    buffer = std::fs::read(path).unwrap();
                     snapshot = &buffer;
                 };
 
