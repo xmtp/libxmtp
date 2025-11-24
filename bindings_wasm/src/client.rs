@@ -207,8 +207,6 @@ pub async fn create_client(
   init_logging(log_options.unwrap_or_default())?;
   tracing::info!(host, gateway_host, "Creating client in rust");
 
-  let client_mode = client_mode.unwrap_or_default();
-
   let mut backend = MessageBackendBuilder::default();
   let is_secure =
     host.starts_with("https") && gateway_host.as_ref().is_none_or(|h| h.starts_with("https"));

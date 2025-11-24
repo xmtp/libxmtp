@@ -258,6 +258,8 @@ pub enum IdentityError {
     Bincode,
     #[error(transparent)]
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
+    #[error("Unable to register in notification client")]
+    NotificationClientRegister,
 }
 
 impl NeedsDbReconnect for IdentityError {
@@ -617,10 +619,7 @@ impl Identity {
     }
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
-    pub(crate) async fn queue_key_rotation(
-        &self,
-        conn: &impl DbQuery,
-    ) -> Result<(), IdentityError> {
+    pub(crate) fn queue_key_rotation(&self, conn: &impl DbQuery) -> Result<(), IdentityError> {
         conn.queue_key_package_rotation()?;
         tracing::info!("Last key package not ready for rotation, queued for rotation");
         Ok(())

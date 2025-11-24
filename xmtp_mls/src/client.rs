@@ -2,6 +2,7 @@
 mod tests;
 
 use crate::{
+    context::ClientMode,
     groups::welcome_sync::GroupSyncSummary,
     identity_updates::{batch_get_association_state_with_verifier, get_creation_signature_kind},
     messages::{
@@ -838,6 +839,12 @@ where
             return Ok(());
         }
 
+        if self.context.mode() == ClientMode::Notification {
+            return Err(ClientError::Generic(
+                "Notification clients cannot register on the network.".to_string(),
+            ));
+        }
+
         // Step 1: Generate key package and store locally (not uploaded yet)
         let (kp_bytes, history_id) = self.identity().generate_and_store_key_package(
             self.context.mls_storage(),
@@ -894,9 +901,12 @@ where
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
     pub async fn queue_key_rotation(&self) -> Result<(), ClientError> {
-        self.identity()
-            .queue_key_rotation(&self.context.db())
-            .await?;
+        if self.context.readonly_mode() {
+            tracing::info!("Skipping rotate keypackage. Client is in read-only mode.");
+            return Ok(());
+        }
+
+        self.identity().queue_key_rotation(&self.context.db())?;
 
         Ok(())
     }
@@ -904,6 +914,11 @@ where
     /// Upload a new key package to the network replacing an existing key package
     /// This is expected to be run any time the client receives new Welcome messages
     pub async fn rotate_and_upload_key_package(&self) -> Result<(), ClientError> {
+        if self.context.readonly_mode() {
+            tracing::info!("Skipping rotate keypackage. Client is in read-only mode.");
+            return Ok(());
+        }
+
         self.identity()
             .rotate_and_upload_key_package(
                 self.context.api(),

@@ -1,8 +1,11 @@
+use std::sync::Arc;
+
 use crate::{context::ClientMode, tester};
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_readonly_mode() {
     tester!(alix);
+    tester!(alix2, from: alix);
     tester!(bo);
 
     // Have alix create a dm
@@ -11,7 +14,9 @@ async fn test_readonly_mode() {
         .await?;
 
     // Create a notif client
-    tester!(alix_notif, from: alix, mode: ClientMode::Notification);
+    let alix_snap = Arc::new(alix2.db_snapshot());
+    tester!(alix_notif, snapshot: alix_snap, mode: ClientMode::Notification);
+    let notif_stats = alix_notif.api_stats();
 
     // Have alix add the notif installation to the dm
     alix_group.maybe_update_installations(Some(0)).await?;
@@ -20,10 +25,10 @@ async fn test_readonly_mode() {
     let notif_group = alix_notif.group(&alix_group.group_id)?;
 
     // Create a second client.
-    tester!(_alix2, from: alix);
+    tester!(_alix3, from: alix);
 
     // Now we need to ensure that the notif client does not send out a welcome to alix2
-    let notif_stats = alix_notif.api_stats();
+
     notif_stats.send_welcome_messages.clear();
     notif_group.maybe_update_installations(Some(0)).await?;
     let welcomes_sent = notif_stats.send_welcome_messages.get_count();
@@ -55,6 +60,6 @@ async fn test_readonly_mode() {
     notif_group.sync().await?;
 
     assert_eq!(notif_group.test_last_message_bytes()??, b"Hello again");
-    let welcomes_sent = notif_stats.send_welcome_messages.get_count();
-    assert_eq!(welcomes_sent, 0);
+    assert_eq!(notif_stats.send_welcome_messages.get_count(), 0);
+    assert_eq!(notif_stats.upload_key_package.get_count(), 0);
 }

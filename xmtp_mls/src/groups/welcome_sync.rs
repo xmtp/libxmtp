@@ -124,7 +124,7 @@ where
         // to under-rotate, as the latter risks leaving expired key packages on the network. We already have a max
         // rotation interval.
         if num_envelopes > 0 && !self.context.readonly_mode() {
-            self.context.identity().queue_key_rotation(&db).await?;
+            self.context.identity().queue_key_rotation(&db)?;
         }
 
         Ok(groups)
