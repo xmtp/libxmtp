@@ -2220,6 +2220,12 @@ public protocol FfiConversationsProtocol: AnyObject, Sendable {
     
     func streamGroups(callback: FfiConversationCallback) async  -> FfiStreamCloser
     
+    /**
+     * Get notified when a message is deleted by the disappearing messages worker.
+     * The callback receives the message ID of each deleted message.
+     */
+    func streamMessageDeletions(callback: FfiMessageDeletionCallback) async  -> FfiStreamCloser
+    
     func streamMessages(messageCallback: FfiMessageCallback, conversationType: FfiConversationType?, consentStates: [FfiConsentState]?) async  -> FfiStreamCloser
     
     /**
@@ -2528,6 +2534,28 @@ open func streamGroups(callback: FfiConversationCallback)async  -> FfiStreamClos
                 uniffi_xmtpv3_fn_method_fficonversations_stream_groups(
                     self.uniffiClonePointer(),
                     FfiConverterTypeFfiConversationCallback_lower(callback)
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
+            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
+            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            liftFunc: FfiConverterTypeFfiStreamCloser_lift,
+            errorHandler: nil
+            
+        )
+}
+    
+    /**
+     * Get notified when a message is deleted by the disappearing messages worker.
+     * The callback receives the message ID of each deleted message.
+     */
+open func streamMessageDeletions(callback: FfiMessageDeletionCallback)async  -> FfiStreamCloser  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_method_fficonversations_stream_message_deletions(
+                    self.uniffiClonePointer(),
+                    FfiConverterTypeFfiMessageDeletionCallback_lower(callback)
                 )
             },
             pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
@@ -3477,6 +3505,179 @@ public func FfiConverterTypeFfiMessageCallback_lift(_ pointer: UnsafeMutableRawP
 #endif
 public func FfiConverterTypeFfiMessageCallback_lower(_ value: FfiMessageCallback) -> UnsafeMutableRawPointer {
     return FfiConverterTypeFfiMessageCallback.lower(value)
+}
+
+
+
+
+
+
+public protocol FfiMessageDeletionCallback: AnyObject, Sendable {
+    
+    func onMessageDeleted(messageId: Data) 
+    
+}
+open class FfiMessageDeletionCallbackImpl: FfiMessageDeletionCallback, @unchecked Sendable {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_ffimessagedeletioncallback(self.pointer, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_xmtpv3_fn_free_ffimessagedeletioncallback(pointer, $0) }
+    }
+
+    
+
+    
+open func onMessageDeleted(messageId: Data)  {try! rustCall() {
+    uniffi_xmtpv3_fn_method_ffimessagedeletioncallback_on_message_deleted(self.uniffiClonePointer(),
+        FfiConverterData.lower(messageId),$0
+    )
+}
+}
+    
+
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceFfiMessageDeletionCallback {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceFfiMessageDeletionCallback] = [UniffiVTableCallbackInterfaceFfiMessageDeletionCallback(
+        onMessageDeleted: { (
+            uniffiHandle: UInt64,
+            messageId: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeFfiMessageDeletionCallback.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onMessageDeleted(
+                     messageId: try FfiConverterData.lift(messageId)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterTypeFfiMessageDeletionCallback.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface FfiMessageDeletionCallback: handle missing in uniffiFree")
+            }
+        }
+    )]
+}
+
+private func uniffiCallbackInitFfiMessageDeletionCallback() {
+    uniffi_xmtpv3_fn_init_callback_vtable_ffimessagedeletioncallback(UniffiCallbackInterfaceFfiMessageDeletionCallback.vtable)
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMessageDeletionCallback: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<FfiMessageDeletionCallback>()
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = FfiMessageDeletionCallback
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiMessageDeletionCallback {
+        return FfiMessageDeletionCallbackImpl(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: FfiMessageDeletionCallback) -> UnsafeMutableRawPointer {
+        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: handleMap.insert(obj: value))) else {
+            fatalError("Cast to UnsafeMutableRawPointer failed")
+        }
+        return ptr
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMessageDeletionCallback {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: FfiMessageDeletionCallback, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMessageDeletionCallback_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiMessageDeletionCallback {
+    return try FfiConverterTypeFfiMessageDeletionCallback.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMessageDeletionCallback_lower(_ value: FfiMessageDeletionCallback) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeFfiMessageDeletionCallback.lower(value)
 }
 
 
@@ -14408,6 +14609,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_fficonversations_stream_groups() != 11064) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_message_deletions() != 61355) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_method_fficonversations_stream_messages() != 45879) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -14481,6 +14685,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffimessagecallback_on_close() != 9150) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffimessagedeletioncallback_on_message_deleted() != 4903) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_preference_update() != 19900) {
@@ -14647,6 +14854,7 @@ private let initializationResult: InitializationResult = {
     uniffiCallbackInitFfiConversationCallback()
     uniffiCallbackInitFfiInboxOwner()
     uniffiCallbackInitFfiMessageCallback()
+    uniffiCallbackInitFfiMessageDeletionCallback()
     uniffiCallbackInitFfiPreferenceCallback()
     return InitializationResult.ok
 }()

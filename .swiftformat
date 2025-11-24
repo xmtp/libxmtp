@@ -2,7 +2,7 @@
 # Keep it simple and stick to defaults where possible
 
 # File exclusions
---exclude Sources/XMTPiOS/Proto,Sources/XMTPiOS/Libxmtp/xmtpv3.swift,.build
+--exclude Sources/XMTPiOS/Proto,Sources/XMTPiOS/Libxmtp/xmtpv3.swift,Sources/XMTPiOSDynamic/Libxmtp/xmtpv3.swift,.build
 
 # Use tabs for indentation (matching existing .swiftformat)
 --indent tabs
