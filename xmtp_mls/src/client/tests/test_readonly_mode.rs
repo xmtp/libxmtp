@@ -28,7 +28,6 @@ async fn test_readonly_mode() {
     tester!(_alix3, from: alix);
 
     // Now we need to ensure that the notif client does not send out a welcome to alix2
-
     notif_stats.send_welcome_messages.clear();
     notif_group.maybe_update_installations(Some(0)).await?;
     let welcomes_sent = notif_stats.send_welcome_messages.get_count();
@@ -62,4 +61,6 @@ async fn test_readonly_mode() {
     assert_eq!(notif_group.test_last_message_bytes()??, b"Hello again");
     assert_eq!(notif_stats.send_welcome_messages.get_count(), 0);
     assert_eq!(notif_stats.upload_key_package.get_count(), 0);
+    assert_eq!(notif_stats.send_group_messages.get_count(), 0);
+    assert_eq!(notif_stats.publish_commit_log.get_count(), 0);
 }
