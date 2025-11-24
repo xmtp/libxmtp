@@ -1884,7 +1884,7 @@ __metadata:
     tsx: "npm:^4.20.6"
     typescript: "npm:^5.9.3"
     uuid: "npm:^13.0.0"
-    viem: "npm:^2.39.0"
+    viem: "npm:^2.40.0"
     vite: "npm:^7.2.2"
     vite-tsconfig-paths: "npm:^5.1.4"
     vitest: "npm:^4.0.8"
@@ -3603,9 +3603,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"viem@npm:^2.39.0":
-  version: 2.39.0
-  resolution: "viem@npm:2.39.0"
+"viem@npm:^2.40.0":
+  version: 2.40.0
+  resolution: "viem@npm:2.40.0"
   dependencies:
     "@noble/curves": "npm:1.9.1"
     "@noble/hashes": "npm:1.8.0"
@@ -3620,7 +3620,7 @@ __metadata:
   peerDependenciesMeta:
     typescript:
       optional: true
-  checksum: 10/f8aa35b86af76bf0b30611a4c29cd3c3d1f66e5962c1e5a1f7dbdbfb0a06c08cafef0c5277c702e7e29fee6632b8172a7f24b5a115d1a5f674c97d96d58a1e46
+  checksum: 10/11587ccbdd649500477b001c49000a6721b1374a398287bb90a90ebf8cf59f19cb0470a0a958caef1f62241875f7caccaddc3308f05db42ca1035ec509de6d8c
   languageName: node
   linkType: hard
 
