@@ -454,6 +454,12 @@ where
         intent_id: ID,
     ) -> Result<SyncSummary, GroupError> {
         let mut summary = SyncSummary::default();
+
+        if self.context.readonly_mode() {
+            tracing::info!("Skipping intent sync. Client is in read-only mode.");
+            return Ok(summary);
+        }
+
         let db = self.context.db();
         let mut num_attempts = 0;
         // Return the last error to the caller if we fail to sync

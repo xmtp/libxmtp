@@ -225,6 +225,7 @@ where
             .with_device_sync_worker_mode(Some(self.sync_mode))
             .with_device_sync_server_url(self.sync_url.clone())
             .maybe_version(self.version.clone())
+            .with_client_mode(Some(self.mode))
             .with_commit_log_worker(self.commit_log_worker)
             .fork_recovery_opts(self.fork_recovery_opts.clone().unwrap_or_default());
 

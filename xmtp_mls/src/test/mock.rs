@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use crate::builder::ForkRecoveryOpts;
-use crate::context::XmtpSharedContext;
+use crate::context::{ClientMode, XmtpSharedContext};
 use crate::groups::MlsGroup;
 use crate::groups::summary::SyncSummary;
 use crate::identity::create_credential;
@@ -179,5 +179,9 @@ impl XmtpSharedContext for NewMockContext {
 
     fn mode(&self) -> crate::context::ClientMode {
         self.mode
+    }
+
+    fn readonly_mode(&self) -> bool {
+        matches!(self.mode, ClientMode::Notification)
     }
 }

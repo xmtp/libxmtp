@@ -31,10 +31,6 @@ impl QueueIntentBuilder {
     where
         C: XmtpSharedContext,
     {
-        if group.context.mode() == ClientMode::Notification {
-            return Err(GroupError::IntentsDisabled);
-        }
-
         let intent = self.build()?;
         group.context.mls_storage().transaction(move |conn| {
             let storage = conn.key_store();
@@ -64,9 +60,6 @@ impl QueueIntentBuilder {
             };
             first_group.context.clone()
         };
-        if context.mode() == ClientMode::Notification {
-            return Err(GroupError::IntentsDisabled);
-        }
 
         let groups = Vec::from_iter(groups);
 
