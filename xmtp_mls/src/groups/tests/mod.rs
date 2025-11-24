@@ -5,6 +5,7 @@ mod test_commit_log_remote;
 mod test_consent;
 mod test_dm;
 mod test_extract_readded_installations;
+mod test_group_updated;
 mod test_key_updates;
 mod test_libxmtp_version;
 #[cfg(not(target_arch = "wasm32"))]

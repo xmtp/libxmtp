@@ -129,11 +129,14 @@ pub async fn connect_to_backend(
     v3_host: String,
     gateway_host: Option<String>,
     is_secure: bool,
+    client_mode: Option<FfiClientMode>,
     app_version: Option<String>,
     auth_callback: Option<Arc<dyn gateway_auth::FfiAuthCallback>>,
     auth_handle: Option<Arc<gateway_auth::FfiAuthHandle>>,
 ) -> Result<Arc<XmtpApiClient>, GenericError> {
     init_logger();
+
+    let client_mode = client_mode.unwrap_or_default();
 
     log::info!(
         v3_host,
@@ -153,6 +156,7 @@ pub async fn connect_to_backend(
             auth_callback
                 .map(|callback| Arc::new(gateway_auth::FfiAuthCallbackBridge::new(callback)) as _),
         )
+        .readonly(matches!(client_mode, FfiClientMode::Notification))
         .maybe_auth_handle(auth_handle.map(|handle| handle.as_ref().clone().into()))
         .build()?;
     Ok(Arc::new(XmtpApiClient(backend)))
@@ -473,6 +477,13 @@ impl FfiSignatureRequest {
             .map(|member| member.to_string())
             .collect())
     }
+}
+
+#[derive(Default, Clone, Copy, uniffi::Enum)]
+pub enum FfiClientMode {
+    #[default]
+    Default,
+    Notification,
 }
 
 #[derive(uniffi::Object)]
@@ -848,17 +859,23 @@ impl FfiXmtpClient {
 
     /**
      * Revokes all installations except the one the client is currently using
+     * Returns Some FfiSignatureRequest if we have installations to revoke.
+     * If we have no other installations to revoke, returns None.
      */
-    pub async fn revoke_all_other_installations(
+    pub async fn revoke_all_other_installations_signature_request(
         &self,
-    ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
+    ) -> Result<Option<Arc<FfiSignatureRequest>>, GenericError> {
         let installation_id = self.inner_client.installation_public_key();
         let inbox_state = self.inner_client.inbox_state(true).await?;
-        let other_installation_ids = inbox_state
+        let other_installation_ids: Vec<Vec<u8>> = inbox_state
             .installation_ids()
             .into_iter()
             .filter(|id| id != installation_id)
             .collect();
+
+        if other_installation_ids.is_empty() {
+            return Ok(None);
+        }
 
         let signature_request = self
             .inner_client
@@ -866,10 +883,10 @@ impl FfiXmtpClient {
             .revoke_installations(other_installation_ids)
             .await?;
 
-        Ok(Arc::new(FfiSignatureRequest {
+        Ok(Some(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
             scw_verifier: self.inner_client.scw_verifier().clone(),
-        }))
+        })))
     }
 
     /**
