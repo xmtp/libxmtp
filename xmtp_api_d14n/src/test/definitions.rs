@@ -69,12 +69,8 @@ pub type ToxicOnlyV3ClientCreator =
 
 /// A client that only reads from local docker
 /// _does not switch on feature flag_
-pub type ReadOnlyD14nClientCreator = TrackedStatsClient<
-    D14nClient<
-        ReadonlyClient<ReadWriteClient<LocalXmtpdClient, LocalGatewayClient>>,
-        Arc<dyn CursorStore>,
-    >,
->;
+pub type ReadOnlyD14nClientCreator =
+    TrackedStatsClient<D14nClient<ReadonlyClient<LocalXmtpdClient>, Arc<dyn CursorStore>>>;
 /// A client that only reads from local docker
 /// _does not switch on feature flag_
 pub type ReadOnlyV3ClientCreator =

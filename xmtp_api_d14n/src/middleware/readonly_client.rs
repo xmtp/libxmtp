@@ -1,10 +1,17 @@
 //! We define a very simple strategy for disabling writes on certain clients.
 
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum ReadonlyClientBuilderError {
+    #[error("Inner client is not provided")]
+    MissingInner,
+}
+
 xmtp_common::if_test! {
     mod test;
 }
 
-use derive_builder::Builder;
 use prost::bytes::Bytes;
 use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api::{ApiClientError, Client};
@@ -19,16 +26,44 @@ const DENY: &[&str] = &[
 ];
 
 /// A client that will error on requests that write to the network.
-#[derive(Debug, Builder, Default, Clone)]
-#[builder(public)]
+#[derive(Debug, Default)]
 pub struct ReadonlyClient<Client> {
-    #[builder(public)]
     pub(super) inner: Client,
 }
 
-impl<C: Clone> ReadonlyClient<C> {
+impl<C> ReadonlyClient<C> {
     pub fn builder() -> ReadonlyClientBuilder<C> {
         ReadonlyClientBuilder::default()
+    }
+}
+
+pub struct ReadonlyClientBuilder<C> {
+    inner: Option<C>,
+}
+
+impl<C> Default for ReadonlyClientBuilder<C> {
+    fn default() -> Self {
+        Self { inner: None }
+    }
+}
+
+impl<C> ReadonlyClientBuilder<C> {
+    pub fn new(client: C) -> Self {
+        Self {
+            inner: Some(client),
+        }
+    }
+
+    pub fn inner(mut self, client: C) -> Self {
+        self.inner = Some(client);
+        self
+    }
+
+    pub fn build(self) -> Result<ReadonlyClient<C>, ReadonlyClientBuilderError> {
+        let Some(inner) = self.inner else {
+            return Err(ReadonlyClientBuilderError::MissingInner);
+        };
+        Ok(ReadonlyClient { inner })
     }
 }
 
