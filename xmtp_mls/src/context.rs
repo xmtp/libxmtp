@@ -33,7 +33,7 @@ use crate::groups::device_sync::DeviceSyncClient;
 pub enum ClientMode {
     #[default]
     Default,
-    Notification,
+    Readonly,
 }
 
 /// The local context a XMTP MLS needs to function:
@@ -327,7 +327,7 @@ where
     }
 
     fn readonly_mode(&self) -> bool {
-        matches!(self.mode, ClientMode::Notification)
+        matches!(self.mode, ClientMode::Readonly)
     }
 }
 

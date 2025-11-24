@@ -182,6 +182,6 @@ impl XmtpSharedContext for NewMockContext {
     }
 
     fn readonly_mode(&self) -> bool {
-        matches!(self.mode, ClientMode::Notification)
+        matches!(self.mode, ClientMode::Readonly)
     }
 }

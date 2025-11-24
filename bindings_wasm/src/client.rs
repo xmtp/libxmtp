@@ -77,14 +77,14 @@ impl From<DeviceSyncWorkerMode> for SyncWorkerMode {
 pub enum ClientMode {
   #[default]
   Default,
-  Notification,
+  Readonly,
 }
 
 impl From<ClientMode> for XmtpClientMode {
   fn from(mode: ClientMode) -> Self {
     match mode {
       ClientMode::Default => Self::Default,
-      ClientMode::Notification => Self::Notification,
+      ClientMode::Readonly => Self::Readonly,
     }
   }
 }

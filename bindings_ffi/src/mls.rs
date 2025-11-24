@@ -497,7 +497,7 @@ impl From<FfiClientMode> for ClientMode {
     fn from(mode: FfiClientMode) -> Self {
         match mode {
             FfiClientMode::Default => Self::Default,
-            FfiClientMode::Notification => Self::Notification,
+            FfiClientMode::Notification => Self::Readonly,
         }
     }
 }

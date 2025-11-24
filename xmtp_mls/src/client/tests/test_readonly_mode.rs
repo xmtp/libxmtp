@@ -15,7 +15,7 @@ async fn test_readonly_mode() {
 
     // Create a notif client
     let alix_snap = Arc::new(alix2.db_snapshot());
-    tester!(alix_notif, snapshot: alix_snap, mode: ClientMode::Notification);
+    tester!(alix_notif, snapshot: alix_snap, mode: ClientMode::Readonly);
     let notif_stats = alix_notif.api_stats();
 
     // Have alix add the notif installation to the dm

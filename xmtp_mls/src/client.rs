@@ -839,7 +839,7 @@ where
             return Ok(());
         }
 
-        if self.context.mode() == ClientMode::Notification {
+        if self.context.mode() == ClientMode::Readonly {
             return Err(ClientError::Generic(
                 "Notification clients cannot register on the network.".to_string(),
             ));
