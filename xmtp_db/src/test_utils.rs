@@ -74,7 +74,7 @@ mod wasm {
 
         async fn create_ephemeral_store_from_snapshot(
             snapshot: &[u8],
-            path: Option<impl AsRef<Path>>,
+            _path: Option<impl AsRef<Path>>,
         ) -> EncryptedMessageStore<crate::DefaultDatabase> {
             let db = crate::database::WasmDb::new(&StorageOption::Ephemeral)
                 .await
