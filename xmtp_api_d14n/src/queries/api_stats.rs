@@ -1,7 +1,3 @@
-use std::hash::BuildHasherDefault;
-
-use xmtp_proto::api::BoxClient;
-use xmtp_proto::api::BoxClientT;
 use xmtp_proto::api::HasStats;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;

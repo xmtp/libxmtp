@@ -2,7 +2,7 @@ pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PublishRequest, PublishResponse, QueryRequest,
     QueryResponse, SubscribeRequest,
 };
-use crate::api::{BoxClient, IsConnectedCheck};
+use crate::api::IsConnectedCheck;
 use crate::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
     GetNewestGroupMessageRequest, PagingInfo,

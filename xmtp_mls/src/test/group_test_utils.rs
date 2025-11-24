@@ -10,7 +10,10 @@ use thiserror::Error;
 use xmtp_api::{ApiError, XmtpApi};
 use xmtp_api_d14n::protocol::{EnvelopeError, XmtpQuery};
 use xmtp_common::RetryableError;
-use xmtp_db::{XmtpDb, group_message::MsgQueryArgs};
+use xmtp_db::{
+    XmtpDb,
+    group_message::{GroupMessageKind, MsgQueryArgs, SortDirection},
+};
 use xmtp_proto::types::{GroupMessage, TopicKind};
 
 #[derive(Error, Debug)]
@@ -73,10 +76,11 @@ where
     }
 
     pub fn test_last_message_bytes(&self) -> Result<Option<Vec<u8>>, TestError> {
-        let msg = self
-            .find_messages(&MsgQueryArgs::default())?
-            .pop()
-            .map(|msg| msg.decrypted_message_bytes);
+        let mut msgs = self.find_messages(&MsgQueryArgs {
+            ..Default::default()
+        })?;
+
+        let msg = msgs.pop().map(|msg| msg.decrypted_message_bytes);
         Ok(msg)
     }
 }
