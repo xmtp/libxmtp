@@ -42,7 +42,6 @@
 , vscode-extensions
 , lldb
 , wasm-tools
-, geckodriver
 , ...
 }:
 let
@@ -61,7 +60,6 @@ mkShell {
   CFLAGS_wasm32_unknown_unknown = "-I ${llvmPackages.clang-unwrapped.lib}/lib/clang/19/include";
   LD_LIBRARY_PATH = lib.makeLibraryPath [ openssl zlib ];
   nativeBuildInputs = [ pkg-config zstd openssl zlib ];
-  GECKODRIVER = "${lib.getBin geckodriver}/bin/geckodriver";
   XMTP_NIX_ENV = "yes";
   buildInputs =
     [
@@ -101,7 +99,6 @@ mkShell {
       binaryen
       vscode-extensions.vadimcn.vscode-lldb
       lldb
-      geckodriver
 
       # Protobuf
       buf

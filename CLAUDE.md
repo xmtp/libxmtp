@@ -130,7 +130,7 @@ nix develop                    # Default shell for general Rust development
 nix develop .#android         # Android development shell with NDK
 nix develop .#ios             # iOS development shell (macOS only)
 nix develop .#js              # JavaScript/Node.js development shell
-nix develop .#wasmBuild       # WebAssembly build environment
+nix develop .#wasm            # WebAssembly development shell
 ```
 
 ### Using the Default Shell

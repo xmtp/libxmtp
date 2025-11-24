@@ -10,23 +10,23 @@ else
 fi
 XMTP_NIX_ENV="${XMTP_NIX_ENV:-"no"}"
 
-if [[ "$XMTP_NIX_ENV" == "yes" ]]; then
-  echo "detected nix environment"
-  CARGO="cargo"
+if [[ -d /nix ]]; then
+  echo "detected nix install"
+  CARGO="nix develop .#wasm --command cargo"
 else
   if ! command -v cargo >/dev/null 2>&1; then
     echo "Error: cargo is required to be installed"
     exit 1
   fi
-  if ! command -v geckodriver >/dev/null 2>&1; then
-    echo "Error: geckodriver must be installed and accessible"
+  if ! command -v chromedriver >/dev/null 2>&1; then
+    echo "Error: chromedriver & chromium must be installed and accessible"
     exit 1
   fi
   CARGO="cargo"
 fi
 
 TESTS="${2:-}"
-export RUST_LOG=info
+export RUST_LOG=off
 export WASM_BINDGEN_TEST_ONLY_WEB=1
 export WASM_BINDGEN_USE_DEDICATED_WORKER=1
 export WASM_BINDGEN_TEST_TIMEOUT=180

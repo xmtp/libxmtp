@@ -1,0 +1,26 @@
+{
+  "goog:chromeOptions": {
+    "args": [
+      "--headless=new",
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-software-rasterizer",
+      "--disable-extensions",
+      "--disable-background-networking",
+      "--disable-default-apps",
+      "--disable-sync",
+      "--disable-translate",
+      "--disable-features=TranslateUI",
+      "--metrics-recording-only",
+      "--mute-audio",
+      "--no-first-run",
+      "--safebrowsing-disable-auto-update",
+      "--js-flags=--max-old-space-size=512",
+      "--memory-pressure-off",
+      "--disable-ipc-flooding-protection",
+      "--renderer-process-limit=1",
+      "--single-process"
+    ]
+  }
+}

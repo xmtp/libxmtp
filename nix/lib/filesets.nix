@@ -27,6 +27,7 @@ let
     ./../../xmtp_db/migrations
     ./../../xmtp_proto/src/gen/proto_descriptor.bin
     ./../../bindings_ffi/Makefile
+    ./../../webdriver.json
   ];
   binaries = lib.fileset.unions [
     (commonCargoSources ./../../examples/cli)
