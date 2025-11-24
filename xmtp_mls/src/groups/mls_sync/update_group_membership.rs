@@ -74,12 +74,9 @@ async fn compute_publish_data_for_group_membership_update(
     new_extensions: Extensions,
     signer: impl Signer,
 ) -> Result<PublishIntentData, GroupError> {
-    
     // Use savepoint pattern to create commit without persisting state
-    let ((commit, maybe_welcome_message, _), staged_commit) = generate_commit_with_rollback(
-        context.mls_storage(),
-        openmls_group,
-        |group, provider| {
+    let ((commit, maybe_welcome_message, _), staged_commit) =
+        generate_commit_with_rollback(context.mls_storage(), openmls_group, |group, provider| {
             group.update_group_membership(
                 provider,
                 &signer,
@@ -87,9 +84,8 @@ async fn compute_publish_data_for_group_membership_update(
                 &leaf_nodes_to_remove,
                 new_extensions,
             )
-        },
-    )?;
-    
+        })?;
+
     let staged_commit = staged_commit.ok_or_else(|| GroupError::MissingPendingCommit)?;
 
     let post_commit_action = match maybe_welcome_message {
