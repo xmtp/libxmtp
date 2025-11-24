@@ -5,14 +5,14 @@ use crate::{
     Client,
     builder::{ClientBuilder, ForkRecoveryOpts, ForkRecoveryPolicy, SyncWorkerMode},
     client::ClientError,
-    context::XmtpSharedContext,
+    context::{ClientMode, XmtpSharedContext},
     cursor_store::SqliteCursorStore,
     groups::device_sync::worker::SyncMetric,
     identity::{Identity, IdentityStrategy},
     subscriptions::SubscribeError,
     utils::{
-        TestClient, TestMlsStorage, ToxicOnlyTestClientCreator, VersionInfo, register_client,
-        test::identity_setup,
+        ReadonlyTestClientCreator, TestClient, TestMlsStorage, ToxicOnlyTestClientCreator,
+        VersionInfo, register_client, test::identity_setup,
     },
     worker::metrics::WorkerMetrics,
 };
@@ -193,23 +193,26 @@ where
 
         let mut proxy = None;
         let store = Arc::new(SqliteCursorStore::new(client.store.as_ref().unwrap().db()));
-        let (local_client, sync_api_client) = match (&self.api_endpoint, self.proxy) {
-            (ApiEndpoint::Local, false) => (
+        let (local_client, sync_api_client) = match self.api_mode {
+            TesterApiMode::Local => (
                 LocalOnlyTestClientCreator::with_cursor_store(store.clone()),
                 LocalOnlyTestClientCreator::with_cursor_store(store.clone()),
             ),
-            (ApiEndpoint::Dev, false) => (
+            TesterApiMode::Dev => (
                 DevOnlyTestClientCreator::with_cursor_store(store.clone()),
                 DevOnlyTestClientCreator::with_cursor_store(store.clone()),
             ),
-            (ApiEndpoint::Local, true) => {
+            TesterApiMode::ToxicLocal => {
                 proxy = Some(ToxicOnlyTestClientCreator::proxies().await);
                 (
                     ToxicOnlyTestClientCreator::with_cursor_store(store.clone()),
                     ToxicOnlyTestClientCreator::with_cursor_store(store.clone()),
                 )
             }
-            (ApiEndpoint::Dev, true) => (unimplemented!("toxiproxy not supported on dev")),
+            TesterApiMode::Readonly => (
+                ReadonlyTestClientCreator::with_cursor_store(store.clone()),
+                ReadonlyTestClientCreator::with_cursor_store(store.clone()),
+            ),
         };
 
         let api_client = local_client.build().unwrap();
@@ -273,6 +276,15 @@ where
 
         tester
     }
+}
+
+#[derive(Default, Clone, Copy)]
+pub enum TesterApiMode {
+    #[default]
+    Local,
+    Dev,
+    ToxicLocal,
+    Readonly,
 }
 
 impl<Owner> Tester<Owner, FullXmtpClient>
@@ -361,11 +373,9 @@ where
     pub name: Option<String>,
     pub events: bool,
     pub version: Option<VersionInfo>,
-    pub proxy: bool,
     pub commit_log_worker: bool,
     pub in_memory_cursors: bool,
     pub ephemeral_db: bool,
-    pub api_endpoint: ApiEndpoint,
     pub triggers: bool,
     pub external_identity: Option<Identity>,
     pub snapshot: Option<Arc<Vec<u8>>>,
@@ -373,6 +383,8 @@ where
     /// whether this builder represents a second installation
     pub installation: bool,
     pub disable_workers: bool,
+    pub mode: ClientMode,
+    pub api_mode: TesterApiMode,
 }
 
 #[derive(Clone)]
@@ -399,17 +411,17 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             name: None,
             events: false,
             version: None,
-            proxy: false,
             commit_log_worker: true, // Default to enabled to match production
             installation: false,
             in_memory_cursors: false,
             ephemeral_db: true,
             triggers: false,
-            api_endpoint: ApiEndpoint::Local,
             external_identity: None,
             snapshot: None,
             snapshot_path: None,
             disable_workers: false,
+            mode: Default::default(),
+            api_mode: Default::default(),
         }
     }
 }
@@ -432,17 +444,17 @@ where
             name: self.name,
             events: self.events,
             version: self.version,
-            proxy: self.proxy,
             commit_log_worker: self.commit_log_worker,
             installation: self.installation,
             in_memory_cursors: self.in_memory_cursors,
             ephemeral_db: self.ephemeral_db,
-            api_endpoint: self.api_endpoint,
             triggers: self.triggers,
             external_identity: self.external_identity,
             snapshot: self.snapshot,
             snapshot_path: self.snapshot_path,
             disable_workers: self.disable_workers,
+            mode: self.mode,
+            api_mode: self.api_mode,
         }
     }
 
@@ -468,14 +480,14 @@ where
     }
 
     pub fn dev(mut self) -> Self {
-        self.api_endpoint = ApiEndpoint::Dev;
+        self.api_mode = TesterApiMode::Dev;
         self
     }
 
     pub fn with_dev(mut self, dev: bool) -> Self {
-        self.api_endpoint = match dev {
-            true => ApiEndpoint::Dev,
-            false => ApiEndpoint::Local,
+        self.api_mode = match dev {
+            true => TesterApiMode::Dev,
+            false => TesterApiMode::Local,
         };
         self
     }
@@ -512,6 +524,11 @@ where
         if let Some(snapshot) = snapshot {
             self = self.snapshot(snapshot);
         }
+        self
+    }
+
+    pub fn mode(mut self, mode: ClientMode) -> Self {
+        self.mode = mode;
         self
     }
 
@@ -584,7 +601,7 @@ where
     }
 
     pub fn proxy(mut self) -> Self {
-        self.proxy = true;
+        self.api_mode = TesterApiMode::ToxicLocal;
         self
     }
 

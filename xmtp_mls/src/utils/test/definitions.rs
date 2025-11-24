@@ -30,6 +30,8 @@ pub type DevOnlyTestClientCreator = xmtp_api_d14n::DevOnlyTestClientCreator;
 /// Test client builder for toxics
 pub type ToxicOnlyTestClientCreator = xmtp_api_d14n::ToxicOnlyTestClientCreator;
 
+pub type ReadonlyTestClientCreator = xmtp_api_d14n::ReadOnlyTestClientCreator;
+
 /// a v3/d14n, local/dev client that switches based on feature flag
 pub type FeatureSwitchedTestClientCreator = xmtp_api_d14n::FeatureSwitchedTestClientCreator;
 

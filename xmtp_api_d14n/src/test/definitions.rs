@@ -2,17 +2,17 @@
 //! "creators" are test clients that can be used with [`XmtpTestClient`]
 
 use crate::{
+    D14nClient, ReadWriteClient, ReadonlyClient, TrackedStatsClient, V3Client,
     protocol::{CursorStore, NoCursorStore},
-    D14nClient, ReadWriteClient, TrackedStatsClient, V3Client,
 };
 use std::sync::Arc;
 use xmtp_api_grpc::{
+    GrpcClient,
     test::{
         DevGatewayClient, DevXmtpdClient, GatewayClient, LocalGatewayClient, LocalNodeGoClient,
         LocalXmtpdClient, NodeGoClient, ToxicGatewayClient, ToxicNodeGoClient, ToxicXmtpdClient,
         XmtpdClient,
     },
-    GrpcClient,
 };
 use xmtp_proto::api::mock::MockNetworkClient;
 
@@ -67,6 +67,19 @@ pub type ToxicOnlyD14nClientCreator = TrackedStatsClient<
 pub type ToxicOnlyV3ClientCreator =
     TrackedStatsClient<V3Client<ToxicNodeGoClient, Arc<dyn CursorStore>>>;
 
+/// A client that only reads from local docker
+/// _does not switch on feature flag_
+pub type ReadOnlyD14nClientCreator = TrackedStatsClient<
+    D14nClient<
+        ReadonlyClient<ReadWriteClient<LocalXmtpdClient, LocalGatewayClient>>,
+        Arc<dyn CursorStore>,
+    >,
+>;
+/// A client that only reads from local docker
+/// _does not switch on feature flag_
+pub type ReadOnlyV3ClientCreator =
+    TrackedStatsClient<V3Client<ReadonlyClient<LocalNodeGoClient>, Arc<dyn CursorStore>>>;
+
 /// V3 client with mock network
 pub type MockV3Client = V3Client<MockNetworkClient, NoCursorStore>;
 /// D14n client with mocked networks
@@ -82,6 +95,8 @@ xmtp_common::if_d14n! {
     /// Test client that connects to toxiproxy only, but still switches between d14n/v3 clients on
     /// feature flag
     pub type ToxicOnlyTestClientCreator = ToxicOnlyD14nClientCreator;
+    /// Test client that is local-only and read-only, but still switches between d14n/v3 clients on feature flag
+    pub type ReadOnlyTestClientCreator = ReadOnlyD14nClientCreator;
     /// Client builder that builds a client which communicates with local/dev v3/d14n based on
     /// feature flag
     pub type FeatureSwitchedTestClientCreator = TestD14nClientCreator;
@@ -98,6 +113,8 @@ xmtp_common::if_v3! {
     /// Test client that connects to toxiproxy only, but still switches between d14n/v3 clients on
     /// feature flag
     pub type ToxicOnlyTestClientCreator = ToxicOnlyV3ClientCreator;
+    /// Test client that is local-only and read-only, but still switches between d14n/v3 clients on feature flag
+    pub type ReadOnlyTestClientCreator = ReadOnlyV3ClientCreator;
     /// Client builder that builds a client which communicates with local/dev v3/d14n based on
     /// feature flag
     pub type FeatureSwitchedTestClientCreator = TestV3ClientCreator;
