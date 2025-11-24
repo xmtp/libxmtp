@@ -19,6 +19,12 @@ arc-swap.workspace = true
 bincode.workspace = true
 ctor.workspace = true
 derive_builder.workspace = true
+diesel = { workspace = true, features = [
+  "returning_clauses_for_sqlite_3_35",
+  "sqlite",
+  "32-column-tables",
+  "serde_json",
+] }
 diesel_migrations = { workspace = true, features = ["sqlite"] }
 hex.workspace = true
 itertools.workspace = true
@@ -54,26 +60,13 @@ xmtp_content_types.workspace = true
 libsqlite3-sys = { version = "0.35", features = [
   "bundled-sqlcipher-vendored-openssl",
 ] }
-diesel = { workspace = true, features = [
-  "r2d2",
-  "returning_clauses_for_sqlite_3_35",
-  "sqlite",
-  "32-column-tables",
-  "serde_json",
-] }
+diesel = { workspace = true, features = ["r2d2"] }
 dyn-clone.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
-diesel = { workspace = true, features = [
-  "returning_clauses_for_sqlite_3_35",
-  "sqlite",
-  "32-column-tables",
-  "serde_json",
-] }
 sqlite-wasm-rs = { version = "0.4", default-features = false, features = [
   "precompiled",
 ] }
-tokio = { workspace = true, features = ["macros", "tracing"] }
 web-sys = { workspace = true, features = ["DomException"] }
 wasm-bindgen = { workspace = true }
 
@@ -82,10 +75,8 @@ wasm-bindgen = { workspace = true }
 futures-timer.workspace = true
 mockall = { workspace = true }
 rstest.workspace = true
-xmtp_common = { workspace = true, features = ["test-utils"] }
-xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_cryptography.workspace = true
-
+xmtp_db = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = [
@@ -104,4 +95,5 @@ test-utils = [
   "xmtp_common/test-utils",
   "dep:mockall",
   "xmtp_configuration/test-utils",
+  "xmtp_cryptography/test-utils",
 ]
