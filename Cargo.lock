@@ -8530,6 +8530,7 @@ dependencies = [
  "xmtp_configuration",
  "xmtp_content_types",
  "xmtp_cryptography",
+ "xmtp_db",
  "xmtp_proto",
  "zeroize",
 ]
