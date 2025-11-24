@@ -1,7 +1,6 @@
 use xmtp_common::{RetryableError, retryable};
 
 use self::transactions::MutableTransactionConnection;
-use crate::schema::openmls_key_value;
 use crate::{ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider};
 
 use bincode;
@@ -29,7 +28,7 @@ const DELETE_QUERY: &str = "DELETE FROM openmls_key_value WHERE key_bytes = ? AN
 #[derive(
     Selectable, Queryable, QueryableByName, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
-#[diesel(table_name = openmls_key_value)]
+#[diesel(table_name = crate::schema::openmls_key_value)]
 pub struct OpenMlsKeyValue {
     pub version: i32,
     pub key_bytes: Vec<u8>,
@@ -39,6 +38,7 @@ pub struct OpenMlsKeyValue {
 #[cfg(feature = "test-utils")]
 impl OpenMlsKeyValue {
     pub fn hash_all(conn: &mut SqliteConnection) -> Result<Vec<u8>, diesel::result::Error> {
+        use crate::schema::openmls_key_value;
         use xmtp_common::Sha2Digest;
         let values = openmls_key_value::table
             .order(openmls_key_value::version.asc())
