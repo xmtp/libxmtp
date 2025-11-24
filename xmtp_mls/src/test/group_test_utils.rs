@@ -71,4 +71,12 @@ where
 
         Ok(last_message)
     }
+
+    pub fn test_last_message_bytes(&self) -> Result<Option<Vec<u8>>, TestError> {
+        let msg = self
+            .find_messages(&MsgQueryArgs::default())?
+            .pop()
+            .map(|msg| msg.decrypted_message_bytes);
+        Ok(msg)
+    }
 }

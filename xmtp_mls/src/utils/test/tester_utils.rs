@@ -208,10 +208,7 @@ where
                     ToxicOnlyTestClientCreator::with_cursor_store(store.clone()),
                     ToxicOnlyTestClientCreator::with_cursor_store(store.clone()),
                 )
-            } // TesterApiMode::Readonly => (
-              // ReadonlyTestClientCreator::with_cursor_store(store.clone()),
-              // ReadonlyTestClientCreator::with_cursor_store(store.clone()),
-              // ),
+            }
         };
 
         let api_client = api_client.build().unwrap();

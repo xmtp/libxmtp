@@ -2,7 +2,6 @@ use futures::{StreamExt, TryFutureExt, stream};
 use std::collections::HashSet;
 use std::future::Future;
 
-use crate::context::ClientMode;
 use crate::groups::intents::GROUP_KEY_ROTATION_INTERVAL_NS;
 use crate::groups::{GroupError, MlsGroup, XmtpSharedContext};
 use crate::track;
@@ -163,6 +162,10 @@ impl QueueIntent {
     where
         Ctx: XmtpSharedContext,
     {
+        if group.context.readonly_mode() {
+            return Err(GroupError::IntentsDisabled);
+        }
+
         if self.kind == IntentKind::SendMessage {
             self.maybe_insert_key_update_intent(conn, group)?;
         }

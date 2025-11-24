@@ -15,6 +15,7 @@ use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
+use xmtp_mls::context::ClientMode as XmtpClientMode;
 use xmtp_proto::api_client::AggregateStats;
 
 use crate::conversations::Conversations;
@@ -77,6 +78,15 @@ pub enum ClientMode {
   #[default]
   Default,
   Notification,
+}
+
+impl From<ClientMode> for XmtpClientMode {
+    fn from(mode: ClientMode) -> Self {
+        match mode {
+            ClientMode::Default => Self::Default,
+            ClientMode::Notification => Self::Notification
+        }
+    }
 }
 
 /// Specify options for the logger
@@ -207,7 +217,6 @@ pub async fn create_client(
     .maybe_gateway_host(gateway_host)
     .app_version(app_version.clone().unwrap_or_default())
     .is_secure(is_secure)
-    .readonly(matches!(client_mode, ClientMode::Notification))
     .maybe_auth_callback(auth_callback.map(|c| Arc::new(c) as _))
     .maybe_auth_handle(auth_handle.map(|h| h.handle));
 
@@ -255,6 +264,7 @@ pub async fn create_client(
     .enable_api_stats()?
     .enable_api_debug_wrapper()?
     .with_remote_verifier()?
+    .with_client_mode(client_mode.map(Into::into))
     .with_allow_offline(allow_offline)
     .with_disable_events(disable_events)
     .store(store);

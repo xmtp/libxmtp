@@ -14,6 +14,7 @@ use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb, StorageOption};
 use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
+use xmtp_mls::context::ClientMode as XmtpClientMode;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
@@ -72,6 +73,15 @@ pub enum ClientMode {
   #[default]
   default,
   notification,
+}
+
+impl From<ClientMode> for XmtpClientMode {
+  fn from(mode: ClientMode) -> Self {
+    match mode {
+      ClientMode::default => Self::Default,
+      ClientMode::notification => Self::Notification,
+    }
+  }
 }
 
 impl From<SyncWorkerMode> for XmtpSyncWorkerMode {
@@ -181,14 +191,12 @@ pub async fn create_client(
   auth_handle: Option<&gateway_auth::FfiAuthHandle>,
   client_mode: Option<ClientMode>,
 ) -> Result<Client> {
-  let client_mode = client_mode.unwrap_or_default();
   let root_identifier = account_identifier.clone();
   init_logging(log_options.unwrap_or_default())?;
   let mut backend = MessageBackendBuilder::default();
   backend
     .v3_host(&v3_host)
     .maybe_gateway_host(gateway_host)
-    .readonly(matches!(client_mode, ClientMode::notification))
     .maybe_auth_callback(auth_callback.map(|c| Arc::new(c.clone()) as _))
     .maybe_auth_handle(auth_handle.map(|h| h.clone().into()))
     .app_version(app_version.clone().unwrap_or_default())
@@ -265,6 +273,7 @@ pub async fn create_client(
   };
 
   let xmtp_client = builder
+    .with_client_mode(client_mode.map(Into::into))
     .default_mls_store()
     .map_err(ErrorWrapper::from)?
     .build()
