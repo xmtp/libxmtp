@@ -214,6 +214,13 @@ impl UpdateMetadataIntentData {
         }
     }
 
+    pub fn new_update_app_data(app_data: String) -> Self {
+        Self {
+            field_name: MetadataField::AppData.to_string(),
+            field_value: app_data,
+        }
+    }
+
     pub fn new_update_conversation_message_disappear_from_ns(from_ns: i64) -> Self {
         Self {
             field_name: MetadataField::MessageDisappearFromNS.to_string(),
