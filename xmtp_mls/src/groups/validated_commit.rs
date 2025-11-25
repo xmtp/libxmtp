@@ -98,6 +98,10 @@ pub enum CommitValidationError {
     TooManyCharacters { length: usize },
     #[error("Version part missing")]
     VersionMissing,
+    #[error(
+        "Commit is too large: {length} bytes is greater than max allowed ({max_allowed} bytes)"
+    )]
+    CommitTooLarge { length: usize, max_allowed: usize },
 }
 
 impl RetryableError for CommitValidationError {

@@ -176,6 +176,7 @@ async fn test_welcome_pointer_round_trip(
     // welcome pointers would be used (more than 2 capable installations)
 
     // Update installations in the group to include the new installations
+    tracing::info!("Updating installations for alix and bola");
     alix_group.update_installations().await.unwrap();
     bola_group.update_installations().await.unwrap();
 
