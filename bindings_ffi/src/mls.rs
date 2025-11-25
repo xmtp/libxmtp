@@ -7,7 +7,7 @@ use crate::message::{
 };
 use crate::worker::FfiSyncWorker;
 use crate::worker::FfiSyncWorkerMode;
-use crate::{FfiReply, FfiSubscribeError, GenericError};
+use crate::{FfiGroupUpdated, FfiReply, FfiSubscribeError, FfiWalletSendCalls, GenericError};
 use futures::future::try_join_all;
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
@@ -19,6 +19,7 @@ use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::actions::{Actions, ActionsCodec};
 use xmtp_content_types::attachment::Attachment;
 use xmtp_content_types::attachment::AttachmentCodec;
+use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_content_types::intent::{Intent, IntentCodec};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
@@ -31,6 +32,7 @@ use xmtp_content_types::reply::ReplyCodec;
 use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::transaction_reference::TransactionReference;
 use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
+use xmtp_content_types::wallet_send_calls::WalletSendCallsCodec;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
 use xmtp_db::NativeDb;
 use xmtp_db::group::DmIdExt;
@@ -2998,7 +3000,7 @@ pub fn decode_read_receipt(bytes: Vec<u8>) -> Result<FfiReadReceipt, GenericErro
 pub fn encode_remote_attachment(
     remote_attachment: FfiRemoteAttachment,
 ) -> Result<Vec<u8>, GenericError> {
-    let remote_attachment: RemoteAttachment = remote_attachment.into();
+    let remote_attachment: RemoteAttachment = remote_attachment.try_into()?;
 
     let encoded = RemoteAttachmentCodec::encode(remote_attachment)
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;
@@ -3075,6 +3077,62 @@ pub fn decode_actions(bytes: Vec<u8>) -> Result<FfiActions, GenericError> {
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;
 
     actions.try_into()
+}
+
+#[uniffi::export]
+pub fn decode_group_updated(bytes: Vec<u8>) -> Result<FfiGroupUpdated, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    GroupUpdatedCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
+#[uniffi::export]
+pub fn encode_text(text: String) -> Result<Vec<u8>, GenericError> {
+    let encoded =
+        TextCodec::encode(text).map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_text(bytes: Vec<u8>) -> Result<String, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    TextCodec::decode(encoded_content).map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
+#[uniffi::export]
+pub fn encode_wallet_send_calls(
+    wallet_send_calls: FfiWalletSendCalls,
+) -> Result<Vec<u8>, GenericError> {
+    let encoded = WalletSendCallsCodec::encode(wallet_send_calls.into())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_wallet_send_calls(bytes: Vec<u8>) -> Result<FfiWalletSendCalls, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    WalletSendCallsCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
 }
 
 #[derive(uniffi::Record, Clone)]

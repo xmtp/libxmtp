@@ -708,7 +708,7 @@ impl Conversation {
     let dms = self
       .inner_group
       .find_duplicate_dms()
-      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+      .map_err(ErrorWrapper::from)?;
 
     let mut hmac_map = HashMap::new();
     for conversation in dms {
@@ -738,11 +738,13 @@ impl Conversation {
   pub async fn debug_info(&self) -> Result<ConversationDebugInfo> {
     let group = self.create_mls_group();
 
-    group
-      .debug_info()
-      .await
-      .map(Into::into)
-      .map_err(|e| napi::Error::from_reason(e.to_string()))
+    Ok(
+      group
+        .debug_info()
+        .await
+        .map(Into::into)
+        .map_err(ErrorWrapper::from)?,
+    )
   }
 
   #[napi]
@@ -751,7 +753,7 @@ impl Conversation {
     let dms = self
       .inner_group
       .find_duplicate_dms()
-      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+      .map_err(ErrorWrapper::from)?;
 
     let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();
 

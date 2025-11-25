@@ -205,15 +205,12 @@ pub async fn create_client(
       let key: EncryptionKey = key
         .try_into()
         .map_err(|_| Error::from_reason("Malformed 32 byte encryption key"))?;
-      let db = NativeDb::new(&storage_option, key)
-        .map_err(|e| Error::from_reason(format!("Error creating native database {}", e)))?;
-      EncryptedMessageStore::new(db)
-        .map_err(|e| Error::from_reason(format!("Error Creating Encrypted Message store {}", e)))?
+      let db = NativeDb::new(&storage_option, key).map_err(ErrorWrapper::from)?;
+      EncryptedMessageStore::new(db).map_err(ErrorWrapper::from)?
     }
     None => {
-      let db = NativeDb::new_unencrypted(&storage_option)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
-      EncryptedMessageStore::new(db).map_err(|e| Error::from_reason(e.to_string()))?
+      let db = NativeDb::new_unencrypted(&storage_option).map_err(ErrorWrapper::from)?;
+      EncryptedMessageStore::new(db).map_err(ErrorWrapper::from)?
     }
   };
 
