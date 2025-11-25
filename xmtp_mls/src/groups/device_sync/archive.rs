@@ -1,15 +1,18 @@
 use super::DeviceSyncError;
 use crate::{
     context::XmtpSharedContext,
-    groups::{MlsGroup, group_permissions::PolicySet},
+    groups::{MlsGroup, device_sync::MissingField, group_permissions::PolicySet},
 };
 use futures::StreamExt;
 pub use xmtp_archive::*;
 use xmtp_db::{
-    StoreOrIgnore, consent_record::StoredConsentRecord, group::GroupMembershipState,
-    group_message::StoredGroupMessage, prelude::*,
+    StoreOrIgnore,
+    consent_record::StoredConsentRecord,
+    group::{ConversationType, DmIdExt, GroupMembershipState},
+    group_message::StoredGroupMessage,
+    prelude::*,
 };
-use xmtp_mls_common::group::GroupMetadataOptions;
+use xmtp_mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
 
 pub async fn insert_importer(
@@ -48,20 +51,42 @@ fn insert(element: BackupElement, context: &impl XmtpSharedContext) -> Result<()
                 .map(|m| m.attributes)
                 .unwrap_or_default();
 
-            MlsGroup::insert(
-                context,
-                Some(&save.id),
-                GroupMembershipState::Restored,
-                conversation_type,
-                PolicySet::default(),
-                GroupMetadataOptions {
-                    name: attributes.get("group_name").cloned(),
-                    image_url_square: attributes.get("group_image_url_square").cloned(),
-                    description: attributes.get("description").cloned(),
-                    ..Default::default()
-                },
-                None,
-            )?;
+            match conversation_type {
+                ConversationType::Dm => {
+                    let Some(dm_id) = save.dm_id else {
+                        return Err(DeviceSyncError::MissingField(
+                            MissingField::Conversation(super::ConversationField::DmId),
+                            format!("DM with id of {:?} was missing the dm_id field.", save.id),
+                        ));
+                    };
+
+                    let target_inbox_id = dm_id.other_inbox_id(context.inbox_id());
+
+                    MlsGroup::create_dm_and_insert(
+                        context,
+                        GroupMembershipState::Restored,
+                        target_inbox_id,
+                        DMMetadataOptions::default(),
+                        Some(&save.id),
+                    )?;
+                }
+                _ => {
+                    MlsGroup::insert(
+                        context,
+                        Some(&save.id),
+                        GroupMembershipState::Restored,
+                        ConversationType::Group,
+                        PolicySet::default(),
+                        GroupMetadataOptions {
+                            name: attributes.get("group_name").cloned(),
+                            image_url_square: attributes.get("group_image_url_square").cloned(),
+                            description: attributes.get("description").cloned(),
+                            ..Default::default()
+                        },
+                        None,
+                    )?;
+                }
+            }
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;

@@ -447,9 +447,7 @@ where
         opts: GroupMetadataOptions,
         oneshot_message: Option<OneshotMessage>,
     ) -> Result<StoredGroup, GroupError> {
-        if existing_group_id.is_none() {
-            assert!(conversation_type != ConversationType::Dm);
-        }
+        assert!(conversation_type != ConversationType::Dm);
 
         let creator_inbox_id = context.inbox_id();
         let protected_metadata = build_protected_metadata_extension(
@@ -514,6 +512,7 @@ where
         membership_state: GroupMembershipState,
         dm_target_inbox_id: InboxId,
         opts: DMMetadataOptions,
+        existing_group_id: Option<&[u8]>,
     ) -> Result<Self, GroupError> {
         let provider = context.mls_provider();
         let protected_metadata =
@@ -534,8 +533,16 @@ where
             mutable_permission_extension,
         )?;
 
-        let mls_group =
-            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?;
+        let mls_group = if let Some(group_id) = existing_group_id {
+            OpenMlsGroup::from_backup_stub_logged(
+                &provider,
+                context.identity(),
+                &group_config,
+                GroupId::from_slice(group_id),
+            )?
+        } else {
+            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?
+        };
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::builder()
@@ -1980,7 +1987,7 @@ pub(crate) fn build_protected_metadata_extension(
     conversation_type: ConversationType,
     oneshot_message: Option<OneshotMessage>,
 ) -> Result<Extension, MetadataPermissionsError> {
-    // assert!(conversation_type != ConversationType::Dm);
+    assert!(conversation_type != ConversationType::Dm);
     let metadata = GroupMetadata::new(
         conversation_type,
         creator_inbox_id.to_string(),

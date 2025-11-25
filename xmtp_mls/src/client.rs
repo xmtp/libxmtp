@@ -568,6 +568,7 @@ where
             GroupMembershipState::Allowed,
             dm_target_inbox_id.clone(),
             opts.unwrap_or_default(),
+            None,
         )?;
 
         group.add_members_by_inbox_id(&[dm_target_inbox_id]).await?;
