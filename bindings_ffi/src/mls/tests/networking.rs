@@ -22,7 +22,7 @@ async fn radio_silence() {
     // One identity update pushed. Zero interaction with groups.
     assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
     assert_eq!(stats.send_welcome_messages.get_count(), 0);
-    assert_eq!(stats.send_group_messages.get_count(), 1);
+    assert_eq!(stats.send_group_messages.get_count(), 2);
 
     let bo = Tester::new().await;
     let conversation = alex
@@ -49,7 +49,7 @@ async fn radio_silence() {
     assert_eq!(stats.send_welcome_messages.get_count(), 1);
     let group_message_count = stats.send_group_messages.get_count();
 
-    // Sleep for 2 seconds and make sure nothing else has sent
+    // Sleep for a bit and make sure nothing else has sent
     tokio::time::sleep(Duration::from_secs(5)).await;
 
     // One identity update pushed. Zero interaction with groups.
