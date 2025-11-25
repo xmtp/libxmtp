@@ -41,6 +41,7 @@ pub mod prelude {
     pub use super::group::QueryGroupVersion;
     pub use super::group_intent::QueryGroupIntent;
     pub use super::group_message::QueryGroupMessage;
+    pub use super::icebox::QueryIcebox;
     pub use super::identity::QueryIdentity;
     pub use super::identity_cache::QueryIdentityCache;
     pub use super::identity_update::QueryIdentityUpdates;

@@ -86,9 +86,17 @@ diesel::table! {
     icebox (sequence_id, originator_id) {
         sequence_id -> BigInt,
         originator_id -> BigInt,
-        depending_sequence_id -> Nullable<BigInt>,
-        depending_originator_id -> Nullable<BigInt>,
+        group_id -> Binary,
         envelope_payload -> Binary,
+    }
+}
+
+diesel::table! {
+    icebox_dependencies (envelope_sequence_id, envelope_originator_id, dependency_sequence_id, dependency_originator_id) {
+        envelope_sequence_id -> BigInt,
+        envelope_originator_id -> BigInt,
+        dependency_sequence_id -> BigInt,
+        dependency_originator_id -> BigInt,
     }
 }
 
@@ -234,6 +242,7 @@ diesel::table! {
 
 diesel::joinable!(group_intents -> groups (group_id));
 diesel::joinable!(group_messages -> groups (group_id));
+diesel::joinable!(icebox -> groups (group_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     association_state,
@@ -242,6 +251,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     group_messages,
     groups,
     icebox,
+    icebox_dependencies,
     identity,
     identity_cache,
     identity_updates,
