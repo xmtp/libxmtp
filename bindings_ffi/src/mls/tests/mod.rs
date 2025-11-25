@@ -80,6 +80,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 // Test module declarations
+mod archive;
 mod client;
 mod content_types;
 mod device_sync;

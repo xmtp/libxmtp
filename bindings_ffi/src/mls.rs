@@ -1029,12 +1029,13 @@ pub struct FfiArchiveOptions {
     start_ns: Option<i64>,
     end_ns: Option<i64>,
     elements: Vec<FfiBackupElementSelection>,
+    exclude_disappearing_messages: bool,
 }
 impl From<FfiArchiveOptions> for BackupOptions {
     fn from(value: FfiArchiveOptions) -> Self {
         Self {
             start_ns: value.start_ns,
-            end_ns: value.start_ns,
+            end_ns: value.end_ns,
             elements: value
                 .elements
                 .into_iter()
@@ -1043,6 +1044,7 @@ impl From<FfiArchiveOptions> for BackupOptions {
                     element.into()
                 })
                 .collect(),
+            exclude_disappearing_messages: value.exclude_disappearing_messages,
         }
     }
 }
@@ -2212,6 +2214,7 @@ impl From<FfiListMessagesOptions> for MsgQueryArgs {
             sort_by: opts.sort_by.map(Into::into),
             inserted_after_ns: opts.inserted_after_ns,
             inserted_before_ns: opts.inserted_before_ns,
+            exclude_disappearing: false,
         }
     }
 }

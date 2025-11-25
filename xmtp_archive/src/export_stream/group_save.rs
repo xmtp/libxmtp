@@ -19,6 +19,7 @@ impl BackupRecordProvider for GroupSave {
         db: Arc<D>,
         start_ns: Option<i64>,
         end_ns: Option<i64>,
+        _exclude_disappearing_messages: bool,
         cursor: i64,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
