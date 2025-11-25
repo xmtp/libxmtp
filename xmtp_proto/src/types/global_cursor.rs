@@ -247,6 +247,25 @@ impl DerefMut for GlobalCursor {
     }
 }
 
+impl<'a> Extend<(&'a OriginatorId, &'a SequenceId)> for GlobalCursor {
+    fn extend<T: IntoIterator<Item = (&'a OriginatorId, &'a SequenceId)>>(&mut self, iter: T) {
+        self.inner.extend(iter)
+    }
+}
+
+impl Extend<(OriginatorId, SequenceId)> for GlobalCursor {
+    fn extend<T: IntoIterator<Item = (OriginatorId, SequenceId)>>(&mut self, iter: T) {
+        self.inner.extend(iter)
+    }
+}
+
+impl Extend<super::Cursor> for GlobalCursor {
+    fn extend<T: IntoIterator<Item = super::Cursor>>(&mut self, iter: T) {
+        self.inner
+            .extend(iter.into_iter().map(|c| (c.originator_id, c.sequence_id)))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClockOrdering {
     Equal,
