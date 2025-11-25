@@ -734,6 +734,14 @@ macro_rules! apply_message_filters {
             query = query.filter(dsl::inserted_at_ns.lt(inserted_before_ns));
         }
 
+        // Always exclude expired messages (expire_at_ns < now)
+        let current_time = now_ns();
+        query = query.filter(
+            dsl::expire_at_ns
+                .is_null()
+                .or(dsl::expire_at_ns.gt(current_time)),
+        );
+
         query
     }};
 }
@@ -898,6 +906,14 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         }
         if *exclude_disappearing {
             query = query.filter(group_messages::expire_at_ns.is_null());
+        } else {
+            // Always exclude expired messages (expire_at_ns < now)
+            let current_time = now_ns();
+            query = query.filter(
+                group_messages::expire_at_ns
+                    .is_null()
+                    .or(group_messages::expire_at_ns.gt(current_time)),
+            );
         }
 
         query = query.limit(limit.unwrap_or(100)).offset(offset);

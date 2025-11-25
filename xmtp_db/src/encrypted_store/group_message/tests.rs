@@ -2656,3 +2656,74 @@ async fn test_inserted_at_populated_in_all_queries() {
     })
     .await
 }
+
+#[xmtp_common::test]
+async fn test_expired_messages_excluded_from_queries() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+
+        let now = xmtp_common::time::now_ns();
+        let past = now - 1_000_000_000; // 1 second ago
+        let future = now + 1_000_000_000_000; // 1000 seconds from now
+
+        // Create messages with different expiration states
+        let messages = vec![
+            // Message with no expiration (should be included)
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(1_000),
+                Some(ContentType::Text),
+                None,
+                None,
+            ),
+            // Message expired in the past (should be excluded)
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(2_000),
+                Some(ContentType::Text),
+                Some(past),
+                None,
+            ),
+            // Message expiring in the future (should be included)
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(3_000),
+                Some(ContentType::Text),
+                Some(future),
+                None,
+            ),
+        ];
+        assert_ok!(messages.store(conn));
+
+        // Query should only return non-expired messages
+        let results = conn
+            .get_group_messages(&group.id, &MsgQueryArgs::default())
+            .unwrap();
+
+        assert_eq!(
+            results.len(),
+            2,
+            "Should only return 2 non-expired messages"
+        );
+
+        // Verify we got the right messages (no expiration and future expiration)
+        let sent_times: Vec<i64> = results.iter().map(|m| m.sent_at_ns).collect();
+        assert!(
+            sent_times.contains(&1_000),
+            "Should include message with no expiration"
+        );
+        assert!(
+            sent_times.contains(&3_000),
+            "Should include message with future expiration"
+        );
+        assert!(
+            !sent_times.contains(&2_000),
+            "Should exclude expired message"
+        );
+    })
+    .await
+}

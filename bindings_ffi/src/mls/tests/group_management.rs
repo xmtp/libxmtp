@@ -751,15 +751,32 @@ async fn test_disappearing_messages_deletion() {
     }
     alix_group.sync().await.unwrap();
 
-    // Step 6: Verify total message count before cleanup
+    // Step 6: Verify messages after setting disappearing mode
+    // With in_ns = 5 nanoseconds, Msg 2, 3, 4 expire almost instantly
+    // So they are filtered out immediately from queries
     alix_messages = alix_group
         .find_messages(FfiListMessagesOptions::default())
         .await
         .unwrap();
-    let msg_counts_before_cleanup = alix_messages.len();
+    assert_eq!(
+        alix_messages.len(),
+        4,
+        "Should have 4 messages: initial GroupUpdated + Msg 1 + 2 GroupUpdated (settings). Msg 2-4 already expired."
+    );
 
-    // Wait for cleanup to complete
+    // Wait to ensure background cleanup worker runs (even though filtering happens at query time)
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    // Step 7: Verify count remains the same after background cleanup
+    alix_messages = alix_group
+        .find_messages(FfiListMessagesOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        alix_messages.len(),
+        4,
+        "Should still have 4 messages after background cleanup"
+    );
 
     // Step 8: Disable disappearing messages
     alix_group
@@ -799,13 +816,23 @@ async fn test_disappearing_messages_deletion() {
         .await
         .unwrap();
 
-    // Step 10: Verify messages after cleanup
+    // Step 10: Verify final message count
     alix_messages = alix_group
         .find_messages(FfiListMessagesOptions::default())
         .await
         .unwrap();
-    assert_eq!(msg_counts_before_cleanup, alix_messages.len());
-    // 3 messages got deleted, then two messages got added for metadataUpdate and one normal messaged added later
+
+    // After disabling disappearing messages and sending Msg 5:
+    // - 4 messages from step 7 (initial GroupUpdated + Msg 1 + 2 GroupUpdated from settings)
+    // - 2 GroupUpdated (from disabling disappearing settings)
+    // - 1 Msg 5 (sent after disabling, no expire_at_ns)
+    // Total: 7 messages
+    // Note: Msg 2, 3, 4 remain filtered out as they expired immediately when sent
+    assert_eq!(
+        alix_messages.len(),
+        7,
+        "Should have 7 messages: 4 from before + 2 GroupUpdated (disable) + Msg 5"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
