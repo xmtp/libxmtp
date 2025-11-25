@@ -447,7 +447,10 @@ where
         opts: GroupMetadataOptions,
         oneshot_message: Option<OneshotMessage>,
     ) -> Result<StoredGroup, GroupError> {
-        assert!(conversation_type != ConversationType::Dm);
+        if existing_group_id.is_none() {
+            assert!(conversation_type != ConversationType::Dm);
+        }
+
         let creator_inbox_id = context.inbox_id();
         let protected_metadata = build_protected_metadata_extension(
             creator_inbox_id,
@@ -1977,7 +1980,7 @@ pub(crate) fn build_protected_metadata_extension(
     conversation_type: ConversationType,
     oneshot_message: Option<OneshotMessage>,
 ) -> Result<Extension, MetadataPermissionsError> {
-    assert!(conversation_type != ConversationType::Dm);
+    // assert!(conversation_type != ConversationType::Dm);
     let metadata = GroupMetadata::new(
         conversation_type,
         creator_inbox_id.to_string(),
