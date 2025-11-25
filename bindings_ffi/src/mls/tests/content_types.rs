@@ -298,8 +298,13 @@ async fn test_long_messages() {
         .await
         .unwrap();
 
-    let data = xmtp_common::rand_vec::<100000>();
-    dm.send(data.clone(), FfiSendMessageOpts::default())
+    let mut data = String::new();
+    let mut i = 0;
+    while data.len() < 100_000 {
+        data.push_str(&format!("{i:4}: This is a test message that is really long for testing purposes and should be truncated if ever logged in tests\n"));
+        i += 1;
+    }
+    dm.send(data.as_bytes().to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
 
@@ -314,7 +319,7 @@ async fn test_long_messages() {
         .find_messages(FfiListMessagesOptions::default())
         .await
         .unwrap();
-    assert!(bo_msgs.iter().any(|msg| msg.content.eq(&data)));
+    assert!(bo_msgs.iter().any(|msg| msg.content.eq(data.as_bytes())));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
