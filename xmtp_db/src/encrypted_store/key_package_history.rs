@@ -197,7 +197,7 @@ mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     #[xmtp_common::test]
-    async fn test_store_key_package_history_entry() {
+    fn test_store_key_package_history_entry() {
         with_connection(|conn| {
             let hash_ref = rand_vec::<24>();
             let post_quantum_public_key = rand_vec::<32>();
@@ -221,11 +221,10 @@ mod tests {
                 .unwrap();
             assert!(all_entries.is_empty());
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_store_multiple() {
+    fn test_store_multiple() {
         with_connection(|conn| {
             let post_quantum_public_key = rand_vec::<32>();
             let hash_ref1 = rand_vec::<24>();
@@ -257,6 +256,5 @@ mod tests {
                 .unwrap();
             assert_eq!(earlier_entries.len(), 2);
         })
-        .await
     }
 }

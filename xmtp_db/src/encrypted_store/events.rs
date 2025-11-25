@@ -203,7 +203,7 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     // A client build event should clear old events.
-    async fn clear_old_events() {
+    fn clear_old_events() {
         with_connection(|conn| {
             let details: HashMap<String, String> = HashMap::default();
             Events {
@@ -234,6 +234,5 @@ mod tests {
             let all = Events::all_events(conn)?;
             assert_eq!(all.len(), 0);
         })
-        .await;
     }
 }
