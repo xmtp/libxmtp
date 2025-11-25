@@ -618,7 +618,6 @@ where
         })?;
 
         if let Some(group) = group {
-            tracing::error!("{:?}", group);
             return Ok(MlsGroup::new(
                 self.context.clone(),
                 group.id,
