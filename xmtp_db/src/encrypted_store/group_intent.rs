@@ -45,6 +45,20 @@ pub enum IntentKind {
     ReaddInstallations = 7,
 }
 
+impl IntentKind {
+    pub fn is_commit(self) -> bool {
+        match self {
+            Self::SendMessage => false,
+            Self::KeyUpdate
+            | Self::MetadataUpdate
+            | Self::UpdateGroupMembership
+            | Self::UpdateAdminList
+            | Self::UpdatePermission
+            | Self::ReaddInstallations => true,
+        }
+    }
+}
+
 impl std::fmt::Display for IntentKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let description = match self {

@@ -51,6 +51,7 @@ pub(crate) async fn apply_update_group_membership_intent(
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
     let publish_intent_data = compute_publish_data_for_group_membership_update(
+        IntentKind::UpdateGroupMembership,
         context,
         openmls_group,
         changes_with_kps.new_installations,
@@ -64,8 +65,10 @@ pub(crate) async fn apply_update_group_membership_intent(
     Ok(Some(publish_intent_data))
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tracing::instrument(level = "trace", skip_all)]
 async fn compute_publish_data_for_group_membership_update(
+    kind: IntentKind,
     context: &impl XmtpSharedContext,
     openmls_group: &mut OpenMlsGroup,
     installations_to_add: Vec<Installation>,
@@ -86,7 +89,7 @@ async fn compute_publish_data_for_group_membership_update(
             )
         })?;
 
-    let staged_commit = staged_commit.ok_or_else(|| GroupError::MissingPendingCommit)?;
+    let staged_commit = staged_commit.ok_or(GroupError::MissingPendingCommit)?;
 
     let post_commit_action = match maybe_welcome_message {
         Some(welcome_message) => Some(PostCommitAction::from_welcome(
@@ -96,17 +99,19 @@ async fn compute_publish_data_for_group_membership_update(
         None => None,
     };
 
-    Ok(PublishIntentData {
-        payload_to_publish: commit.tls_serialize_detached()?,
-        post_commit_action: post_commit_action.map(|action| action.to_bytes()),
-        staged_commit: Some(staged_commit),
-        should_send_push_notification: false,
+    PublishIntentData::new(
+        kind,
+        commit.tls_serialize_detached()?,
+        Some(staged_commit),
+        post_commit_action.map(|action| action.to_bytes()),
+        false,
         group_epoch,
-    })
+    )
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub(crate) async fn apply_readd_installations_intent(
+    kind: IntentKind,
     context: &impl XmtpSharedContext,
     openmls_group: &mut OpenMlsGroup,
     intent_data: ReaddInstallationsIntentData,
@@ -158,6 +163,7 @@ pub(crate) async fn apply_readd_installations_intent(
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
     let publish_intent_data = compute_publish_data_for_group_membership_update(
+        kind,
         context,
         openmls_group,
         installations_to_welcome,

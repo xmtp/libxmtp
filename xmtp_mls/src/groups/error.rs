@@ -184,6 +184,8 @@ pub enum GroupError {
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
     #[error(transparent)]
     EnrichMessage(#[from] EnrichMessageError),
+    #[error("BoxDynError: {0}")]
+    Any(xmtp_common::BoxDynError),
 }
 
 impl From<prost::EncodeError> for GroupError {
@@ -333,7 +335,8 @@ impl RetryableError for GroupError {
             | Self::NoWelcomesToSend
             | Self::WelcomeDataNotFound(_)
             | Self::UninitializedField(_)
-            | Self::UninitializedResult => false,
+            | Self::UninitializedResult
+            | Self::Any(_) => false,
         }
     }
 }

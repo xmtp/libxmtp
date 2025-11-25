@@ -1,3 +1,4 @@
+use self::publish_intent_data::PublishIntentData;
 use super::{
     GroupError, HmacKey, MlsGroup, build_extensions_for_admin_lists_update,
     build_extensions_for_metadata_update, build_extensions_for_permissions_update,
@@ -246,25 +247,76 @@ impl RetryableError for IntentResolutionError {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct PublishIntentData {
-    staged_commit: Option<Vec<u8>>,
-    post_commit_action: Option<Vec<u8>>,
-    payload_to_publish: Vec<u8>,
-    should_send_push_notification: bool,
-    group_epoch: u64,
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-impl PublishIntentData {
-    #[allow(dead_code)]
-    pub fn post_commit_data(&self) -> Option<Vec<u8>> {
-        self.post_commit_action.clone()
+mod publish_intent_data {
+    #[derive(Debug)]
+    pub(crate) struct PublishIntentData {
+        payload_to_publish: Vec<u8>,
+        staged_commit: Option<Vec<u8>>,
+        post_commit_action: Option<Vec<u8>>,
+        should_send_push_notification: bool,
+        group_epoch: u64,
     }
 
-    #[allow(dead_code)]
-    pub fn staged_commit(&self) -> Option<Vec<u8>> {
-        self.staged_commit.clone()
+    impl PublishIntentData {
+        pub fn new(
+            kind: xmtp_db::group_intent::IntentKind,
+            payload_to_publish: Vec<u8>,
+            staged_commit: Option<Vec<u8>>,
+            post_commit_action: Option<Vec<u8>>,
+            should_send_push_notification: bool,
+            group_epoch: u64,
+        ) -> Result<Self, super::GroupError> {
+            tracing::info!(
+                ?kind,
+                payload_to_publish_len = payload_to_publish.len(),
+                staged_commit_len = staged_commit.as_ref().map(|c| c.len()).unwrap_or(0),
+                post_commit_action_len = post_commit_action.as_ref().map(|c| c.len()).unwrap_or(0),
+                "publish intent sizes",
+            );
+            if (kind.is_commit() || staged_commit.is_some())
+                && payload_to_publish.len() > xmtp_configuration::MAX_COMMIT_SIZE
+            {
+                return Err(super::CommitValidationError::CommitTooLarge {
+                    length: payload_to_publish.len(),
+                    max_allowed: xmtp_configuration::MAX_COMMIT_SIZE,
+                }
+                .into());
+            }
+            Ok(Self {
+                payload_to_publish,
+                staged_commit,
+                post_commit_action,
+                should_send_push_notification,
+                group_epoch,
+            })
+        }
+        pub fn staged_commit(&self) -> Option<&Vec<u8>> {
+            self.staged_commit.as_ref()
+        }
+
+        pub fn post_commit_action(&self) -> Option<&Vec<u8>> {
+            self.post_commit_action.as_ref()
+        }
+
+        pub fn payload_to_publish(&self) -> &Vec<u8> {
+            &self.payload_to_publish
+        }
+
+        pub fn should_send_push_notification(&self) -> bool {
+            self.should_send_push_notification
+        }
+
+        pub fn group_epoch(&self) -> u64 {
+            self.group_epoch
+        }
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    impl PublishIntentData {
+        #[allow(dead_code)]
+        pub fn post_commit_data(&self) -> Option<Vec<u8>> {
+            self.post_commit_action.clone()
+        }
     }
 }
 
@@ -1130,9 +1182,10 @@ where
                     }
                 }
             }
-            ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
+            ProcessedMessageContent::ProposalMessage(proposal) => {
+                tracing::warn!("Storing pending proposal: {proposal:?}");
+                mls_group.store_pending_proposal(storage, *proposal)?;
                 Ok(())
-                // intentionally left blank.
             }
             ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
                 Ok(())
@@ -2065,7 +2118,8 @@ where
                                 intent.id,
                                 intent.kind = %intent.kind,
                                 inbox_id = self.context.inbox_id(),
-                                installation_id = %self.context.installation_id(),group_id = hex::encode(&self.group_id),
+                                installation_id = %self.context.installation_id(),
+                                group_id = hex::encode(&self.group_id),
                                 "intent {} has reached max publish attempts", intent.id);
                             // TODO: Eventually clean up errored attempts
                             let id = utils::id::calculate_message_id_for_intent(&intent)?;
@@ -2076,13 +2130,12 @@ where
 
                         return Err(err);
                     }
-                    Ok(Some(PublishIntentData {
-                                payload_to_publish,
-                                post_commit_action,
-                                staged_commit,
-                                should_send_push_notification,
-                                group_epoch
-                            })) => {
+                    Ok(Some(publish_intent_data)) => {
+                        let payload_to_publish = publish_intent_data.payload_to_publish();
+                        let post_commit_action = publish_intent_data.post_commit_action().cloned();
+                        let staged_commit = publish_intent_data.staged_commit().cloned();
+                        let should_send_push_notification = publish_intent_data.should_send_push_notification();
+                        let group_epoch = publish_intent_data.group_epoch();
                         let payload_slice = payload_to_publish.as_slice();
                         let has_staged_commit = staged_commit.is_some();
                         let intent_hash = sha256(payload_slice);
@@ -2182,27 +2235,31 @@ where
                     intent_data.message.as_slice(),
                 )?;
 
-                Ok(Some(PublishIntentData {
-                    payload_to_publish: msg.tls_serialize_detached()?,
-                    post_commit_action: None,
-                    staged_commit: None,
-                    should_send_push_notification: intent.should_push,
+                Ok(Some(PublishIntentData::new(
+                    IntentKind::SendMessage,
+                    msg.tls_serialize_detached()?,
+                    None,
+                    None,
+                    intent.should_push,
                     group_epoch,
-                }))
+                )?))
             }
             IntentKind::KeyUpdate => {
                 let keys = self.context.identity().installation_keys.clone();
                 let (bundle, staged_commit, group_epoch) =
                     generate_commit_with_rollback(storage, openmls_group, |group, provider| {
-                        group.self_update(provider, &keys, LeafNodeParameters::default())
+                        group
+                            .self_update(provider, &keys, LeafNodeParameters::default())
+                            .map_err(|e| GroupError::Any(e.into()))
                     })?;
-                Ok(Some(PublishIntentData {
-                    payload_to_publish: bundle.commit().tls_serialize_detached()?,
+                Ok(Some(PublishIntentData::new(
+                    IntentKind::KeyUpdate,
+                    bundle.commit().tls_serialize_detached()?,
                     staged_commit,
-                    post_commit_action: None,
-                    should_send_push_notification: intent.should_push,
+                    None,
+                    intent.should_push,
                     group_epoch,
-                }))
+                )?))
             }
             IntentKind::MetadataUpdate => {
                 let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
@@ -2224,13 +2281,14 @@ where
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
-                Ok(Some(PublishIntentData {
-                    payload_to_publish: commit_bytes,
+                Ok(Some(PublishIntentData::new(
+                    IntentKind::MetadataUpdate,
+                    commit_bytes,
                     staged_commit,
-                    post_commit_action: None,
-                    should_send_push_notification: intent.should_push,
+                    None,
+                    intent.should_push,
                     group_epoch,
-                }))
+                )?))
             }
             IntentKind::UpdateAdminList => {
                 let admin_list_update_intent =
@@ -2252,13 +2310,14 @@ where
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
-                Ok(Some(PublishIntentData {
-                    payload_to_publish: commit_bytes,
+                Ok(Some(PublishIntentData::new(
+                    IntentKind::UpdateAdminList,
+                    commit_bytes,
                     staged_commit,
-                    post_commit_action: None,
-                    should_send_push_notification: intent.should_push,
+                    None,
+                    intent.should_push,
                     group_epoch,
-                }))
+                )?))
             }
             IntentKind::UpdatePermission => {
                 let update_permissions_intent =
@@ -2278,20 +2337,27 @@ where
                         )
                     })?;
 
-                let commit_bytes = commit.tls_serialize_detached()?;
-                Ok(Some(PublishIntentData {
-                    payload_to_publish: commit_bytes,
+                let commit_bytes: Vec<u8> = commit.tls_serialize_detached()?;
+                Ok(Some(PublishIntentData::new(
+                    IntentKind::UpdatePermission,
+                    commit_bytes,
                     staged_commit,
-                    post_commit_action: None,
-                    should_send_push_notification: intent.should_push,
+                    None,
+                    intent.should_push,
                     group_epoch,
-                }))
+                )?))
             }
             IntentKind::ReaddInstallations => {
                 let intent_data = ReaddInstallationsIntentData::try_from(intent.data.as_slice())?;
                 let signer = &self.context.identity().installation_keys;
-                apply_readd_installations_intent(&self.context, openmls_group, intent_data, signer)
-                    .await
+                apply_readd_installations_intent(
+                    IntentKind::ReaddInstallations,
+                    &self.context,
+                    openmls_group,
+                    intent_data,
+                    signer,
+                )
+                .await
             }
         }
     }
@@ -2474,10 +2540,7 @@ where
 
             Ok(UpdateGroupMembershipIntentData::new(
                 changed_inbox_ids,
-                inbox_ids_to_remove
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect::<Vec<String>>(),
+                inbox_ids_to_remove.iter().map(|&s| s.into()).collect(),
                 changes_with_kps.failed_installations,
             ))
         })
@@ -2974,6 +3037,51 @@ where
         .map_err(|e| e.into())?;
 
     Ok((operation_result, staged_commit, group_epoch))
+}
+
+pub(super) fn with_rollback<S, R, E, F>(
+    storage: &S,
+    openmls_group: &mut OpenMlsGroup,
+    operation: F,
+) -> Result<R, GroupError>
+where
+    S: XmtpMlsStorageProvider,
+    E: Into<GroupError>,
+    F: for<'a> FnOnce(
+        &mut OpenMlsGroup,
+        &XmtpOpenMlsProviderRef<<S::TxQuery as TransactionalKeyStore>::Store<'a>>,
+    ) -> Result<R, E>,
+{
+    let mut result = None;
+
+    let transaction_result = storage.transaction(|conn| {
+        let key_store = conn.key_store();
+        let provider = XmtpOpenMlsProviderRef::new(&key_store);
+
+        // Execute the operation (e.g., self_update, update_group_context_extensions, etc.)
+        result = Some(operation(openmls_group, &provider));
+
+        // Rollback the transaction to avoid persisting the commit
+        Err::<(), StorageError>(StorageError::IntentionalRollback)
+    });
+
+    let Err(e) = transaction_result else {
+        unreachable!("Transaction never returns ok");
+    };
+
+    // Check if the transaction was intentionally rolled back (expected)
+    // or if there was a real error
+
+    if !matches!(e, StorageError::IntentionalRollback) {
+        return Err(e.into());
+    }
+
+    openmls_group.reload(storage)?;
+
+    // Extract and handle the operation result
+    result
+        .expect("Operation should have been called")
+        .map_err(|e| e.into())
 }
 
 pub(crate) fn decode_staged_commit(

@@ -267,12 +267,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         );
         if !allow_offline {
             // get sequence_id from identity updates and loaded into the DB
-            load_identity_updates(
-                &api_client,
-                &conn,
-                vec![identity.inbox_id.as_str()].as_slice(),
-            )
-            .await?;
+            load_identity_updates(&api_client, &conn, &[identity.inbox_id.as_str()]).await?;
         }
 
         let (local_events, _) = broadcast::channel(32);

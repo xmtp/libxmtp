@@ -47,3 +47,6 @@ pub const MIN_RECOVERY_REQUEST_VERSION: &str = "1.6.0";
 // ingested by the nodes and stored. There is a slight penalty for egress data, but the amount needed
 // to be stored can be 100x less than using regular welcome messages.
 pub const INSTALLATION_THRESHOLD_FOR_WELCOME_POINTER_SENDING: usize = 2;
+
+// The maximum size of a staged commit in bytes.
+pub const MAX_COMMIT_SIZE: usize = 200000; // 200 KB

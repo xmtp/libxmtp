@@ -119,7 +119,6 @@ where
                 fmt::layer()
                     .compact()
                     .with_ansi(true)
-                    .without_time()
                     .with_test_writer()
                     .fmt_fields({
                         format::debug_fn(move |writer, field, value| {
@@ -129,8 +128,11 @@ where
                                 let mut message = format!("{value:?}");
                                 let ids = REPLACE_IDS.lock();
                                 for (id, name) in ids.iter() {
-                                    message = message.replace(id, name);
-                                    message = message.replace(&crate::fmt::truncate_hex(id), name);
+                                    if message.contains(id) {
+                                        message = message.replace(id, name);
+                                        message =
+                                            message.replace(&crate::fmt::truncate_hex(id), name);
+                                    }
                                 }
                                 write!(writer, "{message}")?;
                             }
