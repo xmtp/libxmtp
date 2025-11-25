@@ -13,6 +13,7 @@ use xmtp_proto::xmtp::device_sync::{
     event_backup::EventSave, group_backup::GroupSave, message_backup::GroupMessageSave,
 };
 
+pub(crate) mod blob_save;
 pub(crate) mod consent_save;
 pub(crate) mod event_save;
 pub(crate) mod group_save;

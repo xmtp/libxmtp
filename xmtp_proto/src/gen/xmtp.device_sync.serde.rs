@@ -27,6 +27,12 @@ impl serde::Serialize for BackupElement {
                 backup_element::Element::Event(v) => {
                     struct_ser.serialize_field("event", v)?;
                 }
+                backup_element::Element::IdentityUpdates(v) => {
+                    struct_ser.serialize_field("identity_updates", v)?;
+                }
+                backup_element::Element::Blob(v) => {
+                    struct_ser.serialize_field("blob", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -45,6 +51,9 @@ impl<'de> serde::Deserialize<'de> for BackupElement {
             "groupMessage",
             "consent",
             "event",
+            "identity_updates",
+            "identityUpdates",
+            "blob",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -54,6 +63,8 @@ impl<'de> serde::Deserialize<'de> for BackupElement {
             GroupMessage,
             Consent,
             Event,
+            IdentityUpdates,
+            Blob,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -81,6 +92,8 @@ impl<'de> serde::Deserialize<'de> for BackupElement {
                             "groupMessage" | "group_message" => Ok(GeneratedField::GroupMessage),
                             "consent" => Ok(GeneratedField::Consent),
                             "event" => Ok(GeneratedField::Event),
+                            "identityUpdates" | "identity_updates" => Ok(GeneratedField::IdentityUpdates),
+                            "blob" => Ok(GeneratedField::Blob),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -136,6 +149,20 @@ impl<'de> serde::Deserialize<'de> for BackupElement {
                                 return Err(serde::de::Error::duplicate_field("event"));
                             }
                             element__ = map_.next_value::<::std::option::Option<_>>()?.map(backup_element::Element::Event)
+;
+                        }
+                        GeneratedField::IdentityUpdates => {
+                            if element__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("identityUpdates"));
+                            }
+                            element__ = map_.next_value::<::std::option::Option<_>>()?.map(backup_element::Element::IdentityUpdates)
+;
+                        }
+                        GeneratedField::Blob => {
+                            if element__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("blob"));
+                            }
+                            element__ = map_.next_value::<::std::option::Option<_>>()?.map(backup_element::Element::Blob)
 ;
                         }
                         GeneratedField::__SkipField__ => {
