@@ -83,6 +83,7 @@ async fn create_client_does_not_hit_network() {
         None,
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -123,6 +124,7 @@ async fn create_client_does_not_hit_network() {
         None,
         None,
         Some(true),
+        None,
         None,
         None,
     )
@@ -227,7 +229,6 @@ async fn test_is_connected_after_connect() {
         "http://127.0.0.1:59999".to_string(),
         None,
         false,
-        None,
         None,
         None,
         None,

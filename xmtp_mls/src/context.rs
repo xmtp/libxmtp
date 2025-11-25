@@ -29,6 +29,13 @@ use xmtp_proto::types::InstallationId;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::DeviceSyncClient;
 
+#[derive(Default, Clone, Copy, Eq, PartialEq)]
+pub enum ClientMode {
+    #[default]
+    Default,
+    Readonly,
+}
+
 /// The local context a XMTP MLS needs to function:
 /// - Sqlite Database
 /// - Identity for the User
@@ -53,6 +60,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     // pub(crate) workers: Arc<WorkerRunner>,
     pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
     pub(crate) task_channels: TaskWorkerChannels,
+    pub(crate) mode: ClientMode,
 }
 
 impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S>
@@ -124,6 +132,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             fork_recovery_opts: self.fork_recovery_opts,
             worker_metrics: self.worker_metrics,
             task_channels: self.task_channels,
+            mode: self.mode,
         }
     }
 }
@@ -224,6 +233,9 @@ where
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
     fn mutexes(&self) -> &MutexRegistry;
+    fn mode(&self) -> ClientMode;
+
+    fn readonly_mode(&self) -> bool;
 }
 
 impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
@@ -308,6 +320,14 @@ where
 
     fn mutexes(&self) -> &MutexRegistry {
         &self.mutexes
+    }
+
+    fn mode(&self) -> ClientMode {
+        self.mode
+    }
+
+    fn readonly_mode(&self) -> bool {
+        matches!(self.mode, ClientMode::Readonly)
     }
 }
 
@@ -394,5 +414,13 @@ where
 
     fn mutexes(&self) -> &MutexRegistry {
         <T as XmtpSharedContext>::mutexes(self)
+    }
+
+    fn mode(&self) -> ClientMode {
+        <T as XmtpSharedContext>::mode(self)
+    }
+
+    fn readonly_mode(&self) -> bool {
+        <T as XmtpSharedContext>::readonly_mode(self)
     }
 }

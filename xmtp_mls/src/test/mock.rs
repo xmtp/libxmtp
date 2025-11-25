@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use crate::builder::ForkRecoveryOpts;
-use crate::context::XmtpSharedContext;
+use crate::context::{ClientMode, XmtpSharedContext};
 use crate::groups::MlsGroup;
 use crate::groups::summary::SyncSummary;
 use crate::identity::create_credential;
@@ -89,6 +89,7 @@ impl Clone for NewMockContext {
             fork_recovery_opts: self.fork_recovery_opts.clone(),
             task_channels: self.task_channels.clone(),
             worker_metrics: self.worker_metrics.clone(),
+            mode: self.mode,
         }
     }
 }
@@ -174,5 +175,13 @@ impl XmtpSharedContext for NewMockContext {
 
     fn sync_api(&self) -> &ApiClientWrapper<Self::ApiClient> {
         &self.sync_api_client
+    }
+
+    fn mode(&self) -> crate::context::ClientMode {
+        self.mode
+    }
+
+    fn readonly_mode(&self) -> bool {
+        matches!(self.mode, ClientMode::Readonly)
     }
 }

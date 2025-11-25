@@ -123,8 +123,8 @@ where
         // Rotate the keys regardless of whether the welcomes failed or succeeded. It is better to over-rotate than
         // to under-rotate, as the latter risks leaving expired key packages on the network. We already have a max
         // rotation interval.
-        if num_envelopes > 0 {
-            self.context.identity().queue_key_rotation(&db).await?;
+        if num_envelopes > 0 && !self.context.readonly_mode() {
+            self.context.identity().queue_key_rotation(&db)?;
         }
 
         Ok(groups)

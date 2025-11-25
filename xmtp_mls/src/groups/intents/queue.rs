@@ -53,12 +53,14 @@ impl QueueIntentBuilder {
         GroupError: From<E>,
         E: std::fmt::Debug + std::error::Error,
     {
-        if groups.is_empty() {
-            return Ok(vec![]);
-        }
+        let context = {
+            let Some(first_group) = groups.iter().nth(0) else {
+                return Ok(vec![]);
+            };
+            first_group.context.clone()
+        };
 
-        let groups: Vec<MlsGroup<C>> = Vec::from_iter(groups);
-        let context: C = groups.first().expect("checked for empty").context.clone();
+        let groups = Vec::from_iter(groups);
 
         // get the intent data for each group
         let (groups, errors): (Vec<_>, Vec<_>) = stream::iter(groups)

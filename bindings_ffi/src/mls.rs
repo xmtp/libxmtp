@@ -57,6 +57,7 @@ use xmtp_id::{
     },
 };
 use xmtp_mls::client::inbox_addresses_with_verifier;
+use xmtp_mls::context::ClientMode;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::ConversationDebugInfo;
 use xmtp_mls::groups::device_sync::DeviceSyncError;
@@ -129,14 +130,11 @@ pub async fn connect_to_backend(
     v3_host: String,
     gateway_host: Option<String>,
     is_secure: bool,
-    client_mode: Option<FfiClientMode>,
     app_version: Option<String>,
     auth_callback: Option<Arc<dyn gateway_auth::FfiAuthCallback>>,
     auth_handle: Option<Arc<gateway_auth::FfiAuthHandle>>,
 ) -> Result<Arc<XmtpApiClient>, GenericError> {
     init_logger();
-
-    let client_mode = client_mode.unwrap_or_default();
 
     log::info!(
         v3_host,
@@ -156,7 +154,6 @@ pub async fn connect_to_backend(
             auth_callback
                 .map(|callback| Arc::new(gateway_auth::FfiAuthCallbackBridge::new(callback)) as _),
         )
-        .readonly(matches!(client_mode, FfiClientMode::Notification))
         .maybe_auth_handle(auth_handle.map(|handle| handle.as_ref().clone().into()))
         .build()?;
     Ok(Arc::new(XmtpApiClient(backend)))
@@ -285,6 +282,7 @@ pub async fn create_client(
     allow_offline: Option<bool>,
     disable_events: Option<bool>,
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
+    client_mode: Option<FfiClientMode>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -337,6 +335,7 @@ pub async fn create_client(
         .with_remote_verifier()?
         .with_allow_offline(allow_offline)
         .with_disable_events(disable_events)
+        .with_client_mode(client_mode.map(Into::into))
         .store(store);
 
     if let Some(sync_worker_mode) = device_sync_mode {
@@ -483,7 +482,7 @@ impl FfiSignatureRequest {
 pub enum FfiClientMode {
     #[default]
     Default,
-    Notification,
+    Readonly,
 }
 
 #[derive(uniffi::Object)]
@@ -493,6 +492,14 @@ pub struct FfiXmtpClient {
     worker: FfiSyncWorker,
     #[allow(dead_code)]
     account_identifier: FfiIdentifier,
+}
+impl From<FfiClientMode> for ClientMode {
+    fn from(mode: FfiClientMode) -> Self {
+        match mode {
+            FfiClientMode::Default => Self::Default,
+            FfiClientMode::Readonly => Self::Readonly,
+        }
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
