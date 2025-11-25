@@ -12,7 +12,7 @@ pub trait QueryDms {
         M: std::fmt::Display;
 
     /// Load the other DMs that are stitched into this group
-    fn other_active_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError>;
+    fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError>;
 }
 
 impl<T> QueryDms for &T
@@ -30,8 +30,8 @@ where
         (**self).find_active_dm_group(members)
     }
 
-    fn other_active_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
-        (**self).other_active_dms(group_id)
+    fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
+        (**self).other_dms(group_id)
     }
 }
 
@@ -77,10 +77,8 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
     }
 
     /// Load the other DMs that are stitched into this group
-    fn other_active_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
-        let query = dsl::groups
-            .filter(dsl::id.eq(group_id))
-            .filter(dsl::membership_state.ne(GroupMembershipState::Restored));
+    fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
+        let query = dsl::groups.filter(dsl::id.eq(group_id));
 
         let groups: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
 

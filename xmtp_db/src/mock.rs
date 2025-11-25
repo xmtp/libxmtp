@@ -136,7 +136,7 @@ mock! {
         where
             M: std::fmt::Display;
 
-        fn other_active_dms(&self, group_id: &[u8])
+        fn other_dms(&self, group_id: &[u8])
         -> Result<Vec<crate::group::StoredGroup>, ConnectionError>;
     }
 

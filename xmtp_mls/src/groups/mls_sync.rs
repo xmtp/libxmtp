@@ -297,7 +297,7 @@ where
         );
 
         // Also sync the "stitched DMs", if any...
-        for other_dm in conn.other_active_dms(&self.group_id)? {
+        for other_dm in conn.other_dms(&self.group_id)? {
             let other_dm = Self::new_from_arc(
                 self.context.clone(),
                 other_dm.id,
