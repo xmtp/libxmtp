@@ -502,6 +502,29 @@ impl Conversation {
     Ok(group_name)
   }
 
+  #[wasm_bindgen(js_name = updateAppData)]
+  pub async fn update_app_data(&self, app_data: String) -> Result<(), JsError> {
+    let group = self.to_mls_group();
+
+    group
+      .update_app_data(app_data)
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(())
+  }
+
+  #[wasm_bindgen(js_name = appData)]
+  pub fn app_data(&self) -> Result<String, JsError> {
+    let group = self.to_mls_group();
+
+    let app_data = group
+      .app_data()
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(app_data)
+  }
+
   #[wasm_bindgen(js_name = updateGroupImageUrlSquare)]
   pub async fn update_group_image_url_square(
     &self,

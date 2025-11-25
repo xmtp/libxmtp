@@ -476,6 +476,27 @@ impl Conversation {
   }
 
   #[napi]
+  pub async fn update_app_data(&self, app_data: String) -> Result<()> {
+    let group = self.create_mls_group();
+
+    group
+      .update_app_data(app_data)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub fn app_data(&self) -> Result<String> {
+    let group = self.create_mls_group();
+
+    let app_data = group.app_data().map_err(ErrorWrapper::from)?;
+
+    Ok(app_data)
+  }
+
+  #[napi]
   pub async fn update_group_image_url_square(&self, group_image_url_square: String) -> Result<()> {
     let group = self.create_mls_group();
 

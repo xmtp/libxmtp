@@ -40,6 +40,7 @@ async fn test_create_group_with_metadata() {
                 message_disappearing_settings: Some(
                     conversation_message_disappearing_settings.clone(),
                 ),
+                app_data: None,
             },
         )
         .await
@@ -311,6 +312,7 @@ async fn test_group_creation_custom_permissions() {
         group_description: Some("A test group".to_string()),
         custom_permission_policy_set: Some(custom_permissions),
         message_disappearing_settings: None,
+        app_data: None,
     };
 
     let alix_group = alix
@@ -433,6 +435,7 @@ async fn test_group_creation_custom_permissions_fails_when_invalid() {
         group_description: Some("A test group".to_string()),
         custom_permission_policy_set: Some(custom_permissions_invalid_1),
         message_disappearing_settings: None,
+        app_data: None,
     };
 
     let results_1 = alix
@@ -452,6 +455,7 @@ async fn test_group_creation_custom_permissions_fails_when_invalid() {
         group_description: Some("A test group".to_string()),
         custom_permission_policy_set: Some(custom_permissions_valid.clone()),
         message_disappearing_settings: None,
+        app_data: None,
     };
 
     let results_2 = alix
@@ -471,6 +475,7 @@ async fn test_group_creation_custom_permissions_fails_when_invalid() {
         group_description: Some("A test group".to_string()),
         custom_permission_policy_set: Some(custom_permissions_valid.clone()),
         message_disappearing_settings: None,
+        app_data: None,
     };
 
     let results_3 = alix
@@ -490,6 +495,7 @@ async fn test_group_creation_custom_permissions_fails_when_invalid() {
         group_description: Some("A test group".to_string()),
         custom_permission_policy_set: Some(custom_permissions_valid),
         message_disappearing_settings: None,
+        app_data: None,
     };
 
     let results_4 = alix
@@ -1015,6 +1021,7 @@ async fn test_set_disappearing_messages_when_creating_group() {
                 group_description: Some("group description".to_string()),
                 custom_permission_policy_set: None,
                 message_disappearing_settings: Some(disappearing_settings.clone()),
+                app_data: None,
             },
         )
         .await

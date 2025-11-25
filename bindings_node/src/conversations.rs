@@ -268,6 +268,7 @@ pub struct CreateGroupOptions {
   pub group_description: Option<String>,
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
   pub message_disappearing_settings: Option<MessageDisappearingSettings>,
+  pub app_data: Option<String>,
 }
 
 impl CreateGroupOptions {
@@ -279,6 +280,7 @@ impl CreateGroupOptions {
       message_disappearing_settings: self
         .message_disappearing_settings
         .map(|settings| settings.into()),
+      app_data: self.app_data,
     }
   }
 }
@@ -322,6 +324,7 @@ impl Conversations {
       group_description: None,
       custom_permission_policy_set: None,
       message_disappearing_settings: None,
+      app_data: None,
     });
 
     if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
