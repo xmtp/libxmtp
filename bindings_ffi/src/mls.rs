@@ -482,7 +482,7 @@ impl FfiSignatureRequest {
 pub enum FfiClientMode {
     #[default]
     Default,
-    Notification,
+    Readonly,
 }
 
 #[derive(uniffi::Object)]
@@ -497,7 +497,7 @@ impl From<FfiClientMode> for ClientMode {
     fn from(mode: FfiClientMode) -> Self {
         match mode {
             FfiClientMode::Default => Self::Default,
-            FfiClientMode::Notification => Self::Readonly,
+            FfiClientMode::Readonly => Self::Readonly,
         }
     }
 }

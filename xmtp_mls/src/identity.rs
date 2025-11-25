@@ -258,8 +258,8 @@ pub enum IdentityError {
     Bincode,
     #[error(transparent)]
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
-    #[error("Unable to register in notification client")]
-    NotificationClientRegister,
+    #[error("Unable to register in readonly client")]
+    ReadonlyClientRegister,
 }
 
 impl NeedsDbReconnect for IdentityError {
