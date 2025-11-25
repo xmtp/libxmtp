@@ -125,8 +125,8 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_dm_archive() {
-        tester!(alix);
-        tester!(bo);
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
 
         let alix_bo_dm = alix
             .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
@@ -152,7 +152,7 @@ mod tests {
             file
         };
 
-        tester!(alix2);
+        tester!(alix2, from: alix);
         let reader = Box::pin(BufReader::new(Cursor::new(export)));
         let mut importer = ArchiveImporter::load(reader, &key).await?;
         insert_importer(&mut importer, &alix2.context).await?;
@@ -161,6 +161,10 @@ mod tests {
             .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
             .await?;
         assert_ne!(alix_bo_dm.group_id, alix2_bo_dm.group_id);
+        let mut msgs = alix2_bo_dm.find_messages(&MsgQueryArgs::default())?;
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[1].decrypted_message_bytes, b"old group");
+        // assert_eq!(alix2_bo_dm.test_last_message_bytes().await??, b"old group");
 
         alix2_bo_dm
             .send_message(b"hi bo", Default::default())

@@ -612,11 +612,13 @@ where
         let inbox_id = inbox_id.as_ref();
         tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
         let db = self.context.db();
-        let group = db.find_dm_group(&DmMembers {
+        let group = db.find_active_dm_group(&DmMembers {
             member_one_inbox_id: self.inbox_id(),
             member_two_inbox_id: inbox_id,
         })?;
+
         if let Some(group) = group {
+            tracing::error!("{:?}", group);
             return Ok(MlsGroup::new(
                 self.context.clone(),
                 group.id,
@@ -692,7 +694,7 @@ where
         let conn = self.context.db();
 
         let group = conn
-            .find_dm_group(&DmMembers {
+            .find_active_dm_group(&DmMembers {
                 member_one_inbox_id: self.inbox_id(),
                 member_two_inbox_id: &target_inbox_id,
             })?

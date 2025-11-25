@@ -1539,7 +1539,7 @@ pub(crate) mod tests {
 
             // test find_dm_group
             let dm_result = conn
-                .find_dm_group(format!("dm:placeholder_inbox_id_1:{}", &other_inbox_id))
+                .find_active_dm_group(format!("dm:placeholder_inbox_id_1:{}", &other_inbox_id))
                 .unwrap();
             assert!(dm_result.is_some());
 

@@ -297,7 +297,8 @@ where
         );
 
         // Also sync the "stitched DMs", if any...
-        for other_dm in conn.other_dms(&self.group_id)? {
+        for other_dm in conn.other_active_dms(&self.group_id)? {
+            tracing::error!("hizzle {:?}", other_dm);
             let other_dm = Self::new_from_arc(
                 self.context.clone(),
                 other_dm.id,
@@ -305,6 +306,7 @@ where
                 other_dm.conversation_type,
                 other_dm.created_at_ns,
             );
+
             other_dm.sync_with_conn().await?;
             other_dm.maybe_update_installations(None).await?;
         }

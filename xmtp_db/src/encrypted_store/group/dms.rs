@@ -7,12 +7,12 @@ pub trait QueryDms {
     /// Same behavior as fetched, but will stitch DM groups
     fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, ConnectionError>;
 
-    fn find_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
+    fn find_active_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
     where
         M: std::fmt::Display;
 
     /// Load the other DMs that are stitched into this group
-    fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError>;
+    fn other_active_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError>;
 }
 
 impl<T> QueryDms for &T
@@ -23,15 +23,15 @@ where
         (**self).fetch_stitched(key)
     }
 
-    fn find_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
+    fn find_active_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
     where
         M: std::fmt::Display,
     {
-        (**self).find_dm_group(members)
+        (**self).find_active_dm_group(members)
     }
 
-    fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
-        (**self).other_dms(group_id)
+    fn other_active_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
+        (**self).other_active_dms(group_id)
     }
 }
 
@@ -64,20 +64,24 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
         })
     }
 
-    fn find_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
+    fn find_active_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
     where
         M: std::fmt::Display,
     {
         let query = dsl::groups
             .filter(dsl::dm_id.eq(Some(members.to_string())))
+            .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
             .order_by(dsl::last_message_ns.desc());
 
         self.raw_query_read(|conn| query.first(conn).optional())
     }
 
     /// Load the other DMs that are stitched into this group
-    fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
-        let query = dsl::groups.filter(dsl::id.eq(group_id));
+    fn other_active_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
+        let query = dsl::groups
+            .filter(dsl::id.eq(group_id))
+            .filter(dsl::membership_state.ne(GroupMembershipState::Restored));
+
         let groups: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
 
         // Grab the dm_id of the group

@@ -129,14 +129,14 @@ mock! {
         ) -> Result<Option<crate::group::StoredGroup>, ConnectionError>;
 
         #[mockall::concretize]
-        fn find_dm_group<M>(
+        fn find_active_dm_group<M>(
             &self,
             members: M,
         ) -> Result<Option<crate::group::StoredGroup>, ConnectionError>
         where
             M: std::fmt::Display;
 
-        fn other_dms(&self, group_id: &[u8])
+        fn other_active_dms(&self, group_id: &[u8])
         -> Result<Vec<crate::group::StoredGroup>, ConnectionError>;
     }
 
