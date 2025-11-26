@@ -970,7 +970,7 @@ class ClientTest : BaseInstrumentedTest() {
             assertEquals(2, inboxState.installations.size)
 
             val sigText2 = alix.ffiRevokeAllOtherInstallations()
-            val signedMessage2 = alixWallet.sign(sigText2.signatureText()).rawData
+            val signedMessage2 = alixWallet.sign(sigText2!!.signatureText()).rawData
 
             sigText2.addEcdsaSignature(signedMessage2)
             alix.ffiApplySignatureRequest(sigText2)
@@ -1094,7 +1094,7 @@ class ClientTest : BaseInstrumentedTest() {
 
             val apiStats2 = alix.debugInformation.apiStatistics
             assertEquals(0, apiStats2.fetchKeyPackage)
-            assertEquals(6, apiStats2.sendGroupMessages)
+            assertEquals(5, apiStats2.sendGroupMessages)
             assertEquals(0, apiStats2.sendWelcomeMessages)
             assertEquals(1, apiStats2.queryWelcomeMessages)
             assertEquals(1, apiStats2.subscribeWelcomes)

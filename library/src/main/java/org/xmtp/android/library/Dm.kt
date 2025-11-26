@@ -14,6 +14,7 @@ import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.ConversationDebugInfo.CommitLogForkStatus
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.libxmtp.DecodedMessage.MessageDeliveryStatus
+import org.xmtp.android.library.libxmtp.DecodedMessage.SortBy
 import org.xmtp.android.library.libxmtp.DecodedMessage.SortDirection
 import org.xmtp.android.library.libxmtp.DecodedMessageV2
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
@@ -28,6 +29,7 @@ import uniffi.xmtpv3.FfiListMessagesOptions
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.FfiMessageDisappearingSettings
+import uniffi.xmtpv3.FfiSortBy
 import uniffi.xmtpv3.FfiSubscribeException
 import java.util.Date
 
@@ -194,6 +196,9 @@ class Dm(
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
         excludeContentTypes: List<FfiContentType>? = null,
         excludeSenderInboxIds: List<String>? = null,
+        insertedAfterNs: Long? = null,
+        insertedBeforeNs: Long? = null,
+        sortBy: SortBy = SortBy.SENT_TIME,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             libXMTPGroup
@@ -226,6 +231,13 @@ class Dm(
                             contentTypes = null,
                             excludeContentTypes = excludeContentTypes,
                             excludeSenderInboxIds = excludeSenderInboxIds,
+                            insertedAfterNs = insertedAfterNs,
+                            insertedBeforeNs = insertedBeforeNs,
+                            sortBy =
+                                when (sortBy) {
+                                    SortBy.SENT_TIME -> FfiSortBy.SENT_AT
+                                    SortBy.INSERTED_TIME -> FfiSortBy.INSERTED_AT
+                                },
                         ),
                 ).mapNotNull { DecodedMessage.create(it) }
         }
@@ -236,6 +248,8 @@ class Dm(
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
         excludeContentTypes: List<FfiContentType>? = null,
         excludeSenderInboxIds: List<String>? = null,
+        insertedAfterNs: Long? = null,
+        insertedBeforeNs: Long? = null,
     ): Long =
         withContext(Dispatchers.IO) {
             libXMTPGroup.countMessages(
@@ -261,6 +275,9 @@ class Dm(
                         contentTypes = null,
                         excludeContentTypes = excludeContentTypes,
                         excludeSenderInboxIds = excludeSenderInboxIds,
+                        insertedAfterNs = insertedAfterNs,
+                        insertedBeforeNs = insertedBeforeNs,
+                        sortBy = null,
                     ),
             )
         }
@@ -273,6 +290,9 @@ class Dm(
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
         excludeContentTypes: List<FfiContentType>? = null,
         excludeSenderInboxIds: List<String>? = null,
+        insertedAfterNs: Long? = null,
+        insertedBeforeNs: Long? = null,
+        sortBy: SortBy = SortBy.SENT_TIME,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             val ffiMessageWithReactions =
@@ -305,6 +325,13 @@ class Dm(
                             contentTypes = null,
                             excludeContentTypes = excludeContentTypes,
                             excludeSenderInboxIds = excludeSenderInboxIds,
+                            insertedAfterNs = insertedAfterNs,
+                            insertedBeforeNs = insertedBeforeNs,
+                            sortBy =
+                                when (sortBy) {
+                                    SortBy.SENT_TIME -> FfiSortBy.SENT_AT
+                                    SortBy.INSERTED_TIME -> FfiSortBy.INSERTED_AT
+                                },
                         ),
                 )
 
@@ -321,6 +348,9 @@ class Dm(
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
         excludeContentTypes: List<FfiContentType>? = null,
         excludeSenderInboxIds: List<String>? = null,
+        insertedAfterNs: Long? = null,
+        insertedBeforeNs: Long? = null,
+        sortBy: SortBy = SortBy.SENT_TIME,
     ): List<DecodedMessageV2> =
         withContext(Dispatchers.IO) {
             libXMTPGroup
@@ -353,6 +383,13 @@ class Dm(
                             contentTypes = null,
                             excludeContentTypes = excludeContentTypes,
                             excludeSenderInboxIds = excludeSenderInboxIds,
+                            insertedAfterNs = insertedAfterNs,
+                            insertedBeforeNs = insertedBeforeNs,
+                            sortBy =
+                                when (sortBy) {
+                                    SortBy.SENT_TIME -> FfiSortBy.SENT_AT
+                                    SortBy.INSERTED_TIME -> FfiSortBy.INSERTED_AT
+                                },
                         ),
                 ).mapNotNull { DecodedMessageV2.create(it) }
         }

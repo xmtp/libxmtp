@@ -8,6 +8,7 @@ data class ArchiveOptions(
     val startNs: Long? = null,
     val endNs: Long? = null,
     val archiveElements: List<ArchiveElement> = listOf(ArchiveElement.MESSAGES, ArchiveElement.CONSENT),
+    val excludeDisappearingMessages: Boolean = false,
 )
 
 fun ArchiveOptions.toFfi(): FfiArchiveOptions =
@@ -15,6 +16,7 @@ fun ArchiveOptions.toFfi(): FfiArchiveOptions =
         startNs = this.startNs,
         endNs = this.endNs,
         elements = this.archiveElements.map { it.toFfi() },
+        excludeDisappearingMessages = this.excludeDisappearingMessages,
     )
 
 enum class ArchiveElement {

@@ -167,6 +167,7 @@ data class Conversations(
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
         disappearingMessageSettings: DisappearingMessageSettings? = null,
+        appData: String? = null,
     ): Group =
         withContext(Dispatchers.IO) {
             newGroupInternalWithIdentities(
@@ -182,6 +183,7 @@ data class Conversations(
                         it.retentionDurationInNs,
                     )
                 },
+                appData,
             )
         }
 
@@ -192,6 +194,7 @@ data class Conversations(
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
         disappearingMessageSettings: DisappearingMessageSettings? = null,
+        appData: String? = null,
     ): Group =
         withContext(Dispatchers.IO) {
             newGroupInternalWithIdentities(
@@ -207,6 +210,7 @@ data class Conversations(
                         it.retentionDurationInNs,
                     )
                 },
+                appData,
             )
         }
 
@@ -218,6 +222,7 @@ data class Conversations(
         groupDescription: String,
         permissionsPolicySet: FfiPermissionPolicySet?,
         messageDisappearingSettings: FfiMessageDisappearingSettings?,
+        appData: String?,
     ): Group =
         withContext(Dispatchers.IO) {
             val group =
@@ -232,6 +237,7 @@ data class Conversations(
                             customPermissionPolicySet = permissionsPolicySet,
                             messageDisappearingSettings =
                             messageDisappearingSettings,
+                            appData = appData,
                         ),
                 )
             Group(client, group)
@@ -245,6 +251,7 @@ data class Conversations(
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
         disappearingMessageSettings: DisappearingMessageSettings? = null,
+        appData: String? = null,
     ): Group =
         withContext(Dispatchers.IO) {
             newGroupInternal(
@@ -260,6 +267,7 @@ data class Conversations(
                         it.retentionDurationInNs,
                     )
                 },
+                appData,
             )
         }
 
@@ -270,6 +278,7 @@ data class Conversations(
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
         disappearingMessageSettings: DisappearingMessageSettings? = null,
+        appData: String? = null,
     ): Group =
         withContext(Dispatchers.IO) {
             newGroupInternal(
@@ -285,6 +294,7 @@ data class Conversations(
                         it.retentionDurationInNs,
                     )
                 },
+                appData,
             )
         }
 
@@ -296,6 +306,7 @@ data class Conversations(
         groupDescription: String,
         permissionsPolicySet: FfiPermissionPolicySet?,
         messageDisappearingSettings: FfiMessageDisappearingSettings?,
+        appData: String?,
     ): Group =
         withContext(Dispatchers.IO) {
             validateInboxIds(inboxIds)
@@ -311,6 +322,7 @@ data class Conversations(
                             customPermissionPolicySet = permissionsPolicySet,
                             messageDisappearingSettings =
                             messageDisappearingSettings,
+                            appData,
                         ),
                 )
             Group(client, group)
@@ -323,6 +335,7 @@ data class Conversations(
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
         disappearingMessageSettings: DisappearingMessageSettings? = null,
+        appData: String? = null,
     ): Group =
         withContext(Dispatchers.IO) {
             val group =
@@ -345,6 +358,7 @@ data class Conversations(
                                         it.retentionDurationInNs,
                                     )
                                 },
+                            appData,
                         ),
                 )
             Group(client, group)
@@ -546,6 +560,7 @@ data class Conversations(
                             isCommitLogForked(),
                         ),
                     )
+
                 else ->
                     Conversation.Group(
                         Group(
@@ -577,6 +592,7 @@ data class Conversations(
                                             ),
                                         ),
                                     )
+
                                 else -> trySend(Conversation.Group(Group(client, conversation)))
                             }
                         }
@@ -599,6 +615,7 @@ data class Conversations(
                         ffiConversations.streamGroups(
                             conversationCallback,
                         )
+
                     ConversationFilterType.DMS -> ffiConversations.streamDms(conversationCallback)
                 }
 
@@ -637,11 +654,13 @@ data class Conversations(
                             messageCallback,
                             states,
                         )
+
                     ConversationFilterType.GROUPS ->
                         ffiConversations.streamAllGroupMessages(
                             messageCallback,
                             states,
                         )
+
                     ConversationFilterType.DMS ->
                         ffiConversations.streamAllDmMessages(
                             messageCallback,

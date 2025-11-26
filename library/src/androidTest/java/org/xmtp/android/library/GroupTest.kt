@@ -23,6 +23,7 @@ import org.xmtp.android.library.codecs.ReactionCodec
 import org.xmtp.android.library.codecs.ReactionSchema
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.libxmtp.DecodedMessage.MessageDeliveryStatus
+import org.xmtp.android.library.libxmtp.DecodedMessage.SortBy
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.libxmtp.GroupPermissionPreconfiguration
 import org.xmtp.android.library.libxmtp.IdentityKind
@@ -1236,6 +1237,36 @@ class GroupTest : BaseInstrumentedTest() {
             val pausedForVersionDm = boDm.pausedForVersion()
             assertNull(pausedForVersionDm)
         }
+
+    @Test
+    fun testCanQueryMessagesByInsertedTime() {
+        runBlocking {
+            val group = boClient.conversations.newGroup(listOf(alixClient.inboxId))
+            group.send("first")
+            group.send("second")
+            group.sync()
+
+            val messages = group.messages()
+            assertEquals(3, messages.size)
+
+            // Verify insertedAtNs is populated
+            val firstMessage = messages.last()
+            assert(firstMessage.insertedAtNs > 0)
+
+            // Test insertedAfterNs filter
+            val filteredMessages = group.messages(insertedAfterNs = firstMessage.insertedAtNs)
+            assertEquals(2, filteredMessages.size)
+
+            // Test sortBy parameter
+            val sortedBySent = group.messages(sortBy = SortBy.SENT_TIME)
+            val sortedByInserted = group.messages(sortBy = SortBy.INSERTED_TIME)
+            assertEquals(sortedBySent.size, sortedByInserted.size)
+
+            // Test countMessages with insertedAfterNs
+            val count = group.countMessages(insertedAfterNs = firstMessage.insertedAtNs)
+            assertEquals(2, count)
+        }
+    }
 
     @Test
     fun testCountMessagesWithExcludedContentTypes() {

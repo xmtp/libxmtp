@@ -22,6 +22,7 @@ import org.xmtp.android.library.codecs.ReactionCodec
 import org.xmtp.android.library.codecs.ReactionSchema
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.libxmtp.DecodedMessage.MessageDeliveryStatus
+import org.xmtp.android.library.libxmtp.DecodedMessage.SortBy
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.PublicIdentity
@@ -451,6 +452,8 @@ class DmTest : BaseInstrumentedTest() {
                 fixtures.alixClient.conversations.findDmByIdentity(
                     PublicIdentity(IdentityKind.ETHEREUM, fixtures.bo.walletAddress),
                 )
+            group.sync()
+
             group.streamMessages().test {
                 alixDm?.send("hi")
                 assertEquals("hi", awaitItem().body)
@@ -716,6 +719,32 @@ class DmTest : BaseInstrumentedTest() {
         }
 
     @Test
+    fun testCanQueryMessagesByInsertedTime() {
+        runBlocking {
+            val dm = boClient.conversations.findOrCreateDm(alixClient.inboxId)
+            dm.send("first")
+            dm.send("second")
+            dm.sync()
+
+            val messages = dm.messages()
+            assertEquals(3, messages.size)
+
+            // Verify insertedAtNs is populated
+            val firstMessage = messages.last()
+            assert(firstMessage.insertedAtNs > 0)
+
+            // Test insertedAfterNs filter
+            val filteredMessages = dm.messages(insertedAfterNs = firstMessage.insertedAtNs)
+            assertEquals(2, filteredMessages.size)
+
+            // Test sortBy parameter
+            val sortedBySent = dm.messages(sortBy = SortBy.SENT_TIME)
+            val sortedByInserted = dm.messages(sortBy = SortBy.INSERTED_TIME)
+            assertEquals(sortedBySent.size, sortedByInserted.size)
+        }
+    }
+
+    @Test
     fun testCountMessagesWithExcludedContentTypes() {
         Client.register(codec = ReactionCodec())
 
@@ -728,6 +757,8 @@ class DmTest : BaseInstrumentedTest() {
             dm.sync()
         }
         val messageToReact = runBlocking { dm.messages() }[0]
+
+        val startingCount = runBlocking { dm.countMessages() }
 
         val reaction =
             Reaction(
@@ -742,8 +773,8 @@ class DmTest : BaseInstrumentedTest() {
         }
 
         // Count without exclusions - should include memberAdd, text message, and reaction
-        val totalCount = runBlocking { dm.countMessages() }
-        assertEquals(3, totalCount)
+        val newCount = runBlocking { dm.countMessages() }
+        assertEquals(startingCount + 1, newCount)
 
         // Count with reaction exclusion - should only include memberAdd and text message
         val countWithoutReactions =
@@ -755,6 +786,6 @@ class DmTest : BaseInstrumentedTest() {
                         ),
                 )
             }
-        assertEquals(2, countWithoutReactions)
+        assertEquals(startingCount, countWithoutReactions)
     }
 }

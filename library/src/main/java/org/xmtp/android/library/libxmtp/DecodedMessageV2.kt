@@ -54,6 +54,9 @@ class DecodedMessageV2 private constructor(
     val sentAtNs: Long
         get() = libXMTPMessage.sentAtNs()
 
+    val insertedAtNs: Long
+        get() = libXMTPMessage.insertedAtNs()
+
     val deliveryStatus: DecodedMessage.MessageDeliveryStatus
         get() =
             when (libXMTPMessage.deliveryStatus()) {

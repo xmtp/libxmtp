@@ -32,6 +32,11 @@ class DecodedMessage private constructor(
         DESCENDING,
     }
 
+    enum class SortBy {
+        SENT_TIME,
+        INSERTED_TIME,
+    }
+
     val id: String
         get() = libXMTPMessage.id.toHex()
 
@@ -46,6 +51,9 @@ class DecodedMessage private constructor(
 
     val sentAtNs: Long
         get() = libXMTPMessage.sentAtNs
+
+    val insertedAtNs: Long
+        get() = libXMTPMessage.insertedAtNs
 
     val deliveryStatus: MessageDeliveryStatus
         get() =

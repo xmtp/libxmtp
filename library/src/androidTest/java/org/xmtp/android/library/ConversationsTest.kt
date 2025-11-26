@@ -1,6 +1,5 @@
 package org.xmtp.android.library
 
-import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.CoroutineScope
@@ -215,7 +214,7 @@ class ConversationsTest : BaseInstrumentedTest() {
     fun testCanStreamAllMessages() {
         val group = runBlocking { caroClient.conversations.newGroup(listOf(boClient.inboxId)) }
         val conversation = runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
-        runBlocking { boClient.conversations.sync() }
+        runBlocking { boClient.conversations.syncAllConversations() }
 
         val allMessages = mutableListOf<DecodedMessage>()
 

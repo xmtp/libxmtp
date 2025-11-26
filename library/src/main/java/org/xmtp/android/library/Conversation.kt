@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.DecodedMessage
+import org.xmtp.android.library.libxmtp.DecodedMessage.SortBy
 import org.xmtp.android.library.libxmtp.DecodedMessageV2
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.libxmtp.Member
@@ -239,6 +240,9 @@ sealed class Conversation {
             DecodedMessage.MessageDeliveryStatus.ALL,
         excludedContentTypes: List<FfiContentType>? = null,
         excludeSenderInboxIds: List<String>? = null,
+        insertedAfterNs: Long? = null,
+        insertedBeforeNs: Long? = null,
+        sortBy: SortBy = SortBy.SENT_TIME,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
@@ -251,6 +255,9 @@ sealed class Conversation {
                         deliveryStatus,
                         excludedContentTypes,
                         excludeSenderInboxIds,
+                        insertedAfterNs,
+                        insertedBeforeNs,
+                        sortBy,
                     )
                 is Dm ->
                     dm.messages(
@@ -261,6 +268,9 @@ sealed class Conversation {
                         deliveryStatus,
                         excludedContentTypes,
                         excludeSenderInboxIds,
+                        insertedAfterNs,
+                        insertedBeforeNs,
+                        sortBy,
                     )
             }
         }
@@ -272,6 +282,8 @@ sealed class Conversation {
             DecodedMessage.MessageDeliveryStatus.ALL,
         excludedContentTypes: List<FfiContentType>? = null,
         excludeSenderInboxIds: List<String>? = null,
+        insertedAfterNs: Long? = null,
+        insertedBeforeNs: Long? = null,
     ): Long =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
@@ -282,6 +294,8 @@ sealed class Conversation {
                         deliveryStatus,
                         excludedContentTypes,
                         excludeSenderInboxIds,
+                        insertedAfterNs,
+                        insertedBeforeNs,
                     )
                 is Dm ->
                     dm.countMessages(
@@ -290,6 +304,8 @@ sealed class Conversation {
                         deliveryStatus,
                         excludedContentTypes,
                         excludeSenderInboxIds,
+                        insertedAfterNs,
+                        insertedBeforeNs,
                     )
             }
         }
@@ -303,6 +319,9 @@ sealed class Conversation {
             DecodedMessage.MessageDeliveryStatus.ALL,
         excludedContentTypes: List<FfiContentType>? = null,
         excludeSenderInboxIds: List<String>? = null,
+        insertedAfterNs: Long? = null,
+        insertedBeforeNs: Long? = null,
+        sortBy: SortBy = SortBy.SENT_TIME,
     ): List<DecodedMessageV2> =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
@@ -315,6 +334,9 @@ sealed class Conversation {
                         deliveryStatus,
                         excludedContentTypes,
                         excludeSenderInboxIds,
+                        insertedAfterNs,
+                        insertedBeforeNs,
+                        sortBy,
                     )
 
                 is Dm ->
@@ -326,6 +348,9 @@ sealed class Conversation {
                         deliveryStatus,
                         excludedContentTypes,
                         excludeSenderInboxIds,
+                        insertedAfterNs,
+                        insertedBeforeNs,
+                        sortBy,
                     )
             }
         }
@@ -339,6 +364,9 @@ sealed class Conversation {
             DecodedMessage.MessageDeliveryStatus.ALL,
         excludedContentTypes: List<FfiContentType>? = null,
         excludeSenderInboxIds: List<String>? = null,
+        insertedAfterNs: Long? = null,
+        insertedBeforeNs: Long? = null,
+        sortBy: SortBy = SortBy.SENT_TIME,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
@@ -351,6 +379,9 @@ sealed class Conversation {
                         deliveryStatus,
                         excludedContentTypes,
                         excludeSenderInboxIds,
+                        insertedAfterNs,
+                        insertedBeforeNs,
+                        sortBy,
                     )
 
                 is Dm ->
@@ -362,6 +393,9 @@ sealed class Conversation {
                         deliveryStatus,
                         excludedContentTypes,
                         excludeSenderInboxIds,
+                        insertedAfterNs,
+                        insertedBeforeNs,
+                        sortBy,
                     )
             }
         }

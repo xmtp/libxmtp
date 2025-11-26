@@ -14,6 +14,7 @@ import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.ConversationDebugInfo.CommitLogForkStatus
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.libxmtp.DecodedMessage.MessageDeliveryStatus
+import org.xmtp.android.library.libxmtp.DecodedMessage.SortBy
 import org.xmtp.android.library.libxmtp.DecodedMessage.SortDirection
 import org.xmtp.android.library.libxmtp.DecodedMessageV2
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
@@ -35,6 +36,7 @@ import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiMetadataField
 import uniffi.xmtpv3.FfiPermissionUpdateType
+import uniffi.xmtpv3.FfiSortBy
 import uniffi.xmtpv3.FfiSubscribeException
 import java.util.Date
 
@@ -90,6 +92,15 @@ class Group(
         get() = libXMTPGroup.groupDescription()
 
     suspend fun description(): String = withContext(Dispatchers.IO) { libXMTPGroup.groupDescription() }
+
+    @Deprecated(
+        message = "Use suspend appData()",
+        replaceWith = ReplaceWith("appData()"),
+    )
+    val appData: String
+        get() = libXMTPGroup.appData()
+
+    suspend fun appData(): String = withContext(Dispatchers.IO) { libXMTPGroup.appData() }
 
     @Deprecated(
         message = "Use suspend disappearingMessageSettings()",
@@ -227,6 +238,9 @@ class Group(
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
         excludeContentTypes: List<FfiContentType>? = null,
         excludeSenderInboxIds: List<String>? = null,
+        insertedAfterNs: Long? = null,
+        insertedBeforeNs: Long? = null,
+        sortBy: SortBy = SortBy.SENT_TIME,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             libXMTPGroup
@@ -259,6 +273,13 @@ class Group(
                             contentTypes = null,
                             excludeContentTypes = excludeContentTypes,
                             excludeSenderInboxIds = excludeSenderInboxIds,
+                            insertedAfterNs = insertedAfterNs,
+                            insertedBeforeNs = insertedBeforeNs,
+                            sortBy =
+                                when (sortBy) {
+                                    SortBy.SENT_TIME -> FfiSortBy.SENT_AT
+                                    SortBy.INSERTED_TIME -> FfiSortBy.INSERTED_AT
+                                },
                         ),
                 ).mapNotNull { DecodedMessage.create(it) }
         }
@@ -271,6 +292,9 @@ class Group(
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
         excludeContentTypes: List<FfiContentType>? = null,
         excludeSenderInboxIds: List<String>? = null,
+        insertedAfterNs: Long? = null,
+        insertedBeforeNs: Long? = null,
+        sortBy: SortBy = SortBy.SENT_TIME,
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             val ffiMessageWithReactions =
@@ -303,6 +327,13 @@ class Group(
                             contentTypes = null,
                             excludeContentTypes = excludeContentTypes,
                             excludeSenderInboxIds = excludeSenderInboxIds,
+                            insertedAfterNs = insertedAfterNs,
+                            insertedBeforeNs = insertedBeforeNs,
+                            sortBy =
+                                when (sortBy) {
+                                    SortBy.SENT_TIME -> FfiSortBy.SENT_AT
+                                    SortBy.INSERTED_TIME -> FfiSortBy.INSERTED_AT
+                                },
                         ),
                 )
 
@@ -319,6 +350,9 @@ class Group(
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
         excludeContentTypes: List<FfiContentType>? = null,
         excludeSenderInboxIds: List<String>? = null,
+        insertedAfterNs: Long? = null,
+        insertedBeforeNs: Long? = null,
+        sortBy: SortBy = SortBy.SENT_TIME,
     ): List<DecodedMessageV2> =
         withContext(Dispatchers.IO) {
             libXMTPGroup
@@ -351,6 +385,13 @@ class Group(
                             contentTypes = null,
                             excludeContentTypes = excludeContentTypes,
                             excludeSenderInboxIds = excludeSenderInboxIds,
+                            insertedAfterNs = insertedAfterNs,
+                            insertedBeforeNs = insertedBeforeNs,
+                            sortBy =
+                                when (sortBy) {
+                                    SortBy.SENT_TIME -> FfiSortBy.SENT_AT
+                                    SortBy.INSERTED_TIME -> FfiSortBy.INSERTED_AT
+                                },
                         ),
                 ).mapNotNull { DecodedMessageV2.create(it) }
         }
@@ -458,6 +499,15 @@ class Group(
                 libXMTPGroup.updateGroupDescription(description)
             } catch (e: Exception) {
                 throw XMTPException("Permission denied: Unable to update group description", e)
+            }
+        }
+
+    suspend fun updateAppData(appData: String) =
+        withContext(Dispatchers.IO) {
+            try {
+                libXMTPGroup.updateAppData(appData)
+            } catch (e: Exception) {
+                throw XMTPException("Permission denied: Unable to update group app data", e)
             }
         }
 
@@ -674,6 +724,8 @@ class Group(
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
         excludeContentTypes: List<FfiContentType>? = null,
         excludeSenderInboxIds: List<String>? = null,
+        insertedAfterNs: Long? = null,
+        insertedBeforeNs: Long? = null,
     ): Long =
         withContext(Dispatchers.IO) {
             libXMTPGroup.countMessages(
@@ -699,6 +751,9 @@ class Group(
                         contentTypes = null,
                         excludeContentTypes = excludeContentTypes,
                         excludeSenderInboxIds = excludeSenderInboxIds,
+                        insertedAfterNs = insertedAfterNs,
+                        insertedBeforeNs = insertedBeforeNs,
+                        sortBy = null,
                     ),
             )
         }

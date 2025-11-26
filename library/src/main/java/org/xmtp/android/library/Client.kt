@@ -16,6 +16,7 @@ import org.xmtp.android.library.libxmtp.InboxState
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.libxmtp.SignatureRequest
 import org.xmtp.android.library.libxmtp.toFfi
+import uniffi.xmtpv3.FfiClientMode
 import uniffi.xmtpv3.FfiForkRecoveryOpts
 import uniffi.xmtpv3.FfiForkRecoveryPolicy
 import uniffi.xmtpv3.FfiKeyPackageStatus
@@ -196,7 +197,16 @@ class Client(
                 }
 
                 // If not cached or not connected, create a fresh client
-                val newClient = connectToBackend(api.env.getUrl(), api.gatewayHost, api.isSecure, api.appVersion)
+                val newClient =
+                    connectToBackend(
+                        api.env.getUrl(),
+                        api.gatewayHost,
+                        api.isSecure,
+                        FfiClientMode.DEFAULT,
+                        api.appVersion,
+                        null,
+                        null,
+                    )
                 apiClientCache[cacheKey] = newClient
                 return@withLock newClient
             }
@@ -212,7 +222,16 @@ class Client(
                 }
 
                 // If not cached or not connected, create a fresh client
-                val newClient = connectToBackend(api.env.getUrl(), api.gatewayHost, api.isSecure, api.appVersion)
+                val newClient =
+                    connectToBackend(
+                        api.env.getUrl(),
+                        api.gatewayHost,
+                        api.isSecure,
+                        FfiClientMode.DEFAULT,
+                        api.appVersion,
+                        null,
+                        null,
+                    )
                 syncApiClientCache[cacheKey] = newClient
                 return@withLock newClient
             }
@@ -552,9 +571,10 @@ class Client(
 
     suspend fun revokeAllOtherInstallations(signingKey: SigningKey) =
         withContext(Dispatchers.IO) {
-            val signatureRequest = ffiRevokeAllOtherInstallations()
-            handleSignature(signatureRequest, signingKey)
-            ffiApplySignatureRequest(signatureRequest)
+            ffiRevokeAllOtherInstallations()?.let {
+                handleSignature(it, signingKey)
+                ffiApplySignatureRequest(it)
+            }
         }
 
     @DelicateApi(
@@ -691,10 +711,8 @@ class Client(
     @DelicateApi(
         "This function is delicate and should be used with caution. Should only be used if trying to manage the signature flow independently otherwise use `revokeAllOtherInstallations()` instead",
     )
-    suspend fun ffiRevokeAllOtherInstallations(): SignatureRequest =
-        SignatureRequest(
-            ffiClient.revokeAllOtherInstallations(),
-        )
+    suspend fun ffiRevokeAllOtherInstallations(): SignatureRequest? =
+        ffiClient.revokeAllOtherInstallationsSignatureRequest()?.let { SignatureRequest(it) }
 
     @DelicateApi(
         "This function is delicate and should be used with caution. Should only be used if trying to manage the signature flow independently otherwise use `removeAccount()` instead",

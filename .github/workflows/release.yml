@@ -5,7 +5,7 @@ on:
       - release
 
 env:
-  RELEASE_VERSION: "4.6.1"
+  RELEASE_VERSION: "4.6.2"
 
 jobs:
   library:
@@ -15,7 +15,7 @@ jobs:
       - name: Checkout project sources
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
       - name: Configure JDK
         uses: actions/setup-java@v4
         with:
