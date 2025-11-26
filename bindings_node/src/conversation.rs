@@ -476,6 +476,27 @@ impl Conversation {
   }
 
   #[napi]
+  pub async fn update_app_data(&self, app_data: String) -> Result<()> {
+    let group = self.create_mls_group();
+
+    group
+      .update_app_data(app_data)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub fn app_data(&self) -> Result<String> {
+    let group = self.create_mls_group();
+
+    let app_data = group.app_data().map_err(ErrorWrapper::from)?;
+
+    Ok(app_data)
+  }
+
+  #[napi]
   pub async fn update_group_image_url_square(&self, group_image_url_square: String) -> Result<()> {
     let group = self.create_mls_group();
 
@@ -687,7 +708,7 @@ impl Conversation {
     let dms = self
       .inner_group
       .find_duplicate_dms()
-      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+      .map_err(ErrorWrapper::from)?;
 
     let mut hmac_map = HashMap::new();
     for conversation in dms {
@@ -717,11 +738,13 @@ impl Conversation {
   pub async fn debug_info(&self) -> Result<ConversationDebugInfo> {
     let group = self.create_mls_group();
 
-    group
-      .debug_info()
-      .await
-      .map(Into::into)
-      .map_err(|e| napi::Error::from_reason(e.to_string()))
+    Ok(
+      group
+        .debug_info()
+        .await
+        .map(Into::into)
+        .map_err(ErrorWrapper::from)?,
+    )
   }
 
   #[napi]
@@ -730,7 +753,7 @@ impl Conversation {
     let dms = self
       .inner_group
       .find_duplicate_dms()
-      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+      .map_err(ErrorWrapper::from)?;
 
     let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();
 

@@ -305,6 +305,7 @@ where
                 other_dm.conversation_type,
                 other_dm.created_at_ns,
             );
+
             other_dm.sync_with_conn().await?;
             other_dm.maybe_update_installations(None).await?;
         }

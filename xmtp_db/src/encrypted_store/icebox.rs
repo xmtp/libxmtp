@@ -124,7 +124,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn icebox_dependency_chain() {
+    fn icebox_dependency_chain() {
         with_connection(|conn| {
             let ice = iced();
             ice.iter().for_each(|i| i.store(conn)?);
@@ -135,11 +135,10 @@ mod tests {
             let dep_chain = Icebox::forward_dep_chain(conn, 39, 2)?;
             assert_eq!(dep_chain, ice.into_iter().rev().collect::<Vec<_>>());
         })
-        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn test_icebox_wrong_originator() {
+    fn test_icebox_wrong_originator() {
         with_connection(|conn| {
             // Break the chain by unsetting the originator.
             let mut ice = iced();
@@ -154,11 +153,10 @@ mod tests {
             let dep_chain = Icebox::forward_dep_chain(conn, 39, 1)?;
             assert_eq!(dep_chain, vec![leftover]);
         })
-        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn test_icebox_wrong_sequence() {
+    fn test_icebox_wrong_sequence() {
         with_connection(|conn| {
             // Break the chain by unsetting the originator.
             let mut ice = iced();
@@ -173,11 +171,10 @@ mod tests {
             let dep_chain = Icebox::forward_dep_chain(conn, 38, 2)?;
             assert_eq!(dep_chain, vec![leftover]);
         })
-        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn test_icebox_depending_fields_xor() {
+    fn test_icebox_depending_fields_xor() {
         with_connection(|conn| {
             // Test to ensure that if one dependency field is set, they both are.
             let mut ice = Icebox {
@@ -199,6 +196,5 @@ mod tests {
             let result = ice.store(conn);
             assert!(result.is_ok());
         })
-        .await
     }
 }

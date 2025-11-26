@@ -15,10 +15,15 @@ use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
 use xmtp_mls::messages::decoded_message::{
     DecodedMessage, DecodedMessageMetadata, MessageBody, Reply as ProcessedReply, Text,
 };
-use xmtp_proto::xmtp::mls::message_contents::content_types::{
-    MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2, RemoteAttachmentInfo,
+use xmtp_proto::xmtp::mls::message_contents::{
+    ContentTypeId, EncodedContent, GroupUpdated, group_updated::MetadataFieldChange,
 };
-use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent, GroupUpdated};
+use xmtp_proto::xmtp::mls::message_contents::{
+    content_types::{
+        MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2, RemoteAttachmentInfo,
+    },
+    group_updated::Inbox,
+};
 
 use crate::GenericError;
 
@@ -70,7 +75,7 @@ pub struct FfiRemoteAttachment {
     pub salt: Vec<u8>,
     pub nonce: Vec<u8>,
     pub scheme: String,
-    pub content_length: u64,
+    pub content_length: u32,
     pub filename: Option<String>,
 }
 
@@ -235,6 +240,10 @@ pub struct FfiGroupUpdated {
     pub removed_inboxes: Vec<FfiInbox>,
     pub left_inboxes: Vec<FfiInbox>,
     pub metadata_field_changes: Vec<FfiMetadataFieldChange>,
+    pub added_admin_inboxes: Vec<FfiInbox>,
+    pub removed_admin_inboxes: Vec<FfiInbox>,
+    pub added_super_admin_inboxes: Vec<FfiInbox>,
+    pub removed_super_admin_inboxes: Vec<FfiInbox>,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -426,24 +435,35 @@ impl From<RemoteAttachment> for FfiRemoteAttachment {
             salt: remote.salt,
             nonce: remote.nonce,
             scheme: remote.scheme,
-            content_length: remote.content_length as u64,
+            content_length: remote.content_length as u32,
             filename: remote.filename,
         }
     }
 }
 
-impl From<FfiRemoteAttachment> for RemoteAttachment {
-    fn from(ffi: FfiRemoteAttachment) -> Self {
-        RemoteAttachment {
+impl TryFrom<FfiRemoteAttachment> for RemoteAttachment {
+    type Error = GenericError;
+
+    fn try_from(ffi: FfiRemoteAttachment) -> Result<Self, Self::Error> {
+        let content_length =
+            usize::try_from(ffi.content_length).map_err(|_| GenericError::Generic {
+                err: format!(
+                    "content_length {} exceeds maximum value for this platform ({} bytes)",
+                    ffi.content_length,
+                    usize::MAX
+                ),
+            })?;
+
+        Ok(RemoteAttachment {
             url: ffi.url,
             content_digest: ffi.content_digest,
             secret: ffi.secret,
             salt: ffi.salt,
             nonce: ffi.nonce,
             scheme: ffi.scheme,
-            content_length: ffi.content_length as usize,
+            content_length,
             filename: ffi.filename,
-        }
+        })
     }
 }
 
@@ -541,39 +561,117 @@ impl From<FfiTransactionReference> for TransactionReference {
     }
 }
 
+impl From<FfiInbox> for Inbox {
+    fn from(ffi: FfiInbox) -> Self {
+        Inbox {
+            inbox_id: ffi.inbox_id,
+        }
+    }
+}
+
+impl From<Inbox> for FfiInbox {
+    fn from(inbox: Inbox) -> Self {
+        FfiInbox {
+            inbox_id: inbox.inbox_id,
+        }
+    }
+}
+
+impl From<FfiMetadataFieldChange> for MetadataFieldChange {
+    fn from(ffi: FfiMetadataFieldChange) -> Self {
+        MetadataFieldChange {
+            field_name: ffi.field_name,
+            old_value: ffi.old_value,
+            new_value: ffi.new_value,
+        }
+    }
+}
+
+impl From<MetadataFieldChange> for FfiMetadataFieldChange {
+    fn from(change: MetadataFieldChange) -> Self {
+        FfiMetadataFieldChange {
+            field_name: change.field_name,
+            old_value: change.old_value,
+            new_value: change.new_value,
+        }
+    }
+}
+
 impl From<GroupUpdated> for FfiGroupUpdated {
     fn from(updated: GroupUpdated) -> Self {
         FfiGroupUpdated {
             initiated_by_inbox_id: updated.initiated_by_inbox_id,
-            added_inboxes: updated
-                .added_inboxes
-                .into_iter()
-                .map(|inbox| FfiInbox {
-                    inbox_id: inbox.inbox_id,
-                })
-                .collect(),
+            added_inboxes: updated.added_inboxes.into_iter().map(Into::into).collect(),
             removed_inboxes: updated
                 .removed_inboxes
                 .into_iter()
-                .map(|inbox| FfiInbox {
-                    inbox_id: inbox.inbox_id,
-                })
+                .map(Into::into)
                 .collect(),
-            left_inboxes: updated
-                .left_inboxes
-                .into_iter()
-                .map(|inbox| FfiInbox {
-                    inbox_id: inbox.inbox_id,
-                })
-                .collect(),
+            left_inboxes: updated.left_inboxes.into_iter().map(Into::into).collect(),
             metadata_field_changes: updated
                 .metadata_field_changes
                 .into_iter()
-                .map(|change| FfiMetadataFieldChange {
-                    field_name: change.field_name,
-                    old_value: change.old_value,
-                    new_value: change.new_value,
-                })
+                .map(Into::into)
+                .collect(),
+            added_admin_inboxes: updated
+                .added_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            removed_admin_inboxes: updated
+                .removed_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            added_super_admin_inboxes: updated
+                .added_super_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            removed_super_admin_inboxes: updated
+                .removed_super_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        }
+    }
+}
+
+impl From<FfiGroupUpdated> for GroupUpdated {
+    fn from(updated: FfiGroupUpdated) -> Self {
+        GroupUpdated {
+            initiated_by_inbox_id: updated.initiated_by_inbox_id,
+            added_inboxes: updated.added_inboxes.into_iter().map(Into::into).collect(),
+            removed_inboxes: updated
+                .removed_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            left_inboxes: updated.left_inboxes.into_iter().map(Into::into).collect(),
+            metadata_field_changes: updated
+                .metadata_field_changes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            added_admin_inboxes: updated
+                .added_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            removed_admin_inboxes: updated
+                .removed_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            added_super_admin_inboxes: updated
+                .added_super_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            removed_super_admin_inboxes: updated
+                .removed_super_admin_inboxes
+                .into_iter()
+                .map(Into::into)
                 .collect(),
         }
     }

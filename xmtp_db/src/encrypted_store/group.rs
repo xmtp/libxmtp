@@ -1409,7 +1409,7 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    async fn test_it_stores_group() {
+    fn test_it_stores_group() {
         with_connection(|conn| {
             let test_group = generate_group(None);
 
@@ -1420,11 +1420,10 @@ pub(crate) mod tests {
                 test_group
             );
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_it_fetches_group() {
+    fn test_it_fetches_group() {
         with_connection(|conn| {
             let test_group = generate_group(None);
 
@@ -1438,11 +1437,10 @@ pub(crate) mod tests {
             let fetched_group: Option<StoredGroup> = conn.fetch(&test_group.id).unwrap();
             assert_eq!(fetched_group, Some(test_group));
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_it_updates_group_membership_state() {
+    fn test_it_updates_group_membership_state() {
         with_connection(|conn| {
             let test_group = generate_group(Some(GroupMembershipState::Pending));
 
@@ -1459,7 +1457,6 @@ pub(crate) mod tests {
                 }
             );
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -1539,7 +1536,7 @@ pub(crate) mod tests {
 
             // test find_dm_group
             let dm_result = conn
-                .find_dm_group(format!("dm:placeholder_inbox_id_1:{}", &other_inbox_id))
+                .find_active_dm_group(format!("dm:placeholder_inbox_id_1:{}", &other_inbox_id))
                 .unwrap();
             assert!(dm_result.is_some());
 
@@ -1584,7 +1581,7 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    async fn test_new_group_has_correct_purpose() {
+    fn test_new_group_has_correct_purpose() {
         with_connection(|conn| {
             let test_group = generate_group(None);
 
@@ -1600,11 +1597,10 @@ pub(crate) mod tests {
             let conversation_type = fetched_group.unwrap().conversation_type;
             assert_eq!(conversation_type, ConversationType::Group);
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_find_groups_by_consent_state() {
+    fn test_find_groups_by_consent_state() {
         with_connection(|conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));
             test_group_1.store(conn).unwrap();
@@ -1691,11 +1687,10 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(empty_array_results.len(), 3);
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_get_sequence_ids() {
+    fn test_get_sequence_ids() {
         with_connection(|conn| {
             let mls_groups = [
                 generate_group_with_welcome(None, Some(30)),
@@ -1715,11 +1710,10 @@ pub(crate) mod tests {
                     .collect::<Vec<u64>>()
             );
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_find_group_default_excludes_denied() {
+    fn test_find_group_default_excludes_denied() {
         with_connection(|conn| {
             // Create three groups: one allowed, one denied, one unknown (no consent)
             let allowed_group = generate_group(Some(GroupMembershipState::Allowed));
@@ -1756,11 +1750,10 @@ pub(crate) mod tests {
             assert!(returned_ids.contains(&&unknown_group.id));
             assert!(!returned_ids.contains(&&denied_group.id));
         })
-        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn test_get_conversation_ids_for_remote_log_publish() {
+    fn test_get_conversation_ids_for_remote_log_publish() {
         with_connection(|conn| {
             let mut group1 = generate_group(None);
             let mut group2 = generate_group(None);
@@ -1801,11 +1794,10 @@ pub(crate) mod tests {
                 group3.commit_log_public_key
             );
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_get_conversation_ids_for_remote_log_publish_with_consent() {
+    fn test_get_conversation_ids_for_remote_log_publish_with_consent() {
         with_connection(|conn| {
             // Create groups: one with Allowed consent, one with Denied consent, one with no consent
             let mut allowed_group = generate_group(None);
@@ -1840,11 +1832,10 @@ pub(crate) mod tests {
             assert_eq!(commit_log_keys.len(), 1);
             assert_eq!(commit_log_keys[0].id, allowed_group.id);
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_get_conversation_ids_for_remote_log_download_with_consent() {
+    fn test_get_conversation_ids_for_remote_log_download_with_consent() {
         with_connection(|conn| {
             // Create groups: one with Allowed consent, one with Denied consent, one with no consent
             let allowed_group = generate_group(None);
@@ -1887,11 +1878,10 @@ pub(crate) mod tests {
             assert_eq!(conversation_ids.len(), 1);
             assert_eq!(conversation_ids[0].id, allowed_group.id);
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_get_conversation_ids_for_responding_readds() {
+    fn test_get_conversation_ids_for_responding_readds() {
         with_connection(|conn| {
             // Create test groups
             let group_id_1 = vec![1, 2, 3];
@@ -1995,6 +1985,5 @@ pub(crate) mod tests {
             assert_eq!(group3_result.conversation_type, ConversationType::Group);
             assert_eq!(group3_result.created_at_ns, 3000);
         })
-        .await
     }
 }

@@ -62,6 +62,7 @@ pub use wasm::*;
 mod wasm {
     use super::*;
     use crate::{PersistentOrMem, WasmDbConnection};
+    use futures::FutureExt;
     use std::sync::Arc;
 
     impl XmtpTestDb for super::TestDb {
@@ -107,14 +108,16 @@ mod wasm {
     }
 
     /// Test harness that loads an Ephemeral store.
-    pub async fn with_connection<F, R>(fun: F) -> R
+    pub fn with_connection<F, R>(fun: F) -> R
     where
         F: FnOnce(
             &crate::DbConnection<Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>>,
         ) -> R,
     {
+        // ephemeral db connections do not use async so should resolve immediately
         let db = crate::database::WasmDb::new(&StorageOption::Ephemeral)
-            .await
+            .now_or_never()
+            .unwrap()
             .unwrap();
         let store = EncryptedMessageStore::new(db).unwrap();
         let conn = store.conn();
@@ -238,7 +241,7 @@ mod native {
     }
 
     /// Test harness that loads an Ephemeral store.
-    pub async fn with_connection<F, R>(fun: F) -> R
+    pub fn with_connection<F, R>(fun: F) -> R
     where
         F: FnOnce(
             &crate::DbConnection<Arc<PersistentOrMem<NativeDbConnection, EphemeralDbConnection>>>,

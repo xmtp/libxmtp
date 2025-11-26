@@ -110,6 +110,17 @@ pub enum DeviceSyncError {
     MlsStore(#[from] MlsStoreError),
     #[error(transparent)]
     Recv(#[from] RecvError),
+    #[error("Missing Field: {0:?} {1}")]
+    MissingField(MissingField, String),
+}
+
+#[derive(Debug)]
+pub enum MissingField {
+    Conversation(ConversationField),
+}
+#[derive(Debug)]
+pub enum ConversationField {
+    DmId,
 }
 
 impl From<SyncSummary> for DeviceSyncError {

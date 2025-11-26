@@ -301,7 +301,7 @@ mod tests {
     use crate::{Store, test_utils::with_connection};
 
     #[xmtp_common::test]
-    async fn test_get_readd_status_not_found() {
+    fn test_get_readd_status_not_found() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let installation_id = vec![4, 5, 6];
@@ -309,11 +309,10 @@ mod tests {
             let result = conn.get_readd_status(&group_id, &installation_id).unwrap();
             assert!(result.is_none());
         })
-        .await;
     }
 
     #[xmtp_common::test]
-    async fn test_store_and_get_readd_status() {
+    fn test_store_and_get_readd_status() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let installation_id = vec![4, 5, 6];
@@ -335,11 +334,10 @@ mod tests {
             assert_eq!(retrieved_status.requested_at_sequence_id, Some(100));
             assert_eq!(retrieved_status.responded_at_sequence_id, Some(50));
         })
-        .await;
     }
 
     #[xmtp_common::test]
-    async fn test_update_requested_at_sequence_id_creates_new() {
+    fn test_update_requested_at_sequence_id_creates_new() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let installation_id = vec![4, 5, 6];
@@ -356,11 +354,10 @@ mod tests {
             assert_eq!(status.requested_at_sequence_id, Some(sequence_id));
             assert_eq!(status.responded_at_sequence_id, None);
         })
-        .await;
     }
 
     #[xmtp_common::test]
-    async fn test_update_requested_at_sequence_id_updates_existing() {
+    fn test_update_requested_at_sequence_id_updates_existing() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let installation_id = vec![4, 5, 6];
@@ -385,11 +382,10 @@ mod tests {
             assert_eq!(status.requested_at_sequence_id, Some(100));
             assert_eq!(status.responded_at_sequence_id, Some(25)); // This is preserved by the UPDATE
         })
-        .await;
     }
 
     #[xmtp_common::test]
-    async fn test_update_requested_at_sequence_id_only_updates_if_higher() {
+    fn test_update_requested_at_sequence_id_only_updates_if_higher() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let installation_id = vec![4, 5, 6];
@@ -414,11 +410,10 @@ mod tests {
             assert_eq!(status.requested_at_sequence_id, Some(100)); // Should remain unchanged
             assert_eq!(status.responded_at_sequence_id, Some(50)); // Should remain unchanged
         })
-        .await;
     }
 
     #[xmtp_common::test]
-    async fn test_update_requested_at_sequence_id_updates_from_null() {
+    fn test_update_requested_at_sequence_id_updates_from_null() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let installation_id = vec![4, 5, 6];
@@ -443,7 +438,6 @@ mod tests {
             assert_eq!(status.requested_at_sequence_id, Some(50));
             assert_eq!(status.responded_at_sequence_id, Some(25)); // This is preserved by the UPDATE
         })
-        .await;
     }
 
     #[xmtp_common::test]
@@ -464,11 +458,10 @@ mod tests {
             assert_eq!(status.responded_at_sequence_id, Some(sequence_id));
             assert_eq!(status.requested_at_sequence_id, None);
         })
-        .await;
     }
 
     #[xmtp_common::test]
-    async fn test_update_responded_at_sequence_id_only_updates_if_higher() {
+    fn test_update_responded_at_sequence_id_only_updates_if_higher() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let installation_id = vec![4, 5, 6];
@@ -504,11 +497,10 @@ mod tests {
             assert_eq!(status.responded_at_sequence_id, Some(125)); // Should be updated
             assert_eq!(status.requested_at_sequence_id, Some(50)); // Should remain unchanged
         })
-        .await;
     }
 
     #[xmtp_common::test]
-    async fn test_is_awaiting_readd_no_status() {
+    fn test_is_awaiting_readd_no_status() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let installation_id = vec![4, 5, 6];
@@ -517,11 +509,10 @@ mod tests {
             let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
             assert!(!result);
         })
-        .await;
     }
 
     #[xmtp_common::test]
-    async fn test_is_awaiting_readd_no_request() {
+    fn test_is_awaiting_readd_no_request() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let installation_id = vec![4, 5, 6];
@@ -540,11 +531,10 @@ mod tests {
             let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
             assert!(!result);
         })
-        .await;
     }
 
     #[xmtp_common::test]
-    async fn test_is_awaiting_readd_request_pending() {
+    fn test_is_awaiting_readd_request_pending() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let installation_id = vec![4, 5, 6];
@@ -563,11 +553,10 @@ mod tests {
             let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
             assert!(result);
         })
-        .await;
     }
 
     #[xmtp_common::test]
-    async fn test_is_awaiting_readd_request_fulfilled() {
+    fn test_is_awaiting_readd_request_fulfilled() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let installation_id = vec![4, 5, 6];
@@ -586,11 +575,10 @@ mod tests {
             let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
             assert!(!result);
         })
-        .await;
     }
 
     #[xmtp_common::test]
-    async fn test_is_awaiting_readd_equal_sequence_ids() {
+    fn test_is_awaiting_readd_equal_sequence_ids() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let installation_id = vec![4, 5, 6];
@@ -611,11 +599,10 @@ mod tests {
             let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
             assert!(result);
         })
-        .await;
     }
 
     #[xmtp_common::test]
-    async fn test_is_awaiting_readd_no_responded_at() {
+    fn test_is_awaiting_readd_no_responded_at() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let installation_id = vec![4, 5, 6];
@@ -634,11 +621,10 @@ mod tests {
             let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
             assert!(result);
         })
-        .await;
     }
 
     #[xmtp_common::test]
-    async fn test_delete_other_readd_statuses() {
+    fn test_delete_other_readd_statuses() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let keep_installation_id = vec![10, 11, 12];
@@ -704,11 +690,10 @@ mod tests {
             let different_group_check = conn.get_readd_status(&[4, 5, 6], &[40, 41, 42]).unwrap();
             assert!(different_group_check.is_some());
         })
-        .await;
     }
 
     #[xmtp_common::test]
-    async fn test_get_readds_awaiting_response() {
+    fn test_get_readds_awaiting_response() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let self_installation_id = vec![10, 11, 12];
@@ -797,6 +782,5 @@ mod tests {
                 assert!(requested_at >= responded_at);
             }
         })
-        .await;
     }
 }

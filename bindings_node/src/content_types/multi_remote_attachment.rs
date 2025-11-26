@@ -103,13 +103,14 @@ pub fn encode_multi_remote_attachment(
 #[napi]
 pub fn decode_multi_remote_attachment(bytes: Uint8Array) -> Result<MultiRemoteAttachment> {
   // Decode bytes into EncodedContent
-  let encoded_content =
-    EncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
+  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use MultiRemoteAttachmentCodec to decode into MultiRemoteAttachment and convert to MultiRemoteAttachment
-  MultiRemoteAttachmentCodec::decode(encoded_content)
-    .map(Into::into)
-    .map_err(|e| napi::Error::from_reason(e.to_string()))
+  Ok(
+    MultiRemoteAttachmentCodec::decode(encoded_content)
+      .map(Into::into)
+      .map_err(ErrorWrapper::from)?,
+  )
 }
 
 // Additional types for enriched messages using Vec<u8> instead of Uint8Array

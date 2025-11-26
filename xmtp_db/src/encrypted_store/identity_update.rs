@@ -213,7 +213,7 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    async fn insert_and_read() {
+    fn insert_and_read() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let update_1 = build_update(inbox_id, 1);
@@ -234,11 +234,10 @@ pub(crate) mod tests {
             let second_update = all_updates.last().unwrap();
             assert_eq!(second_update.payload, update_2_payload);
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_filter() {
+    fn test_filter() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let update_1 = build_update(inbox_id, 1);
@@ -267,11 +266,10 @@ pub(crate) mod tests {
             assert_eq!(only_update_2.len(), 1);
             assert_eq!(only_update_2[0].sequence_id, 2);
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_get_latest_sequence_id() {
+    fn test_get_latest_sequence_id() {
         with_connection(|conn| {
             let inbox_1 = "inbox_1";
             let inbox_2 = "inbox_2";
@@ -303,11 +301,10 @@ pub(crate) mod tests {
                 None
             );
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn get_single_sequence_id() {
+    fn get_single_sequence_id() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let update = build_update(inbox_id, 1);
@@ -320,6 +317,5 @@ pub(crate) mod tests {
                 .expect("query should work");
             assert_eq!(sequence_id, 2);
         })
-        .await
     }
 }

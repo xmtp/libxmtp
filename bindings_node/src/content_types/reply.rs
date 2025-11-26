@@ -90,8 +90,7 @@ pub fn encode_reply(reply: Reply) -> Result<Uint8Array> {
 #[napi]
 pub fn decode_reply(bytes: Uint8Array) -> Result<Reply> {
   // Decode bytes into EncodedContent
-  let encoded_content =
-    XmtpEncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
+  let encoded_content = XmtpEncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use ReplyCodec to decode and convert to Reply
   let reply = ReplyCodec::decode(encoded_content).map_err(ErrorWrapper::from)?;

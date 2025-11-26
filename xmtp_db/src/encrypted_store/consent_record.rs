@@ -428,7 +428,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn find_consent_by_dm_id() {
+    fn find_consent_by_dm_id() {
         with_connection(|conn| {
             let mut g = generate_group(None);
             g.dm_id = Some("dm:alpha:beta".to_string());
@@ -446,11 +446,10 @@ mod tests {
             assert_eq!(records.len(), 1);
             assert_eq!(records.pop()?, cr);
         })
-        .await;
     }
 
     #[xmtp_common::test]
-    async fn insert_and_read() {
+    fn insert_and_read() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let consent_record = generate_consent_record(
@@ -511,6 +510,5 @@ mod tests {
             // ensure the db matches the state of what was returned
             assert_eq!(db_cr.state, existing.state);
         })
-        .await
     }
 }

@@ -176,7 +176,7 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    async fn test_batch_read() {
+    fn test_batch_read() {
         with_connection(|conn| {
             let mock = AssociationStateProto {
                 inbox_id: "test_id1".into(),
@@ -223,6 +223,5 @@ pub(crate) mod tests {
                 .collect::<Vec<MockState>>();
             assert_eq!(no_results.len(), 0);
         })
-        .await
     }
 }
