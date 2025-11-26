@@ -87,6 +87,7 @@ impl GroupList {
     }
 
     /// get the size of the group list
+    #[allow(dead_code)]
     pub(super) fn len(&self) -> usize {
         self.list.len()
     }
