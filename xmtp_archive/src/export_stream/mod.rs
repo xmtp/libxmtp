@@ -6,6 +6,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
+use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{MaybeSend, MaybeSendFuture, if_native, if_wasm};
 use xmtp_db::{StorageError, prelude::*};
 use xmtp_proto::xmtp::device_sync::{
@@ -35,28 +36,46 @@ pin_project! {
 }
 
 impl BatchExportStream {
-    pub(super) fn new<D>(opts: &BackupOptions, db: Arc<D>) -> Self
+    pub(super) fn new<D, Api>(opts: &BackupOptions, db: Arc<D>, api: ApiClientWrapper<Api>) -> Self
     where
         D: DbQuery + 'static,
+        Api: XmtpApi + Clone + 'static,
     {
         let input_streams = opts
             .elements()
             .flat_map(|e| match e {
                 BackupElementSelection::Consent => {
-                    vec![BackupRecordStreamer::<ConsentSave, D>::new_stream(
+                    vec![BackupRecordStreamer::<ConsentSave, D, Api>::new_stream(
                         db.clone(),
+                        api.clone(),
                         opts,
                     )]
                 }
                 BackupElementSelection::Messages => vec![
                     // Order matters here. Don't put messages before groups.
-                    BackupRecordStreamer::<GroupSave, D>::new_stream(db.clone(), opts),
-                    BackupRecordStreamer::<GroupMessageSave, D>::new_stream(db.clone(), opts),
+                    BackupRecordStreamer::<GroupSave, D, Api>::new_stream(
+                        db.clone(),
+                        api.clone(),
+                        opts,
+                    ),
+                    BackupRecordStreamer::<GroupMessageSave, D, Api>::new_stream(
+                        db.clone(),
+                        api.clone(),
+                        opts,
+                    ),
                 ],
                 BackupElementSelection::Event => {
                     vec![
-                        BackupRecordStreamer::<GroupSave, D>::new_stream(db.clone(), opts),
-                        BackupRecordStreamer::<EventSave, D>::new_stream(db.clone(), opts),
+                        BackupRecordStreamer::<GroupSave, D, Api>::new_stream(
+                            db.clone(),
+                            api.clone(),
+                            opts,
+                        ),
+                        BackupRecordStreamer::<EventSave, D, Api>::new_stream(
+                            db.clone(),
+                            api.clone(),
+                            opts,
+                        ),
                     ]
                 }
                 BackupElementSelection::Unspecified => vec![],
@@ -130,9 +149,10 @@ pub(crate) trait BackupRecordProvider: MaybeSend + Sized + 'static {
 }
 
 pin_project! {
-    pub(crate) struct BackupRecordStreamer<R, D> {
+    pub(crate) struct BackupRecordStreamer<R, D, Api> {
         cursor: i64,
         db: Arc<D>,
+        api: ApiClientWrapper<Api>,
         start_ns: Option<i64>,
         end_ns: Option<i64>,
         exclude_disappearing_messages: bool,
@@ -141,15 +161,21 @@ pin_project! {
     }
 }
 
-impl<R, D> BackupRecordStreamer<R, D>
+impl<R, D, Api> BackupRecordStreamer<R, D, Api>
 where
     R: BackupRecordProvider + 'static,
     D: DbQuery + 'static,
+    Api: XmtpApi + 'static,
 {
-    pub(super) fn new_stream(db: Arc<D>, opts: &BackupOptions) -> BackupInputStream {
+    pub(super) fn new_stream(
+        db: Arc<D>,
+        api: ApiClientWrapper<Api>,
+        opts: &BackupOptions,
+    ) -> BackupInputStream {
         Box::pin(Self {
             cursor: 0,
             db,
+            api,
             start_ns: opts.start_ns,
             end_ns: opts.end_ns,
             exclude_disappearing_messages: opts.exclude_disappearing_messages,
@@ -159,10 +185,11 @@ where
     }
 }
 
-impl<R, D> Stream for BackupRecordStreamer<R, D>
+impl<R, D, Api> Stream for BackupRecordStreamer<R, D, Api>
 where
     R: BackupRecordProvider + 'static,
     D: DbQuery + 'static,
+    Api: XmtpApi + 'static,
 {
     type Item = Result<Vec<BackupElement>, StorageError>;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

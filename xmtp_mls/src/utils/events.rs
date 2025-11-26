@@ -7,6 +7,7 @@ use crate::{
 use std::{fmt::Debug, sync::atomic::Ordering};
 use thiserror::Error;
 use tokio::sync::broadcast;
+use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_archive::exporter::ArchiveExporter;
 use xmtp_common::time::now_ns;
 use xmtp_configuration::DeviceSyncUrls;
@@ -352,10 +353,14 @@ where
     }
 }
 
-pub async fn upload_debug_archive(
+pub async fn upload_debug_archive<C>(
     db: impl DbQuery + 'static,
+    api: ApiClientWrapper<C>,
     device_sync_server_url: Option<impl AsRef<str>>,
-) -> Result<String, DeviceSyncError> {
+) -> Result<String, DeviceSyncError>
+where
+    C: XmtpApi + Clone + 'static,
+{
     let device_sync_server_url = device_sync_server_url
         .map(|url| url.as_ref().to_string())
         .unwrap_or(DeviceSyncUrls::PRODUCTION_ADDRESS.to_string());
@@ -369,7 +374,7 @@ pub async fn upload_debug_archive(
     let key = xmtp_common::rand_vec::<32>();
 
     // Build the exporter
-    let exporter = ArchiveExporter::new(options, db, &key);
+    let exporter = ArchiveExporter::new(options, db, api, &key);
 
     let url = format!("{device_sync_server_url}/upload");
     let response = exporter.post_to_url(&url).await?;
@@ -382,6 +387,7 @@ pub async fn upload_debug_archive(
 
 #[cfg(test)]
 mod tests {
+    use crate::context::XmtpSharedContext;
     use crate::groups::send_message_opts::SendMessageOpts;
     use crate::{tester, utils::events::upload_debug_archive};
     use std::time::Duration;
@@ -431,7 +437,12 @@ mod tests {
 
         g.sync().await?;
 
-        let k = upload_debug_archive(alix.db(), Some(DeviceSyncUrls::LOCAL_ADDRESS)).await?;
+        let k = upload_debug_archive(
+            alix.db(),
+            alix.context.api().clone(),
+            Some(DeviceSyncUrls::LOCAL_ADDRESS),
+        )
+        .await?;
         tracing::info!("{k}");
 
         // Exported and uploaded no problem

@@ -2,7 +2,7 @@
 /// Union type representing everything that can be serialied and saved in a backup archive.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BackupElement {
-    #[prost(oneof = "backup_element::Element", tags = "1, 2, 3, 4, 5, 6, 7")]
+    #[prost(oneof = "backup_element::Element", tags = "1, 2, 3, 4, 5, 6, 7, 8")]
     pub element: ::core::option::Option<backup_element::Element>,
 }
 /// Nested message and enum types in `BackupElement`.
@@ -22,7 +22,9 @@ pub mod backup_element {
         #[prost(message, tag = "6")]
         IdentityUpdates(super::super::identity::associations::IdentityUpdate),
         #[prost(message, tag = "7")]
-        Blob(super::blob_backup::BlobSave),
+        Snapshot(super::backup::SnapshotSave),
+        #[prost(message, tag = "8")]
+        Keypackage(super::backup::KeypackageSave),
     }
 }
 impl ::prost::Name for BackupElement {
