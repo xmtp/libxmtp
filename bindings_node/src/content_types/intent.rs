@@ -52,11 +52,12 @@ pub fn encode_intent(intent: Intent) -> Result<Uint8Array> {
 #[napi]
 pub fn decode_intent(bytes: Uint8Array) -> Result<Intent> {
   // Decode bytes into EncodedContent
-  let encoded_content =
-    EncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
+  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use IntentCodec to decode into Intent and convert to Intent
-  IntentCodec::decode(encoded_content)
-    .map(Into::into)
-    .map_err(|e| napi::Error::from_reason(e.to_string()))
+  Ok(
+    IntentCodec::decode(encoded_content)
+      .map(Into::into)
+      .map_err(ErrorWrapper::from)?,
+  )
 }

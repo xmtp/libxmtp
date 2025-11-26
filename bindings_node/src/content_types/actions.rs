@@ -164,8 +164,7 @@ pub fn encode_actions(actions: Actions) -> Result<Uint8Array> {
 #[napi]
 pub fn decode_actions(bytes: Uint8Array) -> Result<Actions> {
   // Decode bytes into EncodedContent
-  let encoded_content =
-    EncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
+  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
 
   // Use ActionsCodec to decode into Actions and convert to Actions
   let actions = ActionsCodec::decode(encoded_content).map_err(ErrorWrapper::from)?;

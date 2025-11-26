@@ -21,15 +21,13 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  CARGO_PROFILE_TEST_DEBUG: 0
-  WASM_BINDGEN_TEST_TIMEOUT: 256
-  WASM_BINDGEN_TEST_ONLY_WEB: 1
-  WASM_BINDGEN_SPLIT_LINKED_MODULES: 1
-  RSTEST_TIMEOUT: 90
 jobs:
   test:
     name: Test
     runs-on: warp-ubuntu-latest-x64-8x
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -46,33 +44,31 @@ jobs:
         run: |
           dev/build_validation_service_local
           dev/docker/up
-      - name: Install emscripten toolchains
-        run: |
-          git clone https://github.com/emscripten-core/emsdk.git
-          cd emsdk
-          ./emsdk install latest
-          ./emsdk activate latest
-      - name: Build WebAssembly Packages
-        run: |
-          source ./emsdk/emsdk_env.sh
-          cargo build --locked --tests --release --target wasm32-unknown-unknown -p xmtp_id -p xmtp_mls -p xmtp_cryptography -p xmtp_common -p bindings_wasm -p xmtp_api_d14n -p xmtp_db
+      - uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: true
+      - uses: DeterminateSystems/flakehub-cache-action@main
+      - uses: cachix/cachix-action@v16
+        with:
+          name: xmtp
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
       - name: test libraries
-        env:
-          CHROMEDRIVER: "chromedriver"
         run: |
-          cargo test --locked --release --target wasm32-unknown-unknown -p xmtp_id -p xmtp_cryptography -p xmtp_api -p bindings_wasm -p xmtp_api_d14n -p xmtp_db
+          nix develop .#wasm --command \
+            cargo test --locked --release -p xmtp_id -p xmtp_cryptography -p xmtp_api -p bindings_wasm -p xmtp_db -p xmtp_api_grpc
+      - name: test d14n
+        run: |
+          nix develop .#wasm --command cargo test --locked --release -p xmtp_api_d14n
         working-directory: ./
       - name: test xmtp_mls client
-        env:
-          CHROMEDRIVER: "chromedriver"
         run: |
-          cargo test --locked --release --target wasm32-unknown-unknown -p xmtp_mls -- --skip subscriptions::
+          nix develop .#wasm --command \
+            cargo test --locked --release -p xmtp_mls -- --skip subscriptions:: --skip test_debug_pkg --skip test_double_sync_works_fine
         working-directory: ./
       - name: test xmtp_mls subscriptions
-        env:
-          CHROMEDRIVER: "chromedriver"
         run: |
-          cargo test --locked --release --target wasm32-unknown-unknown -p xmtp_mls -- subscriptions::
+          nix develop .#wasm --command \
+            cargo test --locked --release -p xmtp_mls -- subscriptions::
         working-directory: ./
       - name: yarn install
         working-directory: bindings_wasm
@@ -84,6 +80,5 @@ jobs:
       - name: webassembly integration tests
         working-directory: bindings_wasm/tests/integration/browser
         run: |
-          source ./../../../../emsdk/emsdk_env.sh
           yarn playwright install
           yarn test

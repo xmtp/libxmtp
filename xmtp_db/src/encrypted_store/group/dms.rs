@@ -7,7 +7,7 @@ pub trait QueryDms {
     /// Same behavior as fetched, but will stitch DM groups
     fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, ConnectionError>;
 
-    fn find_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
+    fn find_active_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
     where
         M: std::fmt::Display;
 
@@ -23,11 +23,11 @@ where
         (**self).fetch_stitched(key)
     }
 
-    fn find_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
+    fn find_active_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
     where
         M: std::fmt::Display,
     {
-        (**self).find_dm_group(members)
+        (**self).find_active_dm_group(members)
     }
 
     fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
@@ -64,12 +64,13 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
         })
     }
 
-    fn find_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
+    fn find_active_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
     where
         M: std::fmt::Display,
     {
         let query = dsl::groups
             .filter(dsl::dm_id.eq(Some(members.to_string())))
+            .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
             .order_by(dsl::last_message_ns.desc());
 
         self.raw_query_read(|conn| query.first(conn).optional())
@@ -78,6 +79,7 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
     /// Load the other DMs that are stitched into this group
     fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
         let query = dsl::groups.filter(dsl::id.eq(group_id));
+
         let groups: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
 
         // Grab the dm_id of the group
@@ -126,7 +128,7 @@ pub(super) mod tests {
     }
 
     #[xmtp_common::test]
-    async fn test_dm_stitching() {
+    fn test_dm_stitching() {
         with_connection(|conn| {
             StoredGroup::builder()
                 .id(rand_vec::<24>())
@@ -153,11 +155,10 @@ pub(super) mod tests {
 
             assert_eq!(all_groups.len(), 1);
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_dm_deduplication() {
+    fn test_dm_deduplication() {
         with_connection(|conn| {
             let now = now_ns();
             let base_time = now - 1_000_000_000; // 1 second ago
@@ -269,6 +270,5 @@ pub(super) mod tests {
             // Should have all 5 groups
             assert_eq!(all_groups.len(), 5);
         })
-        .await
     }
 }

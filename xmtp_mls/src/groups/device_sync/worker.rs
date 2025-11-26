@@ -616,8 +616,6 @@ pub enum SyncMetric {
 
 impl WorkerMetrics<SyncMetric> {
     pub async fn wait_for_init(&self) -> Result<(), xmtp_common::time::Expired> {
-        self.register_interest(SyncMetric::SyncGroupCreated, 1)
-            .wait()
-            .await
+        self.register_interest(SyncMetric::Init, 1).wait().await
     }
 }

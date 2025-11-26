@@ -5,6 +5,7 @@ mod test_commit_log_remote;
 mod test_consent;
 mod test_dm;
 mod test_extract_readded_installations;
+mod test_group_updated;
 mod test_key_updates;
 mod test_libxmtp_version;
 #[cfg(not(target_arch = "wasm32"))]
@@ -32,7 +33,8 @@ use crate::context::XmtpSharedContext;
 use crate::groups::intents::QueueIntent;
 use crate::groups::{DmValidationError, GroupLeaveValidationError, MetadataPermissionsError};
 use crate::groups::{
-    MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
+    MAX_APP_DATA_LENGTH, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
+    MAX_GROUP_NAME_LENGTH,
 };
 use crate::tester;
 use crate::utils::fixtures::{alix, bola, caro};
@@ -2424,6 +2426,7 @@ async fn test_group_options() {
                 image_url_square: Some("url".to_string()),
                 description: Some("group description".to_string()),
                 message_disappearing_settings: Some(expected_group_message_disappearing_settings),
+                app_data: None,
             }),
         )
         .unwrap();
@@ -2504,7 +2507,7 @@ async fn test_group_mutable_data() {
     amal_group.sync().await.unwrap();
 
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
-    assert!(group_mutable_metadata.attributes.len().eq(&4));
+    assert!(group_mutable_metadata.attributes.len().eq(&5));
     assert!(
         group_mutable_metadata
             .attributes
@@ -4108,10 +4111,18 @@ async fn test_respects_character_limits_for_group_metadata() {
         matches!(result, Err(GroupError::TooManyCharacters { length }) if length == MAX_GROUP_IMAGE_URL_LENGTH)
     );
 
+    // Verify that updating the app data with an excessive length fails
+    let overlong_app_data = "d".repeat(MAX_APP_DATA_LENGTH + 1);
+    let result = amal_group.update_app_data(overlong_app_data).await;
+    assert!(
+        matches!(result, Err(GroupError::TooManyCharacters { length }) if length == MAX_APP_DATA_LENGTH)
+    );
+
     // Verify updates with valid lengths are successful
     let valid_name = "Valid Group Name".to_string();
     let valid_description = "Valid group description within limit.".to_string();
     let valid_image_url = "http://example.com/image.png".to_string();
+    let valid_app_data = "Valid app data content".to_string();
 
     amal_group
         .update_group_name(valid_name.clone())
@@ -4123,6 +4134,10 @@ async fn test_respects_character_limits_for_group_metadata() {
         .unwrap();
     amal_group
         .update_group_image_url_square(valid_image_url.clone())
+        .await
+        .unwrap();
+    amal_group
+        .update_app_data(valid_app_data.clone())
         .await
         .unwrap();
 
@@ -4152,6 +4167,117 @@ async fn test_respects_character_limits_for_group_metadata() {
             .unwrap(),
         &valid_image_url
     );
+    assert_eq!(
+        metadata
+            .attributes
+            .get(&MetadataField::AppData.to_string())
+            .unwrap(),
+        &valid_app_data
+    );
+}
+
+#[xmtp_common::test]
+async fn test_update_app_data() {
+    tester!(amal);
+
+    let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
+    let amal_group = amal.create_group(policy_set, None).unwrap();
+    amal_group.sync().await.unwrap();
+
+    // Update app data with a valid value
+    let app_data = "Test application data".to_string();
+    amal_group.update_app_data(app_data.clone()).await.unwrap();
+    amal_group.sync().await.unwrap();
+
+    // Verify the app data was updated using the getter
+    let retrieved_app_data = amal_group.app_data().unwrap();
+    assert_eq!(retrieved_app_data, app_data);
+
+    // Update with maximum allowed size (8KB)
+    let max_size_data = "x".repeat(MAX_APP_DATA_LENGTH);
+    amal_group
+        .update_app_data(max_size_data.clone())
+        .await
+        .unwrap();
+    amal_group.sync().await.unwrap();
+
+    let retrieved_max_data = amal_group.app_data().unwrap();
+    assert_eq!(retrieved_max_data, max_size_data);
+}
+
+#[xmtp_common::test]
+async fn test_app_data_in_dm() {
+    tester!(amal);
+    tester!(bola);
+
+    // Create a DM
+    let dm = amal
+        .find_or_create_dm_by_inbox_id(bola.inbox_id().to_string(), None)
+        .await
+        .unwrap();
+
+    // Verify that updating app_data on a DM fails
+    let result = dm.update_app_data("test data".to_string()).await;
+    assert!(matches!(
+        result,
+        Err(GroupError::MetadataPermissionsError(
+            MetadataPermissionsError::DmGroupMetadataForbidden
+        ))
+    ));
+}
+
+#[xmtp_common::test]
+async fn test_create_group_with_app_data() {
+    tester!(amal);
+
+    let initial_app_data = "Initial app data from options".to_string();
+
+    // Create a group with app_data set through GroupMetadataOptions
+    let group = amal
+        .create_group(
+            None,
+            Some(GroupMetadataOptions {
+                name: Some("Test Group".to_string()),
+                description: Some("Test Description".to_string()),
+                image_url_square: None,
+                message_disappearing_settings: None,
+                app_data: Some(initial_app_data.clone()),
+            }),
+        )
+        .unwrap();
+
+    group.sync().await.unwrap();
+
+    // Verify the app_data was set correctly
+    let retrieved_app_data = group.app_data().unwrap();
+    assert_eq!(retrieved_app_data, initial_app_data);
+
+    // Verify we can also update it
+    let updated_app_data = "Updated app data".to_string();
+    group
+        .update_app_data(updated_app_data.clone())
+        .await
+        .unwrap();
+    group.sync().await.unwrap();
+
+    let final_app_data = group.app_data().unwrap();
+    assert_eq!(final_app_data, updated_app_data);
+}
+
+#[xmtp_common::test]
+async fn test_create_group_with_default_app_data() {
+    tester!(amal);
+
+    // Create a group without specifying app_data (should default to empty string)
+    let group = amal
+        .create_group(None, Some(GroupMetadataOptions::default()))
+        .unwrap();
+
+    group.sync().await.unwrap();
+
+    // Verify the app_data defaults to empty string
+    let retrieved_app_data = group.app_data().unwrap();
+    assert_eq!(retrieved_app_data, "");
 }
 
 fn increment_patch_version(version: &str) -> Option<String> {
@@ -4908,4 +5034,73 @@ async fn non_retryable_error_increments_cursor() {
         )
         .unwrap();
     assert_eq!(new_cursor, last_cursor);
+}
+
+#[xmtp_common::test]
+async fn test_generate_commit_with_rollback() {
+    tester!(alix);
+    tester!(bo);
+    let group = alix.create_group(None, None).unwrap();
+    group
+        .add_members_by_inbox_id(&[bo.inbox_id()])
+        .await
+        .unwrap();
+    group.sync().await.unwrap();
+
+    let provider = alix.context.mls_storage();
+    let hash = || provider.hash_all().map(hex::encode).unwrap();
+
+    let start_hash = hash();
+    tracing::info!("start_hash: {start_hash}");
+
+    let group_provider = group.context.mls_storage();
+    let installation_keys = group.context.identity().installation_keys.clone();
+    let mut in_generate_commit_before_hash = None;
+    let mut in_generate_commit_after_hash = None;
+    let in_generate_commit_before_hash_mut = &mut in_generate_commit_before_hash;
+    let in_generate_commit_after_hash_mut = &mut in_generate_commit_after_hash;
+    group
+        .load_mls_group_with_lock_async(|mut mls_group| async move {
+            let extensions = super::build_extensions_for_metadata_update(
+                &mls_group,
+                "foo".to_string(),
+                "bar".to_string(),
+            )
+            .unwrap();
+            // Simulate mutable metadata update
+            let (_, _) = super::mls_sync::generate_commit_with_rollback(
+                group_provider,
+                &mut mls_group,
+                |group, provider| {
+                    use xmtp_db::MlsProviderExt;
+                    *in_generate_commit_before_hash_mut =
+                        provider.key_store().hash_all().map(hex::encode).ok();
+                    let result = group.update_group_context_extensions(
+                        provider,
+                        extensions,
+                        &installation_keys,
+                    );
+                    *in_generate_commit_after_hash_mut =
+                        provider.key_store().hash_all().map(hex::encode).ok();
+                    result
+                },
+            )
+            .unwrap();
+            Ok::<_, GroupError>(())
+        })
+        .await
+        .unwrap();
+    let in_generate_commit_before_hash = in_generate_commit_before_hash.unwrap();
+    let in_generate_commit_after_hash = in_generate_commit_after_hash.unwrap();
+    tracing::info!("in_generate_commit_before_hash: {in_generate_commit_before_hash}");
+    tracing::info!("in_generate_commit_after_hash: {in_generate_commit_after_hash}");
+    let end_hash = hash();
+    tracing::info!("end_hash: {end_hash}");
+    assert_eq!(start_hash, end_hash);
+    assert_ne!(
+        in_generate_commit_before_hash,
+        in_generate_commit_after_hash
+    );
+    assert_eq!(start_hash, in_generate_commit_before_hash);
+    assert_ne!(end_hash, in_generate_commit_after_hash);
 }

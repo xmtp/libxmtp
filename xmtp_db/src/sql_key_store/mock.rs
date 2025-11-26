@@ -107,6 +107,11 @@ impl XmtpMlsStorageProvider for MockSqlKeyStore {
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         self.in_memory.write::<CURRENT_VERSION>(label, key, value)
     }
+
+    #[cfg(feature = "test-utils")]
+    fn hash_all(&self) -> Result<Vec<u8>, SqlKeyStoreError> {
+        self.in_memory.hash_all()
+    }
 }
 
 impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {

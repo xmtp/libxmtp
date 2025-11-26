@@ -268,6 +268,7 @@ pub struct CreateGroupOptions {
   pub group_description: Option<String>,
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
   pub message_disappearing_settings: Option<MessageDisappearingSettings>,
+  pub app_data: Option<String>,
 }
 
 impl CreateGroupOptions {
@@ -279,6 +280,7 @@ impl CreateGroupOptions {
       message_disappearing_settings: self
         .message_disappearing_settings
         .map(|settings| settings.into()),
+      app_data: self.app_data,
     }
   }
 }
@@ -322,6 +324,7 @@ impl Conversations {
       group_description: None,
       custom_permission_policy_set: None,
       message_disappearing_settings: None,
+      app_data: None,
     });
 
     if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
@@ -345,11 +348,7 @@ impl Conversations {
       }
       Some(GroupPermissionsOptions::CustomPolicy) => {
         if let Some(policy_set) = options.custom_permission_policy_set {
-          Some(
-            policy_set
-              .try_into()
-              .map_err(|e| Error::from_reason(format!("{}", e).as_str()))?,
-          )
+          Some(policy_set.try_into().map_err(ErrorWrapper::from)?)
         } else {
           None
         }
@@ -360,7 +359,7 @@ impl Conversations {
     let group = self
       .inner_client
       .create_group(group_permissions, Some(metadata_options))
-      .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(group.into())
   }
@@ -376,10 +375,7 @@ impl Conversations {
     if !account_identities.is_empty() {
       convo.add_members(account_identities).await?;
     } else {
-      convo
-        .sync()
-        .await
-        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+      convo.sync().await.map_err(ErrorWrapper::from)?;
     };
 
     Ok(convo)
@@ -396,10 +392,7 @@ impl Conversations {
     if !inbox_ids.is_empty() {
       convo.add_members_by_inbox_id(inbox_ids).await?;
     } else {
-      convo
-        .sync()
-        .await
-        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+      convo.sync().await.map_err(ErrorWrapper::from)?;
     }
 
     Ok(convo)

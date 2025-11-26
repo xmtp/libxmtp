@@ -8,6 +8,7 @@ impl BackupRecordProvider for ConsentSave {
         db: Arc<D>,
         _start_ns: Option<i64>,
         _end_ns: Option<i64>,
+        _exclude_disappearing_messages: bool,
         cursor: i64,
     ) -> Result<Vec<BackupElement>, StorageError>
     where

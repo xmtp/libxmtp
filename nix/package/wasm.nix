@@ -11,6 +11,9 @@
 , llvmPackages
 , wasm-bindgen-cli
 , xmtp
+, geckodriver
+, firefox
+, corepack
 }:
 let
   # Pinned Rust Version
@@ -44,7 +47,6 @@ let
     buildInputs = [ zstd sqlite ];
     doCheck = false;
     cargoExtraArgs = "--workspace --exclude xmtpv3 --exclude bindings_node --exclude xmtp_cli --exclude xdbg --exclude mls_validation_service --exclude xmtp_api_grpc --exclude benches";
-    RUSTFLAGS = [ "--cfg" "tracing_unstable" "--cfg" "getrandom_backend=\"wasm_js\"" "-C" "target-feature=+bulk-memory,+mutable-globals" ];
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
     hardeningDisable = [ "zerocallusedregs" "stackprotector" ];
     NIX_DEBUG = 1;
@@ -52,7 +54,6 @@ let
   } // lib.optionalAttrs stdenv.isDarwin {
     CC_wasm32_unknown_unknown = "${llvmPackages.libcxxClang}/bin/clang";
     AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
-
   };
 
   # enables caching all build time crates
@@ -79,12 +80,20 @@ let
     });
   devShell = mkShell
     {
-      buildInputs = commonArgs.buildInputs ++ [ rust-toolchain ];
+      inherit (commonArgs) nativeBuildInputs;
+      buildInputs = commonArgs.buildInputs ++ [ rust-toolchain firefox geckodriver corepack ];
       CC_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/clang";
       AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
       SQLITE = "${sqlite.dev}";
       SQLITE_OUT = "${sqlite.out}";
-
+      GECKODRIVER = "${lib.getBin geckodriver}/bin/geckodriver";
+      CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
+      WASM_BINDGEN_SPLIT_LINKED_MODULES = 1;
+      WASM_BINDGEN_TEST_TIMEOUT = 256;
+      WASM_BINDGEN_TEST_ONLY_WEB = 1;
+      RSTEST_TIMEOUT = 90;
+      CARGO_PROFILE_TEST_DEBUG = 0;
+      WASM_BINDGEN_TEST_WEBDRIVER_JSON = ./../../webdriver.json;
     } // commonArgs;
 in
 {

@@ -71,7 +71,7 @@ mod tests {
     };
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn it_marks_as_processed() {
+    fn it_marks_as_processed() {
         with_connection(|conn| {
             let mut group = generate_group(None);
             group.conversation_type = ConversationType::Sync;
@@ -97,6 +97,5 @@ mod tests {
             let unprocessed = conn.unprocessed_sync_group_messages()?;
             assert_eq!(unprocessed.len(), 1);
         })
-        .await;
     }
 }

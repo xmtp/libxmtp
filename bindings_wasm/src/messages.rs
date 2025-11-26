@@ -140,6 +140,7 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
       sort_by: opts.sort_by.map(Into::into),
       inserted_after_ns: opts.inserted_after_ns,
       inserted_before_ns: opts.inserted_before_ns,
+      exclude_disappearing: false,
     }
   }
 }

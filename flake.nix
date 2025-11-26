@@ -66,7 +66,7 @@
             ios = pkgs.callPackage ./nix/ios.nix { };
             js = pkgs.callPackage ./nix/js.nix { };
             # the environment bindings_wasm is built in
-            wasmBuild = (pkgs.callPackage ./nix/package/wasm.nix { craneLib = crane.mkLib pkgs; }).devShell;
+            wasm = (pkgs.callPackage ./nix/package/wasm.nix { craneLib = crane.mkLib pkgs; }).devShell;
           };
           packages.wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { craneLib = crane.mkLib pkgs; }).bin;
           packages.wasm-bindgen-cli = pkgs.callPackage ./nix/lib/packages/wasm-bindgen-cli.nix { };

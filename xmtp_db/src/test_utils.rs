@@ -62,6 +62,7 @@ pub use wasm::*;
 mod wasm {
     use super::*;
     use crate::{PersistentOrMem, WasmDbConnection};
+    use futures::FutureExt;
     use std::sync::Arc;
 
     impl XmtpTestDb for super::TestDb {
@@ -74,6 +75,7 @@ mod wasm {
 
         async fn create_ephemeral_store_from_snapshot(
             snapshot: &[u8],
+            _path: Option<impl AsRef<Path>>,
         ) -> EncryptedMessageStore<crate::DefaultDatabase> {
             let db = crate::database::WasmDb::new(&StorageOption::Ephemeral)
                 .await
@@ -106,14 +108,16 @@ mod wasm {
     }
 
     /// Test harness that loads an Ephemeral store.
-    pub async fn with_connection<F, R>(fun: F) -> R
+    pub fn with_connection<F, R>(fun: F) -> R
     where
         F: FnOnce(
             &crate::DbConnection<Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>>,
         ) -> R,
     {
+        // ephemeral db connections do not use async so should resolve immediately
         let db = crate::database::WasmDb::new(&StorageOption::Ephemeral)
-            .await
+            .now_or_never()
+            .unwrap()
             .unwrap();
         let store = EncryptedMessageStore::new(db).unwrap();
         let conn = store.conn();
@@ -191,7 +195,8 @@ mod native {
 
                 if result.is_ok() {
                     break store;
-                } else if i >= 1 {
+                } else if i >= 1 || path.is_none() {
+                    #[allow(clippy::panicking_unwrap)]
                     result.unwrap();
                 }
 
@@ -200,12 +205,11 @@ mod native {
                     // WAL is not compatible with ephemeral databases. Attempt to update and try one more time.
                     {
                         let mut conn =
-                            SqliteConnection::establish(&path.to_string_lossy().to_string())
-                                .unwrap();
+                            SqliteConnection::establish(path.to_string_lossy().as_ref()).unwrap();
                         conn.batch_execute("PRAGMA journal_mode = DELETE").unwrap();
                     }
 
-                    buffer = tokio::fs::read(path).await.unwrap();
+                    buffer = std::fs::read(path).unwrap();
                     snapshot = &buffer;
                 };
 
@@ -237,7 +241,7 @@ mod native {
     }
 
     /// Test harness that loads an Ephemeral store.
-    pub async fn with_connection<F, R>(fun: F) -> R
+    pub fn with_connection<F, R>(fun: F) -> R
     where
         F: FnOnce(
             &crate::DbConnection<Arc<PersistentOrMem<NativeDbConnection, EphemeralDbConnection>>>,

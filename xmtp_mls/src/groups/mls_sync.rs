@@ -52,7 +52,7 @@ use xmtp_db::{
     sql_key_store,
     user_preferences::StoredUserPreferences,
 };
-use xmtp_db::{XmtpMlsStorageProvider, refresh_state::HasEntityKind};
+use xmtp_db::{TransactionalKeyStore, XmtpMlsStorageProvider, refresh_state::HasEntityKind};
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 
@@ -305,6 +305,7 @@ where
                 other_dm.conversation_type,
                 other_dm.created_at_ns,
             );
+
             other_dm.sync_with_conn().await?;
             other_dm.maybe_update_installations(None).await?;
         }
@@ -2222,24 +2223,11 @@ where
                 }))
             }
             IntentKind::KeyUpdate => {
-                let result = storage.transaction(|conn| {
-                    let storage = conn.key_store();
-                    let provider = XmtpOpenMlsProviderRef::new(&storage);
-                    let bundle = openmls_group.self_update(
-                        &provider,
-                        &self.context.identity().installation_keys,
-                        LeafNodeParameters::default(),
-                    )?;
-                    let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
-                    Ok::<_, GroupError>((bundle, staged_commit))
-                });
-                let (bundle, staged_commit) = match result {
-                    Ok(res) => res,
-                    Err(e) => {
-                        openmls_group.reload(storage)?;
-                        return Err(e);
-                    }
-                };
+                let keys = self.context.identity().installation_keys.clone();
+                let (bundle, staged_commit) =
+                    generate_commit_with_rollback(storage, openmls_group, |group, provider| {
+                        group.self_update(provider, &keys, LeafNodeParameters::default())
+                    })?;
                 Ok(Some(PublishIntentData {
                     payload_to_publish: bundle.commit().tls_serialize_detached()?,
                     staged_commit,
@@ -2255,25 +2243,15 @@ where
                     metadata_intent.field_value,
                 )?;
 
-                let result = storage.transaction(|conn| {
-                    let storage = conn.key_store();
-                    let provider = XmtpOpenMlsProviderRef::new(&storage);
-                    let (commit, _, _) = openmls_group.update_group_context_extensions(
-                        &provider,
-                        mutable_metadata_extensions,
-                        &self.context.identity().installation_keys,
-                    )?;
-                    let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
-
-                    Ok::<_, GroupError>((commit, staged_commit))
-                });
-                let (commit, staged_commit) = match result {
-                    Ok(res) => res,
-                    Err(e) => {
-                        openmls_group.reload(storage)?;
-                        return Err(e);
-                    }
-                };
+                let keys = self.context.identity().installation_keys.clone();
+                let ((commit, _, _), staged_commit) =
+                    generate_commit_with_rollback(storage, openmls_group, |group, provider| {
+                        group.update_group_context_extensions(
+                            provider,
+                            mutable_metadata_extensions.clone(),
+                            &keys,
+                        )
+                    })?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
@@ -2292,25 +2270,15 @@ where
                     admin_list_update_intent,
                 )?;
 
-                let result = storage.transaction(|conn| {
-                    let storage = conn.key_store();
-                    let provider = XmtpOpenMlsProviderRef::new(&storage);
-                    let (commit, _, _) = openmls_group.update_group_context_extensions(
-                        &provider,
-                        mutable_metadata_extensions,
-                        &self.context.identity().installation_keys,
-                    )?;
-                    let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
-
-                    Ok::<_, GroupError>((commit, staged_commit))
-                });
-                let (commit, staged_commit) = match result {
-                    Ok(res) => res,
-                    Err(e) => {
-                        openmls_group.reload(storage)?;
-                        return Err(e);
-                    }
-                };
+                let keys = self.context.identity().installation_keys.clone();
+                let ((commit, _, _), staged_commit) =
+                    generate_commit_with_rollback(storage, openmls_group, |group, provider| {
+                        group.update_group_context_extensions(
+                            provider,
+                            mutable_metadata_extensions.clone(),
+                            &keys,
+                        )
+                    })?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
@@ -2329,25 +2297,15 @@ where
                     update_permissions_intent,
                 )?;
 
-                let result = storage.transaction(|conn| {
-                    let storage = conn.key_store();
-                    let provider = XmtpOpenMlsProviderRef::new(&storage);
-                    let (commit, _, _) = openmls_group.update_group_context_extensions(
-                        &provider,
-                        group_permissions_extensions,
-                        &self.context.identity().installation_keys,
-                    )?;
-                    let staged_commit = get_and_clear_pending_commit(openmls_group, &storage)?;
-
-                    Ok::<_, GroupError>((commit, staged_commit))
-                });
-                let (commit, staged_commit) = match result {
-                    Ok(res) => res,
-                    Err(e) => {
-                        openmls_group.reload(storage)?;
-                        return Err(e);
-                    }
-                };
+                let keys = self.context.identity().installation_keys.clone();
+                let ((commit, _, _), staged_commit) =
+                    generate_commit_with_rollback(storage, openmls_group, |group, provider| {
+                        group.update_group_context_extensions(
+                            provider,
+                            group_permissions_extensions.clone(),
+                            &keys,
+                        )
+                    })?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
                 Ok(Some(PublishIntentData {
@@ -2964,17 +2922,75 @@ fn get_removed_leaf_nodes(
         .collect()
 }
 
-fn get_and_clear_pending_commit(
+/// Execute a commit-creating operation using a savepoint pattern.
+///
+/// This function:
+/// 1. Runs the operation in a transaction savepoint
+/// 2. Extracts the pending commit data
+/// 3. Rolls back the transaction (avoiding the need for clear_pending_commit)
+/// 4. Reloads the group to clear its internal cache
+/// 5. Returns the operation result and the staged commit
+///
+/// This is more reliable than using `clear_pending_commit` because it uses
+/// SQLite's built-in savepoint rollback mechanism.
+pub(super) fn generate_commit_with_rollback<S, R, E, F>(
+    storage: &S,
     openmls_group: &mut OpenMlsGroup,
-    s: &impl XmtpMlsStorageProvider,
-) -> Result<Option<Vec<u8>>, GroupError> {
-    let commit = openmls_group
-        .pending_commit()
-        .as_ref()
-        .map(xmtp_db::db_serialize)
-        .transpose()?;
-    openmls_group.clear_pending_commit(s)?;
-    Ok(commit)
+    operation: F,
+) -> Result<(R, Option<Vec<u8>>), GroupError>
+where
+    S: XmtpMlsStorageProvider,
+    E: Into<GroupError>,
+    F: for<'a> FnOnce(
+        &mut OpenMlsGroup,
+        &XmtpOpenMlsProviderRef<<S::TxQuery as TransactionalKeyStore>::Store<'a>>,
+    ) -> Result<R, E>,
+{
+    let mut result = None;
+    let mut staged_commit = None;
+
+    let transaction_result = storage.transaction(|conn| {
+        let key_store = conn.key_store();
+        let provider = XmtpOpenMlsProviderRef::new(&key_store);
+
+        // Execute the operation (e.g., self_update, update_group_context_extensions, etc.)
+        result = Some(operation(openmls_group, &provider));
+
+        // Extract the staged commit data before rollback
+        staged_commit = openmls_group
+            .pending_commit()
+            .as_ref()
+            .map(xmtp_db::db_serialize)
+            .transpose()
+            .inspect_err(|error| tracing::error!(%error, "Error serializing staged commit"))
+            .ok()
+            .flatten();
+
+        // Rollback the transaction to avoid persisting the commit
+        Err::<(), StorageError>(StorageError::IntentionalRollback)
+    });
+
+    let Err(e) = transaction_result else {
+        unreachable!("Transaction never returns ok");
+    };
+
+    // Check if the transaction was intentionally rolled back (expected)
+    // or if there was a real error
+
+    if !matches!(e, StorageError::IntentionalRollback) {
+        return Err(e.into());
+    }
+
+    // This must go after error checking
+    // Reload the group to clear its internal cache after rollback
+    openmls_group.reload(storage)?;
+
+    // Extract and handle the operation result
+    let operation_result = result
+        .expect("Operation should have been called")
+        .map_err(|e| e.into())?;
+
+    Ok((operation_result, staged_commit))
 }
 
 pub(crate) fn decode_staged_commit(

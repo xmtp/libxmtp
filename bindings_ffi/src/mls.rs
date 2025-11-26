@@ -7,7 +7,7 @@ use crate::message::{
 };
 use crate::worker::FfiSyncWorker;
 use crate::worker::FfiSyncWorkerMode;
-use crate::{FfiReply, FfiSubscribeError, GenericError};
+use crate::{FfiGroupUpdated, FfiReply, FfiSubscribeError, FfiWalletSendCalls, GenericError};
 use futures::future::try_join_all;
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
@@ -19,6 +19,7 @@ use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::actions::{Actions, ActionsCodec};
 use xmtp_content_types::attachment::Attachment;
 use xmtp_content_types::attachment::AttachmentCodec;
+use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_content_types::intent::{Intent, IntentCodec};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
@@ -31,6 +32,7 @@ use xmtp_content_types::reply::ReplyCodec;
 use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::transaction_reference::TransactionReference;
 use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
+use xmtp_content_types::wallet_send_calls::WalletSendCallsCodec;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
 use xmtp_db::NativeDb;
 use xmtp_db::group::DmIdExt;
@@ -129,11 +131,14 @@ pub async fn connect_to_backend(
     v3_host: String,
     gateway_host: Option<String>,
     is_secure: bool,
+    client_mode: Option<FfiClientMode>,
     app_version: Option<String>,
     auth_callback: Option<Arc<dyn gateway_auth::FfiAuthCallback>>,
     auth_handle: Option<Arc<gateway_auth::FfiAuthHandle>>,
 ) -> Result<Arc<XmtpApiClient>, GenericError> {
     init_logger();
+
+    let client_mode = client_mode.unwrap_or_default();
 
     log::info!(
         v3_host,
@@ -153,6 +158,7 @@ pub async fn connect_to_backend(
             auth_callback
                 .map(|callback| Arc::new(gateway_auth::FfiAuthCallbackBridge::new(callback)) as _),
         )
+        .readonly(matches!(client_mode, FfiClientMode::Notification))
         .maybe_auth_handle(auth_handle.map(|handle| handle.as_ref().clone().into()))
         .build()?;
     Ok(Arc::new(XmtpApiClient(backend)))
@@ -473,6 +479,13 @@ impl FfiSignatureRequest {
             .map(|member| member.to_string())
             .collect())
     }
+}
+
+#[derive(Default, Clone, Copy, uniffi::Enum)]
+pub enum FfiClientMode {
+    #[default]
+    Default,
+    Notification,
 }
 
 #[derive(uniffi::Object)]
@@ -848,17 +861,23 @@ impl FfiXmtpClient {
 
     /**
      * Revokes all installations except the one the client is currently using
+     * Returns Some FfiSignatureRequest if we have installations to revoke.
+     * If we have no other installations to revoke, returns None.
      */
-    pub async fn revoke_all_other_installations(
+    pub async fn revoke_all_other_installations_signature_request(
         &self,
-    ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
+    ) -> Result<Option<Arc<FfiSignatureRequest>>, GenericError> {
         let installation_id = self.inner_client.installation_public_key();
         let inbox_state = self.inner_client.inbox_state(true).await?;
-        let other_installation_ids = inbox_state
+        let other_installation_ids: Vec<Vec<u8>> = inbox_state
             .installation_ids()
             .into_iter()
             .filter(|id| id != installation_id)
             .collect();
+
+        if other_installation_ids.is_empty() {
+            return Ok(None);
+        }
 
         let signature_request = self
             .inner_client
@@ -866,10 +885,10 @@ impl FfiXmtpClient {
             .revoke_installations(other_installation_ids)
             .await?;
 
-        Ok(Arc::new(FfiSignatureRequest {
+        Ok(Some(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
             scw_verifier: self.inner_client.scw_verifier().clone(),
-        }))
+        })))
     }
 
     /**
@@ -1012,12 +1031,13 @@ pub struct FfiArchiveOptions {
     start_ns: Option<i64>,
     end_ns: Option<i64>,
     elements: Vec<FfiBackupElementSelection>,
+    exclude_disappearing_messages: bool,
 }
 impl From<FfiArchiveOptions> for BackupOptions {
     fn from(value: FfiArchiveOptions) -> Self {
         Self {
             start_ns: value.start_ns,
-            end_ns: value.start_ns,
+            end_ns: value.end_ns,
             elements: value
                 .elements
                 .into_iter()
@@ -1026,6 +1046,7 @@ impl From<FfiArchiveOptions> for BackupOptions {
                     element.into()
                 })
                 .collect(),
+            exclude_disappearing_messages: value.exclude_disappearing_messages,
         }
     }
 }
@@ -2195,6 +2216,7 @@ impl From<FfiListMessagesOptions> for MsgQueryArgs {
             sort_by: opts.sort_by.map(Into::into),
             inserted_after_ns: opts.inserted_after_ns,
             inserted_before_ns: opts.inserted_before_ns,
+            exclude_disappearing: false,
         }
     }
 }
@@ -2238,6 +2260,7 @@ pub struct FfiCreateGroupOptions {
     pub group_description: Option<String>,
     pub custom_permission_policy_set: Option<FfiPermissionPolicySet>,
     pub message_disappearing_settings: Option<FfiMessageDisappearingSettings>,
+    pub app_data: Option<String>,
 }
 
 impl FfiCreateGroupOptions {
@@ -2249,6 +2272,7 @@ impl FfiCreateGroupOptions {
             message_disappearing_settings: self
                 .message_disappearing_settings
                 .map(|settings| settings.into()),
+            app_data: self.app_data,
         }
     }
 }
@@ -2471,6 +2495,16 @@ impl FfiConversation {
     pub fn group_name(&self) -> Result<String, GenericError> {
         let group_name = self.inner.group_name()?;
         Ok(group_name)
+    }
+
+    pub async fn update_app_data(&self, app_data: String) -> Result<(), GenericError> {
+        self.inner.update_app_data(app_data).await?;
+        Ok(())
+    }
+
+    pub fn app_data(&self) -> Result<String, GenericError> {
+        let app_data = self.inner.app_data()?;
+        Ok(app_data)
     }
 
     pub async fn update_group_image_url_square(
@@ -2966,7 +3000,7 @@ pub fn decode_read_receipt(bytes: Vec<u8>) -> Result<FfiReadReceipt, GenericErro
 pub fn encode_remote_attachment(
     remote_attachment: FfiRemoteAttachment,
 ) -> Result<Vec<u8>, GenericError> {
-    let remote_attachment: RemoteAttachment = remote_attachment.into();
+    let remote_attachment: RemoteAttachment = remote_attachment.try_into()?;
 
     let encoded = RemoteAttachmentCodec::encode(remote_attachment)
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;
@@ -3043,6 +3077,62 @@ pub fn decode_actions(bytes: Vec<u8>) -> Result<FfiActions, GenericError> {
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;
 
     actions.try_into()
+}
+
+#[uniffi::export]
+pub fn decode_group_updated(bytes: Vec<u8>) -> Result<FfiGroupUpdated, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    GroupUpdatedCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
+#[uniffi::export]
+pub fn encode_text(text: String) -> Result<Vec<u8>, GenericError> {
+    let encoded =
+        TextCodec::encode(text).map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_text(bytes: Vec<u8>) -> Result<String, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    TextCodec::decode(encoded_content).map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
+#[uniffi::export]
+pub fn encode_wallet_send_calls(
+    wallet_send_calls: FfiWalletSendCalls,
+) -> Result<Vec<u8>, GenericError> {
+    let encoded = WalletSendCallsCodec::encode(wallet_send_calls.into())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_wallet_send_calls(bytes: Vec<u8>) -> Result<FfiWalletSendCalls, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    WalletSendCallsCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
 }
 
 #[derive(uniffi::Record, Clone)]
