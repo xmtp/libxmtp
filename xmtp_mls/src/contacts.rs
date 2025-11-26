@@ -50,131 +50,85 @@ pub struct ContactQueryArgs {
     pub created_before_ns: Option<i64>,
 }
 
-impl AsRef<ContactQueryArgs> for ContactQueryArgs {
-    fn as_ref(&self) -> &ContactQueryArgs {
-        self
-    }
-}
-
 // Type aliases to reduce complexity
 type GroupMembersMap = HashMap<Vec<u8>, Vec<(String, i64)>>;
-type MemberRequestsSet = HashSet<(String, i64)>;
 type ContactMap = HashMap<String, (AssociationState, HashSet<Vec<u8>>, ConsentState)>;
 
-/// Filter groups by allow/deny lists
-fn filter_groups_by_allow_deny_lists(
-    stored_groups: Vec<StoredGroup>,
-    allowed_group_ids: &Option<Vec<Vec<u8>>>,
-    denied_group_ids: &Option<Vec<Vec<u8>>>,
-) -> Vec<StoredGroup> {
-    stored_groups
-        .into_iter()
-        .filter(|stored_group| {
-            let group_id = &stored_group.id;
-
-            // Apply allow list
-            if let Some(allowed_ids) = allowed_group_ids
-                && !allowed_ids.iter().any(|id| id == group_id)
-            {
-                return false;
-            }
-
-            // Apply deny list
-            if let Some(denied_ids) = denied_group_ids
-                && denied_ids.iter().any(|id| id == group_id)
-            {
-                return false;
-            }
-
-            true
-        })
-        .collect()
-}
+/// Maximum number of groups to process per batch to prevent resource exhaustion
+const MAX_GROUPS_PER_BATCH: usize = 100;
 
 /// Extract group members from filtered groups
-/// Returns a tuple of (group_members_map, all_member_requests)
+/// Returns a map of group_id -> Vec<(inbox_id, sequence_id)>
+/// Processes groups in batches to prevent resource exhaustion
 fn extract_group_members<Context>(
     context: &Context,
     filtered_groups: &[StoredGroup],
-) -> (GroupMembersMap, MemberRequestsSet)
+) -> Result<GroupMembersMap, ClientError>
 where
     Context: XmtpSharedContext,
 {
     let storage = context.mls_storage();
-    let mut group_members_map: GroupMembersMap = HashMap::new();
-    let mut all_member_requests: MemberRequestsSet = HashSet::new();
+    let mut group_members_map: GroupMembersMap = HashMap::with_capacity(filtered_groups.len());
 
-    for stored_group in filtered_groups {
-        let mls_group = crate::groups::MlsGroup::new(
-            context.clone(),
-            stored_group.id.clone(),
-            stored_group.dm_id.clone(),
-            stored_group.conversation_type,
-            stored_group.created_at_ns,
-        );
+    // Process groups in batches to prevent resource exhaustion
+    for chunk in filtered_groups.chunks(MAX_GROUPS_PER_BATCH) {
+        for stored_group in chunk {
+            let mls_group = crate::groups::MlsGroup::new(
+                context.clone(),
+                stored_group.id.clone(),
+                stored_group.dm_id.clone(),
+                stored_group.conversation_type,
+                stored_group.created_at_ns,
+            );
 
-        // Extract group membership from MLS extensions
-        let group_membership = match mls_group.load_mls_group_with_lock(storage, |mls_group| {
-            Ok(extract_group_membership(mls_group.extensions())?)
-        }) {
-            Ok(gm) => gm,
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to load group membership for {:?}: {:?}",
-                    stored_group.id,
-                    e
-                );
-                continue;
-            }
-        };
+            // Extract group membership from MLS extensions
+            let group_membership = mls_group.load_mls_group_with_lock(storage, |mls_group| {
+                Ok(extract_group_membership(mls_group.extensions())?)
+            })?;
 
-        let member_requests: Vec<(String, i64)> = group_membership
-            .members
-            .into_iter()
-            .map(|(inbox_id, sequence_id)| (inbox_id, sequence_id as i64))
-            .filter(|(_, sequence_id)| *sequence_id != 0)
-            .collect();
+            // Filter out sequence_id == 0 (uninitialized/invalid member states)
+            let member_requests: Vec<(String, i64)> = group_membership
+                .members
+                .into_iter()
+                .map(|(inbox_id, sequence_id)| (inbox_id, sequence_id as i64))
+                .filter(|(_, sequence_id)| *sequence_id != 0)
+                .collect();
 
-        // Store for this group
-        group_members_map.insert(stored_group.id.clone(), member_requests.clone());
-
-        // Add to global set for batch lookup
-        all_member_requests.extend(member_requests);
+            group_members_map.insert(stored_group.id.clone(), member_requests);
+        }
     }
 
-    (group_members_map, all_member_requests)
+    Ok(group_members_map)
 }
 
 /// Batch read and resolve association states
 async fn resolve_association_states<Context>(
     context: &Context,
-    member_requests: Vec<(String, i64)>,
+    member_requests: &[(String, i64)],
 ) -> Result<HashMap<String, AssociationState>, ClientError>
 where
     Context: XmtpSharedContext,
 {
     let db = context.db();
 
-    let association_states_vec = db.batch_read_from_cache(member_requests.clone())?;
+    let association_states_vec = db.batch_read_from_cache(member_requests.to_vec())?;
     let mut association_states: Vec<AssociationState> = association_states_vec
         .into_iter()
         .map(|a| a.try_into())
         .collect::<Result<_, _>>()
         .map_err(StorageError::from)?;
 
-    // Handle missing association states
+    // Handle missing association states using HashSet for O(1) lookups
     if association_states.len() != member_requests.len() {
+        let found_ids: HashSet<&str> = association_states
+            .iter()
+            .map(|state| state.inbox_id())
+            .collect();
+
         let missing_requests: Vec<_> = member_requests
             .iter()
-            .filter_map(|(id, sequence)| {
-                if association_states
-                    .iter()
-                    .any(|state| state.inbox_id() == id)
-                {
-                    return None;
-                }
-                Some((id.as_str(), Some(*sequence)))
-            })
+            .filter(|(id, _)| !found_ids.contains(id.as_str()))
+            .map(|(id, sequence)| (id.as_str(), Some(*sequence)))
             .collect();
 
         if !missing_requests.is_empty() {
@@ -186,7 +140,6 @@ where
         }
     }
 
-    // Create a lookup map: inbox_id -> AssociationState
     Ok(association_states
         .into_iter()
         .map(|state| (state.inbox_id().to_string(), state))
@@ -196,78 +149,50 @@ where
 /// Build contact map from group members, association states, and consent records
 fn build_contact_map<Context>(
     context: &Context,
-    filtered_groups: &[StoredGroup],
     group_members_map: &GroupMembersMap,
-    association_map: &HashMap<String, AssociationState>,
+    mut association_map: HashMap<String, AssociationState>,
 ) -> Result<ContactMap, ClientError>
 where
     Context: XmtpSharedContext,
 {
     let db = context.db();
 
-    // Batch read ALL consent records in one query
-    let all_inbox_ids: Vec<String> = association_map.keys().cloned().collect();
-    let consent_map: HashMap<String, ConsentState> = all_inbox_ids
-        .iter()
-        .filter_map(|inbox_id| {
-            match db.get_consent_record(inbox_id.clone(), ConsentType::InboxId) {
-                Ok(record) => record.map(|record| (inbox_id.clone(), record.state)),
-                Err(e) => {
-                    tracing::warn!("Failed to load consent record for {}: {:?}", inbox_id, e);
-                    None
-                }
-            }
-        })
-        .collect();
+    // Build consent map for all inbox_ids
+    let mut consent_map: HashMap<String, ConsentState> = HashMap::new();
+    for inbox_id in association_map.keys() {
+        if let Some(record) = db.get_consent_record(inbox_id.clone(), ConsentType::InboxId)? {
+            consent_map.insert(inbox_id.clone(), record.state);
+        }
+    }
 
-    // Build contact map using the batch-loaded data
-    // Use HashSet for conversation_ids during construction to guarantee uniqueness
+    // Build contact map by iterating over group members
     let mut contact_map: ContactMap = HashMap::new();
 
-    for stored_group in filtered_groups {
-        let group_id = &stored_group.id;
+    for (group_id, member_requests) in group_members_map {
+        for (inbox_id, _) in member_requests {
+            if let Some((_, conversation_ids, _)) = contact_map.get_mut(inbox_id) {
+                // Contact already exists (appears in multiple groups), just add this group_id
+                conversation_ids.insert(group_id.clone());
+            } else if let Some(association_state) = association_map.remove(inbox_id) {
+                // First time seeing this contact - remove from association_map to take ownership
+                let consent_state = consent_map
+                    .get(inbox_id)
+                    .copied()
+                    .unwrap_or(ConsentState::Unknown);
 
-        if let Some(member_requests) = group_members_map.get(group_id) {
-            for (inbox_id, _) in member_requests {
-                if let Some(association_state) = association_map.get(inbox_id) {
-                    let consent_state = consent_map
-                        .get(inbox_id)
-                        .copied()
-                        .unwrap_or(ConsentState::Unknown);
-
-                    contact_map
-                        .entry(inbox_id.clone())
-                        .and_modify(|(_, conversation_ids, _)| {
-                            conversation_ids.insert(group_id.clone());
-                        })
-                        .or_insert_with(|| {
-                            let mut conversation_ids = HashSet::new();
-                            conversation_ids.insert(group_id.clone());
-                            (association_state.clone(), conversation_ids, consent_state)
-                        });
-                }
+                contact_map.insert(
+                    inbox_id.clone(),
+                    (
+                        association_state,
+                        HashSet::from([group_id.clone()]),
+                        consent_state,
+                    ),
+                );
             }
         }
     }
 
     Ok(contact_map)
-}
-
-/// Apply final filters to contacts (own inbox_id, consent states)
-fn apply_contact_filters(
-    mut contacts: Vec<Contact>,
-    own_inbox_id: &str,
-    consent_states: &Option<Vec<ConsentState>>,
-) -> Vec<Contact> {
-    // Filter out the client's own inbox_id
-    contacts.retain(|contact| contact.inbox_id != own_inbox_id);
-
-    // Filter by consent states if specified
-    if let Some(states) = consent_states {
-        contacts.retain(|contact| states.contains(&contact.consent_state));
-    }
-
-    contacts
 }
 
 impl<Context> Client<Context>
@@ -314,46 +239,59 @@ where
             order_by: None,
         };
 
-        // Get all groups matching the filter criteria directly from the database
-        let stored_groups = self.context.db().find_groups(group_args)?;
-
-        // Filter groups by allow/deny lists early
-        let filtered_groups =
-            filter_groups_by_allow_deny_lists(stored_groups, &allowed_group_ids, &denied_group_ids);
+        // Get all groups matching the filter criteria and apply allow/deny lists
+        let filtered_groups: Vec<StoredGroup> = self
+            .context
+            .db()
+            .find_groups(group_args)?
+            .into_iter()
+            .filter(|g| {
+                allowed_group_ids
+                    .as_ref()
+                    .is_none_or(|ids| ids.contains(&g.id))
+            })
+            .filter(|g| {
+                denied_group_ids
+                    .as_ref()
+                    .is_none_or(|ids| !ids.contains(&g.id))
+            })
+            .collect();
 
         if filtered_groups.is_empty() {
-            tracing::debug!(
-                "No groups remaining after applying filters. Query returned 0 contacts."
-            );
             return Ok(vec![]);
         }
 
         // Extract all member inbox_ids from all groups
-        let (group_members_map, all_member_requests) =
-            extract_group_members(&self.context, &filtered_groups);
+        let group_members_map = extract_group_members(&self.context, &filtered_groups)?;
 
-        // Convert the member requests (inbox_id, sequence_id pairs) into a vector for batch processing
-        let requests_vec: Vec<(String, i64)> = all_member_requests.into_iter().collect();
+        // Deduplicate member requests for batch lookup (same member can appear in multiple groups)
+        let unique_requests: Vec<(String, i64)> = group_members_map
+            .values()
+            .flatten()
+            .cloned()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
 
-        // Early return if no members were found across all filtered groups
-        if requests_vec.is_empty() {
+        if unique_requests.is_empty() {
             return Ok(vec![]);
         }
 
-        // Batch resolve association states for all unique members to get their identifiers and installation IDs
-        let association_map = resolve_association_states(&self.context, requests_vec).await?;
+        // Batch resolve association states for all unique members
+        let association_map = resolve_association_states(&self.context, &unique_requests).await?;
 
         // Build contact map from group members, association states, and consent records
-        let contact_map = build_contact_map(
-            &self.context,
-            &filtered_groups,
-            &group_members_map,
-            &association_map,
-        )?;
+        let contact_map = build_contact_map(&self.context, &group_members_map, association_map)?;
 
-        // Convert map to vec
+        // remove self and filter by consent states
         let contacts: Vec<Contact> = contact_map
             .into_iter()
+            .filter(|(inbox_id, _)| inbox_id != self.inbox_id())
+            .filter(|(_, (_, _, consent_state))| {
+                consent_states
+                    .as_ref()
+                    .is_none_or(|states| states.contains(consent_state))
+            })
             .map(
                 |(inbox_id, (association_state, conversation_ids, consent_state))| Contact {
                     inbox_id,
@@ -365,10 +303,7 @@ where
             )
             .collect();
 
-        // Apply final filters (own inbox_id, consent states)
-        let filtered_contacts = apply_contact_filters(contacts, self.inbox_id(), &consent_states);
-
-        Ok(filtered_contacts)
+        Ok(contacts)
     }
 }
 
@@ -945,5 +880,144 @@ mod tests {
             .find(|c| c.inbox_id == charlie.inbox_id())
             .unwrap();
         assert_eq!(charlie_contact.consent_state, ConsentState::Unknown);
+    }
+
+    #[xmtp_common::test]
+    async fn test_contacts_allowed_and_denied_group_ids() {
+        // Test using both allowed_group_ids and denied_group_ids together
+        tester!(alice);
+        tester!(bob);
+        tester!(charlie);
+        tester!(diana);
+
+        // Create 3 groups
+        let group1 = alice.create_group(None, None).unwrap();
+        group1
+            .add_members_by_inbox_id(&[bob.inbox_id()])
+            .await
+            .unwrap();
+
+        let group2 = alice.create_group(None, None).unwrap();
+        group2
+            .add_members_by_inbox_id(&[charlie.inbox_id()])
+            .await
+            .unwrap();
+
+        let group3 = alice.create_group(None, None).unwrap();
+        group3
+            .add_members_by_inbox_id(&[diana.inbox_id()])
+            .await
+            .unwrap();
+
+        bob.sync_welcomes().await.unwrap();
+        charlie.sync_welcomes().await.unwrap();
+        diana.sync_welcomes().await.unwrap();
+
+        // Allow groups 1 and 2, but deny group 2 - should only get group 1 contacts
+        let contacts = alice
+            .contacts_list(ContactQueryArgs {
+                allowed_group_ids: Some(vec![group1.group_id.clone(), group2.group_id.clone()]),
+                denied_group_ids: Some(vec![group2.group_id.clone()]),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(contacts.len(), 1, "Should only have Bob from group1");
+        assert_eq!(contacts[0].inbox_id, bob.inbox_id());
+    }
+
+    #[xmtp_common::test]
+    async fn test_contacts_nonexistent_group_ids() {
+        // Test filtering by group IDs that don't exist
+        tester!(alice);
+        tester!(bob);
+
+        let group = alice.create_group(None, None).unwrap();
+        group
+            .add_members_by_inbox_id(&[bob.inbox_id()])
+            .await
+            .unwrap();
+        bob.sync_welcomes().await.unwrap();
+
+        // Filter by a non-existent group ID
+        let contacts = alice
+            .contacts_list(ContactQueryArgs {
+                allowed_group_ids: Some(vec![vec![0, 1, 2, 3]]), // fake group ID
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(contacts.len(), 0, "Should have no contacts from fake group");
+
+        // Deny a non-existent group ID (should have no effect)
+        let contacts = alice
+            .contacts_list(ContactQueryArgs {
+                denied_group_ids: Some(vec![vec![0, 1, 2, 3]]), // fake group ID
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            contacts.len(),
+            1,
+            "Should still have Bob since fake group denial has no effect"
+        );
+    }
+
+    #[xmtp_common::test]
+    async fn test_contacts_allowed_states_filter() {
+        // Test filtering by membership state
+        tester!(alice);
+        tester!(bob);
+
+        let group = alice.create_group(None, None).unwrap();
+        group
+            .add_members_by_inbox_id(&[bob.inbox_id()])
+            .await
+            .unwrap();
+        bob.sync_welcomes().await.unwrap();
+
+        // Filter by Allowed membership state (which is the default for created groups)
+        let contacts = alice
+            .contacts_list(ContactQueryArgs {
+                allowed_states: Some(vec![GroupMembershipState::Allowed]),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(contacts.len(), 1, "Should have Bob from allowed group");
+        assert_eq!(contacts[0].inbox_id, bob.inbox_id());
+
+        // Filter by Pending membership state (should return nothing since group is allowed)
+        let contacts = alice
+            .contacts_list(ContactQueryArgs {
+                allowed_states: Some(vec![GroupMembershipState::Pending]),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            contacts.len(),
+            0,
+            "Should have no contacts from pending groups"
+        );
+    }
+
+    #[xmtp_common::test]
+    async fn test_contacts_no_groups() {
+        // Test when client has no groups at all
+        tester!(alice);
+
+        let contacts = alice
+            .contacts_list(ContactQueryArgs::default())
+            .await
+            .unwrap();
+
+        assert_eq!(contacts.len(), 0, "Should have no contacts with no groups");
     }
 }
