@@ -117,6 +117,10 @@ mod tests {
         fn sha256_hash(&self) -> Result<Vec<u8>, EnvelopeError> {
             unreachable!()
         }
+
+        fn bytes(&self) -> Result<Vec<u8>, EnvelopeError> {
+            unreachable!()
+        }
     }
 
     prop_compose! {
