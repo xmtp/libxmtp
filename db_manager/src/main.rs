@@ -17,13 +17,19 @@ impl Manager {
     }
 }
 
+const ENV_ENC_KEY: &str = "XMTP_DB_ENCRYPTION_KEY";
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
     // Connect to the database
     let storage_option = StorageOption::Persistent(args.db.clone());
+    let db_key = std::env::var(ENV_ENC_KEY)
+        .ok()
+        .or_else(|| args.db_key.clone());
+
     // let storage_option = StorageOption::Ephemeral;
-    let db = match &args.db_key {
+    let db = match &db_key {
         Some(key) => {
             let key = hex::decode(key)?;
             NativeDb::new(&storage_option, key.try_into().unwrap())
