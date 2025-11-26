@@ -79,7 +79,7 @@ pub fn decode_reaction(bytes: Uint8Array) -> Result<Reaction> {
 }
 
 #[napi]
-#[derive(Default, PartialEq, Debug)]
+#[derive(Clone, Default, PartialEq, Debug)]
 pub enum ReactionAction {
   Unknown,
   #[default]
@@ -98,7 +98,7 @@ impl From<ReactionAction> for i32 {
 }
 
 #[napi]
-#[derive(Default, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub enum ReactionSchema {
   Unknown,
   #[default]

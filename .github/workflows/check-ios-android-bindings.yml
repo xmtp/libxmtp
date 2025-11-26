@@ -9,7 +9,8 @@ on:
       - "bindings_ffi/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - "dev/**"
+      - "dev/up"
+      - "dev/docker/**"
       - "rust-toolchain.toml"
       - ".cargo/**"
 jobs:

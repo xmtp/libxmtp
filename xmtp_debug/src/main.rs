@@ -14,6 +14,8 @@ pub type MlsContext =
 type DbgClientApi = xmtp_mls::XmtpApiClient;
 type DbgClient = xmtp_mls::client::Client<MlsContext>;
 
+const XDBG_ID_NONCE: u64 = 1;
+
 #[macro_use]
 extern crate tracing;
 

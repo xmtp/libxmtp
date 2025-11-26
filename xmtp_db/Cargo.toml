@@ -61,13 +61,7 @@ xmtp_content_types.workspace = true
 libsqlite3-sys = { version = "0.35", features = [
   "bundled-sqlcipher-vendored-openssl",
 ] }
-diesel = { workspace = true, features = [
-  "r2d2",
-  "returning_clauses_for_sqlite_3_35",
-  "sqlite",
-  "32-column-tables",
-  "serde_json",
-] }
+diesel = { workspace = true, features = ["r2d2"] }
 dyn-clone.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]

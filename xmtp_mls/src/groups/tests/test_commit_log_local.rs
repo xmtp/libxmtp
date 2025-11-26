@@ -7,7 +7,7 @@ use crate::{
     tester,
     utils::{FullXmtpClient, TestMlsGroup},
 };
-use toxiproxy_rust::proxy::Proxy;
+use xmtp_common::toxiproxy_test;
 use xmtp_db::{
     local_commit_log::{CommitType, LocalCommitLog},
     remote_commit_log::CommitResult,
@@ -194,41 +194,44 @@ async fn test_welcome_commit_log() {
 #[ignore]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_retriable_error() {
-    tester!(alix);
-    tester!(bo, proxy);
-    tester!(caro);
-    let a_client: &FullXmtpClient = &alix;
-    let b_client: &FullXmtpClient = &bo;
-    let proxy: &Proxy = bo.proxy(0);
+    toxiproxy_test(async || {
+        tester!(alix);
+        tester!(bo, proxy);
+        tester!(caro);
+        let a_client: &FullXmtpClient = &alix;
+        let b_client: &FullXmtpClient = &bo;
 
-    let a = a_client
-        .create_group_with_inbox_ids(&[bo.inbox_id(), caro.inbox_id()], None, None)
-        .await?;
-    let b = b_client.sync_welcomes().await?.first()?.to_owned();
-    b.sync().await?;
-    assert_eq!(a.local_commit_log().await?.len(), 2); // GroupCreation + UpdateGroupMembership
-    assert_eq!(b.local_commit_log().await?.len(), 1); // Welcome
+        let a = a_client
+            .create_group_with_inbox_ids(&[bo.inbox_id(), caro.inbox_id()], None, None)
+            .await?;
+        let b = b_client.sync_welcomes().await?.first()?.to_owned();
+        b.sync().await?;
+        assert_eq!(a.local_commit_log().await?.len(), 2); // GroupCreation + UpdateGroupMembership
+        assert_eq!(b.local_commit_log().await?.len(), 1); // Welcome
 
-    proxy.disable().await?;
-    // Queues up a KeyUpdate intent followed by a SendMessage intent
-    b.send_message(b"foo", SendMessageOpts::default())
-        .await
-        .unwrap_err();
-    a.sync().await?;
-    // A doesn't receive anything because the payloads failed to send
-    assert_eq!(a.local_commit_log().await?.len(), 2);
-    // B should not log any errors because they are retriable
-    assert_eq!(b.local_commit_log().await?.len(), 1);
+        bo.for_each_proxy(async |p| p.disable().await.unwrap())
+            .await;
+        // Queues up a KeyUpdate intent followed by a SendMessage intent
+        b.send_message(b"foo", SendMessageOpts::default())
+            .await
+            .unwrap_err();
+        a.sync().await?;
+        // A doesn't receive anything because the payloads failed to send
+        assert_eq!(a.local_commit_log().await?.len(), 2);
+        // B should not log any errors because they are retriable
+        assert_eq!(b.local_commit_log().await?.len(), 1);
 
-    proxy.enable().await?;
-    // This currently fails with error SyncFailedToWait, because the intent has been marked as 'published'
-    // despite not being published. We need to fix the intent publishing flow for this test to work.
-    b.sync_until_last_intent_resolved().await?;
-    a.sync().await?;
-    // KeyUpdate should have been added to the commit log (SendMessage is not logged because it is not a commit)
-    assert_eq!(a.local_commit_log().await?.len(), 3);
-    assert_eq!(b.local_commit_log().await?.len(), 2);
-    assert!(last_commit_type_matches(&a, &b, CommitType::KeyUpdate).await);
+        bo.for_each_proxy(async |p| p.enable().await.unwrap()).await;
+        // This currently fails with error SyncFailedToWait, because the intent has been marked as 'published'
+        // despite not being published. We need to fix the intent publishing flow for this test to work.
+        b.sync_until_last_intent_resolved().await?;
+        a.sync().await?;
+        // KeyUpdate should have been added to the commit log (SendMessage is not logged because it is not a commit)
+        assert_eq!(a.local_commit_log().await?.len(), 3);
+        assert_eq!(b.local_commit_log().await?.len(), 2);
+        assert!(last_commit_type_matches(&a, &b, CommitType::KeyUpdate).await);
+    })
+    .await;
 }
 
 #[xmtp_common::test(unwrap_try = true)]

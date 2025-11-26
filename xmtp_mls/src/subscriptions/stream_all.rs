@@ -88,6 +88,7 @@ where
                 .await?;
 
             track!(
+                context.as_ref(),
                 "Message Stream Connect",
                 {
                     "conversation_type": conversation_type,

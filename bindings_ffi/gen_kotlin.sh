@@ -7,7 +7,7 @@ WORKSPACE_MANIFEST="$(cargo locate-project --workspace --message-format=plain)"
 WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
 BINDINGS_MANIFEST="$WORKSPACE_PATH/bindings_ffi/Cargo.toml"
 BINDINGS_PATH="$(dirname $BINDINGS_MANIFEST)"
-TARGET_DIR="$WORKSPACE_PATH/target"
+TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | jq -r '.target_directory')"
 XMTP_ANDROID="${1:-$(realpath ../../xmtp-android)}"
 
 if [ ! -d $XMTP_ANDROID ]; then

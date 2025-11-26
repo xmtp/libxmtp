@@ -2,8 +2,7 @@ use crate::ApiClientWrapper;
 use xmtp_api_d14n::protocol::{XmtpEnvelope, XmtpQuery};
 use xmtp_proto::types::{GlobalCursor, Topic};
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C> XmtpQuery for ApiClientWrapper<C>
 where
     C: XmtpQuery,

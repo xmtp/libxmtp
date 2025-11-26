@@ -14,7 +14,7 @@ use xmtp_configuration::Originators;
 
 /// a cursor which represents the position across many nodes in the network
 /// a.k.a vector clock
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GlobalCursor {
     inner: HashMap<OriginatorId, SequenceId>,
 }
@@ -25,9 +25,36 @@ impl GlobalCursor {
         Self { inner: map }
     }
 
+    /// Apply a singular cursor to 'Self'
+    pub fn apply(&mut self, cursor: &super::Cursor) {
+        let _ = self
+            .inner
+            .entry(cursor.originator_id)
+            .and_modify(|sid| *sid = (*sid).max(cursor.sequence_id))
+            .or_insert(cursor.sequence_id);
+    }
+
+    /// apply a cursor to `Self`, and take the lowest value of SequenceId between
+    /// `Self` and [Cursor](super::Cursor)
+    pub fn apply_least(&mut self, cursor: &super::Cursor) {
+        let _ = self
+            .inner
+            .entry(cursor.originator_id)
+            .and_modify(|sid| *sid = (*sid).min(cursor.sequence_id))
+            .or_insert(cursor.sequence_id);
+    }
+
     /// Get the maximum sequence id for [`crate::xmtpv4::Originator`]
     pub fn get(&self, originator: &OriginatorId) -> SequenceId {
-        self.inner.get(originator).copied().unwrap_or_default()
+        self.inner.get(originator).copied().unwrap_or(0)
+    }
+
+    /// get the full [`super::Cursor`] that belongs to this [`OriginatorId``
+    pub fn cursor(&self, originator: &OriginatorId) -> super::Cursor {
+        super::Cursor {
+            originator_id: *originator,
+            sequence_id: self.get(originator),
+        }
     }
 
     /// Get the max sequence id across all originator ids
@@ -81,7 +108,7 @@ impl fmt::Display for GlobalCursor {
         for (oid, sid) in self.inner.iter() {
             write!(
                 f,
-                "GloballySeen [{}]",
+                "{}",
                 crate::types::Cursor {
                     sequence_id: *sid,
                     originator_id: *oid
@@ -119,6 +146,12 @@ impl From<crate::types::Cursor> for GlobalCursor {
         let mut map = HashMap::new();
         map.insert(value.originator_id, value.sequence_id);
         GlobalCursor { inner: map }
+    }
+}
+
+impl From<HashMap<OriginatorId, SequenceId>> for GlobalCursor {
+    fn from(value: HashMap<OriginatorId, SequenceId>) -> Self {
+        GlobalCursor { inner: value }
     }
 }
 

@@ -43,14 +43,16 @@ impl RetryableError for VerifierError {
     fn is_retryable(&self) -> bool {
         use VerifierError::*;
         match self {
+            Io(_) => true,
+            NoVerifier => true,
+            Provider(_) => true,
             Other(o) => o.is_retryable(),
             _ => false,
         }
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait SmartContractSignatureVerifier: MaybeSend + MaybeSync {
     /// Verifies an ERC-6492<https://eips.ethereum.org/EIPS/eip-6492> signature.
     ///
@@ -68,8 +70,7 @@ pub trait SmartContractSignatureVerifier: MaybeSend + MaybeSync {
     ) -> Result<ValidationResponse, VerifierError>;
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> SmartContractSignatureVerifier for Arc<T>
 where
     T: SmartContractSignatureVerifier,
@@ -87,8 +88,7 @@ where
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[xmtp_common::async_trait]
 impl<T> SmartContractSignatureVerifier for &T
 where
     T: SmartContractSignatureVerifier,
@@ -106,8 +106,7 @@ where
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[xmtp_common::async_trait]
 impl<T> SmartContractSignatureVerifier for Box<T>
 where
     T: SmartContractSignatureVerifier + ?Sized,
@@ -215,8 +214,7 @@ impl MultiSmartContractSignatureVerifier {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[xmtp_common::async_trait]
 impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
     async fn is_valid_signature(
         &self,

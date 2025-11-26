@@ -11,7 +11,7 @@ use super::Result;
 use crate::context::XmtpSharedContext;
 use crate::groups::summary::MessageIdentifierBuilder;
 use factory::{GroupDatabase, GroupDb, MessageProcessor, Syncer};
-use xmtp_common::FutureWrapper;
+use xmtp_common::BoxDynFuture;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::types::Cursor;
 
@@ -20,7 +20,7 @@ pub trait ProcessFutureFactory<'a> {
     fn create(
         &self,
         msg: xmtp_proto::types::GroupMessage,
-    ) -> FutureWrapper<'a, Result<ProcessedMessage>>;
+    ) -> BoxDynFuture<'a, Result<ProcessedMessage>>;
     /// Try to retrieve a message
     fn retrieve(&self, msg: &xmtp_proto::types::GroupMessage)
     -> Result<Option<StoredGroupMessage>>;
@@ -33,13 +33,13 @@ where
     fn create(
         &self,
         msg: xmtp_proto::types::GroupMessage,
-    ) -> FutureWrapper<'a, Result<ProcessedMessage>> {
+    ) -> BoxDynFuture<'a, Result<ProcessedMessage>> {
         let group_db = GroupDb::new(self.context.clone());
         let syncer = Syncer::new(self.context.clone());
         let processor = MessageProcessor::new(syncer, group_db);
         let future = processor.process(msg);
 
-        FutureWrapper::new(future)
+        Box::pin(future)
     }
     /// Try to retrieve a message
     fn retrieve(

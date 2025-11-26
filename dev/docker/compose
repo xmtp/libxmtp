@@ -1,6 +1,10 @@
 #!/bin/bash
 set -eou pipefail
 
+if ! docker network ls | grep -q libxmtp-backend; then
+  docker network create libxmtp-backend --label proxynet
+fi
+
 docker compose \
   -f dev/docker/docker-compose.yml \
   -f dev/docker/docker-compose-d14n.yml \

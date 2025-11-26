@@ -1,4 +1,4 @@
-use std::{any::Any, sync::Arc};
+use std::sync::Arc;
 
 use xmtp_proto::{
     api::IsConnectedCheck,
@@ -6,10 +6,7 @@ use xmtp_proto::{
     prelude::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
 };
 
-use crate::{
-    definitions::{FullD14nClient, FullV3Client},
-    protocol::XmtpQuery,
-};
+use crate::protocol::XmtpQuery;
 
 /// A type-erased version of the Xmtp Api in a [`Box`]
 pub type FullXmtpApiBox<Err> = Box<dyn FullXmtpApiT<Err>>;
@@ -27,8 +24,7 @@ pub type FullXmtpApiArc<Err> = Arc<dyn FullXmtpApiT<Err>>;
 /// unless the consumer wants to be unnecessarily general/restrictive.
 pub trait FullXmtpApiT<Err>
 where
-    Self: AnyClient
-        + XmtpMlsClient<Error = Err>
+    Self: XmtpMlsClient<Error = Err>
         + XmtpIdentityClient<Error = Err>
         + XmtpMlsStreams<
             Error = Err,
@@ -41,8 +37,7 @@ where
 }
 
 impl<T, Err> FullXmtpApiT<Err> for T where
-    T: AnyClient
-        + XmtpMlsClient<Error = Err>
+    T: XmtpMlsClient<Error = Err>
         + XmtpIdentityClient<Error = Err>
         + XmtpMlsStreams<
             Error = Err,
@@ -53,10 +48,4 @@ impl<T, Err> FullXmtpApiT<Err> for T where
         + ?Sized
         + 'static
 {
-}
-
-// TEMP trait
-pub trait AnyClient: Any + 'static {
-    fn downcast_ref_v3client(&self) -> Option<&'_ FullV3Client>;
-    fn downcast_ref_d14nclient(&self) -> Option<&'_ FullD14nClient>;
 }

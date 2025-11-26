@@ -50,7 +50,7 @@ impl Stream {
                 .choose(rng)
                 .ok_or(eyre!("Identity not found"))?
         };
-        let client = app::client_from_identity(&identity, &network).await?;
+        let client = app::client_from_identity(&identity, &network)?;
 
         let mut buffer: Box<dyn Write> = if let Some(p) = out {
             Box::new(fs::File::create(p)?)

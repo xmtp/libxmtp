@@ -40,6 +40,7 @@ impl Endpoint for GetNewestGroupMessage {
 #[cfg(test)]
 mod test {
     use crate::v3::GetNewestGroupMessage;
+    use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::prelude::*;
     use xmtp_proto::xmtp::mls::api::v1::*;
 
@@ -51,7 +52,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_get_newest_group_message() {
-        let client = crate::TestGrpcClient::create_local();
+        let client = NodeGoClient::create();
         let client = client.build().unwrap();
         let mut endpoint = GetNewestGroupMessage::builder()
             .group_ids(vec![vec![1, 2, 3], vec![4, 5, 6]])

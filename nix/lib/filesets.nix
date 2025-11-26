@@ -21,13 +21,13 @@ let
     (commonCargoSources ./../../xmtp_db_test)
     (commonCargoSources ./../../xmtp_archive)
     (commonCargoSources ./../../xmtp_mls_common)
-    (commonCargoSources ./../../benches)
     ./../../xmtp_id/src/scw_verifier/chain_urls_default.json
     ./../../xmtp_id/artifact
     ./../../xmtp_id/src/scw_verifier/signature_validation.hex
     ./../../xmtp_db/migrations
     ./../../xmtp_proto/src/gen/proto_descriptor.bin
     ./../../bindings_ffi/Makefile
+    ./../../webdriver.json
   ];
   binaries = lib.fileset.unions [
     (commonCargoSources ./../../examples/cli)

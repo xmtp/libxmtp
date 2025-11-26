@@ -40,7 +40,7 @@ use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::signature::SignatureError;
 use xmtp_db::group::GroupQueryArgs;
-use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
+use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_db::NativeDb;
 use xmtp_db::{
     group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
@@ -50,7 +50,6 @@ use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, AssociationState, Identifier, MemberKind};
 use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::context::XmtpSharedContext;
-use xmtp_mls::groups::device_sync_legacy::DeviceSyncContent;
 use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
 use xmtp_mls::groups::GroupError;
 use xmtp_mls::XmtpApi;
@@ -141,7 +140,6 @@ enum Commands {
         #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ' ')]
         account_addresses: Vec<String>,
     },
-    ListHistorySyncMessages {},
     /// Information about the account that owns the DB
     Info {},
     Clear {},
@@ -444,37 +442,6 @@ async fn main() -> color_eyre::eyre::Result<()> {
                 "Group {}",
                 group_id
             );
-        }
-        Commands::ListHistorySyncMessages {} => {
-            client.sync_welcomes().await?;
-            let group = client.device_sync_client().get_sync_group().await?;
-            let group_id_str = hex::encode(group.group_id.clone());
-            group.sync().await?;
-            let messages = group.find_messages(&MsgQueryArgs {
-                kind: Some(GroupMessageKind::Application),
-                ..Default::default()
-            })?;
-            info!(
-                group_id = group_id_str,
-                messages = messages.len(),
-                "Listing history sync messages"
-            );
-            for message in messages {
-                let message_history_content =
-                    serde_json::from_slice::<DeviceSyncContent>(&message.decrypted_message_bytes);
-
-                match message_history_content {
-                    Ok(DeviceSyncContent::Request(ref request)) => {
-                        info!("Request: {:?}", request);
-                    }
-                    Ok(DeviceSyncContent::Reply(ref reply)) => {
-                        info!("Reply: {:?}", reply);
-                    }
-                    _ => {
-                        info!("Unknown message type: {:?}", message);
-                    }
-                }
-            }
         }
         Commands::Clear {} => {
             fs::remove_file(cli.db.ok_or(eyre!("DB Missing"))?)?;

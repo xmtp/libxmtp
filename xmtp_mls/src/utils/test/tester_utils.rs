@@ -1,15 +1,6 @@
 #![allow(unused)]
 
 use super::FullXmtpClient;
-use async_trait::async_trait;
-use diesel::QueryableByName;
-use xmtp_api_d14n::{XmtpTestClientExt, protocol::InMemoryCursorStore};
-use xmtp_configuration::{DeviceSyncUrls, DockerUrls};
-use xmtp_db::{
-    ConnectionExt, ReadOnly, TestDb, XmtpTestDb,
-    diesel::{self, Connection, RunQueryDsl, SqliteConnection, sql_query},
-};
-
 use crate::{
     Client,
     builder::{ClientBuilder, ForkRecoveryOpts, ForkRecoveryPolicy, SyncWorkerMode},
@@ -19,10 +10,14 @@ use crate::{
     groups::device_sync::worker::SyncMetric,
     identity::{Identity, IdentityStrategy},
     subscriptions::SubscribeError,
-    utils::{TestClient, TestMlsStorage, VersionInfo, register_client, test::identity_setup},
+    utils::{
+        TestClient, TestMlsStorage, ToxicOnlyTestClientCreator, VersionInfo, register_client,
+        test::identity_setup,
+    },
     worker::metrics::WorkerMetrics,
 };
 use alloy::signers::local::PrivateKeySigner;
+use diesel::QueryableByName;
 use futures::Stream;
 use futures_executor::block_on;
 use parking_lot::Mutex;
@@ -34,6 +29,7 @@ use passkey::{
 use public_suffix::PublicSuffixList;
 use std::{
     ops::Deref,
+    path::{Path, PathBuf},
     sync::{
         Arc, LazyLock,
         atomic::{AtomicUsize, Ordering},
@@ -43,14 +39,23 @@ use tokio::{runtime::Handle, sync::OnceCell};
 use toxiproxy_rust::proxy::{Proxy, ProxyPack};
 use url::Url;
 use xmtp_api::XmtpApi;
+use xmtp_api_d14n::{
+    DevOnlyTestClientCreator, LocalOnlyTestClientCreator, XmtpTestClientExt,
+    protocol::InMemoryCursorStore,
+};
 use xmtp_common::StreamHandle;
 use xmtp_common::TestLogReplace;
 use xmtp_configuration::LOCALHOST;
+use xmtp_configuration::{DeviceSyncUrls, DockerUrls};
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
 #[cfg(not(target_arch = "wasm32"))]
 use xmtp_db::NativeDb;
 #[cfg(target_arch = "wasm32")]
 use xmtp_db::WasmDb;
+use xmtp_db::{
+    ConnectionExt, ReadOnly, TestDb, XmtpTestDb,
+    diesel::{self, Connection, RunQueryDsl, SqliteConnection, sql_query},
+};
 use xmtp_db::{
     EncryptedMessageStore, MlsProviderExt, StorageOption, XmtpOpenMlsProvider,
     group_message::StoredGroupMessage, sql_key_store::SqlKeyStore,
@@ -64,9 +69,9 @@ use xmtp_id::{
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
-use xmtp_proto::prelude::XmtpTestClient;
-use xmtp_proto::{TestApiBuilder, ToxicProxies};
+use xmtp_proto::api_client::ToxicTestClient;
 use xmtp_proto::{api_client::ApiBuilder, xmtp::message_contents::PrivateKey};
+use xmtp_proto::{api_client::ToxicProxies, prelude::XmtpTestClient};
 
 type XmtpMlsProvider = XmtpOpenMlsProvider<Arc<TestMlsStorage>>;
 
@@ -94,13 +99,22 @@ impl<Owner> Tester<Owner, FullXmtpClient>
 where
     Owner: InboxOwner,
 {
-    pub fn dump_db(&self) -> Vec<u8> {
+    pub fn db_snapshot(&self) -> Vec<u8> {
+        if !self.builder.ephemeral_db {
+            panic!("Snapshots can only be made on ephemeral databases.");
+        }
+
         self.db()
             .raw_query_write(|conn| {
                 let buff = conn.serialize_database_to_buffer();
                 Ok(buff.to_vec())
             })
             .unwrap()
+    }
+
+    pub fn save_db_snapshot_to_file(&self, path: impl AsRef<Path>) {
+        let snapshot = self.db_snapshot();
+        std::fs::write(path, &snapshot).unwrap();
     }
 }
 
@@ -110,46 +124,14 @@ struct TableName {
     name: String,
 }
 
-#[macro_export]
-macro_rules! tester {
-    ($name:ident, from: $existing:expr $(, $k:ident $(: $v:expr)?)*) => {
-        tester!(@process $existing.builder ; $name $(, $k $(: $v)?)*)
-    };
-
-    ($name:ident $(, $k:ident $(: $v:expr)?)*) => {
-        let builder = $crate::utils::TesterBuilder::new();
-        tester!(@process builder ; $name $(, $k $(: $v)?)*)
-    };
-
-    (@process $builder:expr ; $name:ident) => {
-        let $name = {
-            use tracing::Instrument;
-
-            use $crate::utils::LocalTesterBuilder;
-            let span = tracing::info_span!(stringify!($name));
-            $builder.build().instrument(span).await
-        };
-    };
-
-    (@process $builder:expr ; $name:ident, $key:ident: $value:expr $(, $k:ident $(: $v:expr)?)*) => {
-        tester!(@process $builder.$key($value) ; $name $(, $k $(: $v)?)*)
-    };
-
-    (@process $builder:expr ; $name:ident, $key:ident $(, $k:ident $(: $v:expr)?)*) => {
-        tester!(@process $builder.$key() ; $name $(, $k $(: $v)?)*)
-    };
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait LocalTester {
     async fn new() -> Self;
     async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient>;
     fn builder() -> TesterBuilder<PrivateKeySigner>;
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl LocalTester for Tester<PrivateKeySigner, FullXmtpClient> {
     async fn new() -> Self {
         let wallet = generate_local_wallet();
@@ -196,34 +178,39 @@ where
 
         // Setup the database. Snapshots are always ephemeral.
         if self.ephemeral_db || self.snapshot.is_some() {
-            let db = TestDb::create_ephemeral_store().await;
-
-            if let Some(snapshot) = &self.snapshot {
-                db.conn()
-                    .raw_query_write(|conn| conn.deserialize_database_from_buffer(snapshot))
-                    .unwrap();
-
+            let db = if let Some(snapshot) = &self.snapshot {
                 client.allow_offline = true;
-            }
+                TestDb::create_ephemeral_store_from_snapshot(snapshot, self.snapshot_path.as_ref())
+                    .await
+            } else {
+                TestDb::create_ephemeral_store().await
+            };
 
             client = client.store(db);
         } else {
             client = client.temp_store().await;
         }
 
-        let f = match self.api_endpoint {
-            ApiEndpoint::Local => TestClient::create_local,
-            ApiEndpoint::Dev => TestClient::create_dev,
-        };
-        let store = Arc::new(SqliteCursorStore::new(client.store.as_ref().unwrap().db()));
-        let mut local_client = TestClient::with_cursor_store(f, store.clone());
-        let mut sync_api_client = TestClient::with_cursor_store(f, store);
-
         let mut proxy = None;
-        if self.proxy {
-            proxy = Some(local_client.with_toxiproxy().await);
-            sync_api_client.with_existing_toxi(local_client.host().unwrap());
-        }
+        let store = Arc::new(SqliteCursorStore::new(client.store.as_ref().unwrap().db()));
+        let (local_client, sync_api_client) = match (&self.api_endpoint, self.proxy) {
+            (ApiEndpoint::Local, false) => (
+                LocalOnlyTestClientCreator::with_cursor_store(store.clone()),
+                LocalOnlyTestClientCreator::with_cursor_store(store.clone()),
+            ),
+            (ApiEndpoint::Dev, false) => (
+                DevOnlyTestClientCreator::with_cursor_store(store.clone()),
+                DevOnlyTestClientCreator::with_cursor_store(store.clone()),
+            ),
+            (ApiEndpoint::Local, true) => {
+                proxy = Some(ToxicOnlyTestClientCreator::proxies().await);
+                (
+                    ToxicOnlyTestClientCreator::with_cursor_store(store.clone()),
+                    ToxicOnlyTestClientCreator::with_cursor_store(store.clone()),
+                )
+            }
+            (ApiEndpoint::Dev, true) => (unimplemented!("toxiproxy not supported on dev")),
+        };
 
         let api_client = local_client.build().unwrap();
         let sync_api_client = sync_api_client.build().unwrap();
@@ -382,6 +369,7 @@ where
     pub triggers: bool,
     pub external_identity: Option<Identity>,
     pub snapshot: Option<Arc<Vec<u8>>>,
+    pub snapshot_path: Option<PathBuf>,
     /// whether this builder represents a second installation
     pub installation: bool,
     pub disable_workers: bool,
@@ -415,11 +403,12 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             commit_log_worker: true, // Default to enabled to match production
             installation: false,
             in_memory_cursors: false,
-            ephemeral_db: false,
+            ephemeral_db: true,
             triggers: false,
             api_endpoint: ApiEndpoint::Local,
             external_identity: None,
             snapshot: None,
+            snapshot_path: None,
             disable_workers: false,
         }
     }
@@ -452,6 +441,7 @@ where
             triggers: self.triggers,
             external_identity: self.external_identity,
             snapshot: self.snapshot,
+            snapshot_path: self.snapshot_path,
             disable_workers: self.disable_workers,
         }
     }
@@ -502,7 +492,15 @@ where
 
     pub fn snapshot(mut self, snapshot: Arc<Vec<u8>>) -> Self {
         self.snapshot = Some(snapshot);
-        self.ephemeral_db()
+        self.ephemeral_db = true;
+        self
+    }
+
+    pub fn snapshot_file(mut self, snapshot_path: impl Into<PathBuf>) -> Self {
+        let snapshot_path = snapshot_path.into();
+        let snapshot = std::fs::read(&snapshot_path).unwrap();
+        self.snapshot_path = Some(snapshot_path);
+        self.snapshot(Arc::new(snapshot))
     }
 
     pub fn disable_workers(mut self) -> Self {
@@ -575,8 +573,8 @@ where
         self
     }
 
-    pub fn ephemeral_db(mut self) -> Self {
-        self.ephemeral_db = true;
+    pub fn persistent_db(mut self) -> Self {
+        self.ephemeral_db = false;
         self
     }
 
@@ -758,5 +756,51 @@ impl UserValidationMethod for PkUserValidationMethod {
 
     fn is_presence_enabled(&self) -> bool {
         true
+    }
+}
+
+#[macro_export]
+macro_rules! tester {
+    ($name:ident, from: $existing:expr $(, $k:ident $(: $v:expr)?)*) => {
+        tester!(@process $existing.builder.clone() ; $name $(, $k $(: $v)?)*)
+    };
+
+    ($name:ident $(, $k:ident $(: $v:expr)?)*) => {
+        let builder = $crate::utils::TesterBuilder::new();
+        tester!(@process builder ; $name $(, $k $(: $v)?)*)
+    };
+
+    (@process $builder:expr ; $name:ident) => {
+        let $name = {
+            use tracing::Instrument;
+
+            use $crate::utils::LocalTesterBuilder;
+            let span = tracing::info_span!(stringify!($name));
+            $builder.build().instrument(span).await
+        };
+    };
+
+    (@process $builder:expr ; $name:ident, $key:ident: $value:expr $(, $k:ident $(: $v:expr)?)*) => {
+        tester!(@process $builder.$key($value) ; $name $(, $k $(: $v)?)*)
+    };
+
+    (@process $builder:expr ; $name:ident, $key:ident $(, $k:ident $(: $v:expr)?)*) => {
+        tester!(@process $builder.$key() ; $name $(, $k $(: $v)?)*)
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_snapshots() {
+        tester!(alix);
+        let g = alix.create_group(None, None)?;
+        let snap = Arc::new(alix.db_snapshot());
+        tester!(alix2, snapshot: snap);
+
+        assert_eq!(alix.inbox_id(), alix2.inbox_id());
+        assert!(alix2.group(&g.group_id).is_ok());
     }
 }

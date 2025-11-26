@@ -49,6 +49,8 @@ pub enum ApiClientError<E: std::error::Error> {
     Other(Box<dyn RetryableError>),
     #[error("{0}")]
     OtherUnretryable(BoxDynError),
+    #[error("Writes are disabled on this client.")]
+    WritesDisabled,
 }
 
 impl<E> ApiClientError<E>
@@ -68,6 +70,12 @@ where
             Self::Client { source } => Self::ClientWithEndpoint { source, endpoint },
             v => v,
         }
+    }
+}
+
+impl<E: std::error::Error> ApiClientError<E> {
+    pub fn other<R: RetryableError + 'static>(e: R) -> Self {
+        ApiClientError::Other(Box::new(e))
     }
 }
 
@@ -91,6 +99,7 @@ where
             Expired(_) => true,
             Other(r) => retryable!(r),
             OtherUnretryable(_) => false,
+            WritesDisabled => false,
         }
     }
 }

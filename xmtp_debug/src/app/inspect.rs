@@ -27,7 +27,6 @@ impl Inspect {
         let Inspect { db, opts, network } = self;
 
         let identity_store: IdentityStore = db.clone().into();
-        // let group_store: GroupStore = db.clone().into();
 
         let args::Inspect { kind, inbox_id } = opts;
         let key = (u64::from(&network), *inbox_id);
@@ -35,8 +34,7 @@ impl Inspect {
         if identity.is_none() {
             bail!("No local identity with inbox_id=[{}]", inbox_id);
         }
-        let client =
-            app::client_from_identity(&identity.expect("checked for none"), &network).await?;
+        let client = app::client_from_identity(&identity.expect("checked for none"), &network)?;
         let conn = client.context.store().db();
         match kind {
             Associations => {

@@ -11,14 +11,15 @@ use crate::protocol::MessageMetadataExtractor;
 use crate::protocol::ProtocolEnvelope;
 use crate::protocol::SequencedExtractor;
 use crate::protocol::WelcomeMessageExtractor;
+use crate::protocol::resolve;
 use crate::protocol::traits::Envelope;
 use crate::protocol::traits::EnvelopeCollection;
 use crate::protocol::traits::Extractor;
+use crate::queries::D14nCombinatorExt;
 use xmtp_common::RetryableError;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api;
 use xmtp_proto::api::Client;
-use xmtp_proto::api::EndpointExt;
 use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
@@ -26,20 +27,18 @@ use xmtp_proto::mls_v1::BatchQueryCommitLogResponse;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::types::GroupMessageMetadata;
 use xmtp_proto::types::InstallationId;
+use xmtp_proto::types::TopicCursor;
 use xmtp_proto::types::TopicKind;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeResponse;
-use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, G, Store, E> XmtpMlsClient for D14nClient<C, G, Store>
+#[xmtp_common::async_trait]
+impl<C, Store, E> XmtpMlsClient for D14nClient<C, Store>
 where
     E: RetryableError + 'static,
-    G: Client,
     C: Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<G as xmtp_proto::api::Client>::Error>> + 'static,
+    ApiClientError<E>: From<ApiClientError<<C as xmtp_proto::api::Client>::Error>> + 'static,
     Store: CursorStore,
 {
     type Error = ApiClientError<E>;
@@ -55,7 +54,7 @@ where
                 .envelope(envelopes)
                 .build()?,
         )
-        .query(&self.gateway_client)
+        .query(&self.client)
         .await?;
 
         Ok::<_, Self::Error>(())
@@ -75,8 +74,9 @@ where
         let result: GetNewestEnvelopeResponse = GetNewestEnvelopes::builder()
             .topics(topics)
             .build()?
-            .query(&self.message_client)
+            .query(&self.client)
             .await?;
+        tracing::info!("got {} envelopes", result.results.len());
         let extractor = CollectionExtractor::new(result.results, KeyPackagesExtractor::new());
         let key_packages = extractor.get()?;
         Ok(mls_v1::FetchKeyPackagesResponse { key_packages })
@@ -89,14 +89,13 @@ where
     ) -> Result<(), Self::Error> {
         let envelopes: Vec<ClientEnvelope> = request.messages.client_envelopes()?;
 
-        for e in envelopes {
+        api::ignore(
             PublishClientEnvelopes::builder()
-                .envelope(e)
-                .build()?
-                .ignore_response()
-                .query(&self.gateway_client)
-                .await?;
-        }
+                .envelopes(envelopes)
+                .build()?,
+        )
+        .query(&self.client)
+        .await?;
 
         Ok(())
     }
@@ -107,15 +106,14 @@ where
         request: mls_v1::SendWelcomeMessagesRequest,
     ) -> Result<(), Self::Error> {
         let envelopes = request.messages.client_envelopes()?;
-        // TODO:d14n revert this once [batch publishes](https://github.com/xmtp/xmtpd/issues/262)
-        for e in envelopes {
+
+        api::ignore(
             PublishClientEnvelopes::builder()
-                .envelope(e)
-                .build()?
-                .ignore_response()
-                .query(&self.gateway_client)
-                .await?;
-        }
+                .envelopes(envelopes)
+                .build()?,
+        )
+        .query(&self.client)
+        .await?;
         Ok(())
     }
 
@@ -126,16 +124,20 @@ where
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
         let topic = TopicKind::GroupMessagesV1.create(&group_id);
         let lcc = self.cursor_store.lowest_common_cursor(&[&topic])?;
-        let response: QueryEnvelopesResponse = QueryEnvelope::builder()
+        let mut topic_cursor = TopicCursor::default();
+        topic_cursor.insert(topic.clone(), lcc.clone());
+        let resolver = resolve::network_backoff(&self.client);
+        let response = QueryEnvelope::builder()
             .topic(topic)
             .last_seen(lcc)
             .limit(MAX_PAGE_SIZE)
             .build()?
-            .query(&self.message_client)
+            .ordered(resolver, topic_cursor)
+            .query(&self.client)
             .await?;
 
         let messages = SequencedExtractor::builder()
-            .envelopes(response.envelopes)
+            .envelopes(response)
             .build::<GroupMessageExtractor>()
             .get()?;
         Ok(messages
@@ -152,7 +154,7 @@ where
         let response: GetNewestEnvelopeResponse = GetNewestEnvelopes::builder()
             .topic(TopicKind::GroupMessagesV1.build(group_id))
             .build()?
-            .query(&self.message_client)
+            .query(&self.client)
             .await?;
         // expect at most a single message
         let mut extractor = GroupMessageExtractor::default();
@@ -181,7 +183,7 @@ where
             .last_seen(lcc)
             .limit(MAX_PAGE_SIZE)
             .build()?
-            .query(&self.message_client)
+            .query(&self.client)
             .await?;
 
         let messages = SequencedExtractor::builder()
@@ -223,7 +225,7 @@ where
         let response = GetNewestEnvelopes::builder()
             .topics(topics)
             .build()?
-            .query(&self.message_client)
+            .query(&self.client)
             .await?;
 
         let extractor = CollectionExtractor::new(response.results, MessageMetadataExtractor::new());

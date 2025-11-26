@@ -3,12 +3,7 @@
 
 use crate::{MaybeSend, MaybeSync, if_native, if_wasm};
 
-if_wasm! {
-    pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O>;
-}
-if_native! {
-    pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O> + Send + Sync;
-}
+pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum StreamHandleError {
@@ -27,9 +22,7 @@ pub enum StreamHandleError {
 /// A handle to a spawned Stream
 /// the spawned stream can be 'joined` by awaiting its Future implementation.
 /// All spawned tasks are detached, so waiting the handle is not required.
-#[allow(async_fn_in_trait)]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_macro::async_trait]
 pub trait StreamHandle: MaybeSend + MaybeSync {
     /// The Output type for the stream
     type StreamOutput;
@@ -104,7 +97,7 @@ mod wasm {
         }
     }
 
-    #[async_trait::async_trait(?Send)]
+    #[xmtp_common::async_trait]
     impl<T> StreamHandle for WasmStreamHandle<Result<T, StreamHandleError>> {
         type StreamOutput = T;
 
@@ -234,7 +227,7 @@ mod native {
         }
     }
 
-    #[async_trait::async_trait]
+    #[xmtp_common::async_trait]
     impl<T: Send> StreamHandle for TokioStreamHandle<T> {
         type StreamOutput = T;
 
@@ -293,18 +286,19 @@ mod native {
         }
     }
 
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn spawn_instrumented<F>(
-        ready: Option<tokio::sync::oneshot::Receiver<()>>,
-        future: F,
-    ) -> impl StreamHandle<StreamOutput = F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        TokioStreamHandle {
-            inner: tokio::task::spawn(future),
-            ready,
+    crate::if_test! {
+        pub fn spawn_instrumented<F>(
+            ready: Option<tokio::sync::oneshot::Receiver<()>>,
+            future: F,
+        ) -> impl StreamHandle<StreamOutput = F::Output>
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            TokioStreamHandle {
+                inner: tokio::task::spawn(future),
+                ready,
+            }
         }
     }
 }}

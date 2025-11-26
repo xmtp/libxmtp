@@ -6,6 +6,7 @@ use crate::protocol::SequencedExtractor;
 use crate::protocol::V3GroupMessageExtractor;
 use crate::protocol::V3WelcomeMessageExtractor;
 use crate::protocol::WelcomeMessageExtractor;
+use derive_builder::UninitializedFieldError;
 use itertools::Itertools;
 use xmtp_proto::types::GlobalCursor;
 use xmtp_proto::types::GroupMessage;
@@ -46,6 +47,15 @@ pub use vector_clock::*;
 mod full_api;
 pub use full_api::*;
 
+mod dependency_resolution;
+pub use dependency_resolution::*;
+
+mod sort;
+pub use sort::*;
+
+mod ordered_collection;
+pub use ordered_collection::*;
+
 #[derive(thiserror::Error, Debug)]
 pub enum EnvelopeError {
     #[error(transparent)]
@@ -56,6 +66,8 @@ pub enum EnvelopeError {
     TopicMismatch,
     #[error("Envelope not found")]
     NotFound(&'static str),
+    #[error(transparent)]
+    MissingBuilderField(#[from] UninitializedFieldError),
     // for extractors defined outside of this crate or
     // generic implementations like Tuples
     #[error("{0}")]
@@ -70,6 +82,7 @@ impl RetryableError for EnvelopeError {
             Self::TopicMismatch => false,
             Self::DynError(d) => retryable!(d),
             Self::NotFound(_) => false,
+            Self::MissingBuilderField(_) => false,
         }
     }
 }

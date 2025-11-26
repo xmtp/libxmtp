@@ -33,8 +33,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<E, C, S> Query<C> for RetryQuery<E, S>
 where
     E: Query<C>,
@@ -51,8 +50,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<E, C, S> QueryRaw<C> for RetryQuery<E, S>
 where
     E: Endpoint,

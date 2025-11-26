@@ -4,8 +4,7 @@ use xmtp_proto::types::{GlobalCursor, Topic};
 
 use crate::protocol::{XmtpEnvelope, XmtpQuery};
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> XmtpQuery for Box<T>
 where
     T: XmtpQuery + ?Sized,
@@ -22,8 +21,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> XmtpQuery for Arc<T>
 where
     T: XmtpQuery + ?Sized,

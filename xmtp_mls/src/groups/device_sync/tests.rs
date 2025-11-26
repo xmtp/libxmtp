@@ -231,7 +231,7 @@ async fn test_hmac_and_consent_preference_sync() {
 
     alix2
         .worker()
-        .register_interest(SyncMetric::ConsentReceived, 2)
+        .register_interest(SyncMetric::ConsentReceived, 3)
         .wait()
         .await?;
     let alix2_group = alix2.group(&bo_group.group_id)?;

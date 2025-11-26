@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use xmtp_proto::types::{ClockOrdering, GlobalCursor};
+use xmtp_proto::types::{ClockOrdering, Cursor, GlobalCursor};
 
 use crate::protocol::VectorClock;
 
@@ -9,10 +9,30 @@ impl VectorClock for GlobalCursor {
         other.iter().all(|(&node, &seq)| self.get(&node) >= seq)
     }
 
+    /// gets all updates in `other` that are not seen by `self`.
+    fn missing(&self, other: &Self) -> Vec<Cursor> {
+        other
+            .iter()
+            .filter_map(|(&node, &seq)| {
+                (self.get(&node) < seq).then_some(Cursor {
+                    originator_id: node,
+                    sequence_id: seq,
+                })
+            })
+            .collect()
+    }
+
     fn merge(&mut self, other: &Self) {
         for (&node, &seq) in other {
             let entry = self.entry(node).or_insert(0);
             *entry = (*entry).max(seq);
+        }
+    }
+
+    fn merge_least(&mut self, other: &Self) {
+        for (&node, &seq) in other {
+            let entry = self.entry(node).or_insert(seq);
+            *entry = (*entry).min(seq);
         }
     }
 
@@ -39,5 +59,27 @@ impl VectorClock for GlobalCursor {
             (false, true) => ClockOrdering::Ancestor,
             (true, true) => ClockOrdering::Concurrent,
         }
+    }
+
+    fn apply(&mut self, cursor: &Cursor) {
+        let Cursor {
+            originator_id: node,
+            sequence_id: seq,
+        } = &cursor;
+        let entry = self.entry(*node).or_insert(0);
+        *entry = (*entry).max(*seq)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test]
+    fn dominates_empty() {
+        let empty = GlobalCursor::default();
+        let mut not_empty = GlobalCursor::default();
+        not_empty.insert(1, 1);
+        assert!(not_empty.dominates(&empty));
     }
 }

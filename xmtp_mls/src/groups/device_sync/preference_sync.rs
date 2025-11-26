@@ -1,5 +1,4 @@
 use super::*;
-use crate::groups::device_sync_legacy::preference_sync_legacy::LegacyUserPreferenceUpdate;
 use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
@@ -23,7 +22,7 @@ where
     pub(crate) async fn sync_preferences(
         &self,
         updates: Vec<PreferenceUpdate>,
-    ) -> Result<(Vec<PreferenceUpdate>, Vec<LegacyUserPreferenceUpdate>), ClientError> {
+    ) -> Result<Vec<PreferenceUpdate>, ClientError> {
         self.send_device_sync_message(ContentProto::PreferenceUpdates(PreferenceUpdates {
             updates: updates.clone().into_iter().map(From::from).collect(),
         }))
@@ -34,12 +33,7 @@ where
             PreferenceUpdate::Hmac { .. } => self.metrics.increment_metric(SyncMetric::HmacSent),
         });
 
-        // TODO: v1 support - remove this on next hammer
-        let legacy_updates = updates.clone().into_iter().map(Into::into).collect();
-        let legacy_updates =
-            LegacyUserPreferenceUpdate::v1_sync_across_devices(legacy_updates, self).await?;
-
-        Ok((updates, legacy_updates))
+        Ok(updates)
     }
 
     pub(crate) async fn cycle_hmac(&self) -> Result<(), ClientError> {

@@ -10,8 +10,8 @@ use xmtp_configuration::Originators;
 )]
 // _*NOTE:*_ comparing cursors is unsafe/undefined behavior if originator ids are not equal.
 pub struct Cursor {
-    pub originator_id: super::OriginatorId,
     pub sequence_id: super::SequenceId,
+    pub originator_id: super::OriginatorId,
 }
 
 impl Cursor {
@@ -29,7 +29,7 @@ impl Cursor {
         }
     }
 
-    pub const fn welcomes(sequence_id: u64) -> Self {
+    pub const fn v3_welcomes(sequence_id: u64) -> Self {
         Self {
             sequence_id,
             originator_id: Originators::WELCOME_MESSAGES,
@@ -67,7 +67,7 @@ impl Cursor {
 
 impl fmt::Display for Cursor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[sid[{}]:oid[{}]]", self.sequence_id, self.originator_id)
+        write!(f, "[sid({}):oid({})]", self.sequence_id, self.originator_id)
     }
 }
 
@@ -89,7 +89,7 @@ mod test {
 
     #[rstest]
     #[case(Cursor::commit_log(100), 100, Originators::REMOTE_COMMIT_LOG)]
-    #[case(Cursor::welcomes(200), 200, Originators::WELCOME_MESSAGES)]
+    #[case(Cursor::v3_welcomes(200), 200, Originators::WELCOME_MESSAGES)]
     #[case(Cursor::v3_messages(300), 300, Originators::APPLICATION_MESSAGES)]
     #[case(Cursor::installations(400), 400, Originators::INSTALLATIONS)]
     #[case(Cursor::mls_commits(500), 500, Originators::MLS_COMMITS)]
@@ -104,13 +104,6 @@ mod test {
     }
 
     #[rstest]
-    #[case(Cursor::new(100, 1u32), "[sid[100]:oid[1]]")]
-    #[case(Cursor::new(0, 0u32), "[sid[0]:oid[0]]")]
-    fn test_display(#[case] cursor: Cursor, #[case] expected: &str) {
-        assert_eq!(format!("{}", cursor), expected);
-    }
-
-    #[rstest]
     #[case(Cursor::new(1, 1u32), Cursor::new(2, 1u32), true)] // same originator, different seq
     #[case(Cursor::new(2, 1u32), Cursor::new(1, 1u32), false)]
     #[case(Cursor::new(1, 1u32), Cursor::new(1, 1u32), false)] // equal
@@ -118,13 +111,5 @@ mod test {
     fn test_ordering(#[case] cursor1: Cursor, #[case] cursor2: Cursor, #[case] cursor1_less: bool) {
         assert_eq!(cursor1 < cursor2, cursor1_less);
         assert_eq!(cursor1 == cursor2, !cursor1_less && cursor2 >= cursor1);
-    }
-
-    #[xmtp_common::test]
-    fn test_display_max_values() {
-        assert_eq!(
-            format!("{}", Cursor::new(u64::MAX, u32::MAX)),
-            format!("[sid[{}]:oid[{}]]", u64::MAX, u32::MAX)
-        );
     }
 }

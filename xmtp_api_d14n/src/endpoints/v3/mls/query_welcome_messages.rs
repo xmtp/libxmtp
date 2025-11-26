@@ -48,6 +48,7 @@ impl Pageable for QueryWelcomeMessages {
 #[cfg(test)]
 mod test {
     use crate::v3::QueryWelcomeMessages;
+    use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::prelude::*;
     use xmtp_proto::xmtp::mls::api::v1::{
         QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
@@ -70,7 +71,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_query_welcome_messages() {
-        let client = crate::TestGrpcClient::create_local();
+        let client = NodeGoClient::create();
         let client = client.build().unwrap();
         let mut endpoint = QueryWelcomeMessages::builder()
             .installation_key(vec![1, 2, 3])

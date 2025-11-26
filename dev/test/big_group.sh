@@ -19,11 +19,12 @@ if ! jq --version &>/dev/null; then echo "must install jq"; fi
 INBOX_ID=$1
 NETWORK=${2-"dev"}
 EXPORT=$(mktemp)
-CMD="./target/release/xdbg -b $NETWORK"
+TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | jq -r '.target_directory')"
+CMD="${TARGET_DIR}/release/xdbg -b $NETWORK"
 
 cargo build --release --bin xdbg
 echo "writing groups to $EXPORT"
-./target/release/xdbg --clear
+${TARGET_DIR}/release/xdbg --clear
 $CMD --clear
 $CMD generate --entity identity --amount 25
 $CMD generate --entity group --amount 1 --invite 25

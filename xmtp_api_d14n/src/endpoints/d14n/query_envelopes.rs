@@ -3,7 +3,7 @@ use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::api::{BodyError, Endpoint};
-use xmtp_proto::types::GlobalCursor;
+use xmtp_proto::types::{GlobalCursor, Topic};
 use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesRequest;
 use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, QueryEnvelopesResponse};
 
@@ -12,7 +12,7 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, QueryEnvelopesRespon
 #[builder(build_fn(error = "BodyError"))]
 pub struct QueryEnvelope {
     #[builder(setter(each(name = "topic", into)))]
-    topics: Vec<Vec<u8>>,
+    topics: Vec<Topic>,
     last_seen: GlobalCursor,
     limit: u32,
 }
@@ -32,7 +32,7 @@ impl Endpoint for QueryEnvelope {
     fn body(&self) -> Result<Bytes, BodyError> {
         let query = QueryEnvelopesRequest {
             query: Some(EnvelopesQuery {
-                topics: self.topics.clone(),
+                topics: self.topics.iter().map(Topic::bytes).collect(),
                 originator_node_ids: vec![],
                 last_seen: Some(self.last_seen.clone().into()),
             }),
@@ -77,8 +77,8 @@ impl Endpoint for QueryEnvelopes {
 #[cfg(test)]
 mod test {
     use super::*;
-    use xmtp_api_grpc::error::GrpcError;
-    use xmtp_proto::{api, prelude::*};
+    use xmtp_api_grpc::{error::GrpcError, test::XmtpdClient};
+    use xmtp_proto::{api, prelude::*, types::TopicKind};
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
@@ -109,7 +109,7 @@ mod test {
     async fn test_query_envelopes() {
         use crate::d14n::QueryEnvelopes;
 
-        let client = crate::TestGrpcClient::create_d14n();
+        let client = XmtpdClient::create();
         let client = client.build().unwrap();
 
         let endpoint = QueryEnvelopes::builder()
@@ -137,25 +137,15 @@ mod test {
     async fn test_query_envelope() {
         use crate::d14n::QueryEnvelope;
 
-        let client = crate::TestGrpcClient::create_d14n();
+        let client = XmtpdClient::create();
         let client = client.build().unwrap();
 
         let endpoint = QueryEnvelope::builder()
             .last_seen(Default::default())
-            .topic(vec![])
+            .topic(TopicKind::GroupMessagesV1.create(vec![]))
             .limit(0)
             .build()
             .unwrap();
-        let err = api::ignore(endpoint).query(&client).await.unwrap_err();
-        tracing::info!("{}", err);
-        // the request will fail b/c we're using dummy data but
-        // we just care if the endpoint is working
-        match err {
-            ApiClientError::<GrpcError>::ClientWithEndpoint {
-                source: GrpcError::Status(ref s),
-                ..
-            } => assert!(s.message().contains("invalid topic"), "{}", err),
-            _ => panic!("request failed"),
-        }
+        api::ignore(endpoint).query(&client).await.unwrap();
     }
 }

@@ -1,7 +1,6 @@
 pub mod commit_log;
 pub mod commit_log_key;
 pub mod device_sync;
-pub mod device_sync_legacy;
 pub mod disappearing_messages;
 mod error;
 pub mod group_membership;
@@ -119,6 +118,7 @@ use xmtp_proto::{
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
 const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
+const MAX_APP_DATA_LENGTH: usize = 8192;
 
 /// An LibXMTP MlsGroup
 /// _NOTE:_ The Eq implementation compares [`GroupId`], so a dm group with the same identity will be
@@ -567,7 +567,7 @@ where
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
 
-        track!("Group Create", { "conversation_type": ConversationType::Dm }, group: &new_group.group_id);
+        track!(context, "Group Create", { "conversation_type": ConversationType::Dm }, group: &new_group.group_id);
 
         Ok(new_group)
     }
@@ -721,6 +721,7 @@ where
             sequence_id: 0,
             originator_id: 0,
             expire_at_ns: None,
+            inserted_at_ns: 0, // Will be set by database
         };
         group_message.store(&self.context.db())?;
 
@@ -869,6 +870,7 @@ where
 
         self.sync_until_intent_resolved(intent.id).await?;
         track!(
+            &self.context,
             "Group Membership Change",
             {
                 "added": ids,
@@ -934,6 +936,7 @@ where
         let _ = self.sync_until_intent_resolved(intent.id).await?;
 
         track!(
+            &self.context,
             "Group Membership Change",
             {
                 "added": (),
@@ -984,6 +987,7 @@ where
         let _ = self.sync_until_intent_resolved(intent.id).await?;
 
         track!(
+            &self.context,
             "Readd Installations",
             {
                 "installations": installations
@@ -1247,6 +1251,31 @@ where
         Ok(())
     }
 
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
+    pub async fn update_app_data(&self, app_data: String) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
+        if app_data.len() > MAX_APP_DATA_LENGTH {
+            return Err(GroupError::TooManyCharacters {
+                length: MAX_APP_DATA_LENGTH,
+            });
+        }
+        if self.metadata().await?.conversation_type == ConversationType::Dm {
+            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
+        }
+        let intent_data: Vec<u8> = UpdateMetadataIntentData::new_update_app_data(app_data).into();
+        let intent = QueueIntent::metadata_update()
+            .data(intent_data)
+            .queue(self)?;
+
+        let _ = self.sync_until_intent_resolved(intent.id).await?;
+        Ok(())
+    }
+
     /// Updates min version of the group to match this client's version.
     /// Not publicly exposed because:
     /// - Setting the min version to pre-release versions may not behave as expected
@@ -1368,6 +1397,21 @@ where
             .get(&MetadataField::GroupName.to_string())
         {
             Some(group_name) => Ok(group_name.clone()),
+            None => Err(MetadataPermissionsError::from(
+                GroupMutableMetadataError::MissingExtension,
+            )
+            .into()),
+        }
+    }
+
+    /// Retrieves the app_data field from the group's mutable metadata extension
+    pub fn app_data(&self) -> Result<String, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        match mutable_metadata
+            .attributes
+            .get(&MetadataField::AppData.to_string())
+        {
+            Some(app_data) => Ok(app_data.clone()),
             None => Err(MetadataPermissionsError::from(
                 GroupMutableMetadataError::MissingExtension,
             )

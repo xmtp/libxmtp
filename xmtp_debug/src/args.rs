@@ -3,10 +3,17 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use color_eyre::eyre;
 use std::path::PathBuf;
+use xmtp_configuration::{MULTI_NODE_TIMEOUT_MS, PAYER_WRITE_FILTER};
 use xxhash_rust::xxh3;
 mod types;
+use std::time::Duration;
 pub use types::*;
-use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_api_d14n::{MessageBackendBuilder, MiddlewareBuilder, ReadWriteClient};
+use xmtp_api_grpc::GrpcClient;
+use xmtp_proto::{
+    api::Client,
+    prelude::{ApiBuilder, NetConnectConfig},
+};
 
 /// Debug & Generate data on the XMTP Network
 #[derive(Parser, Debug)]
@@ -70,6 +77,10 @@ pub struct Generate {
     /// Defaults to the number of available CPU cores if not specified.
     #[arg(long, short, default_value_t = Concurrency::default())]
     pub concurrency: Concurrency,
+    /// enable reading publishes from the backend
+    /// _NOTE:_ feature is experimental
+    #[arg(long, short)]
+    pub ryow: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -83,6 +94,18 @@ pub struct MessageGenerateOpts {
     /// Max variable message size, in words.
     #[arg(long, short, default_value = "100")]
     pub max_message_size: u32,
+    /// on every interval, adds a new member to the group and changes the group description in
+    /// addition to sending a message
+    #[arg(long, short)]
+    pub add_and_change_description: bool,
+    /// on every interval, changes the group description in addition to sending a message
+    #[arg(long, short)]
+    pub change_description: bool,
+    /// specify how many identities to add up to
+    /// requires `add_or_change_description`.
+    /// does nothing unless add_or_change_description is set
+    #[arg(long, short, default_value = "100")]
+    pub add_up_to: u32,
 }
 
 /// Modify state of local clients & groups
@@ -135,6 +158,8 @@ pub enum Query {
     Identity(Identity),
     FetchKeyPackages(FetchKeyPackages),
     BatchQueryCommitLog(BatchQueryCommitLog),
+    /// Get all keypackages for each installation id in the app db
+    AllKeyPackages,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -271,6 +296,13 @@ pub struct BackendOpts {
     /// Enable the decentralization backend
     #[arg(short, long)]
     pub d14n: bool,
+    /// Timeout for reading writes to the decentralized backend
+    #[arg(long, short, default_value_t = default_ryow_timeout())]
+    pub ryow_timeout: humantime::Duration,
+}
+
+fn default_ryow_timeout() -> humantime::Duration {
+    "5s".parse::<humantime::Duration>().unwrap()
 }
 
 impl BackendOpts {
@@ -312,7 +344,7 @@ impl BackendOpts {
         }
     }
 
-    pub async fn connect(&self) -> eyre::Result<crate::DbgClientApi> {
+    pub fn connect(&self) -> eyre::Result<crate::DbgClientApi> {
         let network = self.network_url();
         let is_secure = network.scheme() == "https";
 
@@ -326,6 +358,31 @@ impl BackendOpts {
             trace!(url = %network, is_secure, "create grpc");
             Ok(builder.build()?)
         }
+    }
+
+    pub fn xmtpd(&self) -> eyre::Result<impl Client> {
+        let network = self.network_url();
+        let is_secure = network.scheme() == "https";
+
+        let mut gateway_client_builder = GrpcClient::builder();
+        gateway_client_builder.set_host(self.xmtpd_gateway_url()?.to_string());
+        gateway_client_builder.set_tls(is_secure);
+        let mut node_builder = GrpcClient::builder();
+        node_builder.set_tls(is_secure);
+
+        let mut multi_node = xmtp_api_d14n::middleware::MultiNodeClientBuilder::default();
+        multi_node.set_timeout(Duration::from_millis(MULTI_NODE_TIMEOUT_MS))?;
+        multi_node.set_gateway_builder(gateway_client_builder.clone())?;
+        multi_node.set_node_client_builder(node_builder)?;
+        let multi_node = multi_node.build()?;
+
+        let gateway_client = gateway_client_builder.build()?;
+        let rw = ReadWriteClient::builder()
+            .read(multi_node)
+            .write(gateway_client)
+            .filter(PAYER_WRITE_FILTER)
+            .build()?;
+        Ok(rw)
     }
 }
 

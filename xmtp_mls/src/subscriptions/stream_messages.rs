@@ -27,7 +27,7 @@ use std::{
     pin::Pin,
     task::{Poll, ready},
 };
-use xmtp_common::FutureWrapper;
+use xmtp_common::BoxDynFuture;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::Cursor;
@@ -65,12 +65,12 @@ pin_project! {
         /// State that indicates the stream is waiting on a IO/Network future to finish processing
         /// the current message before moving on to the next one
         Processing {
-            #[pin] future: FutureWrapper<'a, Result<ProcessedMessage>>,
+            #[pin] future: BoxDynFuture<'a, Result<ProcessedMessage>>,
             message: Cursor
         },
         // State that indicates that the stream is adding a new group to the stream.
         Adding {
-            #[pin] future: FutureWrapper<'a, Result<(Out, Vec<u8>, Option<Cursor>)>>
+            #[pin] future: BoxDynFuture<'a, Result<(Out, Vec<u8>, Option<Cursor>)>>
         }
     }
 }
@@ -437,7 +437,7 @@ where
         let mut this = self.as_mut().project();
 
         this.state.set(State::Adding {
-            future: FutureWrapper::new(future),
+            future: Box::pin(future),
         });
     }
 

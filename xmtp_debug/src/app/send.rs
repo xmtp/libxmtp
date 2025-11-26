@@ -47,7 +47,7 @@ impl Send {
             .get(key.into())?
             .ok_or(eyre!("No Identity with inbox_id [{}]", hex::encode(member)))?;
 
-        let client = crate::app::client_from_identity(&identity, network).await?;
+        let client = crate::app::client_from_identity(&identity, network)?;
         client.sync_welcomes().await?;
         let xmtp_group = client.group(&group.id.to_vec())?;
         xmtp_group

@@ -181,6 +181,7 @@ impl QueueIntent {
             conn.update_rotated_at_ns(group.group_id.clone())?;
 
             track!(
+                &group.context,
                 "Queue Intent",
                 { "intent_kind": intent_kind },
                 group: &group.group_id

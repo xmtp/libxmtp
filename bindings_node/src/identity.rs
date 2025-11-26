@@ -12,7 +12,7 @@ pub struct Identifier {
 }
 
 #[napi]
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub enum IdentifierKind {
   Ethereum,
   Passkey,

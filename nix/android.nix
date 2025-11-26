@@ -19,7 +19,7 @@ let
 
   android = {
     platforms = [ "33" "34" ];
-    platformTools = "34.0.5";
+    platformTools = "35.0.2";
     buildTools = [ "30.0.3" ];
   };
 
@@ -36,7 +36,7 @@ let
     platformVersions = android.platforms;
     platformToolsVersion = android.platformTools;
     buildToolsVersions = android.buildTools;
-    emulatorVersion = "34.1.9";
+    emulatorVersion = "34.1.19";
     systemImageTypes = [ "google_apis_playstore" "default" ];
     abiVersions = [ "x86_64" ];
     includeNDK = true;

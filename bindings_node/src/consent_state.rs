@@ -8,7 +8,6 @@ use xmtp_db::consent_record::{
 use crate::{ErrorWrapper, client::Client};
 
 #[napi]
-#[derive(serde::Serialize, serde::Deserialize)]
 pub enum ConsentState {
   Unknown,
   Allowed,
@@ -36,7 +35,6 @@ impl From<ConsentState> for XmtpConsentState {
 }
 
 #[napi]
-#[derive(serde::Serialize, serde::Deserialize)]
 pub enum ConsentEntityType {
   GroupId,
   InboxId,
@@ -61,7 +59,6 @@ impl From<XmtpConsentType> for ConsentEntityType {
 }
 
 #[napi(object)]
-#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Consent {
   pub entity_type: ConsentEntityType,
   pub state: ConsentState,

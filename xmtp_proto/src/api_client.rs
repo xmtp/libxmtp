@@ -30,22 +30,8 @@ mod stats;
 pub use stats::*;
 
 xmtp_common::if_test! {
-    pub mod tests;
-
-    pub trait XmtpTestClient {
-        type Builder: ApiBuilder;
-        fn create_local() -> Self::Builder;
-
-        fn create_d14n() -> Self::Builder {
-            unimplemented!("d14n not implemented for this test client")
-        }
-        fn create_gateway() -> Self::Builder {
-            unimplemented!("gateway not implemented for this test client")
-        }
-        fn create_dev() -> Self::Builder {
-            unimplemented!("dev not implemented for this test client")
-        }
-    }
+    mod tests;
+    pub use tests::*;
 }
 
 /// A type-erased version of the Xmtp Api in a [`Box`]
@@ -101,6 +87,8 @@ impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ?Sized {}
 
 /// Trait which for protobuf-generated type
 /// which can be paged.
+/// Paged implementation indicates a response
+/// that returns a collection of envelopes
 pub trait Paged: MaybeSend + MaybeSync {
     type Message: MaybeSend + MaybeSync;
     fn info(&self) -> &Option<PagingInfo>;
@@ -109,9 +97,7 @@ pub trait Paged: MaybeSend + MaybeSync {
 
 /// Represents the backend API required for an MLS Delivery Service
 /// to be compatible with XMTP
-#[allow(async_fn_in_trait)]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait XmtpMlsClient: MaybeSend + MaybeSync {
     type Error: RetryableError + MaybeSend + MaybeSync + 'static;
     async fn upload_key_package(&self, request: UploadKeyPackageRequest)
@@ -156,8 +142,7 @@ pub trait XmtpMlsClient: MaybeSend + MaybeSync {
 
 /// Represents the backend API required for an MLS Delivery Service
 /// to be compatible with XMTP streaming
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait XmtpMlsStreams: MaybeSend + MaybeSync {
     type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>> + MaybeSend;
 
@@ -181,8 +166,7 @@ pub trait XmtpMlsStreams: MaybeSend + MaybeSync {
 
 /// Represents the backend API required for the XMTP
 /// Identity Service described by [XIP-46 Multi-Wallet Identity](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-46-multi-wallet-identity.md)
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait XmtpIdentityClient: MaybeSend + MaybeSync {
     type Error: RetryableError + MaybeSend + MaybeSync + 'static;
     async fn publish_identity_update(
@@ -206,11 +190,11 @@ pub trait XmtpIdentityClient: MaybeSend + MaybeSync {
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error>;
 }
 
-/// Build an API from its parts for the XMTP Backend
-pub trait ApiBuilder: MaybeSend + MaybeSync {
-    type Output: MaybeSend + MaybeSync;
-    type Error: MaybeSend + MaybeSync;
-
+/// describe how to create a single network
+/// connection.
+/// Implement this trait if your type connects to a single
+/// network channel/connection (like gRPc or HTTP)
+pub trait NetConnectConfig: ApiBuilder + MaybeSend + MaybeSync {
     /// set the libxmtp version (required)
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error>;
 
@@ -219,9 +203,6 @@ pub trait ApiBuilder: MaybeSend + MaybeSync {
 
     /// Set the libxmtp host (required)
     fn set_host(&mut self, host: String);
-
-    /// Set the payer URL (optional)
-    fn set_gateway(&mut self, _host: String) {}
 
     /// indicate tls (default: false)
     fn set_tls(&mut self, tls: bool);
@@ -237,7 +218,12 @@ pub trait ApiBuilder: MaybeSend + MaybeSync {
 
     /// Host of the builder
     fn host(&self) -> Option<&str>;
+}
 
+/// Build an API from its parts for the XMTP Backend
+pub trait ApiBuilder: MaybeSend + MaybeSync {
+    type Output: MaybeSend + MaybeSync;
+    type Error: MaybeSend + MaybeSync + std::fmt::Debug;
     /// Build the api client
     fn build(self) -> Result<Self::Output, Self::Error>;
 }

@@ -6,16 +6,19 @@ use crate::{
 };
 use http::{request, uri::PathAndQuery};
 use prost::bytes::Bytes;
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::Arc};
 use xmtp_common::{MaybeSend, MaybeSync, Retry};
 
-#[cfg(any(test, feature = "test-utils"))]
-pub mod mock;
+xmtp_common::if_test! {
+    pub mod mock;
+}
 
-pub mod combinators;
+mod boxed_client;
+pub(super) mod combinators;
 mod error;
 mod query;
 pub mod stream;
+pub use boxed_client::*;
 pub use error::*;
 
 pub trait HasStats {
@@ -75,24 +78,13 @@ pub trait Pageable {
     fn set_cursor(&mut self, cursor: u64);
 }
 
-#[derive(thiserror::Error, Debug)]
-pub enum MockE {}
-use futures::Future;
-pub type BoxedClient = Box<
-    dyn Client<
-            Error = ApiClientError<MockE>,
-            Stream = futures::stream::Once<Box<dyn Future<Output = ()>>>,
-        >,
->;
-
 /// A client represents how a request body is formed and sent into
 /// a backend. The client is protocol agnostic, a Client may
 /// communicate with a backend over gRPC, JSON-RPC, HTTP-REST, etc.
 /// `http::Response`'s are used in order to maintain a
 /// common data format compatible with a wide variety of backends.
 /// an http response is easily derived from a grpc, jsonrpc or rest api.
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait Client: MaybeSend + MaybeSync {
     type Error: std::error::Error + MaybeSend + MaybeSync + 'static;
 
@@ -113,8 +105,91 @@ pub trait Client: MaybeSend + MaybeSync {
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>>;
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
+impl<T: MaybeSend + MaybeSync + ?Sized> Client for &T
+where
+    T: Client,
+{
+    type Error = T::Error;
+
+    type Stream = T::Stream;
+
+    async fn request(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+        (**self).request(request, path, body).await
+    }
+
+    async fn stream(
+        &self,
+        request: request::Builder,
+        path: http::uri::PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
+        (**self).stream(request, path, body).await
+    }
+}
+
+#[xmtp_common::async_trait]
+impl<T: MaybeSend + MaybeSync + ?Sized> Client for Box<T>
+where
+    T: Client,
+{
+    type Error = T::Error;
+
+    type Stream = T::Stream;
+
+    async fn request(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+        (**self).request(request, path, body).await
+    }
+
+    async fn stream(
+        &self,
+        request: request::Builder,
+        path: http::uri::PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
+        (**self).stream(request, path, body).await
+    }
+}
+
+#[xmtp_common::async_trait]
+impl<T: MaybeSend + MaybeSync + ?Sized> Client for Arc<T>
+where
+    T: Client,
+{
+    type Error = T::Error;
+
+    type Stream = T::Stream;
+
+    async fn request(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+        (**self).request(request, path, body).await
+    }
+
+    async fn stream(
+        &self,
+        request: request::Builder,
+        path: http::uri::PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
+        (**self).stream(request, path, body).await
+    }
+}
+
+#[xmtp_common::async_trait]
 pub trait IsConnectedCheck: MaybeSend + MaybeSync {
     /// Check if a client is connected
     async fn is_connected(&self) -> bool;
@@ -122,15 +197,13 @@ pub trait IsConnectedCheck: MaybeSend + MaybeSync {
 
 /// Queries describe the way an endpoint is called.
 /// these are extensions to the behavior of specific endpoints.
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait Query<C: Client>: MaybeSend + MaybeSync {
     type Output: MaybeSend + MaybeSync;
     async fn query(&mut self, client: &C) -> Result<Self::Output, ApiClientError<C::Error>>;
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait QueryRaw<C: Client>: MaybeSend + MaybeSync {
     async fn query_raw(&mut self, client: &C) -> Result<bytes::Bytes, ApiClientError<C::Error>>;
 }
@@ -139,8 +212,7 @@ pub trait QueryRaw<C: Client>: MaybeSend + MaybeSync {
 /// Not every query combinator/extension will apply to both
 /// steams and one-off calls (how do you 'page' a streaming api?),
 /// so these traits are separated.
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait QueryStream<T, C>
 where
     C: Client,
@@ -154,8 +226,7 @@ where
     ) -> Result<XmtpStream<<C as Client>::Stream, T>, ApiClientError<C::Error>>;
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait QueryStreamExt<T, C: Client> {
     /// Subscribe to the endpoint, indicating the type of stream item with `R`
     async fn subscribe(
@@ -166,8 +237,7 @@ pub trait QueryStreamExt<T, C: Client> {
         T: Default + prost::Message + 'static;
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T, C, E> QueryStreamExt<T, C> for E
 where
     C: Client,

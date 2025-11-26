@@ -93,8 +93,7 @@ where
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[xmtp_common::async_trait]
 impl<A, E> XmtpMlsClient for ApiDebugWrapper<A>
 where
     A: XmtpMlsClient<Error = ApiClientError<E>>,
@@ -214,8 +213,7 @@ where
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[xmtp_common::async_trait]
 impl<A, E> XmtpMlsStreams for ApiDebugWrapper<A>
 where
     A: XmtpMlsStreams<Error = ApiClientError<E>>,
@@ -265,8 +263,7 @@ where
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[xmtp_common::async_trait]
 impl<A, E> XmtpIdentityClient for ApiDebugWrapper<A>
 where
     A: XmtpIdentityClient<Error = ApiClientError<E>>,
@@ -320,8 +317,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C> XmtpQuery for ApiDebugWrapper<C>
 where
     C: XmtpQuery,

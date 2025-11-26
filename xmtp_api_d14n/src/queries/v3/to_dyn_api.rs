@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::protocol::{AnyClient, FullXmtpApiArc, FullXmtpApiBox};
+use crate::protocol::{FullXmtpApiArc, FullXmtpApiBox};
 use crate::{ToDynApi, protocol::CursorStore};
 use xmtp_common::RetryableError;
 use xmtp_proto::api::{ApiClientError, Client, IsConnectedCheck};
@@ -13,7 +13,6 @@ where
     C: Client<Error = E> + IsConnectedCheck + 'static,
     <C as Client>::Stream: 'static,
     Store: CursorStore + 'static,
-    Self: AnyClient,
 {
     type Error = ApiClientError<E>;
     fn boxed(self) -> FullXmtpApiBox<Self::Error> {

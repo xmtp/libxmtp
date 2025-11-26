@@ -218,10 +218,10 @@ fn find_duplicates_with_count(strings: &[String]) -> HashMap<&String, usize> {
 #[xmtp_common::test]
 #[timeout(Duration::from_secs(60))]
 async fn test_stream_all_messages_does_not_lose_messages() {
-    let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-    let eve = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-    let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+    let caro = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
+    let alix = Arc::new(ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await);
+    let eve = Arc::new(ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await);
+    let bo = Arc::new(ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await);
 
     let alix_group = alix.create_group(None, None).unwrap();
     alix_group

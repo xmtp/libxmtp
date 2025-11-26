@@ -10,8 +10,7 @@ use xmtp_proto::types::{
     GlobalCursor, GroupId, GroupMessage, InstallationId, TopicKind, WelcomeMessage,
 };
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C, Store, E> XmtpMlsStreams for V3Client<C, Store>
 where
     C: Client<Error = E>,

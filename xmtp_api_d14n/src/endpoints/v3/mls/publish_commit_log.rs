@@ -37,6 +37,7 @@ impl Endpoint for PublishCommitLog {
 mod test {
     use crate::v3::PublishCommitLog;
     use xmtp_api_grpc::error::GrpcError;
+    use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_common::rand_vec;
     use xmtp_proto::xmtp::mls::api::v1::*;
     use xmtp_proto::{api, prelude::*};
@@ -58,7 +59,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_publish_commit_log() {
-        let client = crate::TestGrpcClient::create_local();
+        let client = NodeGoClient::create();
         let client = client.build().unwrap();
         let endpoint = PublishCommitLog::builder()
             .commit_log_entries(vec![PublishCommitLogRequest {

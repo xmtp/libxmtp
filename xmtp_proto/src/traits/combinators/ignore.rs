@@ -7,8 +7,7 @@ pub struct Ignore<E> {
     endpoint: E,
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<E, C> Query<C> for Ignore<E>
 where
     E: QueryRaw<C>,

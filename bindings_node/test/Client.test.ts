@@ -366,6 +366,26 @@ describe('Client', () => {
       verifySignedWithPublicKey(text, signature, new Uint8Array())
     ).toThrow()
   })
+
+  it('should release and reconnect database connection', async () => {
+    const user = createUser()
+    const client = await createRegisteredClient(user)
+
+    // Verify database operations work initially
+    expect(() => client.conversations().list()).not.toThrow()
+
+    // Release the database connection
+    client.releaseDbConnection()
+
+    // Verify database operations fail when connection is released
+    expect(() => client.conversations().list()).toThrow()
+
+    // Reconnect the database
+    await client.dbReconnect()
+
+    // Verify database operations work again after reconnecting
+    expect(() => client.conversations().list()).not.toThrow()
+  })
 })
 
 describe('Streams', () => {
@@ -388,7 +408,7 @@ describe('Streams', () => {
 
     let messages = new Array()
     client2.conversations().syncAllConversations()
-    let stream = client2.conversations().streamAllMessages(
+    let stream = await client2.conversations().streamAllMessages(
       (msg) => {
         messages.push(msg)
       },

@@ -37,6 +37,7 @@ impl Endpoint for FetchKeyPackages {
 #[cfg(test)]
 mod test {
     use super::*;
+    use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::{mls_v1::FetchKeyPackagesResponse, prelude::*};
 
     #[xmtp_common::test]
@@ -57,7 +58,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_fetch_key_packages() {
-        let client = crate::TestGrpcClient::create_local();
+        let client = NodeGoClient::create();
         let client = client.build().unwrap();
         let mut endpoint = FetchKeyPackages::builder()
             .installation_keys(vec![vec![1, 2, 3]])

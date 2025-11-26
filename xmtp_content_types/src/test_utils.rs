@@ -137,6 +137,10 @@ impl TestContentGenerator {
             removed_inboxes: vec![],
             metadata_field_changes: vec![],
             left_inboxes: vec![],
+            added_admin_inboxes: vec![],
+            removed_admin_inboxes: vec![],
+            added_super_admin_inboxes: vec![],
+            removed_super_admin_inboxes: vec![],
         };
         GroupUpdatedCodec::encode(group_updated).expect("Failed to encode group updated")
     }

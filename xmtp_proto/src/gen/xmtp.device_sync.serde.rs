@@ -410,6 +410,9 @@ impl serde::Serialize for BackupOptions {
         if self.end_ns.is_some() {
             len += 1;
         }
+        if self.exclude_disappearing_messages {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.BackupOptions", len)?;
         if !self.elements.is_empty() {
             let v = self.elements.iter().cloned().map(|v| {
@@ -428,6 +431,9 @@ impl serde::Serialize for BackupOptions {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("end_ns", ToString::to_string(&v).as_str())?;
         }
+        if self.exclude_disappearing_messages {
+            struct_ser.serialize_field("exclude_disappearing_messages", &self.exclude_disappearing_messages)?;
+        }
         struct_ser.end()
     }
 }
@@ -443,6 +449,8 @@ impl<'de> serde::Deserialize<'de> for BackupOptions {
             "startNs",
             "end_ns",
             "endNs",
+            "exclude_disappearing_messages",
+            "excludeDisappearingMessages",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -450,6 +458,7 @@ impl<'de> serde::Deserialize<'de> for BackupOptions {
             Elements,
             StartNs,
             EndNs,
+            ExcludeDisappearingMessages,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -475,6 +484,7 @@ impl<'de> serde::Deserialize<'de> for BackupOptions {
                             "elements" => Ok(GeneratedField::Elements),
                             "startNs" | "start_ns" => Ok(GeneratedField::StartNs),
                             "endNs" | "end_ns" => Ok(GeneratedField::EndNs),
+                            "excludeDisappearingMessages" | "exclude_disappearing_messages" => Ok(GeneratedField::ExcludeDisappearingMessages),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -497,6 +507,7 @@ impl<'de> serde::Deserialize<'de> for BackupOptions {
                 let mut elements__ = None;
                 let mut start_ns__ = None;
                 let mut end_ns__ = None;
+                let mut exclude_disappearing_messages__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Elements => {
@@ -521,6 +532,12 @@ impl<'de> serde::Deserialize<'de> for BackupOptions {
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
+                        GeneratedField::ExcludeDisappearingMessages => {
+                            if exclude_disappearing_messages__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("excludeDisappearingMessages"));
+                            }
+                            exclude_disappearing_messages__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -530,6 +547,7 @@ impl<'de> serde::Deserialize<'de> for BackupOptions {
                     elements: elements__.unwrap_or_default(),
                     start_ns: start_ns__,
                     end_ns: end_ns__,
+                    exclude_disappearing_messages: exclude_disappearing_messages__.unwrap_or_default(),
                 })
             }
         }

@@ -5,8 +5,7 @@ use super::*;
 
 // XMTP Query queries the network for any envelopes
 /// matching the cursor criteria given.
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait XmtpQuery: MaybeSend + MaybeSync {
     type Error: RetryableError + 'static;
     /// Query every [`Topic`] at [`GlobalCursor`]

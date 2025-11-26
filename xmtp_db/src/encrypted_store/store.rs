@@ -23,6 +23,10 @@ impl<Db: XmtpDb> EncryptedMessageStore<Db> {
         Ok(Self { db })
     }
 
+    pub fn new_uninit(db: Db) -> Result<Self, StorageError> {
+        Ok(Self { db })
+    }
+
     pub fn opts(&self) -> &StorageOption {
         self.db.opts()
     }

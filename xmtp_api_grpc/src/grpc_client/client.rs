@@ -23,7 +23,7 @@ use xmtp_common::Retry;
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
 use xmtp_proto::{
     api::{ApiClientError, Client, IsConnectedCheck},
-    api_client::ApiBuilder,
+    api_client::{ApiBuilder, NetConnectConfig},
     codec::TransparentCodec,
     types::AppVersion,
 };
@@ -134,8 +134,7 @@ impl Stream for GrpcStream {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl Client for GrpcClient {
     type Error = GrpcError;
     type Stream = GrpcStream;
@@ -186,8 +185,7 @@ impl Client for GrpcClient {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl IsConnectedCheck for GrpcClient {
     async fn is_connected(&self) -> bool {
         self.inner.clone().ready().await.is_ok()
@@ -215,10 +213,7 @@ pub struct ClientBuilder {
     pub retry: Option<Retry>,
 }
 
-impl ApiBuilder for ClientBuilder {
-    type Output = crate::GrpcClient;
-    type Error = GrpcBuilderError;
-
+impl NetConnectConfig for ClientBuilder {
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
         self.libxmtp_version = Some(MetadataValue::try_from(&version)?);
         Ok(())
@@ -254,6 +249,15 @@ impl ApiBuilder for ClientBuilder {
         self.host.as_deref()
     }
 
+    fn set_retry(&mut self, retry: xmtp_common::Retry) {
+        self.retry = Some(retry);
+    }
+}
+
+impl ApiBuilder for ClientBuilder {
+    type Output = crate::GrpcClient;
+    type Error = GrpcBuilderError;
+
     fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
         let channel = crate::GrpcService::new(host, self.limit, self.tls_channel)?;
@@ -268,10 +272,6 @@ impl ApiBuilder for ClientBuilder {
                 env!("CARGO_PKG_VERSION").to_string(),
             )?),
         })
-    }
-
-    fn set_retry(&mut self, retry: xmtp_common::Retry) {
-        self.retry = Some(retry);
     }
 }
 
@@ -299,16 +299,16 @@ impl GrpcClient {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::GrpcClient;
+    use crate::grpc_client::test::DevNodeGoClient;
     use prost::Message;
     use xmtp_proto::api_client::ApiBuilder;
-    use xmtp_proto::prelude::XmtpTestClient;
+    use xmtp_proto::prelude::{NetConnectConfig, XmtpTestClient};
     use xmtp_proto::types::AppVersion;
     use xmtp_proto::xmtp::message_api::v1::PublishRequest;
 
     #[xmtp_common::test]
     async fn metadata_test() {
-        let mut client = GrpcClient::create_dev();
+        let mut client = DevNodeGoClient::create();
         let app_version = AppVersion::from("test/1.0.0");
         let libxmtp_version = "0.0.1".to_string();
         client.set_app_version(app_version.clone()).unwrap();

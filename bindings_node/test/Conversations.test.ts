@@ -467,7 +467,7 @@ describe('Conversations', () => {
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
     let groups: Conversation[] = []
-    const stream = client3.conversations().stream(
+    const stream = await client3.conversations().stream(
       (err, convo) => {
         groups.push(convo!)
       },
@@ -518,7 +518,7 @@ describe('Conversations', () => {
     }
 
     let closed = false
-    const stream = client1.client.conversations().stream(
+    const stream = await client1.client.conversations().stream(
       (err, convo) => {
         groups.push(convo!)
       },
@@ -548,7 +548,7 @@ describe('Conversations', () => {
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
     let groups: Conversation[] = []
-    const stream = client3.conversations().stream(
+    const stream = await client3.conversations().stream(
       (err, convo) => {
         groups.push(convo!)
       },
@@ -591,7 +591,7 @@ describe('Conversations', () => {
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
     let groups: Conversation[] = []
-    const stream = client3.conversations().stream(
+    const stream = await client3.conversations().stream(
       (err, convo) => {
         groups.push(convo!)
       },
@@ -653,7 +653,7 @@ describe('Conversations', () => {
     await sleep(2000)
 
     const messages: Message[] = []
-    const stream = client1.conversations().streamAllMessages(
+    const stream = await client1.conversations().streamAllMessages(
       (err, message) => {
         messages.push(message!)
       },
@@ -665,7 +665,7 @@ describe('Conversations', () => {
     )
 
     const messages2: Message[] = []
-    const stream2 = client2.conversations().streamAllMessages(
+    const stream2 = await client2.conversations().streamAllMessages(
       (err, message) => {
         messages2.push(message!)
       },
@@ -677,7 +677,7 @@ describe('Conversations', () => {
     )
 
     const messages3: Message[] = []
-    const stream3 = client3.conversations().streamAllMessages(
+    const stream3 = await client3.conversations().streamAllMessages(
       (err, message) => {
         messages3.push(message!)
       },
@@ -689,7 +689,7 @@ describe('Conversations', () => {
     )
 
     const messages4: Message[] = []
-    const stream4 = client4.conversations().streamAllMessages(
+    const stream4 = await client4.conversations().streamAllMessages(
       (err, message) => {
         messages4.push(message!)
       },
@@ -776,7 +776,7 @@ describe('Conversations', () => {
     await sleep(2000)
 
     let messages: Message[] = []
-    const stream = client1.conversations().streamAllMessages(
+    const stream = await client1.conversations().streamAllMessages(
       (err, message) => {
         messages.push(message!)
       },
@@ -850,7 +850,7 @@ describe('Conversations', () => {
     await sleep(2000)
 
     let messages: Message[] = []
-    const stream = client1.conversations().streamAllMessages(
+    const stream = await client1.conversations().streamAllMessages(
       (err, message) => {
         messages.push(message!)
       },
@@ -904,7 +904,7 @@ describe('Conversations', () => {
     })
 
     let messages: Message[] = []
-    const stream = agent_client.conversations().streamAllMessages(
+    const stream = await agent_client.conversations().streamAllMessages(
       (err, message) => {
         messages.push(message!)
       },

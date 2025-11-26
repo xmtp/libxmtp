@@ -790,6 +790,10 @@ pub mod json_schema {
         /// for overlapping paths.
         #[prost(string, tag = "47")]
         pub path_param_name: ::prost::alloc::string::String,
+        /// Declares this field to be deprecated. Allows for the generated OpenAPI
+        /// parameter to be marked as deprecated without affecting the proto field.
+        #[prost(bool, tag = "49")]
+        pub deprecated: bool,
     }
     impl ::prost::Name for FieldConfiguration {
         const NAME: &'static str = "FieldConfiguration";

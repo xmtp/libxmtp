@@ -12,8 +12,7 @@ pub struct CombinedD14nClient<C, D> {
     pub(crate) xmtpd_client: D,
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C, D> XmtpMlsClient for CombinedD14nClient<C, D>
 where
     C: XmtpMlsClient,
@@ -93,8 +92,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C, D> XmtpIdentityClient for CombinedD14nClient<C, D>
 where
     C: XmtpIdentityClient,

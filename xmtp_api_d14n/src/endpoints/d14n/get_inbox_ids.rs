@@ -59,6 +59,7 @@ impl Endpoint for GetInboxIds {
 mod test {
     use super::*;
     use crate::d14n::GetInboxIds;
+    use xmtp_api_grpc::test::XmtpdClient;
     use xmtp_proto::{api, prelude::*};
 
     #[xmtp_common::test]
@@ -78,7 +79,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_get_inbox_ids() {
-        let client = crate::TestGrpcClient::create_d14n();
+        let client = XmtpdClient::create();
         let client = client.build().unwrap();
 
         let endpoint = GetInboxIds::builder()

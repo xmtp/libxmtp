@@ -8,7 +8,6 @@ use crate::{
     },
 };
 use futures::Stream;
-use parking_lot::Mutex;
 use pin_project_lite::pin_project;
 use std::{
     ops::Range,
@@ -18,7 +17,10 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use tokio::sync::{
+    Mutex,
+    mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+};
 use xmtp_common::{MaybeSend, MaybeSync, time::now_ns};
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::prelude::XmtpMlsStreams;
@@ -31,19 +33,15 @@ pin_project! {
     }
 }
 
-pub trait StreamWithStats: Stream {
-    type Item;
-
+pub trait StreamWithStats: Stream<Item = Result<StoredGroupMessage>> {
     fn stats(&self) -> Arc<StreamStats>;
 }
 
 impl<'a, Context: Clone, Conversations, Messages> StreamWithStats
     for StreamStatsWrapper<'a, Context, Conversations, Messages>
 where
-    Self: Stream,
+    Self: Stream<Item = Result<StoredGroupMessage>>,
 {
-    type Item = Result<StoredGroupMessage>;
-
     fn stats(&self) -> Arc<StreamStats> {
         self.stats.stats()
     }
@@ -103,9 +101,9 @@ pub struct StreamStats {
 }
 
 impl StreamStats {
-    pub fn new_stats(&self) -> Vec<StreamStat> {
+    pub async fn new_stats(&self) -> Vec<StreamStat> {
         let mut stats = vec![];
-        let mut stats_rx = self.rx.lock();
+        let mut stats_rx = self.rx.lock().await;
         while let Ok(stat) = stats_rx.try_recv() {
             stats.push(stat);
         }
@@ -252,7 +250,7 @@ mod tests {
         }
 
         xmtp_common::time::sleep(Duration::from_millis(100)).await;
-        let stats = stream_stats.new_stats();
+        let stats = stream_stats.new_stats().await;
         assert!(
             stats
                 .iter()

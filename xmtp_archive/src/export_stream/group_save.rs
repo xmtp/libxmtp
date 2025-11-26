@@ -12,12 +12,14 @@ use xmtp_proto::xmtp::device_sync::{
     },
 };
 
+#[xmtp_common::async_trait]
 impl BackupRecordProvider for GroupSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records<D>(
+    async fn backup_records<D>(
         db: Arc<D>,
         start_ns: Option<i64>,
         end_ns: Option<i64>,
+        _exclude_disappearing_messages: bool,
         cursor: i64,
     ) -> Result<Vec<BackupElement>, StorageError>
     where

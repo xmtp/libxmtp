@@ -2,12 +2,14 @@ use super::*;
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, message_backup::GroupMessageSave};
 
+#[xmtp_common::async_trait]
 impl BackupRecordProvider for GroupMessageSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records<D>(
+    async fn backup_records<D>(
         db: Arc<D>,
         start_ns: Option<i64>,
         end_ns: Option<i64>,
+        exclude_disappearing_messages: bool,
         cursor: i64,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
@@ -17,6 +19,7 @@ impl BackupRecordProvider for GroupMessageSave {
         let args = MsgQueryArgs::builder()
             .sent_after_ns(start_ns)
             .sent_before_ns(end_ns)
+            .exclude_disappearing(exclude_disappearing_messages)
             .limit(Self::BATCH_SIZE)
             .build()
             .expect("could not build");

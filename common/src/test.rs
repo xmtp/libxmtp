@@ -3,26 +3,36 @@ use crate::time::Expired;
 use rand::distributions::DistString;
 use rand::{Rng, distributions::Alphanumeric, seq::IteratorRandom};
 use std::collections::HashMap;
+use std::sync::LazyLock;
 use std::{future::Future, sync::OnceLock};
-
-#[cfg(not(target_arch = "wasm32"))]
-pub mod traced_test;
-#[cfg(not(target_arch = "wasm32"))]
-pub use traced_test::TestWriter;
+use tokio::sync;
 
 mod macros;
 
 mod openmls;
 pub use openmls::*;
 
+crate::if_native! {
+    use parking_lot::Mutex;
+    pub mod traced_test;
+    pub use traced_test::TestWriter;
+    mod logger;
+
+    use once_cell::sync::Lazy;
+    static REPLACE_IDS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+}
+
 static INIT: OnceLock<()> = OnceLock::new();
 
-crate::if_native! {
-    use once_cell::sync::Lazy;
-    use parking_lot::Mutex;
+use toxiproxy_rust::TOXIPROXY;
 
-    static REPLACE_IDS: once_cell::sync::Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
-    mod logger;
+static TOXIPROXY_TEST_LOCK: LazyLock<sync::Mutex<()>> = LazyLock::new(|| sync::Mutex::new(()));
+
+// TODO: can add this to the macro
+pub async fn toxiproxy_test<T, F: AsyncFn() -> T>(f: F) -> T {
+    let _g = TOXIPROXY_TEST_LOCK.lock().await;
+    TOXIPROXY.reset().await.unwrap();
+    f().await
 }
 
 pub trait Generate {
@@ -38,40 +48,42 @@ pub struct TestLogReplace {
 }
 
 impl TestLogReplace {
-    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub fn add(&mut self, id: &str, name: &str) {
-        self.ids.insert(id.to_string(), name.to_string());
-        let mut ids = REPLACE_IDS.lock();
-        ids.insert(id.to_string(), name.to_string());
+        crate::wasm_or_native! {
+            wasm => { let _ = (id, name); },
+            native => {
+                self.ids.insert(id.to_string(), name.to_string());
+                let mut ids = REPLACE_IDS.lock();
+                ids.insert(id.to_string(), name.to_string());
+            },
+        }
     }
-
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-    pub fn add(&mut self, _id: &str, _name: &str) {}
 }
 
 // remove ids for replacement from map on drop
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 impl Drop for TestLogReplace {
     fn drop(&mut self) {
-        let mut ids = REPLACE_IDS.lock();
-        for id in self.ids.keys() {
-            let _ = ids.remove(id.as_str());
+        crate::wasm_or_native! {
+            wasm => {},
+            native => {
+                let mut ids = REPLACE_IDS.lock();
+                for id in self.ids.keys() {
+                    let _ = ids.remove(id.as_str());
+                }
+            },
         }
     }
 }
 
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-use tracing_subscriber::{
-    EnvFilter, Layer,
-    fmt::{self, format},
-    registry::LookupSpan,
-};
-
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-pub fn logger_layer<S>() -> impl Layer<S>
+pub fn logger_layer<S>() -> impl tracing_subscriber::Layer<S>
 where
-    S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
 {
+    use tracing_subscriber::{
+        EnvFilter, Layer,
+        fmt::{self, format},
+    };
     let structured = std::env::var("STRUCTURED");
     let contextual = std::env::var("CONTEXTUAL");
     let show_spans = std::env::var("SHOW_SPAN_FIELDS");
@@ -90,8 +102,6 @@ where
             .then(|| {
                 tracing_subscriber::fmt::layer()
                     .json()
-                    .flatten_event(true)
-                    .with_level(true)
                     .with_filter(filter())
             })
             .boxed(),
@@ -134,60 +144,55 @@ where
 }
 
 /// A simple test logger that defaults to the INFO level
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub fn logger() {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-    INIT.get_or_init(|| {
-        let _ = tracing_subscriber::registry()
-            .with(logger_layer())
-            .try_init();
-    });
+    crate::wasm_or_native! {
+        wasm => {
+            INIT.get_or_init(|| {
+                let filter = tracing_subscriber::EnvFilter::builder().parse("debug").unwrap();
+
+                tracing_subscriber::registry()
+                    .with(tracing_wasm::WASMLayer::default())
+                    .with(filter)
+                    .init();
+
+                console_error_panic_hook::set_once();
+                wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+            });
+        },
+        native => {
+            INIT.get_or_init(|| {
+                let _ = tracing_subscriber::registry()
+                    .with(logger_layer())
+                    .try_init();
+            });
+        },
+    }
 }
 
 // Execute once before any tests are run
-#[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
 #[cfg(all(test, not(target_arch = "wasm32"), feature = "test-utils"))]
+#[ctor::ctor]
 fn ctor_logging_setup() {
     crate::logger();
     let _ = fdlimit::raise_fd_limit();
 }
 
 // must be in an arc so we only ever have one subscriber
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-use std::sync::LazyLock;
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-static SCOPED_SUBSCRIBER: LazyLock<std::sync::Arc<Box<dyn tracing::Subscriber + Send + Sync>>> =
-    LazyLock::new(|| {
-        use tracing_subscriber::layer::SubscriberExt;
+crate::if_native! {
+    static SCOPED_SUBSCRIBER: LazyLock<std::sync::Arc<Box<dyn tracing::Subscriber + Send + Sync>>> =
+        LazyLock::new(|| {
+            use tracing_subscriber::layer::SubscriberExt;
 
-        std::sync::Arc::new(Box::new(
-            tracing_subscriber::registry().with(logger_layer()),
-        ))
-    });
+            std::sync::Arc::new(Box::new(
+                tracing_subscriber::registry().with(logger_layer()),
+            ))
+        });
 
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-pub fn subscriber() -> impl tracing::Subscriber {
-    (*SCOPED_SUBSCRIBER).clone()
-}
-
-/// A simple test logger that defaults to the INFO level
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
-pub fn logger() {
-    use tracing_subscriber::EnvFilter;
-    use tracing_subscriber::layer::SubscriberExt;
-    use tracing_subscriber::util::SubscriberInitExt;
-
-    INIT.get_or_init(|| {
-        let filter = EnvFilter::builder().parse("debug").unwrap();
-
-        tracing_subscriber::registry()
-            .with(tracing_wasm::WASMLayer::default())
-            .with(filter)
-            .init();
-
-        console_error_panic_hook::set_once();
-    });
+    pub fn subscriber() -> impl tracing::Subscriber {
+        (*SCOPED_SUBSCRIBER).clone()
+    }
 }
 
 pub fn rand_hexstring() -> String {
@@ -212,16 +217,12 @@ pub fn rand_i64() -> i64 {
     crate::rng().r#gen()
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub fn tmp_path() -> String {
     let db_name = crate::rand_string::<24>();
-    format!("{}/{}.db3", std::env::temp_dir().to_str().unwrap(), db_name)
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn tmp_path() -> String {
-    let db_name = crate::rand_string::<24>();
-    format!("{}/{}.db3", "test_db", db_name)
+    crate::wasm_or_native_expr! {
+        native => format!("{}/{db_name}.db3", std::env::temp_dir().to_str().unwrap()),
+        wasm => format!("test_db/{db_name}.db3"),
+    }
 }
 
 pub fn rand_time() -> i64 {

@@ -4,7 +4,7 @@ mod metadata;
 
 use std::{borrow::Borrow, sync::Arc};
 
-use color_eyre::eyre::{self, Result};
+use color_eyre::eyre::{self, Result, eyre};
 use rand::{Rng, seq::IteratorRandom};
 use redb::{AccessGuard, ReadTransaction, ReadableDatabase, WriteTransaction};
 use speedy::{Readable, Writable};
@@ -124,7 +124,9 @@ pub trait DeriveKey<Key> {
 }
 
 pub trait Database<Key, Value> {
-    #[allow(unused)]
+    /// get length of items in db.
+    fn len(&self, network: impl Into<u64>) -> Result<usize>;
+
     /// store only `value` to disk
     fn set(&self, value: Value, network: impl Into<u64>) -> Result<()> {
         Database::set_all(self, &[value], network)
@@ -136,6 +138,7 @@ pub trait Database<Key, Value> {
     /// Get an entity by key from this database store
     fn get(&self, value: Key) -> Result<Option<Value>>;
 
+    /// Load all items in db as iterator
     fn load(
         &'_ self,
         network: impl Into<u64>,
@@ -143,6 +146,8 @@ pub trait Database<Key, Value> {
     where
         Value: redb::Value + 'static;
 
+    #[allow(unused)]
+    /// Clear all items on a network
     fn clear_network(&self, network: impl Into<u64>) -> Result<()>;
 
     /// Modify a single value by removing and re-inserting
@@ -155,14 +160,26 @@ pub trait RandomDatabase<Key, Value> {
     /// Get a random entity from this database store
     fn random(&self, network: impl Into<u64> + Copy, rng: &mut impl Rng) -> Result<Option<Value>>;
 
+    /// get random n
+    /// caps at the amount of items in the db. if `n` is greater than stored local items,
+    /// returned values will only be up to how many items exist in the db.
+    fn random_n_capped(
+        &self,
+        network: impl Into<u64> + Copy,
+        rng: &mut impl Rng,
+        n: usize,
+    ) -> Result<Vec<AccessGuard<'_, Value>>>
+    where
+        Value: std::hash::Hash + Eq + redb::Value;
+
     fn random_n(
         &self,
         network: impl Into<u64> + Copy,
         rng: &mut impl Rng,
         n: usize,
-    ) -> Result<Vec<Value>>
+    ) -> Result<Vec<AccessGuard<'_, Value>>>
     where
-        Value: std::hash::Hash + Eq;
+        Value: std::hash::Hash + Eq + redb::Value;
 }
 
 pub trait TableProvider<'a, K: redb::Key + 'static, V: redb::Value + 'static> {
@@ -176,6 +193,8 @@ pub trait TrackMetadata {
         network: u64,
         n: u32,
     ) -> Result<()>;
+    // decrement a metadata item
+    #[allow(unused)]
     fn decrement<'a>(
         &self,
         store: impl Into<MetadataStore<'a>>,
@@ -269,6 +288,13 @@ where
         Ok(())
     }
 
+    fn len(&self, network: impl Into<u64>) -> Result<usize> {
+        Ok(self
+            .load(network)?
+            .ok_or(eyre!("no items found, try generating some"))?
+            .fold(0, |acc, _| acc + 1))
+    }
+
     fn get(&self, key: NetworkKey<N>) -> Result<Option<Value>> {
         let op = |r: &ReadTransaction| -> Result<Option<Value>> {
             let table = r.open_table(Self::table())?;
@@ -349,28 +375,69 @@ where
         })
     }
 
+    /// get random n
+    /// caps at the amount of items in the db. if `n` is greater than stored local items,
+    /// returned values will only be up to how many items exist in the db.
+    fn random_n_capped(
+        &self,
+        network: impl Into<u64> + Copy,
+        rng: &mut impl Rng,
+        n: usize,
+    ) -> Result<Vec<AccessGuard<'_, Value>>>
+    where
+        Value: std::hash::Hash + Eq + redb::Value,
+    {
+        if n == 0 {
+            return Ok(Vec::new());
+        }
+        let items = self
+            .load(network)?
+            .ok_or(eyre!("no items found, try generating some"))?;
+        Ok(items.choose_multiple(rng, n))
+    }
+
     fn random_n(
         &self,
         network: impl Into<u64> + Copy,
         rng: &mut impl Rng,
         n: usize,
-    ) -> Result<Vec<Value>>
+    ) -> Result<Vec<AccessGuard<'_, Value>>>
     where
         Value: std::hash::Hash + Eq,
     {
         if n == 0 {
             return Ok(Vec::new());
         }
-
-        if let Some(items) = self.load(network)? {
-            Ok(items
-                .choose_multiple(rng, n)
+        let len = self
+            .load(network)?
+            .ok_or(eyre!("no items found, try generating some"))?
+            .fold(0, |acc, _| acc + 1);
+        let mut items = self
+            .load(network)?
+            .ok_or(eyre!("no items found, try generating some"))?;
+        // choose_mutliple will only fill up to the size of items.
+        // so we may need to load multiple times if we're trying to
+        // fill a buffer of size > items.
+        // items aren't loaded into memory until `value()` is called on `AccessGuard`.
+        let mut random = Vec::with_capacity(n);
+        let uninit = random.spare_capacity_mut();
+        for chunk in uninit.chunks_mut(len) {
+            items
+                .choose_multiple(rng, chunk.len())
                 .into_iter()
-                .map(|v| v.value())
-                .collect())
-        } else {
-            Ok(Vec::new())
+                .enumerate()
+                .for_each(|(idx, i)| {
+                    chunk[idx].write(i);
+                });
+            items = self
+                .load(network)?
+                .ok_or(eyre!("no items found, try generating some"))?;
         }
+        // safe because we ensure that every item is set/written to.
+        unsafe {
+            random.set_len(n);
+        }
+        Ok(random)
     }
 }
 

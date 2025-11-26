@@ -64,6 +64,7 @@ async fn deploy_wallets(provider: EthereumProvider) -> SmartWalletContext {
         sc_owner,
         ..
     } = provider;
+
     let factory = cb_smart_wallet(sc_owner.clone(), provider.clone()).await;
     let nonce = U256::from(0); // needed when creating a smart wallet
     let owners_addresses = vec![
@@ -76,12 +77,17 @@ async fn deploy_wallets(provider: EthereumProvider) -> SmartWalletContext {
         .await
         .unwrap();
     println!("smart wallet address: {}", sw_address);
-    let _ = factory
+    let pending_tx = factory
         .createAccount(owners_addresses.clone(), nonce)
         .send()
         .await
-        .unwrap()
-        .with_required_confirmations(1)
+        .unwrap();
+
+    // Force mine a block
+    provider.anvil_mine(Some(1), None).await.unwrap();
+
+    pending_tx
+        .with_required_confirmations(0)
         .with_timeout(Some(Duration::from_secs(30)))
         .watch()
         .await

@@ -1,4 +1,3 @@
-use crate::protocol::AnyClient;
 use crate::protocol::XmtpQuery;
 use std::pin::Pin;
 use xmtp_proto::api::HasStats;
@@ -27,8 +26,7 @@ impl<C> BoxedStreamsClient<C> {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C> XmtpMlsClient for BoxedStreamsClient<C>
 where
     C: XmtpMlsClient,
@@ -105,8 +103,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C> XmtpIdentityClient for BoxedStreamsClient<C>
 where
     C: XmtpIdentityClient,
@@ -144,8 +141,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C> XmtpMlsStreams for BoxedStreamsClient<C>
 where
     C: XmtpMlsStreams,
@@ -201,8 +197,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C> IsConnectedCheck for BoxedStreamsClient<C>
 where
     C: IsConnectedCheck,
@@ -212,8 +207,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C: XmtpQuery> XmtpQuery for BoxedStreamsClient<C> {
     type Error = <C as XmtpQuery>::Error;
 
@@ -223,18 +217,5 @@ impl<C: XmtpQuery> XmtpQuery for BoxedStreamsClient<C> {
         at: Option<xmtp_proto::types::GlobalCursor>,
     ) -> Result<crate::protocol::XmtpEnvelope, Self::Error> {
         <C as XmtpQuery>::query_at(&self.inner, topic, at).await
-    }
-}
-
-impl<C> AnyClient for BoxedStreamsClient<C>
-where
-    C: AnyClient,
-{
-    fn downcast_ref_v3client(&self) -> Option<&'_ crate::definitions::FullV3Client> {
-        <C as AnyClient>::downcast_ref_v3client(&self.inner)
-    }
-
-    fn downcast_ref_d14nclient(&self) -> Option<&'_ crate::definitions::FullD14nClient> {
-        <C as AnyClient>::downcast_ref_d14nclient(&self.inner)
     }
 }
