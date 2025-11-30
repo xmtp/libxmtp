@@ -2,7 +2,7 @@
 
 ## Table of Contents
 
-1. [Executive Summary](#executive-summary)
+1. [Overview](#overview)
 2. [Current Solution](#current-solution)
 3. [Proposed Solution](#proposed-solution)
 4. [Sync Identity](#sync-identity)
@@ -12,7 +12,7 @@
 
 ---
 
-## Executive Summary
+## Overview
 
 This document proposes a comprehensive redesign of the device sync system. The new architecture delivers:
 
@@ -32,9 +32,7 @@ The redesign transforms device sync from an opaque, error-prone, all-or-nothing 
 
 ### Architecture
 
-The current device sync uses a request-response model coordinated through an MLS sync group. When a new installation comes online, it automatically sends a `DeviceSyncRequest`. An existing installation must explicitly sync to receive this request, then sends a `DeviceSyncAcknowledge` to claim responsibility for the upload. The first installation to acknowledge "wins" and proceeds to create a full archive of all data, encrypt it with a random key, upload it to the sync server, and send a `DeviceSyncReply` containing the download URL and decryption key. The new installation must then explicitly sync again to receive the reply and download the archive.
-
-Note: The acknowledgement mechanism has a race condition - if two installations acknowledge simultaneously, both will create and upload archives, wasting bandwidth and potentially causing consistency issues.
+The current device sync uses a request-response model coordinated through an MLS sync group. When a new installation comes online, it automatically sends a device sync request message. An existing installation must sync to receive this request, then sends a device sync acknowledge message to claim responsibility for the upload. The first installation to acknowledge "wins" and proceeds to create a full archive of all data, encrypt it with a random key, upload it to the sync server, and send a device sync reply message containing the download URL and decryption key. The new installation must then sync again to receive the reply and download the archive.
 
 ### Key Limitations Summary
 
@@ -58,23 +56,20 @@ Note: The acknowledgement mechanism has a race condition - if two installations 
 
 ### Architecture
 
-The proposed solution decouples data transfer from sync group updates. Installations share a `SyncIdentity` (containing server credentials and encryption keys) through the MLS sync group. Each installation can independently sync consent, group, and message data with the sync server.
+Like the current implementation, the sync group is used to coordinate device syncing across installations. The main difference is that data transfers are done independently and at the discretion of the developer or user. Installations use the sync group to share sync server credentials and encryption keys as installations are created and revoked. Each installation can independently sync consent, group, and message data with the sync server across different time spans.
 
 ### Key Improvement Summary
 
-| Aspect                    | Current                   | Proposed                                                               |
-| ------------------------- | ------------------------- | ---------------------------------------------------------------------- |
-| Initial sync time         | Potentially minutes       | < 1 second                                                             |
-| Initial sync size         | Entire history            | Metadata only (varies by group count/metadata size)                    |
-| Message loading           | All at once               | Per-conversation, on-demand                                            |
-| Server identity knowledge | Anonymous uploads         | Opaque sync_id with auth                                               |
-| Archive encryption key    | Random per-request        | Derived KEK shared via MLS sync group; rotated on installation changes |
-| Incremental updates       | No                        | Yes                                                                    |
-| Resumable downloads       | No                        | Yes (byte-range support)                                               |
-| Resumable uploads         | No                        | Yes                                                                    |
-| Forward secrecy           | Yes (random key per sync) | Yes (KEK rotated on installation changes)                              |
-| Transfer size visibility  | Unknown until complete    | Exact sizes known upfront for bandwidth planning                       |
-| API control               | Opaque background worker  | Explicit function calls with error handling                            |
+| Aspect                   | Current                   | Proposed                                            |
+| ------------------------ | ------------------------- | --------------------------------------------------- |
+| Initial sync time        | Potentially minutes       | < 1 second                                          |
+| Initial sync size        | Entire history            | Metadata only (varies by group count/metadata size) |
+| Message loading          | All at once               | Per-conversation, on-demand                         |
+| Incremental updates      | No                        | Yes                                                 |
+| Resumable transfers      | No                        | Yes (byte-range support)                            |
+| Forward secrecy          | Yes (random key per sync) | Yes (KEK rotated on installation changes)           |
+| Transfer size visibility | Unknown until complete    | Exact sizes known upfront for bandwidth planning    |
+| Sync control             | Opaque background worker  | Explicit function calls with error handling         |
 
 ### User Experience Improvements
 
@@ -100,13 +95,13 @@ The MLS sync group is the secure channel through which installations share encry
 
 ### Distribution
 
-When a new installation joins an inbox, it sends a `SyncIdentityRequest` to the MLS sync group. An existing installation acknowledges the request and generates a new `SyncIdentity` with a rotated KEK for forward secrecy. All installations receive the new identity and store it in their local DB for use when syncing with the sync server.
+When a new installation is created, it sends a sync identity request message to the MLS sync group. An existing installation acknowledges the request and generates a new sync identity with a rotated KEK for forward secrecy. All installations receive the new identity and store it in their local DB for use when syncing with the sync server.
 
 ```rust
 /// Sync identity - distributed via MLS sync group, stored in local DB
 struct SyncIdentity {
-    /// Random 32-byte identifier - no connection to inbox_id
-    sync_id: [u8; 32],
+    /// Random 32-byte ID - to obscure inbox_id
+    sync_id: String,
     /// Ed25519 keypair for authenticating with sync server
     auth_keypair: Ed25519Keypair,
     /// Current Key Encryption Key for archives
@@ -118,28 +113,28 @@ struct SyncIdentity {
 
 /// Request sync identity (sent by new installation)
 struct SyncIdentityRequest {
-    /// Random ID to correlate request with acknowledgement
-    request_id: [u8; 32],
+    /// Random 32-byte ID to correlate request with acknowledgement
+    request_id: String,
 }
 
 /// Acknowledge request (sent by leader before generating new identity)
 struct SyncIdentityAcknowledge {
     /// Matches the request_id from SyncIdentityRequest
-    request_id: [u8; 32],
+    request_id: String,
 }
 ```
 
-### Rotation on Revocation
+### Sync Identity Rotation
 
-When an installation is revoked, the sync identity must be rotated to ensure forward secrecy - the revoked installation should not be able to decrypt future sync data. Once rotated, previous sync data will not be accessible either.
+When an installation is created or revoked, the sync identity must be rotated to ensure forward secrecy - the revoked installation should not be able to decrypt future sync data. Once rotated, previous sync data will not be accessible either.
 
 Rotation uses a two-phase approach to handle failures:
 
 ```rust
 /// Phase 1: Claim rotation responsibility and share new identity
 struct SyncIdentityRotationClaim {
-    /// Random ID to identify this rotation attempt
-    rotation_id: [u8; 32],
+    /// Random 32-byte ID to identify this rotation attempt
+    rotation_id: String,
     /// The new sync identity (shared preemptively)
     new_identity: SyncIdentity,
 }
@@ -147,19 +142,20 @@ struct SyncIdentityRotationClaim {
 /// Phase 2: Confirm rotation completed on server
 struct SyncIdentityRotationConfirm {
     /// Matches the rotation_id from SyncIdentityRotationClaim
-    rotation_id: [u8; 32],
+    rotation_id: String,
 }
 ```
 
-**Flow:**
+#### Flow
 
-1. Installation detects revocation, generates new `SyncIdentity`
-2. Broadcasts `SyncIdentityRotationClaim` with the new identity
-3. All installations store the new identity (preemptively)
-4. Claiming installation rotates keys on sync server
-5. Broadcasts `SyncIdentityRotationConfirm` on success
+1. Installation created or revoked
+2. New `SyncIdentity` generated
+3. Broadcasts `SyncIdentityRotationClaim` with the new identity
+4. All installations store the new identity (preemptively)
+5. Claiming installation rotates keys on sync server
+6. Broadcasts `SyncIdentityRotationConfirm` on success
 
-**Failure handling:**
+#### Failure Handling
 
 | Failure Point                     | State                                      | Recovery                                                                               |
 | --------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------- |
@@ -168,31 +164,13 @@ struct SyncIdentityRotationConfirm {
 | Server rotated, confirm not sent  | All have new identity, server has new keys | System is functional; confirm is optional verification                                 |
 | Claim sent, claimer goes offline  | All have new identity, server has old keys | After timeout, another installation retries server rotation using the claimed identity |
 
-**Key insight:** By broadcasting the new identity _before_ server rotation, we ensure all installations have the keys needed to decrypt regardless of where the process fails. The worst case is the server still has old keys, which can be retried. If a claim is received but no confirmation follows, installations can ignore the claim and another installation can attempt rotation.
+By broadcasting the new identity _before_ server rotation, we ensure all installations have the keys needed to decrypt regardless of where the process fails. The worst case is the server still has old keys, which can be retried. If a claim is received but no confirmation follows, installations can ignore the claim and another installation can attempt rotation.
 
-**Note:** The blobs themselves don't move - they're content-addressed and shared globally. Only the manifest is updated with re-wrapped DEKs.
+**Note:** The content blobs are unaffected by this process. Only the manifest is updated with re-wrapped DEKs.
 
 ### Offline Installation Recovery
 
 If an installation is offline during a KEK rotation, it recovers through the MLS sync group message history.
-
-### Stale Data Handling
-
-When server data is stale, new installations can request updates from peers via the MLS sync group.
-
-```rust
-/// Request peers to upload their latest data to the sync server
-struct SyncDataRequest {
-    /// Random ID to correlate request with acknowledgement
-    request_id: [u8; 32],
-}
-
-/// Acknowledge sync data request (sent by installation handling the upload)
-struct SyncDataAcknowledge {
-    /// Matches the request_id from SyncDataRequest
-    request_id: [u8; 32],
-}
-```
 
 ---
 
@@ -203,7 +181,7 @@ struct SyncDataAcknowledge {
 - On rotation, all DEKs are re-wrapped with the new KEK
 - Installations with old KEK cannot decrypt current archives
 
-### Privacy Model
+### Sync ID
 
 Instead of using `inbox_id` (which links to on-chain identity), we generate a random `sync_id` that is:
 
@@ -213,17 +191,15 @@ Instead of using `inbox_id` (which links to on-chain identity), we generate a ra
 
 ### Manifest
 
-There is exactly one manifest per sync_id, stored as `{sync_id}.manifest`. The manifest is the encrypted index that makes content blobs useful - without it, blobs are opaque and undecryptable since the manifest contains the wrapped DEKs needed to decrypt each blob.
+There is exactly one manifest per `inbox_id`, stored as `{sync_id}.manifest`. The manifest is the encrypted index that makes content blobs useful - without it, blobs are opaque and undecryptable since the manifest contains the wrapped DEKs needed to decrypt each blob.
 
 The manifest will typically be in 2-10 KB range, but grows with number of groups/blobs.
 
 ```rust
-/// Stored on server - encrypted, opaque to server
+/// Encrypted manifest - stored on server
 struct EncryptedManifest {
-    /// DEK for manifest, wrapped with KEK
-    wrapped_manifest_dek: Vec<u8>,
-    /// KEK version used for wrapping
-    kek_version: u64,
+    /// DEK wrapped with KEK
+    wrapped_dek: Vec<u8>,
     /// Encrypted manifest (AES-256-GCM)
     ciphertext: Vec<u8>,
     /// Random 12-byte nonce for AES-256-GCM decryption
@@ -236,40 +212,54 @@ struct Manifest {
     inbox_id: String,
     /// Timestamp of last manifest update
     last_updated_ns: i64,
-    /// Archive entry for consent records
-    consent: ArchiveEntry,
-    /// Archive entry for group metadata
-    groups: ArchiveEntry,
+    /// Consent archives
+    consent: Vec<ManifestEntry>,
+    /// Group metadata archives
+    groups: Vec<ManifestEntry>,
     /// Per-group message archives, keyed by group_id
-    group_messages: HashMap<GroupId, Vec<MessageArchiveEntry>>,
+    messages: HashMap<GroupId, Vec<ManifestEntry>>,
 }
 
-struct ArchiveEntry {
+/// Metadata for an archive, stored in the manifest
+struct ManifestEntry {
     /// SHA-256 hash of encrypted blob as hex string (used as filename on server)
     content_hash: String,
     /// DEK wrapped with KEK
     wrapped_dek: Vec<u8>,
+    /// Random 12-byte nonce for AES-256-GCM decryption
+    nonce: [u8; 12],
     /// Size of encrypted blob in bytes
     size_bytes: u64,
     /// When this entry was created
     created_at_ns: i64,
-}
-
-struct MessageArchiveEntry {
-    /// SHA-256 hash of encrypted blob as hex string (used as filename on server)
-    content_hash: String,
-    /// DEK wrapped with KEK
-    wrapped_dek: Vec<u8>,
-    /// Size of encrypted blob in bytes
-    size_bytes: u64,
-    /// When this entry was created
-    created_at_ns: i64,
-    /// Time range of messages in this archive
+    /// Time range of data in this archive
     time_range_start_ns: i64,
     time_range_end_ns: i64,
-    /// Number of messages in this archive
-    message_count: u64,
+    /// Number of items in this archive
+    item_count: u64,
 }
+
+/// Encrypted archive stored on the sync server (raw AES-256-GCM ciphertext)
+type EncryptedArchive = Vec<u8>;
+```
+
+### Key Wrapping
+
+Each archive has a unique, random Data Encryption Key (DEK). The DEK is wrapped (encrypted) with the KEK.
+
+```rust
+/// Creates an encrypted archive from data.
+///
+/// Steps:
+/// 1. Generate random 32-byte DEK
+/// 2. Generate random 12-byte nonce
+/// 3. Encrypt data with AES-256-GCM using DEK and nonce
+/// 4. Wrap DEK with KEK using AES key wrap (RFC 3394)
+/// 5. Return EncryptedArchive and ManifestEntry (metadata + wrapped DEK)
+fn create_archive(data: &[u8], kek: &[u8]) -> (EncryptedArchive, ManifestEntry);
+
+/// Decrypts an encrypted archive using wrapped DEK and KEK.
+fn decrypt_archive(archive: &EncryptedArchive, wrapped_dek: &[u8], kek: &[u8]) -> Vec<u8>;
 ```
 
 ### Content Blobs
@@ -288,32 +278,23 @@ Blobs are immutable and content-addressed:
 - Same content = same hash = stored once
 - Blobs are only useful with the corresponding manifest entry
 
-### Key Wrapping
+### Stale Data Handling
 
-Each archive has a unique, random Data Encryption Key (DEK). The DEK is wrapped (encrypted) with the KEK:
+When server data is stale, new installations can request updates from peers via the MLS sync group.
 
 ```rust
-/// Creates an encrypted archive from data.
-///
-/// Steps:
-/// 1. Generate random 32-byte DEK
-/// 2. Generate random 12-byte nonce
-/// 3. Encrypt data with AES-256-GCM using DEK and nonce
-/// 4. Wrap DEK with KEK using AES key wrap (RFC 3394)
-/// 5. Return EncryptedArchive and ArchiveEntry (metadata + wrapped DEK)
-fn create_archive(data: &[u8], kek: &[u8]) -> (EncryptedArchive, ArchiveEntry);
+/// Request peers to upload their latest data to the sync server
+struct SyncDataRequest {
+    /// Random 32-byte ID to correlate request with acknowledgement
+    request_id: String,
+}
 
-/// Decrypts an encrypted archive using wrapped DEK and KEK.
-fn decrypt_archive(archive: &EncryptedArchive, wrapped_dek: &[u8], kek: &[u8]) -> Vec<u8>;
+/// Acknowledge sync data request (sent by installation handling the upload)
+struct SyncDataAcknowledge {
+    /// Matches the request_id from SyncDataRequest
+    request_id: String,
+}
 ```
-
-### Key Rotation
-
-Key rotation occurs when installations are added or revoked.
-
-- Archives (blobs) are NOT re-uploaded or moved
-- New manifest created
-- Old manifest removed
 
 ---
 
@@ -700,16 +681,16 @@ impl SyncClient {
     /// 4. Encrypt serialized data with AES-256-GCM using DEK and nonce
     /// 5. Compute SHA-256 content hash of ciphertext
     /// 6. Upload ciphertext blob to server (stored by content hash)
-    /// 7. Create MessageArchiveEntry with:
+    /// 7. Create MessageManifestEntry with:
     ///    - content_hash from step 5
     ///    - DEK wrapped with current KEK
     ///    - Metadata (size, time range, message count)
-    /// 8. Return MessageArchiveEntry for manifest update
+    /// 8. Return MessageManifestEntry for manifest update
     async fn create_and_upload_message_archive(
         &self,
         group_id: &GroupId,
         messages: Vec<Message>,
-    ) -> Result<MessageArchiveEntry>;
+    ) -> Result<MessageManifestEntry>;
 }
 ```
 
@@ -722,7 +703,7 @@ Failed uploads can be retried with automatic resume support:
 #[derive(Serialize, Deserialize)]
 struct PendingUpload {
     /// SHA-256 hash of the complete blob (for integrity verification)
-    content_hash: [u8; 32],
+    content_hash: String,
     /// Total size of the blob in bytes
     total_size: u64,
     /// Path to locally cached encrypted blob (needed for resume if app restarts)
