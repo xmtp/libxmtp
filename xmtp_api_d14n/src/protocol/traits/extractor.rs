@@ -32,3 +32,19 @@ where
         self.get()
     }
 }
+
+pub trait MaybeExtractor: Extractor<Output = Option<Self::Value>> {
+    type Value;
+    fn maybe_get(self) -> Option<Self::Value>;
+}
+
+impl<T, V> MaybeExtractor for T
+where
+    T: Extractor<Output = Option<V>>,
+{
+    type Value = V;
+
+    fn maybe_get(self) -> Option<Self::Value> {
+        self.get()
+    }
+}

@@ -10,25 +10,18 @@ type IndentVec = Vec<Indent>;
 
 static ERROR: LazyLock<Style> = LazyLock::new(|| Style::new().bold().red());
 static WARN: LazyLock<Style> = LazyLock::new(|| Style::new().bold().yellow());
-static INFO: LazyLock<Style> = LazyLock::new(|| Style::new().bold().white());
-static DEBUG: LazyLock<Style> = LazyLock::new(|| Style::new().bold().white());
-static TRACE: LazyLock<Style> = LazyLock::new(|| Style::new().bold().white());
+static INFO: LazyLock<Style> = LazyLock::new(|| Style::new().bold().green());
+static DEBUG: LazyLock<Style> = LazyLock::new(|| Style::new().bold().blue());
+static TRACE: LazyLock<Style> = LazyLock::new(|| Style::new().bold().purple());
 
-fn err() -> &'static Style {
-    &ERROR
-}
-
-fn warn() -> &'static Style {
-    &WARN
-}
-fn info() -> &'static Style {
-    &INFO
-}
-fn debug() -> &'static Style {
-    &DEBUG
-}
-fn trace() -> &'static Style {
-    &TRACE
+fn level_style(level: tracing::Level) -> &'static Style {
+    match level {
+        tracing::Level::TRACE => &TRACE,
+        tracing::Level::DEBUG => &DEBUG,
+        tracing::Level::INFO => &INFO,
+        tracing::Level::WARN => &WARN,
+        tracing::Level::ERROR => &ERROR,
+    }
 }
 
 fn write_with_level(
@@ -36,14 +29,7 @@ fn write_with_level(
     s: &str,
     mut writer: impl std::fmt::Write,
 ) -> std::fmt::Result {
-    match level.as_str() {
-        "TRACE" => writer.write_str(&trace().style(s).to_string()),
-        "DEBUG" => writer.write_str(&debug().style(s).to_string()),
-        "INFO" => writer.write_str(&info().style(s).to_string()),
-        "WARN" => writer.write_str(&warn().style(s).to_string()),
-        "ERROR" => writer.write_str(&err().style(s).to_string()),
-        _ => unreachable!(),
-    }
+    writer.write_str(&level_style(level).style(s).to_string())
 }
 
 pub struct Contextual;

@@ -1,9 +1,9 @@
 mod mock_client;
 pub use mock_client::*;
 
-mod test_client;
+mod traits;
 #[allow(unused)]
-pub use test_client::*;
+pub use traits::*;
 
 mod definitions;
 pub use definitions::*;

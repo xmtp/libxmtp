@@ -1,7 +1,6 @@
 use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::prelude::ApiBuilder;
-use xmtp_proto::types::AppVersion;
 
 #[derive(Clone)]
 pub struct V3Client<C, Store> {
@@ -47,49 +46,15 @@ where
     type Output = V3Client<<Builder as ApiBuilder>::Output, Store>;
 
     type Error = <Builder as ApiBuilder>::Error;
-
-    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
-        <Builder as ApiBuilder>::set_libxmtp_version(&mut self.client, version)
-    }
-
-    fn set_app_version(&mut self, version: AppVersion) -> Result<(), Self::Error> {
-        <Builder as ApiBuilder>::set_app_version(&mut self.client, version)
-    }
-
-    fn set_host(&mut self, host: String) {
-        <Builder as ApiBuilder>::set_host(&mut self.client, host)
-    }
-
-    fn set_tls(&mut self, tls: bool) {
-        <Builder as ApiBuilder>::set_tls(&mut self.client, tls)
-    }
-
-    fn rate_per_minute(&mut self, limit: u32) {
-        <Builder as ApiBuilder>::rate_per_minute(&mut self.client, limit)
-    }
-
-    fn port(&self) -> Result<Option<String>, Self::Error> {
-        <Builder as ApiBuilder>::port(&self.client)
-    }
-
-    fn host(&self) -> Option<&str> {
-        <Builder as ApiBuilder>::host(&self.client)
-    }
-
     fn build(self) -> Result<Self::Output, Self::Error> {
         Ok(V3Client {
             client: <Builder as ApiBuilder>::build(self.client)?,
             cursor_store: self.store,
         })
     }
-
-    fn set_retry(&mut self, retry: xmtp_common::Retry) {
-        <Builder as ApiBuilder>::set_retry(&mut self.client, retry)
-    }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C, Store> IsConnectedCheck for V3Client<C, Store>
 where
     C: IsConnectedCheck,
@@ -97,31 +62,5 @@ where
 {
     async fn is_connected(&self) -> bool {
         self.client.is_connected().await
-    }
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-mod test {
-    #![allow(clippy::unwrap_used)]
-    use xmtp_configuration::LOCALHOST;
-    use xmtp_proto::{TestApiBuilder, ToxicProxies};
-
-    use crate::protocol::NoCursorStore;
-
-    use super::*;
-    impl<Builder> TestApiBuilder for V3ClientBuilder<Builder, NoCursorStore>
-    where
-        Builder: ApiBuilder,
-        <Builder as ApiBuilder>::Output: xmtp_proto::api::Client,
-    {
-        async fn with_toxiproxy(&mut self) -> ToxicProxies {
-            let host = <Builder as ApiBuilder>::host(&self.client).unwrap();
-            let proxies = xmtp_proto::init_toxi(&[host]).await;
-            <Builder as ApiBuilder>::set_host(
-                &mut self.client,
-                format!("{LOCALHOST}:{}", proxies.ports()[0]),
-            );
-            proxies
-        }
     }
 }

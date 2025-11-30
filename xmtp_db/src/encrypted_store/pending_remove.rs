@@ -125,7 +125,7 @@ mod tests {
     use crate::{StoreOrIgnore, with_connection};
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn test_add_pending_remove() {
+    fn test_add_pending_remove() {
         with_connection(|conn| {
             // Break the chain by unsetting the originator.
             PendingRemove {
@@ -139,11 +139,10 @@ mod tests {
             let users = conn.get_pending_remove_users(&[1]).unwrap();
             assert_eq!(users.len(), 0);
         })
-        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn test_delete_pending_remove_user() {
+    fn test_delete_pending_remove_user() {
         with_connection(|conn| {
             // Break the chain by unsetting the originator.
             PendingRemove {
@@ -177,6 +176,5 @@ mod tests {
                 .unwrap();
             assert_eq!(deleted_users, 0usize);
         })
-        .await
     }
 }

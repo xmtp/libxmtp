@@ -10,7 +10,7 @@ use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::{EnvFilter, prelude::*};
 use tracing_subscriber::{
     Layer,
-    fmt::{FmtContext, FormatEvent, FormatFields, format, format::Writer, time},
+    fmt::{FmtContext, FormatEvent, FormatFields, format, format::Writer},
     registry::LookupSpan,
 };
 
@@ -77,9 +77,6 @@ impl Logger {
                 guards.push(guard);
                 tracing_subscriber::fmt::layer()
                     .json()
-                    .flatten_event(true)
-                    .with_level(true)
-                    .with_timer(time::ChronoLocal::new("%s".into()))
                     .with_writer(appender)
                     .with_filter(file_filter())
             }))

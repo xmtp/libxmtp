@@ -1,6 +1,6 @@
 {
   "name": "@xmtp/wasm-bindings",
-  "version": "1.6.1",
+  "version": "1.7.0-dev",
   "type": "module",
   "license": "MIT",
   "description": "WASM bindings for the libXMTP rust library",
@@ -33,7 +33,6 @@
     "check:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo check --target wasm32-unknown-unknown",
     "clean": "rm -rf ./dist",
     "clean:release": "rm ./dist/.gitignore",
-    "generate:version": "tsx scripts/version.ts",
     "lint": "yarn lint:clippy && yarn lint:fmt",
     "lint:macos": "yarn lint:clippy:macos && yarn lint:fmt",
     "lint:clippy": "cargo clippy --locked --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings",
@@ -54,7 +53,7 @@
     }
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "publishConfig": {
     "access": "public",
@@ -64,11 +63,10 @@
   "devDependencies": {
     "@sqlite.org/sqlite-wasm": "^3.47.0-build1",
     "binaryen": "^124.0.0",
-    "tsx": "^4.19.3",
-    "wasm-pack": "^0.13.1",
-    "zx": "^8.4.0"
+    "tsx": "^4.20.6",
+    "wasm-pack": "^0.13.1"
   },
-  "packageManager": "yarn@4.5.1",
+  "packageManager": "yarn@4.11.0",
   "workspaces": [
     "tests/integration/**"
   ]

@@ -26,7 +26,7 @@ pub struct DecodedMessage {
   pub kind: GroupMessageKind,
   pub sender_installation_id: Vec<u8>,
   pub sender_inbox_id: String,
-  pub content_type: ContentTypeId,
+  content_type: ContentTypeId,
   pub conversation_id: Vec<u8>,
   pub fallback_text: Option<String>,
   pub delivery_status: DeliveryStatus,
@@ -44,6 +44,11 @@ impl DecodedMessage {
       .iter()
       .map(|r| r.clone().into())
       .collect()
+  }
+
+  #[napi(getter)]
+  pub fn content_type(&self) -> ContentTypeId {
+    self.content_type.clone()
   }
 
   // Lazy getter methods for content fields
@@ -82,7 +87,13 @@ impl DecodedMessage {
   #[napi(getter)]
   pub fn remote_attachment_content(&self) -> Option<RemoteAttachment> {
     match &self.inner.content {
-      MessageBody::RemoteAttachment(ra) => Some(ra.clone().into()),
+      MessageBody::RemoteAttachment(ra) => match ra.clone().try_into() {
+        Ok(ra) => Some(ra),
+        Err(e) => {
+          tracing::error!("Failed to convert RemoteAttachment: {}", e);
+          None
+        }
+      },
       _ => None,
     }
   }

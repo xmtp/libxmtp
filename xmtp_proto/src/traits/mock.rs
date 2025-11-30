@@ -1,5 +1,5 @@
 use super::*;
-use crate::{ToxicProxies, prelude::*, types::AppVersion};
+use crate::{api_client::NetConnectConfig, prelude::*, types::AppVersion};
 
 pub struct TestEndpoint;
 impl Endpoint for TestEndpoint {
@@ -19,6 +19,13 @@ pub struct MockApiBuilder;
 impl ApiBuilder for MockApiBuilder {
     type Output = MockNetworkClient;
     type Error = MockError;
+
+    fn build(self) -> Result<Self::Output, Self::Error> {
+        Ok(MockNetworkClient::default())
+    }
+}
+
+impl NetConnectConfig for MockApiBuilder {
     fn set_libxmtp_version(&mut self, _version: String) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -26,7 +33,6 @@ impl ApiBuilder for MockApiBuilder {
         Ok(())
     }
     fn set_host(&mut self, _host: String) {}
-    fn set_gateway(&mut self, _host: String) {}
     fn set_tls(&mut self, _tls: bool) {}
     fn rate_per_minute(&mut self, _limit: u32) {}
 
@@ -34,21 +40,11 @@ impl ApiBuilder for MockApiBuilder {
         Ok(None)
     }
 
-    fn build(self) -> Result<Self::Output, Self::Error> {
-        Ok(MockNetworkClient::default())
-    }
-
     fn host(&self) -> Option<&str> {
         None
     }
 
     fn set_retry(&mut self, _retry: xmtp_common::Retry) {}
-}
-
-impl crate::TestApiBuilder for MockApiBuilder {
-    async fn with_toxiproxy(&mut self) -> ToxicProxies {
-        unimplemented!()
-    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -70,35 +66,11 @@ impl xmtp_common::RetryableError for MockError {
 
 type Repeat = Box<dyn Send + FnMut() -> Result<prost::bytes::Bytes, MockError>>;
 type MockStreamT = futures::stream::RepeatWith<Repeat>;
-#[cfg(not(target_arch = "wasm32"))]
+
 mockall::mock! {
     pub NetworkClient {}
 
-    #[async_trait::async_trait]
-    impl Client for NetworkClient {
-        type Error = MockError;
-        type Stream = MockStreamT;
-        async fn request(
-            &self,
-            request: http::request::Builder,
-            path: http::uri::PathAndQuery,
-            body: Bytes,
-        ) -> Result<http::Response<Bytes>, ApiClientError<MockError>>;
-
-        async fn stream(
-            &self,
-            request: http::request::Builder,
-            path: http::uri::PathAndQuery,
-            body: Bytes,
-        ) -> Result<http::Response<MockStreamT>, ApiClientError<MockError>>;
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-mockall::mock! {
-    pub NetworkClient {}
-
-    #[async_trait::async_trait(?Send)]
+    #[xmtp_common::async_trait]
     impl Client for NetworkClient {
         type Error = MockError;
         type Stream = MockStreamT;

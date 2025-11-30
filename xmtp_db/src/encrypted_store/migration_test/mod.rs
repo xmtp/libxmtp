@@ -5,6 +5,8 @@ use diesel::migration::MigrationSource;
 
 use super::*;
 
+#[cfg(not(target_arch = "wasm32"))]
+mod add_inserted_at_ns;
 mod originator_id_refresh_state;
 mod update_dm_trigger;
 

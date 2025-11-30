@@ -1,9 +1,8 @@
 use std::{collections::HashMap, ops::Deref};
 
 use napi::{
-  JsFunction,
   bindgen_prelude::{Result, Uint8Array},
-  threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode},
+  threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode},
 };
 use xmtp_db::{
   group::{ConversationType, DmIdExt},
@@ -85,10 +84,18 @@ pub enum PermissionLevel {
 #[napi]
 pub struct GroupMember {
   pub inbox_id: String,
-  pub account_identifiers: Vec<Identifier>,
+  account_identifiers: Vec<Identifier>,
   pub installation_ids: Vec<String>,
   pub permission_level: PermissionLevel,
   pub consent_state: ConsentState,
+}
+
+#[napi]
+impl GroupMember {
+  #[napi(getter)]
+  pub fn account_identifiers(&self) -> Vec<Identifier> {
+    self.account_identifiers.clone()
+  }
 }
 
 #[napi]
@@ -469,6 +476,27 @@ impl Conversation {
   }
 
   #[napi]
+  pub async fn update_app_data(&self, app_data: String) -> Result<()> {
+    let group = self.create_mls_group();
+
+    group
+      .update_app_data(app_data)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub fn app_data(&self) -> Result<String> {
+    let group = self.create_mls_group();
+
+    let app_data = group.app_data().map_err(ErrorWrapper::from)?;
+
+    Ok(app_data)
+  }
+
+  #[napi]
   pub async fn update_group_image_url_square(&self, group_image_url_square: String) -> Result<()> {
     let group = self.create_mls_group();
 
@@ -510,19 +538,17 @@ impl Conversation {
     Ok(group_description)
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, onClose: () => void"
-  )]
-  pub fn stream(&self, callback: JsFunction, on_close: JsFunction) -> Result<StreamCloser> {
-    let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
-      callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
-      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+  #[napi]
+  pub async fn stream(
+    &self,
+    callback: ThreadsafeFunction<Message, ()>,
+    on_close: ThreadsafeFunction<(), ()>,
+  ) -> Result<StreamCloser> {
     let stream_closer = MlsGroup::stream_with_callback(
       self.inner_group.context.clone(),
       self.group_id.clone(),
       move |message| {
-        let status = tsfn.call(
+        let status = callback.call(
           message
             .map(Message::from)
             .map_err(ErrorWrapper::from)
@@ -532,7 +558,7 @@ impl Conversation {
         tracing::info!("Stream status: {:?}", status);
       },
       move || {
-        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+        on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
       },
     );
 
@@ -682,7 +708,7 @@ impl Conversation {
     let dms = self
       .inner_group
       .find_duplicate_dms()
-      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+      .map_err(ErrorWrapper::from)?;
 
     let mut hmac_map = HashMap::new();
     for conversation in dms {
@@ -712,11 +738,13 @@ impl Conversation {
   pub async fn debug_info(&self) -> Result<ConversationDebugInfo> {
     let group = self.create_mls_group();
 
-    group
-      .debug_info()
-      .await
-      .map(Into::into)
-      .map_err(|e| napi::Error::from_reason(e.to_string()))
+    Ok(
+      group
+        .debug_info()
+        .await
+        .map(Into::into)
+        .map_err(ErrorWrapper::from)?,
+    )
   }
 
   #[napi]
@@ -725,7 +753,7 @@ impl Conversation {
     let dms = self
       .inner_group
       .find_duplicate_dms()
-      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+      .map_err(ErrorWrapper::from)?;
 
     let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();
 

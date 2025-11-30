@@ -26,6 +26,7 @@ test-utils = [
   "xmtp_api_grpc/test-utils",
   "xmtp_configuration/test-utils",
   "xmtp_common/test-utils",
+  "xmtp_api_d14n/test-utils",
   "xmtp_content_types/test-utils",
   "dep:alloy",
   "dep:passkey",
@@ -219,6 +220,12 @@ required-features = ["bench"]
 harness = false
 name = "messages"
 required-features = ["bench"]
+
+[[bench]]
+harness = false
+name = "consent"
+required-features = ["bench"]
+
 [[bench]]
 harness = false
 name = "sync_conversations"

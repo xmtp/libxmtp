@@ -11,13 +11,11 @@ use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::{GlobalCursor, GroupId, InstallationId, TopicKind};
 use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse;
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, G, Store, E> XmtpMlsStreams for D14nClient<C, G, Store>
+#[xmtp_common::async_trait]
+impl<C, Store, E> XmtpMlsStreams for D14nClient<C, Store>
 where
     C: Client<Error = E>,
     <C as Client>::Stream: 'static,
-    G: Client<Error = E>,
     E: RetryableError + 'static,
     Store: CursorStore,
 {
@@ -49,7 +47,7 @@ where
             .topics(topics)
             .last_seen(lcc)
             .build()?
-            .stream(&self.message_client)
+            .stream(&self.client)
             .await?;
         Ok(stream::try_extractor(s))
     }
@@ -83,7 +81,7 @@ where
             .topics(topics)
             .last_seen(lcc)
             .build()?
-            .stream(&self.message_client)
+            .stream(&self.client)
             .await?;
         Ok(stream::try_extractor(s))
     }
@@ -103,7 +101,7 @@ where
             .topics(topics)
             .last_seen(lcc)
             .build()?
-            .stream(&self.message_client)
+            .stream(&self.client)
             .await?;
         Ok(stream::try_extractor(s))
     }

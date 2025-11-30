@@ -16,7 +16,6 @@
 , sqlcipher
 , sqlite
 , corepack
-, lnav
 , zstd
 , foundry-bin
 , graphite-cli
@@ -39,9 +38,12 @@
 , zlib
 , xmtp
 , omnix
+, toxiproxy
+, vscode-extensions
+, lldb
+, wasm-tools
 , ...
 }:
-
 let
   inherit (stdenv) isDarwin isLinux;
   rust-toolchain = xmtp.mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
@@ -58,6 +60,7 @@ mkShell {
   CFLAGS_wasm32_unknown_unknown = "-I ${llvmPackages.clang-unwrapped.lib}/lib/clang/19/include";
   LD_LIBRARY_PATH = lib.makeLibraryPath [ openssl zlib ];
   nativeBuildInputs = [ pkg-config zstd openssl zlib ];
+  XMTP_NIX_ENV = "yes";
   buildInputs =
     [
       rust-toolchain
@@ -76,6 +79,7 @@ mkShell {
       kotlin
       diesel-cli
       graphite-cli
+      toxiproxy
 
       # Random devtools
       # tokio-console
@@ -86,7 +90,6 @@ mkShell {
       cargo-nextest
       cargo-machete
       inferno
-      lnav
       jq
       curl
       lcov
@@ -94,6 +97,8 @@ mkShell {
       binaryen
       wasm-pack
       binaryen
+      vscode-extensions.vadimcn.vscode-lldb
+      lldb
 
       # Protobuf
       buf
@@ -101,8 +106,8 @@ mkShell {
       protolint
       omnix
 
-
       # lint
+      wasm-tools
       taplo
       # dev/up
       shellcheck
@@ -111,5 +116,6 @@ mkShell {
     ]
     ++ lib.optionals isDarwin [
       darwin.cctools
-    ] ++ lib.optionals isLinux [ cargo-llvm-cov ];
+    ]
+    ++ lib.optionals isLinux [ cargo-llvm-cov ];
 }

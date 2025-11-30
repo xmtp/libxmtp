@@ -5,7 +5,7 @@ use xmtp_id::InboxOwner;
 use xmtp_mls::{
     Client,
     identity::IdentityStrategy,
-    utils::test::{TestClient, register_client},
+    utils::test::{DefaultTestClientCreator, register_client},
 };
 use xmtp_proto::api_client::ApiBuilder;
 use xmtp_proto::api_client::XmtpTestClient;
@@ -26,8 +26,8 @@ async fn chaos_demo() {
     let alix = Client::builder(new_identity(&owner))
         .store(store)
         .api_clients(
-            TestClient::create_local().build().unwrap(),
-            TestClient::create_local().build().unwrap(),
+            DefaultTestClientCreator::create().build().unwrap(),
+            DefaultTestClientCreator::create().build().unwrap(),
         )
         .default_mls_store()
         .unwrap()

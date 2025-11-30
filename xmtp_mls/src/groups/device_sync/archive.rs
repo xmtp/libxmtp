@@ -1,18 +1,18 @@
 use super::DeviceSyncError;
 use crate::{
     context::XmtpSharedContext,
-    groups::{MlsGroup, group_permissions::PolicySet},
+    groups::{MlsGroup, device_sync::MissingField, group_permissions::PolicySet},
 };
 use futures::StreamExt;
 pub use xmtp_archive::*;
 use xmtp_db::{
     StoreOrIgnore,
     consent_record::StoredConsentRecord,
-    group::{ConversationType, GroupMembershipState},
+    group::{ConversationType, DmIdExt, GroupMembershipState},
     group_message::StoredGroupMessage,
     prelude::*,
 };
-use xmtp_mls_common::group::GroupMetadataOptions;
+use xmtp_mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
 
 pub async fn insert_importer(
@@ -45,25 +45,48 @@ fn insert(element: BackupElement, context: &impl XmtpSharedContext) -> Result<()
                 return Ok(());
             }
 
+            let conversation_type = save.conversation_type().try_into()?;
             let attributes = save
                 .mutable_metadata
                 .map(|m| m.attributes)
                 .unwrap_or_default();
 
-            MlsGroup::insert(
-                context,
-                Some(&save.id),
-                GroupMembershipState::Restored,
-                ConversationType::Group,
-                PolicySet::default(),
-                GroupMetadataOptions {
-                    name: attributes.get("group_name").cloned(),
-                    image_url_square: attributes.get("group_image_url_square").cloned(),
-                    description: attributes.get("description").cloned(),
-                    ..Default::default()
-                },
-                None,
-            )?;
+            match conversation_type {
+                ConversationType::Dm => {
+                    let Some(dm_id) = save.dm_id else {
+                        return Err(DeviceSyncError::MissingField(
+                            MissingField::Conversation(super::ConversationField::DmId),
+                            format!("DM with id of {:?} was missing the dm_id field.", save.id),
+                        ));
+                    };
+
+                    let target_inbox_id = dm_id.other_inbox_id(context.inbox_id());
+
+                    MlsGroup::create_dm_and_insert(
+                        context,
+                        GroupMembershipState::Restored,
+                        target_inbox_id,
+                        DMMetadataOptions::default(),
+                        Some(&save.id),
+                    )?;
+                }
+                _ => {
+                    MlsGroup::insert(
+                        context,
+                        Some(&save.id),
+                        GroupMembershipState::Restored,
+                        ConversationType::Group,
+                        PolicySet::default(),
+                        GroupMetadataOptions {
+                            name: attributes.get("group_name").cloned(),
+                            image_url_square: attributes.get("group_image_url_square").cloned(),
+                            description: attributes.get("description").cloned(),
+                            ..Default::default()
+                        },
+                        None,
+                    )?;
+                }
+            }
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;
@@ -80,12 +103,14 @@ mod tests {
     #![allow(unused)]
     use super::*;
     use crate::groups::send_message_opts::SendMessageOpts;
+    use crate::tester;
     use crate::utils::{LocalTester, Tester};
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::wait_for_min_intents,
     };
     use diesel::prelude::*;
-    use futures::io::Cursor;
+    use futures::AsyncReadExt;
+    use futures::io::{BufReader, Cursor};
     use std::{path::Path, sync::Arc};
     use xmtp_archive::exporter::ArchiveExporter;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -98,14 +123,66 @@ mod tests {
     };
     use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_dm_archive() {
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+
+        let alix_bo_dm = alix
+            .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
+            .await?;
+        alix_bo_dm
+            .send_message(b"old group", Default::default())
+            .await?;
+
+        let key = vec![7; 32];
+        let opts = BackupOptions {
+            start_ns: None,
+            end_ns: None,
+            elements: vec![
+                BackupElementSelection::Messages as i32,
+                BackupElementSelection::Consent as i32,
+            ],
+            exclude_disappearing_messages: false,
+        };
+        let export = {
+            let mut file = vec![];
+            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+            exporter.read_to_end(&mut file).await?;
+            file
+        };
+
+        tester!(alix2, from: alix);
+        let reader = Box::pin(BufReader::new(Cursor::new(export)));
+        let mut importer = ArchiveImporter::load(reader, &key).await?;
+        insert_importer(&mut importer, &alix2.context).await?;
+
+        let alix2_bo_dm = alix2
+            .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
+            .await?;
+        assert_ne!(alix_bo_dm.group_id, alix2_bo_dm.group_id);
+        let mut msgs = alix2_bo_dm.find_messages(&MsgQueryArgs::default())?;
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[1].decrypted_message_bytes, b"old group");
+        // assert_eq!(alix2_bo_dm.test_last_message_bytes().await??, b"old group");
+
+        alix2_bo_dm
+            .send_message(b"hi bo", Default::default())
+            .await?;
+
+        bo.sync_all_welcomes_and_groups(None).await?;
+        let bo_alix2_dm = bo.group(&alix2_bo_dm.group_id)?;
+        assert_eq!(bo_alix2_dm.test_last_message_bytes().await??, b"hi bo");
+    }
+
     #[rstest::rstest]
     #[xmtp_common::test]
     async fn test_buffer_export_import() {
         use futures::io::BufReader;
         use futures_util::AsyncReadExt;
 
-        let alix = Tester::new().await;
-        let bo = Tester::new().await;
+        tester!(alix);
+        tester!(bo);
 
         let alix_group = alix.create_group(None, None).unwrap();
         alix_group
@@ -124,6 +201,7 @@ mod tests {
                 BackupElementSelection::Messages as i32,
                 BackupElementSelection::Consent as i32,
             ],
+            exclude_disappearing_messages: false,
         };
 
         let key = vec![7; 32];
@@ -212,7 +290,7 @@ mod tests {
             .context
             .db()
             .raw_query_read(|conn| group_messages::table.load(conn))?;
-        assert_eq!(old_messages.len(), 6);
+        assert_eq!(old_messages.len(), 5);
 
         let opts = BackupOptions {
             start_ns: None,
@@ -221,6 +299,7 @@ mod tests {
                 BackupElementSelection::Messages.into(),
                 BackupElementSelection::Consent.into(),
             ],
+            exclude_disappearing_messages: false,
         };
 
         let key = xmtp_common::rand_vec::<32>();
@@ -316,5 +395,23 @@ mod tests {
 
         // cleanup
         let _ = tokio::fs::remove_file(path).await;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn test_legacy_archive_import() {
+        use std::path::PathBuf;
+
+        use crate::tester;
+
+        let key = vec![0; 32];
+        let path = PathBuf::from("tests/assets/archive-legacy.xmtp");
+        tracing::info!("{path:?}");
+        let mut importer = ArchiveImporter::from_file(path, &key).await?;
+
+        tester!(alix);
+
+        let result = insert_importer(&mut importer, &alix.context).await;
+        assert!(result.is_ok());
     }
 }

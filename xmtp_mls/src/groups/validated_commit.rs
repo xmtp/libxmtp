@@ -1,5 +1,6 @@
 use super::{
-    MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
+    MAX_APP_DATA_LENGTH, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
+    MAX_GROUP_NAME_LENGTH,
     group_membership::{GroupMembership, MembershipDiff},
     group_permissions::{
         GroupMutablePermissions, GroupMutablePermissionsError, extract_group_permissions,
@@ -349,6 +350,13 @@ impl ValidatedCommit {
                     {
                         return Err(CommitValidationError::TooManyCharacters {
                             length: MAX_GROUP_IMAGE_URL_LENGTH,
+                        });
+                    }
+                    val if val == MetadataField::AppData.as_str()
+                        && new_value.len() > MAX_APP_DATA_LENGTH =>
+                    {
+                        return Err(CommitValidationError::TooManyCharacters {
+                            length: MAX_APP_DATA_LENGTH,
                         });
                     }
                     _ => {}
@@ -1150,6 +1158,30 @@ impl FromWith<ValidatedCommit> for GroupUpdatedProto {
                 .map(MetadataFieldChangeProto::from)
                 .collect(),
             left_inboxes: left_inboxes.iter().map(InboxProto::from).collect(),
+            added_admin_inboxes: commit
+                .metadata_validation_info
+                .admins_added
+                .iter()
+                .map(InboxProto::from)
+                .collect(),
+            removed_admin_inboxes: commit
+                .metadata_validation_info
+                .admins_removed
+                .iter()
+                .map(InboxProto::from)
+                .collect(),
+            added_super_admin_inboxes: commit
+                .metadata_validation_info
+                .super_admins_added
+                .iter()
+                .map(InboxProto::from)
+                .collect(),
+            removed_super_admin_inboxes: commit
+                .metadata_validation_info
+                .super_admins_removed
+                .iter()
+                .map(InboxProto::from)
+                .collect(),
         }
     }
 }

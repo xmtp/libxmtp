@@ -1,7 +1,9 @@
 use crate::groups::GroupError;
 use crate::messages::enrichment::EnrichMessageError;
 use prost::Message;
+use xmtp_content_types::actions::{Actions, ActionsCodec};
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
+use xmtp_content_types::intent::{Intent, IntentCodec};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::{LegacyReactionCodec, ReactionCodec};
 use xmtp_content_types::read_receipt::ReadReceiptCodec;
@@ -51,6 +53,8 @@ pub enum MessageBody {
     GroupUpdated(GroupUpdated),
     ReadReceipt(ReadReceipt),
     WalletSendCalls(WalletSendCalls),
+    Intent(Option<Intent>),
+    Actions(Option<Actions>),
     Custom(EncodedContent),
 }
 
@@ -72,6 +76,8 @@ pub struct DecodedMessageMetadata {
     pub delivery_status: DeliveryStatus,
     // The content type of the message
     pub content_type: ContentTypeId,
+    // Time in nanoseconds the message was inserted into the database
+    pub inserted_at_ns: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -146,6 +152,14 @@ impl TryFrom<EncodedContent> for MessageBody {
                 let wallet_send_calls = WalletSendCallsCodec::decode(value)?;
                 Ok(MessageBody::WalletSendCalls(wallet_send_calls))
             }
+            (IntentCodec::TYPE_ID, IntentCodec::MAJOR_VERSION) => {
+                let intent = IntentCodec::decode(value)?;
+                Ok(MessageBody::Intent(Some(intent)))
+            }
+            (ActionsCodec::TYPE_ID, ActionsCodec::MAJOR_VERSION) => {
+                let actions = ActionsCodec::decode(value)?;
+                Ok(MessageBody::Actions(Some(actions)))
+            }
 
             _ => Err(CodecError::CodecNotFound(content_type.clone()).into()),
         }
@@ -184,6 +198,7 @@ impl TryFrom<StoredGroupMessage> for DecodedMessage {
             sender_inbox_id: value.sender_inbox_id,
             delivery_status: value.delivery_status,
             content_type: content_type_id,
+            inserted_at_ns: value.inserted_at_ns,
         };
 
         // For now, we'll set default values for reactions and replies
