@@ -9,7 +9,6 @@
 5. [Encryption Scheme](#encryption-scheme)
 6. [Client API](#client-api)
 7. [Server API](#server-api)
-8. [Appendix: Data Structures](#appendix-data-structures)
 
 ---
 
@@ -179,16 +178,16 @@ If an installation is offline during a KEK rotation, it recovers through the MLS
 
 ### Stale Data Handling
 
-When server data is stale, new installations can request updates from peers with additional MLS Sync Group messages.
+When server data is stale, new installations can request updates from peers via the MLS sync group.
 
 ```rust
-/// Request sync data
+/// Request peers to upload their latest data to the sync server
 struct SyncDataRequest {
     /// Random ID to correlate request with acknowledgement
     request_id: [u8; 32],
 }
 
-/// Acknowledge sync data request
+/// Acknowledge sync data request (sent by installation handling the upload)
 struct SyncDataAcknowledge {
     /// Matches the request_id from SyncDataRequest
     request_id: [u8; 32],
@@ -572,112 +571,28 @@ A sync is considered "stale" when the server's manifest hasn't been updated rece
 **Solution:** Sync from server immediately, then request updates from peers if stale.
 
 ```rust
-impl SyncManifest {
+impl SyncClient {
     /// Returns true if the manifest is older than the given threshold.
     /// Compares (now_ns - last_updated_ns) against threshold.as_nanos().
     pub fn is_stale(&self, threshold: Duration) -> bool;
-}
 
-impl SyncClient {
-    /// Sends a SyncUpdateRequest message to the MLS sync group.
+    /// Sends a SyncDataRequest message to the MLS sync group.
     /// All peer installations will receive this request.
     /// Peers with auto_upload_on_request enabled will respond by calling upload_all().
     /// Returns immediately after sending; peer uploads happen asynchronously.
     pub async fn request_update_from_peers(&self) -> Result<(), SyncError>;
-}
-```
 
-**Flow for new installation:**
-
-```mermaid
-sequenceDiagram
-    participant B as Installation B (new)
-    participant SS as Sync Server
-    participant SG as Sync Group
-    participant A as Installation A (stale)
-
-    B->>SS: GET manifest
-    SS->>B: Manifest (1 month old)
-    B->>B: Download consent, groups (stale but usable)
-
-    Note over B: User sees conversation list (possibly incomplete)
-
-    B->>B: Check: manifest.is_stale()?
-    B->>SG: SyncUpdateRequest
-
-    Note over A: If auto_upload_on_request enabled
-    A->>A: upload_all()
-    A->>SS: Upload latest archives
-    A->>SS: Update manifest
-
-    Note over B: Later (manual or auto refresh)
-    B->>SS: GET manifest (fresh)
-    B->>B: Download new archives
-```
-
-**Sync group message for update requests:**
-
-```rust
-pub enum SyncMessage {
-    // ... existing variants ...
-
-    /// Request peers to upload their latest changes to the server.
-    /// Sent when a new installation detects stale server data.
-    SyncUpdateRequest {
-        /// Installation ID of the requester
-        requester_id: Vec<u8>,
-        /// Timestamp of the stale manifest (so peers know what's needed)
-        manifest_timestamp_ns: i64,
-    },
-}
-```
-
-**Handling the request (responder side):**
-
-```rust
-impl SyncClient {
-    /// Handles incoming SyncUpdateRequest from a peer installation.
+    /// Handles incoming SyncDataRequest from a peer installation.
     ///
     /// Behavior:
     /// 1. If auto_upload_on_request is disabled in config, ignores the request and returns Ok.
-    /// 2. Compares local last_change_timestamp_ns against request.manifest_timestamp_ns.
-    /// 3. If local data is newer, calls upload_all() to upload latest changes.
-    /// 4. Returns Ok(()) regardless of whether upload was triggered.
-    async fn handle_sync_update_request(&self, request: SyncUpdateRequest) -> Result<()>;
+    /// 2. If local data is newer than server, calls upload_all() to upload latest changes.
+    /// 3. Returns Ok(()) regardless of whether upload was triggered.
+    async fn handle_sync_data_request(&self, request: SyncDataRequest) -> Result<()>;
 }
 ```
 
 ### Sync Flows
-
-#### Initial Sync
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant SS as Sync Server
-
-    Note over C,SS: Phase 1: Metadata (~1 second)
-    C->>SS: GET /{sync_id}.manifest
-    SS->>C: manifest (~2-5KB)
-    C->>C: Decrypt manifest
-
-    C->>SS: GET /blob/{consent_hash}
-    SS->>C: consent archive (~10KB)
-    C->>C: Decrypt, import consent
-
-    C->>SS: GET /blob/{groups_hash}
-    SS->>C: groups archive (10KB-1MB+)
-    C->>C: Decrypt, import groups
-
-    Note over C: Can now show conversation list!
-
-    Note over C,SS: Phase 2: Background sync
-    loop For each group (priority order)
-        C->>SS: GET /blob/{messages_hash}
-        SS->>C: messages archive
-        C->>C: Decrypt, import
-    end
-```
 
 ```rust
 impl SyncClient {
