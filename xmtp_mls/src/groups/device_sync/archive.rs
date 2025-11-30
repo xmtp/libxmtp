@@ -81,6 +81,7 @@ fn insert(element: BackupElement, context: &impl XmtpSharedContext) -> Result<()
                             name: attributes.get("group_name").cloned(),
                             image_url_square: attributes.get("group_image_url_square").cloned(),
                             description: attributes.get("description").cloned(),
+                            app_data: attributes.get("app_data").cloned(),
                             ..Default::default()
                         },
                         None,
