@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5d814d53ef778e88d34a7aabaa7e5262f87062e79ef5df9d50a35f3363c2c3b5 # shrinks to generated = TestRequest { request: SendGroupMessagesRequest { messages: [] }, dependencies: {} }

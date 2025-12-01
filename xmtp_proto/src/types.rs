@@ -2,6 +2,7 @@
 mod api_identifier;
 mod app_version;
 mod cursor;
+mod cursor_list;
 mod global_cursor;
 mod group_message;
 mod ids;
@@ -12,6 +13,7 @@ mod welcome_message;
 pub use api_identifier::*;
 pub use app_version::*;
 pub use cursor::*;
+pub use cursor_list::*;
 pub use global_cursor::*;
 pub use group_message::*;
 pub use ids::*;

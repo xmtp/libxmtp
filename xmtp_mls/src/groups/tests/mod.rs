@@ -14,6 +14,10 @@ mod test_send_message_opts;
 mod test_welcome_pointers;
 mod test_welcomes;
 
+xmtp_common::if_d14n! {
+    mod test_message_dependencies;
+}
+
 use crate::groups::send_message_opts::SendMessageOpts;
 use chrono::DateTime;
 use openmls::prelude::MlsMessageIn;
@@ -5019,6 +5023,7 @@ async fn non_retryable_error_increments_cursor() {
         sender_hmac: vec![],
         should_push: false,
         payload_hash: vec![],
+        depends_on: Default::default(),
     };
 
     let res = group.process_message(&message, true).await;

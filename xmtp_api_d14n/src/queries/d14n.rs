@@ -9,3 +9,6 @@ xmtp_common::if_test! {
     mod test_client;
 }
 pub use client::*;
+
+#[cfg(test)]
+mod test;

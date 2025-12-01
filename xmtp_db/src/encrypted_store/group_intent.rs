@@ -1,12 +1,16 @@
+use std::collections::HashMap;
+
 use derive_builder::Builder;
 use diesel::{
     backend::Backend,
+    connection::DefaultLoadingMode,
     deserialize::{self, FromSql, FromSqlRow},
     expression::AsExpression,
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
 };
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use xmtp_common::fmt;
 use xmtp_proto::types::Cursor;
@@ -20,6 +24,12 @@ use super::{
 use crate::{
     Delete, NotFound, StorageError, group_message::QueryGroupMessage, impl_fetch, impl_store,
 };
+
+mod error;
+mod types;
+pub use error::*;
+pub use types::*;
+
 pub type ID = i32;
 
 #[repr(i32)]
@@ -171,9 +181,9 @@ pub trait QueryGroupIntent {
     ) -> Result<StoredGroupIntent, crate::ConnectionError>;
 
     // Query for group_intents by group_id, optionally filtering by state and kind
-    fn find_group_intents(
+    fn find_group_intents<Id: AsRef<[u8]>>(
         &self,
-        group_id: Vec<u8>,
+        group_id: Id,
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError>;
@@ -210,6 +220,12 @@ pub trait QueryGroupIntent {
         payload_hash: &[u8],
     ) -> Result<Option<StoredGroupIntent>, StorageError>;
 
+    /// find the commit message refresh state for each intent payload hash
+    fn find_dependant_commits<P: AsRef<[u8]>>(
+        &self,
+        payload_hashes: &[P],
+    ) -> Result<HashMap<PayloadHash, IntentDependency>, StorageError>;
+
     fn increment_intent_publish_attempt_count(&self, intent_id: ID) -> Result<(), StorageError>;
 
     fn set_group_intent_error_and_fail_msg(
@@ -230,9 +246,9 @@ where
         (**self).insert_group_intent(to_save)
     }
 
-    fn find_group_intents(
+    fn find_group_intents<Id: AsRef<[u8]>>(
         &self,
-        group_id: Vec<u8>,
+        group_id: Id,
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
@@ -283,6 +299,13 @@ where
         (**self).find_group_intent_by_payload_hash(payload_hash)
     }
 
+    fn find_dependant_commits<P: AsRef<[u8]>>(
+        &self,
+        payload_hashes: &[P],
+    ) -> Result<HashMap<PayloadHash, IntentDependency>, StorageError> {
+        (**self).find_dependant_commits(payload_hashes)
+    }
+
     fn increment_intent_publish_attempt_count(&self, intent_id: ID) -> Result<(), StorageError> {
         (**self).increment_intent_publish_attempt_count(intent_id)
     }
@@ -310,13 +333,14 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     }
 
     // Query for group_intents by group_id, optionally filtering by state and kind
-    #[tracing::instrument(level = "trace", skip(self))]
-    fn find_group_intents(
+    #[tracing::instrument(level = "trace", skip(self), fields(group_id = hex::encode(group_id.as_ref())))]
+    fn find_group_intents<Id: AsRef<[u8]>>(
         &self,
-        group_id: Vec<u8>,
+        group_id: Id,
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
+        let group_id = group_id.as_ref();
         let mut query = dsl::group_intents
             .into_boxed()
             .filter(dsl::group_id.eq(group_id));
@@ -483,6 +507,75 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         })?;
 
         Ok(result)
+    }
+
+    /// Find the commit message refresh state for each intent by payload hash.
+    /// Returns a map from payload hash to a vector of dependencies (one per originator).
+    fn find_dependant_commits<P: AsRef<[u8]>>(
+        &self,
+        payload_hashes: &[P],
+    ) -> Result<HashMap<PayloadHash, IntentDependency>, StorageError> {
+        use super::schema::refresh_state;
+        use crate::encrypted_store::refresh_state::EntityKind;
+
+        let hashes = payload_hashes
+            .iter()
+            .map(|h| PayloadHashRef::from(h.as_ref()));
+
+        // Query all dependencies in a single database call
+        let map: HashMap<PayloadHash, Vec<IntentDependency>> = self.raw_query_read(|conn| {
+            dsl::group_intents
+                .filter(dsl::payload_hash.eq_any(hashes))
+                .inner_join(
+                    refresh_state::table.on(refresh_state::entity_id
+                        .eq(dsl::group_id)
+                        .and(refresh_state::entity_kind.eq(EntityKind::CommitMessage))),
+                )
+                .select((
+                    dsl::payload_hash.assume_not_null(),
+                    refresh_state::sequence_id,
+                    refresh_state::originator_id,
+                    dsl::group_id,
+                ))
+                .load_iter::<(Vec<u8>, i64, i32, Vec<u8>), DefaultLoadingMode>(conn)?
+                .map_ok(|(hash, sequence_id, originator_id, group_id)| {
+                    (
+                        PayloadHash::from(hash),
+                        IntentDependency {
+                            cursor: Cursor {
+                                sequence_id: sequence_id as u64,
+                                originator_id: originator_id as u32,
+                            },
+                            group_id: group_id.into(),
+                        },
+                    )
+                })
+                .process_results(|iter| iter.into_grouping_map().collect())
+        })?;
+
+        let map = map
+            .into_iter()
+            .map(|(hash, mut d)| {
+                if d.len() > 1 {
+                    return Err(GroupIntentError::MoreThanOneDependency {
+                        payload_hash: hash.clone(),
+                        cursors: d.iter().map(|d| d.cursor).collect(),
+                        group_id: d[0].group_id.clone(),
+                    }
+                    .into());
+                }
+
+                // this should be impossible since the sql query wouldnt return anything for
+                // an empty payload hash.
+                let dep = d
+                    .pop()
+                    .ok_or_else(|| GroupIntentError::NoDependencyFound { hash: hash.clone() })
+                    .map_err(StorageError::from)?;
+                Ok::<_, StorageError>((hash, dep))
+            })
+            .try_collect()?;
+
+        Ok(map)
     }
 
     fn increment_intent_publish_attempt_count(&self, intent_id: ID) -> Result<(), StorageError> {
@@ -920,6 +1013,74 @@ pub(crate) mod tests {
                 .unwrap();
             intent = find_first_intent(conn, group_id.clone());
             assert_eq!(intent.publish_attempts, 2);
+        })
+    }
+    #[xmtp_common::test]
+    fn test_find_dependant_commits() {
+        use crate::encrypted_store::refresh_state::{EntityKind, QueryRefreshState};
+
+        let group_id = rand_vec::<24>();
+        let payload_hash1 = rand_vec::<24>();
+        let payload_hash2 = rand_vec::<24>();
+
+        with_connection(|conn| {
+            insert_group(conn, group_id.clone());
+            NewGroupIntent::new(
+                IntentKind::SendMessage,
+                group_id.clone(),
+                rand_vec::<24>(),
+                false,
+            )
+            .store(conn)
+            .unwrap();
+
+            let intent1 = find_first_intent(conn, group_id.clone());
+            conn.set_group_intent_published(intent1.id, &payload_hash1, None, None, 1)
+                .unwrap();
+
+            NewGroupIntent::new(
+                IntentKind::KeyUpdate,
+                group_id.clone(),
+                rand_vec::<24>(),
+                false,
+            )
+            .store(conn)
+            .unwrap();
+            let intents = conn
+                .find_group_intents(group_id.clone(), None, None)
+                .unwrap();
+            let intent2 = intents.iter().find(|i| i.id != intent1.id).unwrap();
+            conn.set_group_intent_published(intent2.id, &payload_hash2, None, None, 1)
+                .unwrap();
+
+            conn.update_cursor(
+                group_id.clone(),
+                EntityKind::CommitMessage,
+                Cursor {
+                    sequence_id: 100,
+                    originator_id: 42,
+                },
+            )
+            .unwrap();
+
+            let result = conn
+                .find_dependant_commits(&[&payload_hash1, &payload_hash2])
+                .unwrap();
+
+            assert_eq!(result.len(), 2);
+            let dep1 = result
+                .get(&PayloadHash::from(payload_hash1.clone()))
+                .unwrap();
+            assert_eq!(dep1.cursor.sequence_id, 100);
+            assert_eq!(dep1.cursor.originator_id, 42);
+            assert_eq!(dep1.group_id.as_ref(), &group_id);
+
+            let dep2 = result
+                .get(&PayloadHash::from(payload_hash2.clone()))
+                .unwrap();
+            assert_eq!(dep2.cursor.sequence_id, 100);
+            assert_eq!(dep2.cursor.originator_id, 42);
+            assert_eq!(dep2.group_id.as_ref(), &group_id);
         })
     }
 }

@@ -15,6 +15,7 @@ use xmtp_db::{
     prelude::*,
 };
 use xmtp_mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
+use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
 
 #[derive(Default)]
@@ -96,6 +97,13 @@ fn insert(
             import_context
                 .group_timestamps
                 .insert(save.id.clone(), save.last_message_ns);
+            let message_disappearing_settings =
+                match (save.message_disappear_from_ns, save.message_disappear_in_ns) {
+                    (Some(from_ns), Some(in_ns)) => {
+                        Some(MessageDisappearingSettings::new(from_ns, in_ns))
+                    }
+                    _ => None,
+                };
 
             match conversation_type {
                 ConversationType::Dm => {
@@ -112,7 +120,9 @@ fn insert(
                         context,
                         GroupMembershipState::Restored,
                         target_inbox_id,
-                        DMMetadataOptions::default(),
+                        DMMetadataOptions {
+                            message_disappearing_settings,
+                        },
                         Some(&save.id),
                     )?;
                 }
@@ -127,7 +137,8 @@ fn insert(
                             name: attributes.get("group_name").cloned(),
                             image_url_square: attributes.get("group_image_url_square").cloned(),
                             description: attributes.get("description").cloned(),
-                            ..Default::default()
+                            app_data: attributes.get("app_data").cloned(),
+                            message_disappearing_settings,
                         },
                         None,
                     )?;

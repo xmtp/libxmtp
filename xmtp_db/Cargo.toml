@@ -75,6 +75,7 @@ wasm-bindgen = { workspace = true }
 
 
 [dev-dependencies]
+futures.workspace = true
 futures-timer.workspace = true
 mockall = { workspace = true }
 rstest.workspace = true
