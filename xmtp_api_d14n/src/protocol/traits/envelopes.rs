@@ -3,7 +3,7 @@ use chrono::Utc;
 use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_proto::types::Cursor;
 
-use crate::protocol::{CursorExtractor, DependsOnExtractor, TimestampExtractor};
+use crate::protocol::{CursorExtractor, DependsOnExtractor, MlsDataExtractor, TimestampExtractor};
 
 use super::*;
 /// An low-level envelope from the network gRPC interface
@@ -45,6 +45,8 @@ pub trait Envelope<'env>: std::fmt::Debug + MaybeSend + MaybeSync {
     fn depends_on(&self) -> Result<Option<GlobalCursor>, EnvelopeError>;
     /// Extract the payload for this envelope
     fn payload(&self) -> Result<Payload, EnvelopeError>;
+    /// the Mls Data bytes as a sha256 hash
+    fn sha256_hash(&self) -> Result<Vec<u8>, EnvelopeError>;
     /// Get the timestamp of this envelope
     fn timestamp(&self) -> Option<chrono::DateTime<Utc>>;
     /// Extract the client envelope (envelope containing message payload & AAD, if any) for this
@@ -92,6 +94,12 @@ where
         Ok(extractor.get()?)
     }
 
+    fn sha256_hash(&self) -> Result<Vec<u8>, EnvelopeError> {
+        let mut extractor = MlsDataExtractor::new();
+        self.accept(&mut extractor)?;
+        Ok(extractor.get_sha256()?)
+    }
+
     // TODO: Currently the only "unexpected" way for this to fail
     // would be a deserialization error, or if timestamp is
     // > 2262 A.D.
@@ -105,12 +113,20 @@ where
 
     fn client_envelope(&self) -> Result<ClientEnvelope, EnvelopeError> {
         // ensures we only recurse the proto data structure once.
-        let mut extractor = (TopicExtractor::new(), PayloadExtractor::new());
+        let mut extractor = (
+            TopicExtractor::new(),
+            PayloadExtractor::new(),
+            DependsOnExtractor::default(),
+        );
         self.accept(&mut extractor)?;
         let topic = extractor.0.get().map_err(ExtractionError::from)?;
         let payload = extractor.1.get().map_err(ExtractionError::from)?;
+        let depends_on = extractor.2.get();
         Ok(ClientEnvelope {
-            aad: Some(AuthenticatedData::with_topic(topic)),
+            aad: Some(AuthenticatedData {
+                target_topic: topic.to_bytes(),
+                depends_on: depends_on.map(Into::into),
+            }),
             payload: Some(payload),
         })
     }

@@ -113,12 +113,12 @@ pub trait EnvelopeVisitor<'env> {
         tracing::trace!("noop_visit_client");
         Ok(())
     }
-    /// Visit the GroupMessageInput type
+    /// Visit the GroupMessageVersion type
     fn visit_group_message_version(&mut self, _m: &GroupMessageVersion) -> Result<(), Self::Error> {
         tracing::trace!("noop_visit_group_message_version");
         Ok(())
     }
-    /// Visit the WelcomeMessageInput containing the welcome message version
+    /// Visit the GroupMessageInput containing the welcome message version
     fn visit_group_message_input(&mut self, _m: &GroupMessageInput) -> Result<(), Self::Error> {
         tracing::trace!("noop_visit_group_message_input");
         Ok(())

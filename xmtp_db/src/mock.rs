@@ -278,9 +278,10 @@ mock! {
             to_save: crate::group_intent::NewGroupIntent,
         ) -> Result<crate::group_intent::StoredGroupIntent, crate::ConnectionError>;
 
-        fn find_group_intents(
+        #[mockall::concretize]
+        fn find_group_intents<Id: AsRef<[u8]>>(
             &self,
-            group_id: Vec<u8>,
+            group_id: Id,
             allowed_states: Option<Vec<crate::group_intent::IntentState>>,
             allowed_kinds: Option<Vec<crate::group_intent::IntentKind>>,
         ) -> Result<Vec<crate::group_intent::StoredGroupIntent>, crate::ConnectionError>;

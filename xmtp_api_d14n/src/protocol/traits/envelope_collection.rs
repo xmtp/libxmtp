@@ -1,5 +1,6 @@
 //! Traits and blanket implementations representing a collection of [`Envelope`]'s
 use xmtp_common::{MaybeSend, MaybeSync};
+use xmtp_proto::types::Cursor;
 
 use super::*;
 
@@ -9,8 +10,12 @@ use super::*;
 pub trait EnvelopeCollection<'env>: MaybeSend + MaybeSync {
     /// Get the topic for an envelope
     fn topics(&self) -> Result<Vec<Topic>, EnvelopeError>;
+    /// get the cursors for each envelope
+    fn cursors(&self) -> Result<Vec<Cursor>, EnvelopeError>;
     /// Get the payload for an envelope
     fn payloads(&self) -> Result<Vec<Payload>, EnvelopeError>;
+    /// get the data field for each envelope as a sha256 hash
+    fn sha256_hashes(&self) -> Result<Vec<Vec<u8>>, EnvelopeError>;
     /// Build the ClientEnvelope
     fn client_envelopes(&self) -> Result<Vec<ClientEnvelope>, EnvelopeError>;
     /// Try to get a group message from this Envelope
@@ -39,10 +44,22 @@ where
             .collect::<Result<Vec<Topic>, _>>()
     }
 
+    fn cursors(&self) -> Result<Vec<Cursor>, EnvelopeError> {
+        self.iter()
+            .map(|t| t.cursor())
+            .collect::<Result<Vec<Cursor>, _>>()
+    }
+
     fn payloads(&self) -> Result<Vec<Payload>, EnvelopeError> {
         self.iter()
             .map(|t| t.payload())
             .collect::<Result<Vec<Payload>, _>>()
+    }
+
+    fn sha256_hashes(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
+        self.iter()
+            .map(|t| t.sha256_hash())
+            .collect::<Result<Vec<Vec<u8>>, _>>()
     }
 
     fn client_envelopes(&self) -> Result<Vec<ClientEnvelope>, EnvelopeError> {

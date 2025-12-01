@@ -20,6 +20,7 @@ use xmtp_common::RetryableError;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api;
 use xmtp_proto::api::Client;
+use xmtp_proto::api::EndpointExt;
 use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
@@ -87,15 +88,30 @@ where
         &self,
         request: mls_v1::SendGroupMessagesRequest,
     ) -> Result<(), Self::Error> {
-        let envelopes: Vec<ClientEnvelope> = request.messages.client_envelopes()?;
+        let hashes = request.messages.sha256_hashes()?;
+        let mut dependencies = self.cursor_store.find_message_dependencies(
+            hashes
+                .iter()
+                .map(AsRef::as_ref)
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )?;
+        let mut envelopes: Vec<ClientEnvelope> = request.messages.client_envelopes()?;
+        envelopes.iter_mut().try_for_each(|envelope| {
+            let data = envelope.sha256_hash()?;
+            let dependency = dependencies.remove(&data);
+            let mut aad = envelope.aad.clone().unwrap_or_default();
+            aad.depends_on = dependency.map(Into::into);
+            envelope.aad = Some(aad);
+            Ok(())
+        })?;
 
-        api::ignore(
-            PublishClientEnvelopes::builder()
-                .envelopes(envelopes)
-                .build()?,
-        )
-        .query(&self.client)
-        .await?;
+        PublishClientEnvelopes::builder()
+            .envelopes(envelopes)
+            .build()?
+            .ignore_response()
+            .query(&self.client)
+            .await?;
 
         Ok(())
     }
@@ -238,8 +254,15 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::traits::{EnvelopeVisitor, Extractor};
+    use crate::{
+        protocol::traits::{EnvelopeVisitor, Extractor},
+        queries::d14n::test::{TestCursorStore, group_message_request},
+    };
+    use futures::FutureExt;
+    use proptest::prelude::*;
+    use prost::Message;
     use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
+    use xmtp_proto::xmtp::xmtpv4::payer_api::PublishClientEnvelopesRequest;
 
     #[xmtp_common::test]
     fn test_group_message_response_extractor_with_empty_envelope() {
@@ -281,5 +304,25 @@ mod tests {
             0,
             "Default extractor should have no responses"
         );
+    }
+
+    proptest! {
+        #[xmtp_common::test]
+        fn test_send_group_messages_with_dependencies(generated in group_message_request(15)) {
+            let mut client = D14nClient::new_mock_with_store(TestCursorStore::default());
+            client.cursor_store.dependencies = generated.dependencies;
+            let request = generated.request.clone();
+            client.client.expect_request().times(1).returning(move |_,_, mut body| {
+                let body: PublishClientEnvelopesRequest = prost::Message::decode(&mut body).unwrap();
+                for e in body.envelopes {
+                    assert!(e.aad.is_some());
+                    let aad = e.aad.unwrap();
+                    assert!(aad.depends_on.is_some());
+                }
+                Ok(http::Response::new(request.encode_to_vec().into()))
+            });
+
+            client.send_group_messages(generated.request).now_or_never().unwrap().unwrap();
+        }
     }
 }
