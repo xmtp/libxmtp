@@ -543,18 +543,19 @@ pub struct SyncStatus {
 impl SyncClient {
   /// Performs full identity rotation (triggered on installation add/revoke).
   ///
-  /// Steps performed:
-  /// 1. Generate completely new SyncIdentity (new sync_id, auth keypair, KEK)
-  /// 2. Download and decrypt current manifest from server
-  /// 3. Re-wrap all DEKs (consent, groups, all message archives) with new KEK
-  /// 4. Encrypt manifest with new KEK
-  /// 5. Send atomic rotation request to server (RotateRequest with old signature)
-  /// 6. Handle response
-  ///    - On success: Broadcast IdentityRotation message to sync group, update local sync_identity
-  ///    - On ConcurrentRotation error: Another installation beat us; sync the group to get
-  ///      their IdentityRotation message and process it instead
-  ///    - On other errors: Propagate error to caller
-  /// 7. Update local sync_identity to new identity
+  /// Uses a two-phase approach to handle failures:
+  ///
+  /// Phase 1 - Claim:
+  /// 1. Generate new SyncIdentity (new sync_id, auth keypair, KEK)
+  /// 2. Broadcast SyncIdentityRotationClaim with new identity to sync group
+  /// 3. All installations store the new identity preemptively
+  ///
+  /// Phase 2 - Server rotation:
+  /// 4. Download and decrypt current manifest from server
+  /// 5. Re-wrap all DEKs with new KEK
+  /// 6. Send RotateRequest to server (deletes old manifest, stores new one)
+  /// 7. Broadcast SyncIdentityRotationConfirm on success
+  /// 8. Update local sync_identity
   pub async fn rotate_identity(&self) -> Result<(), SyncError>;
 
   /// Get current sync status and statistics.
