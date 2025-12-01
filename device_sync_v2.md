@@ -364,6 +364,9 @@ impl Default for SyncClientConfig {
       auto_upload_on_request: false,
       auto_upload_interval_secs: None,
       stale_threshold_secs: None,
+      download_cache_path: None,
+      sync_provider: None,
+      sync_provider_options: None,
     }
   }
 }
