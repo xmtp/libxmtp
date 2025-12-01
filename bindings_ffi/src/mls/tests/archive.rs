@@ -1,5 +1,7 @@
 //! Tests for archive export and import functionality
 
+use xmtp_common::NS_IN_MIN;
+
 use super::*;
 use crate::{FfiArchiveOptions, FfiBackupElementSelection};
 
@@ -30,7 +32,7 @@ async fn test_archive_excludes_disappearing_messages() {
     alix_group.sync().await.unwrap();
 
     // Step 2: Set disappearing message settings to expire after 5 minutes
-    let five_minutes_ns = 5 * 60 * 1_000_000_000i64;
+    let five_minutes_ns = 5 * NS_IN_MIN;
     let disappearing_settings = FfiMessageDisappearingSettings {
         from_ns: now_ns(),
         in_ns: five_minutes_ns,
