@@ -78,7 +78,12 @@ fn insert(
         }
         Element::Group(save) => {
             if let Ok(Some(existing_group)) = context.db().find_group(&save.id) {
-                let mut timestamp = existing_group.last_message_ns;
+                let timestamp = match (existing_group.last_message_ns, save.last_message_ns) {
+                    (Some(e), Some(s)) => Some(e.max(s)),
+                    (None, Some(s)) => Some(s),
+                    (Some(e), None) => Some(e),
+                    (None, None) => None,
+                };
                 if let Some(snap_timestamp) = save.last_message_ns {
                     timestamp = timestamp.map(|ts| ts.max(snap_timestamp));
                 }
