@@ -205,8 +205,8 @@ mod tests {
         alix2_group.sync().await?;
         bo_group.sync().await?;
 
-        // We want to send this message so that alix2's group timestamp gets ahead.
-        alix2_group
+        // We want to send this message so that alix's group timestamp gets ahead of alix2.
+        alix_group
             .send_message(b"Hello again", Default::default())
             .await?;
 
@@ -252,8 +252,8 @@ mod tests {
             .find_group(&alix_group.group_id)??
             .last_message_ns?;
 
-        // Alix2's newer timestamp should be preserved.
-        assert!(alix2_timestamp > alix_timestamp);
+        // Alix2's older timestamp on the existing group should be updated.
+        assert_eq!(alix2_timestamp, alix_timestamp);
         // Alix3's timestamp should equal alix's timestamp.
         assert_eq!(alix3_timestamp, alix_timestamp);
     }
