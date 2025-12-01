@@ -16,8 +16,7 @@ pub struct OrderedQuery<E, R, T> {
     _marker: PhantomData<T>,
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<E, C, R, T> Query<C> for OrderedQuery<E, R, T>
 where
     E: Query<C, Output = T>,

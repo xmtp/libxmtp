@@ -11,8 +11,8 @@ use xmtp_proto::types::AppVersion;
 
 use crate::protocol::{CursorStore, FullXmtpApiArc, FullXmtpApiBox, NoCursorStore};
 use crate::{
-    ClientBundle, ClientBundleBuilder, ClientKind, D14nClient, MultiNodeClientBuilderError,
-    ReadWriteClientBuilderError, V3Client,
+    AuthCallback, AuthHandle, ClientBundle, ClientBundleBuilder, ClientKind, D14nClient,
+    MultiNodeClientBuilderError, ReadWriteClientBuilderError, ReadonlyClientBuilderError, V3Client,
 };
 
 mod impls;
@@ -39,6 +39,8 @@ pub enum MessageBackendBuilderError {
     CursorStoreNotReplaced(&'static str),
     #[error("error while building read/write api client {0},")]
     UninitializedField(#[from] ReadWriteClientBuilderError),
+    #[error(transparent)]
+    ReadonlyBuilder(#[from] ReadonlyClientBuilderError),
     #[error(transparent)]
     Builder(#[from] UninitializedFieldError),
     #[error("client kind {0} is currently unsupported")]
@@ -101,12 +103,19 @@ impl MessageBackendBuilder {
         self
     }
 
+    pub fn readonly(&mut self, readonly: bool) -> &mut Self {
+        self.client_bundle.readonly(readonly);
+        self
+    }
+
     pub fn from_bundle(
         &mut self,
         bundle: ClientBundle<GrpcError>,
     ) -> Result<FullXmtpApiArc<ApiClientError<GrpcError>>, MessageBackendBuilderError> {
-        let Self { cursor_store, .. } = self.clone();
-        let cursor_store = cursor_store.unwrap_or(Arc::new(NoCursorStore) as Arc<dyn CursorStore>);
+        let cursor_store = self
+            .cursor_store
+            .clone()
+            .unwrap_or(Arc::new(NoCursorStore) as Arc<dyn CursorStore>);
 
         match bundle.kind() {
             ClientKind::D14n => Ok(D14nClient::new(bundle, cursor_store)?.arced()),
@@ -115,6 +124,16 @@ impl MessageBackendBuilder {
                 ClientKind::Hybrid,
             )),
         }
+    }
+
+    pub fn maybe_auth_callback(&mut self, callback: Option<Arc<dyn AuthCallback>>) -> &mut Self {
+        self.client_bundle.maybe_auth_callback(callback);
+        self
+    }
+
+    pub fn maybe_auth_handle(&mut self, handle: Option<AuthHandle>) -> &mut Self {
+        self.client_bundle.maybe_auth_handle(handle);
+        self
     }
 
     /// Build the client

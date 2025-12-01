@@ -99,7 +99,7 @@ mod tests {
     use super::*;
 
     #[xmtp_common::test]
-    async fn test_insert_and_update_preferences() {
+    fn test_insert_and_update_preferences() {
         crate::test_utils::with_connection(|conn| {
             let pref = StoredUserPreferences::load(conn).unwrap();
             // by default, there is no key
@@ -124,6 +124,5 @@ mod tests {
                 .unwrap();
             assert_eq!(result.len(), 1);
         })
-        .await;
     }
 }

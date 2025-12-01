@@ -3,6 +3,31 @@ extern crate proc_macro;
 use proc_macro2::*;
 use quote::{quote, quote_spanned};
 
+/// A proc macro attribute that wraps the input in an `async_trait` implementation,
+/// delegating to the appropriate `async_trait` implementation based on the target architecture.
+///
+/// On wasm32 architecture, it delegates to `async_trait::async_trait(?Send)`.
+/// On all other architectures, it delegates to `async_trait::async_trait`.
+#[proc_macro_attribute]
+pub fn async_trait(
+    _attr: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let input = syn::parse_macro_input!(input as syn::Item);
+    quote! {
+        #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+        #input
+    }
+    .into()
+}
+
+// This needs to be configurable here, because we can't look at env variables in wasm
+static DISABLE_LOGGING: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+    std::env::var("CI").is_ok_and(|v| v == "true")
+        || std::env::var("XMTP_TEST_LOGGING").is_ok_and(|v| v == "false")
+});
+
 /// A test macro that delegates to the appropriate test framework based on the target architecture.
 ///
 /// On wasm32 architecture, it delegates to `wasm_bindgen_test::wasm_bindgen_test`.
@@ -60,6 +85,12 @@ pub fn test(
         let input_fn_tokens = quote!(#input_fn);
         let transformed_tokens = transform_question_marks(input_fn_tokens.into());
         input_fn = syn::parse_macro_input!(transformed_tokens as syn::ItemFn);
+    }
+
+    let disable_logging = attributes.disable_logging || *DISABLE_LOGGING;
+    if !disable_logging {
+        let init = syn::parse_quote!(xmtp_common::logger(););
+        input_fn.block.stmts.insert(0, init);
     }
 
     proc_macro::TokenStream::from(quote! {
@@ -122,7 +153,7 @@ fn transform_question_marks(tokens: proc_macro::TokenStream) -> proc_macro::Toke
             }
             _ => {
                 // Keep other tokens as is
-                result.extend(quote!(#token));
+                result.extend([token]);
             }
         }
     }
@@ -132,10 +163,10 @@ fn transform_question_marks(tokens: proc_macro::TokenStream) -> proc_macro::Toke
 
 #[derive(Default)]
 struct Attributes {
-    r#async: bool,
     flavor: Option<syn::LitStr>,
     worker_threads: Option<syn::LitInt>,
-    unwrap_try: Option<syn::LitBool>,
+    unwrap_try: Option<bool>,
+    disable_logging: bool,
 }
 
 impl Attributes {
@@ -147,7 +178,7 @@ impl Attributes {
     }
 
     fn unwrap_try(&self) -> bool {
-        self.unwrap_try.as_ref().is_some_and(|v| v.value())
+        self.unwrap_try.as_ref().is_some_and(|v| *v)
     }
 
     fn worker_threads(&self) -> syn::LitInt {
@@ -163,17 +194,17 @@ impl Attributes {
 
 impl Attributes {
     fn parse(&mut self, meta: &syn::meta::ParseNestedMeta) -> syn::Result<()> {
-        if meta.path.is_ident("async") {
-            self.r#async = true;
-            return Ok(());
-        } else if meta.path.is_ident("flavor") {
+        if meta.path.is_ident("flavor") {
             self.flavor = Some(meta.value()?.parse()?);
             return Ok(());
         } else if meta.path.is_ident("worker_threads") {
             self.worker_threads = Some(meta.value()?.parse()?);
             return Ok(());
         } else if meta.path.is_ident("unwrap_try") {
-            self.unwrap_try = Some(meta.value()?.parse()?);
+            self.unwrap_try = Some(meta.value()?.parse::<syn::LitBool>()?.value());
+            return Ok(());
+        } else if meta.path.is_ident("disable_logging") {
+            self.disable_logging = meta.value()?.parse::<syn::LitBool>()?.value();
             return Ok(());
         }
 

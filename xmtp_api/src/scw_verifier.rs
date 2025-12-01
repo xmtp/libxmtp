@@ -7,8 +7,7 @@ use xmtp_proto::xmtp::identity::api::v1::VerifySmartContractWalletSignatureReque
 use xmtp_proto::xmtp::identity::api::v1::VerifySmartContractWalletSignaturesRequest;
 use xmtp_proto::xmtp::identity::api::v1::VerifySmartContractWalletSignaturesResponse;
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[xmtp_common::async_trait]
 impl<C> SmartContractSignatureVerifier for ApiClientWrapper<C>
 where
     C: XmtpIdentityClient,

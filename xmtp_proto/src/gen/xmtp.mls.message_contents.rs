@@ -570,6 +570,18 @@ pub struct GroupUpdated {
     /// / The inboxes that were removed from the group in response to pending-remove/self-remove requests
     #[prost(message, repeated, tag = "5")]
     pub left_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
+    /// The inboxes that were added to admin list in the commit
+    #[prost(message, repeated, tag = "6")]
+    pub added_admin_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
+    /// The inboxes that were removed from admin list in the commit
+    #[prost(message, repeated, tag = "7")]
+    pub removed_admin_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
+    /// The inboxes that were added to super admin list in the commit
+    #[prost(message, repeated, tag = "8")]
+    pub added_super_admin_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
+    /// The inboxes that were removed from super admin list in the commit
+    #[prost(message, repeated, tag = "9")]
+    pub removed_super_admin_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
 }
 /// Nested message and enum types in `GroupUpdated`.
 pub mod group_updated {

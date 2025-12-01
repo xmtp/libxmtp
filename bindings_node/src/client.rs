@@ -20,6 +20,8 @@ use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_proto::api_client::AggregateStats;
 
+mod gateway_auth;
+
 pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
 pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
 static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
@@ -61,6 +63,15 @@ pub enum LogLevel {
 pub enum SyncWorkerMode {
   enabled,
   disabled,
+}
+
+#[napi(string_enum)]
+#[derive(Debug, Default)]
+#[allow(non_camel_case_types)]
+pub enum ClientMode {
+  #[default]
+  default,
+  notification,
 }
 
 impl From<SyncWorkerMode> for XmtpSyncWorkerMode {
@@ -166,13 +177,20 @@ pub async fn create_client(
   disable_events: Option<bool>,
   app_version: Option<String>,
   nonce: Option<BigInt>,
+  auth_callback: Option<&gateway_auth::FfiAuthCallback>,
+  auth_handle: Option<&gateway_auth::FfiAuthHandle>,
+  client_mode: Option<ClientMode>,
 ) -> Result<Client> {
+  let client_mode = client_mode.unwrap_or_default();
   let root_identifier = account_identifier.clone();
   init_logging(log_options.unwrap_or_default())?;
   let mut backend = MessageBackendBuilder::default();
   backend
     .v3_host(&v3_host)
     .maybe_gateway_host(gateway_host)
+    .readonly(matches!(client_mode, ClientMode::notification))
+    .maybe_auth_callback(auth_callback.map(|c| Arc::new(c.clone()) as _))
+    .maybe_auth_handle(auth_handle.map(|h| h.clone().into()))
     .app_version(app_version.clone().unwrap_or_default())
     .is_secure(is_secure);
 
@@ -187,15 +205,12 @@ pub async fn create_client(
       let key: EncryptionKey = key
         .try_into()
         .map_err(|_| Error::from_reason("Malformed 32 byte encryption key"))?;
-      let db = NativeDb::new(&storage_option, key)
-        .map_err(|e| Error::from_reason(format!("Error creating native database {}", e)))?;
-      EncryptedMessageStore::new(db)
-        .map_err(|e| Error::from_reason(format!("Error Creating Encrypted Message store {}", e)))?
+      let db = NativeDb::new(&storage_option, key).map_err(ErrorWrapper::from)?;
+      EncryptedMessageStore::new(db).map_err(ErrorWrapper::from)?
     }
     None => {
-      let db = NativeDb::new_unencrypted(&storage_option)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
-      EncryptedMessageStore::new(db).map_err(|e| Error::from_reason(e.to_string()))?
+      let db = NativeDb::new_unencrypted(&storage_option).map_err(ErrorWrapper::from)?;
+      EncryptedMessageStore::new(db).map_err(ErrorWrapper::from)?
     }
   };
 

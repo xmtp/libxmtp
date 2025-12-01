@@ -137,24 +137,21 @@ impl XmtpTestClient for ToxicGatewayClient {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl ToxicTestClient for ToxicXmtpdClient {
     async fn proxies() -> ToxicProxies {
         ToxicProxies::new([TOXIPROXY.find_proxy("xmtpd").await.unwrap()])
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl ToxicTestClient for ToxicNodeGoClient {
     async fn proxies() -> ToxicProxies {
         ToxicProxies::new([TOXIPROXY.find_proxy("node-go").await.unwrap()])
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl ToxicTestClient for ToxicGatewayClient {
     async fn proxies() -> ToxicProxies {
         ToxicProxies::new([TOXIPROXY.find_proxy("gateway").await.unwrap()])

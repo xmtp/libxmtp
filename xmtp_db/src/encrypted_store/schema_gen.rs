@@ -58,13 +58,14 @@ diesel::table! {
         sender_inbox_id -> Text,
         delivery_status -> Integer,
         content_type -> Integer,
-        version_minor -> Integer,
         version_major -> Integer,
+        version_minor -> Integer,
         authority_id -> Text,
         reference_id -> Nullable<Binary>,
-        expire_at_ns -> Nullable<BigInt>,
-        sequence_id -> BigInt,
         originator_id -> BigInt,
+        sequence_id -> BigInt,
+        inserted_at_ns -> BigInt,
+        expire_at_ns -> Nullable<BigInt>,
     }
 }
 

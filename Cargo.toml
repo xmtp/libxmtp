@@ -137,6 +137,7 @@ tonic-web-wasm-client = "0.8"
 tower = { version = "0.5", default-features = false }
 trait-variant = "0.1.2"
 tracing = { version = "0.1", features = ["log"] }
+tracing-forest = { version = "0.3", features = ["chrono"] }
 tracing-logfmt = "0.3"
 tracing-subscriber = { version = "0.3", default-features = false }
 toxiproxy_rust = { git = "https://github.com/ephemeraHQ/toxiproxy_rust.git" }
@@ -144,7 +145,7 @@ url = "2.5.0"
 uuid = "1.12"
 vergen-git2 = "1.0.2"
 # Any changes here need to be made with corresponding changes in .github/workflows
-wasm-bindgen = "=0.2.104"
+wasm-bindgen = "=0.2.105"
 wasm-bindgen-futures = "0.4.51"
 wasm-bindgen-test = "0.3.51"
 web-sys = "0.3"
@@ -180,9 +181,9 @@ panic = "unwind"
 strip = "none"
 
 [profile.dev]
-# Disabling debug info speeds up builds a bunch,
-# and we don't rely on it for debugging that much.
-debug = 0
+# Disabling full debug info speeds up builds
+# and this only affects local crates, all dependencies have this disabled.
+debug = "line-tables-only"
 
 [profile.bench]
 debug = true
@@ -200,7 +201,6 @@ lto = true
 # are made public for third-party dependencies: https://github.com/diesel-rs/diesel/pull/4236
 # (cfg-specific patche support does not exist)
 [patch.crates-io]
-tracing-forest = { git = "https://github.com/QnnOkabayashi/tracing-forest", branch = "main" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
 diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
 

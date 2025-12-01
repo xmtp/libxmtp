@@ -129,6 +129,13 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         self.write::<CURRENT_VERSION>(label, key, value)
     }
+
+    #[cfg(feature = "test-utils")]
+    fn hash_all(&self) -> Result<Vec<u8>, SqlKeyStoreError> {
+        self.conn
+            .raw_query_read(OpenMlsKeyValue::hash_all)
+            .map_err(Into::into)
+    }
 }
 
 #[cfg(test)]

@@ -57,7 +57,15 @@ impl From<MessageBody> for DecodedMessageBody {
       MessageBody::Text(t) => result.text_content = Some(t.into()),
       MessageBody::Reaction(r) => result.reaction_content = Some(r.into()),
       MessageBody::Attachment(a) => result.attachment_content = Some(a.into()),
-      MessageBody::RemoteAttachment(ra) => result.remote_attachment_content = Some(ra.into()),
+      MessageBody::RemoteAttachment(ra) => {
+        result.remote_attachment_content = match ra.try_into() {
+          Ok(ra) => Some(ra),
+          Err(e) => {
+            tracing::error!("Failed to convert RemoteAttachment: {}", e);
+            None
+          }
+        };
+      }
       MessageBody::MultiRemoteAttachment(mra) => {
         result.multi_remote_attachment_content = Some(mra.into())
       }

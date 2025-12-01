@@ -12,8 +12,7 @@ use crate::{
     protocol::{CursorStore, XmtpEnvelope, XmtpQuery},
 };
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<C, Store, E> XmtpQuery for D14nClient<C, Store>
 where
     C: Client<Error = E>,

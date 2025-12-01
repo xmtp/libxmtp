@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eou pipefail
+set -xeou pipefail
 
 PACKAGE="${1:-}"
 if [[ -n "${PACKAGE}" ]]; then
@@ -41,5 +41,5 @@ export WASM_BINDGEN_TEST_ONLY_WEB=1
 export NO_HEADLESS=1
 
 cargo test --target wasm32-unknown-unknown --release \
-  -p $PACKAGE --features d14n -- \
+  $PACKAGE -- \
   $TESTS

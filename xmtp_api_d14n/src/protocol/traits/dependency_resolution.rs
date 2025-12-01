@@ -7,7 +7,7 @@ use xmtp_proto::api::BodyError;
 use crate::protocol::{Envelope, EnvelopeError, types::MissingEnvelope};
 
 pub struct Resolved<E> {
-    pub envelopes: Vec<E>,
+    pub resolved: Vec<E>,
     /// list of envelopes that could not be resolved with this strategy
     pub unresolved: Option<HashSet<MissingEnvelope>>,
 }
@@ -15,14 +15,13 @@ pub struct Resolved<E> {
 impl<E> Resolved<E> {
     pub fn new(envelopes: Vec<E>, unresolved: Option<HashSet<MissingEnvelope>>) -> Self {
         Self {
-            envelopes,
+            resolved: envelopes,
             unresolved,
         }
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait ResolveDependencies: MaybeSend + MaybeSync {
     type ResolvedEnvelope: Envelope<'static> + MaybeSend + MaybeSync;
     /// Resolve dependencies, starting with a list of dependencies. Should try to resolve
@@ -36,8 +35,7 @@ pub trait ResolveDependencies: MaybeSend + MaybeSync {
     ) -> Result<Resolved<Self::ResolvedEnvelope>, ResolutionError>;
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> ResolveDependencies for &T
 where
     T: ResolveDependencies,
@@ -54,13 +52,12 @@ where
 /// A resolver that does not even attempt to try and get dependencies
 pub struct NoopResolver;
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl ResolveDependencies for NoopResolver {
     type ResolvedEnvelope = ();
     async fn resolve(&self, m: HashSet<MissingEnvelope>) -> Result<Resolved<()>, ResolutionError> {
         Ok(Resolved {
-            envelopes: vec![],
+            resolved: vec![],
             unresolved: Some(m),
         })
     }

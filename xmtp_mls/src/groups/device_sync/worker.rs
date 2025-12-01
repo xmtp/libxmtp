@@ -91,8 +91,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<Context> Worker for SyncWorker<Context>
 where
     Context: XmtpSharedContext + 'static,
@@ -617,8 +616,6 @@ pub enum SyncMetric {
 
 impl WorkerMetrics<SyncMetric> {
     pub async fn wait_for_init(&self) -> Result<(), xmtp_common::time::Expired> {
-        self.register_interest(SyncMetric::SyncGroupCreated, 1)
-            .wait()
-            .await
+        self.register_interest(SyncMetric::Init, 1).wait().await
     }
 }

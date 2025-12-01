@@ -94,7 +94,13 @@ impl DecodedMessageContent {
   #[wasm_bindgen(js_name = asRemoteAttachment)]
   pub fn as_remote_attachment(&self) -> Option<RemoteAttachment> {
     match &self.payload {
-      MessageBody::RemoteAttachment(ra) => Some(ra.clone().into()),
+      MessageBody::RemoteAttachment(ra) => match ra.clone().try_into() {
+        Ok(ra) => Some(ra),
+        Err(e) => {
+          tracing::error!("Failed to convert RemoteAttachment: {:?}", e);
+          None
+        }
+      },
       _ => None,
     }
   }

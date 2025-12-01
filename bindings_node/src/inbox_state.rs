@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{ErrorWrapper, client::Client, identity::Identifier};
-use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
+use napi::bindgen_prelude::{BigInt, Result, Uint8Array};
 use napi_derive::napi;
 use std::sync::Arc;
 use xmtp_api::ApiClientWrapper;
@@ -103,9 +103,8 @@ pub async fn inbox_state_from_inbox_ids(
   let api = ApiClientWrapper::new(Arc::new(backend), strategies::exponential_cooldown());
   let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
-  let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral)
-    .map_err(|e| Error::from_reason(e.to_string()))?;
-  let store = EncryptedMessageStore::new(db).map_err(|e| Error::from_reason(e.to_string()))?;
+  let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral).map_err(ErrorWrapper::from)?;
+  let store = EncryptedMessageStore::new(db).map_err(ErrorWrapper::from)?;
 
   let state = inbox_addresses_with_verifier(
     &api.clone(),

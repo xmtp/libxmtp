@@ -1,6 +1,9 @@
-use std::{error::Error, time::Duration};
+use std::{error::Error, sync::Arc, time::Duration};
 
-use crate::{MessageBackendBuilderError, MiddlewareBuilder, ReadWriteClient};
+use crate::{
+    AuthCallback, AuthHandle, MessageBackendBuilderError, MiddlewareBuilder, ReadWriteClient,
+    ReadonlyClient,
+};
 use derive_builder::Builder;
 use http::{request, uri::PathAndQuery};
 use prost::bytes::Bytes;
@@ -51,8 +54,7 @@ impl ClientBundle<()> {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<Err> Client for ClientBundle<Err>
 where
     Err: Error + MaybeSend + MaybeSync + 'static,
@@ -80,8 +82,7 @@ where
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<Err> IsConnectedCheck for ClientBundle<Err> {
     async fn is_connected(&self) -> bool {
         self.client.is_connected().await
@@ -124,23 +125,36 @@ impl<Err> ClientBundle<Err> {
 
 // we aren't using any of the generated build fns by derive_builder here
 // instead we are just using it to generate the setters on the impl for us.
-#[derive(Builder, Clone, Debug)]
+#[derive(Builder, Clone)]
 #[builder(public, name = "ClientBundleBuilder", build_fn(skip))]
 struct __ClientBundleBuilder {
     #[builder(setter(into))]
     app_version: AppVersion,
     #[builder(setter(into))]
     v3_host: String,
-    #[builder(setter(into, strip_option))]
-    gateway_host: Option<String>,
+    #[builder(setter(into))]
+    gateway_host: String,
+    #[builder(setter(into))]
+    auth_callback: Arc<dyn AuthCallback>,
+    #[builder(setter(into))]
+    auth_handle: AuthHandle,
     is_secure: bool,
+    readonly: bool,
 }
 
 impl ClientBundleBuilder {
     pub fn maybe_gateway_host<U: Into<String>>(&mut self, host: Option<U>) -> &mut Self {
-        if let Some(h) = host {
-            self.gateway_host = Some(Some(h.into()));
-        }
+        self.gateway_host = host.map(Into::into);
+        self
+    }
+
+    pub fn maybe_auth_callback(&mut self, callback: Option<Arc<dyn AuthCallback>>) -> &mut Self {
+        self.auth_callback = callback;
+        self
+    }
+
+    pub fn maybe_auth_handle(&mut self, handle: Option<AuthHandle>) -> &mut Self {
+        self.auth_handle = handle;
         self
     }
 
@@ -149,11 +163,14 @@ impl ClientBundleBuilder {
             v3_host,
             gateway_host,
             app_version,
+            auth_callback,
+            auth_handle,
             is_secure,
+            readonly,
         } = self.clone();
         let v3_host = v3_host.ok_or(MessageBackendBuilderError::MissingV3Host)?;
-        let gateway_host = gateway_host.unwrap_or_default();
         let is_secure = is_secure.unwrap_or_default();
+        let readonly = readonly.unwrap_or_default();
 
         // implicitly use a d14n client
         if let Some(gateway) = gateway_host {
@@ -174,12 +191,32 @@ impl ClientBundleBuilder {
 
             let gateway_client = gateway_client_builder.build()?;
             let multi_node = multi_node.build()?;
-            let rw = ReadWriteClient::builder()
-                .read(multi_node)
-                .write(gateway_client)
-                .filter(PAYER_WRITE_FILTER)
-                .build()?;
-            let client = rw.arced();
+
+            let client = if auth_callback.is_some() || auth_handle.is_some() {
+                let auth = crate::AuthMiddleware::new(gateway_client, auth_callback, auth_handle);
+                let client = ReadWriteClient::builder()
+                    .read(multi_node)
+                    .write(auth)
+                    .filter(PAYER_WRITE_FILTER)
+                    .build()?;
+                if readonly {
+                    ReadonlyClient::builder().inner(client).build()?.arced()
+                } else {
+                    client.arced()
+                }
+            } else {
+                let client = ReadWriteClient::builder()
+                    .read(multi_node)
+                    .write(gateway_client)
+                    .filter(PAYER_WRITE_FILTER)
+                    .build()?;
+                if readonly {
+                    ReadonlyClient::builder().inner(client).build()?.arced()
+                } else {
+                    client.arced()
+                }
+            };
+
             Ok(ClientBundle::d14n(client))
         } else {
             let mut v3_client = GrpcClient::builder();

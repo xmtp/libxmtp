@@ -70,8 +70,7 @@ where
 }
 
 #[cfg_attr(test, mockall::automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[xmtp_common::async_trait]
 pub trait Sync {
     /// Try to process a single mesage
     async fn process(
@@ -90,8 +89,7 @@ impl<Context> Syncer<Context> {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[xmtp_common::async_trait]
 impl<Context> Sync for Syncer<Context>
 where
     Context: XmtpSharedContext,

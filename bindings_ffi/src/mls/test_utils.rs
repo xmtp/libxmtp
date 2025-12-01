@@ -154,13 +154,24 @@ pub async fn connect_to_backend_test() -> Arc<super::XmtpApiClient> {
             Some(GrpcUrls::GATEWAY.to_string()),
             false,
             None,
+            None,
+            None,
+            None,
         )
         .await
         .unwrap()
     } else {
-        connect_to_backend(GrpcUrls::NODE.to_string(), None, false, None)
-            .await
-            .unwrap()
+        connect_to_backend(
+            GrpcUrls::NODE.to_string(),
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap()
     }
 }
 

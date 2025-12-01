@@ -13,7 +13,7 @@ function tmp() {
 TMP=$(tmp)
 DIR="${1:-$TMP}"
 BRANCH="${2:-main}"
-CARGO="nix develop -i.#wasmBuild --command cargo"
+CARGO="nix develop -i.#wasm --command cargo"
 WORKSPACE_MANIFEST="$($CARGO locate-project --workspace --message-format=plain)"
 WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
 PLAYWRIGHT_VERSION=$(nix develop .#js --command bash -c 'echo $PLAYWRIGHT_VERSION')

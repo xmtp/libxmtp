@@ -71,6 +71,9 @@ pub trait XmtpMlsStorageProvider:
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>;
+
+    #[cfg(feature = "test-utils")]
+    fn hash_all(&self) -> Result<Vec<u8>, SqlKeyStoreError>;
 }
 
 pub struct XmtpOpenMlsProvider<S> {

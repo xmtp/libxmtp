@@ -31,8 +31,7 @@ pub fn network_backoff<ApiClient>(client: &ApiClient) -> NetworkBackoffResolver<
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<ApiClient> ResolveDependencies for NetworkBackoffResolver<ApiClient>
 where
     ApiClient: Client,
@@ -53,19 +52,14 @@ where
         let mut resolved = Vec::new();
         while !missing.is_empty() {
             if let Some(wait_for) = self.backoff.backoff(attempts, time_spent) {
+                tracing::info!("waiting for {:?}", wait_for);
                 xmtp_common::time::sleep(wait_for).await;
                 attempts += 1;
             } else {
                 missing.iter().for_each(|m| {
-                    warn!(
-                        "dropping missing dependency {} due to lack of resolution",
-                        m
-                    );
+                    warn!("dropping dependency {}, could not resolve", m);
                 });
-                return Ok(Resolved {
-                    envelopes: resolved,
-                    unresolved: Some(missing),
-                });
+                break;
             }
             let (topics, lcc) = lcc(&missing);
             let envelopes = QueryEnvelope::builder()
@@ -85,8 +79,8 @@ where
             resolved.extend(envelopes);
         }
         Ok(Resolved {
-            envelopes: resolved,
-            unresolved: None,
+            resolved,
+            unresolved: (!missing.is_empty()).then_some(missing),
         })
     }
 }
@@ -112,4 +106,85 @@ fn lcc(missing: &HashSet<MissingEnvelope>) -> (Vec<Topic>, GlobalCursor) {
             acc
         });
     (topics, last_seen)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::extractors::test_utils::TestEnvelopeBuilder;
+    use crate::protocol::utils::test;
+    use prost::Message;
+    use xmtp_proto::api::mock::MockNetworkClient;
+    use xmtp_proto::types::TopicKind;
+    use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
+
+    #[xmtp_common::test]
+    async fn test_resolve_all_found_immediately() {
+        let mut client = MockNetworkClient::new();
+        let topic = Topic::new(TopicKind::GroupMessagesV1, vec![1, 2, 3]);
+
+        let missing = test::create_missing_set(topic.clone(), vec![(1, 10), (2, 20)]);
+
+        let envelope1 = TestEnvelopeBuilder::new()
+            .with_originator_node_id(1)
+            .with_originator_sequence_id(10)
+            .build();
+        let envelope2 = TestEnvelopeBuilder::new()
+            .with_originator_node_id(2)
+            .with_originator_sequence_id(20)
+            .build();
+
+        let response = QueryEnvelopesResponse {
+            envelopes: vec![envelope1, envelope2],
+        };
+
+        client.expect_request().returning(move |_, _, _| {
+            let bytes = response.clone().encode_to_vec();
+            Ok(http::Response::new(bytes.into()))
+        });
+
+        let resolver = network_backoff(&client);
+        test::test_resolve_all_found_immediately(&resolver, missing, 2).await;
+    }
+
+    #[xmtp_common::test]
+    async fn test_resolve_partial_resolution() {
+        let mut client = MockNetworkClient::new();
+        let topic = Topic::new(TopicKind::GroupMessagesV1, vec![1, 2, 3]);
+
+        let missing = test::create_missing_set(topic.clone(), vec![(1, 10), (2, 20)]);
+        let expected_unresolved = test::create_missing_set(topic.clone(), vec![(2, 20)]);
+
+        // Only return one of the two requested envelopes
+        let envelope1 = TestEnvelopeBuilder::new()
+            .with_originator_node_id(1)
+            .with_originator_sequence_id(10)
+            .build();
+
+        client.expect_request().returning(move |_, _, _| {
+            let response = QueryEnvelopesResponse {
+                envelopes: vec![envelope1.clone()],
+            };
+            let bytes = response.encode_to_vec();
+            Ok(http::Response::new(bytes.into()))
+        });
+
+        let resolver = NetworkBackoffResolver {
+            client: &client,
+            // Use a backoff with very short timeout for testing
+            backoff: ExponentialBackoff::builder()
+                .total_wait_max(std::time::Duration::from_millis(10))
+                .build(),
+        };
+
+        test::test_resolve_partial_resolution(&resolver, missing, 1, expected_unresolved).await;
+    }
+
+    #[xmtp_common::test]
+    async fn test_resolve_empty_missing_set() {
+        let client = MockNetworkClient::new();
+        let resolver = network_backoff(&client);
+
+        test::test_resolve_empty_missing_set(&resolver).await;
+    }
 }

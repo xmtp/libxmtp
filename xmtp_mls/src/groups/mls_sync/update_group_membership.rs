@@ -74,32 +74,27 @@ async fn compute_publish_data_for_group_membership_update(
     new_extensions: Extensions,
     signer: impl Signer,
 ) -> Result<PublishIntentData, GroupError> {
-    let (commit, post_commit_action, staged_commit) =
-        context.mls_storage().transaction(|conn| {
-            let storage = conn.key_store();
-            let provider = XmtpOpenMlsProvider::new(storage);
-            // Create the commit
-            let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
-                &provider,
+    // Use savepoint pattern to create commit without persisting state
+    let ((commit, maybe_welcome_message, _), staged_commit) =
+        generate_commit_with_rollback(context.mls_storage(), openmls_group, |group, provider| {
+            group.update_group_membership(
+                provider,
                 &signer,
                 &key_packages_to_add,
                 &leaf_nodes_to_remove,
                 new_extensions,
-            )?;
-
-            let post_commit_action = match maybe_welcome_message {
-                Some(welcome_message) => Some(PostCommitAction::from_welcome(
-                    welcome_message,
-                    installations_to_add,
-                )?),
-                None => None,
-            };
-
-            let staged_commit = get_and_clear_pending_commit(openmls_group, provider.storage())?
-                .ok_or_else(|| GroupError::MissingPendingCommit)?;
-
-            Ok::<_, GroupError>((commit, post_commit_action, staged_commit))
+            )
         })?;
+
+    let staged_commit = staged_commit.ok_or_else(|| GroupError::MissingPendingCommit)?;
+
+    let post_commit_action = match maybe_welcome_message {
+        Some(welcome_message) => Some(PostCommitAction::from_welcome(
+            welcome_message,
+            installations_to_add,
+        )?),
+        None => None,
+    };
 
     Ok(PublishIntentData {
         payload_to_publish: commit.tls_serialize_detached()?,

@@ -185,7 +185,7 @@ pub(crate) mod tests {
 
     // Test storing duplicated wallets (same inbox_id and wallet_address)
     #[xmtp_common::test]
-    async fn test_store_duplicated_wallets() {
+    fn test_store_duplicated_wallets() {
         with_connection(|conn| {
             let entry1 = IdentityCache {
                 inbox_id: "test_dup".to_string(),
@@ -204,13 +204,12 @@ pub(crate) mod tests {
                 "Duplicated wallet stored without error, expected failure"
             );
         })
-        .await
     }
 
     // Test storing and fetching multiple wallet addresses with multiple keys
     // TODO:insipx: will need to fix & store identity kind
     #[xmtp_common::test]
-    async fn test_fetch_and_store_identity_cache() {
+    fn test_fetch_and_store_identity_cache() {
         with_connection(|conn| {
             let ident1 = MockIdentity::create(0);
             let ident2 = MockIdentity::create(0);
@@ -235,6 +234,5 @@ pub(crate) mod tests {
                 "Expected no wallets, found some"
             );
         })
-        .await
     }
 }
