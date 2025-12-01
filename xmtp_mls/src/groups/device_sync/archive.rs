@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::DeviceSyncError;
 use crate::{
     context::XmtpSharedContext,
@@ -6,7 +8,7 @@ use crate::{
 use futures::StreamExt;
 pub use xmtp_archive::*;
 use xmtp_db::{
-    StoreOrIgnore,
+    ConnectionExt, StoreOrIgnore,
     consent_record::StoredConsentRecord,
     group::{ConversationType, DmIdExt, GroupMembershipState},
     group_message::StoredGroupMessage,
@@ -15,21 +17,55 @@ use xmtp_db::{
 use xmtp_mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
 
+#[derive(Default)]
+struct ImportContext {
+    group_timestamps: HashMap<Vec<u8>, Option<i64>>,
+}
+
+impl ImportContext {
+    fn post_import(&self, context: &impl XmtpSharedContext) -> Result<(), DeviceSyncError> {
+        use xmtp_db::diesel::prelude::*;
+        use xmtp_db::schema::groups::dsl;
+
+        // We want to update the group timestamps to either be what they were before the import,
+        // or what they are in the archive group field.
+        for (group_id, timestamp) in &self.group_timestamps {
+            if let Err(err) = context.db().raw_query_write(|conn| {
+                xmtp_db::diesel::update(dsl::groups.find(group_id))
+                    .set(dsl::last_message_ns.eq(*timestamp))
+                    .execute(conn)
+            }) {
+                tracing::warn!("Unable to update last_message_ns for group {group_id:?}: {err:?}");
+            }
+        }
+
+        Ok(())
+    }
+}
+
 pub async fn insert_importer(
     importer: &mut ArchiveImporter,
     context: &impl XmtpSharedContext,
 ) -> Result<(), DeviceSyncError> {
+    let mut import_ctx = ImportContext::default();
+
     while let Some(element) = importer.next().await {
         let element = element?;
-        if let Err(err) = insert(element, context) {
+        if let Err(err) = insert(element, context, &mut import_ctx) {
             tracing::warn!("Unable to insert record: {err:?}");
         };
     }
 
+    import_ctx.post_import(context)?;
+
     Ok(())
 }
 
-fn insert(element: BackupElement, context: &impl XmtpSharedContext) -> Result<(), DeviceSyncError> {
+fn insert(
+    element: BackupElement,
+    context: &impl XmtpSharedContext,
+    import_context: &mut ImportContext,
+) -> Result<(), DeviceSyncError> {
     let Some(element) = element.element else {
         return Ok(());
     };
@@ -40,7 +76,10 @@ fn insert(element: BackupElement, context: &impl XmtpSharedContext) -> Result<()
             context.db().insert_newer_consent_record(consent)?;
         }
         Element::Group(save) => {
-            if let Ok(Some(_)) = context.db().find_group(&save.id) {
+            if let Ok(Some(existing_group)) = context.db().find_group(&save.id) {
+                import_context
+                    .group_timestamps
+                    .insert(existing_group.id, existing_group.last_message_ns);
                 // Do not restore groups that already exist.
                 return Ok(());
             }
@@ -50,6 +89,13 @@ fn insert(element: BackupElement, context: &impl XmtpSharedContext) -> Result<()
                 .mutable_metadata
                 .map(|m| m.attributes)
                 .unwrap_or_default();
+
+            // Save the timestamp. We'll need to come back around and re-insert this
+            // because triggers will set this field to now_ns in the database which
+            // is sub-par UX.
+            import_context
+                .group_timestamps
+                .insert(save.id.clone(), save.last_message_ns);
 
             match conversation_type {
                 ConversationType::Dm => {
