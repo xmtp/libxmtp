@@ -78,9 +78,14 @@ fn insert(
         }
         Element::Group(save) => {
             if let Ok(Some(existing_group)) = context.db().find_group(&save.id) {
+                let mut timestamp = existing_group.last_message_ns;
+                if let Some(snap_timestamp) = save.last_message_ns {
+                    timestamp = timestamp.map(|ts| ts.max(snap_timestamp));
+                }
+
                 import_context
                     .group_timestamps
-                    .insert(existing_group.id, existing_group.last_message_ns);
+                    .insert(existing_group.id, timestamp);
                 // Do not restore groups that already exist.
                 return Ok(());
             }
@@ -179,6 +184,79 @@ mod tests {
         schema::{consent_records, group_messages, groups},
     };
     use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_archive_timestamps() {
+        tester!(alix, disable_workers);
+        tester!(alix2, from: alix);
+        tester!(bo, disable_workers);
+
+        let alix_group = alix
+            .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+            .await?;
+        alix_group.send_message(b"hi", Default::default()).await?;
+
+        alix2.sync_welcomes().await?;
+        bo.sync_welcomes().await?;
+
+        let alix2_group = alix2.group(&alix_group.group_id)?;
+        let bo_group = bo.group(&alix_group.group_id)?;
+
+        alix2_group.sync().await?;
+        bo_group.sync().await?;
+
+        // We want to send this message so that alix2's group timestamp gets ahead.
+        alix2_group
+            .send_message(b"Hello again", Default::default())
+            .await?;
+
+        let key = vec![7; 32];
+        let opts = BackupOptions {
+            start_ns: None,
+            end_ns: None,
+            elements: vec![
+                BackupElementSelection::Messages as i32,
+                BackupElementSelection::Consent as i32,
+            ],
+            exclude_disappearing_messages: false,
+        };
+        let export = {
+            let mut file = vec![];
+            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+            exporter.read_to_end(&mut file).await?;
+            file
+        };
+
+        tester!(alix3, from: alix);
+
+        // Now we will have alix2 and alix3 import the archives.
+        // One installation has the group already, one does not.
+        let reader = Box::pin(BufReader::new(Cursor::new(export.clone())));
+        let mut importer = ArchiveImporter::load(reader, &key).await?;
+        insert_importer(&mut importer, &alix2.context).await?;
+
+        let reader = Box::pin(BufReader::new(Cursor::new(export)));
+        let mut importer = ArchiveImporter::load(reader, &key).await?;
+        insert_importer(&mut importer, &alix3.context).await?;
+
+        let alix_timestamp = alix
+            .db()
+            .find_group(&alix_group.group_id)??
+            .last_message_ns?;
+        let alix2_timestamp = alix2
+            .db()
+            .find_group(&alix_group.group_id)??
+            .last_message_ns?;
+        let alix3_timestamp = alix3
+            .db()
+            .find_group(&alix_group.group_id)??
+            .last_message_ns?;
+
+        // Alix2's newer timestamp should be preserved.
+        assert!(alix2_timestamp > alix_timestamp);
+        // Alix3's timestamp should equal alix's timestamp.
+        assert_eq!(alix3_timestamp, alix_timestamp);
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_dm_archive() {
