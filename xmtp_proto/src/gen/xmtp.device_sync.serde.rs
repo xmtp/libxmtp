@@ -33,9 +33,6 @@ impl serde::Serialize for BackupElement {
                 backup_element::Element::Snapshot(v) => {
                     struct_ser.serialize_field("snapshot", v)?;
                 }
-                backup_element::Element::Keypackage(v) => {
-                    struct_ser.serialize_field("keypackage", v)?;
-                }
             }
         }
         struct_ser.end()
@@ -57,7 +54,6 @@ impl<'de> serde::Deserialize<'de> for BackupElement {
             "identity_updates",
             "identityUpdates",
             "snapshot",
-            "keypackage",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -69,7 +65,6 @@ impl<'de> serde::Deserialize<'de> for BackupElement {
             Event,
             IdentityUpdates,
             Snapshot,
-            Keypackage,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -99,7 +94,6 @@ impl<'de> serde::Deserialize<'de> for BackupElement {
                             "event" => Ok(GeneratedField::Event),
                             "identityUpdates" | "identity_updates" => Ok(GeneratedField::IdentityUpdates),
                             "snapshot" => Ok(GeneratedField::Snapshot),
-                            "keypackage" => Ok(GeneratedField::Keypackage),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -169,13 +163,6 @@ impl<'de> serde::Deserialize<'de> for BackupElement {
                                 return Err(serde::de::Error::duplicate_field("snapshot"));
                             }
                             element__ = map_.next_value::<::std::option::Option<_>>()?.map(backup_element::Element::Snapshot)
-;
-                        }
-                        GeneratedField::Keypackage => {
-                            if element__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("keypackage"));
-                            }
-                            element__ = map_.next_value::<::std::option::Option<_>>()?.map(backup_element::Element::Keypackage)
 ;
                         }
                         GeneratedField::__SkipField__ => {

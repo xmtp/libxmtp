@@ -14,18 +14,3 @@ impl ::prost::Name for SnapshotSave {
         "/xmtp.device_sync.backup.SnapshotSave".into()
     }
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct KeypackageSave {
-    #[prost(bytes = "vec", tag = "1")]
-    pub keypackage: ::prost::alloc::vec::Vec<u8>,
-}
-impl ::prost::Name for KeypackageSave {
-    const NAME: &'static str = "KeypackageSave";
-    const PACKAGE: &'static str = "xmtp.device_sync.backup";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.device_sync.backup.KeypackageSave".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.device_sync.backup.KeypackageSave".into()
-    }
-}
