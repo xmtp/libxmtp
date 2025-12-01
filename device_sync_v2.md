@@ -401,7 +401,6 @@ impl SyncClient {
   ) -> Result<SyncDownloadResult, SyncError>;
 
   /// Resume any downloads that were interrupted (e.g., app killed, network lost).
-  /// Call on app startup to complete partial downloads from previous session.
   ///
   /// Steps performed:
   /// 1. Check for existing partial download at {cache_dir}/{hash}.partial
@@ -421,7 +420,7 @@ impl SyncClient {
     &self,
     manifest: &Manifest,
     scope: SyncScope,
-  ) -> SyncTransferSize;
+  ) -> Result<SyncStorageUsage, SyncError>;
 }
 ```
 
@@ -431,7 +430,6 @@ Failed uploads can be retried with automatic resume support. Pending upload data
 
 ```rust
 /// Pending upload tracked in local database for resume support
-#[derive(Serialize, Deserialize)]
 struct SyncUploadPending {
   /// SHA-256 hash of the complete blob (for integrity verification)
   content_hash: String,
@@ -461,31 +459,25 @@ pub struct SyncUploadResumeResult {
 
 impl SyncClient {
   /// Upload local consent records to sync server.
-  /// Call periodically or after consent changes.
   pub async fn upload_consent(&self) -> Result<SyncUploadResult, SyncError>;
 
   /// Upload local group metadata to sync server.
-  /// Call periodically or after group changes.
   pub async fn upload_groups(&self) -> Result<SyncUploadResult, SyncError>;
 
   /// Upload messages for a specific group.
-  /// Call periodically or after sending messages.
   pub async fn upload_group_messages(
     &self,
     group_id: &GroupId,
   ) -> Result<SyncUploadResult, SyncError>;
 
-  /// Upload all pending changes (consent, groups, messages).
-  /// Convenience method that calls all upload functions.
-  pub async fn upload_all(&self) -> Result<SyncUploadResult, SyncError>;
+  /// Upload all group messages
+  pub async fn upload_all_messages(&self) -> Result<SyncUploadResult, SyncError>;
 
   /// Resume any uploads that were interrupted (e.g., app killed, network lost).
-  /// Call on app startup to complete partial uploads from previous session.
   pub async fn resume_pending_uploads(&self) -> Result<SyncUploadResumeResult, SyncError>;
 
-  /// Calculate the exact upload size for pending changes without uploading.
-  /// Use this to inform users of bandwidth requirements before starting.
-  pub async fn calculate_upload_size(&self) -> Result<SyncTransferSize, SyncError>;
+  /// Calculate the exact upload size for a sync operation without uploading.
+  pub fn calculate_upload_size(&self, scope: SyncScope) -> Result<SyncStorageUsage, SyncError>;
 }
 ```
 
@@ -567,22 +559,6 @@ impl SyncClient {
 
   /// Get current sync status and statistics.
   pub fn status(&self) -> SyncStatus;
-}
-```
-
-### Shared
-
-```rust
-/// Transfer size information for bandwidth planning
-pub struct SyncTransferSize {
-  /// Total bytes to transfer
-  pub total_bytes: u64,
-  /// Breakdown by category
-  pub consent_bytes: u64,
-  pub groups_bytes: u64,
-  pub messages_bytes: u64,
-  /// Number of archives involved
-  pub archive_count: u64,
 }
 ```
 
@@ -685,20 +661,26 @@ impl SyncClient {
 ### Server Implementation (Rotation)
 
 ```rust
+/// Request to rotate sync identity on the server
+struct RotateRequest {
+  /// Old sync ID being replaced
+  old_sync_id: String,
+  /// New sync ID to replace the old one
+  new_sync_id: String,
+  /// New Ed25519 public key for authentication
+  new_auth_public_key: [u8; 32],
+  /// New encrypted manifest (re-wrapped DEKs with new KEK)
+  new_manifest: EncryptedManifest,
+}
+
 impl SyncServer {
-  /// Performs atomic identity rotation with concurrency control.
+  /// Performs atomic identity rotation
   ///
   /// Steps performed:
   /// 1. Verify request signature using old account's auth_public_key
-  /// 2. Load current manifest and check version matches request.expected_version;
-  ///    if version mismatch, return ConcurrentRotation error (another installation already rotated)
-  /// 3. Execute atomic transaction:
-  ///    - Delete {old_sync_id}.manifest
-  ///    - Store {new_sync_id}.manifest
-  ///    - Update auth record (old_sync_id -> new_sync_id, new_auth_public_key)
-  /// 4. Commit transaction
-  ///
-  /// Note: Blobs are not touched - they're content-addressed and shared globally.
-  async fn rotate(&self, old_sync_id: &str, request: RotateRequest) -> Result<()>;
+  /// 2. Delete {old_sync_id}.manifest
+  /// 3. Store {new_sync_id}.manifest
+  /// 4. Update auth record (old_sync_id -> new_sync_id, new_auth_public_key)
+  async fn rotate(&self, request: RotateRequest) -> Result<()>;
 }
 ```
