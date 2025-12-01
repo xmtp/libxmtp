@@ -3,7 +3,10 @@ use pin_project_lite::pin_project;
 use std::{
     marker::PhantomData,
     pin::Pin,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicI64, Ordering},
+    },
     task::{Context, Poll},
 };
 use xmtp_api::{ApiClientWrapper, XmtpApi};
@@ -14,11 +17,11 @@ use xmtp_proto::xmtp::device_sync::{
     event_backup::EventSave, group_backup::GroupSave, message_backup::GroupMessageSave,
 };
 
-pub(crate) mod blob_save;
 pub(crate) mod consent_save;
 pub(crate) mod event_save;
 pub(crate) mod group_save;
 pub(crate) mod message_save;
+pub(crate) mod snapshot_save;
 
 if_native! {
     type BackupInputStream = Pin<Box<dyn Stream<Item = Result<Vec<BackupElement>, StorageError>> + Send>>;
@@ -48,7 +51,7 @@ impl BatchExportStream {
                     vec![BackupRecordStreamer::<ConsentSave, D, Api>::new_stream(
                         db.clone(),
                         api.clone(),
-                        opts,
+                        opts.clone(),
                     )]
                 }
                 BackupElementSelection::Messages => vec![
@@ -56,12 +59,12 @@ impl BatchExportStream {
                     BackupRecordStreamer::<GroupSave, D, Api>::new_stream(
                         db.clone(),
                         api.clone(),
-                        opts,
+                        opts.clone(),
                     ),
                     BackupRecordStreamer::<GroupMessageSave, D, Api>::new_stream(
                         db.clone(),
                         api.clone(),
-                        opts,
+                        opts.clone(),
                     ),
                 ],
                 BackupElementSelection::Event => {
@@ -69,12 +72,12 @@ impl BatchExportStream {
                         BackupRecordStreamer::<GroupSave, D, Api>::new_stream(
                             db.clone(),
                             api.clone(),
-                            opts,
+                            opts.clone(),
                         ),
                         BackupRecordStreamer::<EventSave, D, Api>::new_stream(
                             db.clone(),
                             api.clone(),
-                            opts,
+                            opts.clone(),
                         ),
                     ]
                 }
@@ -137,25 +140,24 @@ impl Stream for BatchExportStream {
 #[xmtp_common::async_trait]
 pub(crate) trait BackupRecordProvider: MaybeSend + Sized + 'static {
     const BATCH_SIZE: i64;
-    async fn backup_records<D>(
-        db: Arc<D>,
-        start_ns: Option<i64>,
-        end_ns: Option<i64>,
-        exclude_disappearing_messages: bool,
-        cursor: i64,
+    async fn backup_records<D, Api>(
+        state: Arc<BackupProviderState<D, Api>>,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
-        D: MaybeSend + DbQuery + 'static;
+        D: MaybeSend + DbQuery + 'static,
+        Api: XmtpApi + 'static;
+}
+
+struct BackupProviderState<D, Api> {
+    db: Arc<D>,
+    api: ApiClientWrapper<Api>,
+    cursor: AtomicI64,
+    opts: BackupOptions,
 }
 
 pin_project! {
     pub(crate) struct BackupRecordStreamer<R, D, Api> {
-        cursor: i64,
-        db: Arc<D>,
-        api: ApiClientWrapper<Api>,
-        start_ns: Option<i64>,
-        end_ns: Option<i64>,
-        exclude_disappearing_messages: bool,
+        provider_state: Arc<BackupProviderState<D, Api>>,
         #[pin] current_future: Option<Pin<Box<dyn MaybeSendFuture<Output = Result<Vec<BackupElement>, StorageError>>>>>,
         _phantom: PhantomData<R>,
     }
@@ -170,15 +172,15 @@ where
     pub(super) fn new_stream(
         db: Arc<D>,
         api: ApiClientWrapper<Api>,
-        opts: &BackupOptions,
+        opts: BackupOptions,
     ) -> BackupInputStream {
         Box::pin(Self {
-            cursor: 0,
-            db,
-            api,
-            start_ns: opts.start_ns,
-            end_ns: opts.end_ns,
-            exclude_disappearing_messages: opts.exclude_disappearing_messages,
+            provider_state: Arc::new(BackupProviderState {
+                db,
+                api,
+                cursor: AtomicI64::new(0),
+                opts,
+            }),
             _phantom: PhantomData,
             current_future: None,
         })
@@ -197,13 +199,7 @@ where
 
         // Create the future if it doesn't exist
         if this.current_future.is_none() {
-            let fut = R::backup_records(
-                this.db.clone(),
-                *this.start_ns,
-                *this.end_ns,
-                *this.exclude_disappearing_messages,
-                *this.cursor,
-            );
+            let fut = R::backup_records(this.provider_state.clone());
             this.current_future.set(Some(Box::pin(fut)));
         }
 
@@ -225,7 +221,9 @@ where
             }
             Ok(elements) => {
                 // Update cursor for next batch
-                *this.cursor += elements.len() as i64;
+                this.provider_state
+                    .cursor
+                    .fetch_add(elements.len() as i64, Ordering::SeqCst);
                 Poll::Ready(Some(Ok(elements)))
             }
             Err(e) => {
