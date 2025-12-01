@@ -24,7 +24,7 @@ This document proposes a comprehensive redesign of the device sync system. The n
 - **Incremental sync** reducing bandwidth by 90%+ for typical usage
 - **Explicit API control** - all sync operations triggered via explicit function calls
 
-The redesign transforms device sync from an opaque, error-prone, all-or-nothing operation into a fast, reliable system with explicit developer control that enables a much smoother user experience.
+The redesign transforms device sync from an opaque, all-or-nothing operation into a fast, reliable system with explicit developer control that enables a much smoother user experience.
 
 ---
 
