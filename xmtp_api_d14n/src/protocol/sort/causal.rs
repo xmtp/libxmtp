@@ -81,7 +81,7 @@ mod tests {
                 "{envelope} has no dependency that is missing. missing & removed: {:?}",
                 missing_and_removed
                     .iter()
-                    .map(|e| e.cursor.to_string())
+                    .map(|e| e.cursor().to_string())
                     .collect::<Vec<_>>()
             );
         }
@@ -92,15 +92,15 @@ mod tests {
                 "{envelope} depends on a missing or removed dependency in \nremoved: {:?}, \nmissing: {:?} but it was marked as sorted,\n sorted {:?}",
                 removed
                     .iter()
-                    .map(|e| e.cursor.to_string())
+                    .map(|e| e.cursor().to_string())
                     .collect::<Vec<_>>(),
                 missing
                     .iter()
-                    .map(|e| e.cursor.to_string())
+                    .map(|e| e.cursor().to_string())
                     .collect::<Vec<_>>(),
                 sorted
                     .iter()
-                    .map(|e| e.cursor.to_string())
+                    .map(|e| e.cursor().to_string())
                     .collect::<Vec<_>>(),
             );
         }

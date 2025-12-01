@@ -2,7 +2,7 @@ use super::TestEnvelope;
 use itertools::Itertools;
 use proptest::prelude::*;
 use proptest::sample::subsequence;
-use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId, SequenceId};
+use xmtp_proto::types::{GlobalCursor, OriginatorId, SequenceId};
 
 // Advance the clock for a given originator
 fn advance_clock(base: &GlobalCursor, originator: &OriginatorId) -> SequenceId {
@@ -34,15 +34,15 @@ pub fn sorted_dependencies(
                             let mut envelopes = envelopes_clone.clone();
                             let total_clock: GlobalCursor = envelopes_clone
                                 .iter()
-                                .map(|e| (e.cursor.originator_id, e.cursor.sequence_id))
+                                .map(|e| (e.cursor().originator_id, e.cursor().sequence_id))
                                 .into_grouping_map()
                                 .max()
                                 .into();
                             let mut base = GlobalCursor::default();
                             envelopes_clone
                                 .iter()
-                                .filter(|e| e.cursor.originator_id == originator)
-                                .map(|e| e.cursor)
+                                .filter(|e| e.cursor().originator_id == originator)
+                                .map(|e| e.cursor())
                                 .for_each(|c| base.apply(&c));
 
                             let new_clock = if envelopes_subset.is_empty() {
@@ -50,8 +50,8 @@ pub fn sorted_dependencies(
                                 // same originator id
                                 base
                             } else {
-                                for cursor in envelopes_subset.iter().map(|e| &e.cursor) {
-                                    base.apply(cursor);
+                                for cursor in envelopes_subset.iter().map(|e| e.cursor()) {
+                                    base.apply(&cursor);
                                 }
                                 base
                             };
@@ -59,13 +59,7 @@ pub fn sorted_dependencies(
                             // Advance clock for this originator
                             let sequence_id = advance_clock(&total_clock, &originator);
 
-                            envelopes.push(TestEnvelope {
-                                cursor: Cursor {
-                                    originator_id: originator,
-                                    sequence_id,
-                                },
-                                depends_on: new_clock,
-                            });
+                            envelopes.push(TestEnvelope::new(sequence_id, originator, new_clock));
                             envelopes
                         },
                     )
