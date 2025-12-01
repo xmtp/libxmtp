@@ -181,6 +181,11 @@ mod tests {
             .send_message(b"old group", Default::default())
             .await?;
 
+        let timestamp = alix
+            .db()
+            .find_group(&alix_bo_dm.group_id)??
+            .last_message_ns?;
+
         let key = vec![7; 32];
         let opts = BackupOptions {
             start_ns: None,
@@ -211,6 +216,12 @@ mod tests {
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[1].decrypted_message_bytes, b"old group");
         // assert_eq!(alix2_bo_dm.test_last_message_bytes().await??, b"old group");
+
+        let timestamp2 = alix2
+            .db()
+            .find_group(&alix_bo_dm.group_id)??
+            .last_message_ns?;
+        assert_eq!(timestamp, timestamp2);
 
         alix2_bo_dm
             .send_message(b"hi bo", Default::default())
@@ -452,7 +463,6 @@ mod tests {
 
         let key = vec![0; 32];
         let path = PathBuf::from("tests/assets/archive-legacy.xmtp");
-        tracing::info!("{path:?}");
         let mut importer = ArchiveImporter::from_file(path, &key).await?;
 
         tester!(alix);
