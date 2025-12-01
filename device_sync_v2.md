@@ -139,7 +139,7 @@ struct SyncIdentityAcknowledge {
 
 ### Sync Identity Rotation
 
-When an installation is created or revoked, the sync identity must be rotated to ensure forward secrecy - the revoked installation should not be able to decrypt future sync data. Once rotated, previous sync data will not be accessible either.
+When an installation is created or revoked, the sync identity must be rotated to ensure forward secrecy - the revoked installation should not be able to decrypt future sync data.
 
 Rotation uses a two-phase approach to handle failures:
 
