@@ -94,6 +94,9 @@ where
         Vec::is_empty(self)
     }
 
+    // todo: make this a diff trait so that we can write this impl
+    // in terms of T: Envelope<'env> and collect regardless of whether ProtocolEnvelope
+    // is implemented.
     fn consume<E>(self) -> Result<Vec<<E as Extractor>::Output>, EnvelopeError>
     where
         for<'a> E: Default + Extractor + EnvelopeVisitor<'a>,

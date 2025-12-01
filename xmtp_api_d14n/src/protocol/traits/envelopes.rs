@@ -39,6 +39,7 @@ pub trait ProtocolEnvelope<'env>: std::fmt::Debug + MaybeSend + MaybeSync {
 /// a [`Cursor`](xmtp_proto::types::Cursor) per envelope.
 /// Likewise, Clients form the [`ClientEnvelope`] according to the [Client Node2Node Protocol](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#332-envelopes)
 /// Client envelopes maintain a payload/topic with MLS and Client-specific duties.
+// the specialization is used only in tests
 pub trait Envelope<'env>: std::fmt::Debug + MaybeSend + MaybeSync {
     /// get the oriignal envelope bytes
     fn bytes(&self) -> Result<Vec<u8>, EnvelopeError>;
@@ -63,12 +64,6 @@ pub trait Envelope<'env>: std::fmt::Debug + MaybeSend + MaybeSync {
     fn group_message(&self) -> Result<Option<GroupMessage>, EnvelopeError>;
     /// Try to get a welcome message
     fn welcome_message(&self) -> Result<Option<WelcomeMessage>, EnvelopeError>;
-    /// consume this envelope by extracting its contents with extractor `E`
-    fn consume<E>(&self, extractor: E) -> Result<E::Output, EnvelopeError>
-    where
-        Self: Sized,
-        for<'a> EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
-        for<'a> E: EnvelopeVisitor<'a> + Extractor;
 }
 
 // Allows us to call these methods straight on the protobuf types without any
@@ -148,16 +143,6 @@ where
             }),
             payload: Some(payload),
         })
-    }
-
-    fn consume<E>(&self, mut extractor: E) -> Result<E::Output, EnvelopeError>
-    where
-        Self: Sized,
-        for<'a> E: EnvelopeVisitor<'a> + Extractor,
-        for<'a> EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
-    {
-        self.accept(&mut extractor)?;
-        Ok(extractor.get())
     }
 
     fn group_message(&self) -> Result<Option<GroupMessage>, EnvelopeError> {
