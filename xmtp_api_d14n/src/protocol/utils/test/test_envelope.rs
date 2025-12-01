@@ -90,4 +90,8 @@ impl Envelope<'_> for TestEnvelope {
     fn bytes(&self) -> Result<Vec<u8>, EnvelopeError> {
         unreachable!()
     }
+
+    fn orphan(&self) -> Result<xmtp_proto::types::OrphanedEnvelope, EnvelopeError> {
+        todo!()
+    }
 }

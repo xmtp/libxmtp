@@ -1,10 +1,11 @@
 //! Traits representing un-processed (extracted) and processed (extracted) protobuf types
 use chrono::Utc;
 use xmtp_common::{MaybeSend, MaybeSync};
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, OrphanedEnvelope};
 
 use crate::protocol::{
-    BytesExtractor, CursorExtractor, DependsOnExtractor, MlsDataExtractor, TimestampExtractor,
+    BytesExtractor, CursorExtractor, DependsOnExtractor, MlsDataExtractor, OrphanExtractor,
+    TimestampExtractor,
 };
 
 use super::*;
@@ -39,7 +40,10 @@ pub trait ProtocolEnvelope<'env>: std::fmt::Debug + MaybeSend + MaybeSync {
 /// Likewise, Clients form the [`ClientEnvelope`] according to the [Client Node2Node Protocol](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#332-envelopes)
 /// Client envelopes maintain a payload/topic with MLS and Client-specific duties.
 pub trait Envelope<'env>: std::fmt::Debug + MaybeSend + MaybeSync {
+    /// get the oriignal envelope bytes
     fn bytes(&self) -> Result<Vec<u8>, EnvelopeError>;
+    /// get the orphaned version of this envelope
+    fn orphan(&self) -> Result<OrphanedEnvelope, EnvelopeError>;
     /// Extract the topic for this envelope
     fn topic(&self) -> Result<Topic, EnvelopeError>;
     /// Extract the cursor for this envelope
@@ -77,6 +81,12 @@ where
         let mut extractor = BytesExtractor::new();
         self.accept(&mut extractor)?;
         Ok(extractor.get())
+    }
+
+    fn orphan(&self) -> Result<OrphanedEnvelope, EnvelopeError> {
+        let mut extractor = OrphanExtractor::default();
+        self.accept(&mut extractor)?;
+        Ok(extractor.get()?)
     }
 
     fn topic(&self) -> Result<Topic, EnvelopeError> {

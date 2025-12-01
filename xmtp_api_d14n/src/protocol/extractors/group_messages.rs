@@ -16,7 +16,7 @@ use xmtp_proto::xmtp::mls::api::v1::group_message_input;
 use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
 
 /// Type to extract a Group Message from Originator Envelopes
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 pub struct GroupMessageExtractor {
     cursor: Cursor,
     created_ns: DateTime<Utc>,
