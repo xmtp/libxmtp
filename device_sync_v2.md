@@ -293,6 +293,37 @@ Blobs are immutable and content-addressed:
 ### Configuration
 
 ```rust
+/// The cloud storage provider to use for device sync.
+pub enum SyncProvider {
+  /// Web-based storage with custom endpoint
+  Web,
+  /// Apple iCloud storage (iOS/macOS only)
+  ICloud,
+  /// Google Cloud storage (Android primarily)
+  GoogleCloud
+}
+
+/// Configuration options for web-based sync storage.
+pub struct WebSyncProviderOptions {
+  /// The HTTP endpoint URL for managing sync data
+  pub endpoint: String,
+}
+
+/// Configuration options for iCloud sync storage.
+pub struct ICloudProviderOptions {}
+
+/// Configuration options for Google Cloud sync storage.
+pub struct GoogleCloudProviderOptions {}
+
+/// Provider-specific configuration options for device sync.
+/// Each variant contains the configuration for its respective cloud provider.
+pub enum SyncProviderOptions {
+  Web(WebSyncProviderOptions),
+  ICloud(ICloudProviderOptions),
+  GoogleCloud(GoogleCloudProviderOptions),
+}
+
+
 /// Client configuration for sync behavior
 pub struct SyncClientConfig {
   /// When enabled, automatically upload local changes when a peer requests sync
@@ -309,6 +340,21 @@ pub struct SyncClientConfig {
   /// if last_updated_ns is older than this, the manifest is marked as stale.
   /// Default: None
   pub stale_threshold_secs: Option<u64>,
+
+  /// Local filesystem path where downloaded sync data and manifests are cached.
+  /// This directory is used to store temporary downloads before processing.
+  /// Default: None (disable download resume)
+  pub download_cache_path: Option<String>,
+
+  /// The cloud storage provider to use for device sync (Web, iCloud, or GoogleCloud).
+  /// If None, device sync functionality will be disabled.
+  /// Default: None
+  pub sync_provider: Option<SyncProvider>,
+
+  /// Provider-specific configuration options for the selected sync provider.
+  /// Must match the provider type specified in sync_provider.
+  /// Default: None
+  pub sync_provider_options: Option<SyncProviderOptions>,
 }
 
 impl Default for SyncClientConfig {
@@ -400,7 +446,7 @@ impl SyncClient {
     opts: SyncDownloadOptions,
   ) -> Result<SyncDownloadResult, SyncError>;
 
-  /// Resume any downloads that were interrupted (e.g., app killed, network lost).
+  /// Resume any downloads that were interrupted.
   ///
   /// Steps performed:
   /// 1. Check for existing partial download at {cache_dir}/{hash}.partial
@@ -553,9 +599,13 @@ impl SyncClient {
   /// Phase 2 - Server rotation:
   /// 4. Download and decrypt current manifest from server
   /// 5. Re-wrap all DEKs with new KEK
-  /// 6. Send RotateRequest to server (deletes old manifest, stores new one)
-  /// 7. Broadcast SyncIdentityRotationConfirm on success
-  /// 8. Update local sync_identity
+  /// 6. Create new manifest
+  /// 7. Manage identity rotation on sync provider
+  ///    - Deletes old manifest
+  ///    - Stores new one
+  ///    - Replaces auth public key
+  /// 8. Broadcast SyncIdentityRotationConfirm on success
+  /// 9. Update local sync_identity
   pub async fn rotate_identity(&self) -> Result<(), SyncError>;
 
   /// Get current sync status and statistics.
@@ -605,83 +655,5 @@ impl SyncClient {
   /// 2. If local data is newer than server, calls upload_all() to upload latest changes.
   /// 3. Returns Ok(()) regardless of whether upload was triggered.
   async fn handle_sync_data_request(&self, request: SyncDataRequest) -> Result<()>;
-}
-```
-
----
-
-## Server API
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Sync Server API                                                │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  Storage Model (Flat):                                          │
-│  - Manifests: {sync_id}.manifest (one per user)                 │
-│  - Blobs: {content_hash} (shared globally)                      │
-│  - All files are encrypted blobs opaque to server               │
-│                                                                 │
-│  Authentication: Ed25519 signature on request                   │
-│                                                                 │
-│  ─────────────────────────────────────────────────────────────  │
-│                                                                 │
-│  POST /register                                                 │
-│    Body: { sync_id, auth_public_key }                           │
-│    → Registers sync_id with auth_public_key                     │
-│                                                                 │
-│  GET /{sync_id}.manifest                                        │
-│    → Returns encrypted manifest                                 │
-│                                                                 │
-│  GET /{content_hash}                                            │
-│    Headers: Range (optional, e.g., "bytes=1024-2047")           │
-│    → Returns blob by content hash                               │
-│    → Response includes Content-Length, Accept-Ranges: bytes     │
-│                                                                 │
-│  PUT /{sync_id}.manifest                                        │
-│    Body: encrypted manifest blob                                │
-│    → Stores/updates manifest                                    │
-│                                                                 │
-│  PUT /{content_hash}                                            │
-│    Body: encrypted blob                                         │
-│    → Stores blob (content-addressed, deduplicated)              │
-│                                                                 │
-│  POST /rotate/{old_sync_id}                                     │
-│    Body: {                                                      │
-│      new_sync_id,                                               │
-│      new_auth_public_key,                                       │
-│      new_manifest                                               │
-│    }                                                            │
-│    → Deletes {old_sync_id}.manifest                             │
-│    → Stores {new_sync_id}.manifest                              │
-│    → Updates auth_public_key for sync_id                        │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Server Implementation (Rotation)
-
-```rust
-/// Request to rotate sync identity on the server
-struct RotateRequest {
-  /// Old sync ID being replaced
-  old_sync_id: String,
-  /// New sync ID to replace the old one
-  new_sync_id: String,
-  /// New Ed25519 public key for authentication
-  new_auth_public_key: [u8; 32],
-  /// New encrypted manifest (re-wrapped DEKs with new KEK)
-  new_manifest: EncryptedManifest,
-}
-
-impl SyncServer {
-  /// Performs atomic identity rotation
-  ///
-  /// Steps performed:
-  /// 1. Verify request signature using old account's auth_public_key
-  /// 2. Delete {old_sync_id}.manifest
-  /// 3. Store {new_sync_id}.manifest
-  /// 4. Update auth record (old_sync_id -> new_sync_id, new_auth_public_key)
-  async fn rotate(&self, request: RotateRequest) -> Result<()>;
 }
 ```
