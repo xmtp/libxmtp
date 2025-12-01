@@ -108,6 +108,9 @@ The MLS sync group is the secure channel through which installations share encry
 When a new installation is created, it sends a sync identity request message to the MLS sync group. An existing installation acknowledges the request and generates a new sync identity with a rotated KEK for forward secrecy. All installations receive the new identity and store it in their local DB for use when syncing with the sync server.
 
 ```rust
+/// Type alias for group identifiers
+type GroupId = [u8; 32];
+
 /// Sync identity - distributed via MLS sync group, stored in local DB
 struct SyncIdentity {
   /// Random 32-byte ID - to obscure inbox_id
@@ -201,9 +204,9 @@ Instead of using `inbox_id` (which links to on-chain identity), we generate a ra
 
 ### Manifest
 
-There is exactly one manifest per `inbox_id`, stored as `{sync_id}.manifest`. The manifest is the encrypted index that makes content blobs useful - without it, blobs are opaque and undecryptable since the manifest contains the wrapped DEKs needed to decrypt each blob.
+There is exactly one manifest per `inbox_id`, stored as `{sync_id}.manifest`. The manifest is the encrypted index that makes content blobs useful - without it, blobs are opaque and useless since the manifest contains the wrapped DEKs needed to decrypt each blob.
 
-The manifest will typically be in 2-10 KB range, but grows with number of groups/blobs.
+The manifest will typically be in the 2-10 KB range, but grows with the number of groups and blobs.
 
 ```rust
 /// Encrypted manifest - stored on server
@@ -268,8 +271,13 @@ Each archive has a unique, random Data Encryption Key (DEK). The DEK is wrapped 
 /// 5. Return EncryptedArchive and ManifestEntry (metadata + wrapped DEK)
 fn create_archive(data: &[u8], kek: &[u8]) -> (EncryptedArchive, ManifestEntry);
 
-/// Decrypts an encrypted archive using wrapped DEK and KEK.
-fn decrypt_archive(archive: &EncryptedArchive, wrapped_dek: &[u8], kek: &[u8]) -> Vec<u8>;
+/// Decrypts an encrypted archive using wrapped DEK, nonce, and KEK.
+fn decrypt_archive(
+  archive: &EncryptedArchive,
+  wrapped_dek: &[u8],
+  nonce: &[u8; 12],
+  kek: &[u8],
+) -> Vec<u8>;
 ```
 
 ### Content Blobs
@@ -323,7 +331,6 @@ pub enum SyncProviderOptions {
   ICloud(ICloudProviderOptions),
   GoogleCloud(GoogleCloudProviderOptions),
 }
-
 
 /// Client configuration for sync behavior
 pub struct SyncClientConfig {
@@ -658,7 +665,7 @@ impl SyncClient {
   /// 1. If auto_upload_on_request is disabled in config, ignores the request and returns Ok.
   /// 2. If local data is newer than server, calls upload_all() to upload latest changes.
   /// 3. Returns Ok(()) regardless of whether upload was triggered.
-  async fn handle_sync_data_request(&self, request: SyncDataRequest) -> Result<()>;
+  async fn handle_sync_data_request(&self, request: SyncDataRequest) -> Result<(), SyncError>;
 }
 ```
 
