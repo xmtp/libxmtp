@@ -788,9 +788,9 @@ mod tests {
 
     // Helper functions for filter_groups_with_new_messages tests
     fn make_cursor(originator_id: u32, sequence_id: u64) -> GlobalCursor {
-        let mut map = HashMap::new();
+        let mut map = GlobalCursor::default();
         map.insert(originator_id, sequence_id);
-        GlobalCursor::new(map)
+        map
     }
 
     fn make_message_metadata(
@@ -869,10 +869,10 @@ mod tests {
         let orig_2 = 200;
 
         let mut last_synced = HashMap::new();
-        let mut cursor_map = HashMap::new();
+        let mut cursor_map = GlobalCursor::default();
         cursor_map.insert(orig_1, 10);
         cursor_map.insert(orig_2, 20);
-        last_synced.insert(group_id.clone(), GlobalCursor::new(cursor_map));
+        last_synced.insert(group_id.clone(), cursor_map);
 
         let mut latest = HashMap::new();
         latest.insert(
