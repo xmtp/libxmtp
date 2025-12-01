@@ -84,9 +84,6 @@ fn insert(
                     (Some(e), None) => Some(e),
                     (None, None) => None,
                 };
-                if let Some(snap_timestamp) = save.last_message_ns {
-                    timestamp = timestamp.map(|ts| ts.max(snap_timestamp));
-                }
 
                 import_context
                     .group_timestamps
