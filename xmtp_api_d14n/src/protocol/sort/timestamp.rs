@@ -96,16 +96,6 @@ mod tests {
             unreachable!()
         }
 
-        fn consume<E>(&self, _extractor: E) -> Result<E::Output, crate::protocol::EnvelopeError>
-        where
-            Self: Sized,
-            for<'a> crate::protocol::EnvelopeError:
-                From<<E as crate::protocol::EnvelopeVisitor<'a>>::Error>,
-            for<'a> E: crate::protocol::EnvelopeVisitor<'a> + crate::protocol::Extractor,
-        {
-            unreachable!()
-        }
-
         fn cursor(&self) -> Result<xmtp_proto::types::Cursor, EnvelopeError> {
             unreachable!()
         }
