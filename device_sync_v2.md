@@ -8,7 +8,7 @@
 4. [Sync Identity](#sync-identity)
 5. [Encryption Scheme](#encryption-scheme)
 6. [Client API](#client-api)
-7. [Server API](#server-api)
+7. [Server API (Web Provider)](#server-api-web-provider)
 
 ---
 
@@ -112,8 +112,9 @@ When a new installation is created, it sends a sync identity request message to 
 struct SyncIdentity {
   /// Random 32-byte ID - to obscure inbox_id
   sync_id: String,
-  /// Ed25519 keypair for authenticating with sync server
-  auth_keypair: Ed25519Keypair,
+  /// Ed25519 keypair for authenticating with Web sync provider.
+  /// Not used for iCloud/Google Cloud (platform handles auth).
+  auth_keypair: Option<Ed25519Keypair>,
   /// Current Key Encryption Key for archives
   kek: [u8; 32],
   /// Creation timestamp
@@ -655,5 +656,83 @@ impl SyncClient {
   /// 2. If local data is newer than server, calls upload_all() to upload latest changes.
   /// 3. Returns Ok(()) regardless of whether upload was triggered.
   async fn handle_sync_data_request(&self, request: SyncDataRequest) -> Result<()>;
+}
+```
+
+---
+
+## Server API (Web Provider)
+
+This section describes the HTTP API for the Web sync provider. iCloud and Google Cloud providers use platform-native APIs with device-based authentication.
+
+### Authentication
+
+The Web provider uses Ed25519 signatures for request authentication. Each request includes headers:
+
+- `X-Sync-Id`: The sync_id making the request
+- `X-Signature`: Base64-encoded Ed25519 signature using the sync_id
+
+The server:
+
+1. Looks up the public key from `{sync_id}.key`
+2. Verifies the signature using the sync_id
+
+### Storage Model
+
+```
+{sync_id}.key       - Ed25519 public key (32 bytes)
+{sync_id}.manifest  - Encrypted manifest
+{content_hash}      - Encrypted content blobs (shared globally)
+```
+
+### Endpoints
+
+All endpoints except `/register` require authentication headers: `X-Sync-Id`, `X-Signature`.
+
+```
+POST /register
+  Body: { sync_id, auth_public_key }
+  → Creates {sync_id}.key with auth_public_key
+  → Returns error if sync_id already registered
+
+GET /{sync_id}.manifest
+  → Returns encrypted manifest
+
+GET /{content_hash}
+  Headers: Range (optional)
+  → Returns blob by content hash
+  → Supports Range requests for resumable downloads
+
+PUT /{sync_id}.manifest
+  Body: encrypted manifest blob
+  → Stores/updates manifest
+
+PUT /{content_hash}
+  Body: encrypted blob
+  → Stores blob (content-addressed, deduplicated)
+
+POST /rotate
+  Auth: signed with OLD key
+  Body: RotateRequest
+  → Deletes {old_sync_id}.key and {old_sync_id}.manifest
+  → Creates {new_sync_id}.key and {new_sync_id}.manifest
+
+DELETE /{sync_id}.manifest
+  → Deletes manifest only (blobs are shared, not deleted)
+```
+
+### Rotation
+
+```rust
+/// Request to rotate sync identity on the server
+struct RotateRequest {
+  /// Old sync ID being replaced
+  old_sync_id: String,
+  /// New sync ID
+  new_sync_id: String,
+  /// New Ed25519 public key for authentication
+  new_auth_public_key: [u8; 32],
+  /// New encrypted manifest (re-wrapped DEKs with new KEK)
+  new_manifest: EncryptedManifest,
 }
 ```
