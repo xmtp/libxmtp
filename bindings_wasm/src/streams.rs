@@ -1,5 +1,6 @@
 use crate::client::RustMlsGroup;
 use crate::conversation::Conversation;
+use crate::error::{ErrorCode, WasmError};
 use crate::messages::Message;
 use crate::user_preferences::UserPreference;
 use futures::Stream;
@@ -8,7 +9,7 @@ use pin_project_lite::pin_project;
 use std::task::Poll;
 use std::task::ready;
 use std::{cell::RefCell, rc::Rc};
-use wasm_bindgen::JsError;
+use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::*;
 use xmtp_common::{
   AbortHandle, GenericStreamHandle, StreamHandle as XmtpStreamHandle, StreamHandleError,
@@ -40,7 +41,7 @@ extern "C" {
 
   /// Js Fn to call on error
   #[wasm_bindgen(structural, method)]
-  pub fn on_error(this: &StreamCallback, error: JsError);
+  pub fn on_error(this: &StreamCallback, error: JsValue);
 
   #[wasm_bindgen(structural, method)]
   pub fn on_close(this: &StreamCallback);
@@ -78,7 +79,7 @@ impl StreamCloser {
   /// Returns the `Result` of the task.
   /// End the stream and asynchronously wait for it to shutdown
   #[wasm_bindgen(js_name = "endAndWait")]
-  pub async fn end_and_wait(&self) -> Result<(), JsError> {
+  pub async fn end_and_wait(&self) -> Result<(), WasmError> {
     use StreamHandleError::*;
     if self.abort.is_finished() {
       return Ok(());
@@ -92,9 +93,9 @@ impl StreamCloser {
     if let Some(mut h) = stream_handle {
       match h.end_and_wait().await {
         Err(Cancelled) => Ok(()),
-        Err(Panicked(msg)) => Err(JsError::new(&msg)),
-        Ok(t) => t.map_err(|e| JsError::new(&e.to_string())),
-        Err(e) => Err(JsError::new(&format!("error joining task {}", e))),
+        Err(Panicked(msg)) => Err(WasmError::stream(msg)),
+        Ok(t) => t.map_err(|e| WasmError::from_error(ErrorCode::Stream, e)),
+        Err(e) => Err(WasmError::stream(format!("error joining task {}", e))),
       }
     } else {
       tracing::warn!("subscription already closed");
@@ -103,7 +104,7 @@ impl StreamCloser {
   }
 
   #[wasm_bindgen(js_name = "waitForReady")]
-  pub async fn wait_for_ready(&mut self) -> Result<(), JsError> {
+  pub async fn wait_for_ready(&mut self) -> Result<(), WasmError> {
     let mut opt = Rc::get_mut(&mut self.handle);
     let opt = opt
       .as_mut()
@@ -148,7 +149,9 @@ impl<'a> Stream for ConversationStream<'a> {
     if let Some(item) = ready!(this.stream.poll_next(cx)) {
       match item {
         Ok(group) => Poll::Ready(Some(Ok(JsValue::from(Conversation::from(group))))),
-        Err(e) => Poll::Ready(Some(Err(JsValue::from(JsError::new(&e.to_string()))))),
+        Err(e) => {
+          Poll::Ready(Some(Err(WasmError::from_error(ErrorCode::Stream, e).into())))
+        }
       }
     } else {
       Poll::Ready(None)

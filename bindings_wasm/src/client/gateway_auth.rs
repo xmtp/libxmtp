@@ -1,3 +1,4 @@
+use crate::error::{ErrorCode, WasmError};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use xmtp_common::BoxDynError;
@@ -76,9 +77,9 @@ impl AuthHandle {
       handle: xmtp_api_d14n::AuthHandle::new(),
     }
   }
-  pub async fn set(&self, credential: Credential) -> Result<(), JsError> {
-    let cred =
-      xmtp_api_d14n::Credential::try_from(credential).map_err(|e| JsError::new(&e.to_string()))?;
+  pub async fn set(&self, credential: Credential) -> Result<(), WasmError> {
+    let cred = xmtp_api_d14n::Credential::try_from(credential)
+      .map_err(|e| WasmError::api(e.to_string()))?;
     self.handle.set(cred).await;
     Ok(())
   }

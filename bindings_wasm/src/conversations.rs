@@ -1,4 +1,5 @@
 use crate::consent_state::{Consent, ConsentState};
+use crate::error::{ErrorCode, WasmError};
 use crate::identity::Identifier;
 use crate::messages::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
@@ -9,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::UnwrapThrowExt;
 use wasm_bindgen::prelude::wasm_bindgen;
-use wasm_bindgen::{JsError, JsValue};
+use wasm_bindgen::JsValue;
 use wasm_streams::ReadableStream;
 use xmtp_db::consent_record::ConsentState as XmtpConsentState;
 use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
@@ -384,7 +385,7 @@ impl Conversations {
   pub fn create_group_optimistic(
     &self,
     options: Option<CreateGroupOptions>,
-  ) -> Result<Conversation, JsError> {
+  ) -> Result<Conversation, WasmError> {
     let options = options.unwrap_or(CreateGroupOptions {
       permissions: None,
       group_name: None,
@@ -397,10 +398,10 @@ impl Conversations {
 
     if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
       if options.custom_permission_policy_set.is_none() {
-        return Err(JsError::new("CustomPolicy must include policy set"));
+        return Err(WasmError::permission("CustomPolicy must include policy set"));
       }
     } else if options.custom_permission_policy_set.is_some() {
-      return Err(JsError::new("Only CustomPolicy may specify a policy set"));
+      return Err(WasmError::permission("Only CustomPolicy may specify a policy set"));
     }
 
     let metadata_options = options.clone().into_group_metadata_options();
@@ -417,7 +418,7 @@ impl Conversations {
           Some(
             policy_set
               .try_into()
-              .map_err(|e| JsError::new(format!("{}", e).as_str()))?,
+              .map_err(|e| WasmError::from_error(ErrorCode::Permission, e))?,
           )
         } else {
           None
@@ -429,7 +430,7 @@ impl Conversations {
     let group = self
       .inner_client
       .create_group(group_permissions, Some(metadata_options))
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Conversation, e))?;
 
     Ok(group.into())
   }
@@ -439,7 +440,7 @@ impl Conversations {
     &self,
     account_identifiers: Vec<Identifier>,
     options: Option<CreateGroupOptions>,
-  ) -> Result<Conversation, JsError> {
+  ) -> Result<Conversation, WasmError> {
     let convo = self.create_group_optimistic(options)?;
 
     if !account_identifiers.is_empty() {
@@ -456,7 +457,7 @@ impl Conversations {
     &self,
     inbox_ids: Vec<String>,
     options: Option<CreateGroupOptions>,
-  ) -> Result<Conversation, JsError> {
+  ) -> Result<Conversation, WasmError> {
     let convo = self.create_group_optimistic(options)?;
 
     if !inbox_ids.is_empty() {
@@ -473,7 +474,7 @@ impl Conversations {
     &self,
     account_identifier: Identifier,
     options: Option<CreateDMOptions>,
-  ) -> Result<Conversation, JsError> {
+  ) -> Result<Conversation, WasmError> {
     let convo = self
       .inner_client
       .find_or_create_dm(
@@ -481,7 +482,7 @@ impl Conversations {
         options.map(|opt| opt.into_dm_metadata_options()),
       )
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Conversation, e))?;
 
     Ok(convo.into())
   }
@@ -491,24 +492,24 @@ impl Conversations {
     &self,
     inbox_id: String,
     options: Option<CreateDMOptions>,
-  ) -> Result<Conversation, JsError> {
+  ) -> Result<Conversation, WasmError> {
     let convo = self
       .inner_client
       .find_or_create_dm_by_inbox_id(inbox_id, options.map(|opt| opt.into_dm_metadata_options()))
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Conversation, e))?;
 
     Ok(convo.into())
   }
 
   #[wasm_bindgen(js_name = findGroupById)]
-  pub fn find_group_by_id(&self, group_id: String) -> Result<Conversation, JsError> {
-    let group_id = hex::decode(group_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+  pub fn find_group_by_id(&self, group_id: String) -> Result<Conversation, WasmError> {
+    let group_id = hex::decode(group_id).map_err(|e| WasmError::from_error(ErrorCode::Encoding, e))?;
 
     let group = self
       .inner_client
       .stitched_group(&group_id)
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Conversation, e))?;
 
     Ok(group.into())
   }
@@ -517,35 +518,35 @@ impl Conversations {
   pub fn find_dm_by_target_inbox_id(
     &self,
     target_inbox_id: String,
-  ) -> Result<Conversation, JsError> {
+  ) -> Result<Conversation, WasmError> {
     let convo = self
       .inner_client
       .dm_group_from_target_inbox(target_inbox_id)
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Conversation, e))?;
 
     Ok(convo.into())
   }
 
   #[wasm_bindgen(js_name = findMessageById)]
-  pub fn find_message_by_id(&self, message_id: String) -> Result<Message, JsError> {
+  pub fn find_message_by_id(&self, message_id: String) -> Result<Message, WasmError> {
     let message_id =
-      hex::decode(message_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      hex::decode(message_id).map_err(|e| WasmError::from_error(ErrorCode::Encoding, e))?;
 
     let message = self
       .inner_client
       .message(message_id)
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Database, e))?;
 
     Ok(message.into())
   }
 
   #[wasm_bindgen]
-  pub async fn sync(&self) -> Result<(), JsError> {
+  pub async fn sync(&self) -> Result<(), WasmError> {
     self
       .inner_client
       .sync_welcomes()
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Conversation, e))?;
 
     Ok(())
   }
@@ -554,7 +555,7 @@ impl Conversations {
   pub async fn sync_all_conversations(
     &self,
     consent_states: Option<Vec<ConsentState>>,
-  ) -> Result<crate::client::GroupSyncSummary, JsError> {
+  ) -> Result<crate::client::GroupSyncSummary, WasmError> {
     let consents: Option<Vec<XmtpConsentState>> =
       consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
 
@@ -562,17 +563,17 @@ impl Conversations {
       .inner_client
       .sync_all_welcomes_and_groups(consents)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Conversation, e))?;
 
     Ok(summary.into())
   }
 
   #[wasm_bindgen]
-  pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<js_sys::Array, JsError> {
+  pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<js_sys::Array, WasmError> {
     let convo_list: js_sys::Array = self
       .inner_client
       .list_conversations(opts.unwrap_or_default().into())
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+      .map_err(|e| WasmError::from_error(ErrorCode::Conversation, e))?
       .into_iter()
       .map(|group| {
         JsValue::from(ConversationListItem::new(
@@ -587,21 +588,21 @@ impl Conversations {
   }
 
   #[wasm_bindgen(js_name = getHmacKeys)]
-  pub fn get_hmac_keys(&self) -> Result<JsValue, JsError> {
+  pub fn get_hmac_keys(&self) -> Result<JsValue, WasmError> {
     let inner = self.inner_client.as_ref();
     let conversations = inner
       .find_groups(GroupQueryArgs {
         include_duplicate_dms: true,
         ..Default::default()
       })
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Conversation, e))?;
 
     let mut hmac_map: HashMap<String, Vec<HmacKey>> = HashMap::new();
     for conversation in conversations {
       let id = hex::encode(&conversation.group_id);
       let keys = conversation
         .hmac_keys(-1..=1)
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+        .map_err(|e| WasmError::from_error(ErrorCode::Conversation, e))?
         .into_iter()
         .map(Into::into)
         .collect::<Vec<_>>();
@@ -616,11 +617,12 @@ impl Conversations {
   pub async fn stream_conversations_local(
     &self,
     conversation_type: Option<ConversationType>,
-  ) -> Result<web_sys::ReadableStream, JsError> {
+  ) -> Result<web_sys::ReadableStream, WasmError> {
     let stream = self
       .inner_client
       .stream_conversations_owned(conversation_type.map(Into::into), false)
-      .await?;
+      .await
+      .map_err(|e| WasmError::from_error(ErrorCode::Stream, e))?;
     let stream = ConversationStream::new(stream);
     Ok(ReadableStream::from_stream(stream).into_raw())
   }
@@ -630,14 +632,14 @@ impl Conversations {
     &self,
     callback: StreamCallback,
     conversation_type: Option<ConversationType>,
-  ) -> Result<StreamCloser, JsError> {
+  ) -> Result<StreamCloser, WasmError> {
     let on_close_cb = callback.clone();
     let stream_closer = RustXmtpClient::stream_conversations_with_callback(
       self.inner_client.clone(),
       conversation_type.map(Into::into),
       move |message| match message {
         Ok(item) => callback.on_conversation(item.into()),
-        Err(e) => callback.on_error(JsError::from(e)),
+        Err(e) => callback.on_error(WasmError::from_error(ErrorCode::Stream, e).into()),
       },
       move || on_close_cb.on_close(),
       false,
@@ -652,7 +654,7 @@ impl Conversations {
     callback: StreamCallback,
     conversation_type: Option<ConversationType>,
     consent_states: Option<Vec<ConsentState>>,
-  ) -> Result<StreamCloser, JsError> {
+  ) -> Result<StreamCloser, WasmError> {
     let consents: Option<Vec<XmtpConsentState>> =
       consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
 
@@ -663,7 +665,7 @@ impl Conversations {
       consents,
       move |message| match message {
         Ok(m) => callback.on_message(m.into()),
-        Err(e) => callback.on_error(JsError::from(e)),
+        Err(e) => callback.on_error(WasmError::from_error(ErrorCode::Stream, e).into()),
       },
       move || on_close_cb.on_close(),
     );
@@ -671,7 +673,7 @@ impl Conversations {
   }
 
   #[wasm_bindgen(js_name = "streamConsent")]
-  pub fn stream_consent(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
+  pub fn stream_consent(&self, callback: StreamCallback) -> Result<StreamCloser, WasmError> {
     let on_close_cb = callback.clone();
     let stream_closer = RustXmtpClient::stream_consent_with_callback(
       self.inner_client.clone(),
@@ -681,7 +683,7 @@ impl Conversations {
           let value = serde_wasm_bindgen::to_value(&array).unwrap_throw();
           callback.on_consent_update(value)
         }
-        Err(e) => callback.on_error(JsError::from(e)),
+        Err(e) => callback.on_error(WasmError::from_error(ErrorCode::Stream, e).into()),
       },
       move || on_close_cb.on_close(),
     );
@@ -689,7 +691,7 @@ impl Conversations {
   }
 
   #[wasm_bindgen(js_name = "streamPreferences")]
-  pub fn stream_preferences(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
+  pub fn stream_preferences(&self, callback: StreamCallback) -> Result<StreamCloser, WasmError> {
     let on_close_cb = callback.clone();
     let stream_closer = RustXmtpClient::stream_preferences_with_callback(
       self.inner_client.clone(),
@@ -697,7 +699,7 @@ impl Conversations {
         Ok(m) => {
           callback.on_user_preference_update(m.into_iter().map(UserPreference::from).collect())
         }
-        Err(e) => callback.on_error(JsError::from(e)),
+        Err(e) => callback.on_error(WasmError::from_error(ErrorCode::Stream, e).into()),
       },
       move || on_close_cb.on_close(),
     );
@@ -708,12 +710,12 @@ impl Conversations {
   pub fn stream_message_deletions(
     &self,
     callback: StreamCallback,
-  ) -> Result<StreamCloser, JsError> {
+  ) -> Result<StreamCloser, WasmError> {
     let stream_closer = RustXmtpClient::stream_message_deletions_with_callback(
       self.inner_client.clone(),
       move |message| match message {
         Ok(message_id) => callback.on_message_deleted(hex::encode(message_id)),
-        Err(e) => callback.on_error(JsError::from(e)),
+        Err(e) => callback.on_error(WasmError::from_error(ErrorCode::Stream, e).into()),
       },
     );
     Ok(StreamCloser::new(stream_closer))

@@ -1,6 +1,7 @@
+use crate::error::{ErrorCode, WasmError};
 use js_sys::Uint8Array;
 use prost::Message;
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
@@ -70,32 +71,33 @@ impl From<ReactionV2> for Reaction {
 }
 
 #[wasm_bindgen(js_name = "encodeReaction")]
-pub fn encode_reaction(reaction: Reaction) -> Result<Uint8Array, JsError> {
+pub fn encode_reaction(reaction: Reaction) -> Result<Uint8Array, WasmError> {
   // Convert Reaction to Reaction
   let reaction: ReactionV2 = reaction.into();
 
   // Use ReactionCodec to encode the reaction
-  let encoded = ReactionCodec::encode(reaction).map_err(|e| JsError::new(&format!("{}", e)))?;
+  let encoded =
+    ReactionCodec::encode(reaction).map_err(|e| WasmError::from_error(ErrorCode::ContentType, e))?;
 
   // Encode the EncodedContent to bytes
   let mut buf = Vec::new();
   encoded
     .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Encoding, e))?;
 
   Ok(Uint8Array::from(buf.as_slice()))
 }
 
 #[wasm_bindgen(js_name = "decodeReaction")]
-pub fn decode_reaction(bytes: Uint8Array) -> Result<Reaction, JsError> {
+pub fn decode_reaction(bytes: Uint8Array) -> Result<Reaction, WasmError> {
   // Decode bytes into EncodedContent
   let encoded_content = EncodedContent::decode(bytes.to_vec().as_slice())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Encoding, e))?;
 
   // Use ReactionCodec to decode into Reaction and convert to Reaction
   ReactionCodec::decode(encoded_content)
     .map(Into::into)
-    .map_err(|e| JsError::new(&format!("{}", e)))
+    .map_err(|e| WasmError::from_error(ErrorCode::ContentType, e))
 }
 
 #[wasm_bindgen]

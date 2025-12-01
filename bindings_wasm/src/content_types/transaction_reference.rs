@@ -1,6 +1,7 @@
+use crate::error::{ErrorCode, WasmError};
 use js_sys::Uint8Array;
 use prost::Message;
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
@@ -84,28 +85,28 @@ impl From<TransactionMetadata> for xmtp_content_types::transaction_reference::Tr
 #[wasm_bindgen(js_name = "encodeTransactionReference")]
 pub fn encode_transaction_reference(
   #[wasm_bindgen(js_name = "transactionReference")] transaction_reference: TransactionReference,
-) -> Result<Uint8Array, JsError> {
+) -> Result<Uint8Array, WasmError> {
   // Use TransactionReferenceCodec to encode the transaction reference
   let encoded = TransactionReferenceCodec::encode(transaction_reference.into())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::ContentType, e))?;
 
   // Encode the EncodedContent to bytes
   let mut buf = Vec::new();
   encoded
     .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Encoding, e))?;
 
   Ok(Uint8Array::from(buf.as_slice()))
 }
 
 #[wasm_bindgen(js_name = "decodeTransactionReference")]
-pub fn decode_transaction_reference(bytes: Uint8Array) -> Result<TransactionReference, JsError> {
+pub fn decode_transaction_reference(bytes: Uint8Array) -> Result<TransactionReference, WasmError> {
   // Decode bytes into EncodedContent
   let encoded_content = EncodedContent::decode(bytes.to_vec().as_slice())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Encoding, e))?;
 
   // Use TransactionReferenceCodec to decode into TransactionReference and convert to TransactionReference
   TransactionReferenceCodec::decode(encoded_content)
     .map(Into::into)
-    .map_err(|e| JsError::new(&format!("{}", e)))
+    .map_err(|e| WasmError::from_error(ErrorCode::ContentType, e))
 }

@@ -1,3 +1,4 @@
+use crate::error::{ErrorCode, WasmError};
 use crate::{
   client::Client,
   identity::{Identifier, IdentifierKind},
@@ -5,7 +6,7 @@ use crate::{
 use futures::lock::Mutex;
 use js_sys::Uint8Array;
 use std::sync::Arc;
-use wasm_bindgen::prelude::{JsError, wasm_bindgen};
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_d14n::{MessageBackendBuilder, TrackedStatsClient};
 use xmtp_id::associations::builder::SignatureRequest;
@@ -29,19 +30,19 @@ pub fn verify_signed_with_public_key(
   signature_text: String,
   signature_bytes: Uint8Array,
   public_key: Uint8Array,
-) -> Result<(), JsError> {
+) -> Result<(), WasmError> {
   let signature_bytes = signature_bytes.to_vec();
   let signature_bytes: [u8; 64] = signature_bytes
     .try_into()
-    .map_err(|_| JsError::new("signature_bytes is not 64 bytes long."))?;
+    .map_err(|_| WasmError::signature("signature_bytes is not 64 bytes long."))?;
 
   let public_key = public_key.to_vec();
   let public_key: [u8; 32] = public_key
     .try_into()
-    .map_err(|_| JsError::new("public_key is not 32 bytes long."))?;
+    .map_err(|_| WasmError::signature("public_key is not 32 bytes long."))?;
 
   verify_signed_with_public_context(signature_text, &signature_bytes, &public_key)
-    .map_err(|e| JsError::new(format!("{}", e).as_str()))
+    .map_err(|e| WasmError::from_error(ErrorCode::Signature, e))
 }
 
 #[wasm_bindgen(js_name = revokeInstallationsSignatureRequest)]
@@ -51,13 +52,13 @@ pub fn revoke_installations_signature_request(
   recovery_identifier: Identifier,
   inbox_id: String,
   installation_ids: Vec<Uint8Array>,
-) -> Result<SignatureRequestHandle, JsError> {
+) -> Result<SignatureRequestHandle, WasmError> {
   let backend = MessageBackendBuilder::default()
     .v3_host(&v3_host)
     .maybe_gateway_host(gateway_host)
     .is_secure(true)
     .build()
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Api, e))?;
   let backend = TrackedStatsClient::new(backend);
   let api = ApiClientWrapper::new(Arc::new(backend), strategies::exponential_cooldown());
   let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
@@ -66,7 +67,7 @@ pub fn revoke_installations_signature_request(
   let ids: Vec<Vec<u8>> = installation_ids.into_iter().map(|i| i.to_vec()).collect();
 
   let sig_req = revoke_installations_with_verifier(&ident, &inbox_id, ids)
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Signature, e))?;
 
   Ok(SignatureRequestHandle {
     inner: Arc::new(Mutex::new(sig_req)),
@@ -79,13 +80,13 @@ pub async fn apply_signature_request(
   v3_host: String,
   gateway_host: Option<String>,
   signature_request: &SignatureRequestHandle,
-) -> Result<(), JsError> {
+) -> Result<(), WasmError> {
   let backend = MessageBackendBuilder::default()
     .v3_host(&v3_host)
     .maybe_gateway_host(gateway_host)
     .is_secure(true)
     .build()
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Api, e))?;
   let backend = TrackedStatsClient::new(backend);
 
   let api = ApiClientWrapper::new(
@@ -98,7 +99,7 @@ pub async fn apply_signature_request(
 
   apply_signature_request_with_verifier(&api, inner.clone(), &scw_verifier)
     .await
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Signature, e))?;
 
   Ok(())
 }
@@ -115,12 +116,12 @@ pub struct PasskeySignature {
 #[wasm_bindgen]
 impl SignatureRequestHandle {
   #[wasm_bindgen(js_name = signatureText)]
-  pub async fn signature_text(&self) -> Result<String, JsError> {
+  pub async fn signature_text(&self) -> Result<String, WasmError> {
     Ok(self.inner.lock().await.signature_text())
   }
 
   #[wasm_bindgen(js_name = addEcdsaSignature)]
-  pub async fn add_ecdsa_signature(&self, signature_bytes: Uint8Array) -> Result<(), JsError> {
+  pub async fn add_ecdsa_signature(&self, signature_bytes: Uint8Array) -> Result<(), WasmError> {
     let sig = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.to_vec());
     self
       .inner
@@ -128,12 +129,12 @@ impl SignatureRequestHandle {
       .await
       .add_signature(sig, &self.scw_verifier)
       .await
-      .map_err(|e| JsError::new(&e.to_string()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Signature, e))?;
     Ok(())
   }
 
   #[wasm_bindgen(js_name = addPasskeySignature)]
-  pub async fn add_passkey_signature(&self, signature: PasskeySignature) -> Result<(), JsError> {
+  pub async fn add_passkey_signature(&self, signature: PasskeySignature) -> Result<(), WasmError> {
     let sig = UnverifiedSignature::new_passkey(
       signature.public_key,
       signature.signature,
@@ -146,7 +147,7 @@ impl SignatureRequestHandle {
       .await
       .add_signature(sig, &self.scw_verifier)
       .await
-      .map_err(|e| JsError::new(&e.to_string()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Signature, e))?;
     Ok(())
   }
 
@@ -157,9 +158,9 @@ impl SignatureRequestHandle {
     signature_bytes: Uint8Array,
     chain_id: u64,
     block_number: Option<u64>,
-  ) -> Result<(), JsError> {
+  ) -> Result<(), WasmError> {
     if !matches!(account_identifier.identifier_kind, IdentifierKind::Ethereum) {
-      return Err(JsError::new("Account identifier must be Ethereum-based"));
+      return Err(WasmError::signature("Account identifier must be Ethereum-based"));
     }
     let ident: XmtpIdentifier = account_identifier.try_into()?;
     let account_id = AccountId::new_evm(chain_id, ident.to_string());
@@ -174,7 +175,7 @@ impl SignatureRequestHandle {
       .await
       .add_new_unverified_smart_contract_signature(sig, &self.scw_verifier)
       .await
-      .map_err(|e| JsError::new(&e.to_string()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Signature, e))?;
     Ok(())
   }
 }
@@ -184,11 +185,11 @@ impl Client {
   #[wasm_bindgen(js_name = createInboxSignatureRequest)]
   pub fn create_inbox_signature_request(
     &mut self,
-  ) -> Result<Option<SignatureRequestHandle>, JsError> {
+  ) -> Result<Option<SignatureRequestHandle>, WasmError> {
     let signature_request = match self.inner_client().identity().signature_request() {
       Some(signature_req) => signature_req,
       // this should never happen since we're checking for it above in is_registered
-      None => return Err(JsError::new("No signature request found")),
+      None => return Err(WasmError::signature("No signature request found")),
     };
 
     let handle = SignatureRequestHandle {
@@ -203,13 +204,13 @@ impl Client {
   pub async fn add_identifier_signature_request(
     &self,
     new_identifier: Identifier,
-  ) -> Result<SignatureRequestHandle, JsError> {
+  ) -> Result<SignatureRequestHandle, WasmError> {
     let signature_request = self
       .inner_client()
       .identity_updates()
       .associate_identity(new_identifier.try_into()?)
       .await
-      .map_err(|e| JsError::new(&e.to_string()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Signature, e))?;
     Ok(SignatureRequestHandle {
       inner: Arc::new(Mutex::new(signature_request)),
       scw_verifier: self.inner_client().scw_verifier().clone(),
@@ -220,14 +221,14 @@ impl Client {
   pub async fn revoke_identifier_signature_request(
     &mut self,
     identifier: Identifier,
-  ) -> Result<SignatureRequestHandle, JsError> {
+  ) -> Result<SignatureRequestHandle, WasmError> {
     let ident = identifier.try_into()?;
     let signature_request = self
       .inner_client()
       .identity_updates()
       .revoke_identities(vec![ident])
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Signature, e))?;
 
     Ok(SignatureRequestHandle {
       inner: Arc::new(Mutex::new(signature_request)),
@@ -240,13 +241,13 @@ impl Client {
   #[wasm_bindgen(js_name = revokeAllOtherInstallationsSignatureRequest)]
   pub async fn revoke_all_other_installations_signature_request(
     &mut self,
-  ) -> Result<Option<SignatureRequestHandle>, JsError> {
+  ) -> Result<Option<SignatureRequestHandle>, WasmError> {
     let installation_id = self.inner_client().installation_public_key();
     let inbox_state = self
       .inner_client()
       .inbox_state(true)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Identity, e))?;
     let other_installation_ids: Vec<Vec<u8>> = inbox_state
       .installation_ids()
       .into_iter()
@@ -260,7 +261,7 @@ impl Client {
       .identity_updates()
       .revoke_installations(other_installation_ids)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Signature, e))?;
     Ok(Some(SignatureRequestHandle {
       inner: Arc::new(Mutex::new(signature_request)),
       scw_verifier: self.inner_client().scw_verifier().clone(),
@@ -271,7 +272,7 @@ impl Client {
   pub async fn revoke_installations_signature_request(
     &mut self,
     installation_ids: Vec<Uint8Array>,
-  ) -> Result<SignatureRequestHandle, JsError> {
+  ) -> Result<SignatureRequestHandle, WasmError> {
     let installation_ids_bytes: Vec<Vec<u8>> =
       installation_ids.iter().map(|id| id.to_vec()).collect();
 
@@ -280,7 +281,7 @@ impl Client {
       .identity_updates()
       .revoke_installations(installation_ids_bytes)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Signature, e))?;
     Ok(SignatureRequestHandle {
       inner: Arc::new(Mutex::new(signature_request)),
       scw_verifier: self.inner_client().scw_verifier().clone(),
@@ -291,13 +292,13 @@ impl Client {
   pub async fn change_recovery_identifier_signature_request(
     &mut self,
     new_recovery_identifier: Identifier,
-  ) -> Result<SignatureRequestHandle, JsError> {
+  ) -> Result<SignatureRequestHandle, WasmError> {
     let signature_request = self
       .inner_client()
       .identity_updates()
       .change_recovery_identifier(new_recovery_identifier.try_into()?)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Signature, e))?;
     Ok(SignatureRequestHandle {
       inner: Arc::new(Mutex::new(signature_request)),
       scw_verifier: self.inner_client().scw_verifier().clone(),
@@ -308,7 +309,7 @@ impl Client {
   pub async fn apply_signature_request(
     &mut self,
     signature_request: &SignatureRequestHandle,
-  ) -> Result<(), JsError> {
+  ) -> Result<(), WasmError> {
     let signature_request = signature_request.inner.lock().await;
 
     self
@@ -316,7 +317,7 @@ impl Client {
       .identity_updates()
       .apply_signature_request(signature_request.clone())
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Signature, e))?;
 
     Ok(())
   }
@@ -325,9 +326,9 @@ impl Client {
   pub async fn register_identity(
     &mut self,
     signature_request: SignatureRequestHandle,
-  ) -> Result<(), JsError> {
+  ) -> Result<(), WasmError> {
     if self.is_registered() {
-      return Err(JsError::new(
+      return Err(WasmError::identity(
         "An identity is already registered with this client",
       ));
     }
@@ -338,7 +339,7 @@ impl Client {
       .inner_client()
       .register_identity(inner.clone())
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Identity, e))?;
 
     Ok(())
   }
@@ -347,12 +348,12 @@ impl Client {
   pub fn sign_with_installation_key(
     &mut self,
     signature_text: String,
-  ) -> Result<Uint8Array, JsError> {
+  ) -> Result<Uint8Array, WasmError> {
     let result = self
       .inner_client()
       .context
       .sign_with_public_context(signature_text)
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Signature, e))?;
 
     Ok(Uint8Array::from(result.as_slice()))
   }
@@ -362,7 +363,7 @@ impl Client {
     &mut self,
     signature_text: String,
     signature_bytes: Uint8Array,
-  ) -> Result<(), JsError> {
+  ) -> Result<(), WasmError> {
     let public_key = self.inner_client().installation_public_key();
     verify_signed_with_public_key(
       signature_text,

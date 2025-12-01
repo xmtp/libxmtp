@@ -5,6 +5,7 @@ pub mod conversation;
 pub mod conversations;
 pub mod encoded_content;
 pub mod enriched_message;
+pub mod error;
 pub mod identity;
 pub mod inbox_id;
 pub mod inbox_state;
@@ -15,12 +16,8 @@ pub mod signatures;
 pub mod streams;
 mod user_preferences;
 
-#[allow(dead_code)]
-fn error(e: impl std::error::Error) -> JsError {
-  JsError::new(&format!("{}", e))
-}
 use serde_wasm_bindgen::Serializer;
-use wasm_bindgen::{JsError, JsValue};
+use wasm_bindgen::JsValue;
 
 /// Converts a Rust value into a [`JsValue`].
 pub(crate) fn to_value<T: serde::ser::Serialize + ?Sized>(

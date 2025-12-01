@@ -1,5 +1,6 @@
+use crate::error::WasmError;
 use std::collections::HashMap;
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_mls::{
   groups::{
     PreconfiguredPolicies,
@@ -54,15 +55,15 @@ pub enum PermissionPolicy {
 }
 
 impl TryInto<PermissionPolicyOption> for PermissionPolicy {
-  type Error = JsError;
+  type Error = WasmError;
 
-  fn try_into(self) -> Result<PermissionPolicyOption, JsError> {
+  fn try_into(self) -> Result<PermissionPolicyOption, WasmError> {
     match self {
       PermissionPolicy::Allow => Ok(PermissionPolicyOption::Allow),
       PermissionPolicy::Deny => Ok(PermissionPolicyOption::Deny),
       PermissionPolicy::Admin => Ok(PermissionPolicyOption::AdminOnly),
       PermissionPolicy::SuperAdmin => Ok(PermissionPolicyOption::SuperAdminOnly),
-      _ => Err(JsError::new("InvalidPermissionPolicyOption")),
+      _ => Err(WasmError::permission("InvalidPermissionPolicyOption")),
     }
   }
 }
@@ -224,7 +225,7 @@ impl GroupPermissions {
 #[wasm_bindgen]
 impl GroupPermissions {
   #[wasm_bindgen(js_name = policyType)]
-  pub fn policy_type(&self) -> Result<GroupPermissionsOptions, JsError> {
+  pub fn policy_type(&self) -> Result<GroupPermissionsOptions, WasmError> {
     if let Ok(preconfigured_policy) = self.inner.preconfigured_policy() {
       Ok(preconfigured_policy.into())
     } else {
@@ -233,7 +234,7 @@ impl GroupPermissions {
   }
 
   #[wasm_bindgen(js_name = policySet)]
-  pub fn policy_set(&self) -> Result<PermissionPolicySet, JsError> {
+  pub fn policy_set(&self) -> Result<PermissionPolicySet, WasmError> {
     let policy_set = &self.inner.policies;
     let metadata_policy_map = &policy_set.update_metadata_policy;
     let get_policy = |field: &str| {

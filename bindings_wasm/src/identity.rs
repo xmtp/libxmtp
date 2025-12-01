@@ -1,6 +1,7 @@
+use crate::error::{ErrorCode, WasmError};
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_id::associations::{Identifier as XmtpIdentifier, ident};
 
 #[derive(Tsify, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,23 +35,27 @@ impl From<XmtpIdentifier> for Identifier {
 }
 
 impl TryFrom<Identifier> for XmtpIdentifier {
-  type Error = JsError;
+  type Error = WasmError;
   fn try_from(ident: Identifier) -> Result<Self, Self::Error> {
     let ident = match ident.identifier_kind {
-      IdentifierKind::Ethereum => Self::eth(ident.identifier)?,
-      IdentifierKind::Passkey => Self::passkey_str(&ident.identifier, None)?,
+      IdentifierKind::Ethereum => {
+        Self::eth(ident.identifier).map_err(|e| WasmError::from_error(ErrorCode::Identity, e))?
+      }
+      IdentifierKind::Passkey => Self::passkey_str(&ident.identifier, None)
+        .map_err(|e| WasmError::from_error(ErrorCode::Identity, e))?,
     };
     Ok(ident)
   }
 }
 
 pub trait IdentityExt<T, U> {
-  fn to_internal(self) -> Result<Vec<U>, JsError>;
+  fn to_internal(self) -> Result<Vec<U>, WasmError>;
 }
 
 impl IdentityExt<Identifier, XmtpIdentifier> for Vec<Identifier> {
-  fn to_internal(self) -> Result<Vec<XmtpIdentifier>, JsError> {
-    let ident: Result<Vec<_>, JsError> = self.into_iter().map(|ident| ident.try_into()).collect();
+  fn to_internal(self) -> Result<Vec<XmtpIdentifier>, WasmError> {
+    let ident: Result<Vec<_>, WasmError> =
+      self.into_iter().map(|ident| ident.try_into()).collect();
     ident
   }
 }

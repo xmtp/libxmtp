@@ -1,11 +1,11 @@
+use crate::error::{ErrorCode, WasmError};
+use crate::{client::Client, conversation::Conversation};
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::{
   ConsentState as XmtpConsentState, ConsentType as XmtpConsentType, StoredConsentRecord,
 };
-
-use crate::{client::Client, conversation::Conversation};
 
 #[wasm_bindgen]
 #[derive(Copy, Clone, Serialize, Deserialize)]
@@ -119,7 +119,7 @@ impl From<StoredConsentRecord> for Consent {
 #[wasm_bindgen]
 impl Client {
   #[wasm_bindgen(js_name = setConsentStates)]
-  pub async fn set_consent_states(&self, records: Vec<Consent>) -> Result<(), JsError> {
+  pub async fn set_consent_states(&self, records: Vec<Consent>) -> Result<(), WasmError> {
     let stored_records: Vec<StoredConsentRecord> =
       records.into_iter().map(StoredConsentRecord::from).collect();
 
@@ -127,7 +127,7 @@ impl Client {
       .inner_client()
       .set_consent_states(&stored_records)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Client, e))?;
     Ok(())
   }
 
@@ -136,12 +136,12 @@ impl Client {
     &self,
     entity_type: ConsentEntityType,
     entity: String,
-  ) -> Result<ConsentState, JsError> {
+  ) -> Result<ConsentState, WasmError> {
     let result = self
       .inner_client()
       .get_consent_state(entity_type.into(), entity)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Client, e))?;
 
     Ok(result.into())
   }
@@ -150,22 +150,22 @@ impl Client {
 #[wasm_bindgen]
 impl Conversation {
   #[wasm_bindgen(js_name = consentState)]
-  pub fn consent_state(&self) -> Result<ConsentState, JsError> {
+  pub fn consent_state(&self) -> Result<ConsentState, WasmError> {
     let group = self.to_mls_group();
     let state = group
       .consent_state()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Conversation, e))?;
 
     Ok(state.into())
   }
 
   #[wasm_bindgen(js_name = updateConsentState)]
-  pub fn update_consent_state(&self, state: ConsentState) -> Result<(), JsError> {
+  pub fn update_consent_state(&self, state: ConsentState) -> Result<(), WasmError> {
     let group = self.to_mls_group();
 
     group
       .update_consent_state(state.into())
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Conversation, e))?;
 
     Ok(())
   }

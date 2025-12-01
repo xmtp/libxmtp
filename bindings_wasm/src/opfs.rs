@@ -1,3 +1,4 @@
+use crate::error::{ErrorCode, WasmError};
 use futures::FutureExt;
 use std::future::Future;
 use wasm_bindgen::prelude::*;
@@ -29,13 +30,13 @@ impl Opfs {
   }
 
   #[wasm_bindgen(js_name = "wipeFiles")]
-  pub async fn wipe_files() -> Result<(), JsError> {
+  pub async fn wipe_files() -> Result<(), WasmError> {
     opfs_op_async(move |u| async move { u.clear_all().await }).await
   }
 
   /// If a virtual file exists with the given name, disassociates it from the pool and returns true, else returns false without side effects.
   #[wasm_bindgen]
-  pub fn rm(name: &str) -> Result<bool, JsError> {
+  pub fn rm(name: &str) -> Result<bool, WasmError> {
     opfs_op(|u| u.delete_db(name))
   }
 
@@ -47,13 +48,13 @@ impl Opfs {
 
   /// import a db file at 'path'
   #[wasm_bindgen(js_name = "importDb")]
-  pub fn import_db(path: &str, bytes: &[u8]) -> Result<(), JsError> {
+  pub fn import_db(path: &str, bytes: &[u8]) -> Result<(), WasmError> {
     opfs_op(|u| u.import_db(path, bytes))
   }
 
   /// export db file with 'name'
   #[wasm_bindgen(js_name = "exportFile")]
-  pub fn export_file(name: &str) -> Result<Vec<u8>, JsError> {
+  pub fn export_file(name: &str) -> Result<Vec<u8>, WasmError> {
     opfs_op(|u| u.export_db(name))
   }
 
@@ -70,18 +71,18 @@ impl Opfs {
 
   /// Adds n entries to the current pool.
   #[wasm_bindgen(js_name = "addCapacity")]
-  pub async fn add_capacity(n: u32) -> Result<u32, JsError> {
+  pub async fn add_capacity(n: u32) -> Result<u32, WasmError> {
     opfs_op_async(|u| u.add_capacity(n)).await
   }
 
   /// Removes up to n entries from the pool, with the caveat that it can only remove currently-unused entries.
   #[wasm_bindgen(js_name = "reduceCapacity")]
-  pub async fn reduce_capacity(n: u32) -> Result<u32, JsError> {
+  pub async fn reduce_capacity(n: u32) -> Result<u32, WasmError> {
     opfs_op_async(|u| u.reduce_capacity(n)).await
   }
 }
 
-fn opfs_op<F, T>(f: F) -> Result<T, JsError>
+fn opfs_op<F, T>(f: F) -> Result<T, WasmError>
 where
   F: Fn(&OpfsSAHPoolUtil) -> Result<T, OpfsSAHError>,
 {
@@ -90,17 +91,17 @@ where
     .expect("sync op must resolve immediately")
 }
 
-async fn opfs_op_async<'a, F, Fut, T>(f: F) -> Result<T, JsError>
+async fn opfs_op_async<'a, F, Fut, T>(f: F) -> Result<T, WasmError>
 where
   F: Fn(&'a OpfsSAHPoolUtil) -> Fut,
   Fut: Future<Output = Result<T, OpfsSAHError>> + 'a,
 {
   if let Some(pool) = xmtp_db::SQLITE.get() {
     match pool {
-      Ok(p) => Ok(f(p).await?),
-      Err(e) => Err(JsError::new(&e.to_string())),
+      Ok(p) => Ok(f(p).await.map_err(|e| WasmError::from_error(ErrorCode::Database, e))?),
+      Err(e) => Err(WasmError::database(e.to_string())),
     }
   } else {
-    Err(JsError::new("no pool initialized"))
+    Err(WasmError::database("no pool initialized"))
   }
 }

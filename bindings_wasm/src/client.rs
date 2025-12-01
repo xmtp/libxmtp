@@ -1,3 +1,8 @@
+use crate::conversations::Conversations;
+use crate::enriched_message::DecodedMessage;
+use crate::error::{ErrorCode, WasmError};
+use crate::identity::{ApiStats, Identifier, IdentityStats};
+use crate::inbox_state::InboxState;
 use js_sys::Uint8Array;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,11 +21,6 @@ use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_proto::api_client::AggregateStats;
-
-use crate::conversations::Conversations;
-use crate::enriched_message::DecodedMessage;
-use crate::identity::{ApiStats, Identifier, IdentityStats};
-use crate::inbox_state::InboxState;
 
 pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
 pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
@@ -132,7 +132,7 @@ impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for GroupSyncSummary
   }
 }
 
-fn init_logging(options: LogOptions) -> Result<(), JsError> {
+fn init_logging(options: LogOptions) -> Result<(), WasmError> {
   LOGGER_INIT
     .get_or_init(|| {
       console_error_panic_hook::set_once();
@@ -170,7 +170,8 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
       }
       Ok(())
     })
-    .clone()?;
+    .clone()
+    .map_err(|e| WasmError::client(format!("Failed to initialize logging: {}", e)))?;
   Ok(())
 }
 
@@ -193,7 +194,7 @@ pub async fn create_client(
   auth_callback: Option<gateway_auth::AuthCallback>,
   auth_handle: Option<gateway_auth::AuthHandle>,
   client_mode: Option<ClientMode>,
-) -> Result<Client, JsError> {
+) -> Result<Client, WasmError> {
   init_logging(log_options.unwrap_or_default())?;
   tracing::info!(host, gateway_host, "Creating client in rust");
 
@@ -221,15 +222,19 @@ pub async fn create_client(
       let key: Vec<u8> = key.to_vec();
       let _key: EncryptionKey = key
         .try_into()
-        .map_err(|_| JsError::new("Malformed 32 byte encryption key"))?;
-      let db = WasmDb::new(&storage_option).await?;
+        .map_err(|_| WasmError::client("Malformed 32 byte encryption key"))?;
+      let db = WasmDb::new(&storage_option)
+        .await
+        .map_err(|e| WasmError::from_error(ErrorCode::Database, e))?;
       EncryptedMessageStore::new(db)
-        .map_err(|e| JsError::new(&format!("Error creating encrypted message store {e}")))?
+        .map_err(|e| WasmError::database(format!("Error creating encrypted message store {e}")))?
     }
     None => {
-      let db = WasmDb::new(&storage_option).await?;
+      let db = WasmDb::new(&storage_option)
+        .await
+        .map_err(|e| WasmError::from_error(ErrorCode::Database, e))?;
       EncryptedMessageStore::new(db)
-        .map_err(|e| JsError::new(&format!("Error creating unencrypted message store {e}")))?
+        .map_err(|e| WasmError::database(format!("Error creating unencrypted message store {e}")))?
     }
   };
 
@@ -244,17 +249,20 @@ pub async fn create_client(
   let api_client = backend
     .clone()
     .build()
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Api, e))?;
   let sync_api_client = backend
     .clone()
     .build()
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Api, e))?;
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
     .api_clients(api_client, sync_api_client)
-    .enable_api_stats()?
-    .enable_api_debug_wrapper()?
-    .with_remote_verifier()?
+    .enable_api_stats()
+    .map_err(|e| WasmError::from_error(ErrorCode::Client, e))?
+    .enable_api_debug_wrapper()
+    .map_err(|e| WasmError::from_error(ErrorCode::Client, e))?
+    .with_remote_verifier()
+    .map_err(|e| WasmError::from_error(ErrorCode::Client, e))?
     .with_allow_offline(allow_offline)
     .with_disable_events(disable_events)
     .store(store);
@@ -269,10 +277,10 @@ pub async fn create_client(
 
   let xmtp_client = builder
     .default_mls_store()
-    .map_err(|e| JsError::new(&e.to_string()))?
+    .map_err(|e| WasmError::from_error(ErrorCode::Client, e))?
     .build()
     .await
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Client, e))?;
 
   Ok(Client {
     account_identifier,
@@ -323,8 +331,8 @@ impl Client {
   pub async fn can_message(
     &self,
     account_identifiers: Vec<Identifier>,
-  ) -> Result<JsValue, JsError> {
-    let account_identifiers: Result<Vec<XmtpIdentifier>, JsError> = account_identifiers
+  ) -> Result<JsValue, WasmError> {
+    let account_identifiers: Result<Vec<XmtpIdentifier>, WasmError> = account_identifiers
       .iter()
       .cloned()
       .map(|ident| ident.try_into())
@@ -335,24 +343,24 @@ impl Client {
       .inner_client
       .can_message(&account_identifiers)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Client, e))?;
 
     let results: HashMap<_, _> = results
       .into_iter()
       .map(|(k, v)| (format!("{k}"), v))
       .collect();
 
-    Ok(crate::to_value(&results)?)
+    crate::to_value(&results).map_err(|e| WasmError::encoding(format!("{}", e)))
   }
 
   #[wasm_bindgen(js_name = sendSyncRequest)]
-  pub async fn send_sync_request(&self) -> Result<(), JsError> {
+  pub async fn send_sync_request(&self) -> Result<(), WasmError> {
     self
       .inner_client
       .device_sync_client()
       .send_sync_request()
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Client, e))?;
 
     Ok(())
   }
@@ -361,13 +369,13 @@ impl Client {
   pub async fn find_inbox_id_by_identifier(
     &self,
     identifier: Identifier,
-  ) -> Result<Option<String>, JsError> {
+  ) -> Result<Option<String>, WasmError> {
     let conn = self.inner_client.context.store().db();
     let inbox_id = self
       .inner_client
       .find_inbox_id_from_identifier(&conn, identifier.try_into()?)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Identity, e))?;
 
     Ok(inbox_id)
   }
@@ -377,7 +385,7 @@ impl Client {
     &self,
     inbox_ids: Vec<String>,
     refresh_from_network: bool,
-  ) -> Result<Vec<InboxState>, JsError> {
+  ) -> Result<Vec<InboxState>, WasmError> {
     let state = self
       .inner_client
       .inbox_addresses(
@@ -385,7 +393,7 @@ impl Client {
         inbox_ids.iter().map(String::as_str).collect(),
       )
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Identity, e))?;
     Ok(state.into_iter().map(Into::into).collect())
   }
 
@@ -395,13 +403,13 @@ impl Client {
   }
 
   #[wasm_bindgen(js_name = syncPreferences)]
-  pub async fn sync_preferences(&self) -> Result<GroupSyncSummary, JsError> {
+  pub async fn sync_preferences(&self) -> Result<GroupSyncSummary, WasmError> {
     let inner = self.inner_client.as_ref();
 
     let summary = inner
       .sync_all_welcomes_and_history_sync_groups()
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Client, e))?;
 
     Ok(summary.into())
   }
@@ -430,29 +438,29 @@ impl Client {
   }
 
   #[wasm_bindgen(js_name = uploadDebugArchive)]
-  pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, JsError> {
+  pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, WasmError> {
     let db = self.inner_client().context.db();
 
     upload_debug_archive(db, Some(server_url))
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))
+      .map_err(|e| WasmError::from_error(ErrorCode::Client, e))
   }
 
   #[wasm_bindgen(js_name = deleteMessage)]
-  pub fn delete_message(&self, message_id: Vec<u8>) -> Result<u32, JsError> {
+  pub fn delete_message(&self, message_id: Vec<u8>) -> Result<u32, WasmError> {
     let deleted_count = self
       .inner_client
       .delete_message(message_id)
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Database, e))?;
     Ok(deleted_count as u32)
   }
 
   #[wasm_bindgen(js_name = messageV2)]
-  pub async fn enriched_message(&self, message_id: Vec<u8>) -> Result<DecodedMessage, JsValue> {
+  pub async fn enriched_message(&self, message_id: Vec<u8>) -> Result<DecodedMessage, WasmError> {
     let message = self
       .inner_client
       .message_v2(message_id)
-      .map_err(|e| JsError::new(&e.to_string()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Client, e))?;
 
     Ok(message.into())
   }

@@ -1,9 +1,10 @@
+use crate::error::{ErrorCode, WasmError};
 use js_sys::Uint8Array;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use wasm_bindgen::JsValue;
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::wallet_send_calls::{
   WalletSendCalls as XmtpWalletSendCalls, WalletSendCallsCodec,
@@ -104,33 +105,33 @@ impl From<WalletCallMetadata> for xmtp_content_types::wallet_send_calls::WalletC
 }
 
 #[wasm_bindgen(js_name = "encodeWalletSendCalls")]
-pub fn encode_wallet_send_calls(wallet_send_calls: JsValue) -> Result<Uint8Array, JsError> {
+pub fn encode_wallet_send_calls(wallet_send_calls: JsValue) -> Result<Uint8Array, WasmError> {
   let wallet_send_calls: WalletSendCalls = serde_wasm_bindgen::from_value(wallet_send_calls)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+    .map_err(|e| WasmError::encoding(format!("{}", e)))?;
 
   // Use WalletSendCallsCodec to encode the wallet send calls
   let encoded = WalletSendCallsCodec::encode(wallet_send_calls.into())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::ContentType, e))?;
 
   // Encode the EncodedContent to bytes
   let mut buf = Vec::new();
   encoded
     .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Encoding, e))?;
 
   Ok(Uint8Array::from(buf.as_slice()))
 }
 
 #[wasm_bindgen(js_name = "decodeWalletSendCalls")]
-pub fn decode_wallet_send_calls(bytes: Uint8Array) -> Result<JsValue, JsError> {
+pub fn decode_wallet_send_calls(bytes: Uint8Array) -> Result<JsValue, WasmError> {
   // Decode bytes into EncodedContent
   let encoded_content = EncodedContent::decode(bytes.to_vec().as_slice())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Encoding, e))?;
 
   // Use WalletSendCallsCodec to decode into WalletSendCalls and convert to WalletSendCalls
-  let wallet_send_calls =
-    WalletSendCallsCodec::decode(encoded_content).map_err(|e| JsError::new(&format!("{}", e)))?;
+  let wallet_send_calls = WalletSendCallsCodec::decode(encoded_content)
+    .map_err(|e| WasmError::from_error(ErrorCode::ContentType, e))?;
   let wallet_send_calls: WalletSendCalls = wallet_send_calls.into();
 
-  serde_wasm_bindgen::to_value(&wallet_send_calls).map_err(|e| JsError::new(&format!("{}", e)))
+  serde_wasm_bindgen::to_value(&wallet_send_calls).map_err(|e| WasmError::encoding(format!("{}", e)))
 }

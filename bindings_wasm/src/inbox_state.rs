@@ -1,8 +1,9 @@
+use crate::error::{ErrorCode, WasmError};
 use crate::{client::Client, identity::Identifier};
 use js_sys::Uint8Array;
 use std::collections::HashMap;
 use std::sync::Arc;
-use wasm_bindgen::{JsError, JsValue, prelude::wasm_bindgen};
+use wasm_bindgen::{JsValue, prelude::wasm_bindgen};
 use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_api_d14n::TrackedStatsClient;
@@ -125,20 +126,22 @@ pub async fn inbox_state_from_inbox_ids(
   v3_host: String,
   gateway_host: Option<String>,
   inbox_ids: Vec<String>,
-) -> Result<Vec<InboxState>, JsError> {
+) -> Result<Vec<InboxState>, WasmError> {
   let backend = MessageBackendBuilder::default()
     .v3_host(&v3_host)
     .maybe_gateway_host(gateway_host)
     .is_secure(true)
     .build()
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Api, e))?;
   let backend = TrackedStatsClient::new(backend);
   let api = ApiClientWrapper::new(backend, strategies::exponential_cooldown());
   let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
-  let db = WasmDb::new(&StorageOption::Ephemeral).await?;
+  let db = WasmDb::new(&StorageOption::Ephemeral)
+    .await
+    .map_err(|e| WasmError::from_error(ErrorCode::Database, e))?;
   let store = EncryptedMessageStore::new(db)
-    .map_err(|e| JsError::new(&format!("Error creating unencrypted message store {e}")))?;
+    .map_err(|e| WasmError::database(format!("Error creating unencrypted message store {e}")))?;
 
   let state = inbox_addresses_with_verifier(
     &api.clone(),
@@ -147,7 +150,7 @@ pub async fn inbox_state_from_inbox_ids(
     &scw_verifier,
   )
   .await
-  .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+  .map_err(|e| WasmError::from_error(ErrorCode::Identity, e))?;
   Ok(state.into_iter().map(Into::into).collect())
 }
 
@@ -160,24 +163,24 @@ impl Client {
    * Otherwise, the state will be read from the local database.
    */
   #[wasm_bindgen(js_name = inboxState)]
-  pub async fn inbox_state(&self, refresh_from_network: bool) -> Result<InboxState, JsError> {
+  pub async fn inbox_state(&self, refresh_from_network: bool) -> Result<InboxState, WasmError> {
     let state = self
       .inner_client()
       .inbox_state(refresh_from_network)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Identity, e))?;
     Ok(state.into())
   }
 
   #[wasm_bindgen(js_name = getLatestInboxState)]
-  pub async fn get_latest_inbox_state(&self, inbox_id: String) -> Result<InboxState, JsError> {
+  pub async fn get_latest_inbox_state(&self, inbox_id: String) -> Result<InboxState, WasmError> {
     let conn = self.inner_client().context.store().db();
     let state = self
       .inner_client()
       .identity_updates()
       .get_latest_association_state(&conn, &inbox_id)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Identity, e))?;
     Ok(state.into())
   }
 
@@ -190,19 +193,19 @@ impl Client {
   pub async fn get_key_package_statuses_for_installation_ids(
     &self,
     installation_ids: Vec<String>,
-  ) -> Result<JsValue, JsError> {
+  ) -> Result<JsValue, WasmError> {
     // Convert String to Vec<u8>
     let installation_ids = installation_ids
       .into_iter()
       .map(hex::decode)
       .collect::<std::result::Result<Vec<Vec<u8>>, _>>()
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Encoding, e))?;
 
     let key_package_results = self
       .inner_client()
       .get_key_packages_for_installation_ids(installation_ids)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| WasmError::from_error(ErrorCode::Api, e))?;
 
     // Create a HashMap to store results
     let mut result_map: HashMap<String, KeyPackageStatus> = HashMap::new();

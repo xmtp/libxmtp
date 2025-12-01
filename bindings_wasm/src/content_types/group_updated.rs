@@ -1,6 +1,7 @@
+use crate::error::{ErrorCode, WasmError};
 use js_sys::Uint8Array;
 use prost::Message;
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
@@ -169,13 +170,13 @@ impl From<MetadataFieldChange>
 }
 
 #[wasm_bindgen(js_name = "decodeGroupUpdated")]
-pub fn decode_group_updated(bytes: Uint8Array) -> Result<GroupUpdated, JsError> {
+pub fn decode_group_updated(bytes: Uint8Array) -> Result<GroupUpdated, WasmError> {
   // Decode bytes into EncodedContent
   let encoded = EncodedContent::decode(bytes.to_vec().as_slice())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Encoding, e))?;
 
   // Use GroupUpdatedCodec to decode into GroupUpdated and convert to GroupUpdated
   GroupUpdatedCodec::decode(encoded)
     .map(Into::into)
-    .map_err(|e| JsError::new(&format!("{}", e)))
+    .map_err(|e| WasmError::from_error(ErrorCode::ContentType, e))
 }

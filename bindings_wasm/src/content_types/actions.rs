@@ -1,8 +1,9 @@
+use crate::error::{ErrorCode, WasmError};
 use chrono::DateTime;
 use js_sys::Uint8Array;
 use prost::Message;
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::{ContentCodec, actions::ActionsCodec};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -46,7 +47,7 @@ impl Actions {
 }
 
 impl TryFrom<xmtp_content_types::actions::Actions> for Actions {
-  type Error = JsError;
+  type Error = WasmError;
 
   fn try_from(actions: xmtp_content_types::actions::Actions) -> Result<Self, Self::Error> {
     let actions_id = actions.id.clone();
@@ -54,7 +55,7 @@ impl TryFrom<xmtp_content_types::actions::Actions> for Actions {
       Some(dt) => {
         let ns_opt = dt.and_utc().timestamp_nanos_opt();
         if ns_opt.is_none() {
-          return Err(JsError::new(&format!(
+          return Err(WasmError::content_type(format!(
             "Actions '{}' expiration timestamp is out of valid range for conversion to nanoseconds",
             actions_id
           )));
@@ -129,7 +130,7 @@ impl Action {
 }
 
 impl TryFrom<xmtp_content_types::actions::Action> for Action {
-  type Error = JsError;
+  type Error = WasmError;
 
   fn try_from(action: xmtp_content_types::actions::Action) -> Result<Self, Self::Error> {
     let action_id = action.id.clone();
@@ -137,7 +138,7 @@ impl TryFrom<xmtp_content_types::actions::Action> for Action {
       Some(dt) => {
         let ns_opt = dt.and_utc().timestamp_nanos_opt();
         if ns_opt.is_none() {
-          return Err(JsError::new(&format!(
+          return Err(WasmError::content_type(format!(
             "Action '{}' expiration timestamp is out of valid range for conversion to nanoseconds",
             action_id
           )));
@@ -206,29 +207,29 @@ impl From<ActionStyle> for xmtp_content_types::actions::ActionStyle {
 }
 
 #[wasm_bindgen(js_name = "encodeActions")]
-pub fn encode_actions(actions: Actions) -> Result<Uint8Array, JsError> {
+pub fn encode_actions(actions: Actions) -> Result<Uint8Array, WasmError> {
   // Convert Actions and use ActionsCodec to encode
-  let encoded =
-    ActionsCodec::encode(actions.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
+  let encoded = ActionsCodec::encode(actions.into())
+    .map_err(|e| WasmError::from_error(ErrorCode::ContentType, e))?;
 
   // Encode the EncodedContent to bytes
   let mut buf = Vec::new();
   encoded
     .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Encoding, e))?;
 
   Ok(Uint8Array::from(buf.as_slice()))
 }
 
 #[wasm_bindgen(js_name = "decodeActions")]
-pub fn decode_actions(bytes: Uint8Array) -> Result<Actions, JsError> {
+pub fn decode_actions(bytes: Uint8Array) -> Result<Actions, WasmError> {
   // Decode bytes into EncodedContent
   let encoded_content = EncodedContent::decode(bytes.to_vec().as_slice())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+    .map_err(|e| WasmError::from_error(ErrorCode::Encoding, e))?;
 
   // Use ActionsCodec to decode into Actions and convert to Actions
-  let actions =
-    ActionsCodec::decode(encoded_content).map_err(|e| JsError::new(&format!("{}", e)))?;
+  let actions = ActionsCodec::decode(encoded_content)
+    .map_err(|e| WasmError::from_error(ErrorCode::ContentType, e))?;
 
   actions.try_into()
 }
