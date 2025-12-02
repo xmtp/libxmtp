@@ -345,10 +345,10 @@ mod tests {
         charlie.sync_welcomes().await.unwrap();
         diana.sync_welcomes().await.unwrap();
 
-        // Small delay between groups
-        xmtp_common::time::sleep(Duration::from_millis(10)).await;
+        // Delay between groups to ensure distinct timestamps for time-based filtering tests
+        xmtp_common::time::sleep(Duration::from_millis(100)).await;
         let mid_time = now_ns();
-        xmtp_common::time::sleep(Duration::from_millis(10)).await;
+        xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
         // Create Group 2: Alice, Eve, Frank, Grace
         let group2 = alice.create_group(None, None).unwrap();
