@@ -7,7 +7,7 @@ use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1::subscribe_group_messages_request::Filter as GroupSubscribeFilter;
 use xmtp_proto::mls_v1::subscribe_welcome_messages_request::Filter as WelcomeSubscribeFilter;
 use xmtp_proto::types::{
-    GlobalCursor, GroupId, GroupMessage, InstallationId, TopicKind, WelcomeMessage,
+    GroupId, GroupMessage, InstallationId, TopicCursor, TopicKind, WelcomeMessage,
 };
 
 #[xmtp_common::async_trait]
@@ -56,10 +56,10 @@ where
 
     async fn subscribe_group_messages_with_cursors(
         &self,
-        groups_with_cursors: &[(&GroupId, GlobalCursor)],
+        topics: &TopicCursor,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         let mut filters = vec![];
-        for (group_id, cursor) in groups_with_cursors {
+        for (group_id, cursor) in topics.groups() {
             let id_cursor = cursor.max();
             tracing::debug!(
                 "subscribing to group {} @ cursor {}",

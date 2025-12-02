@@ -9,6 +9,7 @@ use xmtp_proto::prelude::ApiBuilder;
 use xmtp_proto::prelude::XmtpIdentityClient;
 use xmtp_proto::prelude::XmtpMlsStreams;
 use xmtp_proto::types::InstallationId;
+use xmtp_proto::types::TopicCursor;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::types::{GroupId, GroupMessage};
 
@@ -182,7 +183,7 @@ where
 
     async fn subscribe_group_messages_with_cursors(
         &self,
-        groups_with_cursors: &[(&GroupId, xmtp_proto::types::GlobalCursor)],
+        groups_with_cursors: &TopicCursor,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         self.stats.subscribe_messages.count_request();
         self.inner

@@ -16,6 +16,7 @@ use xmtp_proto::types::GroupMessage;
 use xmtp_proto::types::GroupMessageMetadata;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::Topic;
+use xmtp_proto::types::TopicCursor;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request;
 use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response;
@@ -239,7 +240,7 @@ where
 
     async fn subscribe_group_messages_with_cursors(
         &self,
-        groups_with_cursors: &[(&GroupId, GlobalCursor)],
+        groups_with_cursors: &TopicCursor,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         wrap_err(
             || {
