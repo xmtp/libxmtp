@@ -157,13 +157,13 @@ where
 {
     let db = context.db();
 
-    // Build consent map for all inbox_ids
-    let mut consent_map: HashMap<String, ConsentState> = HashMap::new();
-    for inbox_id in association_map.keys() {
-        if let Some(record) = db.get_consent_record(inbox_id.clone(), ConsentType::InboxId)? {
-            consent_map.insert(inbox_id.clone(), record.state);
-        }
-    }
+    // Batch fetch all consent records for inbox_ids
+    let inbox_ids: Vec<String> = association_map.keys().cloned().collect();
+    let consent_records = db.get_consent_records_batch(&inbox_ids, ConsentType::InboxId)?;
+    let consent_map: HashMap<String, ConsentState> = consent_records
+        .into_iter()
+        .map(|r| (r.entity, r.state))
+        .collect();
 
     // Build contact map by iterating over group members
     let mut contact_map: ContactMap = HashMap::new();
