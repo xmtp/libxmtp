@@ -264,18 +264,21 @@ where
         // Extract all member inbox_ids from all groups
         let group_members_map = extract_group_members(&self.context, &filtered_groups)?;
 
-        // Deduplicate member requests for batch lookup (same member can appear in multiple groups)
-        let unique_requests: Vec<(String, i64)> = group_members_map
-            .values()
-            .flatten()
-            .cloned()
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect();
+        // Deduplicate members, keeping the highest sequence_id for each inbox_id
+        // (same member can appear in multiple groups with different sequence_ids)
+        let mut inbox_to_max_seq: HashMap<String, i64> = HashMap::new();
+        for (inbox_id, sequence_id) in group_members_map.values().flatten() {
+            inbox_to_max_seq
+                .entry(inbox_id.clone())
+                .and_modify(|existing| *existing = (*existing).max(*sequence_id))
+                .or_insert(*sequence_id);
+        }
 
-        if unique_requests.is_empty() {
+        if inbox_to_max_seq.is_empty() {
             return Ok(vec![]);
         }
+
+        let unique_requests: Vec<(String, i64)> = inbox_to_max_seq.into_iter().collect();
 
         // Batch resolve association states for all unique members
         let association_map = resolve_association_states(&self.context, &unique_requests).await?;
