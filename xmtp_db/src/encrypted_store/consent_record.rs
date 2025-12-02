@@ -300,12 +300,21 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
         if entities.is_empty() {
             return Ok(vec![]);
         }
-        self.raw_query_read(|conn| {
-            dsl::consent_records
-                .filter(dsl::entity.eq_any(entities))
-                .filter(dsl::entity_type.eq(entity_type))
-                .load::<StoredConsentRecord>(conn)
-        })
+
+        // SQLite has a limit of 999 bind variables. Chunk to stay well under.
+        const CHUNK_SIZE: usize = 900;
+
+        let mut results = Vec::with_capacity(entities.len());
+        for chunk in entities.chunks(CHUNK_SIZE) {
+            let mut chunk_results = self.raw_query_read(|conn| {
+                dsl::consent_records
+                    .filter(dsl::entity.eq_any(chunk))
+                    .filter(dsl::entity_type.eq(entity_type))
+                    .load::<StoredConsentRecord>(conn)
+            })?;
+            results.append(&mut chunk_results);
+        }
+        Ok(results)
     }
 }
 
