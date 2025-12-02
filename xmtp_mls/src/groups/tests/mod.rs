@@ -5109,3 +5109,29 @@ async fn test_generate_commit_with_rollback() {
     assert_eq!(start_hash, in_generate_commit_before_hash);
     assert_ne!(end_hash, in_generate_commit_after_hash);
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_membership_state() {
+    tester!(alix);
+    tester!(bola);
+
+    // Create a group with alix as creator
+    let group = alix.create_group(None, None)?;
+
+    // Alix should have Allowed membership state (creator is immediately Allowed)
+    let state = group.membership_state()?;
+    assert_eq!(state, GroupMembershipState::Allowed);
+
+    // Add bola to the group
+    group.add_members_by_inbox_id(&[bola.inbox_id()]).await?;
+
+    // Sync so bola receives the welcome
+    bola.sync_welcomes().await?;
+    let bola_groups = bola.find_groups(GroupQueryArgs::default())?;
+    assert_eq!(bola_groups.len(), 1);
+    let bola_group = &bola_groups[0];
+
+    // Bola should have Pending membership state when first receiving the welcome
+    let bola_state = bola_group.membership_state()?;
+    assert_eq!(bola_state, GroupMembershipState::Pending);
+}

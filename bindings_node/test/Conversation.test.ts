@@ -495,4 +495,33 @@ describe.concurrent('Conversation', () => {
       expect(typeof value.epoch).toBe('bigint')
     }
   })
+
+  it('should get membership state', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+
+    // Create a group with client1
+    const group = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
+
+    // Client1 should have Allowed membership state
+    const state1 = group.membershipState()
+    expect(state1).toBe(0) // GroupMembershipState.Allowed = 0
+
+    // Sync client2 to receive the group
+    await client2.conversations().sync()
+    const groups = await client2.conversations().list()
+    expect(groups.length).toBe(1)
+    const group2 = groups[0]
+
+    // Client2 should also have Allowed membership state
+    const state2 = group2.membershipState()
+    expect(state2).toBe(0) // GroupMembershipState.Allowed = 0
+  })
 })
