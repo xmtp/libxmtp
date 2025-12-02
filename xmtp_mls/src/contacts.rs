@@ -1020,4 +1020,56 @@ mod tests {
 
         assert_eq!(contacts.len(), 0, "Should have no contacts with no groups");
     }
+
+    #[xmtp_common::test]
+    async fn test_contacts_deduplication_across_groups() {
+        // Test that contacts appearing in multiple groups are properly deduplicated
+        // and have all their conversation_ids aggregated
+        tester!(alice);
+        tester!(bob);
+
+        // Create 3 groups, all containing Bob
+        let group1 = alice.create_group(None, None).unwrap();
+        group1
+            .add_members_by_inbox_id(&[bob.inbox_id()])
+            .await
+            .unwrap();
+
+        let group2 = alice.create_group(None, None).unwrap();
+        group2
+            .add_members_by_inbox_id(&[bob.inbox_id()])
+            .await
+            .unwrap();
+
+        let group3 = alice.create_group(None, None).unwrap();
+        group3
+            .add_members_by_inbox_id(&[bob.inbox_id()])
+            .await
+            .unwrap();
+
+        bob.sync_welcomes().await.unwrap();
+
+        // Query all contacts
+        let contacts = alice
+            .contacts_list(ContactQueryArgs::default())
+            .await
+            .unwrap();
+
+        // Should have exactly 1 contact (Bob), not 3
+        assert_eq!(contacts.len(), 1, "Bob should appear only once");
+        assert_eq!(contacts[0].inbox_id, bob.inbox_id());
+
+        // Bob should be associated with all 3 groups
+        assert_eq!(
+            contacts[0].conversation_ids.len(),
+            3,
+            "Bob should be in 3 conversations"
+        );
+
+        // Verify all group IDs are present
+        let group_ids: Vec<&Vec<u8>> = contacts[0].conversation_ids.iter().collect();
+        assert!(group_ids.contains(&&group1.group_id));
+        assert!(group_ids.contains(&&group2.group_id));
+        assert!(group_ids.contains(&&group3.group_id));
+    }
 }
