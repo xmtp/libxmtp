@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::pin::Pin;
 use std::{any::Any, collections::HashMap, hash::Hash, sync::Arc};
-use xmtp_common::{MaybeSend, MaybeSync, StreamHandle, if_native, if_wasm};
+use xmtp_common::{MaybeSend, MaybeSync, StreamHandle, if_native, if_wasm, time::Duration};
 use xmtp_configuration::WORKER_RESTART_DELAY;
 
 pub mod metrics;
@@ -83,7 +83,7 @@ impl WorkerRunner {
         let this = self.clone();
         let handle = xmtp_common::spawn(None, async move {
             while !ctx.identity().is_ready() {
-                xmtp_common::task::yield_now().await;
+                xmtp_common::time::sleep(Duration::from_millis(50)).await;
             }
 
             let mut futs = FuturesUnordered::new();
