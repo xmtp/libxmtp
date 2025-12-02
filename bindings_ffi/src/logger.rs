@@ -290,9 +290,12 @@ fn enable_debug_file_inner(
     let commit_sha = option_env!("VERGEN_GIT_SHA").unwrap_or("unknown");
     let process_id = std::process::id();
     let process_suffix = process_type.to_str();
-    
+
     let file_appender = RollingFileAppender::builder()
-        .filename_prefix(format!("libxmtp-v{}.{}.{}.{}.log", version, commit_sha, process_suffix, process_id))
+        .filename_prefix(format!(
+            "libxmtp-v{}.{}.{}.{}.log",
+            version, commit_sha, process_suffix, process_id
+        ))
         .rotation(rotation.into())
         .max_log_files(max_files as usize)
         .build(&directory)?;
