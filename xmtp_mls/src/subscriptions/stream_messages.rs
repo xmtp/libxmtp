@@ -506,6 +506,23 @@ where
                 "message @cursor=[{}] finished processing",
                 processed.tried_to_process
             );
+
+            // Mark all synced cursors as seen to prevent duplicates.
+            // During recovery sync, messages are fetched from the server and stored in DB.
+            // The network may still deliver these same messages, so we need to mark them
+            // as seen to avoid returning them again.
+            if !processed.synced_cursors.is_empty() {
+                tracing::debug!(
+                    "marking {} synced cursors as seen for group=[{}]",
+                    processed.synced_cursors.len(),
+                    xmtp_common::fmt::debug_hex(&processed.group_id)
+                );
+                self.as_mut()
+                    .project()
+                    .groups
+                    .mark_seen(processed.synced_cursors);
+            }
+
             let this = self.as_mut().project();
             if let Some(msg) = processed.message {
                 this.returned.push(Cursor {

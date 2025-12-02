@@ -1,8 +1,10 @@
+use std::time::Duration;
+
+use crate::{Client, tester};
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::consent_record::{ConsentState, ConsentType};
+use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::prelude::*;
-
-use crate::tester;
 
 /// Test case: If two users are talking in a DM, and one user
 /// creates a new installation and creates a new DM before being
@@ -65,4 +67,55 @@ async fn test_dm_welcome_with_preexisting_consent() {
             .group_id,
         a_group.group_id
     );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_setup_problem() {
+    tester!(alix2, sync_worker, sync_server);
+    alix2.wait_for_sync_worker_init().await;
+    tester!(alix, from: alix2);
+
+    {
+        alix.test_has_same_sync_group_as(&alix2).await?;
+
+        for _ in 0..300 {
+            tester!(bo, disable_workers);
+            let dm = alix2
+                .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
+                .await?;
+            dm.send_message(b"hi", Default::default()).await?;
+            tester!(_bo2, from: bo);
+        }
+        let snap = alix2.db_snapshot();
+        std::fs::write("alix.db3", snap)?;
+    }
+
+    tester!(alix3, sync_worker, sync_server, snapshot_file: "alix.db3");
+    tester!(alix4, from: alix);
+
+    alix3.sync_all_welcomes_and_groups(None).await?;
+    let snap = alix3.db_snapshot();
+    std::fs::write("alix-synced.db3", snap)?;
+
+    let snap = alix4.db_snapshot();
+    std::fs::write("alix-new.db3", snap)?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_stream_something() {
+    tester!(alix, sync_worker, sync_server, dev, snapshot_file: "decrypt.db3");
+    // let s = alix2
+    // .stream_all_messages_owned_with_stats(None, None)
+    // .await?;
+
+    alix.sync_all_welcomes_and_groups(None).await?;
+    let context = alix.context.clone();
+    Client::stream_all_messages_with_callback(context, None, None, |_| {}, || {});
+
+    tester!(caro);
+    alix.create_group_with_inbox_ids(&[caro.inbox_id()], None, None)
+        .await?;
+
+    tracing::warn!("Sleeping");
+    tokio::time::sleep(Duration::from_secs(1000)).await;
 }

@@ -89,6 +89,9 @@ where
         }
         assert_eq!(sync_group.group_id, other_sync_group.group_id);
 
+        sync_group.sync().await?;
+        other_sync_group.sync().await?;
+
         let epoch = sync_group.epoch().await?;
         let other_epoch = other_sync_group.epoch().await?;
         assert_eq!(epoch, other_epoch);

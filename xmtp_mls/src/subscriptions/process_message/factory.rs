@@ -16,6 +16,8 @@ use xmtp_db::prelude::*;
 use xmtp_db::{StorageError, group_message::StoredGroupMessage, refresh_state::EntityKind};
 use xmtp_proto::types::Cursor;
 
+use std::collections::HashSet;
+
 #[cfg_attr(test, mockall::automock)]
 pub trait GroupDatabase {
     /// Get the last cursor for a message
@@ -212,12 +214,19 @@ where
             .group_db
             .msg(summary.new_message_by_id(msg.cursor), &msg)?;
 
+        // Collect all cursors that were synced during recovery.
+        // This includes both successful and failed messages, as they are all
+        // now in the database (or were already processed) and should not be
+        // re-delivered via the stream.
+        let synced_cursors: HashSet<Cursor> = summary.process.total_messages.clone();
+
         if let Some(new_msg) = new_message {
             Ok(ProcessedMessage {
                 message: Some(new_msg.clone()),
                 next_message: msg.cursor,
                 group_id: new_msg.group_id.clone(),
                 tried_to_process: msg.cursor,
+                synced_cursors,
             })
         } else {
             let next: Cursor = summary.process.last_errored().unwrap_or(msg.cursor);
@@ -226,6 +235,7 @@ where
                 next_message: next,
                 group_id: msg.group_id.to_vec(),
                 tried_to_process: msg.cursor,
+                synced_cursors,
             })
         }
     }

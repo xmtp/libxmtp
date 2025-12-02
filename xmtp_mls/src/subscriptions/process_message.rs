@@ -15,6 +15,8 @@ use xmtp_common::BoxDynFuture;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::types::Cursor;
 
+use std::collections::HashSet;
+
 /// Creates a future that processes sa single message
 pub trait ProcessFutureFactory<'a> {
     fn create(
@@ -70,6 +72,10 @@ pub struct ProcessedMessage {
     pub group_id: Vec<u8>,
     pub next_message: Cursor,
     pub tried_to_process: Cursor,
+    /// Cursors of all messages that were synced during recovery.
+    /// These should be added to the `seen` set to prevent duplicates
+    /// when the network re-delivers messages that were already synced.
+    pub synced_cursors: HashSet<Cursor>,
 }
 
 impl<Context> ProcessMessageFuture<Context>

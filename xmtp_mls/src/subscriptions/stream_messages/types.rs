@@ -125,4 +125,11 @@ impl GroupList {
             });
         self.seen.insert(cursor);
     }
+
+    /// Add multiple cursors to the seen set.
+    /// This is used after a recovery sync to mark all synced messages as seen,
+    /// preventing them from being re-delivered when the network sends them.
+    pub(super) fn mark_seen(&mut self, cursors: impl IntoIterator<Item = Cursor>) {
+        self.seen.extend(cursors);
+    }
 }
