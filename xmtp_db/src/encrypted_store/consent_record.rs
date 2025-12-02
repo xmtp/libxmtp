@@ -117,6 +117,14 @@ pub trait QueryConsentRecord {
         &self,
         dm_id: &str,
     ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError>;
+
+    /// Batch lookup of consent records by entity and type.
+    /// Entities not present in the database are ignored.
+    fn get_consent_records_batch(
+        &self,
+        entities: &[String],
+        entity_type: ConsentType,
+    ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError>;
 }
 
 impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
@@ -283,6 +291,22 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
                 .load::<StoredConsentRecord>(conn)
         })
     }
+
+    fn get_consent_records_batch(
+        &self,
+        entities: &[String],
+        entity_type: ConsentType,
+    ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
+        if entities.is_empty() {
+            return Ok(vec![]);
+        }
+        self.raw_query_read(|conn| {
+            dsl::consent_records
+                .filter(dsl::entity.eq_any(entities))
+                .filter(dsl::entity_type.eq(entity_type))
+                .load::<StoredConsentRecord>(conn)
+        })
+    }
 }
 
 impl<T: QueryConsentRecord + ?Sized> QueryConsentRecord for &T {
@@ -332,6 +356,14 @@ impl<T: QueryConsentRecord + ?Sized> QueryConsentRecord for &T {
         dm_id: &str,
     ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
         (**self).find_consent_by_dm_id(dm_id)
+    }
+
+    fn get_consent_records_batch(
+        &self,
+        entities: &[String],
+        entity_type: ConsentType,
+    ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
+        (**self).get_consent_records_batch(entities, entity_type)
     }
 }
 
@@ -509,6 +541,82 @@ mod tests {
                 .unwrap();
             // ensure the db matches the state of what was returned
             assert_eq!(db_cr.state, existing.state);
+        })
+    }
+
+    #[xmtp_common::test]
+    fn batch_read_consent_records() {
+        with_connection(|conn| {
+            // Insert multiple consent records
+            let record1 = generate_consent_record(
+                ConsentType::InboxId,
+                ConsentState::Allowed,
+                "inbox_1".to_string(),
+            );
+            let record2 = generate_consent_record(
+                ConsentType::InboxId,
+                ConsentState::Denied,
+                "inbox_2".to_string(),
+            );
+            let record3 = generate_consent_record(
+                ConsentType::InboxId,
+                ConsentState::Unknown,
+                "inbox_3".to_string(),
+            );
+            // Different type - should not be returned
+            let record4 = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                "inbox_1".to_string(), // Same entity, different type
+            );
+
+            conn.insert_or_replace_consent_records(&[
+                record1.clone(),
+                record2.clone(),
+                record3.clone(),
+                record4,
+            ])
+            .expect("should store without error");
+
+            // Batch read all three InboxId records
+            let entities = vec![
+                "inbox_1".to_string(),
+                "inbox_2".to_string(),
+                "inbox_3".to_string(),
+            ];
+            let results = conn
+                .get_consent_records_batch(&entities, ConsentType::InboxId)
+                .expect("batch read should work");
+
+            assert_eq!(results.len(), 3);
+
+            // Verify each record is present with correct state
+            let result_map: std::collections::HashMap<_, _> = results
+                .iter()
+                .map(|r| (r.entity.clone(), r.state))
+                .collect();
+            assert_eq!(result_map.get("inbox_1"), Some(&ConsentState::Allowed));
+            assert_eq!(result_map.get("inbox_2"), Some(&ConsentState::Denied));
+            assert_eq!(result_map.get("inbox_3"), Some(&ConsentState::Unknown));
+
+            // Batch read with some missing entities
+            let partial_entities = vec![
+                "inbox_1".to_string(),
+                "inbox_nonexistent".to_string(),
+                "inbox_2".to_string(),
+            ];
+            let partial_results = conn
+                .get_consent_records_batch(&partial_entities, ConsentType::InboxId)
+                .expect("batch read should work");
+
+            // Should only return the 2 that exist
+            assert_eq!(partial_results.len(), 2);
+
+            // Batch read with empty list
+            let empty_results = conn
+                .get_consent_records_batch(&[], ConsentType::InboxId)
+                .expect("empty batch read should work");
+            assert!(empty_results.is_empty());
         })
     }
 }
