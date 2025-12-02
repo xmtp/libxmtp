@@ -518,7 +518,7 @@ describe.concurrent('Conversation', () => {
     await client2.conversations().sync()
     const groups = await client2.conversations().list()
     expect(groups.length).toBe(1)
-    const group2 = groups[0]
+    const group2 = groups[0].conversation
 
     // Client2 should have Pending membership state (invited members start as Pending)
     const state2 = group2.membershipState()
