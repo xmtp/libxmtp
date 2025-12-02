@@ -1,5 +1,6 @@
 pub mod actions;
 pub mod attachment;
+pub mod delete_message;
 pub mod group_updated;
 pub mod intent;
 pub mod leave_request;

@@ -13,7 +13,7 @@ use xmtp_content_types::{
 };
 use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
 use xmtp_mls::messages::decoded_message::{
-    DecodedMessage, DecodedMessageMetadata, MessageBody, Reply as ProcessedReply, Text,
+    DecodedMessage, DecodedMessageMetadata, DeletedBy, MessageBody, Reply as ProcessedReply, Text,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent, GroupUpdated, group_updated::MetadataFieldChange,
@@ -58,6 +58,17 @@ pub enum FfiDecodedMessageBody {
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiTextContent {
     pub content: String,
+}
+
+#[derive(uniffi::Enum, Clone, Debug)]
+pub enum FfiDeletedBy {
+    Sender,
+    Admin { inbox_id: String },
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiDeletedMessage {
+    pub deleted_by: FfiDeletedBy,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -373,6 +384,7 @@ pub enum FfiDecodedMessageContent {
     WalletSendCalls(FfiWalletSendCalls),
     Intent(Option<FfiIntent>),
     Actions(Option<FfiActions>),
+    DeletedMessage(FfiDeletedMessage),
     Custom(FfiEncodedContent),
 }
 
@@ -382,6 +394,15 @@ impl From<Text> for FfiTextContent {
     fn from(text: Text) -> Self {
         FfiTextContent {
             content: text.content,
+        }
+    }
+}
+
+impl From<DeletedBy> for FfiDeletedBy {
+    fn from(deleted_by: DeletedBy) -> Self {
+        match deleted_by {
+            DeletedBy::Sender => FfiDeletedBy::Sender,
+            DeletedBy::Admin(inbox_id) => FfiDeletedBy::Admin { inbox_id },
         }
     }
 }
@@ -1065,6 +1086,22 @@ impl From<MessageBody> for FfiDecodedMessageContent {
                     FfiDecodedMessageContent::Actions(None)
                 }
             }
+            MessageBody::DeletedMessage { deleted_by } => {
+                FfiDecodedMessageContent::DeletedMessage(FfiDeletedMessage {
+                    deleted_by: deleted_by.into(),
+                })
+            }
+            MessageBody::DeleteMessage(_) => {
+                // DeleteMessage itself shouldn't appear in decoded messages for FFI
+                // It's only used internally for deletion processing
+                FfiDecodedMessageContent::Custom(FfiEncodedContent {
+                    type_id: None,
+                    parameters: std::collections::HashMap::new(),
+                    fallback: None,
+                    compression: None,
+                    content: vec![],
+                })
+            }
             MessageBody::Custom(encoded) => FfiDecodedMessageContent::Custom(encoded.into()),
         }
     }
@@ -1130,6 +1167,8 @@ pub fn content_to_optional_body(content: MessageBody) -> Option<FfiDecodedMessag
                 None
             }
         }
+        MessageBody::DeletedMessage { .. } => None,
+        MessageBody::DeleteMessage(_) => None,
         MessageBody::Custom(encoded) => Some(FfiDecodedMessageBody::Custom(encoded.into())),
     }
 }

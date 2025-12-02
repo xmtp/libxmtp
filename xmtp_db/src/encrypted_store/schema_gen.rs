@@ -159,6 +159,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    message_deletions (id) {
+        id -> Binary,
+        group_id -> Binary,
+        deleted_message_id -> Binary,
+        deleted_by_inbox_id -> Text,
+        is_super_admin_deletion -> Bool,
+        deleted_at_ns -> BigInt,
+    }
+}
+
+diesel::table! {
     openmls_key_store (key_bytes) {
         key_bytes -> Binary,
         value_bytes -> Binary,
@@ -246,6 +257,7 @@ diesel::table! {
 
 diesel::joinable!(group_intents -> groups (group_id));
 diesel::joinable!(group_messages -> groups (group_id));
+diesel::joinable!(message_deletions -> group_messages (id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     association_state,
@@ -260,6 +272,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     identity_updates,
     key_package_history,
     local_commit_log,
+    message_deletions,
     openmls_key_store,
     openmls_key_value,
     pending_remove,

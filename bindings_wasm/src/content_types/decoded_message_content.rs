@@ -25,6 +25,8 @@ pub enum PayloadType {
   WalletSendCalls,
   Intent,
   Actions,
+  DeleteMessage,
+  DeletedMessage,
   Custom,
 }
 
@@ -51,6 +53,8 @@ impl DecodedMessageContent {
       MessageBody::WalletSendCalls(_) => PayloadType::WalletSendCalls,
       MessageBody::Intent(_) => PayloadType::Intent,
       MessageBody::Actions(_) => PayloadType::Actions,
+      MessageBody::DeleteMessage(_) => PayloadType::DeleteMessage,
+      MessageBody::DeletedMessage { .. } => PayloadType::DeletedMessage,
       MessageBody::Custom(_) => PayloadType::Custom,
     }
   }
