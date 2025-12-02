@@ -1829,7 +1829,7 @@ async fn test_membership_state() {
         .await
         .unwrap();
 
-    // Amal should have Allowed membership state
+    // Amal should have Allowed membership state (creator is immediately Allowed)
     let state = group.membership_state().unwrap();
     assert_eq!(state, FfiGroupMembershipState::Allowed);
 
@@ -1837,7 +1837,7 @@ async fn test_membership_state() {
     bola.conversations().sync().await.unwrap();
     let bola_group = bola.conversation(group.id()).unwrap();
 
-    // Bola should also have Allowed membership state
+    // Bola should have Pending membership state when first receiving the welcome
     let bola_state = bola_group.membership_state().unwrap();
-    assert_eq!(bola_state, FfiGroupMembershipState::Allowed);
+    assert_eq!(bola_state, FfiGroupMembershipState::Pending);
 }
