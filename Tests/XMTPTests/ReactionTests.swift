@@ -151,9 +151,8 @@ class ReactionTests: XCTestCase {
 
 		let messageToReact = try await conversation.messages()[0]
 
-		let reaction = FfiReactionPayload(
+		let reaction = Reaction(
 			reference: messageToReact.id,
-			referenceInboxId: "",
 			action: .added,
 			content: "U+1F603",
 			schema: .unicode
@@ -167,17 +166,17 @@ class ReactionTests: XCTestCase {
 		let messages = try await conversation.messages()
 		XCTAssertEqual(messages.count, 3)
 
-		let content: FfiReactionPayload = try messages[0].content()
+		let content: Reaction = try messages[0].content()
 		XCTAssertEqual("U+1F603", content.content)
 		XCTAssertEqual(messageToReact.id, content.reference)
-		XCTAssertEqual(FfiReactionAction.added, content.action)
-		XCTAssertEqual(FfiReactionSchema.unicode, content.schema)
+		XCTAssertEqual(ReactionAction.added, content.action)
+		XCTAssertEqual(ReactionSchema.unicode, content.schema)
 
 		let messagesWithReactions = try await conversation.messagesWithReactions()
 		XCTAssertEqual(messagesWithReactions.count, 2)
 		XCTAssertEqual(messagesWithReactions[0].id, messageToReact.id)
 
-		let reactionContent: FfiReactionPayload = try XCTUnwrap(messagesWithReactions[0].childMessages?[0].content())
+		let reactionContent: Reaction = try XCTUnwrap(messagesWithReactions[0].childMessages?[0].content())
 		XCTAssertEqual(reactionContent.reference, messageToReact.id)
 	}
 
@@ -195,12 +194,11 @@ class ReactionTests: XCTestCase {
 		let messageToReact = try await conversation.messages()[0]
 
 		// Send V2 reaction
-		let reactionV2 = FfiReactionPayload(
+		let reactionV2 = Reaction(
 			reference: messageToReact.id,
-			referenceInboxId: fixtures.alixClient.inboxID,
 			action: .added,
 			content: "U+1F603",
-			schema: FfiReactionSchema.unicode
+			schema: .unicode
 		)
 		try await conversation.send(
 			content: reactionV2,
@@ -230,8 +228,8 @@ class ReactionTests: XCTestCase {
 		let childContent1: Reaction = try XCTUnwrap(messagesWithReactions[0].childMessages?[0].content())
 		XCTAssertEqual("U+1F604", childContent1.content)
 
-		let childContent2: FfiReactionPayload = try XCTUnwrap(messagesWithReactions[0].childMessages?[1].content())
+		let childContent2: Reaction = try XCTUnwrap(messagesWithReactions[0].childMessages?[1].content())
 		XCTAssertEqual("U+1F603", childContent2.content)
-		XCTAssertEqual(FfiReactionSchema.unicode, childContent2.schema)
+		XCTAssertEqual(ReactionSchema.unicode, childContent2.schema)
 	}
 }

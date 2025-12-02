@@ -73,6 +73,7 @@ jobs:
           name: ${{ env.UPDATED_VERSION }}
           files: XMTP-${{ env.UPDATED_VERSION }}.zip
           make_latest: false
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

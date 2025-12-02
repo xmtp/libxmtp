@@ -162,9 +162,9 @@ class ArchiveTests: XCTestCase {
 		let isActive = try dm2.isActive()
 		XCTAssertTrue(isActive)
 
-		// Two here because we have not stitched yet
+		// Should already be stitched from the archive
 		let convos2 = try await alixClient2.conversations.list()
-		XCTAssertEqual(convos2.count, 2)
+		XCTAssertEqual(convos2.count, 1)
 
 		// We send one message in our duplicate dm from alix installation 2
 		_ = try await dm2.send(content: "hey")

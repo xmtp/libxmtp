@@ -58,6 +58,29 @@ public enum SortDirection {
 	}
 }
 
+public enum MessageSortBy {
+	case sentAt
+	case insertedAt
+
+	func toFfi() -> FfiSortBy {
+		switch self {
+		case .sentAt:
+			return .sentAt
+		case .insertedAt:
+			return .insertedAt
+		}
+	}
+
+	static func fromFfi(_ ffiSortBy: FfiSortBy) -> MessageSortBy {
+		switch ffiSortBy {
+		case .sentAt:
+			return .sentAt
+		case .insertedAt:
+			return .insertedAt
+		}
+	}
+}
+
 public struct DecodedMessage: Identifiable {
 	let ffiMessage: FfiMessage
 	private let decodedContent: Any?
@@ -88,6 +111,17 @@ public struct DecodedMessage: Identifiable {
 
 	public var sentAtNs: Int64 {
 		ffiMessage.sentAtNs
+	}
+
+	public var insertedAt: Date {
+		Date(
+			timeIntervalSince1970: TimeInterval(ffiMessage.insertedAtNs)
+				/ 1_000_000_000
+		)
+	}
+
+	public var insertedAtNs: Int64 {
+		ffiMessage.insertedAtNs
 	}
 
 	public var deliveryStatus: MessageDeliveryStatus {

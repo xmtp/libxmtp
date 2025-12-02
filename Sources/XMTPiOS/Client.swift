@@ -460,7 +460,10 @@ public final class Client {
 			v3Host: api.env.url,
 			gatewayHost: api.gatewayHost,
 			isSecure: api.isSecure,
-			appVersion: api.appVersion
+			clientMode: FfiClientMode.default,
+			appVersion: api.appVersion,
+			authCallback: nil,
+			authHandle: nil
 		)
 		await apiCache.setClient(newClient, forKey: cacheKey)
 		return newClient
@@ -484,7 +487,10 @@ public final class Client {
 			v3Host: api.env.url,
 			gatewayHost: api.gatewayHost,
 			isSecure: api.isSecure,
-			appVersion: api.appVersion
+			clientMode: FfiClientMode.default,
+			appVersion: api.appVersion,
+			authCallback: nil,
+			authHandle: nil
 		)
 		await apiCache.setSyncClient(newClient, forKey: cacheKey)
 		return newClient
@@ -749,7 +755,10 @@ public final class Client {
 	}
 
 	public func revokeAllOtherInstallations(signingKey: SigningKey) async throws {
-		let signatureRequest = try await ffiRevokeAllOtherInstallations()
+		guard let signatureRequest = try await ffiRevokeAllOtherInstallations() else {
+			// No other installations to revoke – nothing to do.
+			return
+		}
 		do {
 			try await Client.handleSignature(
 				for: signatureRequest.ffiSignatureRequest,
@@ -945,10 +954,11 @@ public final class Client {
 		"""
 	)
 	public func ffiRevokeAllOtherInstallations() async throws
-		-> SignatureRequest
+		-> SignatureRequest?
 	{
-		let ffiSigReq = try await ffiClient.revokeAllOtherInstallations()
-		return SignatureRequest(ffiSignatureRequest: ffiSigReq)
+		try await ffiClient
+			.revokeAllOtherInstallationsSignatureRequest()
+			.map(SignatureRequest.init(ffiSignatureRequest:))
 	}
 
 	@available(

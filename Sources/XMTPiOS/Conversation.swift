@@ -280,7 +280,10 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all,
 		excludeContentTypes: [StandardContentType]? = nil,
-		excludeSenderInboxIds: [String]? = nil
+		excludeSenderInboxIds: [String]? = nil,
+		sortBy: MessageSortBy? = nil,
+		insertedAfterNs: Int64? = nil,
+		insertedBeforeNs: Int64? = nil
 	) async throws -> [DecodedMessage] {
 		switch self {
 		case let .group(group):
@@ -288,14 +291,20 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
 				direction: direction, deliveryStatus: deliveryStatus,
 				excludeContentTypes: excludeContentTypes,
-				excludeSenderInboxIds: excludeSenderInboxIds
+				excludeSenderInboxIds: excludeSenderInboxIds,
+				sortBy: sortBy,
+				insertedAfterNs: insertedAfterNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		case let .dm(dm):
 			return try await dm.messages(
 				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
 				direction: direction, deliveryStatus: deliveryStatus,
 				excludeContentTypes: excludeContentTypes,
-				excludeSenderInboxIds: excludeSenderInboxIds
+				excludeSenderInboxIds: excludeSenderInboxIds,
+				sortBy: sortBy,
+				insertedAfterNs: insertedAfterNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		}
 	}
@@ -326,7 +335,10 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all,
 		excludeContentTypes: [StandardContentType]? = nil,
-		excludeSenderInboxIds: [String]? = nil
+		excludeSenderInboxIds: [String]? = nil,
+		sortBy: MessageSortBy? = nil,
+		insertedAfterNs: Int64? = nil,
+		insertedBeforeNs: Int64? = nil
 	) async throws -> [DecodedMessage] {
 		switch self {
 		case let .group(group):
@@ -334,14 +346,20 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
 				direction: direction, deliveryStatus: deliveryStatus,
 				excludeContentTypes: excludeContentTypes,
-				excludeSenderInboxIds: excludeSenderInboxIds
+				excludeSenderInboxIds: excludeSenderInboxIds,
+				sortBy: sortBy,
+				insertedAfterNs: insertedAfterNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		case let .dm(dm):
 			return try await dm.messagesWithReactions(
 				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
 				direction: direction, deliveryStatus: deliveryStatus,
 				excludeContentTypes: excludeContentTypes,
-				excludeSenderInboxIds: excludeSenderInboxIds
+				excludeSenderInboxIds: excludeSenderInboxIds,
+				sortBy: sortBy,
+				insertedAfterNs: insertedAfterNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		}
 	}
@@ -353,7 +371,10 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all,
 		excludeContentTypes: [StandardContentType]? = nil,
-		excludeSenderInboxIds: [String]? = nil
+		excludeSenderInboxIds: [String]? = nil,
+		sortBy: MessageSortBy? = nil,
+		insertedAfterNs: Int64? = nil,
+		insertedBeforeNs: Int64? = nil
 	) async throws -> [DecodedMessageV2] {
 		switch self {
 		case let .group(group):
@@ -361,14 +382,20 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
 				direction: direction, deliveryStatus: deliveryStatus,
 				excludeContentTypes: excludeContentTypes,
-				excludeSenderInboxIds: excludeSenderInboxIds
+				excludeSenderInboxIds: excludeSenderInboxIds,
+				sortBy: sortBy,
+				insertedAfterNs: insertedAfterNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		case let .dm(dm):
 			return try await dm.enrichedMessages(
 				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
 				direction: direction, deliveryStatus: deliveryStatus,
 				excludeContentTypes: excludeContentTypes,
-				excludeSenderInboxIds: excludeSenderInboxIds
+				excludeSenderInboxIds: excludeSenderInboxIds,
+				sortBy: sortBy,
+				insertedAfterNs: insertedAfterNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		}
 	}
@@ -378,20 +405,26 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		afterNs: Int64? = nil,
 		deliveryStatus: MessageDeliveryStatus = .all,
 		excludeContentTypes: [StandardContentType]? = nil,
-		excludeSenderInboxIds: [String]? = nil
+		excludeSenderInboxIds: [String]? = nil,
+		insertedAfterNs: Int64? = nil,
+		insertedBeforeNs: Int64? = nil
 	) throws -> Int64 {
 		switch self {
 		case let .group(group):
 			return try group.countMessages(
 				beforeNs: beforeNs, afterNs: afterNs, deliveryStatus: deliveryStatus,
 				excludeContentTypes: excludeContentTypes,
-				excludeSenderInboxIds: excludeSenderInboxIds
+				excludeSenderInboxIds: excludeSenderInboxIds,
+				insertedAfterNs: insertedAfterNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		case let .dm(dm):
 			return try dm.countMessages(
 				beforeNs: beforeNs, afterNs: afterNs, deliveryStatus: deliveryStatus,
 				excludeContentTypes: excludeContentTypes,
-				excludeSenderInboxIds: excludeSenderInboxIds
+				excludeSenderInboxIds: excludeSenderInboxIds,
+				insertedAfterNs: insertedAfterNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		}
 	}

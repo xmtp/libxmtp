@@ -202,6 +202,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 		try ffiGroup.groupDescription()
 	}
 
+	public func appData() throws -> String {
+		try ffiGroup.appData()
+	}
+
 	public func updateName(name: String) async throws {
 		try await ffiGroup.updateGroupName(groupName: name)
 	}
@@ -216,6 +220,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 		try await ffiGroup.updateGroupDescription(
 			groupDescription: description
 		)
+	}
+
+	public func updateAppData(appData: String) async throws {
+		try await ffiGroup.updateAppData(appData: appData)
 	}
 
 	public func updateAddMemberPermission(newPermissionOption: PermissionOption)
@@ -506,7 +514,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all,
 		excludeContentTypes: [StandardContentType]? = nil,
-		excludeSenderInboxIds: [String]? = nil
+		excludeSenderInboxIds: [String]? = nil,
+		sortBy: MessageSortBy? = nil,
+		insertedAfterNs: Int64? = nil,
+		insertedBeforeNs: Int64? = nil
 	) async throws -> [DecodedMessage] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
@@ -516,7 +527,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 			direction: nil,
 			contentTypes: nil,
 			excludeContentTypes: nil,
-			excludeSenderInboxIds: nil
+			excludeSenderInboxIds: nil,
+			sortBy: nil,
+			insertedAfterNs: nil,
+			insertedBeforeNs: nil
 		)
 
 		if let beforeNs {
@@ -558,6 +572,9 @@ public struct Group: Identifiable, Equatable, Hashable {
 		options.direction = direction
 		options.excludeContentTypes = excludeContentTypes
 		options.excludeSenderInboxIds = excludeSenderInboxIds
+		options.sortBy = sortBy?.toFfi()
+		options.insertedAfterNs = insertedAfterNs
+		options.insertedBeforeNs = insertedBeforeNs
 
 		return try await ffiGroup.findMessages(opts: options).compactMap {
 			ffiMessage in
@@ -572,7 +589,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all,
 		excludeContentTypes: [StandardContentType]? = nil,
-		excludeSenderInboxIds: [String]? = nil
+		excludeSenderInboxIds: [String]? = nil,
+		sortBy: MessageSortBy? = nil,
+		insertedAfterNs: Int64? = nil,
+		insertedBeforeNs: Int64? = nil
 	) async throws -> [DecodedMessage] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
@@ -582,7 +602,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 			direction: nil,
 			contentTypes: nil,
 			excludeContentTypes: nil,
-			excludeSenderInboxIds: nil
+			excludeSenderInboxIds: nil,
+			sortBy: nil,
+			insertedAfterNs: nil,
+			insertedBeforeNs: nil
 		)
 
 		if let beforeNs {
@@ -624,6 +647,9 @@ public struct Group: Identifiable, Equatable, Hashable {
 		options.direction = direction
 		options.excludeContentTypes = excludeContentTypes
 		options.excludeSenderInboxIds = excludeSenderInboxIds
+		options.sortBy = sortBy?.toFfi()
+		options.insertedAfterNs = insertedAfterNs
+		options.insertedBeforeNs = insertedBeforeNs
 
 		return try ffiGroup.findMessagesWithReactions(opts: options)
 			.compactMap {
@@ -641,7 +667,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all,
 		excludeContentTypes: [StandardContentType]? = nil,
-		excludeSenderInboxIds: [String]? = nil
+		excludeSenderInboxIds: [String]? = nil,
+		sortBy: MessageSortBy? = nil,
+		insertedAfterNs: Int64? = nil,
+		insertedBeforeNs: Int64? = nil
 	) async throws -> [DecodedMessageV2] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
@@ -651,7 +680,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 			direction: nil,
 			contentTypes: nil,
 			excludeContentTypes: nil,
-			excludeSenderInboxIds: nil
+			excludeSenderInboxIds: nil,
+			sortBy: nil,
+			insertedAfterNs: nil,
+			insertedBeforeNs: nil
 		)
 
 		if let beforeNs {
@@ -693,6 +725,9 @@ public struct Group: Identifiable, Equatable, Hashable {
 		options.direction = direction
 		options.excludeContentTypes = excludeContentTypes
 		options.excludeSenderInboxIds = excludeSenderInboxIds
+		options.sortBy = sortBy?.toFfi()
+		options.insertedAfterNs = insertedAfterNs
+		options.insertedBeforeNs = insertedBeforeNs
 
 		return try await ffiGroup.findEnrichedMessages(opts: options).compactMap {
 			ffiDecodedMessage in
@@ -703,7 +738,9 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func countMessages(
 		beforeNs: Int64? = nil, afterNs: Int64? = nil, deliveryStatus: MessageDeliveryStatus = .all,
 		excludeContentTypes: [StandardContentType]? = nil,
-		excludeSenderInboxIds: [String]? = nil
+		excludeSenderInboxIds: [String]? = nil,
+		insertedAfterNs: Int64? = nil,
+		insertedBeforeNs: Int64? = nil
 	) throws -> Int64 {
 		try ffiGroup.countMessages(
 			opts: FfiListMessagesOptions(
@@ -714,7 +751,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 				direction: .descending,
 				contentTypes: nil,
 				excludeContentTypes: excludeContentTypes,
-				excludeSenderInboxIds: excludeSenderInboxIds
+				excludeSenderInboxIds: excludeSenderInboxIds,
+				sortBy: nil,
+				insertedAfterNs: insertedAfterNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		)
 	}

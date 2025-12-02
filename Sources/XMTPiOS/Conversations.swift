@@ -491,7 +491,8 @@ public class Conversations {
 		name: String = "",
 		imageUrl: String = "",
 		description: String = "",
-		disappearingMessageSettings: DisappearingMessageSettings? = nil
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+		appData: String? = nil
 	) async throws -> Group {
 		try await newGroupInternalWithIdentities(
 			with: identities,
@@ -503,7 +504,8 @@ public class Conversations {
 			imageUrl: imageUrl,
 			description: description,
 			permissionPolicySet: nil,
-			disappearingMessageSettings: disappearingMessageSettings
+			disappearingMessageSettings: disappearingMessageSettings,
+			appData: appData
 		)
 	}
 
@@ -513,7 +515,8 @@ public class Conversations {
 		name: String = "",
 		imageUrl: String = "",
 		description: String = "",
-		disappearingMessageSettings: DisappearingMessageSettings? = nil
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+		appData: String? = nil
 	) async throws -> Group {
 		try await newGroupInternalWithIdentities(
 			with: identities,
@@ -524,7 +527,8 @@ public class Conversations {
 			permissionPolicySet: PermissionPolicySet.toFfiPermissionPolicySet(
 				permissionPolicySet
 			),
-			disappearingMessageSettings: disappearingMessageSettings
+			disappearingMessageSettings: disappearingMessageSettings,
+			appData: appData
 		)
 	}
 
@@ -535,7 +539,8 @@ public class Conversations {
 		imageUrl: String = "",
 		description: String = "",
 		permissionPolicySet: FfiPermissionPolicySet? = nil,
-		disappearingMessageSettings: DisappearingMessageSettings? = nil
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+		appData: String?
 	) async throws -> Group {
 		let group = try await ffiConversations.createGroup(
 			accountIdentities: identities.map(\.ffiPrivate),
@@ -547,7 +552,8 @@ public class Conversations {
 				customPermissionPolicySet: permissionPolicySet,
 				messageDisappearingSettings: toFfiDisappearingMessageSettings(
 					disappearingMessageSettings
-				)
+				),
+				appData: appData
 			)
 		).groupFromFFI(client: client)
 		return group
@@ -559,7 +565,8 @@ public class Conversations {
 		name: String = "",
 		imageUrl: String = "",
 		description: String = "",
-		disappearingMessageSettings: DisappearingMessageSettings? = nil
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+		appData: String? = nil
 	) async throws -> Group {
 		try await newGroupInternal(
 			with: inboxIds,
@@ -571,7 +578,8 @@ public class Conversations {
 			imageUrl: imageUrl,
 			description: description,
 			permissionPolicySet: nil,
-			disappearingMessageSettings: disappearingMessageSettings
+			disappearingMessageSettings: disappearingMessageSettings,
+			appData: appData
 		)
 	}
 
@@ -581,7 +589,8 @@ public class Conversations {
 		name: String = "",
 		imageUrl: String = "",
 		description: String = "",
-		disappearingMessageSettings: DisappearingMessageSettings? = nil
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+		appData: String? = nil
 	) async throws -> Group {
 		try await newGroupInternal(
 			with: inboxIds,
@@ -592,7 +601,8 @@ public class Conversations {
 			permissionPolicySet: PermissionPolicySet.toFfiPermissionPolicySet(
 				permissionPolicySet
 			),
-			disappearingMessageSettings: disappearingMessageSettings
+			disappearingMessageSettings: disappearingMessageSettings,
+			appData: appData
 		)
 	}
 
@@ -603,7 +613,8 @@ public class Conversations {
 		imageUrl: String = "",
 		description: String = "",
 		permissionPolicySet: FfiPermissionPolicySet? = nil,
-		disappearingMessageSettings: DisappearingMessageSettings? = nil
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+		appData: String?
 	) async throws -> Group {
 		try validateInboxIds(inboxIds)
 		let group = try await ffiConversations.createGroupWithInboxIds(
@@ -616,7 +627,8 @@ public class Conversations {
 				customPermissionPolicySet: permissionPolicySet,
 				messageDisappearingSettings: toFfiDisappearingMessageSettings(
 					disappearingMessageSettings
-				)
+				),
+				appData: appData
 			)
 		).groupFromFFI(client: client)
 		return group
@@ -627,7 +639,8 @@ public class Conversations {
 		groupName: String = "",
 		groupImageUrlSquare: String = "",
 		groupDescription: String = "",
-		disappearingMessageSettings: DisappearingMessageSettings? = nil
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+		appData: String? = nil
 	) throws -> Group {
 		let ffiOpts = FfiCreateGroupOptions(
 			permissions:
@@ -640,7 +653,8 @@ public class Conversations {
 			customPermissionPolicySet: nil,
 			messageDisappearingSettings: toFfiDisappearingMessageSettings(
 				disappearingMessageSettings
-			)
+			),
+			appData: appData
 		)
 
 		let ffiGroup = try ffiConversations.createGroupOptimistic(opts: ffiOpts)

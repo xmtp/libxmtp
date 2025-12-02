@@ -9,22 +9,26 @@ public struct ArchiveOptions {
 	public var startNs: Int64?
 	public var endNs: Int64?
 	public var archiveElements: [ArchiveElement]
+	public var excludeDisappearingMessages = false
 
 	public init(
 		startNs: Int64? = nil,
 		endNs: Int64? = nil,
-		archiveElements: [ArchiveElement] = [.messages, .consent]
+		archiveElements: [ArchiveElement] = [.messages, .consent],
+		excludeDisappearingMessages: Bool = false
 	) {
 		self.startNs = startNs
 		self.endNs = endNs
 		self.archiveElements = archiveElements
+		self.excludeDisappearingMessages = excludeDisappearingMessages
 	}
 
 	public func toFfi() -> FfiArchiveOptions {
 		FfiArchiveOptions(
 			startNs: startNs,
 			endNs: endNs,
-			elements: archiveElements.map { $0.toFfi() }
+			elements: archiveElements.map { $0.toFfi() },
+			excludeDisappearingMessages: excludeDisappearingMessages
 		)
 	}
 }

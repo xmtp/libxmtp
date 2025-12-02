@@ -16,12 +16,20 @@ public let ContentTypeReaction = ContentTypeID(
 
 public struct Reaction: Codable {
 	public var reference: String
+	public var referenceInboxId: String?
 	public var action: ReactionAction
 	public var content: String
 	public var schema: ReactionSchema
 
-	public init(reference: String, action: ReactionAction, content: String, schema: ReactionSchema) {
+	public init(
+		reference: String,
+		action: ReactionAction,
+		content: String,
+		schema: ReactionSchema,
+		referenceInboxId: String = ""
+	) {
 		self.reference = reference
+		self.referenceInboxId = referenceInboxId
 		self.action = action
 		self.content = content
 		self.schema = schema
@@ -87,7 +95,8 @@ public struct ReactionCodec: ContentCodec {
 			reference: content.parameters["reference"] ?? "",
 			action: ReactionAction(rawValue: content.parameters["action"] ?? ""),
 			content: String(data: content.content, encoding: .utf8) ?? "",
-			schema: ReactionSchema(rawValue: content.parameters["schema"] ?? "")
+			schema: ReactionSchema(rawValue: content.parameters["schema"] ?? ""),
+			referenceInboxId: ""
 		)
 		// swiftlint:enable no_optional_try
 	}

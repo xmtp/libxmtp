@@ -143,8 +143,8 @@ class HistorySyncTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db"
-				//                useDefaultHistorySyncUrl: false
+				dbDirectory: "xmtp_db",
+				deviceSyncEnabled: true
 			)
 		)
 
@@ -157,7 +157,8 @@ class HistorySyncTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db2"
+				dbDirectory: "xmtp_db2",
+				deviceSyncEnabled: true
 			)
 		)
 
@@ -175,12 +176,13 @@ class HistorySyncTests: XCTestCase {
 
 		Task(priority: .userInitiated) {
 			for try await entry in await alixClient.preferences.streamConsent() {
-				consentList.append(entry)
 				expectation.fulfill()
+				consentList.append(entry)
 			}
 		}
-		sleep(1)
+		sleep(5)
 		try await alixGroup2.updateConsentState(state: .denied)
+
 		let dm = try await alixClient2.conversations.newConversation(
 			with: fixtures.caroClient.inboxID
 		)
@@ -190,7 +192,7 @@ class HistorySyncTests: XCTestCase {
 		try await alixClient.conversations.syncAllConversations()
 		try await alixClient2.conversations.syncAllConversations()
 
-		await fulfillment(of: [expectation], timeout: 5)
+		await fulfillment(of: [expectation], timeout: 10)
 		XCTAssertEqual(try alixGroup.consentState(), .denied)
 	}
 

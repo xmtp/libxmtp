@@ -1,5 +1,8 @@
 import Foundation
 
+public typealias Intent = FfiIntent
+public typealias Actions = FfiActions
+
 public struct DecodedMessageV2: Identifiable {
 	private let ffiMessage: FfiDecodedMessage
 
@@ -21,6 +24,14 @@ public struct DecodedMessageV2: Identifiable {
 
 	public var sentAtNs: Int64 {
 		ffiMessage.sentAtNs()
+	}
+
+	public var insertedAt: Date {
+		Date(timeIntervalSince1970: TimeInterval(ffiMessage.insertedAtNs()) / 1_000_000_000)
+	}
+
+	public var insertedAtNs: Int64 {
+		ffiMessage.insertedAtNs()
 	}
 
 	public var deliveryStatus: MessageDeliveryStatus {
@@ -134,6 +145,12 @@ public struct DecodedMessageV2: Identifiable {
 			let encoded = try mapFfiEncodedContent(ffiEncodedContent)
 			let codec = Client.codecRegistry.find(for: encoded.type)
 			return try codec.decode(content: encoded)
+
+		case let .intent(intent):
+			return intent
+
+		case let .actions(actions):
+			return actions
 		}
 	}
 
@@ -182,6 +199,10 @@ public struct DecodedMessageV2: Identifiable {
 			let encoded = try mapFfiEncodedContent(ffiEncodedContent)
 			let codec = Client.codecRegistry.find(for: encoded.type)
 			return try codec.decode(content: encoded)
+		case let .intent(intent):
+			return intent as Intent
+		case let .actions(actions):
+			return actions as Actions
 		}
 	}
 
@@ -222,6 +243,20 @@ public struct DecodedMessageV2: Identifiable {
 				// Return a default content type if none is specified
 				return ContentTypeText
 			}
+		case .intent:
+			return ContentTypeID(
+				authorityID: "coinbase.com",
+				typeID: "intent",
+				versionMajor: 1,
+				versionMinor: 0
+			)
+		case .actions:
+			return ContentTypeID(
+				authorityID: "coinbase.com",
+				typeID: "actions",
+				versionMajor: 1,
+				versionMinor: 0
+			)
 		}
 	}
 
@@ -230,7 +265,8 @@ public struct DecodedMessageV2: Identifiable {
 			reference: reactionPayload.reference,
 			action: reactionPayload.action == .added ? .added : .removed,
 			content: reactionPayload.content,
-			schema: mapReactionSchema(reactionPayload.schema)
+			schema: mapReactionSchema(reactionPayload.schema),
+			referenceInboxId: reactionPayload.referenceInboxId
 		)
 	}
 
