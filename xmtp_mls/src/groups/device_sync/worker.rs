@@ -250,9 +250,17 @@ where
         for (msg, content) in unprocessed_messages.clone().iter_with_content() {
             let is_external = msg.sender_installation_id != installation_id;
 
+            let msg_type = match &content {
+                ContentProto::Request(_) => "Request",
+                ContentProto::Reply(_) => "Reply",
+                ContentProto::PreferenceUpdates(_) => "PreferenceUpdates",
+                ContentProto::Acknowledge(_) => "Acknowledge",
+            };
+
             tracing::info!(
-                "Message content: (external: {is_external}) id={}, {content:?}",
-                xmtp_common::fmt::truncate_hex(hex::encode(&msg.id))
+                "Message content: (external: {is_external}) id={}, type={}",
+                xmtp_common::fmt::truncate_hex(hex::encode(&msg.id)),
+                msg_type
             );
 
             if let Err(err) = self.process_message(handle, &msg, content).await {
