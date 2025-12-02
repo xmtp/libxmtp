@@ -510,7 +510,7 @@ describe.concurrent('Conversation', () => {
       },
     ])
 
-    // Client1 should have Allowed membership state
+    // Client1 should have Allowed membership state (creator is immediately Allowed)
     const state1 = group.membershipState()
     expect(state1).toBe(0) // GroupMembershipState.Allowed = 0
 
@@ -520,8 +520,8 @@ describe.concurrent('Conversation', () => {
     expect(groups.length).toBe(1)
     const group2 = groups[0]
 
-    // Client2 should also have Allowed membership state
+    // Client2 should have Pending membership state (invited members start as Pending)
     const state2 = group2.membershipState()
-    expect(state2).toBe(0) // GroupMembershipState.Allowed = 0
+    expect(state2).toBe(2) // GroupMembershipState.Pending = 2
   })
 })

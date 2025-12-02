@@ -1838,6 +1838,7 @@ async fn test_membership_state() {
     let bola_group = bola.conversation(group.id()).unwrap();
 
     // Bola should have Pending membership state when first receiving the welcome
+    // (invited members start as Pending until explicitly accepted)
     let bola_state = bola_group.membership_state().unwrap();
     assert_eq!(bola_state, FfiGroupMembershipState::Pending);
 }
