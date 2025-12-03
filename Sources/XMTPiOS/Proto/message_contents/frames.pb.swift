@@ -68,15 +68,15 @@ public struct Xmtp_MessageContents_FrameActionBody: Sendable {
 
 /// The outer payload that will be sent as the `messageBytes` in the
 /// `trusted_data` part of the Frames message
-public struct Xmtp_MessageContents_FrameAction: @unchecked Sendable {
+public struct Xmtp_MessageContents_FrameAction: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   /// NOTE: This field was marked as deprecated in the .proto file.
   public var signature: Xmtp_MessageContents_Signature {
-	get {return _signature ?? Xmtp_MessageContents_Signature()}
-	set {_signature = newValue}
+    get {return _signature ?? Xmtp_MessageContents_Signature()}
+    set {_signature = newValue}
   }
   /// Returns true if `signature` has been explicitly set.
   public var hasSignature: Bool {return self._signature != nil}
@@ -88,8 +88,8 @@ public struct Xmtp_MessageContents_FrameAction: @unchecked Sendable {
   ///
   /// NOTE: This field was marked as deprecated in the .proto file.
   public var signedPublicKeyBundle: Xmtp_MessageContents_SignedPublicKeyBundle {
-	get {return _signedPublicKeyBundle ?? Xmtp_MessageContents_SignedPublicKeyBundle()}
-	set {_signedPublicKeyBundle = newValue}
+    get {return _signedPublicKeyBundle ?? Xmtp_MessageContents_SignedPublicKeyBundle()}
+    set {_signedPublicKeyBundle = newValue}
   }
   /// Returns true if `signedPublicKeyBundle` has been explicitly set.
   public var hasSignedPublicKeyBundle: Bool {return self._signedPublicKeyBundle != nil}
@@ -123,146 +123,129 @@ fileprivate let _protobuf_package = "xmtp.message_contents"
 
 extension Xmtp_MessageContents_FrameActionBody: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FrameActionBody"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-	1: .standard(proto: "frame_url"),
-	2: .standard(proto: "button_index"),
-	3: .same(proto: "timestamp"),
-	4: .standard(proto: "opaque_conversation_identifier"),
-	5: .standard(proto: "unix_timestamp"),
-	6: .standard(proto: "input_text"),
-	7: .same(proto: "state"),
-	8: .same(proto: "address"),
-	9: .standard(proto: "transaction_id"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}frame_url\0\u{3}button_index\0\u{1}timestamp\0\u{3}opaque_conversation_identifier\0\u{3}unix_timestamp\0\u{3}input_text\0\u{1}state\0\u{1}address\0\u{3}transaction_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-	while let fieldNumber = try decoder.nextFieldNumber() {
-	  // The use of inline closures is to circumvent an issue where the compiler
-	  // allocates stack space for every case branch when no optimizations are
-	  // enabled. https://github.com/apple/swift-protobuf/issues/1034
-	  switch fieldNumber {
-	  case 1: try { try decoder.decodeSingularStringField(value: &self.frameURL) }()
-	  case 2: try { try decoder.decodeSingularInt32Field(value: &self.buttonIndex) }()
-	  case 3: try { try decoder.decodeSingularUInt64Field(value: &self.timestamp) }()
-	  case 4: try { try decoder.decodeSingularStringField(value: &self.opaqueConversationIdentifier) }()
-	  case 5: try { try decoder.decodeSingularUInt32Field(value: &self.unixTimestamp) }()
-	  case 6: try { try decoder.decodeSingularStringField(value: &self.inputText) }()
-	  case 7: try { try decoder.decodeSingularStringField(value: &self.state) }()
-	  case 8: try { try decoder.decodeSingularStringField(value: &self.address) }()
-	  case 9: try { try decoder.decodeSingularStringField(value: &self.transactionID) }()
-	  default: break
-	  }
-	}
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.frameURL) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self.buttonIndex) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.timestamp) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.opaqueConversationIdentifier) }()
+      case 5: try { try decoder.decodeSingularUInt32Field(value: &self.unixTimestamp) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.inputText) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.state) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self.address) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.transactionID) }()
+      default: break
+      }
+    }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-	if !self.frameURL.isEmpty {
-	  try visitor.visitSingularStringField(value: self.frameURL, fieldNumber: 1)
-	}
-	if self.buttonIndex != 0 {
-	  try visitor.visitSingularInt32Field(value: self.buttonIndex, fieldNumber: 2)
-	}
-	if self.timestamp != 0 {
-	  try visitor.visitSingularUInt64Field(value: self.timestamp, fieldNumber: 3)
-	}
-	if !self.opaqueConversationIdentifier.isEmpty {
-	  try visitor.visitSingularStringField(value: self.opaqueConversationIdentifier, fieldNumber: 4)
-	}
-	if self.unixTimestamp != 0 {
-	  try visitor.visitSingularUInt32Field(value: self.unixTimestamp, fieldNumber: 5)
-	}
-	if !self.inputText.isEmpty {
-	  try visitor.visitSingularStringField(value: self.inputText, fieldNumber: 6)
-	}
-	if !self.state.isEmpty {
-	  try visitor.visitSingularStringField(value: self.state, fieldNumber: 7)
-	}
-	if !self.address.isEmpty {
-	  try visitor.visitSingularStringField(value: self.address, fieldNumber: 8)
-	}
-	if !self.transactionID.isEmpty {
-	  try visitor.visitSingularStringField(value: self.transactionID, fieldNumber: 9)
-	}
-	try unknownFields.traverse(visitor: &visitor)
+    if !self.frameURL.isEmpty {
+      try visitor.visitSingularStringField(value: self.frameURL, fieldNumber: 1)
+    }
+    if self.buttonIndex != 0 {
+      try visitor.visitSingularInt32Field(value: self.buttonIndex, fieldNumber: 2)
+    }
+    if self.timestamp != 0 {
+      try visitor.visitSingularUInt64Field(value: self.timestamp, fieldNumber: 3)
+    }
+    if !self.opaqueConversationIdentifier.isEmpty {
+      try visitor.visitSingularStringField(value: self.opaqueConversationIdentifier, fieldNumber: 4)
+    }
+    if self.unixTimestamp != 0 {
+      try visitor.visitSingularUInt32Field(value: self.unixTimestamp, fieldNumber: 5)
+    }
+    if !self.inputText.isEmpty {
+      try visitor.visitSingularStringField(value: self.inputText, fieldNumber: 6)
+    }
+    if !self.state.isEmpty {
+      try visitor.visitSingularStringField(value: self.state, fieldNumber: 7)
+    }
+    if !self.address.isEmpty {
+      try visitor.visitSingularStringField(value: self.address, fieldNumber: 8)
+    }
+    if !self.transactionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.transactionID, fieldNumber: 9)
+    }
+    try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Xmtp_MessageContents_FrameActionBody, rhs: Xmtp_MessageContents_FrameActionBody) -> Bool {
-	if lhs.frameURL != rhs.frameURL {return false}
-	if lhs.buttonIndex != rhs.buttonIndex {return false}
-	if lhs.timestamp != rhs.timestamp {return false}
-	if lhs.opaqueConversationIdentifier != rhs.opaqueConversationIdentifier {return false}
-	if lhs.unixTimestamp != rhs.unixTimestamp {return false}
-	if lhs.inputText != rhs.inputText {return false}
-	if lhs.state != rhs.state {return false}
-	if lhs.address != rhs.address {return false}
-	if lhs.transactionID != rhs.transactionID {return false}
-	if lhs.unknownFields != rhs.unknownFields {return false}
-	return true
+    if lhs.frameURL != rhs.frameURL {return false}
+    if lhs.buttonIndex != rhs.buttonIndex {return false}
+    if lhs.timestamp != rhs.timestamp {return false}
+    if lhs.opaqueConversationIdentifier != rhs.opaqueConversationIdentifier {return false}
+    if lhs.unixTimestamp != rhs.unixTimestamp {return false}
+    if lhs.inputText != rhs.inputText {return false}
+    if lhs.state != rhs.state {return false}
+    if lhs.address != rhs.address {return false}
+    if lhs.transactionID != rhs.transactionID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
   }
 }
 
 extension Xmtp_MessageContents_FrameAction: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FrameAction"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-	1: .same(proto: "signature"),
-	2: .standard(proto: "signed_public_key_bundle"),
-	3: .standard(proto: "action_body"),
-	4: .standard(proto: "installation_signature"),
-	5: .standard(proto: "installation_id"),
-	6: .standard(proto: "inbox_id"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}signature\0\u{3}signed_public_key_bundle\0\u{3}action_body\0\u{3}installation_signature\0\u{3}installation_id\0\u{3}inbox_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-	while let fieldNumber = try decoder.nextFieldNumber() {
-	  // The use of inline closures is to circumvent an issue where the compiler
-	  // allocates stack space for every case branch when no optimizations are
-	  // enabled. https://github.com/apple/swift-protobuf/issues/1034
-	  switch fieldNumber {
-	  case 1: try { try decoder.decodeSingularMessageField(value: &self._signature) }()
-	  case 2: try { try decoder.decodeSingularMessageField(value: &self._signedPublicKeyBundle) }()
-	  case 3: try { try decoder.decodeSingularBytesField(value: &self.actionBody) }()
-	  case 4: try { try decoder.decodeSingularBytesField(value: &self.installationSignature) }()
-	  case 5: try { try decoder.decodeSingularBytesField(value: &self.installationID) }()
-	  case 6: try { try decoder.decodeSingularStringField(value: &self.inboxID) }()
-	  default: break
-	  }
-	}
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._signature) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._signedPublicKeyBundle) }()
+      case 3: try { try decoder.decodeSingularBytesField(value: &self.actionBody) }()
+      case 4: try { try decoder.decodeSingularBytesField(value: &self.installationSignature) }()
+      case 5: try { try decoder.decodeSingularBytesField(value: &self.installationID) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.inboxID) }()
+      default: break
+      }
+    }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-	// The use of inline closures is to circumvent an issue where the compiler
-	// allocates stack space for every if/case branch local when no optimizations
-	// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-	// https://github.com/apple/swift-protobuf/issues/1182
-	try { if let v = self._signature {
-	  try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-	} }()
-	try { if let v = self._signedPublicKeyBundle {
-	  try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-	} }()
-	if !self.actionBody.isEmpty {
-	  try visitor.visitSingularBytesField(value: self.actionBody, fieldNumber: 3)
-	}
-	if !self.installationSignature.isEmpty {
-	  try visitor.visitSingularBytesField(value: self.installationSignature, fieldNumber: 4)
-	}
-	if !self.installationID.isEmpty {
-	  try visitor.visitSingularBytesField(value: self.installationID, fieldNumber: 5)
-	}
-	if !self.inboxID.isEmpty {
-	  try visitor.visitSingularStringField(value: self.inboxID, fieldNumber: 6)
-	}
-	try unknownFields.traverse(visitor: &visitor)
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._signature {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._signedPublicKeyBundle {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    if !self.actionBody.isEmpty {
+      try visitor.visitSingularBytesField(value: self.actionBody, fieldNumber: 3)
+    }
+    if !self.installationSignature.isEmpty {
+      try visitor.visitSingularBytesField(value: self.installationSignature, fieldNumber: 4)
+    }
+    if !self.installationID.isEmpty {
+      try visitor.visitSingularBytesField(value: self.installationID, fieldNumber: 5)
+    }
+    if !self.inboxID.isEmpty {
+      try visitor.visitSingularStringField(value: self.inboxID, fieldNumber: 6)
+    }
+    try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Xmtp_MessageContents_FrameAction, rhs: Xmtp_MessageContents_FrameAction) -> Bool {
-	if lhs._signature != rhs._signature {return false}
-	if lhs._signedPublicKeyBundle != rhs._signedPublicKeyBundle {return false}
-	if lhs.actionBody != rhs.actionBody {return false}
-	if lhs.installationSignature != rhs.installationSignature {return false}
-	if lhs.installationID != rhs.installationID {return false}
-	if lhs.inboxID != rhs.inboxID {return false}
-	if lhs.unknownFields != rhs.unknownFields {return false}
-	return true
+    if lhs._signature != rhs._signature {return false}
+    if lhs._signedPublicKeyBundle != rhs._signedPublicKeyBundle {return false}
+    if lhs.actionBody != rhs.actionBody {return false}
+    if lhs.installationSignature != rhs.installationSignature {return false}
+    if lhs.installationID != rhs.installationID {return false}
+    if lhs.inboxID != rhs.inboxID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
   }
 }
