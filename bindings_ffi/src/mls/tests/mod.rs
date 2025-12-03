@@ -8,19 +8,19 @@ use crate::{
     FfiAction, FfiActionStyle, FfiActions, FfiAttachment, FfiConsent, FfiConsentEntityType,
     FfiConsentState, FfiContentType, FfiConversationCallback, FfiConversationMessageKind,
     FfiConversationType, FfiCreateDMOptions, FfiCreateGroupOptions, FfiDecodedMessageBody,
-    FfiDecodedMessageContent, FfiDirection, FfiGroupMessageKind, FfiGroupPermissionsOptions,
-    FfiGroupQueryOrderBy, FfiIntent, FfiListConversationsOptions, FfiListMessagesOptions,
-    FfiMessageDisappearingSettings, FfiMessageWithReactions, FfiMetadataField,
-    FfiMultiRemoteAttachment, FfiPasskeySignature, FfiPermissionPolicy, FfiPermissionPolicySet,
-    FfiPermissionUpdateType, FfiReactionAction, FfiReactionPayload, FfiReactionSchema,
-    FfiReadReceipt, FfiRemoteAttachment, FfiReply, FfiSendMessageOpts, FfiSignatureKind,
-    FfiSubscribeError, FfiTransactionReference, GenericError, apply_signature_request,
-    connect_to_backend, decode_actions, decode_attachment, decode_group_updated, decode_intent,
-    decode_multi_remote_attachment, decode_reaction, decode_read_receipt, decode_remote_attachment,
-    decode_reply, decode_text, decode_transaction_reference, encode_actions, encode_attachment,
-    encode_intent, encode_multi_remote_attachment, encode_reaction, encode_read_receipt,
-    encode_remote_attachment, encode_reply, encode_text, encode_transaction_reference,
-    get_inbox_id_for_identifier,
+    FfiDecodedMessageContent, FfiDirection, FfiGroupMembershipState, FfiGroupMessageKind,
+    FfiGroupPermissionsOptions, FfiGroupQueryOrderBy, FfiIntent, FfiListConversationsOptions,
+    FfiListMessagesOptions, FfiMessageDisappearingSettings, FfiMessageWithReactions,
+    FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature, FfiPermissionPolicy,
+    FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction, FfiReactionPayload,
+    FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply, FfiSendMessageOpts,
+    FfiSignatureKind, FfiSubscribeError, FfiTransactionReference, GenericError,
+    apply_signature_request, connect_to_backend, decode_actions, decode_attachment,
+    decode_group_updated, decode_intent, decode_multi_remote_attachment, decode_reaction,
+    decode_read_receipt, decode_remote_attachment, decode_reply, decode_text,
+    decode_transaction_reference, encode_actions, encode_attachment, encode_intent,
+    encode_multi_remote_attachment, encode_reaction, encode_read_receipt, encode_remote_attachment,
+    encode_reply, encode_text, encode_transaction_reference, get_inbox_id_for_identifier,
     identity::FfiIdentifier,
     inbox_owner::FfiInboxOwner,
     inbox_state_from_inbox_ids, is_connected,
@@ -94,6 +94,7 @@ mod identity;
 mod networking;
 mod static_methods;
 mod streaming;
+mod test_self_removal;
 
 // Constants
 pub(crate) const HISTORY_SYNC_URL: &str = "http://localhost:5558";

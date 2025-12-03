@@ -36,7 +36,7 @@ use xmtp_content_types::wallet_send_calls::WalletSendCallsCodec;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
 use xmtp_db::NativeDb;
 use xmtp_db::group::DmIdExt;
-use xmtp_db::group::{ConversationType, GroupQueryOrderBy};
+use xmtp_db::group::{ConversationType, GroupMembershipState, GroupQueryOrderBy};
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::group_message::{SortBy, SortDirection, StoredGroupMessageWithReactions};
 use xmtp_db::user_preferences::HmacKey;
@@ -2131,6 +2131,39 @@ impl From<FfiConsentState> for ConsentState {
     }
 }
 
+#[derive(uniffi::Enum, PartialEq, Debug)]
+pub enum FfiGroupMembershipState {
+    Allowed,
+    Rejected,
+    Pending,
+    Restored,
+    PendingRemove,
+}
+
+impl From<GroupMembershipState> for FfiGroupMembershipState {
+    fn from(state: GroupMembershipState) -> Self {
+        match state {
+            GroupMembershipState::Allowed => FfiGroupMembershipState::Allowed,
+            GroupMembershipState::Rejected => FfiGroupMembershipState::Rejected,
+            GroupMembershipState::Pending => FfiGroupMembershipState::Pending,
+            GroupMembershipState::Restored => FfiGroupMembershipState::Restored,
+            GroupMembershipState::PendingRemove => FfiGroupMembershipState::PendingRemove,
+        }
+    }
+}
+
+impl From<FfiGroupMembershipState> for GroupMembershipState {
+    fn from(state: FfiGroupMembershipState) -> Self {
+        match state {
+            FfiGroupMembershipState::Allowed => GroupMembershipState::Allowed,
+            FfiGroupMembershipState::Rejected => GroupMembershipState::Rejected,
+            FfiGroupMembershipState::Pending => GroupMembershipState::Pending,
+            FfiGroupMembershipState::Restored => GroupMembershipState::Restored,
+            FfiGroupMembershipState::PendingRemove => GroupMembershipState::PendingRemove,
+        }
+    }
+}
+
 #[derive(uniffi::Enum)]
 pub enum FfiConsentEntityType {
     ConversationId,
@@ -2425,6 +2458,11 @@ impl FfiConversation {
             .collect();
 
         Ok(members)
+    }
+
+    pub fn membership_state(&self) -> Result<FfiGroupMembershipState, GenericError> {
+        let state = self.inner.membership_state()?;
+        Ok(state.into())
     }
 
     pub async fn add_members(

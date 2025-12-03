@@ -1891,6 +1891,17 @@ where
         })
     }
 
+    /// Returns the membership state of the current user in this group.
+    #[tracing::instrument(skip_all, level = "trace")]
+    pub fn membership_state(&self) -> Result<GroupMembershipState, GroupError> {
+        let stored_group = self
+            .context
+            .db()
+            .find_group(&self.group_id)?
+            .ok_or_else(|| GroupError::NotFound(NotFound::GroupById(self.group_id.clone())))?;
+        Ok(stored_group.membership_state)
+    }
+
     /// Get the `GroupMetadata` of the group.
     pub async fn metadata(&self) -> Result<GroupMetadata, GroupError> {
         self.load_mls_group_with_lock_async(|mls_group| {
