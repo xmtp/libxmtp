@@ -156,6 +156,7 @@ jobs:
         with:
           name: Swift-Bindings-${{ steps.version.outputs.value }}.${{ steps.slug.outputs.sha7 }}
           tag_name: swift-bindings-${{ steps.version.outputs.value }}.${{ steps.slug.outputs.sha7 }}
+          target_commitish: ${{ github.sha }}
           files: |
             LibXMTPSwiftFFI*.zip
             LibXMTPSwiftFFI*.sha256

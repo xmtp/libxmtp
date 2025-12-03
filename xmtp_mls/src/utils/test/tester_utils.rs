@@ -7,7 +7,7 @@ use crate::{
     client::ClientError,
     context::XmtpSharedContext,
     cursor_store::SqliteCursorStore,
-    groups::device_sync::worker::SyncMetric,
+    groups::{GroupError, device_sync::worker::SyncMetric, intents::UpdateGroupMembershipResult},
     identity::{Identity, IdentityStrategy},
     subscriptions::SubscribeError,
     utils::{

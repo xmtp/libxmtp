@@ -1,6 +1,7 @@
 //! A global cursor is type of cursor representing a view of our position across all originators
 //! in the network.
 use crate::{
+    ConversionError,
     types::{OriginatorId, SequenceId},
     xmtp::xmtpv4::envelopes::Cursor,
 };
@@ -8,6 +9,7 @@ use core::fmt;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    fmt::Write,
     ops::{Deref, DerefMut},
 };
 use xmtp_configuration::Originators;
@@ -86,6 +88,18 @@ impl GlobalCursor {
             .unwrap_or_default()
     }
 
+    /// get the latest sequence id for the mls commit originator (v3/d14n)
+    pub fn commit_cursor(&self) -> super::Cursor {
+        super::Cursor {
+            sequence_id: self
+                .inner
+                .get(&(Originators::MLS_COMMITS))
+                .copied()
+                .unwrap_or_default(),
+            originator_id: Originators::MLS_COMMITS,
+        }
+    }
+
     /// get the latest sequence_id for the installation/key package originator
     pub fn v3_installations(&self) -> SequenceId {
         self.inner
@@ -105,9 +119,10 @@ impl GlobalCursor {
 
 impl fmt::Display for GlobalCursor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = String::new();
         for (oid, sid) in self.inner.iter() {
             write!(
-                f,
+                s,
                 "{}",
                 crate::types::Cursor {
                     sequence_id: *sid,
@@ -115,7 +130,7 @@ impl fmt::Display for GlobalCursor {
                 }
             )?;
         }
-        Ok(())
+        write!(f, "{:25}", s)
     }
 }
 
@@ -138,6 +153,45 @@ impl From<GlobalCursor> for Cursor {
         Cursor {
             node_id_to_sequence_id: value.inner,
         }
+    }
+}
+
+impl TryFrom<GlobalCursor> for crate::types::Cursor {
+    type Error = ConversionError;
+
+    fn try_from(value: GlobalCursor) -> Result<Self, Self::Error> {
+        if value.len() > 1 {
+            return Err(ConversionError::InvalidLength {
+                item: std::any::type_name::<GlobalCursor>(),
+                expected: 1,
+                got: value.len(),
+            });
+        }
+        if value.is_empty() {
+            return Err(ConversionError::InvalidLength {
+                item: std::any::type_name::<GlobalCursor>(),
+                expected: 1,
+                got: 0,
+            });
+        }
+
+        let (oid, sid) = value
+            .into_iter()
+            .next()
+            .expect("ensured length is at least one");
+        Ok(crate::types::Cursor {
+            originator_id: oid,
+            sequence_id: sid,
+        })
+    }
+}
+
+impl TryFrom<Cursor> for crate::types::Cursor {
+    type Error = ConversionError;
+
+    fn try_from(value: Cursor) -> Result<Self, Self::Error> {
+        let global: GlobalCursor = value.into();
+        global.try_into()
     }
 }
 

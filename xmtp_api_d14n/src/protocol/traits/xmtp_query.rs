@@ -1,5 +1,6 @@
 //! XmtpQuery allows accessing the network while bypassing any local cursor cache.
 use xmtp_common::{MaybeSend, MaybeSync};
+use xmtp_proto::types::Cursor;
 
 use super::*;
 
@@ -33,6 +34,10 @@ impl XmtpEnvelope {
         self.inner.len()
     }
 
+    pub fn cursors(&self) -> Result<Vec<Cursor>, EnvelopeError> {
+        self.inner.cursors()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
@@ -48,5 +53,9 @@ impl XmtpEnvelope {
             .into_iter()
             .flatten()
             .collect())
+    }
+
+    pub fn client_envelopes(&self) -> Result<Vec<ClientEnvelope>, EnvelopeError> {
+        self.inner.client_envelopes()
     }
 }

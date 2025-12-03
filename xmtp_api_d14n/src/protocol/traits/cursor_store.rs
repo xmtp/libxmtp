@@ -14,8 +14,16 @@ pub enum CursorStoreError {
     Read,
     #[error("the store cannot handle topic of kind {0}")]
     UnhandledTopicKind(TopicKind),
+    #[error("no dependencies found for {_0:?}")]
+    NoDependenciesFound(Vec<String>),
     #[error("{0}")]
     Other(Box<dyn RetryableError>),
+}
+
+impl CursorStoreError {
+    pub fn other<E: RetryableError + 'static>(e: E) -> Self {
+        CursorStoreError::Other(Box::new(e))
+    }
 }
 
 impl RetryableError for CursorStoreError {
@@ -78,6 +86,11 @@ pub trait CursorStore: MaybeSend + MaybeSync {
 
     // temp until reliable streams
     fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError>;
+    /// find dependencies of each locally-stored intent payload hash
+    fn find_message_dependencies(
+        &self,
+        hashes: &[&[u8]],
+    ) -> Result<HashMap<Vec<u8>, Cursor>, CursorStoreError>;
 }
 
 impl<T: CursorStore> CursorStore for Option<T> {
@@ -127,6 +140,16 @@ impl<T: CursorStore> CursorStore for Option<T> {
             NoCursorStore.lcc_maybe_missing(topic)
         }
     }
+    fn find_message_dependencies(
+        &self,
+        hashes: &[&[u8]],
+    ) -> Result<HashMap<Vec<u8>, Cursor>, CursorStoreError> {
+        if let Some(c) = self {
+            c.find_message_dependencies(hashes)
+        } else {
+            NoCursorStore.find_message_dependencies(hashes)
+        }
+    }
 }
 
 impl<T: CursorStore + ?Sized> CursorStore for Arc<T> {
@@ -155,6 +178,13 @@ impl<T: CursorStore + ?Sized> CursorStore for Arc<T> {
 
     fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
         (**self).lcc_maybe_missing(topic)
+    }
+
+    fn find_message_dependencies(
+        &self,
+        hashes: &[&[u8]],
+    ) -> Result<HashMap<Vec<u8>, Cursor>, CursorStoreError> {
+        (**self).find_message_dependencies(hashes)
     }
 }
 
@@ -185,7 +215,15 @@ impl<T: CursorStore + ?Sized> CursorStore for Box<T> {
     fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
         (**self).lcc_maybe_missing(topic)
     }
+
+    fn find_message_dependencies(
+        &self,
+        hashes: &[&[u8]],
+    ) -> Result<HashMap<Vec<u8>, Cursor>, CursorStoreError> {
+        (**self).find_message_dependencies(hashes)
+    }
 }
+
 /// This cursor store always returns 0
 #[derive(Default)]
 pub struct NoCursorStore;
@@ -218,5 +256,12 @@ impl CursorStore for NoCursorStore {
 
     fn lcc_maybe_missing(&self, _: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
         Ok(GlobalCursor::default())
+    }
+
+    fn find_message_dependencies(
+        &self,
+        _hashes: &[&[u8]],
+    ) -> Result<HashMap<Vec<u8>, Cursor>, CursorStoreError> {
+        Ok(HashMap::new())
     }
 }

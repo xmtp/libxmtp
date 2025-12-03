@@ -2,7 +2,7 @@ use xmtp_cryptography::hash::sha256_bytes;
 use xmtp_proto::{
     ConversionError,
     mls_v1::group_message,
-    types::{Cursor, GroupMessage, GroupMessageBuilder},
+    types::{Cursor, GlobalCursor, GroupMessage, GroupMessageBuilder},
 };
 
 use crate::protocol::traits::EnvelopeVisitor;
@@ -21,6 +21,7 @@ pub struct GroupMessageExtractor {
     cursor: Cursor,
     created_ns: DateTime<Utc>,
     group_message: Option<GroupMessageBuilder>,
+    depends_on: GlobalCursor,
 }
 
 impl Extractor for GroupMessageExtractor {
@@ -31,10 +32,12 @@ impl Extractor for GroupMessageExtractor {
             cursor,
             created_ns,
             group_message,
+            depends_on,
         } = self;
         if let Some(mut gm) = group_message {
             gm.cursor(cursor);
             gm.created_ns(created_ns);
+            gm.depends_on(depends_on);
             Ok(gm.build()?)
         } else {
             Err(ExtractionError::Conversion(ConversionError::Missing {
@@ -57,6 +60,16 @@ impl EnvelopeVisitor<'_> for GroupMessageExtractor {
             sequence_id: envelope.originator_sequence_id,
         };
         self.created_ns = DateTime::from_timestamp_nanos(envelope.originator_ns);
+        Ok(())
+    }
+
+    fn visit_client(
+        &mut self,
+        e: &xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope,
+    ) -> Result<(), Self::Error> {
+        if let Some(ref aad) = e.aad {
+            self.depends_on = aad.depends_on.clone().unwrap_or_default().into();
+        }
         Ok(())
     }
 

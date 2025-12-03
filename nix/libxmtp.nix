@@ -42,6 +42,7 @@
 , vscode-extensions
 , lldb
 , wasm-tools
+, rr
 , ...
 }:
 let
@@ -117,5 +118,5 @@ mkShell {
     ++ lib.optionals isDarwin [
       darwin.cctools
     ]
-    ++ lib.optionals isLinux [ cargo-llvm-cov ];
+    ++ lib.optionals isLinux [ cargo-llvm-cov rr ];
 }
