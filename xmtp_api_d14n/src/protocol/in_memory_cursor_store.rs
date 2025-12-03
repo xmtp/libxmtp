@@ -1,6 +1,7 @@
-use crate::protocol::{CursorStore, CursorStoreError, VectorClock};
+use crate::protocol::{CursorStore, CursorStoreError};
 use std::collections::HashMap;
 use std::fmt;
+use xmtp_proto::api::VectorClock;
 use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId, Topic};
 
 #[derive(Default, Clone)]

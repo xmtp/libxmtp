@@ -2,13 +2,14 @@
 //! in the network.
 use crate::{
     ConversionError,
+    api::VectorClock,
     types::{OriginatorId, SequenceId},
     xmtp::xmtpv4::envelopes::Cursor,
 };
 use core::fmt;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Write,
     ops::{Deref, DerefMut},
 };
@@ -31,15 +32,6 @@ impl GlobalCursor {
     pub fn has_seen(&self, other: &super::Cursor) -> bool {
         let sid = self.get(&other.originator_id);
         sid >= other.sequence_id
-    }
-
-    /// Apply a singular cursor to 'Self'
-    pub fn apply(&mut self, cursor: &super::Cursor) {
-        let _ = self
-            .inner
-            .entry(cursor.originator_id)
-            .and_modify(|sid| *sid = (*sid).max(cursor.sequence_id))
-            .or_insert(cursor.sequence_id);
     }
 
     /// apply a cursor to `Self`, and take the lowest value of SequenceId between
@@ -261,4 +253,83 @@ pub enum ClockOrdering {
     Ancestor,
     Descendant,
     Concurrent,
+}
+
+impl VectorClock for GlobalCursor {
+    fn dominates(&self, other: &Self) -> bool {
+        other.iter().all(|(&node, &seq)| self.get(&node) >= seq)
+    }
+
+    /// gets all updates in `other` that are not seen by `self`.
+    fn missing(&self, other: &Self) -> Vec<super::Cursor> {
+        other
+            .iter()
+            .filter_map(|(&node, &seq)| {
+                (self.get(&node) < seq).then_some(super::Cursor {
+                    originator_id: node,
+                    sequence_id: seq,
+                })
+            })
+            .collect()
+    }
+
+    fn merge(&mut self, other: &Self) {
+        for (&node, &seq) in other {
+            let entry = self.entry(node).or_insert(0);
+            *entry = (*entry).max(seq);
+        }
+    }
+
+    fn merge_least(&mut self, other: &Self) {
+        for (&node, &seq) in other {
+            let entry = self.entry(node).or_insert(seq);
+            *entry = (*entry).min(seq);
+        }
+    }
+
+    fn compare(&self, other: &Self) -> ClockOrdering {
+        let all_nodes: HashSet<_> = self.keys().chain(other.keys()).collect();
+
+        let mut self_greater = false;
+        let mut other_greater = false;
+
+        for node in all_nodes {
+            let a = self.get(node);
+            let b = other.get(node);
+
+            if a > b {
+                self_greater = true;
+            } else if a < b {
+                other_greater = true;
+            }
+        }
+
+        match (self_greater, other_greater) {
+            (false, false) => ClockOrdering::Equal,
+            (true, false) => ClockOrdering::Descendant,
+            (false, true) => ClockOrdering::Ancestor,
+            (true, true) => ClockOrdering::Concurrent,
+        }
+    }
+
+    fn apply(&mut self, cursor: &super::Cursor) {
+        let _ = self
+            .inner
+            .entry(cursor.originator_id)
+            .and_modify(|sid| *sid = (*sid).max(cursor.sequence_id))
+            .or_insert(cursor.sequence_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test]
+    fn dominates_empty() {
+        let empty = GlobalCursor::default();
+        let mut not_empty = GlobalCursor::default();
+        not_empty.insert(1, 1);
+        assert!(not_empty.dominates(&empty));
+    }
 }
