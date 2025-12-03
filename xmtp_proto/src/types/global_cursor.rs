@@ -27,6 +27,12 @@ impl GlobalCursor {
         Self { inner: map }
     }
 
+    /// check if this cursor has seen `other`
+    pub fn has_seen(&self, other: &super::Cursor) -> bool {
+        let sid = self.get(&other.originator_id);
+        sid >= other.sequence_id
+    }
+
     /// Apply a singular cursor to 'Self'
     pub fn apply(&mut self, cursor: &super::Cursor) {
         let _ = self
