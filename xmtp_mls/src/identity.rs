@@ -28,7 +28,7 @@ use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::time::now_ns;
-use xmtp_common::{RetryableError, retryable};
+use xmtp_common::{ErrorCode, RetryableError, retryable};
 use xmtp_configuration::{
     CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
     GROUP_PERMISSIONS_EXTENSION_ID, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
@@ -184,7 +184,7 @@ impl IdentityStrategy {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum IdentityError {
     #[error(transparent)]
     CredentialSerialization(#[from] prost::EncodeError),

@@ -46,7 +46,7 @@ use diesel::result::DatabaseErrorKind;
 pub use diesel::sqlite::{Sqlite, SqliteConnection};
 use openmls::storage::OpenMlsProvider;
 use prost::DecodeError;
-use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
+use xmtp_common::{ErrorCode, MaybeSend, MaybeSync, RetryableError};
 
 use super::StorageError;
 use crate::sql_key_store::SqlKeyStoreError;
@@ -85,7 +85,7 @@ impl std::fmt::Display for StorageOption {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, ErrorCode)]
 pub enum ConnectionError {
     #[error(transparent)]
     Database(#[from] diesel::result::Error),

@@ -4,6 +4,7 @@ use openmls::extensions::Extensions;
 use prost::Message;
 use serde::Serialize;
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 
 use xmtp_id::InboxId;
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -13,7 +14,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 
 use xmtp_db::group::ConversationType;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum GroupMetadataError {
     #[error("serialization: {0}")]
     Serialization(#[from] prost::EncodeError),

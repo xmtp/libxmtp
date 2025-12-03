@@ -1,5 +1,6 @@
 use diesel::result::DatabaseErrorKind;
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 
 use crate::group_intent::GroupIntentError;
 
@@ -12,7 +13,7 @@ use xmtp_proto::types::{Cursor, InstallationId};
 
 pub struct Mls;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum StorageError {
     #[error(transparent)]
     DieselConnect(#[from] diesel::ConnectionError),
@@ -71,7 +72,7 @@ impl StorageError {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, ErrorCode)]
 // Monolithic enum for all things lost
 pub enum NotFound {
     #[error("group with welcome id {0} not found")]
@@ -110,7 +111,7 @@ pub enum NotFound {
     KeyPackage(Vec<u8>),
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, ErrorCode)]
 pub enum DuplicateItem {
     #[error("the welcome id {0:?} already exists")]
     WelcomeId(Option<Cursor>),

@@ -24,7 +24,7 @@ use xmtp_api_d14n::{
     TrackedStatsClient,
     protocol::{CursorStore, XmtpQuery},
 };
-use xmtp_common::Retry;
+use xmtp_common::{ErrorCode, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{
@@ -36,7 +36,7 @@ use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, ErrorCode)]
 pub enum ClientBuilderError {
     #[error(transparent)]
     AddressValidation(#[from] IdentifierValidationError),

@@ -21,6 +21,8 @@ pub mod bench;
 
 pub mod error_code;
 pub use error_code::ErrorCode;
+#[cfg(feature = "error-code")]
+pub use error_code::{HexError, LoggingError};
 
 #[doc(inline)]
 pub use xmtp_macro::ErrorCode;

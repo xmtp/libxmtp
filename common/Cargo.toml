@@ -8,6 +8,7 @@ license.workspace = true
 async-trait.workspace = true
 futures = { workspace = true, features = ["std"] }
 hex.workspace = true
+prost = { workspace = true, optional = true }
 rand.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["time", "rt"] }
@@ -81,6 +82,7 @@ ctor.workspace = true
 parking_lot = { workspace = true }
 
 [features]
+error-code = ["dep:prost"]
 logging = ["dep:tracing-subscriber"]
 test-utils = [
   "dep:parking_lot",

@@ -13,10 +13,10 @@ use associations::{
 };
 use openmls_traits::types::CryptoError;
 use thiserror::Error;
-use xmtp_common::{MaybeSend, MaybeSync};
+use xmtp_common::{ErrorCode, MaybeSend, MaybeSync};
 use xmtp_cryptography::signature::{IdentifierValidationError, SignatureError, h160addr_to_string};
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum IdentityError {
     #[error("generating key-pairs: {0}")]
     KeyGenerationError(#[from] CryptoError),

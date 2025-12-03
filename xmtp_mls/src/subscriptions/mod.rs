@@ -33,7 +33,7 @@ use crate::{
     },
 };
 use thiserror::Error;
-use xmtp_common::{MaybeSend, RetryableError, StreamHandle, retryable};
+use xmtp_common::{ErrorCode, MaybeSend, RetryableError, StreamHandle, retryable};
 use xmtp_db::{
     NotFound, StorageError,
     consent_record::{ConsentState, StoredConsentRecord},
@@ -175,7 +175,7 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, ErrorCode)]
 pub enum SubscribeError {
     #[error(transparent)]
     Group(#[from] Box<GroupError>),

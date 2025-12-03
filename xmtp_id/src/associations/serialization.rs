@@ -20,6 +20,7 @@ use prost::{DecodeError, Message};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 use xmtp_cryptography::signature::{IdentifierValidationError, sanitize_evm_addresses};
 use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::{
@@ -51,7 +52,7 @@ use xmtp_proto::xmtp::{
     },
 };
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, ErrorCode)]
 pub enum DeserializationError {
     #[error(transparent)]
     SignatureError(#[from] crate::associations::SignatureError),

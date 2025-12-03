@@ -17,6 +17,7 @@ use openmls::{
 };
 use std::collections::HashSet;
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 use xmtp_common::retry::RetryableError;
 use xmtp_content_types::CodecError;
 use xmtp_cryptography::signature::IdentifierValidationError;
@@ -25,7 +26,7 @@ use xmtp_db::sql_key_store;
 use xmtp_mls_common::group_metadata::GroupMetadataError;
 use xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, ErrorCode)]
 pub struct ReceiveErrors {
     /// list of message ids we received
     ids: Vec<u64>,
@@ -70,7 +71,7 @@ impl std::fmt::Display for ReceiveErrors {
         Ok(())
     }
 }
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum GroupError {
     #[error(transparent)]
     NotFound(#[from] NotFound),
@@ -204,7 +205,7 @@ impl From<SyncSummary> for GroupError {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, ErrorCode)]
 pub enum MetadataPermissionsError {
     #[error(transparent)]
     Permissions(#[from] GroupMutablePermissionsError),
@@ -226,7 +227,7 @@ impl RetryableError for MetadataPermissionsError {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, ErrorCode)]
 pub enum GroupLeaveValidationError {
     #[error("cannot leave a DM conversation")]
     DmLeaveForbidden,
@@ -248,7 +249,7 @@ impl RetryableError for GroupLeaveValidationError {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, ErrorCode)]
 pub enum DmValidationError {
     #[error("DM group must have DmMembers set")]
     OurInboxMustBeMember,

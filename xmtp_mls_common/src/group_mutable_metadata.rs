@@ -5,6 +5,7 @@ use openmls::{
 use prost::Message;
 use std::{collections::HashMap, fmt};
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 use xmtp_cryptography::Secret;
 use xmtp_proto::xmtp::mls::message_contents::{
     GroupMutableMetadataV1 as GroupMutableMetadataProto, Inboxes as InboxesProto,
@@ -17,7 +18,7 @@ use xmtp_configuration::{
 };
 
 /// Errors that can occur when working with GroupMutableMetadata.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum GroupMutableMetadataError {
     #[error("serialization: {0}")]
     Serialization(#[from] prost::EncodeError),

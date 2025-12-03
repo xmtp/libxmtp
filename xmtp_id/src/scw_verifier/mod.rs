@@ -11,11 +11,11 @@ use std::{collections::HashMap, fs, path::Path, sync::Arc};
 use thiserror::Error;
 use tracing::info;
 use url::Url;
-use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
+use xmtp_common::{ErrorCode, MaybeSend, MaybeSync, RetryableError};
 
 static DEFAULT_CHAIN_URLS: &str = include_str!("chain_urls_default.json");
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum VerifierError {
     #[error("unexpected result from ERC-6492 {0}")]
     UnexpectedERC6492Result(String),

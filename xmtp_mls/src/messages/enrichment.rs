@@ -2,13 +2,14 @@ use crate::messages::decoded_message::{DecodedMessage, MessageBody};
 use hex::ToHexExt;
 use std::collections::HashMap;
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 use xmtp_common::RetryableError;
 use xmtp_db::DbQuery;
 use xmtp_db::group_message::{
     ContentType as DbContentType, RelationCounts, RelationQuery, StoredGroupMessage,
 };
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum EnrichMessageError {
     #[error("DB error: {0}")]
     DbConnection(#[from] xmtp_db::ConnectionError),
