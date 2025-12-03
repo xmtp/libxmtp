@@ -1405,13 +1405,32 @@ async fn test_self_removal_simple() {
     let bola_group = bola_groups.first().unwrap();
     assert_eq!(bola_group.members().await.unwrap().len(), 2);
 
+    // Verify Bola's membership state is Pending when first invited
+    assert_eq!(
+        bola_group.membership_state().unwrap(),
+        GroupMembershipState::Pending
+    );
+
     bola_group.leave_group().await.unwrap();
+
+    // Verify Bola's membership state is PendingRemove after requesting to leave
+    assert_eq!(
+        bola_group.membership_state().unwrap(),
+        GroupMembershipState::PendingRemove
+    );
+
     amal_group.sync().await.unwrap();
     xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
     bola_group.sync().await.unwrap();
     xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
     assert!(!bola_group.is_active().unwrap());
     assert_eq!(amal_group.members().await.unwrap().len(), 1);
+
+    // Verify Amal's membership state remains Allowed
+    assert_eq!(
+        amal_group.membership_state().unwrap(),
+        GroupMembershipState::Allowed
+    );
 }
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_group_update_message() {
@@ -1505,7 +1524,21 @@ async fn test_self_removal_single_installations() {
 
     // Bola should be able to leave the group
     bola_group.sync().await.unwrap();
+
+    // Verify Bola's membership state is Pending when first invited
+    assert_eq!(
+        bola_group.membership_state().unwrap(),
+        GroupMembershipState::Pending
+    );
+
     bola_group.leave_group().await.unwrap();
+
+    // Verify Bola's membership state is PendingRemove after requesting to leave
+    assert_eq!(
+        bola_group.membership_state().unwrap(),
+        GroupMembershipState::PendingRemove
+    );
+
     let bola_group_pending_leave_users = bola
         .db()
         .get_pending_remove_users(&bola_group.group_id)
