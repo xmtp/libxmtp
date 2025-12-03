@@ -15,9 +15,6 @@ import org.xmtp.android.library.codecs.ReactionCodec
 import org.xmtp.android.library.codecs.ReactionSchema
 import org.xmtp.android.library.codecs.ReactionV2Codec
 import org.xmtp.android.library.libxmtp.DecodedMessage
-import uniffi.xmtpv3.FfiReactionAction
-import uniffi.xmtpv3.FfiReactionPayload
-import uniffi.xmtpv3.FfiReactionSchema
 
 @RunWith(AndroidJUnit4::class)
 class ReactionTest : BaseInstrumentedTest() {
@@ -137,12 +134,12 @@ class ReactionTest : BaseInstrumentedTest() {
         val messageToReact = runBlocking { alixConversation.messages()[0] }
 
         val reaction =
-            FfiReactionPayload(
+            Reaction(
                 reference = messageToReact.id,
-                referenceInboxId = alixClient.inboxId,
-                action = FfiReactionAction.ADDED,
+                action = ReactionAction.Added,
                 content = "U+1F603",
-                schema = FfiReactionSchema.UNICODE,
+                schema = ReactionSchema.Unicode,
+                referenceInboxId = alixClient.inboxId,
             )
 
         runBlocking {
@@ -154,11 +151,11 @@ class ReactionTest : BaseInstrumentedTest() {
         val messages = runBlocking { alixConversation.messages() }
         assertEquals(messages.size, 3)
         if (messages.size == 3) {
-            val content: FfiReactionPayload? = messages.first().content()
+            val content: Reaction? = messages.first().content()
             assertEquals("U+1F603", content?.content)
             assertEquals(messageToReact.id, content?.reference)
-            assertEquals(FfiReactionAction.ADDED, content?.action)
-            assertEquals(FfiReactionSchema.UNICODE, content?.schema)
+            assertEquals(ReactionAction.Added, content?.action)
+            assertEquals(ReactionSchema.Unicode, content?.schema)
         }
 
         val messagesWithReactions: List<DecodedMessage> =
@@ -167,7 +164,7 @@ class ReactionTest : BaseInstrumentedTest() {
             }
         assertEquals(messagesWithReactions.size, 2)
         assertEquals(messagesWithReactions[0].id, messageToReact.id)
-        val reactionContent: FfiReactionPayload? =
+        val reactionContent: Reaction? =
             messagesWithReactions[0].childMessages!![0].let { it.content()!! }
         assertEquals(reactionContent?.reference, messageToReact.id)
     }
@@ -187,12 +184,12 @@ class ReactionTest : BaseInstrumentedTest() {
 
             // Send V2 reaction
             val reactionV2 =
-                FfiReactionPayload(
+                Reaction(
                     reference = messageToReact.id,
-                    referenceInboxId = alixClient.inboxId,
-                    action = FfiReactionAction.ADDED,
+                    action = ReactionAction.Added,
                     content = "U+1F603",
-                    schema = FfiReactionSchema.UNICODE,
+                    schema = ReactionSchema.Unicode,
+                    referenceInboxId = alixClient.inboxId,
                 )
             alixConversation.send(
                 content = reactionV2,
@@ -224,11 +221,8 @@ class ReactionTest : BaseInstrumentedTest() {
                 messagesWithReactions[0]
                     .childMessages!!
                     .mapNotNull {
-                        when (val content = it.content<Any>()) {
-                            is FfiReactionPayload -> content.content
-                            is Reaction -> content.content
-                            else -> null
-                        }
+                        val content = it.content<Reaction>()
+                        content?.content
                     }.toSet()
             assertEquals(setOf("U+1F603", "U+1F604"), childContents)
         }

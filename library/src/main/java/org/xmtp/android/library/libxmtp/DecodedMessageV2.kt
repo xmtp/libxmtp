@@ -119,6 +119,7 @@ class DecodedMessageV2 private constructor(
                 action = action,
                 content = ffiReaction.content,
                 schema = schema,
+                referenceInboxId = ffiReaction.referenceInboxId.ifEmpty { null },
             )
         }
 

@@ -23,6 +23,7 @@ data class Reaction(
     val action: ReactionAction,
     val content: String,
     val schema: ReactionSchema,
+    val referenceInboxId: String? = null,
 )
 
 sealed class ReactionAction {
