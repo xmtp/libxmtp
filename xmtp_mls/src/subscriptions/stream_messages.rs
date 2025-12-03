@@ -8,7 +8,6 @@ mod types;
 pub use test_utils::*;
 
 use types::GroupList;
-pub(super) use types::MessagePosition;
 pub use types::MessageStreamError;
 
 use super::{
@@ -29,9 +28,9 @@ use std::{
 };
 use xmtp_common::BoxDynFuture;
 use xmtp_db::group_message::StoredGroupMessage;
-use xmtp_proto::api_client::XmtpMlsStreams;
-use xmtp_proto::types::Cursor;
 use xmtp_proto::types::GroupId;
+use xmtp_proto::types::{Cursor, GlobalCursor};
+use xmtp_proto::{api_client::XmtpMlsStreams, types::TopicCursor};
 
 impl xmtp_common::RetryableError for MessageStreamError {
     fn is_retryable(&self) -> bool {
@@ -235,24 +234,17 @@ where
     #[allow(clippy::type_complexity)]
     async fn subscribe(
         context: Cow<'a, C>,
-        groups_with_positions: Vec<(GroupId, MessagePosition)>,
+        topic_cursor: TopicCursor,
         new_group: Vec<u8>,
     ) -> Result<(
         MessagesApiSubscription<'a, C::ApiClient>,
         Vec<u8>,
         Option<Cursor>,
     )> {
-        use xmtp_proto::types::GlobalCursor;
-
-        let groups_with_cursors: Vec<(&GroupId, GlobalCursor)> = groups_with_positions
-            .iter()
-            .map(|(group_id, position)| (group_id, GlobalCursor::new(position.last_streamed())))
-            .collect();
-
         let stream = context
             .as_ref()
             .api()
-            .subscribe_group_messages_with_cursors(&groups_with_cursors)
+            .subscribe_group_messages_with_cursors(&topic_cursor)
             .await?;
         Ok((
             stream,
@@ -328,13 +320,12 @@ where
                         this.as_mut().set_cursor(group.as_slice(), c)
                     };
                     this.as_mut().project().inner.set(stream);
-                    if let Some(cursor) = this.groups.position(&group) {
-                        tracing::debug!(
-                            "added group_id={} at cursor={} to messages stream",
-                            hex::encode(&group),
-                            cursor
-                        );
-                    }
+                    let position = this.groups.position(&group);
+                    tracing::debug!(
+                        "added group_id={} at cursor={} to messages stream",
+                        hex::encode(&group),
+                        position
+                    );
                 }
                 this.project().state.as_mut().set(State::Waiting);
                 cx.waker().wake_by_ref();
@@ -430,9 +421,8 @@ where
             hex::encode(&group.group_id)
         );
         let this = self.as_mut().project();
-        this.groups
-            .add(&group.group_id, MessagePosition::new(Cursor::new(1, 0u32)));
-        let groups_with_positions = self.groups.groups_with_positions();
+        this.groups.add(&group.group_id, GlobalCursor::default());
+        let groups_with_positions = self.groups.groups_with_positions().clone();
         let future = Self::subscribe(self.context.clone(), groups_with_positions, group.group_id);
         let mut this = self.as_mut().project();
 
