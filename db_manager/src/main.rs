@@ -63,7 +63,7 @@ fn main() -> Result<()> {
                     );
                 };
 
-                tasks::revert_migrations(&manager.store, target)?;
+                tasks::revert_migrations(&manager.store.conn(), target)?;
             }
             Task::DbClearAllMessages => {
                 tasks::clear_all_messages(&manager.store.conn(), args.retain_days, None)?;

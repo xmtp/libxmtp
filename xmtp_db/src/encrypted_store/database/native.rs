@@ -27,7 +27,7 @@ use crate::{EncryptionKey, StorageOption, XmtpDb};
 
 use super::PersistentOrMem;
 
-pub(crate) trait XmtpConnection:
+trait XmtpConnection:
     ValidatedConnection
     + ConnectionOptions
     + CustomizeConnection<SqliteConnection, r2d2::Error>
@@ -35,7 +35,7 @@ pub(crate) trait XmtpConnection:
 {
 }
 
-pub(crate) trait ConnectionOptions {
+trait ConnectionOptions {
     fn options(&self) -> &StorageOption;
     fn is_persistent(&self) -> bool {
         matches!(self.options(), StorageOption::Persistent(_))
