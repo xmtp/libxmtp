@@ -74,5 +74,11 @@ mod tests {
         assert_eq!(alix_msgs.len(), 2);
 
         clear_all_messages_confirmed(&alix.db(), None)?;
+        let alix_msgs = alix_bo_dm.find_messages(&MsgQueryArgs::default())?;
+        // Commit and application msg
+        assert_eq!(alix_msgs.len(), 0);
+
+        let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
+        assert_eq!(dm.group_id, alix_bo_dm.group_id);
     }
 }
