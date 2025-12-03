@@ -26,15 +26,14 @@ impl TopicCursor {
     /// by [`super::GroupId`]
     pub fn get_group(&self, group_id: impl AsRef<[u8]>) -> GlobalCursor {
         self.inner
-            .get(&Topic::new_group_message(group_id.as_ref().into()))
+            .get(&Topic::new_group_message(group_id))
             .cloned()
             .unwrap_or_default()
     }
 
     /// check if this topic cursor contains [`super::GroupId`]
     pub fn contains_group(&self, group_id: impl AsRef<[u8]>) -> bool {
-        self.inner
-            .contains_key(&Topic::new_group_message(group_id.as_ref().into()))
+        self.inner.contains_key(&Topic::new_group_message(group_id))
     }
 
     /// Computes the Lowest Common Cursor (LCC) across all topics.
@@ -72,8 +71,7 @@ impl TopicCursor {
 
     /// entry api for only [super::TopicKind::GroupMessagesV1]
     pub fn group_entry(&mut self, group_id: impl AsRef<[u8]>) -> TopicEntry<'_> {
-        self.inner
-            .entry(Topic::new_group_message(group_id.as_ref().into()))
+        self.inner.entry(Topic::new_group_message(group_id))
     }
 
     /// entry api for only [super::TopicKind::IdentityUpdatesV1]
