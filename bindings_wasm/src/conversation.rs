@@ -1,5 +1,7 @@
 use crate::client::RustMlsGroup;
-use crate::conversations::{ConversationDebugInfo, HmacKey, MessageDisappearingSettings};
+use crate::conversations::{
+  ConversationDebugInfo, GroupMembershipState, HmacKey, MessageDisappearingSettings,
+};
 use crate::encoded_content::EncodedContent;
 use crate::identity::{Identifier, IdentityExt};
 use crate::messages::{ListMessagesOptions, Message, MessageWithReactions};
@@ -338,6 +340,15 @@ impl Conversation {
       .collect();
 
     Ok(crate::to_value(&members)?)
+  }
+
+  #[wasm_bindgen(js_name = membershipState)]
+  pub fn membership_state(&self) -> Result<GroupMembershipState, JsError> {
+    let group = self.to_mls_group();
+    let state = group
+      .membership_state()
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    Ok(state.into())
   }
 
   #[wasm_bindgen(js_name = adminList)]
