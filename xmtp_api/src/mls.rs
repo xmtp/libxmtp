@@ -9,7 +9,7 @@ use xmtp_proto::mls_v1::{
     PublishCommitLogRequest, QueryCommitLogRequest, QueryCommitLogResponse,
 };
 use xmtp_proto::types::{
-    GroupId, GroupMessage, GroupMessageMetadata, InstallationId, WelcomeMessage,
+    GroupId, GroupMessage, GroupMessageMetadata, InstallationId, TopicCursor, WelcomeMessage,
 };
 use xmtp_proto::xmtp::mls::api::v1::{
     FetchKeyPackagesRequest, GroupMessageInput, KeyPackageUpload, SendGroupMessagesRequest,
@@ -252,7 +252,7 @@ where
 
     pub async fn subscribe_group_messages_with_cursors(
         &self,
-        groups_with_cursors: &[(&GroupId, xmtp_proto::types::GlobalCursor)],
+        groups_with_cursors: &TopicCursor,
     ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream>
     where
         ApiClient: XmtpMlsStreams,

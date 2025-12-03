@@ -10,6 +10,7 @@ use xmtp_proto::mls_v1;
 use xmtp_proto::prelude::XmtpIdentityClient;
 use xmtp_proto::prelude::XmtpMlsStreams;
 use xmtp_proto::types::InstallationId;
+use xmtp_proto::types::TopicCursor;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::types::{GroupId, GroupMessage};
 /// Wraps an ApiClient to allow turning
@@ -162,7 +163,7 @@ where
 
     async fn subscribe_group_messages_with_cursors(
         &self,
-        groups_with_cursors: &[(&GroupId, xmtp_proto::types::GlobalCursor)],
+        groups_with_cursors: &TopicCursor,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         let s = self
             .inner
