@@ -1068,6 +1068,8 @@ internal interface IntegrityCheckingUniffiLib : Library {
 
     fun uniffi_xmtpv3_checksum_func_decode_attachment(): Short
 
+    fun uniffi_xmtpv3_checksum_func_decode_group_updated(): Short
+
     fun uniffi_xmtpv3_checksum_func_decode_intent(): Short
 
     fun uniffi_xmtpv3_checksum_func_decode_multi_remote_attachment(): Short
@@ -1080,7 +1082,11 @@ internal interface IntegrityCheckingUniffiLib : Library {
 
     fun uniffi_xmtpv3_checksum_func_decode_reply(): Short
 
+    fun uniffi_xmtpv3_checksum_func_decode_text(): Short
+
     fun uniffi_xmtpv3_checksum_func_decode_transaction_reference(): Short
+
+    fun uniffi_xmtpv3_checksum_func_decode_wallet_send_calls(): Short
 
     fun uniffi_xmtpv3_checksum_func_encode_actions(): Short
 
@@ -1098,7 +1104,11 @@ internal interface IntegrityCheckingUniffiLib : Library {
 
     fun uniffi_xmtpv3_checksum_func_encode_reply(): Short
 
+    fun uniffi_xmtpv3_checksum_func_encode_text(): Short
+
     fun uniffi_xmtpv3_checksum_func_encode_transaction_reference(): Short
+
+    fun uniffi_xmtpv3_checksum_func_encode_wallet_send_calls(): Short
 
     fun uniffi_xmtpv3_checksum_func_enter_debug_writer(): Short
 
@@ -2584,6 +2594,11 @@ internal interface UniffiLib : Library {
         uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
 
+    fun uniffi_xmtpv3_fn_func_decode_group_updated(
+        `bytes`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
     fun uniffi_xmtpv3_fn_func_decode_intent(
         `bytes`: RustBuffer.ByValue,
         uniffi_out_err: UniffiRustCallStatus,
@@ -2614,7 +2629,17 @@ internal interface UniffiLib : Library {
         uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
 
+    fun uniffi_xmtpv3_fn_func_decode_text(
+        `bytes`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
     fun uniffi_xmtpv3_fn_func_decode_transaction_reference(
+        `bytes`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
+    fun uniffi_xmtpv3_fn_func_decode_wallet_send_calls(
         `bytes`: RustBuffer.ByValue,
         uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
@@ -2659,8 +2684,18 @@ internal interface UniffiLib : Library {
         uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
 
+    fun uniffi_xmtpv3_fn_func_encode_text(
+        `text`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
     fun uniffi_xmtpv3_fn_func_encode_transaction_reference(
         `reference`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
+    fun uniffi_xmtpv3_fn_func_encode_wallet_send_calls(
+        `walletSendCalls`: RustBuffer.ByValue,
         uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
 
@@ -2976,6 +3011,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_func_decode_attachment() != 20456.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_func_decode_group_updated() != 277.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_func_decode_intent() != 24165.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2994,7 +3032,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_func_decode_reply() != 41903.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_func_decode_text() != 7209.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_func_decode_transaction_reference() != 25896.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_decode_wallet_send_calls() != 2959.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_encode_actions() != 15414.toShort()) {
@@ -3021,7 +3065,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_func_encode_reply() != 3022.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_func_encode_text() != 6696.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_func_encode_transaction_reference() != 22144.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_encode_wallet_send_calls() != 8163.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_enter_debug_writer() != 7266.toShort()) {
@@ -12567,6 +12617,10 @@ data class FfiGroupUpdated(
     var `removedInboxes`: List<FfiInbox>,
     var `leftInboxes`: List<FfiInbox>,
     var `metadataFieldChanges`: List<FfiMetadataFieldChange>,
+    var `addedAdminInboxes`: List<FfiInbox>,
+    var `removedAdminInboxes`: List<FfiInbox>,
+    var `addedSuperAdminInboxes`: List<FfiInbox>,
+    var `removedSuperAdminInboxes`: List<FfiInbox>,
 ) {
     companion object
 }
@@ -12582,6 +12636,10 @@ public object FfiConverterTypeFfiGroupUpdated : FfiConverterRustBuffer<FfiGroupU
             FfiConverterSequenceTypeFfiInbox.read(buf),
             FfiConverterSequenceTypeFfiInbox.read(buf),
             FfiConverterSequenceTypeFfiMetadataFieldChange.read(buf),
+            FfiConverterSequenceTypeFfiInbox.read(buf),
+            FfiConverterSequenceTypeFfiInbox.read(buf),
+            FfiConverterSequenceTypeFfiInbox.read(buf),
+            FfiConverterSequenceTypeFfiInbox.read(buf),
         )
 
     override fun allocationSize(value: FfiGroupUpdated) =
@@ -12590,7 +12648,11 @@ public object FfiConverterTypeFfiGroupUpdated : FfiConverterRustBuffer<FfiGroupU
                 FfiConverterSequenceTypeFfiInbox.allocationSize(value.`addedInboxes`) +
                 FfiConverterSequenceTypeFfiInbox.allocationSize(value.`removedInboxes`) +
                 FfiConverterSequenceTypeFfiInbox.allocationSize(value.`leftInboxes`) +
-                FfiConverterSequenceTypeFfiMetadataFieldChange.allocationSize(value.`metadataFieldChanges`)
+                FfiConverterSequenceTypeFfiMetadataFieldChange.allocationSize(value.`metadataFieldChanges`) +
+                FfiConverterSequenceTypeFfiInbox.allocationSize(value.`addedAdminInboxes`) +
+                FfiConverterSequenceTypeFfiInbox.allocationSize(value.`removedAdminInboxes`) +
+                FfiConverterSequenceTypeFfiInbox.allocationSize(value.`addedSuperAdminInboxes`) +
+                FfiConverterSequenceTypeFfiInbox.allocationSize(value.`removedSuperAdminInboxes`)
         )
 
     override fun write(
@@ -12602,6 +12664,10 @@ public object FfiConverterTypeFfiGroupUpdated : FfiConverterRustBuffer<FfiGroupU
         FfiConverterSequenceTypeFfiInbox.write(value.`removedInboxes`, buf)
         FfiConverterSequenceTypeFfiInbox.write(value.`leftInboxes`, buf)
         FfiConverterSequenceTypeFfiMetadataFieldChange.write(value.`metadataFieldChanges`, buf)
+        FfiConverterSequenceTypeFfiInbox.write(value.`addedAdminInboxes`, buf)
+        FfiConverterSequenceTypeFfiInbox.write(value.`removedAdminInboxes`, buf)
+        FfiConverterSequenceTypeFfiInbox.write(value.`addedSuperAdminInboxes`, buf)
+        FfiConverterSequenceTypeFfiInbox.write(value.`removedSuperAdminInboxes`, buf)
     }
 }
 
@@ -13407,7 +13473,7 @@ data class FfiRemoteAttachment(
     var `salt`: kotlin.ByteArray,
     var `nonce`: kotlin.ByteArray,
     var `scheme`: kotlin.String,
-    var `contentLength`: kotlin.ULong,
+    var `contentLength`: kotlin.UInt,
     var `filename`: kotlin.String?,
 ) {
     companion object
@@ -13425,7 +13491,7 @@ public object FfiConverterTypeFfiRemoteAttachment : FfiConverterRustBuffer<FfiRe
             FfiConverterByteArray.read(buf),
             FfiConverterByteArray.read(buf),
             FfiConverterString.read(buf),
-            FfiConverterULong.read(buf),
+            FfiConverterUInt.read(buf),
             FfiConverterOptionalString.read(buf),
         )
 
@@ -13437,7 +13503,7 @@ public object FfiConverterTypeFfiRemoteAttachment : FfiConverterRustBuffer<FfiRe
                 FfiConverterByteArray.allocationSize(value.`salt`) +
                 FfiConverterByteArray.allocationSize(value.`nonce`) +
                 FfiConverterString.allocationSize(value.`scheme`) +
-                FfiConverterULong.allocationSize(value.`contentLength`) +
+                FfiConverterUInt.allocationSize(value.`contentLength`) +
                 FfiConverterOptionalString.allocationSize(value.`filename`)
         )
 
@@ -13451,7 +13517,7 @@ public object FfiConverterTypeFfiRemoteAttachment : FfiConverterRustBuffer<FfiRe
         FfiConverterByteArray.write(value.`salt`, buf)
         FfiConverterByteArray.write(value.`nonce`, buf)
         FfiConverterString.write(value.`scheme`, buf)
-        FfiConverterULong.write(value.`contentLength`, buf)
+        FfiConverterUInt.write(value.`contentLength`, buf)
         FfiConverterOptionalString.write(value.`filename`, buf)
     }
 }
@@ -18167,6 +18233,14 @@ fun `decodeAttachment`(`bytes`: kotlin.ByteArray): FfiAttachment =
     )
 
 @Throws(GenericException::class)
+fun `decodeGroupUpdated`(`bytes`: kotlin.ByteArray): FfiGroupUpdated =
+    FfiConverterTypeFfiGroupUpdated.lift(
+        uniffiRustCallWithError(GenericException) { _status ->
+            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_decode_group_updated(FfiConverterByteArray.lower(`bytes`), _status)
+        },
+    )
+
+@Throws(GenericException::class)
 fun `decodeIntent`(`bytes`: kotlin.ByteArray): FfiIntent =
     FfiConverterTypeFfiIntent.lift(
         uniffiRustCallWithError(GenericException) { _status ->
@@ -18215,10 +18289,26 @@ fun `decodeReply`(`bytes`: kotlin.ByteArray): FfiReply =
     )
 
 @Throws(GenericException::class)
+fun `decodeText`(`bytes`: kotlin.ByteArray): kotlin.String =
+    FfiConverterString.lift(
+        uniffiRustCallWithError(GenericException) { _status ->
+            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_decode_text(FfiConverterByteArray.lower(`bytes`), _status)
+        },
+    )
+
+@Throws(GenericException::class)
 fun `decodeTransactionReference`(`bytes`: kotlin.ByteArray): FfiTransactionReference =
     FfiConverterTypeFfiTransactionReference.lift(
         uniffiRustCallWithError(GenericException) { _status ->
             UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_decode_transaction_reference(FfiConverterByteArray.lower(`bytes`), _status)
+        },
+    )
+
+@Throws(GenericException::class)
+fun `decodeWalletSendCalls`(`bytes`: kotlin.ByteArray): FfiWalletSendCalls =
+    FfiConverterTypeFfiWalletSendCalls.lift(
+        uniffiRustCallWithError(GenericException) { _status ->
+            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_decode_wallet_send_calls(FfiConverterByteArray.lower(`bytes`), _status)
         },
     )
 
@@ -18293,11 +18383,30 @@ fun `encodeReply`(`reply`: FfiReply): kotlin.ByteArray =
     )
 
 @Throws(GenericException::class)
+fun `encodeText`(`text`: kotlin.String): kotlin.ByteArray =
+    FfiConverterByteArray.lift(
+        uniffiRustCallWithError(GenericException) { _status ->
+            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_encode_text(FfiConverterString.lower(`text`), _status)
+        },
+    )
+
+@Throws(GenericException::class)
 fun `encodeTransactionReference`(`reference`: FfiTransactionReference): kotlin.ByteArray =
     FfiConverterByteArray.lift(
         uniffiRustCallWithError(GenericException) { _status ->
             UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_encode_transaction_reference(
                 FfiConverterTypeFfiTransactionReference.lower(`reference`),
+                _status,
+            )
+        },
+    )
+
+@Throws(GenericException::class)
+fun `encodeWalletSendCalls`(`walletSendCalls`: FfiWalletSendCalls): kotlin.ByteArray =
+    FfiConverterByteArray.lift(
+        uniffiRustCallWithError(GenericException) { _status ->
+            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_encode_wallet_send_calls(
+                FfiConverterTypeFfiWalletSendCalls.lower(`walletSendCalls`),
                 _status,
             )
         },
