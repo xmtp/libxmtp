@@ -66,11 +66,11 @@ fn main() -> Result<()> {
                 tasks::revert_migrations(&manager.store, target)?;
             }
             Task::DbClearAllMessages => {
-                tasks::clear_all_messages(&manager.store, args.retain_days)?;
+                tasks::clear_all_messages(&manager.store.conn(), args.retain_days)?;
             }
             Task::DbClearMessages => {
                 tasks::clear_all_messages_for_groups(
-                    &manager.store,
+                    &manager.store.conn(),
                     &args.group_ids()?,
                     args.retain_days,
                 )?;

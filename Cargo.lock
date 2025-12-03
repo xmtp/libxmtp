@@ -8463,9 +8463,11 @@ dependencies = [
  "clap",
  "const-hex",
  "diesel_migrations",
+ "tokio",
  "tracing",
  "xmtp_common",
  "xmtp_db",
+ "xmtp_mls",
 ]
 
 [[package]]
