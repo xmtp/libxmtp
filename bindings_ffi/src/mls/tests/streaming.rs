@@ -697,3 +697,78 @@ async fn test_can_stream_and_update_name_without_forking_group() {
     stream_messages.end_and_wait().await.unwrap();
     assert!(stream_messages.is_closed());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_stream_all_messages_with_optimistic_group_creation() {
+    let alix = new_test_client().await;
+    let bo = new_test_client().await;
+
+    // Start streaming FIRST (before any groups are created)
+    let message_callbacks = Arc::new(RustStreamCallback::default());
+    let stream_messages = bo
+        .conversations()
+        .stream_all_messages(message_callbacks.clone(), None)
+        .await;
+    stream_messages.wait_for_ready().await;
+
+    // Create a group optimistically
+    let alix_group = alix
+        .conversations()
+        .create_group_optimistic(FfiCreateGroupOptions::default())
+        .unwrap();
+
+    // add bo
+    alix_group
+        .add_members(vec![bo.account_identifier.clone()])
+        .await
+        .unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    alix_group
+        .send(
+            "first message".as_bytes().to_vec(),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+    message_callbacks.wait_for_delivery(None).await.unwrap();
+
+    // Create ANOTHER optimistic group (stress test for vector clock logic)
+    let alix_group_2 = alix
+        .conversations()
+        .create_group_optimistic(FfiCreateGroupOptions::default())
+        .unwrap();
+    alix_group_2
+        .add_members(vec![bo.account_identifier.clone()])
+        .await
+        .unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // Send messages in the second group
+    alix_group_2
+        .send(
+            "second group message".as_bytes().to_vec(),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+    message_callbacks.wait_for_delivery(None).await.unwrap();
+
+    alix_group
+        .send(
+            "third message".as_bytes().to_vec(),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+    message_callbacks.wait_for_delivery(None).await.unwrap();
+
+    // Verify stream received all 3 application messages without "killing" itself
+    // stream must continue to work after optimistic group creation
+    assert_eq!(message_callbacks.message_count(), 3);
+
+    stream_messages.end_and_wait().await.unwrap();
+    assert!(stream_messages.is_closed());
+}
