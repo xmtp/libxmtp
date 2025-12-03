@@ -4,6 +4,7 @@
 // ! allowing JavaScript consumers to handle errors programmatically via error codes.
 
 use wasm_bindgen::prelude::*;
+use xmtp_mls::error_details::ErrorDetailsProvider;
 
 // Import the custom XmtpError class from JavaScript
 #[wasm_bindgen(module = "/src/error.js")]
@@ -61,6 +62,12 @@ impl ErrorCode {
   }
 }
 
+impl From<ErrorCode> for String {
+  fn from(value: ErrorCode) -> Self {
+    value.as_str().to_string()
+  }
+}
+
 /// Optional structured details about an error.
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct ErrorDetails {
@@ -73,6 +80,13 @@ impl ErrorDetails {
   /// Creates empty details.
   pub fn empty() -> Self {
     Self::default()
+  }
+
+  /// Creates details from a serde_json map.
+  pub fn from_map(map: serde_json::Map<String, serde_json::Value>) -> Self {
+    Self {
+      fields: map.into_iter().collect(),
+    }
   }
 
   /// Creates details with a single field.
@@ -100,37 +114,28 @@ impl ErrorDetails {
 /// producing JavaScript XmtpError instances with both a code and message.
 #[derive(Debug)]
 pub struct WasmError {
-  code: ErrorCode,
+  code: String,
   message: String,
-  kind: Option<String>,
   details: Option<ErrorDetails>,
 }
 
 impl WasmError {
   /// Creates a new WasmError with the given code and message.
-  pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+  pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
     Self {
-      code,
+      code: code.into(),
       message: message.into(),
-      kind: None,
       details: None,
     }
   }
 
   /// Creates a WasmError from any error type with the given code.
-  pub fn from_error<E: std::error::Error>(code: ErrorCode, err: E) -> Self {
+  pub fn from_error<E: std::error::Error>(code: impl Into<String>, err: E) -> Self {
     Self {
-      code,
+      code: code.into(),
       message: err.to_string(),
-      kind: None,
       details: None,
     }
-  }
-
-  /// Sets the error kind (specific variant name).
-  pub fn with_kind(mut self, kind: impl Into<String>) -> Self {
-    self.kind = Some(kind.into());
-    self
   }
 
   /// Sets the error details.
@@ -199,11 +204,7 @@ impl WasmError {
 
 impl std::fmt::Display for WasmError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    if let Some(ref kind) = self.kind {
-      write!(f, "[{}:{}] {}", self.code.as_str(), kind, self.message)
-    } else {
-      write!(f, "[{}] {}", self.code.as_str(), self.message)
-    }
+    write!(f, "[{}] {}", self.code, self.message)
   }
 }
 
@@ -211,23 +212,20 @@ impl std::error::Error for WasmError {}
 
 impl From<WasmError> for JsValue {
   fn from(err: WasmError) -> JsValue {
-    let kind = match &err.kind {
-      Some(k) => JsValue::from_str(k),
-      None => JsValue::NULL,
-    };
-
     let details = match &err.details {
       Some(d) => serde_wasm_bindgen::to_value(d).unwrap_or(JsValue::NULL),
       None => JsValue::NULL,
     };
 
-    XmtpError::new(err.code.as_str(), &err.message, kind, details).into()
+    XmtpError::new(&err.code, &err.message, JsValue::NULL, details).into()
   }
 }
 
 impl From<serde_wasm_bindgen::Error> for WasmError {
   fn from(err: serde_wasm_bindgen::Error) -> Self {
-    WasmError::encoding(err.to_string()).with_kind("SerializationError")
+    let kind = "SerializationError";
+    let code = format!("EncodingError::{kind}");
+    WasmError::from_error(code, err)
   }
 }
 
@@ -235,108 +233,66 @@ impl From<xmtp_mls::groups::GroupError> for WasmError {
   fn from(err: xmtp_mls::groups::GroupError) -> Self {
     use xmtp_mls::groups::GroupError;
 
-    let (kind, details) = match &err {
-      GroupError::NotFound(nf) => (
-        "NotFound",
-        Some(ErrorDetails::with_field("entity", nf.to_string())),
-      ),
-      GroupError::UserLimitExceeded => ("UserLimitExceeded", None),
-      GroupError::MissingSequenceId => ("MissingSequenceId", None),
-      GroupError::AddressNotFound(addrs) => (
-        "AddressNotFound",
-        Some(ErrorDetails::with_field(
-          "addresses",
-          serde_json::json!(addrs),
-        )),
-      ),
-      GroupError::WrappedApi(_) => ("ApiError", None),
-      GroupError::InvalidGroupMembership => ("InvalidGroupMembership", None),
-      GroupError::LeaveCantProcessed(leave_err) => {
-        let leave_kind = match leave_err {
-          xmtp_mls::groups::GroupLeaveValidationError::DmLeaveForbidden => "DmLeaveForbidden",
-          xmtp_mls::groups::GroupLeaveValidationError::SingleMemberLeaveRejected => {
-            "SingleMemberLeaveRejected"
-          }
-          xmtp_mls::groups::GroupLeaveValidationError::SuperAdminLeaveForbidden => {
-            "SuperAdminLeaveForbidden"
-          }
-          xmtp_mls::groups::GroupLeaveValidationError::InboxAlreadyInPendingList => {
-            "InboxAlreadyInPendingList"
-          }
-          xmtp_mls::groups::GroupLeaveValidationError::InboxNotInPendingList => {
-            "InboxNotInPendingList"
-          }
-          xmtp_mls::groups::GroupLeaveValidationError::NotAGroupMember => "NotAGroupMember",
-        };
-        (
-          "LeaveValidationError",
-          Some(ErrorDetails::with_field("reason", leave_kind)),
-        )
-      }
-      GroupError::Storage(_) => ("StorageError", None),
-      GroupError::Intent(_) => ("IntentError", None),
-      GroupError::CreateMessage(_) => ("CreateMessageError", None),
-      GroupError::TlsError(_) => ("TlsCodecError", None),
-      GroupError::UpdateGroupMembership(_) => ("UpdateGroupMembershipError", None),
-      GroupError::GroupCreate(_) => ("GroupCreateError", None),
-      GroupError::SelfUpdate(_) => ("SelfUpdateError", None),
-      GroupError::WelcomeError(_) => ("WelcomeError", None),
-      GroupError::InvalidExtension(_) => ("InvalidExtension", None),
-      GroupError::Signature(_) => ("SignatureError", None),
-      GroupError::Client(_) => ("ClientError", None),
-      GroupError::ReceiveError(_) => ("ReceiveError", None),
-      GroupError::ReceiveErrors(_) => ("ReceiveErrors", None),
-      GroupError::AddressValidation(_) => ("AddressValidationError", None),
-      GroupError::LocalEvent(_) => ("LocalEventError", None),
-      GroupError::InvalidPublicKeys(keys) => (
-        "InvalidPublicKeys",
-        Some(ErrorDetails::with_field("count", keys.len())),
-      ),
-      GroupError::CommitValidation(_) => ("CommitValidationError", None),
-      GroupError::Identity(_) => ("IdentityError", None),
-      GroupError::ConversionError(_) => ("ConversionError", None),
-      GroupError::CryptoError(_) => ("CryptoError", None),
-      GroupError::CreateGroupContextExtProposalError(_) => {
-        ("CreateGroupContextExtProposalError", None)
-      }
-      GroupError::CredentialError(_) => ("CredentialError", None),
-      GroupError::LeafNodeError(_) => ("LeafNodeError", None),
-      GroupError::InstallationDiff(_) => ("InstallationDiffError", None),
-      GroupError::NoPSKSupport => ("NoPSKSupport", None),
-      GroupError::SqlKeyStore(_) => ("SqlKeyStoreError", None),
-      GroupError::SyncFailedToWait(_) => ("SyncFailedToWait", None),
-      GroupError::MissingPendingCommit => ("MissingPendingCommit", None),
-      GroupError::ProcessIntent(_) => ("ProcessIntentError", None),
-      GroupError::LockUnavailable => ("LockUnavailable", None),
-      GroupError::TooManyCharacters { length } => (
-        "TooManyCharacters",
-        Some(ErrorDetails::with_field("maxLength", *length)),
-      ),
-      GroupError::GroupPausedUntilUpdate(version) => (
-        "GroupPausedUntilUpdate",
-        Some(ErrorDetails::with_field("requiredVersion", version.clone())),
-      ),
-      GroupError::GroupInactive => ("GroupInactive", None),
-      GroupError::Sync(_) => ("SyncError", None),
-      GroupError::Db(_) => ("DatabaseError", None),
-      GroupError::MlsStore(_) => ("MlsStoreError", None),
-      GroupError::MetadataPermissionsError(_) => ("MetadataPermissionsError", None),
-      GroupError::FailedToVerifyInstallations => ("FailedToVerifyInstallations", None),
-      GroupError::NoWelcomesToSend => ("NoWelcomesToSend", None),
-      GroupError::CodecError(_) => ("CodecError", None),
-      GroupError::WrapWelcome(_) => ("WrapWelcomeError", None),
-      GroupError::UnwrapWelcome(_) => ("UnwrapWelcomeError", None),
-      GroupError::WelcomeDataNotFound(topic) => (
-        "WelcomeDataNotFound",
-        Some(ErrorDetails::with_field("topic", topic.clone())),
-      ),
-      GroupError::UninitializedResult => ("UninitializedResult", None),
-      GroupError::Diesel(_) => ("DieselError", None),
-      GroupError::UninitializedField(_) => ("UninitializedField", None),
-      GroupError::EnrichMessage(_) => ("EnrichMessageError", None),
+    let kind = match &err {
+      GroupError::NotFound(_) => "NotFound",
+      GroupError::UserLimitExceeded => "UserLimitExceeded",
+      GroupError::MissingSequenceId => "MissingSequenceId",
+      GroupError::AddressNotFound(_) => "AddressNotFound",
+      GroupError::WrappedApi(_) => "ApiError",
+      GroupError::InvalidGroupMembership => "InvalidGroupMembership",
+      GroupError::LeaveCantProcessed(_) => "LeaveValidationError",
+      GroupError::Storage(_) => "StorageError",
+      GroupError::Intent(_) => "IntentError",
+      GroupError::CreateMessage(_) => "CreateMessageError",
+      GroupError::TlsError(_) => "TlsCodecError",
+      GroupError::UpdateGroupMembership(_) => "UpdateGroupMembershipError",
+      GroupError::GroupCreate(_) => "GroupCreateError",
+      GroupError::SelfUpdate(_) => "SelfUpdateError",
+      GroupError::WelcomeError(_) => "WelcomeError",
+      GroupError::InvalidExtension(_) => "InvalidExtension",
+      GroupError::Signature(_) => "SignatureError",
+      GroupError::Client(_) => "ClientError",
+      GroupError::ReceiveError(_) => "ReceiveError",
+      GroupError::ReceiveErrors(_) => "ReceiveErrors",
+      GroupError::AddressValidation(_) => "AddressValidationError",
+      GroupError::LocalEvent(_) => "LocalEventError",
+      GroupError::InvalidPublicKeys(_) => "InvalidPublicKeys",
+      GroupError::CommitValidation(_) => "CommitValidationError",
+      GroupError::Identity(_) => "IdentityError",
+      GroupError::ConversionError(_) => "ConversionError",
+      GroupError::CryptoError(_) => "CryptoError",
+      GroupError::CreateGroupContextExtProposalError(_) => "CreateGroupContextExtProposalError",
+      GroupError::CredentialError(_) => "CredentialError",
+      GroupError::LeafNodeError(_) => "LeafNodeError",
+      GroupError::InstallationDiff(_) => "InstallationDiffError",
+      GroupError::NoPSKSupport => "NoPSKSupport",
+      GroupError::SqlKeyStore(_) => "SqlKeyStoreError",
+      GroupError::SyncFailedToWait(_) => "SyncFailedToWait",
+      GroupError::MissingPendingCommit => "MissingPendingCommit",
+      GroupError::ProcessIntent(_) => "ProcessIntentError",
+      GroupError::LockUnavailable => "LockUnavailable",
+      GroupError::TooManyCharacters { .. } => "TooManyCharacters",
+      GroupError::GroupPausedUntilUpdate(_) => "GroupPausedUntilUpdate",
+      GroupError::GroupInactive => "GroupInactive",
+      GroupError::Sync(_) => "SyncError",
+      GroupError::Db(_) => "DatabaseError",
+      GroupError::MlsStore(_) => "MlsStoreError",
+      GroupError::MetadataPermissionsError(_) => "MetadataPermissionsError",
+      GroupError::FailedToVerifyInstallations => "FailedToVerifyInstallations",
+      GroupError::NoWelcomesToSend => "NoWelcomesToSend",
+      GroupError::CodecError(_) => "CodecError",
+      GroupError::WrapWelcome(_) => "WrapWelcomeError",
+      GroupError::UnwrapWelcome(_) => "UnwrapWelcomeError",
+      GroupError::WelcomeDataNotFound(_) => "WelcomeDataNotFound",
+      GroupError::UninitializedResult => "UninitializedResult",
+      GroupError::Diesel(_) => "DieselError",
+      GroupError::UninitializedField(_) => "UninitializedField",
+      GroupError::EnrichMessage(_) => "EnrichMessageError",
     };
 
-    let mut wasm_err = WasmError::from_error(ErrorCode::Conversation, err).with_kind(kind);
+    let details = err.details().map(ErrorDetails::from_map);
+    let code = format!("GroupError::{kind}");
+    let mut wasm_err = WasmError::from_error(code, err);
     if let Some(d) = details {
       wasm_err = wasm_err.with_details(d);
     }
@@ -369,7 +325,8 @@ impl From<xmtp_mls::client::ClientError> for WasmError {
       ClientError::EnrichMessage(_) => "EnrichMessage",
     };
 
-    WasmError::from_error(ErrorCode::Client, err).with_kind(kind)
+    let code = format!("ClientError::{kind}");
+    WasmError::from_error(code, err)
   }
 }
 
@@ -377,22 +334,15 @@ impl From<xmtp_api::ApiError> for WasmError {
   fn from(err: xmtp_api::ApiError) -> Self {
     use xmtp_api::ApiError;
 
-    let (kind, details) = match &err {
-      ApiError::Api(_) => ("ApiError", None),
-      ApiError::MismatchedKeyPackages {
-        key_packages,
-        installation_keys,
-      } => (
-        "MismatchedKeyPackages",
-        Some(
-          ErrorDetails::with_field("keyPackages", *key_packages)
-            .add_field("installationKeys", *installation_keys),
-        ),
-      ),
-      ApiError::ProtoConversion(_) => ("ProtoConversion", None),
+    let kind = match &err {
+      ApiError::Api(_) => "ApiError",
+      ApiError::MismatchedKeyPackages { .. } => "MismatchedKeyPackages",
+      ApiError::ProtoConversion(_) => "ProtoConversion",
     };
 
-    let mut wasm_err = WasmError::from_error(ErrorCode::Api, err).with_kind(kind);
+    let details = err.details().map(ErrorDetails::from_map);
+    let code = format!("ApiError::{kind}");
+    let mut wasm_err = WasmError::from_error(code, err);
     if let Some(d) = details {
       wasm_err = wasm_err.with_details(d);
     }
@@ -404,31 +354,27 @@ impl From<xmtp_db::StorageError> for WasmError {
   fn from(err: xmtp_db::StorageError) -> Self {
     use xmtp_db::StorageError;
 
-    let (kind, details) = match &err {
-      StorageError::DieselConnect(_) => ("DieselConnect", None),
-      StorageError::DieselResult(_) => ("DieselResult", None),
-      StorageError::MigrationError(_) => ("MigrationError", None),
-      StorageError::NotFound(nf) => (
-        "NotFound",
-        Some(ErrorDetails::with_field("entity", nf.to_string())),
-      ),
-      StorageError::Duplicate(dup) => (
-        "Duplicate",
-        Some(ErrorDetails::with_field("entity", dup.to_string())),
-      ),
-      StorageError::OpenMlsStorage(_) => ("OpenMlsStorage", None),
-      StorageError::IntentionalRollback => ("IntentionalRollback", None),
-      StorageError::DbDeserialize => ("DbDeserialize", None),
-      StorageError::DbSerialize => ("DbSerialize", None),
-      StorageError::Builder(_) => ("Builder", None),
-      StorageError::Platform(_) => ("Platform", None),
-      StorageError::Prost(_) => ("Prost", None),
-      StorageError::Conversion(_) => ("Conversion", None),
-      StorageError::Connection(_) => ("Connection", None),
-      StorageError::InvalidHmacLength => ("InvalidHmacLength", None),
+    let kind = match &err {
+      StorageError::DieselConnect(_) => "DieselConnect",
+      StorageError::DieselResult(_) => "DieselResult",
+      StorageError::MigrationError(_) => "MigrationError",
+      StorageError::NotFound(_) => "NotFound",
+      StorageError::Duplicate(_) => "Duplicate",
+      StorageError::OpenMlsStorage(_) => "OpenMlsStorage",
+      StorageError::IntentionalRollback => "IntentionalRollback",
+      StorageError::DbDeserialize => "DbDeserialize",
+      StorageError::DbSerialize => "DbSerialize",
+      StorageError::Builder(_) => "Builder",
+      StorageError::Platform(_) => "Platform",
+      StorageError::Prost(_) => "Prost",
+      StorageError::Conversion(_) => "Conversion",
+      StorageError::Connection(_) => "Connection",
+      StorageError::InvalidHmacLength => "InvalidHmacLength",
     };
 
-    let mut wasm_err = WasmError::from_error(ErrorCode::Database, err).with_kind(kind);
+    let details = err.details().map(ErrorDetails::from_map);
+    let code = format!("StorageError::{kind}");
+    let mut wasm_err = WasmError::from_error(code, err);
     if let Some(d) = details {
       wasm_err = wasm_err.with_details(d);
     }
@@ -440,30 +386,26 @@ impl From<xmtp_mls::subscriptions::SubscribeError> for WasmError {
   fn from(err: xmtp_mls::subscriptions::SubscribeError) -> Self {
     use xmtp_mls::subscriptions::SubscribeError;
 
-    let (kind, details) = match &err {
-      SubscribeError::Group(_) => ("GroupError", None),
-      SubscribeError::NotFound(nf) => (
-        "NotFound",
-        Some(ErrorDetails::with_field("entity", nf.to_string())),
-      ),
-      SubscribeError::GroupMessageNotFound => ("GroupMessageNotFound", None),
-      SubscribeError::ReceiveGroup(_) => ("ReceiveGroup", None),
-      SubscribeError::Storage(_) => ("StorageError", None),
-      SubscribeError::Decode(_) => ("DecodeError", None),
-      SubscribeError::MessageStream(_) => ("MessageStream", None),
-      SubscribeError::ConversationStream(_) => ("ConversationStream", None),
-      SubscribeError::ApiClient(_) => ("ApiClient", None),
-      SubscribeError::BoxError(_) => ("BoxError", None),
-      SubscribeError::Db(_) => ("DatabaseError", None),
-      SubscribeError::Conversion(_) => ("ConversionError", None),
-      SubscribeError::Envelope(_) => ("EnvelopeError", None),
-      SubscribeError::MismatchedOriginators { expected, got } => (
-        "MismatchedOriginators",
-        Some(ErrorDetails::with_field("expected", *expected).add_field("got", *got)),
-      ),
+    let kind = match &err {
+      SubscribeError::Group(_) => "GroupError",
+      SubscribeError::NotFound(_) => "NotFound",
+      SubscribeError::GroupMessageNotFound => "GroupMessageNotFound",
+      SubscribeError::ReceiveGroup(_) => "ReceiveGroup",
+      SubscribeError::Storage(_) => "StorageError",
+      SubscribeError::Decode(_) => "DecodeError",
+      SubscribeError::MessageStream(_) => "MessageStream",
+      SubscribeError::ConversationStream(_) => "ConversationStream",
+      SubscribeError::ApiClient(_) => "ApiClient",
+      SubscribeError::BoxError(_) => "BoxError",
+      SubscribeError::Db(_) => "DatabaseError",
+      SubscribeError::Conversion(_) => "ConversionError",
+      SubscribeError::Envelope(_) => "EnvelopeError",
+      SubscribeError::MismatchedOriginators { .. } => "MismatchedOriginators",
     };
 
-    let mut wasm_err = WasmError::from_error(ErrorCode::Stream, err).with_kind(kind);
+    let details = err.details().map(ErrorDetails::from_map);
+    let code = format!("SubscribeError::{kind}");
+    let mut wasm_err = WasmError::from_error(code, err);
     if let Some(d) = details {
       wasm_err = wasm_err.with_details(d);
     }
@@ -475,63 +417,45 @@ impl From<xmtp_mls::identity::IdentityError> for WasmError {
   fn from(err: xmtp_mls::identity::IdentityError) -> Self {
     use xmtp_mls::identity::IdentityError;
 
-    let (kind, details) = match &err {
-      IdentityError::CredentialSerialization(_) => ("CredentialSerialization", None),
-      IdentityError::Decode(_) => ("Decode", None),
-      IdentityError::InstallationIdNotFound(id) => (
-        "InstallationIdNotFound",
-        Some(ErrorDetails::with_field("installationId", id.clone())),
-      ),
-      IdentityError::SignatureRequestBuilder(_) => ("SignatureRequestBuilder", None),
-      IdentityError::Signature(_) => ("Signature", None),
-      IdentityError::BasicCredential(_) => ("BasicCredential", None),
-      IdentityError::LegacyKeyReuse => ("LegacyKeyReuse", None),
-      IdentityError::UninitializedIdentity => ("UninitializedIdentity", None),
-      IdentityError::InstallationKey(_) => ("InstallationKey", None),
-      IdentityError::MalformedLegacyKey(_) => ("MalformedLegacyKey", None),
-      IdentityError::LegacySignature(_) => ("LegacySignature", None),
-      IdentityError::Crypto(_) => ("Crypto", None),
-      IdentityError::LegacyKeyMismatch => ("LegacyKeyMismatch", None),
-      IdentityError::OpenMls(_) => ("OpenMls", None),
-      IdentityError::StorageError(_) => ("StorageError", None),
-      IdentityError::OpenMlsStorageError(_) => ("OpenMlsStorageError", None),
-      IdentityError::KeyPackageGenerationError(_) => ("KeyPackageGenerationError", None),
-      IdentityError::KeyPackageVerificationError(_) => ("KeyPackageVerificationError", None),
-      IdentityError::InboxIdMismatch { id, stored } => (
-        "InboxIdMismatch",
-        Some(ErrorDetails::with_field("id", id.clone()).add_field("stored", stored.clone())),
-      ),
-      IdentityError::NoAssociatedInboxId(addr) => (
-        "NoAssociatedInboxId",
-        Some(ErrorDetails::with_field("address", addr.clone())),
-      ),
-      IdentityError::RequiredIdentityNotFound => ("RequiredIdentityNotFound", None),
-      IdentityError::NewIdentity(_) => ("NewIdentity", None),
-      IdentityError::Association(_) => ("Association", None),
-      IdentityError::Signer(_) => ("Signer", None),
-      IdentityError::ApiClient(_) => ("ApiClient", None),
-      IdentityError::AddressValidation(_) => ("AddressValidation", None),
-      IdentityError::Db(_) => ("DatabaseError", None),
-      IdentityError::TooManyInstallations {
-        inbox_id,
-        count,
-        max,
-      } => (
-        "TooManyInstallations",
-        Some(
-          ErrorDetails::with_field("inboxId", inbox_id.clone())
-            .add_field("count", *count)
-            .add_field("max", *max),
-        ),
-      ),
-      IdentityError::GeneratePostQuantumKey(_) => ("GeneratePostQuantumKey", None),
-      IdentityError::InvalidExtension(_) => ("InvalidExtension", None),
-      IdentityError::MissingPostQuantumPublicKey => ("MissingPostQuantumPublicKey", None),
-      IdentityError::Bincode => ("Bincode", None),
-      IdentityError::UninitializedField(_) => ("UninitializedField", None),
+    let kind = match &err {
+      IdentityError::CredentialSerialization(_) => "CredentialSerialization",
+      IdentityError::Decode(_) => "Decode",
+      IdentityError::InstallationIdNotFound(_) => "InstallationIdNotFound",
+      IdentityError::SignatureRequestBuilder(_) => "SignatureRequestBuilder",
+      IdentityError::Signature(_) => "Signature",
+      IdentityError::BasicCredential(_) => "BasicCredential",
+      IdentityError::LegacyKeyReuse => "LegacyKeyReuse",
+      IdentityError::UninitializedIdentity => "UninitializedIdentity",
+      IdentityError::InstallationKey(_) => "InstallationKey",
+      IdentityError::MalformedLegacyKey(_) => "MalformedLegacyKey",
+      IdentityError::LegacySignature(_) => "LegacySignature",
+      IdentityError::Crypto(_) => "Crypto",
+      IdentityError::LegacyKeyMismatch => "LegacyKeyMismatch",
+      IdentityError::OpenMls(_) => "OpenMls",
+      IdentityError::StorageError(_) => "StorageError",
+      IdentityError::OpenMlsStorageError(_) => "OpenMlsStorageError",
+      IdentityError::KeyPackageGenerationError(_) => "KeyPackageGenerationError",
+      IdentityError::KeyPackageVerificationError(_) => "KeyPackageVerificationError",
+      IdentityError::InboxIdMismatch { .. } => "InboxIdMismatch",
+      IdentityError::NoAssociatedInboxId(_) => "NoAssociatedInboxId",
+      IdentityError::RequiredIdentityNotFound => "RequiredIdentityNotFound",
+      IdentityError::NewIdentity(_) => "NewIdentity",
+      IdentityError::Association(_) => "Association",
+      IdentityError::Signer(_) => "Signer",
+      IdentityError::ApiClient(_) => "ApiClient",
+      IdentityError::AddressValidation(_) => "AddressValidation",
+      IdentityError::Db(_) => "DatabaseError",
+      IdentityError::TooManyInstallations { .. } => "TooManyInstallations",
+      IdentityError::GeneratePostQuantumKey(_) => "GeneratePostQuantumKey",
+      IdentityError::InvalidExtension(_) => "InvalidExtension",
+      IdentityError::MissingPostQuantumPublicKey => "MissingPostQuantumPublicKey",
+      IdentityError::Bincode => "Bincode",
+      IdentityError::UninitializedField(_) => "UninitializedField",
     };
 
-    let mut wasm_err = WasmError::from_error(ErrorCode::Identity, err).with_kind(kind);
+    let details = err.details().map(ErrorDetails::from_map);
+    let code = format!("IdentityError::{kind}");
+    let mut wasm_err = WasmError::from_error(code, err);
     if let Some(d) = details {
       wasm_err = wasm_err.with_details(d);
     }
@@ -543,26 +467,16 @@ impl From<xmtp_content_types::CodecError> for WasmError {
   fn from(err: xmtp_content_types::CodecError) -> Self {
     use xmtp_content_types::CodecError;
 
-    let (kind, details) = match &err {
-      CodecError::Encode(msg) => (
-        "Encode",
-        Some(ErrorDetails::with_field("message", msg.clone())),
-      ),
-      CodecError::Decode(msg) => (
-        "Decode",
-        Some(ErrorDetails::with_field("message", msg.clone())),
-      ),
-      CodecError::CodecNotFound(content_type_id) => (
-        "CodecNotFound",
-        Some(ErrorDetails::with_field(
-          "contentType",
-          format!("{:?}", content_type_id),
-        )),
-      ),
-      CodecError::InvalidContentType => ("InvalidContentType", None),
+    let kind = match &err {
+      CodecError::Encode(_) => "Encode",
+      CodecError::Decode(_) => "Decode",
+      CodecError::CodecNotFound(_) => "CodecNotFound",
+      CodecError::InvalidContentType => "InvalidContentType",
     };
 
-    let mut wasm_err = WasmError::from_error(ErrorCode::ContentType, err).with_kind(kind);
+    let details = err.details().map(ErrorDetails::from_map);
+    let code = format!("CodecError::{kind}");
+    let mut wasm_err = WasmError::from_error(code, err);
     if let Some(d) = details {
       wasm_err = wasm_err.with_details(d);
     }
@@ -572,31 +486,41 @@ impl From<xmtp_content_types::CodecError> for WasmError {
 
 impl From<hex::FromHexError> for WasmError {
   fn from(err: hex::FromHexError) -> Self {
-    WasmError::encoding(err.to_string()).with_kind("HexDecode")
+    let kind = "HexDecode";
+    let code = format!("EncodingError::{kind}");
+    WasmError::from_error(code, err)
   }
 }
 
 impl From<prost::EncodeError> for WasmError {
   fn from(err: prost::EncodeError) -> Self {
-    WasmError::encoding(err.to_string()).with_kind("ProtobufEncode")
+    let kind = "ProtobufEncode";
+    let code = format!("EncodingError::{kind}");
+    WasmError::from_error(code, err)
   }
 }
 
 impl From<prost::DecodeError> for WasmError {
   fn from(err: prost::DecodeError) -> Self {
-    WasmError::encoding(err.to_string()).with_kind("ProtobufDecode")
+    let kind = "ProtobufDecode";
+    let code = format!("EncodingError::{kind}");
+    WasmError::from_error(code, err)
   }
 }
 
 impl From<serde_json::Error> for WasmError {
   fn from(err: serde_json::Error) -> Self {
-    WasmError::encoding(err.to_string()).with_kind("JsonError")
+    let kind = "JsonError";
+    let code = format!("EncodingError::{kind}");
+    WasmError::from_error(code, err)
   }
 }
 
 impl From<xmtp_common::BoxDynError> for WasmError {
   fn from(err: xmtp_common::BoxDynError) -> Self {
-    WasmError::unknown(err.to_string()).with_kind("BoxedError")
+    let kind = "BoxedError";
+    let code = format!("UnknownError::{kind}");
+    WasmError::from_error(code, err)
   }
 }
 
@@ -627,15 +551,6 @@ mod tests {
   fn test_wasm_error_display() {
     let err = WasmError::client("test message");
     assert_eq!(err.to_string(), "[ClientError] test message");
-  }
-
-  #[test]
-  fn test_wasm_error_display_with_kind() {
-    let err = WasmError::conversation("group not found").with_kind("NotFound");
-    assert_eq!(
-      err.to_string(),
-      "[ConversationError:NotFound] group not found"
-    );
   }
 
   #[test]

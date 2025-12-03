@@ -6,6 +6,7 @@ pub mod client;
 pub mod context;
 pub mod cursor_store;
 mod definitions;
+pub mod error_details;
 pub mod groups;
 pub mod identity;
 pub mod identity_updates;
