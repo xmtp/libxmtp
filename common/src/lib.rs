@@ -19,6 +19,12 @@ pub use xmtp_macro::async_trait;
 #[cfg(feature = "bench")]
 pub mod bench;
 
+pub mod error_code;
+pub use error_code::ErrorCode;
+
+#[doc(inline)]
+pub use xmtp_macro::ErrorCode;
+
 pub mod retry;
 pub use retry::*;
 

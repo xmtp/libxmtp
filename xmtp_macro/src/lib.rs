@@ -2,6 +2,7 @@ extern crate proc_macro;
 
 use proc_macro2::*;
 use quote::{quote, quote_spanned};
+use syn::{Data, DeriveInput, Fields};
 
 /// A proc macro attribute that wraps the input in an `async_trait` implementation,
 /// delegating to the appropriate `async_trait` implementation based on the target architecture.
@@ -210,4 +211,175 @@ impl Attributes {
 
         Err(meta.error("unknown attribute"))
     }
+}
+
+/// Derive macro for the `ErrorCode` trait.
+///
+/// Automatically generates an `error_code()` implementation that returns
+/// `"{TypeName}::{VariantName}"` for each enum variant.
+///
+/// # Example
+///
+/// ```ignore
+/// use xmtp_common::ErrorCode;
+///
+/// #[derive(Debug, thiserror::Error, ErrorCode)]
+/// pub enum GroupError {
+///     #[error("Group not found")]
+///     NotFound,  // Returns "GroupError::NotFound"
+///
+///     #[error("Storage error: {0}")]
+///     #[error_code(inherit)]  // Delegates to StorageError::error_code()
+///     Storage(#[from] StorageError),
+/// }
+/// ```
+///
+/// # Attributes
+///
+/// - `#[error_code(inherit)]` - Delegate to the inner error's `error_code()` method.
+///   Use this for single-field variants that wrap another error implementing `ErrorCode`.
+///
+/// - `#[error_code("CustomCode")]` - Override the generated code with a custom value.
+///   Use this to maintain backwards compatibility when renaming variants.
+///
+/// # Example: Custom Code for Backwards Compatibility
+///
+/// ```ignore
+/// #[derive(Debug, thiserror::Error, ErrorCode)]
+/// pub enum MyError {
+///     // Renamed from "OldName" but keeps the old error code
+///     #[error("new name")]
+///     #[error_code("MyError::OldName")]
+///     NewName,
+/// }
+/// ```
+// Parsed error_code attribute options
+#[derive(Default)]
+struct ErrorCodeAttr {
+    /// Custom code override: #[error_code("CustomCode")]
+    code: Option<String>,
+    /// Inherit from inner error: #[error_code(inherit)]
+    inherit: bool,
+}
+
+impl ErrorCodeAttr {
+    fn parse(attrs: &[syn::Attribute]) -> Self {
+        let mut result = Self::default();
+
+        for attr in attrs {
+            if !attr.path().is_ident("error_code") {
+                continue;
+            }
+
+            // Try parsing #[error_code("CustomCode")]
+            if let Ok(lit) = attr.parse_args::<syn::LitStr>() {
+                result.code = Some(lit.value());
+                continue;
+            }
+
+            // Try parsing #[error_code(inherit)]
+            let _ = attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("inherit") {
+                    result.inherit = true;
+                    Ok(())
+                } else {
+                    Err(meta.error("expected `inherit` or a string literal"))
+                }
+            });
+        }
+
+        result
+    }
+}
+
+#[proc_macro_derive(ErrorCode, attributes(error_code))]
+pub fn derive_error_code(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = syn::parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    let name_str = name.to_string();
+
+    let expanded = match &input.data {
+        Data::Enum(data_enum) => {
+            let code_arms = data_enum.variants.iter().map(|variant| {
+                let variant_name = &variant.ident;
+                let default_code = format!("{}::{}", name_str, variant_name);
+                let attr = ErrorCodeAttr::parse(&variant.attrs);
+
+                if attr.inherit {
+                    // For inherited errors, delegate to the inner error
+                    match &variant.fields {
+                        Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                            quote! {
+                                Self::#variant_name(e) => e.error_code(),
+                            }
+                        }
+                        Fields::Named(fields) if fields.named.len() == 1 => {
+                            let field_name = fields.named.first().unwrap().ident.as_ref().unwrap();
+                            quote! {
+                                Self::#variant_name { #field_name } => #field_name.error_code(),
+                            }
+                        }
+                        _ => {
+                            let span = variant_name.span();
+                            quote_spanned! {span=>
+                                compile_error!("#[error_code(inherit)] requires exactly one field");
+                            }
+                        }
+                    }
+                } else {
+                    // Use custom code if provided, otherwise use default
+                    let code = attr.code.unwrap_or(default_code);
+
+                    // Generate pattern based on fields
+                    match &variant.fields {
+                        Fields::Unit => {
+                            quote! {
+                                Self::#variant_name => #code,
+                            }
+                        }
+                        Fields::Unnamed(_) => {
+                            quote! {
+                                Self::#variant_name(..) => #code,
+                            }
+                        }
+                        Fields::Named(_) => {
+                            quote! {
+                                Self::#variant_name { .. } => #code,
+                            }
+                        }
+                    }
+                }
+            });
+
+            quote! {
+                impl xmtp_common::ErrorCode for #name {
+                    fn error_code(&self) -> &'static str {
+                        match self {
+                            #(#code_arms)*
+                        }
+                    }
+                }
+            }
+        }
+        Data::Struct(_) => {
+            // Check for custom code on struct
+            let attr = ErrorCodeAttr::parse(&input.attrs);
+            let code = attr.code.unwrap_or_else(|| name_str.clone());
+
+            quote! {
+                impl xmtp_common::ErrorCode for #name {
+                    fn error_code(&self) -> &'static str {
+                        #code
+                    }
+                }
+            }
+        }
+        Data::Union(_) => {
+            return syn::Error::new_spanned(&input, "ErrorCode cannot be derived for unions")
+                .to_compile_error()
+                .into();
+        }
+    };
+
+    expanded.into()
 }
