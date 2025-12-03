@@ -1,6 +1,6 @@
 use crate::{
     mls_v1::QueryGroupMessagesResponse,
-    types::{GroupId, GroupMessageMetadata, WelcomeMessage},
+    types::{GroupId, GroupMessageMetadata, TopicCursor, WelcomeMessage},
     xmtp::xmtpv4::{
         envelopes::OriginatorEnvelope,
         message_api::{QueryEnvelopesResponse, SubscribeEnvelopesResponse},
@@ -293,7 +293,7 @@ where
 
     async fn subscribe_group_messages_with_cursors(
         &self,
-        groups_with_cursors: &[(&GroupId, crate::types::GlobalCursor)],
+        groups_with_cursors: &TopicCursor,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         (**self)
             .subscribe_group_messages_with_cursors(groups_with_cursors)
@@ -328,7 +328,7 @@ where
 
     async fn subscribe_group_messages_with_cursors(
         &self,
-        groups_with_cursors: &[(&GroupId, crate::types::GlobalCursor)],
+        groups_with_cursors: &TopicCursor,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         (**self)
             .subscribe_group_messages_with_cursors(groups_with_cursors)

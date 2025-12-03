@@ -7,7 +7,9 @@ use crate::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
     GetNewestGroupMessageRequest, PagingInfo,
 };
-use crate::types::{GroupId, GroupMessage, GroupMessageMetadata, InstallationId, WelcomeMessage};
+use crate::types::{
+    GroupId, GroupMessage, GroupMessageMetadata, InstallationId, TopicCursor, WelcomeMessage,
+};
 use crate::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
@@ -156,7 +158,7 @@ pub trait XmtpMlsStreams: MaybeSend + MaybeSync {
     ) -> Result<Self::GroupMessageStream, Self::Error>;
     async fn subscribe_group_messages_with_cursors(
         &self,
-        groups_with_cursors: &[(&GroupId, crate::types::GlobalCursor)],
+        groups_with_cursors: &TopicCursor,
     ) -> Result<Self::GroupMessageStream, Self::Error>;
     async fn subscribe_welcome_messages(
         &self,

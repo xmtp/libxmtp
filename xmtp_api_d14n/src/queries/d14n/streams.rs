@@ -1,14 +1,13 @@
 use crate::TryExtractorStream;
 use crate::d14n::SubscribeEnvelopes;
-use crate::protocol::{CursorStore, GroupMessageExtractor, WelcomeMessageExtractor};
+use crate::protocol::{CursorStore, GroupMessageExtractor, VectorClock, WelcomeMessageExtractor};
 use crate::queries::stream;
 
 use super::D14nClient;
-use std::collections::HashMap;
 use xmtp_common::RetryableError;
 use xmtp_proto::api::{ApiClientError, Client, QueryStream, XmtpStream};
 use xmtp_proto::api_client::XmtpMlsStreams;
-use xmtp_proto::types::{GlobalCursor, GroupId, InstallationId, TopicKind};
+use xmtp_proto::types::{GlobalCursor, GroupId, InstallationId, TopicCursor, TopicKind};
 use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse;
 
 #[xmtp_common::async_trait]
@@ -54,31 +53,19 @@ where
 
     async fn subscribe_group_messages_with_cursors(
         &self,
-        groups_with_cursors: &[(&GroupId, GlobalCursor)],
+        topics: &TopicCursor,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        let topics = groups_with_cursors
-            .iter()
-            .map(|(gid, _)| TopicKind::GroupMessagesV1.create(gid))
-            .collect::<Vec<_>>();
-
         // Compute the lowest common cursor from the provided cursors
-        let mut min_clock: HashMap<u32, u64> = HashMap::new();
-        for (_, cursor) in groups_with_cursors {
-            for (&node_id, &seq_id) in cursor.iter() {
-                min_clock
-                    .entry(node_id)
-                    .and_modify(|existing| *existing = (*existing).min(seq_id))
-                    .or_insert(seq_id);
-            }
-        }
-        let lcc = GlobalCursor::new(min_clock);
-
+        let lcc = topics.values().fold(GlobalCursor::default(), |mut acc, c| {
+            acc.merge_least(c);
+            acc
+        });
         tracing::debug!(
             "subscribing to messages with provided cursors @cursor={}",
             lcc
         );
         let s = SubscribeEnvelopes::builder()
-            .topics(topics)
+            .topics(topics.topics())
             .last_seen(lcc)
             .build()?
             .stream(&self.client)
