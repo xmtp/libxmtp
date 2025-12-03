@@ -1,5 +1,5 @@
 use super::{Cursor, GroupId};
-use crate::ConversionError;
+use crate::{ConversionError, types::GlobalCursor};
 use chrono::Utc;
 use derive_builder::Builder;
 use openmls::prelude::ContentType;
@@ -23,6 +23,8 @@ pub struct GroupMessage {
     /// Payload hash of the message
     /// TODO: make payload hash constant array
     pub payload_hash: Vec<u8>,
+    #[builder(default)]
+    pub depends_on: GlobalCursor,
 }
 
 impl GroupMessage {
@@ -60,19 +62,21 @@ impl xmtp_common::Generate for GroupMessage {
             sender_hmac: xmtp_common::rand_vec::<2>(),
             should_push: true,
             payload_hash: xmtp_common::rand_vec::<32>(),
+            depends_on: GlobalCursor::default(),
         }
     }
 }
 
 impl std::fmt::Display for GroupMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "GroupMessage {{ cursor {}, created at {}, group {} }}",
+        let s = format!(
+            "GroupMessage {{ cursor {}, depends on {}, created at {:10}, group {:16} }}",
             self.cursor,
-            self.created_ns.time(),
+            self.depends_on,
+            self.created_ns.time().format("%H:%M:%S%.6f").to_string(),
             self.group_id
-        )
+        );
+        write!(f, "{}", s)
     }
 }
 

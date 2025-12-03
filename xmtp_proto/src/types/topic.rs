@@ -3,7 +3,11 @@ use std::{
     ops::Deref,
 };
 
-use crate::{ConversionError, xmtp::xmtpv4::envelopes::AuthenticatedData};
+use crate::{
+    ConversionError,
+    types::{GroupId, InstallationId},
+    xmtp::xmtpv4::envelopes::AuthenticatedData,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -73,6 +77,22 @@ impl Topic {
         Self {
             inner: kind.build(bytes),
         }
+    }
+
+    pub fn new_group_message(group_id: GroupId) -> Self {
+        TopicKind::GroupMessagesV1.create(group_id)
+    }
+
+    pub fn new_identity_update(inbox_id: impl AsRef<[u8]>) -> Self {
+        TopicKind::IdentityUpdatesV1.create(inbox_id)
+    }
+
+    pub fn new_welcome_message(installation_id: InstallationId) -> Self {
+        TopicKind::WelcomeMessagesV1.create(installation_id)
+    }
+
+    pub fn new_key_package(installation_id: InstallationId) -> Self {
+        TopicKind::KeyPackagesV1.create(installation_id)
     }
 
     pub fn kind(&self) -> TopicKind {

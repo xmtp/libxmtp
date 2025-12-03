@@ -1,7 +1,9 @@
 //! xmtp message cursor type and implementations
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::{collections::HashMap, fmt};
 use xmtp_configuration::Originators;
+
+use crate::xmtp::xmtpv4;
 
 /// XMTP cursor type
 /// represents a position in an ordered sequence of messages, belonging
@@ -67,7 +69,11 @@ impl Cursor {
 
 impl fmt::Display for Cursor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[sid({}):oid({})]", self.sequence_id, self.originator_id)
+        write!(
+            f,
+            "[sid({:6}):oid({:3})]",
+            self.sequence_id, self.originator_id
+        )
     }
 }
 
@@ -77,6 +83,16 @@ impl xmtp_common::Generate for Cursor {
         Cursor {
             sequence_id: xmtp_common::rand_u64(),
             originator_id: openmls::test_utils::random_u32(),
+        }
+    }
+}
+
+impl From<Cursor> for xmtpv4::envelopes::Cursor {
+    fn from(value: Cursor) -> Self {
+        let mut map = HashMap::new();
+        map.insert(value.originator_id, value.sequence_id);
+        xmtpv4::envelopes::Cursor {
+            node_id_to_sequence_id: map,
         }
     }
 }

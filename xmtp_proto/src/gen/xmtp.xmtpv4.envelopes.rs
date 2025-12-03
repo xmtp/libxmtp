@@ -36,9 +36,8 @@ pub struct NodeSignature {
     #[prost(uint32, tag = "1")]
     pub node_id: u32,
     #[prost(message, optional, tag = "2")]
-    pub signature: ::core::option::Option<
-        super::super::identity::associations::RecoverableEcdsaSignature,
-    >,
+    pub signature:
+        ::core::option::Option<super::super::identity::associations::RecoverableEcdsaSignature>,
 }
 impl ::prost::Name for NodeSignature {
     const NAME: &'static str = "NodeSignature";
@@ -148,9 +147,8 @@ pub struct PayerEnvelope {
     #[prost(bytes = "vec", tag = "1")]
     pub unsigned_client_envelope: ::prost::alloc::vec::Vec<u8>,
     #[prost(message, optional, tag = "2")]
-    pub payer_signature: ::core::option::Option<
-        super::super::identity::associations::RecoverableEcdsaSignature,
-    >,
+    pub payer_signature:
+        ::core::option::Option<super::super::identity::associations::RecoverableEcdsaSignature>,
     #[prost(uint32, tag = "3")]
     pub target_originator: u32,
     #[prost(uint32, tag = "4")]
@@ -226,9 +224,7 @@ pub mod originator_envelope {
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
     pub enum Proof {
         #[prost(message, tag = "2")]
-        OriginatorSignature(
-            super::super::super::identity::associations::RecoverableEcdsaSignature,
-        ),
+        OriginatorSignature(super::super::super::identity::associations::RecoverableEcdsaSignature),
         #[prost(message, tag = "3")]
         BlockchainProof(super::BlockchainProof),
     }

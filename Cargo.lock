@@ -8524,6 +8524,7 @@ dependencies = [
  "tracing",
  "url",
  "wasm-bindgen-test",
+ "xmtp_api_d14n",
  "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_configuration",

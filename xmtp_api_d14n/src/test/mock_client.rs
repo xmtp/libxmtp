@@ -7,7 +7,9 @@ use xmtp_proto::api::mock::MockApiBuilder;
 use xmtp_proto::api_client::XmtpTestClient;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
-    types::{GroupId, GroupMessage, GroupMessageMetadata, InstallationId, WelcomeMessage},
+    types::{
+        GroupId, GroupMessage, GroupMessageMetadata, InstallationId, TopicCursor, WelcomeMessage,
+    },
     xmtp::{
         identity::api::v1::{
             GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -99,7 +101,7 @@ mock! {
         #[mockall::concretize]
         async fn subscribe_group_messages(&self, group_ids: &[&GroupId]) -> Result<MockGroupStream, MockError>;
         #[mockall::concretize]
-        async fn subscribe_group_messages_with_cursors(&self, groups_with_cursors: &[(&GroupId, xmtp_proto::types::GlobalCursor)]) -> Result<MockGroupStream, MockError>;
+        async fn subscribe_group_messages_with_cursors(&self, groups_with_cursors: &TopicCursor) -> Result<MockGroupStream, MockError>;
         #[mockall::concretize]
         async fn subscribe_welcome_messages(&self, installations: &[&InstallationId]) -> Result<MockWelcomeStream, MockError>;
     }

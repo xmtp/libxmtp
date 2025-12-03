@@ -278,9 +278,10 @@ mock! {
             to_save: crate::group_intent::NewGroupIntent,
         ) -> Result<crate::group_intent::StoredGroupIntent, crate::ConnectionError>;
 
-        fn find_group_intents(
+        #[mockall::concretize]
+        fn find_group_intents<Id: AsRef<[u8]>>(
             &self,
-            group_id: Vec<u8>,
+            group_id: Id,
             allowed_states: Option<Vec<crate::group_intent::IntentState>>,
             allowed_kinds: Option<Vec<crate::group_intent::IntentKind>>,
         ) -> Result<Vec<crate::group_intent::StoredGroupIntent>, crate::ConnectionError>;
@@ -319,6 +320,12 @@ mock! {
             &self,
             payload_hash: &[u8],
         ) -> Result<Option<crate::group_intent::StoredGroupIntent>, StorageError>;
+
+        #[mockall::concretize]
+        fn find_dependant_commits<P: AsRef<[u8]>>(
+            &self,
+            payload_hashes: &[P],
+        ) -> Result<HashMap<crate::group_intent::PayloadHash, crate::group_intent::IntentDependency>, StorageError>;
 
         fn increment_intent_publish_attempt_count(
             &self,

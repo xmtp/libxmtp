@@ -6,6 +6,8 @@ pub mod tester_utils;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod fixtures;
 pub mod test_mocks_helpers;
+mod tester_utils_trait_ext;
+pub use tester_utils_trait_ext::*;
 
 use crate::XmtpApi;
 use crate::cursor_store::SqliteCursorStore;

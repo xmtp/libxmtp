@@ -10,6 +10,8 @@ impl Originators {
     /// Key Packages
     pub const INSTALLATIONS: u32 = 13;
     pub const REMOTE_COMMIT_LOG: u32 = 100;
+    /// the "default" originator for local and tests
+    pub const DEFAULT: u32 = 100;
 }
 
 pub const PAYER_WRITE_FILTER: &str = "xmtp.xmtpv4.payer_api.PayerApi";
