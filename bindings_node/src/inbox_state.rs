@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{ErrorWrapper, client::Client, identity::Identifier};
+use crate::{ErrorWrapper, HexError, client::Client, identity::Identifier};
 use napi::bindgen_prelude::{BigInt, Result, Uint8Array};
 use napi_derive::napi;
 use std::sync::Arc;
@@ -162,7 +162,7 @@ impl Client {
       .into_iter()
       .map(hex::decode)
       .collect::<std::result::Result<Vec<Vec<u8>>, _>>()
-      .map_err(ErrorWrapper::from)?;
+      .map_err(|e| ErrorWrapper(HexError::from(e)))?;
 
     let key_package_results = self
       .inner_client()

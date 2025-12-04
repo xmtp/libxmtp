@@ -1,8 +1,8 @@
-use crate::ErrorWrapper;
 use crate::consent_state::{Consent, ConsentState};
 use crate::identity::Identifier;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
+use crate::{ErrorWrapper, HexError};
 use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
@@ -375,7 +375,7 @@ impl Conversations {
     if !account_identities.is_empty() {
       convo.add_members(account_identities).await?;
     } else {
-      convo.sync().await.map_err(ErrorWrapper::from)?;
+      convo.sync().await?;
     };
 
     Ok(convo)
@@ -392,7 +392,7 @@ impl Conversations {
     if !inbox_ids.is_empty() {
       convo.add_members_by_inbox_id(inbox_ids).await?;
     } else {
-      convo.sync().await.map_err(ErrorWrapper::from)?;
+      convo.sync().await?;
     }
 
     Ok(convo)
@@ -433,7 +433,7 @@ impl Conversations {
 
   #[napi]
   pub fn find_group_by_id(&self, group_id: String) -> Result<Conversation> {
-    let group_id = hex::decode(group_id).map_err(ErrorWrapper::from)?;
+    let group_id = hex::decode(group_id).map_err(|e| ErrorWrapper(HexError::from(e)))?;
 
     let group = self
       .inner_client
@@ -455,7 +455,7 @@ impl Conversations {
 
   #[napi]
   pub fn find_message_by_id(&self, message_id: String) -> Result<Message> {
-    let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
+    let message_id = hex::decode(message_id).map_err(|e| ErrorWrapper(HexError::from(e)))?;
 
     let message = self
       .inner_client

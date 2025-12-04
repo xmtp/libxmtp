@@ -1,6 +1,7 @@
 use crate::ErrorWrapper;
 use crate::conversations::Conversations;
 use crate::enriched_message::DecodedMessage;
+use xmtp_common::LoggingError;
 use crate::identity::{ApiStats, Identifier, IdentityExt, IdentityStats};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestHandle;
@@ -149,7 +150,7 @@ fn init_logging(options: LogOptions) -> Result<()> {
       Ok(())
     })
     .as_ref()
-    .map_err(ErrorWrapper::from)?;
+    .map_err(|e| ErrorWrapper(LoggingError::Init(e.to_string())))?;
   Ok(())
 }
 
