@@ -185,12 +185,12 @@ enum Task {
     /// Clear all messages in a group.
     DbClearMessages,
     /// Clear all messages in the database.
-    /// Requirese hex-encoded group_id as --target param.
+    /// Requires hex-encoded group_id as --target param.
     DbClearAllMessages,
     /// Disable a group.
-    /// Requirese hex-encoded group_id as --target param.
+    /// Requires hex-encoded group_id as --target param.
     DisableGroup,
     /// Enable a group.
-    /// Requirese hex-encoded group_id as --target param.
+    /// Requires hex-encoded group_id as --target param.
     EnableGroup,
 }
