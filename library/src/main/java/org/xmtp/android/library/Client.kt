@@ -22,6 +22,7 @@ import uniffi.xmtpv3.FfiForkRecoveryPolicy
 import uniffi.xmtpv3.FfiKeyPackageStatus
 import uniffi.xmtpv3.FfiLogLevel
 import uniffi.xmtpv3.FfiLogRotation
+import uniffi.xmtpv3.FfiProcessType
 import uniffi.xmtpv3.FfiSyncWorkerMode
 import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.XmtpApiClient
@@ -39,6 +40,7 @@ import uniffi.xmtpv3.revokeInstallations
 import java.io.File
 
 typealias PreEventCallback = suspend () -> Unit
+typealias ProcessType = FfiProcessType
 
 data class ClientOptions(
     val api: Api = Api(),
@@ -135,6 +137,7 @@ class Client(
             logLevel: FfiLogLevel,
             rotationSchedule: FfiLogRotation,
             maxFiles: Int,
+            processType: ProcessType = FfiProcessType.MAIN,
         ) {
             val logDirectory = File(appContext.filesDir, "xmtp_logs")
             if (!logDirectory.exists()) {
@@ -145,6 +148,7 @@ class Client(
                 logLevel,
                 rotationSchedule,
                 maxFiles.toUInt(),
+                processType,
             )
         }
 

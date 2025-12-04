@@ -1212,6 +1212,8 @@ internal interface IntegrityCheckingUniffiLib : Library {
 
     fun uniffi_xmtpv3_checksum_method_fficonversation_list_members(): Short
 
+    fun uniffi_xmtpv3_checksum_method_fficonversation_membership_state(): Short
+
     fun uniffi_xmtpv3_checksum_method_fficonversation_paused_for_version(): Short
 
     fun uniffi_xmtpv3_checksum_method_fficonversation_process_streamed_conversation_message(): Short
@@ -1746,6 +1748,11 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_fn_method_fficonversation_leave_group(`ptr`: Pointer): Long
 
     fun uniffi_xmtpv3_fn_method_fficonversation_list_members(`ptr`: Pointer): Long
+
+    fun uniffi_xmtpv3_fn_method_fficonversation_membership_state(
+        `ptr`: Pointer,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
 
     fun uniffi_xmtpv3_fn_method_fficonversation_paused_for_version(
         `ptr`: Pointer,
@@ -2704,6 +2711,7 @@ internal interface UniffiLib : Library {
         `logLevel`: RustBuffer.ByValue,
         `rotation`: RustBuffer.ByValue,
         `maxFiles`: Int,
+        `processType`: RustBuffer.ByValue,
         uniffi_out_err: UniffiRustCallStatus,
     ): Unit
 
@@ -2712,6 +2720,7 @@ internal interface UniffiLib : Library {
         `rotation`: RustBuffer.ByValue,
         `maxFiles`: Int,
         `logLevel`: RustBuffer.ByValue,
+        `processType`: RustBuffer.ByValue,
         uniffi_out_err: UniffiRustCallStatus,
     ): Unit
 
@@ -3074,10 +3083,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_func_encode_wallet_send_calls() != 8163.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_func_enter_debug_writer() != 7266.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_func_enter_debug_writer() != 60052.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_func_enter_debug_writer_with_level() != 7232.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_func_enter_debug_writer_with_level() != 41119.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_ethereum_address_from_pubkey() != 12568.toShort()) {
@@ -3225,6 +3234,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_list_members() != 21260.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_membership_state() != 9048.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_paused_for_version() != 61438.toShort()) {
@@ -5195,6 +5207,8 @@ public interface FfiConversationInterface {
 
     suspend fun `listMembers`(): List<FfiConversationMember>
 
+    fun `membershipState`(): FfiGroupMembershipState
+
     fun `pausedForVersion`(): kotlin.String?
 
     suspend fun `processStreamedConversationMessage`(`envelopeBytes`: kotlin.ByteArray): FfiMessage
@@ -5791,6 +5805,16 @@ open class FfiConversation :
             { FfiConverterSequenceTypeFfiConversationMember.lift(it) },
             // Error FFI converter
             GenericException.ErrorHandler,
+        )
+
+    @Throws(GenericException::class)
+    override fun `membershipState`(): FfiGroupMembershipState =
+        FfiConverterTypeFfiGroupMembershipState.lift(
+            callWithPointer {
+                uniffiRustCallWithError(GenericException) { _status ->
+                    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_membership_state(it, _status)
+                }
+            },
         )
 
     @Throws(GenericException::class)
@@ -15008,6 +15032,38 @@ public object FfiConverterTypeFfiForkRecoveryPolicy : FfiConverterRustBuffer<Ffi
     }
 }
 
+enum class FfiGroupMembershipState {
+    ALLOWED,
+    REJECTED,
+    PENDING,
+    RESTORED,
+    PENDING_REMOVE,
+    ;
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiGroupMembershipState : FfiConverterRustBuffer<FfiGroupMembershipState> {
+    override fun read(buf: ByteBuffer) =
+        try {
+            FfiGroupMembershipState.values()[buf.getInt() - 1]
+        } catch (e: IndexOutOfBoundsException) {
+            throw RuntimeException("invalid enum value, something is very wrong!!", e)
+        }
+
+    override fun allocationSize(value: FfiGroupMembershipState) = 4UL
+
+    override fun write(
+        value: FfiGroupMembershipState,
+        buf: ByteBuffer,
+    ) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
 enum class FfiGroupMessageKind {
     APPLICATION,
     MEMBERSHIP_CHANGE,
@@ -15402,6 +15458,47 @@ public object FfiConverterTypeFfiPreferenceUpdate : FfiConverterRustBuffer<FfiPr
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+/**
+ * Enum representing process types for logging
+ */
+
+enum class FfiProcessType {
+    /**
+     * Main application process
+     */
+    MAIN,
+
+    /**
+     * Notification extension/service process
+     */
+    NOTIFICATION_EXTENSION,
+
+    ;
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiProcessType : FfiConverterRustBuffer<FfiProcessType> {
+    override fun read(buf: ByteBuffer) =
+        try {
+            FfiProcessType.values()[buf.getInt() - 1]
+        } catch (e: IndexOutOfBoundsException) {
+            throw RuntimeException("invalid enum value, something is very wrong!!", e)
+        }
+
+    override fun allocationSize(value: FfiProcessType) = 4UL
+
+    override fun write(
+        value: FfiProcessType,
+        buf: ByteBuffer,
+    ) {
+        buf.putInt(value.ordinal + 1)
     }
 }
 
@@ -18414,8 +18511,8 @@ fun `encodeWalletSendCalls`(`walletSendCalls`: FfiWalletSendCalls): kotlin.ByteA
 
 /**
  * turns on logging to a file on-disk in the directory specified.
- * files will be prefixed with 'libxmtp.log' and suffixed with the timestamp,
- * i.e "libxmtp.log.2025-04-02"
+ * files will be prefixed with 'libxmtp-v{version}.{commit}.{process_type}.{pid}.log' and suffixed with the timestamp,
+ * i.e "libxmtp-v1.6.0.abc123.main.12345.log.2025-04-02"
  * A maximum of 'max_files' log files are kept.
  */
 @Throws(GenericException::class)
@@ -18424,20 +18521,22 @@ fun `enterDebugWriter`(
     `logLevel`: FfiLogLevel,
     `rotation`: FfiLogRotation,
     `maxFiles`: kotlin.UInt,
+    `processType`: FfiProcessType,
 ) = uniffiRustCallWithError(GenericException) { _status ->
     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_enter_debug_writer(
         FfiConverterString.lower(`directory`),
         FfiConverterTypeFfiLogLevel.lower(`logLevel`),
         FfiConverterTypeFfiLogRotation.lower(`rotation`),
         FfiConverterUInt.lower(`maxFiles`),
+        FfiConverterTypeFfiProcessType.lower(`processType`),
         _status,
     )
 }
 
 /**
  * turns on logging to a file on-disk with a specified log level.
- * files will be prefixed with 'libxmtp.log' and suffixed with the timestamp,
- * i.e "libxmtp.log.2025-04-02"
+ * files will be prefixed with 'libxmtp-v{version}.{commit}.{process_type}.{pid}.log' and suffixed with the timestamp,
+ * i.e "libxmtp-v1.6.0.abc123.notif.67890.log.2025-04-02"
  * A maximum of 'max_files' log files are kept.
  */
 @Throws(GenericException::class)
@@ -18446,12 +18545,14 @@ fun `enterDebugWriterWithLevel`(
     `rotation`: FfiLogRotation,
     `maxFiles`: kotlin.UInt,
     `logLevel`: FfiLogLevel,
+    `processType`: FfiProcessType,
 ) = uniffiRustCallWithError(GenericException) { _status ->
     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_enter_debug_writer_with_level(
         FfiConverterString.lower(`directory`),
         FfiConverterTypeFfiLogRotation.lower(`rotation`),
         FfiConverterUInt.lower(`maxFiles`),
         FfiConverterTypeFfiLogLevel.lower(`logLevel`),
+        FfiConverterTypeFfiProcessType.lower(`processType`),
         _status,
     )
 }
