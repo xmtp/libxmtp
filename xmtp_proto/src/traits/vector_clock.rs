@@ -1,4 +1,4 @@
-use xmtp_proto::types::{ClockOrdering, Cursor};
+use crate::types::{ClockOrdering, Cursor};
 
 /// common functions w.r.t vector clock types
 /// mostly used as an extension trait to [`GlobalCursor`](xmtp_proto::types::GlobalCursor)

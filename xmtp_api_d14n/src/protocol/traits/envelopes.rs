@@ -124,7 +124,7 @@ where
         let depends_on = extractor.2.get();
         Ok(ClientEnvelope {
             aad: Some(AuthenticatedData {
-                target_topic: topic.to_bytes(),
+                target_topic: topic.into(),
                 depends_on: depends_on.map(Into::into),
             }),
             payload: Some(payload),

@@ -1,6 +1,9 @@
 use std::collections::HashSet;
 
-use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, Topic, TopicCursor};
+use xmtp_proto::{
+    api::VectorClock,
+    types::{Cursor, GlobalCursor, Topic, TopicCursor},
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum MessageStreamError {
@@ -19,15 +22,8 @@ pub(super) struct GroupList {
 }
 
 impl GroupList {
-    pub(super) fn new(list: Vec<GroupId>, seen: HashSet<Cursor>) -> Self {
-        Self {
-            list: list
-                .into_iter()
-                .map(Topic::new_group_message)
-                .map(|t| (t, GlobalCursor::default()))
-                .collect(),
-            seen,
-        }
+    pub(super) fn new(list: TopicCursor, seen: HashSet<Cursor>) -> Self {
+        Self { list, seen }
     }
 
     pub(super) fn has_seen(&self, cursor: Cursor) -> bool {
@@ -56,8 +52,7 @@ impl GroupList {
 
     /// add a group at `GlobalCursor` to this list
     pub(super) fn add(&mut self, group: impl AsRef<[u8]>, position: GlobalCursor) {
-        self.list
-            .insert(Topic::new_group_message(group.as_ref().into()), position);
+        self.list.insert(Topic::new_group_message(group), position);
     }
 
     pub(super) fn set(&mut self, group: impl AsRef<[u8]>, cursor: Cursor) {

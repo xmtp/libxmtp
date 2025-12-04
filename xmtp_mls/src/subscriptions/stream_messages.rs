@@ -28,8 +28,8 @@ use std::{
 };
 use xmtp_common::BoxDynFuture;
 use xmtp_db::group_message::StoredGroupMessage;
-use xmtp_proto::types::GroupId;
 use xmtp_proto::types::{Cursor, GlobalCursor};
+use xmtp_proto::types::{GroupId, Topic};
 use xmtp_proto::{api_client::XmtpMlsStreams, types::TopicCursor};
 
 impl xmtp_common::RetryableError for MessageStreamError {
@@ -159,7 +159,13 @@ where
 
         let seen_cursors: std::collections::HashSet<_> = seen_cursors_vec.into_iter().collect();
 
-        let groups_list = GroupList::new(groups.clone(), seen_cursors);
+        let mut topic_cursor = TopicCursor::default();
+        for (group_id, cursor) in cursors_by_group {
+            topic_cursor.add(Topic::new_group_message(group_id), cursor);
+        }
+
+        let groups_list = GroupList::new(topic_cursor, seen_cursors.clone());
+
         let subscription = api
             .subscribe_group_messages(&groups.iter().collect::<Vec<_>>())
             .await?;
@@ -397,7 +403,7 @@ where
             this.groups.set(next_msg.group_id, next_msg.cursor);
             return Poll::Ready(Some(Ok(stored)));
         }
-        tracing::debug!(
+        tracing::info!(
             "group_id@[{}] encountered newly unprocessed message @cursor=[{}]",
             next_msg.group_id,
             next_msg.cursor

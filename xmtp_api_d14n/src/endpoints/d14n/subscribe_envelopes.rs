@@ -36,7 +36,7 @@ impl Endpoint for SubscribeEnvelopes {
             tracing::info!("subscribing to {}", topic.clone());
         }
         let query = EnvelopesQuery {
-            topics: self.topics.iter().map(Topic::bytes).collect(),
+            topics: self.topics.iter().map(Topic::cloned_vec).collect(),
             last_seen: self.last_seen.clone().map(Into::into),
             originator_node_ids: self.originators.clone(),
         };
