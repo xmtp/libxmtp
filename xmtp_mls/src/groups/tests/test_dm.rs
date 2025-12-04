@@ -1,7 +1,11 @@
+use std::time::{Duration, Instant};
+
+use tokio_stream::StreamExt;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::consent_record::{ConsentState, ConsentType};
 use xmtp_db::prelude::*;
 
+use crate::subscriptions::stream_messages::stream_stats::StreamWithStats;
 use crate::tester;
 
 /// Test case: If two users are talking in a DM, and one user
@@ -65,4 +69,46 @@ async fn test_dm_welcome_with_preexisting_consent() {
             .group_id,
         a_group.group_id
     );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_setup_test() {
+    tester!(alix);
+    for _ in 0..300 {
+        tester!(bo, disable_workers);
+        bo.test_talk_in_dm_with(&alix).await?;
+        bo.test_talk_in_new_group_with(&alix).await?;
+    }
+
+    alix.sync_all_welcomes_and_groups(None).await?;
+
+    let snap = alix.db_snapshot();
+    std::fs::write("alix.db3", snap)?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_logs_issue() {
+    tester!(alix, snapshot_file: "alix.db3");
+    tester!(bo);
+
+    let mut stream = alix
+        .stream_all_messages_owned_with_stats(None, None)
+        .await?;
+    let stats = stream.stats();
+
+    tokio::task::spawn(async move { while let Some(_) = stream.next().await {} });
+
+    let opt_group = alix.create_group(Default::default(), Default::default())?;
+    // opt_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    // let msg = opt_group.send_message_optimistic(b"Hi group", Default::default())?;
+
+    // let new_stats = stats.new_stats().await;
+    // tracing::info!("new stats: {new_stats:?}");
+
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(100) {
+        let new_stats = stats.new_stats().await;
+        tracing::info!("New stats: {}", new_stats.len());
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
 }
