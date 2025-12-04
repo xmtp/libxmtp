@@ -2,10 +2,18 @@ use anyhow::{Result, bail};
 use std::collections::HashMap;
 use xmtp_db::{
     EncryptedMessageStore, NativeDb,
+    association_state::QueryAssociationStateCache,
     consent_record::{ConsentState, ConsentType, QueryConsentRecord, StoredConsentRecord},
+    conversation_list::QueryConversationList,
     group::{ConversationType, GroupQueryArgs, QueryGroup, StoredGroup},
+    group_intent::{IntentKind, IntentState, QueryGroupIntent},
     group_message::{MsgQueryArgs, QueryGroupMessage, RelationQuery},
+    identity_update::QueryIdentityUpdates,
+    key_package_history::QueryKeyPackageHistory,
+    local_commit_log::{LocalCommitLogOrder, QueryLocalCommitLog},
     proto::types::{Cursor, GlobalCursor},
+    refresh_state::{EntityKind, QueryRefreshState},
+    remote_commit_log::{QueryRemoteCommitLog, RemoteCommitLogOrder},
 };
 
 macro_rules! bench {
@@ -20,6 +28,7 @@ macro_rules! bench {
 pub struct DbBencher {
     rand_dm: Option<StoredGroup>,
     rand_group: Option<StoredGroup>,
+    rand_inbox_id: Option<String>,
     measurements: HashMap<String, f32>,
     store: EncryptedMessageStore<NativeDb>,
 }
@@ -41,9 +50,13 @@ impl DbBencher {
             0,
         )?;
 
+        // Try to get a random inbox_id from identity updates or association state
+        let rand_inbox_id = groups.first().map(|g| g.added_by_inbox_id.clone());
+
         Ok(Self {
             rand_dm: dms.pop(),
             rand_group: groups.pop(),
+            rand_inbox_id,
             store,
             measurements: HashMap::default(),
         })
@@ -83,6 +96,27 @@ impl DbBencher {
         };
         if let Err(err) = self.bench_message_queries() {
             tracing::error!("bench_message_queries: {err:?}");
+        };
+        if let Err(err) = self.bench_association_state_queries() {
+            tracing::error!("bench_association_state_queries: {err:?}");
+        };
+        if let Err(err) = self.bench_identity_update_queries() {
+            tracing::error!("bench_identity_update_queries: {err:?}");
+        };
+        if let Err(err) = self.bench_group_intent_queries() {
+            tracing::error!("bench_group_intent_queries: {err:?}");
+        };
+        if let Err(err) = self.bench_refresh_state_queries() {
+            tracing::error!("bench_refresh_state_queries: {err:?}");
+        };
+        if let Err(err) = self.bench_key_package_history_queries() {
+            tracing::error!("bench_key_package_history_queries: {err:?}");
+        };
+        if let Err(err) = self.bench_conversation_list_queries() {
+            tracing::error!("bench_conversation_list_queries: {err:?}");
+        };
+        if let Err(err) = self.bench_commit_log_queries() {
+            tracing::error!("bench_commit_log_queries: {err:?}");
         };
 
         self.print_results();
@@ -235,7 +269,7 @@ impl DbBencher {
         Ok(())
     }
 
-    pub fn bench_consent_queries(&mut self) -> Result<()> {
+    fn bench_consent_queries(&mut self) -> Result<()> {
         let Some(group) = &self.rand_group else {
             bail!("No group to lookup DMs on");
         };
@@ -257,7 +291,7 @@ impl DbBencher {
         bench!(self, insert_newer_consent_record(new_consent.clone()))?;
         bench!(
             self,
-            insert_or_replace_consent_records(&[new_consent.clone()])
+            insert_or_replace_consent_records(std::slice::from_ref(&new_consent))
         )?;
         bench!(
             self,
@@ -269,6 +303,187 @@ impl DbBencher {
             };
             bench!(self, find_consent_by_dm_id(&dm_id))?;
         }
+
+        Ok(())
+    }
+
+    fn bench_association_state_queries(&mut self) -> Result<()> {
+        let Some(inbox_id) = self.rand_inbox_id.clone() else {
+            bail!("No inbox_id available for association state queries.");
+        };
+
+        // Read from cache (may or may not exist)
+        bench!(self, read_from_cache(&inbox_id, 1))?;
+
+        // Batch read from cache
+        let identifiers = vec![(inbox_id.clone(), 1i64)];
+        bench!(self, batch_read_from_cache(identifiers.clone()))?;
+
+        Ok(())
+    }
+
+    fn bench_identity_update_queries(&mut self) -> Result<()> {
+        let Some(inbox_id) = self.rand_inbox_id.clone() else {
+            bail!("No inbox_id available for identity update queries.");
+        };
+
+        // Get identity updates with various filters
+        bench!(self, get_identity_updates(&inbox_id, None, None))?;
+        bench!(self, get_identity_updates(&inbox_id, Some(0), None))?;
+        bench!(self, get_identity_updates(&inbox_id, None, Some(100)))?;
+
+        // Get latest sequence ID for inbox
+        let _ = bench!(self, get_latest_sequence_id_for_inbox(&inbox_id));
+
+        // Get latest sequence IDs for multiple inboxes
+        let inbox_ids = vec![inbox_id.as_str()];
+        bench!(self, get_latest_sequence_id(&inbox_ids))?;
+
+        Ok(())
+    }
+
+    fn bench_group_intent_queries(&mut self) -> Result<()> {
+        let Some(group) = self.rand_group.clone() else {
+            bail!("No group to run group intent queries on.");
+        };
+
+        // Find group intents with various filters
+        bench!(self, find_group_intents(&group.id, None, None))?;
+        bench!(
+            self,
+            find_group_intents(&group.id, Some(vec![IntentState::ToPublish]), None)
+        )?;
+        bench!(
+            self,
+            find_group_intents(
+                &group.id,
+                Some(vec![IntentState::ToPublish, IntentState::Published]),
+                None
+            )
+        )?;
+        bench!(
+            self,
+            find_group_intents(&group.id, None, Some(vec![IntentKind::SendMessage]))
+        )?;
+
+        // Find intent by payload hash (with a dummy hash that likely doesn't exist)
+        let dummy_hash = vec![0u8; 32];
+        bench!(self, find_group_intent_by_payload_hash(&dummy_hash))?;
+
+        Ok(())
+    }
+
+    fn bench_refresh_state_queries(&mut self) -> Result<()> {
+        let Some(group) = self.rand_group.clone() else {
+            bail!("No group to run refresh state queries on.");
+        };
+
+        // Get refresh state
+        bench!(
+            self,
+            get_refresh_state(&group.id, EntityKind::ApplicationMessage, 0)
+        )?;
+
+        // Get last cursor for originators
+        bench!(
+            self,
+            get_last_cursor_for_originators(&group.id, EntityKind::ApplicationMessage, &[0, 10])
+        )?;
+
+        // Get last cursor for IDs
+        let ids = vec![group.id.clone()];
+        let entities = vec![EntityKind::ApplicationMessage, EntityKind::CommitMessage];
+        bench!(self, get_last_cursor_for_ids(&ids, &entities))?;
+
+        // Update cursor (this is idempotent with same/lower values)
+        bench!(
+            self,
+            update_cursor(
+                group.id.clone(),
+                EntityKind::ApplicationMessage,
+                Cursor {
+                    sequence_id: 0,
+                    originator_id: 0
+                }
+            )
+        )?;
+
+        // Latest cursor for ID
+        bench!(self, latest_cursor_for_id(&group.id, &entities, None))?;
+
+        // Get remote log cursors
+        let conv_ids = vec![&group.id];
+        bench!(self, get_remote_log_cursors(&conv_ids))?;
+
+        Ok(())
+    }
+
+    fn bench_key_package_history_queries(&mut self) -> Result<()> {
+        // Find key package history entries before a high ID (to get all)
+        bench!(self, find_key_package_history_entries_before_id(i32::MAX))?;
+
+        // Get expired key packages
+        bench!(self, get_expired_key_packages())?;
+
+        Ok(())
+    }
+
+    fn bench_conversation_list_queries(&mut self) -> Result<()> {
+        // Fetch conversation list with default args
+        bench!(self, fetch_conversation_list(GroupQueryArgs::default()))?;
+
+        // Fetch conversation list with filters
+        bench!(
+            self,
+            fetch_conversation_list(GroupQueryArgs {
+                conversation_type: Some(ConversationType::Group),
+                ..Default::default()
+            })
+        )?;
+
+        bench!(
+            self,
+            fetch_conversation_list(GroupQueryArgs {
+                conversation_type: Some(ConversationType::Dm),
+                ..Default::default()
+            })
+        )?;
+
+        bench!(
+            self,
+            fetch_conversation_list(GroupQueryArgs {
+                limit: Some(10),
+                ..Default::default()
+            })
+        )?;
+
+        Ok(())
+    }
+
+    fn bench_commit_log_queries(&mut self) -> Result<()> {
+        let Some(group) = self.rand_group.clone() else {
+            bail!("No group to run commit log queries on.");
+        };
+
+        // Local commit log queries
+        bench!(self, get_group_logs(&group.id))?;
+        bench!(
+            self,
+            get_local_commit_log_after_cursor(&group.id, 0, LocalCommitLogOrder::AscendingByRowid)
+        )?;
+        bench!(self, get_latest_log_for_group(&group.id))?;
+        bench!(self, get_local_commit_log_cursor(&group.id))?;
+
+        // Remote commit log queries
+        bench!(self, get_latest_remote_log_for_group(&group.id))?;
+        bench!(
+            self,
+            get_remote_commit_log_after_cursor(
+                &group.id,
+                0,
+                RemoteCommitLogOrder::AscendingByRowid
+            )
+        )?;
 
         Ok(())
     }
