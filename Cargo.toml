@@ -153,6 +153,7 @@ wasm-bindgen-test = "0.3.51"
 web-sys = "0.3"
 web-time = "1.1"
 zeroize = "1.8"
+smallvec = { version = "1.15", features = ["union"] }
 
 # Internal Crate Dependencies
 bindings-wasm = { path = "bindings_wasm" }

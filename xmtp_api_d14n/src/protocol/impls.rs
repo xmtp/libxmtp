@@ -2,4 +2,3 @@
 
 mod envelope_visitor;
 mod protocol_envelopes;
-mod vector_clock;

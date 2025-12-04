@@ -8950,6 +8950,7 @@ dependencies = [
  "relative-path 2.0.1",
  "rstest 0.26.1",
  "serde",
+ "smallvec",
  "thiserror 2.0.17",
  "tokio",
  "tonic",
