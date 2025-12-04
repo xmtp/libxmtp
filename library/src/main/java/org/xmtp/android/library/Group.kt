@@ -19,6 +19,7 @@ import org.xmtp.android.library.libxmtp.DecodedMessage.SortDirection
 import org.xmtp.android.library.libxmtp.DecodedMessageV2
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.libxmtp.GroupMembershipResult
+import org.xmtp.android.library.libxmtp.GroupMembershipState
 import org.xmtp.android.library.libxmtp.Member
 import org.xmtp.android.library.libxmtp.PermissionOption
 import org.xmtp.android.library.libxmtp.PermissionPolicySet
@@ -29,6 +30,7 @@ import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationMetadata
 import uniffi.xmtpv3.FfiDeliveryStatus
 import uniffi.xmtpv3.FfiDirection
+import uniffi.xmtpv3.FfiGroupMembershipState
 import uniffi.xmtpv3.FfiGroupPermissions
 import uniffi.xmtpv3.FfiListMessagesOptions
 import uniffi.xmtpv3.FfiMessage
@@ -414,6 +416,11 @@ class Group(
         }
 
     suspend fun isActive(): Boolean = withContext(Dispatchers.IO) { libXMTPGroup.isActive() }
+
+    suspend fun membershipState(): GroupMembershipState =
+        withContext(Dispatchers.IO) {
+            GroupMembershipState.fromFfiGroupMembershipState(libXMTPGroup.membershipState())
+        }
 
     suspend fun addedByInboxId(): InboxId = withContext(Dispatchers.IO) { libXMTPGroup.addedByInboxId() }
 

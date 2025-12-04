@@ -25,6 +25,7 @@ import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.libxmtp.DecodedMessage.MessageDeliveryStatus
 import org.xmtp.android.library.libxmtp.DecodedMessage.SortBy
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
+import org.xmtp.android.library.libxmtp.GroupMembershipState
 import org.xmtp.android.library.libxmtp.GroupPermissionPreconfiguration
 import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.PermissionOption
@@ -1338,5 +1339,72 @@ class GroupTest : BaseInstrumentedTest() {
             assertEquals(1, groupMembersAfterLeave.size)
             alixGroup.sync()
             assert(!alixGroup.isActive())
+        }
+
+    @Test
+    fun testSelfRemovalWithMembershipState() =
+        runBlocking {
+            // Alix creates a group and adds Bo
+            val alixGroup =
+                alixClient.conversations.newGroup(
+                    listOf(boClient.inboxId),
+                )
+
+            // Bo syncs and gets the group
+            boClient.conversations.sync()
+            val boGroup = boClient.conversations.findGroup(alixGroup.id)
+            assertNotNull("Bo should have received the group", boGroup)
+
+            // Verify Bo's membership state is PENDING when first invited
+            val boStateInitial = boGroup!!.membershipState()
+            assertEquals(
+                "Bo should be in PENDING state when first invited",
+                GroupMembershipState.PENDING,
+                boStateInitial,
+            )
+
+            // Verify Alix's membership state is ALLOWED (creator)
+            val alixState = alixGroup.membershipState()
+            assertEquals(
+                "Alix should be in ALLOWED state as group creator",
+                GroupMembershipState.ALLOWED,
+                alixState,
+            )
+
+            // Bo leaves the group
+            boGroup.leaveGroup()
+
+            // Verify Bo's membership state is PENDING_REMOVE after requesting to leave
+            val boStateAfterLeave = boGroup.membershipState()
+            assertEquals(
+                "Bo should be in PENDING_REMOVE state after leaving",
+                GroupMembershipState.PENDING_REMOVE,
+                boStateAfterLeave,
+            )
+
+            // Alix syncs to process the leave request
+            alixGroup.sync()
+
+            // Wait for admin worker to process the removal
+            Thread.sleep(2000)
+
+            // Bo syncs to get the final removal
+            boGroup.sync()
+
+            // Verify Bo's group is no longer active
+            assert(!boGroup.isActive())
+
+            // Verify Alix's membership state remains ALLOWED
+            val alixStateFinal = alixGroup.membershipState()
+            assertEquals(
+                "Alix should remain in ALLOWED state",
+                GroupMembershipState.ALLOWED,
+                alixStateFinal,
+            )
+
+            // Verify only Alix remains in the group
+            alixGroup.sync()
+            val members = alixGroup.members()
+            assertEquals("Only Alix should remain in the group", 1, members.size)
         }
 }
