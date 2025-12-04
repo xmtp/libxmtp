@@ -23,6 +23,7 @@ use openmls_traits::{
 use prost::Message;
 use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 use tls_codec::SecretVLBytes;
 use tracing::debug;
 use tracing::info;
@@ -184,7 +185,7 @@ impl IdentityStrategy {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum IdentityError {
     #[error(transparent)]
     CredentialSerialization(#[from] prost::EncodeError),

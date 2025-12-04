@@ -17,6 +17,7 @@ use openmls::{
 };
 use std::collections::HashSet;
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 use xmtp_common::retry::RetryableError;
 use xmtp_content_types::CodecError;
 use xmtp_cryptography::signature::IdentifierValidationError;
@@ -70,7 +71,7 @@ impl std::fmt::Display for ReceiveErrors {
         Ok(())
     }
 }
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum GroupError {
     #[error(transparent)]
     NotFound(#[from] NotFound),

@@ -25,10 +25,11 @@ use xmtp_proto::xmtp::mls::message_contents::{
 
 use super::validated_commit::{CommitParticipant, Inbox, MetadataFieldChange, ValidatedCommit};
 use xmtp_configuration::{GROUP_PERMISSIONS_EXTENSION_ID, SUPER_ADMIN_METADATA_PREFIX};
+use xmtp_common::ErrorCode;
 use xmtp_mls_common::group_mutable_metadata::{GroupMutableMetadata, MetadataField};
 
 /// Errors that can occur when working with GroupMutablePermissions.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum GroupMutablePermissionsError {
     #[error("serialization: {0}")]
     Serialization(#[from] prost::EncodeError),

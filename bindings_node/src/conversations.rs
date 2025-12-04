@@ -375,7 +375,7 @@ impl Conversations {
     if !account_identities.is_empty() {
       convo.add_members(account_identities).await?;
     } else {
-      convo.sync().await.map_err(ErrorWrapper::from)?;
+      convo.sync().await?;
     };
 
     Ok(convo)
@@ -392,7 +392,7 @@ impl Conversations {
     if !inbox_ids.is_empty() {
       convo.add_members_by_inbox_id(inbox_ids).await?;
     } else {
-      convo.sync().await.map_err(ErrorWrapper::from)?;
+      convo.sync().await?;
     }
 
     Ok(convo)

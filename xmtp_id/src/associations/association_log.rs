@@ -4,8 +4,9 @@ use super::signature::{SignatureError, SignatureKind};
 use super::state::AssociationState;
 use super::verified_signature::VerifiedSignature;
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum AssociationError {
     #[error("Error creating association {0}")]
     Generic(String),

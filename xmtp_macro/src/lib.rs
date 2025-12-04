@@ -2,6 +2,7 @@ extern crate proc_macro;
 
 use proc_macro2::*;
 use quote::{quote, quote_spanned};
+use syn::{Data, DeriveInput, Fields};
 
 /// A proc macro attribute that wraps the input in an `async_trait` implementation,
 /// delegating to the appropriate `async_trait` implementation based on the target architecture.
@@ -159,6 +160,51 @@ fn transform_question_marks(tokens: proc_macro::TokenStream) -> proc_macro::Toke
     }
 
     result.into()
+}
+
+/// Derive macro for `xmtp_common::ErrorCode`.
+#[proc_macro_derive(ErrorCode)]
+pub fn derive_error_code(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = syn::parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    let type_name = name.to_string();
+
+    let expanded = match input.data {
+        Data::Enum(data_enum) => {
+            let arms = data_enum.variants.iter().map(|variant| {
+                let v_ident = &variant.ident;
+                let code = format!("{}::{}", type_name, v_ident);
+                match &variant.fields {
+                    Fields::Unit => quote! { Self::#v_ident => #code },
+                    Fields::Unnamed(_) => quote! { Self::#v_ident(..) => #code },
+                    Fields::Named(_) => quote! { Self::#v_ident { .. } => #code },
+                }
+            });
+            quote! {
+                impl xmtp_common::ErrorCode for #name {
+                    fn error_code(&self) -> &'static str {
+                        match self {
+                            #(#arms),*
+                        }
+                    }
+                }
+            }
+        }
+        Data::Struct(_) => {
+            let code = type_name;
+            quote! {
+                impl xmtp_common::ErrorCode for #name {
+                    fn error_code(&self) -> &'static str {
+                        #code
+                    }
+                }
+            }
+        }
+        Data::Union(_) => syn::Error::new_spanned(name, "ErrorCode cannot be derived for unions")
+            .to_compile_error(),
+    };
+
+    expanded.into()
 }
 
 #[derive(Default)]

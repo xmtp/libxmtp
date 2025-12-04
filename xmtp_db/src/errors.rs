@@ -5,12 +5,12 @@ use super::{
     refresh_state::EntityKind,
     sql_key_store::{self, SqlKeyStoreError},
 };
-use xmtp_common::{BoxDynError, RetryableError, retryable};
+use xmtp_common::{BoxDynError, RetryableError, ErrorCode, retryable};
 use xmtp_proto::types::{Cursor, InstallationId};
 
 pub struct Mls;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum StorageError {
     #[error(transparent)]
     DieselConnect(#[from] diesel::ConnectionError),

@@ -62,6 +62,7 @@ use xmtp_proto::{
     api::HasStats,
     api_client::{ApiStats, IdentityStats},
 };
+use xmtp_common::ErrorCode;
 
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
@@ -72,7 +73,7 @@ pub enum Network {
     Prod,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum ClientError {
     #[error(transparent)]
     AddressValidation(#[from] IdentifierValidationError),

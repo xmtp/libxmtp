@@ -8,6 +8,7 @@ license.workspace = true
 async-trait.workspace = true
 futures = { workspace = true, features = ["std"] }
 hex.workspace = true
+prost.workspace = true
 rand.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["time", "rt"] }

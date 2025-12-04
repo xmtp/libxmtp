@@ -11,6 +11,7 @@ use xmtp_cryptography::{
 use xmtp_proto::xmtp::message_contents::{
     SignedPrivateKey as LegacySignedPrivateKeyProto, signed_private_key,
 };
+use xmtp_common::ErrorCode;
 
 use super::{
     unverified::{UnverifiedLegacyDelegatedSignature, UnverifiedRecoverableEcdsaSignature},
@@ -19,7 +20,7 @@ use super::{
 
 use alloy::signers::k256::ecdsa::Signature as K256Signature;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum SignatureError {
     #[error("Malformed legacy key: {0}")]
     MalformedLegacyKey(String),
@@ -135,7 +136,7 @@ impl std::fmt::Display for SignatureKind {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum AccountIdError {
     #[error("Chain ID is not a valid u64")]
     InvalidChainId,

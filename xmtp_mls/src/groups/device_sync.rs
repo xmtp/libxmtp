@@ -54,7 +54,9 @@ pub mod worker;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Error)]
+use xmtp_common::ErrorCode;
+
+#[derive(Debug, Error, ErrorCode)]
 pub enum DeviceSyncError {
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),

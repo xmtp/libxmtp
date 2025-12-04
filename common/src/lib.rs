@@ -15,6 +15,8 @@ pub use xmtp_macro::test;
 
 #[doc(inline)]
 pub use xmtp_macro::async_trait;
+#[doc(inline)]
+pub use xmtp_macro::ErrorCode;
 
 #[cfg(feature = "bench")]
 pub mod bench;
@@ -30,6 +32,8 @@ pub use stream_handles::*;
 
 pub mod fmt;
 pub mod hex;
+pub mod error_code;
+pub use error_code::ErrorCode;
 pub mod snippet;
 pub mod time;
 pub mod types;

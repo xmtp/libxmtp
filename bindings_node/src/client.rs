@@ -125,32 +125,31 @@ impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for GroupSyncSummary
 }
 
 fn init_logging(options: LogOptions) -> Result<()> {
-  LOGGER_INIT
-    .get_or_init(|| {
-      let filter = if let Some(f) = options.level {
-        xmtp_common::filter_directive(&f.to_string())
-      } else {
-        EnvFilter::builder().parse_lossy("info")
-      };
-      if options.structured.unwrap_or_default() {
-        let fmt = tracing_subscriber::fmt::layer()
-          .json()
-          .flatten_event(true)
-          .with_level(true)
-          .with_target(true);
+  match LOGGER_INIT.get_or_init(|| {
+    let filter = if let Some(f) = options.level {
+      xmtp_common::filter_directive(&f.to_string())
+    } else {
+      EnvFilter::builder().parse_lossy("info")
+    };
+    if options.structured.unwrap_or_default() {
+      let fmt = tracing_subscriber::fmt::layer()
+        .json()
+        .flatten_event(true)
+        .with_level(true)
+        .with_target(true);
 
-        tracing_subscriber::registry().with(filter).with(fmt).init();
-      } else {
-        tracing_subscriber::registry()
-          .with(fmt::layer())
-          .with(filter)
-          .init();
-      }
-      Ok(())
-    })
-    .as_ref()
-    .map_err(ErrorWrapper::from)?;
-  Ok(())
+      tracing_subscriber::registry().with(filter).with(fmt).init();
+    } else {
+      tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(filter)
+        .init();
+    }
+    Ok(())
+  }) {
+    Ok(()) => Ok(()),
+    Err(e) => Err(Error::from_reason(e.to_string())),
+  }
 }
 
 /**

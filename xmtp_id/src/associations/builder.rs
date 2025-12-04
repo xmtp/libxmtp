@@ -8,6 +8,7 @@ use super::member::{HasMemberKind, Identifier};
 use crate::scw_verifier::SmartContractSignatureVerifier;
 use thiserror::Error;
 use xmtp_common::time::now_ns;
+use xmtp_common::ErrorCode;
 
 use super::{
     MemberIdentifier, MemberKind, SignatureError,
@@ -155,7 +156,7 @@ impl SignatureRequestBuilder {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum SignatureRequestError {
     #[error("Unknown signer")]
     UnknownSigner,
