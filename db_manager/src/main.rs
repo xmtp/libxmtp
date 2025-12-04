@@ -65,11 +65,9 @@ fn main() -> Result<()> {
             tasks::clear_all_messages(&manager.store.conn(), args.retain_days, None)?;
         }
         Task::DbClearMessages => {
-            tasks::clear_all_messages(
-                &manager.store.conn(),
-                args.retain_days,
-                Some(&args.group_ids()?),
-            )?;
+            let arg_group_ids = args.group_ids()?;
+            let group_ids: Vec<_> = arg_group_ids.iter().map(Vec::as_slice).collect();
+            tasks::clear_all_messages(&manager.store.conn(), args.retain_days, Some(&group_ids))?;
         }
         Task::DbRunMigration => {
             let target = args.target(

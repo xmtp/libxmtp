@@ -11,7 +11,7 @@ use crate::confirm_destructive;
 pub fn clear_all_messages(
     conn: &impl ConnectionExt,
     limit_days: Option<i64>,
-    group_ids: Option<&[Vec<u8>]>,
+    group_ids: Option<&[&[u8]]>,
 ) -> Result<()> {
     confirm_destructive()?;
     clear_all_messages_confirmed(conn, limit_days, group_ids)
@@ -20,7 +20,7 @@ pub fn clear_all_messages(
 pub fn clear_all_messages_confirmed(
     conn: &impl ConnectionExt,
     limit_days: Option<i64>,
-    group_ids: Option<&[Vec<u8>]>,
+    group_ids: Option<&[&[u8]]>,
 ) -> Result<()> {
     let mut query = diesel::delete(messages_dsl::group_messages).into_boxed();
 
@@ -40,7 +40,6 @@ pub fn clear_all_messages_confirmed(
 
 #[cfg(test)]
 mod tests {
-    use std::slice;
 
     use xmtp_db::group_message::MsgQueryArgs;
     use xmtp_mls::tester;
@@ -72,11 +71,7 @@ mod tests {
         // Commit and application msg
         assert_eq!(alix_msgs.len(), 2);
 
-        clear_all_messages_confirmed(
-            &alix.db(),
-            None,
-            Some(slice::from_ref(&alix_bo_dm.group_id)),
-        )?;
+        clear_all_messages_confirmed(&alix.db(), None, Some(&[&alix_bo_dm.group_id]))?;
         let alix_msgs = alix_bo_dm.find_messages(&MsgQueryArgs::default())?;
         // Commit and application msg
         assert_eq!(alix_msgs.len(), 0);
