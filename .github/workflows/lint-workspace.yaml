@@ -17,6 +17,7 @@ on:
       - "xmtp_content_types/**"
       - "xmtp_proto/**"
       - "xmtp_debug/**"
+      - "db_manager/**"
       - "bindings_node/**"
       - "bindings_ffi/**"
       - "Cargo.toml"

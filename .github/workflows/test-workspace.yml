@@ -21,6 +21,7 @@ on:
       - "common/**"
       - "xmtp_api_d14n/**"
       - "xmtp_content_types/**"
+      - "db_manager/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".cargo/**"
