@@ -2,17 +2,14 @@ use std::collections::HashSet;
 
 use crate::{
     d14n::QueryEnvelope,
-    protocol::{
-        Envelope, ResolutionError, ResolveDependencies, Resolved, VectorClock,
-        types::MissingEnvelope,
-    },
+    protocol::{Envelope, ResolutionError, ResolveDependencies, Resolved, types::MissingEnvelope},
 };
 use itertools::Itertools;
 use tracing::warn;
 use xmtp_common::{ExponentialBackoff, RetryableError, Strategy};
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::{
-    api::{Client, Query},
+    api::{Client, Query, VectorClock},
     types::{Cursor, GlobalCursor, Topic},
     xmtp::xmtpv4::envelopes::OriginatorEnvelope,
 };

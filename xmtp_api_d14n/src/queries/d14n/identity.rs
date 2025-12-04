@@ -77,7 +77,7 @@ where
         });
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {
-                topics: topics.iter().map(Topic::bytes).collect(),
+                topics: topics.iter().map(Topic::cloned_vec).collect(),
                 originator_node_ids: vec![],
                 last_seen,
             })

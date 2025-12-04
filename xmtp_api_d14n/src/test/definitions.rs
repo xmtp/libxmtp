@@ -2,17 +2,17 @@
 //! "creators" are test clients that can be used with [`XmtpTestClient`]
 
 use crate::{
-    protocol::{CursorStore, NoCursorStore},
     D14nClient, ReadWriteClient, TrackedStatsClient, V3Client,
+    protocol::{CursorStore, NoCursorStore},
 };
 use std::sync::Arc;
 use xmtp_api_grpc::{
-    test::{
-        DevGatewayClient, DevXmtpdClient, GatewayClient, LocalGatewayClient, LocalNodeGoClient,
-        LocalXmtpdClient, NodeGoClient, ToxicGatewayClient, ToxicNodeGoClient, ToxicXmtpdClient,
-        XmtpdClient,
-    },
     GrpcClient,
+    test::{
+        DevGatewayClient, DevNodeGoClient, DevXmtpdClient, GatewayClient, LocalGatewayClient,
+        LocalNodeGoClient, LocalXmtpdClient, NodeGoClient, ToxicGatewayClient, ToxicNodeGoClient,
+        ToxicXmtpdClient, XmtpdClient,
+    },
 };
 use xmtp_proto::api::mock::MockNetworkClient;
 
@@ -43,7 +43,8 @@ pub type DevOnlyD14nClientCreator = TrackedStatsClient<
 
 /// A client that only communicates with dev network
 /// _does not switch on feature flag_
-pub type DevOnlyV3ClientCreator = TrackedStatsClient<V3Client<NodeGoClient, Arc<dyn CursorStore>>>;
+pub type DevOnlyV3ClientCreator =
+    TrackedStatsClient<V3Client<DevNodeGoClient, Arc<dyn CursorStore>>>;
 
 /// A client that only communicates with local docker
 /// _does not switch on feature flag_

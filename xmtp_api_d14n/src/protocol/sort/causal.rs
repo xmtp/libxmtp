@@ -1,6 +1,7 @@
+use xmtp_proto::api::VectorClock;
 use xmtp_proto::types::TopicCursor;
 
-use crate::protocol::{ApplyCursor, Envelope, EnvelopeError, Sort, VectorClock};
+use crate::protocol::{ApplyCursor, Envelope, EnvelopeError, Sort};
 
 pub struct CausalSort<'a, E> {
     envelopes: &'a mut Vec<E>,
