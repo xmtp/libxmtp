@@ -67,7 +67,7 @@ where
         let welcomes = self
             .context
             .api()
-            .query_welcome_messages(installation_id.as_ref())
+            .query_welcome_messages(installation_id)
             .await?;
         tracing::info!("returning {} welcomes", welcomes.len());
         Ok(welcomes)

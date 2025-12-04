@@ -196,7 +196,7 @@ mod tests {
     }
 
     fn topic(name: &str) -> Topic {
-        Topic::from_bytes(name.as_bytes().to_vec())
+        Topic::from_bytes(name.as_bytes())
     }
 
     #[xmtp_common::test]

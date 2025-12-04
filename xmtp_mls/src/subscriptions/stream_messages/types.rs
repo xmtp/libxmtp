@@ -59,8 +59,7 @@ impl GroupList {
 
     /// add a group at `GlobalCursor` to this list
     pub(super) fn add(&mut self, group: impl AsRef<[u8]>, position: GlobalCursor) {
-        self.list
-            .insert(Topic::new_group_message(group.as_ref().into()), position);
+        self.list.insert(Topic::new_group_message(group), position);
     }
 
     pub(super) fn set(&mut self, group: impl AsRef<[u8]>, cursor: Cursor) {
