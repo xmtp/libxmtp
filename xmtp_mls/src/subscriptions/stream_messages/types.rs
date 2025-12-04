@@ -1,6 +1,9 @@
 use std::collections::HashSet;
 
-use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, Topic, TopicCursor};
+use xmtp_proto::{
+    api::VectorClock,
+    types::{Cursor, GlobalCursor, GroupId, Topic, TopicCursor},
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum MessageStreamError {
