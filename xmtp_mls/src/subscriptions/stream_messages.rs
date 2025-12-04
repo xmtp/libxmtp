@@ -160,8 +160,12 @@ where
         let seen_cursors: std::collections::HashSet<_> = seen_cursors_vec.into_iter().collect();
 
         let mut topic_cursor = TopicCursor::default();
-        for (group_id, cursor) in cursors_by_group {
-            topic_cursor.add(Topic::new_group_message(group_id), cursor);
+        for group_id in &groups {
+            let cursor = cursors_by_group
+                .get(group_id.as_slice())
+                .cloned()
+                .unwrap_or_default();
+            topic_cursor.add(Topic::new_group_message(group_id.clone()), cursor);
         }
 
         let groups_list = GroupList::new(topic_cursor, seen_cursors.clone());

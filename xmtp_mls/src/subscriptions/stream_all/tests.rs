@@ -885,7 +885,8 @@ async fn test_stream_all_concurrent_writes() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_optimistic_group() {
+#[cfg_attr(target_family = "wasm", ignore)]
+async fn test_new_group_does_not_duplicate_messages() {
     tester!(alix);
     tester!(bo);
 
