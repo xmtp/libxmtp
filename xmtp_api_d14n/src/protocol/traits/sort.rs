@@ -1,4 +1,7 @@
-use xmtp_proto::types::{GlobalCursor, TopicCursor};
+use xmtp_proto::{
+    api::VectorClock,
+    types::{GlobalCursor, TopicCursor},
+};
 
 use crate::protocol::{Envelope, EnvelopeError};
 

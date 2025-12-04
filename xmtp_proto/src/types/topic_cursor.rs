@@ -3,7 +3,10 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::types::{GlobalCursor, InstallationId, Topic};
+use crate::{
+    api::VectorClock,
+    types::{GlobalCursor, InstallationId, Topic},
+};
 
 /// A cursor that keeps a [`super::GlobalCursor`] for each topic it has seen.
 #[derive(Default, Debug, PartialEq, Clone)]
@@ -19,6 +22,8 @@ impl TopicCursor {
         self.inner.entry(topic.clone()).or_default()
     }
 
+    /// get the [`GlobalCursor`] corresponding to the [`super::TopicKind::GroupMessagesV1`]
+    /// by [`super::GroupId`]
     pub fn get_group(&self, group_id: impl AsRef<[u8]>) -> GlobalCursor {
         self.inner
             .get(&Topic::new_group_message(group_id.as_ref().into()))
@@ -26,39 +31,69 @@ impl TopicCursor {
             .unwrap_or_default()
     }
 
+    /// check if this topic cursor contains [`super::GroupId`]
     pub fn contains_group(&self, group_id: impl AsRef<[u8]>) -> bool {
         self.inner
             .contains_key(&Topic::new_group_message(group_id.as_ref().into()))
     }
 
-    /// turn this topic cursor into a list of its topics
+    /// Computes the Lowest Common Cursor (LCC) across all topics.
+    ///
+    /// For each originator node, takes the minimum sequence ID seen across
+    /// all topics. Returns an empty cursor if this TopicCursor is empty.
+    pub fn lcc(&self) -> GlobalCursor {
+        self.values().fold(GlobalCursor::default(), |mut acc, c| {
+            acc.merge_least(c);
+            acc
+        })
+    }
+
+    /// Computes the Greatest Common Cursor (GCC) across all topics.
+    ///
+    /// For each originator node, takes the maximum sequence ID seen across
+    /// all topics. Returns an empty cursor if this TopicCursor is empty.
+    pub fn gcc(&self) -> GlobalCursor {
+        self.values().fold(GlobalCursor::default(), |mut acc, c| {
+            acc.merge(c);
+            acc
+        })
+    }
+
+    /// consume this topic cursor into a list of its topics
     pub fn into_topics(self) -> Vec<Topic> {
         self.inner.into_keys().collect()
     }
 
+    /// get a [`Vec`] of all [`Topic`] in this cursor
+    /// by cloning.
     pub fn topics(&self) -> Vec<Topic> {
         self.inner.keys().cloned().collect()
     }
 
+    /// entry api for only [super::TopicKind::GroupMessagesV1]
     pub fn group_entry(&mut self, group_id: impl AsRef<[u8]>) -> TopicEntry<'_> {
         self.inner
             .entry(Topic::new_group_message(group_id.as_ref().into()))
     }
 
+    /// entry api for only [super::TopicKind::IdentityUpdatesV1]
     pub fn identity_entry(&mut self, inbox_id: impl AsRef<[u8]>) -> TopicEntry<'_> {
         self.inner.entry(Topic::new_identity_update(inbox_id))
     }
 
+    /// entry api for only [super::TopicKind::WelcomeMessagesV1]
     pub fn welcome_entry(&mut self, installation_id: InstallationId) -> TopicEntry<'_> {
         self.inner
             .entry(Topic::new_welcome_message(installation_id))
     }
 
+    /// entry api for only [super::TopicKind::KeyPackagesV1]
     pub fn key_package_entry(&mut self, installation_id: InstallationId) -> TopicEntry<'_> {
         self.inner.entry(Topic::new_key_package(installation_id))
     }
 
-    /// iterate over all [`TopicKind::GroupMessageV1`] topics
+    /// iterate over all [`super::TopicKind::GroupMessagesV1`]
+    /// topics as a pair of (&[`super::GroupId`], &[`GlobalCursor`])
     pub fn groups(&self) -> impl Iterator<Item = (&[u8], &GlobalCursor)> {
         self.inner
             .iter()
