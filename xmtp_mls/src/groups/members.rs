@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{context::XmtpSharedContext, identity_updates::IdentityUpdates};
 
 use super::{GroupError, MlsGroup, validated_commit::extract_group_membership};
@@ -85,6 +87,18 @@ where
             }
         }
         let mutable_metadata = self.mutable_metadata()?;
+
+        // Batch fetch all consent records
+        let inbox_ids: Vec<String> = association_states
+            .iter()
+            .map(|s| s.inbox_id().to_string())
+            .collect();
+        let consent_records = db.get_consent_records_batch(&inbox_ids, ConsentType::InboxId)?;
+        let consent_map: HashMap<String, ConsentState> = consent_records
+            .into_iter()
+            .map(|r| (r.entity, r.state))
+            .collect();
+
         let members = association_states
             .into_iter()
             .map(|association_state| {
@@ -99,17 +113,20 @@ where
                     PermissionLevel::Member
                 };
 
-                let consent = db.get_consent_record(inbox_id_str.clone(), ConsentType::InboxId)?;
+                let consent_state = consent_map
+                    .get(&inbox_id_str)
+                    .copied()
+                    .unwrap_or(ConsentState::Unknown);
 
-                Ok(GroupMember {
-                    inbox_id: inbox_id_str.clone(),
+                GroupMember {
+                    inbox_id: inbox_id_str,
                     account_identifiers: association_state.identifiers(),
                     installation_ids: association_state.installation_ids(),
                     permission_level,
-                    consent_state: consent.map_or(ConsentState::Unknown, |c| c.state),
-                })
+                    consent_state,
+                }
             })
-            .collect::<Result<Vec<GroupMember>, GroupError>>()?;
+            .collect();
 
         Ok(members)
     }
