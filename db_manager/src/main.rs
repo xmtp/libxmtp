@@ -1,7 +1,7 @@
 use crate::tasks::DbBencher;
 use anyhow::{Result, bail};
 use clap::{Parser, ValueEnum};
-use dotenv::{dotenv, var};
+use dotenvy::{dotenv, var};
 use std::io::{self, Write};
 use tracing::info;
 use xmtp_db::{EncryptedMessageStore, NativeDb, StorageOption};
