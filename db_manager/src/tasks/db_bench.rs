@@ -339,7 +339,7 @@ impl DbBencher {
         bench!(self, get_identity_updates(&inbox_id, None, Some(100)))?;
 
         // Get latest sequence ID for inbox
-        let _ = bench!(self, get_latest_sequence_id_for_inbox(&inbox_id));
+        bench!(self, get_latest_sequence_id_for_inbox(&inbox_id))?;
 
         // Get latest sequence IDs for multiple inboxes
         let inbox_ids = vec![inbox_id.as_str()];
