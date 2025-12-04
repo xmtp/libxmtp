@@ -103,7 +103,6 @@ impl Args {
         };
         let group_ids = group_id
             .split(",")
-            .into_iter()
             .filter(|id| !id.trim().is_empty())
             .map(hex::decode)
             .collect::<Result<Vec<_>, _>>()?;
@@ -152,20 +151,20 @@ struct Args {
 
 impl Args {
     fn load_env(mut self) -> Self {
-        if self.db_key.is_none() {
-            if let Ok(key) = var("XMTP_DB_ENCRYPTION_KEY") {
-                info!("Loading database encryption key from .env file.");
-                self.db_key = Some(key);
-            }
+        if self.db_key.is_none()
+            && let Ok(key) = var("XMTP_DB_ENCRYPTION_KEY")
+        {
+            info!("Loading database encryption key from .env file.");
+            self.db_key = Some(key);
         }
 
         self
     }
 
     fn target(&self, reason: &str) -> &str {
-        self.target.as_ref().expect(&format!(
-            "--target argument must be provided for this task.\n {reason}"
-        ))
+        self.target.as_ref().unwrap_or_else(|| {
+            panic!("--target argument must be provided for this task.\n {reason}")
+        })
     }
 }
 
