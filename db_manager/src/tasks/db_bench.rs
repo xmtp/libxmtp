@@ -88,36 +88,42 @@ impl DbBencher {
     }
 
     pub fn bench(&mut self) -> Result<()> {
-        if let Err(err) = self.bench_group_queries() {
-            tracing::error!("bench_group_queries: {err:?}");
-        };
-        if let Err(err) = self.bench_consent_queries() {
-            tracing::error!("bench_consent_queries: {err:?}");
-        };
-        if let Err(err) = self.bench_message_queries() {
-            tracing::error!("bench_message_queries: {err:?}");
-        };
-        if let Err(err) = self.bench_association_state_queries() {
-            tracing::error!("bench_association_state_queries: {err:?}");
-        };
-        if let Err(err) = self.bench_identity_update_queries() {
-            tracing::error!("bench_identity_update_queries: {err:?}");
-        };
-        if let Err(err) = self.bench_group_intent_queries() {
-            tracing::error!("bench_group_intent_queries: {err:?}");
-        };
-        if let Err(err) = self.bench_refresh_state_queries() {
-            tracing::error!("bench_refresh_state_queries: {err:?}");
-        };
-        if let Err(err) = self.bench_key_package_history_queries() {
-            tracing::error!("bench_key_package_history_queries: {err:?}");
-        };
-        if let Err(err) = self.bench_conversation_list_queries() {
-            tracing::error!("bench_conversation_list_queries: {err:?}");
-        };
-        if let Err(err) = self.bench_commit_log_queries() {
-            tracing::error!("bench_commit_log_queries: {err:?}");
-        };
+        self.store.db().raw_query_write(|conn| {
+            conn.immediate_transaction(|_txn| {
+                if let Err(err) = self.bench_group_queries() {
+                    tracing::error!("bench_group_queries: {err:?}");
+                };
+                if let Err(err) = self.bench_consent_queries() {
+                    tracing::error!("bench_consent_queries: {err:?}");
+                };
+                if let Err(err) = self.bench_message_queries() {
+                    tracing::error!("bench_message_queries: {err:?}");
+                };
+                if let Err(err) = self.bench_association_state_queries() {
+                    tracing::error!("bench_association_state_queries: {err:?}");
+                };
+                if let Err(err) = self.bench_identity_update_queries() {
+                    tracing::error!("bench_identity_update_queries: {err:?}");
+                };
+                if let Err(err) = self.bench_group_intent_queries() {
+                    tracing::error!("bench_group_intent_queries: {err:?}");
+                };
+                if let Err(err) = self.bench_refresh_state_queries() {
+                    tracing::error!("bench_refresh_state_queries: {err:?}");
+                };
+                if let Err(err) = self.bench_key_package_history_queries() {
+                    tracing::error!("bench_key_package_history_queries: {err:?}");
+                };
+                if let Err(err) = self.bench_conversation_list_queries() {
+                    tracing::error!("bench_conversation_list_queries: {err:?}");
+                };
+                if let Err(err) = self.bench_commit_log_queries() {
+                    tracing::error!("bench_commit_log_queries: {err:?}");
+                };
+
+                Ok::<_, xmtp_db::diesel::result::Error>(())
+            })
+        })?;
 
         self.print_results();
 
@@ -132,18 +138,18 @@ impl DbBencher {
         println!("\n{}", "=".repeat(80));
         println!("{:^80}", "Database Benchmark Results");
         println!("{}", "=".repeat(80));
-        println!("{:<50} {:>15} {:>10}", "Query", "Time (ms)", "Relative");
+        println!("{:<50} {:>12} {:>10}", "Query", "Time (ms)", "Relative");
         println!("{}", "-".repeat(80));
 
         let max_time = sorted_measurements.first().map(|(_, t)| **t).unwrap_or(1.0);
 
         for (query, time_ms) in sorted_measurements.into_iter() {
             let relative = time_ms / max_time;
-            let bar_length = (relative * 30.0) as usize;
+            let bar_length = (relative * 20.0) as usize;
             let bar = "█".repeat(bar_length);
 
             println!(
-                "{:<50} {:>30.3} ms {:>7.1}% {}",
+                "{:<50} {:>12.3} {:>9.1}% {}",
                 query,
                 time_ms,
                 relative * 100.0,
