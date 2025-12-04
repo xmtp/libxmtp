@@ -11,6 +11,7 @@ diesel_migrations = { workspace = true, features = ["sqlite"] }
 dotenv = "0.15.0"
 hex.workspace = true
 tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["fmt"] }
 xmtp_common.workspace = true
 xmtp_db.workspace = true
 

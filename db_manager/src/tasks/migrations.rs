@@ -1,3 +1,4 @@
+use crate::confirm_destructive;
 use anyhow::Result;
 use diesel_migrations::MigrationHarness;
 use tracing::info;
@@ -9,14 +10,12 @@ use xmtp_db::{
     },
 };
 
-use crate::confirm_destructive;
-
-pub fn revert_migrations(conn: &impl ConnectionExt, target: &str) -> Result<()> {
+pub fn rollback(conn: &impl ConnectionExt, target: &str) -> Result<()> {
     confirm_destructive()?;
-    revert_migrations_confirmed(conn, target)
+    rollback_confirmed(conn, target)
 }
 
-pub fn revert_migrations_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
+pub fn rollback_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
     let target: String = target.chars().filter(|c| c.is_numeric()).collect();
     while let Some(version) = applied_migrations(conn)?.first() {
         if version.to_string() > target {
@@ -46,8 +45,28 @@ pub fn run_migration(conn: &impl ConnectionExt, target: &str) -> Result<()> {
 fn run_migration_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
     let migrations: Vec<Box<dyn Migration<Sqlite>>> = xmtp_db::MIGRATIONS.migrations().unwrap();
 
-    println!("?");
-    tracing::info!("?");
+    for migration in migrations {
+        if migration.name().to_string() != target {
+            continue;
+        }
+
+        info!("Running migration for {target}...");
+        conn.raw_query_write(|c| {
+            migration.run(c).unwrap();
+            Ok(())
+        })?;
+    }
+
+    Ok(())
+}
+
+pub fn revert_migration(conn: &impl ConnectionExt, target: &str) -> Result<()> {
+    confirm_destructive()?;
+    revert_migration_confirmed(conn, target)
+}
+
+pub fn revert_migration_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
+    let migrations: Vec<Box<dyn Migration<Sqlite>>> = xmtp_db::MIGRATIONS.migrations().unwrap();
 
     for migration in migrations {
         if migration.name().to_string() != target {
@@ -55,9 +74,8 @@ fn run_migration_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()
         }
 
         info!("Running migration for {target}...");
-
         conn.raw_query_write(|c| {
-            c.run_migration(&migration).unwrap();
+            migration.revert(c).unwrap();
             Ok(())
         })?;
     }
@@ -78,7 +96,7 @@ mod tests {
     use diesel_migrations::MigrationHarness;
     use xmtp_mls::tester;
 
-    use crate::tasks::revert_migrations_confirmed;
+    use crate::tasks::rollback_confirmed;
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_revert_migrations_and_back() {
@@ -93,7 +111,7 @@ mod tests {
 
         // Go back and forth a couple times
         for _ in 0..2 {
-            revert_migrations_confirmed(&alix.db(), "2025-07-08-010431_modify_commit_log")?;
+            rollback_confirmed(&alix.db(), "2025-07-08-010431_modify_commit_log")?;
             alix.db().raw_query_write(|c| {
                 c.run_pending_migrations(xmtp_db::MIGRATIONS)?;
                 Ok(())

@@ -8472,6 +8472,7 @@ dependencies = [
  "dotenv",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "xmtp_common",
  "xmtp_db",
  "xmtp_mls",

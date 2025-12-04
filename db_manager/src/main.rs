@@ -21,7 +21,12 @@ impl Manager {
 const ENV_ENC_KEY: &str = "XMTP_DB_ENCRYPTION_KEY";
 
 fn main() -> Result<()> {
-    dotenv()?;
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .with_target(false)
+        .init();
+
+    let _ = dotenv();
     let args = Args::parse().load_env();
 
     // Connect to the database
@@ -42,60 +47,51 @@ fn main() -> Result<()> {
 
     let manager = Manager { store };
 
-    if let Some(task) = &args.task {
-        match task {
-            Task::QueryBench => {
-                manager.new_bencher()?.bench()?;
-            }
-            Task::DbVacuum => {
-                let Some(dest) = &args.target else {
-                    bail!(
-                        "--target argument must be provided for this task.\n\
-                        This is where the persistent database will be written to.
-                        "
-                    );
-                };
-                tasks::db_vacuum(&manager.store, dest)?;
-            }
-            Task::DbRevert => {
-                let Some(target) = &args.target else {
-                    bail!(
-                        "--target argument must be provided for this task.\n\
-                        This is the target version you want to roll the database back to."
-                    );
-                };
-
-                tasks::revert_migrations(&manager.store.conn(), target)?;
-            }
-            Task::DbClearAllMessages => {
-                tasks::clear_all_messages(&manager.store.conn(), args.retain_days, None)?;
-            }
-            Task::DbClearMessages => {
-                tasks::clear_all_messages(
-                    &manager.store.conn(),
-                    args.retain_days,
-                    Some(&args.group_ids()?),
-                )?;
-            }
-            Task::DbMigrate => {
-                let Some(target) = &args.target else {
-                    bail!(
-                        "--target argument must be provided for this task.\n\
-                        This is the name of the target migration you wish to run on the database."
-                    )
-                };
-                tasks::run_migration(&manager.store.conn(), target)?;
-            }
-            Task::EnableGroup => {
-                tasks::enable_groups(&manager.store, &args.group_ids()?)?;
-            }
-            Task::DisableGroup => {
-                tasks::disable_groups(&manager.store, &args.group_ids()?)?;
-            }
+    match &args.task {
+        Task::QueryBench => {
+            manager.new_bencher()?.bench()?;
         }
-
-        info!("Finished {task:?}.");
+        Task::DbVacuum => {
+            let target =
+                args.target("This will be where the persistent database will be written to.");
+            tasks::db_vacuum(&manager.store, target)?;
+        }
+        Task::DbRollback => {
+            let target = args
+                .target("This will be the target version you want to roll the database back to.");
+            tasks::rollback(&manager.store.conn(), target)?;
+        }
+        Task::DbClearAllMessages => {
+            tasks::clear_all_messages(&manager.store.conn(), args.retain_days, None)?;
+        }
+        Task::DbClearMessages => {
+            tasks::clear_all_messages(
+                &manager.store.conn(),
+                args.retain_days,
+                Some(&args.group_ids()?),
+            )?;
+        }
+        Task::DbRunMigration => {
+            let target = args.target(
+                "This will be the name of the target migration you wish to run on the database.",
+            );
+            tasks::run_migration(&manager.store.conn(), target)?;
+        }
+        Task::DbRevertMigration => {
+            let target = args.target(
+                "This will be the name of the target migration you wish to run on the database.",
+            );
+            tasks::revert_migration(&manager.store.conn(), target)?;
+        }
+        Task::EnableGroup => {
+            tasks::enable_groups(&manager.store, &args.group_ids()?)?;
+        }
+        Task::DisableGroup => {
+            tasks::disable_groups(&manager.store, &args.group_ids()?)?;
+        }
     }
+
+    // info!("Finished {task:?}.");
 
     Ok(())
 }
@@ -134,20 +130,20 @@ fn confirm_destructive() -> Result<()> {
 
 #[derive(Parser)]
 struct Args {
+    /// Run a specific task
+    #[arg(value_enum)]
+    task: Task,
+
     /// Database path
     db: String,
 
     /// Target - purpose varies by task
-    #[arg(long)]
+    #[arg(long, short)]
     target: Option<String>,
 
     /// A hex encoded database encryption key
     #[arg(long)]
     db_key: Option<String>,
-
-    /// Run a specific task
-    #[arg(long, value_enum)]
-    task: Option<Task>,
 
     /// Number of days worth of data you'd like to retain on delete tasks.
     #[arg(long, value_enum)]
@@ -165,6 +161,12 @@ impl Args {
 
         self
     }
+
+    fn target(&self, reason: &str) -> &str {
+        self.target.as_ref().expect(&format!(
+            "--target argument must be provided for this task.\n {reason}"
+        ))
+    }
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -176,8 +178,13 @@ enum Task {
     DbVacuum,
     /// Attempt to revert database to a specific db version.
     /// Requires migration name as --target param.
-    DbRevert,
-    DbMigrate,
+    DbRollback,
+    /// Attempt to run a specific migration.
+    /// Requires migration name as --target para.m
+    DbRunMigration,
+    /// Attempt to revert a specific migration.
+    /// Requires migration name as --target para.m
+    DbRevertMigration,
     /// Clear all messages in a group.
     DbClearMessages,
     /// Clear all messages in the database.
