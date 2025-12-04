@@ -143,7 +143,7 @@ impl DbBencher {
             let bar = "█".repeat(bar_length);
 
             println!(
-                "{:<50} {:>12.3} ms {:>7.1}% {}",
+                "{:<50} {:>30.3} ms {:>7.1}% {}",
                 query,
                 time_ms,
                 relative * 100.0,

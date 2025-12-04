@@ -1,6 +1,7 @@
 use crate::tasks::DbBencher;
 use anyhow::{Result, bail};
 use clap::{Parser, ValueEnum};
+use dotenv::{dotenv, var};
 use std::io::{self, Write};
 use tracing::info;
 use xmtp_db::{EncryptedMessageStore, NativeDb, StorageOption};
@@ -20,7 +21,8 @@ impl Manager {
 const ENV_ENC_KEY: &str = "XMTP_DB_ENCRYPTION_KEY";
 
 fn main() -> Result<()> {
-    let args = Args::parse();
+    dotenv()?;
+    let args = Args::parse().load_env();
 
     // Connect to the database
     let storage_option = StorageOption::Persistent(args.db.clone());
@@ -48,7 +50,7 @@ fn main() -> Result<()> {
             Task::DbVacuum => {
                 let Some(dest) = &args.target else {
                     bail!(
-                        "dest argument must be provided for this task.\n\
+                        "--target argument must be provided for this task.\n\
                         This is where the persistent database will be written to.
                         "
                     );
@@ -58,7 +60,7 @@ fn main() -> Result<()> {
             Task::DbRevert => {
                 let Some(target) = &args.target else {
                     bail!(
-                        "--version argument must be provided for this task.\n\
+                        "--target argument must be provided for this task.\n\
                         This is the target version you want to roll the database back to."
                     );
                 };
@@ -74,6 +76,15 @@ fn main() -> Result<()> {
                     args.retain_days,
                     Some(&args.group_ids()?),
                 )?;
+            }
+            Task::DbMigrate => {
+                let Some(target) = &args.target else {
+                    bail!(
+                        "--target argument must be provided for this task.\n\
+                        This is the name of the target migration you wish to run on the database."
+                    )
+                };
+                tasks::run_migration(&manager.store.conn(), target)?;
             }
             Task::EnableGroup => {
                 tasks::enable_groups(&manager.store, &args.group_ids()?)?;
@@ -143,6 +154,19 @@ struct Args {
     retain_days: Option<i64>,
 }
 
+impl Args {
+    fn load_env(mut self) -> Self {
+        if self.db_key.is_none() {
+            if let Ok(key) = var("XMTP_DB_ENCRYPTION_KEY") {
+                info!("Loading database encryption key from .env file.");
+                self.db_key = Some(key);
+            }
+        }
+
+        self
+    }
+}
+
 #[derive(ValueEnum, Clone, Debug)]
 enum Task {
     /// Measure the performance of database queries
@@ -153,6 +177,7 @@ enum Task {
     /// Attempt to revert database to a specific db version.
     /// Requires migration name as --target param.
     DbRevert,
+    DbMigrate,
     /// Clear all messages in a group.
     DbClearMessages,
     /// Clear all messages in the database.

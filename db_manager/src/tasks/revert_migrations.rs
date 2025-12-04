@@ -2,8 +2,11 @@ use anyhow::Result;
 use diesel_migrations::MigrationHarness;
 use tracing::info;
 use xmtp_db::{
-    ConnectionExt,
-    diesel::{migration::MigrationVersion, result::Error as DieselError},
+    ConnectionExt, Sqlite,
+    diesel::{
+        migration::{Migration, MigrationSource, MigrationVersion},
+        result::Error as DieselError,
+    },
 };
 
 use crate::confirm_destructive;
@@ -35,6 +38,33 @@ pub fn revert_migrations_confirmed(conn: &impl ConnectionExt, target: &str) -> R
     Ok(())
 }
 
+pub fn run_migration(conn: &impl ConnectionExt, target: &str) -> Result<()> {
+    confirm_destructive()?;
+    run_migration_confirmed(conn, target)
+}
+
+fn run_migration_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
+    let migrations: Vec<Box<dyn Migration<Sqlite>>> = xmtp_db::MIGRATIONS.migrations().unwrap();
+
+    println!("?");
+    tracing::info!("?");
+
+    for migration in migrations {
+        if migration.name().to_string() != target {
+            continue;
+        }
+
+        info!("Running migration for {target}...");
+
+        conn.raw_query_write(|c| {
+            c.run_migration(&migration).unwrap();
+            Ok(())
+        })?;
+    }
+
+    Ok(())
+}
+
 fn applied_migrations(conn: &impl ConnectionExt) -> Result<Vec<MigrationVersion<'static>>> {
     let applied_migrations: Vec<MigrationVersion<'static>> = conn.raw_query_read(|conn| {
         conn.applied_migrations()
@@ -61,12 +91,14 @@ mod tests {
         let bo_msgs = bo_dm.find_messages(&Default::default())?;
         assert_eq!(bo_msgs.len(), 2);
 
-        revert_migrations_confirmed(&alix.db(), "2025-07-08-010431_modify_commit_log")?;
-
-        alix.db().raw_query_write(|c| {
-            c.run_pending_migrations(xmtp_db::MIGRATIONS)?;
-            Ok(())
-        })?;
+        // Go back and forth a couple times
+        for _ in 0..2 {
+            revert_migrations_confirmed(&alix.db(), "2025-07-08-010431_modify_commit_log")?;
+            alix.db().raw_query_write(|c| {
+                c.run_pending_migrations(xmtp_db::MIGRATIONS)?;
+                Ok(())
+            })?;
+        }
 
         alix.test_talk_in_dm_with(&bo).await?;
     }
