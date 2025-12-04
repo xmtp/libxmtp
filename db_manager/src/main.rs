@@ -176,7 +176,7 @@ enum Task {
     QueryBench,
     /// Dump an encrypted database into an un-encrypted file.
     DbVacuum,
-    /// Attempt to revert database to a specific db version.
+    /// Attempt to revert all migrations after and including specified migration version.
     /// Requires migration name as --target param.
     DbRollback,
     /// Attempt to run a specific migration.
