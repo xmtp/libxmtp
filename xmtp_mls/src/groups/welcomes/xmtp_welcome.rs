@@ -373,6 +373,20 @@ where
             }
         });
 
+        let existing_group = db.find_group(group_id.as_slice())?;
+        let is_readd = existing_group.is_some();
+
+        // Determine the membership state based on whether this is a re-add
+        let membership_state = if is_readd {
+            tracing::info!(
+                group_id = hex::encode(&group_id),
+                "User is being re-added to existing group, setting membership state to ALLOWED"
+            );
+            GroupMembershipState::Allowed
+        } else {
+            GroupMembershipState::Pending
+        };
+
         let mut group = StoredGroup::builder();
         group
             .id(group_id)
@@ -390,13 +404,13 @@ where
 
         let to_store = match conversation_type {
             ConversationType::Group => group
-                .membership_state(GroupMembershipState::Pending)
+                .membership_state(membership_state)
                 .paused_for_version(paused_for_version)
                 .build()?,
             ConversationType::Dm => {
                 validate_dm_group(context, &mls_group, &added_by_inbox_id)?;
                 group
-                    .membership_state(GroupMembershipState::Pending)
+                    .membership_state(membership_state)
                     .last_message_ns(welcome.timestamp())
                     .build()?
             }
@@ -511,6 +525,14 @@ where
         // If this group is created by us - auto-consent to it.
         if context.inbox_id() == metadata.creator_inbox_id {
             group.quietly_update_consent_state(ConsentState::Allowed, &db)?;
+        } else if is_readd {
+            // If user is being re-added to a group, reset consent to Unknown
+            // This requires the user to explicitly accept being added back
+            tracing::info!(
+                group_id = hex::encode(&group.group_id),
+                "Resetting consent state to Unknown for re-added user"
+            );
+            group.quietly_update_consent_state(ConsentState::Unknown, &db)?;
         }
 
         db.update_cursor(
