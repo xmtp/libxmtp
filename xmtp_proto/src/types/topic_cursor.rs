@@ -151,3 +151,12 @@ impl TopicCursor {
         self.inner.insert(topic, cursor);
     }
 }
+
+impl std::fmt::Display for TopicCursor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (topic, has_seen) in self.inner.iter() {
+            writeln!(f, "{} -> {}", topic, has_seen)?;
+        }
+        Ok(())
+    }
+}
