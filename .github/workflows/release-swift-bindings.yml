@@ -18,14 +18,16 @@ jobs:
         uses: actions/checkout@v5
       - name: Update rust toolchains, add target
         run: |
+          softwareupdate --install --all
+          xcode-select --install
           rustup update
           rustup target add ${{ matrix.target }}
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .
-            bindings_ffi
+      # - name: Cache
+      #   uses: Swatinem/rust-cache@v2
+      #   with:
+      #     workspaces: |
+      #       .
+      #       bindings_ffi
       - name: Install Cross
         uses: taiki-e/install-action@cross
       - name: Build target
