@@ -39,7 +39,6 @@ fn main() -> Result<()> {
         .ok()
         .or_else(|| args.db_key.clone());
 
-    // let storage_option = StorageOption::Ephemeral;
     let db = match &db_key {
         Some(key) => {
             let key = hex::decode(key)?;
@@ -96,8 +95,6 @@ fn main() -> Result<()> {
             tasks::disable_groups(&manager.store.db(), &group_ids)?;
         }
     }
-
-    // info!("Finished {task:?}.");
 
     Ok(())
 }
