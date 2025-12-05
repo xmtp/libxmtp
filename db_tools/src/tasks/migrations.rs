@@ -17,10 +17,11 @@ pub fn rollback(conn: &impl ConnectionExt, target: &str) -> Result<()> {
 
 pub fn rollback_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
     let target: String = target.chars().filter(|c| c.is_numeric()).collect();
+    let target: u64 = target.parse()?;
     while let Some(version) = applied_migrations(conn)?.first() {
         let version = version.to_string();
         let version_number: String = version.chars().filter(|c| c.is_numeric()).collect();
-        if version_number >= target {
+        if version_number.parse::<u64>()? >= target {
             let result = conn.raw_query_write(|conn| {
                 Ok(conn
                     .revert_last_migration(xmtp_db::MIGRATIONS)
@@ -53,10 +54,7 @@ fn run_migration_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()
         }
 
         info!("Running migration for {target}...");
-        conn.raw_query_write(|c| {
-            migration.run(c).unwrap();
-            Ok(())
-        })?;
+        conn.raw_query_write(|c| migration.run(c).map_err(DieselError::QueryBuilderError))?;
     }
 
     Ok(())
@@ -76,10 +74,7 @@ pub fn revert_migration_confirmed(conn: &impl ConnectionExt, target: &str) -> Re
         }
 
         info!("Running migration for {target}...");
-        conn.raw_query_write(|c| {
-            migration.revert(c).unwrap();
-            Ok(())
-        })?;
+        conn.raw_query_write(|c| migration.revert(c).map_err(DieselError::QueryBuilderError))?;
     }
 
     Ok(())
