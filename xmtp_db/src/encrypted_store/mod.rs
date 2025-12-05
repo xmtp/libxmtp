@@ -115,6 +115,7 @@ impl RetryableError for ConnectionError {
             Self::DisconnectInTransaction => true,
             Self::ReconnectInTransaction => true,
             Self::InvalidQuery(_) => false,
+            Self::Generic(_) => false,
         }
     }
 }
@@ -249,14 +250,10 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
             conn.run_pending_migrations(MIGRATIONS)
                 .map_err(diesel::result::Error::QueryBuilderError)?;
 
-            let db_version = conn
-                .applied_migrations()
-                .map_err(diesel::result::Error::QueryBuilderError)?
-                .pop()
-                .expect("There should be at least one migration.")
-                .to_string();
-            let last_migration = MIGRATIONS.final_migration();
 
+            // Ensure the database version is what we expect
+            let db_version = conn.final_migration()?;
+            let last_migration = MIGRATIONS.final_migration();
             if db_version != last_migration {
                 return Ok(Err(ConnectionError::Generic(format!("Applied migrations does not match available migrations.\n\
                     This is likely due to running a database that is newer than this version of libxmtp.\n\
@@ -426,6 +423,23 @@ impl EmbeddedMigrationsExt for EmbeddedMigrations {
             .chars()
             .filter(|c| c.is_numeric())
             .collect()
+    }
+}
+
+trait MigrationHarnessExt {
+    fn final_migration(&mut self) -> Result<String, diesel::result::Error>;
+}
+
+impl MigrationHarnessExt for SqliteConnection {
+    fn final_migration(&mut self) -> Result<String, diesel::result::Error> {
+        let migration: String = self
+            .applied_migrations()
+            .map_err(diesel::result::Error::QueryBuilderError)?
+            .pop()
+            .expect("This function is run after migrations are applied")
+            .to_string();
+
+        Ok(migration)
     }
 }
 
