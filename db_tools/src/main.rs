@@ -182,10 +182,10 @@ enum Task {
     /// Requires migration name as --target param.
     DbRollback,
     /// Attempt to run a specific migration.
-    /// Requires migration name as --target para.m
+    /// Requires migration name as --target param.
     DbRunMigration,
     /// Attempt to revert a specific migration.
-    /// Requires migration name as --target para.m
+    /// Requires migration name as --target param.
     DbRevertMigration,
     /// Clear all messages in a group.
     /// Requires hex-encoded group_id as --target param.
