@@ -101,7 +101,6 @@ where
                 results.push(self.bench_message_queries());
                 results.push(self.bench_association_state_queries());
                 results.push(self.bench_identity_update_queries());
-                results.push(self.bench_group_intent_queries());
                 results.push(self.bench_refresh_state_queries());
                 results.push(self.bench_key_package_history_queries());
                 results.push(self.bench_conversation_list_queries());
