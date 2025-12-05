@@ -64,9 +64,13 @@ impl StorageError {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn db_needs_connection(&self) -> bool {
+        use StorageError::*;
         matches!(
             self,
-            Self::Platform(crate::database::native::PlatformStorageError::PoolNeedsConnection)
+            Platform(crate::PlatformStorageError::PoolNeedsConnection)
+                | Connection(crate::ConnectionError::Platform(
+                    crate::PlatformStorageError::PoolNeedsConnection,
+                ))
         )
     }
 }
