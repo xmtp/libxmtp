@@ -4,16 +4,16 @@ use derive_builder::UninitializedFieldError;
 use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
 use xmtp_proto::api::BodyError;
 
-use crate::protocol::{CursorStoreError, Envelope, EnvelopeError, types::MissingEnvelope};
+use crate::protocol::{CursorStoreError, Envelope, EnvelopeError, types::RequiredDependency};
 
 pub struct Resolved<E> {
     pub resolved: Vec<E>,
     /// list of envelopes that could not be resolved with this strategy
-    pub unresolved: Option<HashSet<MissingEnvelope>>,
+    pub unresolved: Option<HashSet<RequiredDependency>>,
 }
 
 impl<E> Resolved<E> {
-    pub fn new(envelopes: Vec<E>, unresolved: Option<HashSet<MissingEnvelope>>) -> Self {
+    pub fn new(envelopes: Vec<E>, unresolved: Option<HashSet<RequiredDependency>>) -> Self {
         Self {
             resolved: envelopes,
             unresolved,
@@ -31,7 +31,7 @@ pub trait ResolveDependencies: MaybeSend + MaybeSync {
     /// * `Vec<Self::ResolvedEnvelope>`: The list of envelopes which were resolved.
     async fn resolve(
         &self,
-        missing: HashSet<MissingEnvelope>,
+        missing: HashSet<RequiredDependency>,
     ) -> Result<Resolved<Self::ResolvedEnvelope>, ResolutionError>;
 }
 
@@ -43,7 +43,7 @@ where
     type ResolvedEnvelope = T::ResolvedEnvelope;
     async fn resolve(
         &self,
-        missing: HashSet<MissingEnvelope>,
+        missing: HashSet<RequiredDependency>,
     ) -> Result<Resolved<Self::ResolvedEnvelope>, ResolutionError> {
         <T as ResolveDependencies>::resolve(*self, missing).await
     }
@@ -55,7 +55,7 @@ pub struct NoopResolver;
 #[xmtp_common::async_trait]
 impl ResolveDependencies for NoopResolver {
     type ResolvedEnvelope = ();
-    async fn resolve(&self, m: HashSet<MissingEnvelope>) -> Result<Resolved<()>, ResolutionError> {
+    async fn resolve(&self, m: HashSet<RequiredDependency>) -> Result<Resolved<()>, ResolutionError> {
         Ok(Resolved {
             resolved: vec![],
             unresolved: Some(m),

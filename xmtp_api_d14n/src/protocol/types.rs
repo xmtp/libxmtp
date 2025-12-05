@@ -1,3 +1,3 @@
 //! Types specific to the xmtp d14n implementation
-mod missing_envelope;
-pub use missing_envelope::*;
+mod required_dependency;
+pub use required_dependency::*;
