@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::protocol::{
     CursorStore, Envelope, EnvelopeError, OrderedEnvelopeCollection, ResolutionError,
-    ResolveDependencies, Resolved, Sort, VectorClock, sort, types::MissingEnvelope,
+    ResolveDependencies, Resolved, Sort, VectorClock, sort, types::RequiredDependency,
 };
 use derive_builder::Builder;
 use itertools::Itertools;
@@ -27,8 +27,11 @@ where
     R: ResolveDependencies<ResolvedEnvelope = T>,
     T: Envelope<'static> + prost::Message + Default,
 {
-    /// get the envelopes in the form of [`MissingEnvelope`]
-    fn missing(&mut self, missing: &[T]) -> Result<HashSet<MissingEnvelope>, EnvelopeError> {
+    /// get the missing dependencies in the form of a [`RequiredDependency`]
+    fn required_dependencies(
+        &mut self,
+        missing: &[T],
+    ) -> Result<HashSet<RequiredDependency>, EnvelopeError> {
         missing
             .iter()
             .map(|e| {
@@ -36,10 +39,11 @@ where
                 let topic = e.topic()?;
                 let topic_clock = self.topic_cursor.get_or_default(&topic);
                 let need = topic_clock.missing(&dependencies);
+                let needed_by = e.cursor()?;
                 Ok(need
                     .into_iter()
-                    .map(|c| MissingEnvelope::new(topic.clone(), c))
-                    .collect::<HashSet<MissingEnvelope>>())
+                    .map(|c| RequiredDependency::new(topic.clone(), c, needed_by))
+                    .collect::<HashSet<RequiredDependency>>())
             })
             .flatten_ok()
             .try_collect()
@@ -65,7 +69,7 @@ where
         if !children.is_empty() {
             tracing::info!("recovered {} children", children.len());
             for child in &children {
-                tracing::debug!(
+                tracing::trace!(
                     "recovered child@{} dependant on parent@{} for group@{}",
                     &child.cursor,
                     &child.depends_on,
@@ -81,7 +85,8 @@ where
             .map(OrphanedEnvelope::into_payload)
             .map(T::decode)
             .try_collect()?;
-        // ensure we append them to the list so that causal sort inserts them into the right spot
+        // ensure we append them to the list so that the sorting
+        // adds the parent envelopes to the topic cursor before the orphans
         self.envelopes.append(&mut envelopes);
         Ok(())
     }
@@ -114,64 +119,60 @@ where
     // 4.) child re-iced if resolution failed
     async fn order(&mut self) -> Result<(), ResolutionError> {
         self.recover_lost_children()?;
-        self.timestamp_sort()?;
+        // self.timestamp_sort()?;
         while let Some(mut missing) = self.causal_sort()? {
-            let cursors = self.missing(&missing)?;
+            let needed_envelopes = self.required_dependencies(&missing)?;
+            tracing::info!("topic_cursor: {:?}", self.topic_cursor);
+            // tracing::info!("missing \n{}", needed_str);
             let Resolved {
-                resolved,
+                mut resolved,
                 unresolved,
-            } = self.resolver.resolve(cursors).await?;
-            if let Some(unresolved) = unresolved {
-                let unresolved = unresolved
-                    .into_iter()
-                    .map(|m| m.cursor)
-                    .collect::<HashSet<_>>();
-                let mut new_missing = missing
-                    .into_iter()
-                    .map(|m| Ok((m.cursor()?, m)))
-                    .collect::<Result<Vec<(_, _)>, EnvelopeError>>()?;
-                // if the resolver fails to resolve some envelopes, ignore them.
-                // delete unresolved envelopes from missing envelopes list.
-                // cannot use extract_if directly b/c cursor returns Result<>.
-                // see https://github.com/xmtp/libxmtp/issues/2691
-                let orphans = new_missing
-                    .extract_if(.., |(c, _)| unresolved.contains(c))
-                    .map(|(_, e)| e.orphan())
-                    .try_collect()?;
-                self.store.ice(orphans)?;
-                missing = new_missing.into_iter().map(|(_, m)| m).collect();
-            }
+            } = self.resolver.resolve(needed_envelopes).await?;
             if resolved.is_empty() {
+                let orphans = missing.into_iter().map(|e| e.orphan()).try_collect()?;
+                self.store.ice(orphans)?;
                 break;
             }
-            // apply missing before resolved, so that the resolved
+            tracing::info!("adding {:?}", &resolved);
+            tracing::info!("adding {:?}", &missing);
+            self.envelopes.append(&mut resolved);
+            self.envelopes.append(&mut missing);
+            // apply resolved before missing, so that the resolved
             // are applied to the topic cursor before the missing dependencies.
             // todo: maybe `VecDeque` better here?
-            self.envelopes.splice(0..0, missing.into_iter());
-            self.envelopes.splice(0..0, resolved.into_iter());
+            // self.envelopes.splice(0..0, missing.into_iter());
+            // self.envelopes.splice(0..0, resolved.into_iter());
             self.recover_lost_children()?;
-            self.timestamp_sort()?;
+            // self.timestamp_sort()?;
         }
+        // self.store.ice(orphans)?;
+        //missing = new_missing.into_iter().map(|(_, m)| m).collect::<Vec<_>>();
+
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use super::*;
     use crate::protocol::{
-        NoCursorStore,
+        InMemoryCursorStore, NoCursorStore,
         utils::test::{EnvelopesWithMissing, TestEnvelope, missing_dependencies},
     };
     use futures::FutureExt;
+    use parking_lot::Mutex;
     use proptest::{prelude::*, sample::subsequence};
+    use xmtp_common::assert_ok;
     use xmtp_proto::types::OriginatorId;
 
     // Simple mock resolver that holds available envelopes to resolve
     #[derive(Clone, Debug)]
     struct MockResolver {
-        available: Vec<TestEnvelope>,
-        unavailable: Vec<TestEnvelope>,
+        available: Arc<Mutex<Vec<TestEnvelope>>>,
+        unavailable: Arc<Mutex<Vec<TestEnvelope>>>,
+        returned: Arc<Mutex<Vec<TestEnvelope>>>,
     }
 
     #[xmtp_common::async_trait]
@@ -180,36 +181,51 @@ mod test {
 
         async fn resolve(
             &self,
-            missing: HashSet<MissingEnvelope>,
+            missing: HashSet<RequiredDependency>,
         ) -> Result<Resolved<TestEnvelope>, ResolutionError> {
-            // Return envelopes that match the missing set
-            let resolved = self
-                .available
+            let missing_set: HashSet<_> = missing.iter().map(|m| m.cursor).collect();
+            let mut available = self.available.lock();
+            let available_cursors = available
                 .iter()
-                .filter(|env| {
+                .map(|a| a.cursor())
+                .collect::<HashSet<Cursor>>();
+            // Return envelopes that match the missing set
+            let resolved = available
+                .extract_if(.., |env| {
                     let cursor = env.cursor();
-                    let topic = env.topic().unwrap();
-                    missing.contains(&MissingEnvelope::new(topic, cursor))
+                    missing_set.contains(&cursor)
                 })
-                .cloned()
                 .collect::<Vec<_>>();
+            let mut ret = self.returned.lock();
+            ret.extend(resolved.clone());
+            let unresolved_cursors = missing_set
+                .difference(&available_cursors)
+                .collect::<HashSet<_>>();
+            let unresolved: HashSet<_> = missing
+                .into_iter()
+                .filter(|m| unresolved_cursors.contains(&m.cursor))
+                .collect();
 
-            Ok(Resolved::new(resolved, None))
+            Ok(Resolved::new(
+                resolved,
+                (!unresolved.is_empty()).then_some(unresolved),
+            ))
         }
     }
 
     prop_compose! {
         pub fn resolvable_dependencies(length: usize, originators: Vec<OriginatorId>)
             (envelopes in missing_dependencies(length, originators))
-                (available in subsequence(envelopes.removed.clone(), envelopes.removed.len()), envelopes in Just(envelopes))
+                (available in subsequence(envelopes.removed.clone(), 0..=envelopes.removed.len()), envelopes in Just(envelopes))
         -> EnvelopesWithResolver {
             let mut unavailable = envelopes.removed.clone();
             unavailable.retain(|e| !available.contains(e));
             EnvelopesWithResolver {
                 missing: envelopes,
                 resolver: MockResolver {
-                    available,
-                    unavailable
+                    available: Arc::new(Mutex::new(available)),
+                    unavailable: Arc::new(Mutex::new(unavailable)),
+                    returned: Arc::new(Mutex::new(Vec::new()))
                 }
             }
         }
@@ -220,17 +236,98 @@ mod test {
         missing: EnvelopesWithMissing,
         resolver: MockResolver,
     }
+
+    impl EnvelopesWithResolver {
+        fn available(&self) -> Vec<TestEnvelope> {
+            let a = self.resolver.available.lock();
+            a.clone()
+        }
+
+        fn unavailable(&self) -> Vec<TestEnvelope> {
+            let v = self.resolver.unavailable.lock();
+            v.clone()
+        }
+
+        pub fn make_available(&self, idx: usize) -> TestEnvelope {
+            let mut v = self.resolver.unavailable.lock();
+            let mut available = self.resolver.available.lock();
+            let new = v.remove(idx);
+            available.push(new.clone());
+            new
+        }
+
+        pub fn returned(&self) -> Vec<TestEnvelope> {
+            let v = self.resolver.returned.lock();
+            v.clone()
+        }
+
+        // get only dependencies that can be validly depended on
+        // (none of the dependencies depednants are unavailable)
+        pub fn only_valid_dependants(&self) -> Vec<TestEnvelope> {
+            let mut valid = Vec::new();
+            let to_be_ordered = &self.missing.envelopes;
+            let unavailable = &self.unavailable();
+            let available = self.available();
+            let returned = &self.returned();
+            // ensure topic clock properly reflects all envelopes
+            for env in to_be_ordered {
+                // ensure that the envelope does not depend on an unavailable
+                if env.has_dependency_on_any(&unavailable) {
+                    continue;
+                }
+                let mut abort = false;
+                let mut depends = vec![env.depends_on()];
+                let mut new_depends = vec![];
+                // we not only have to check that this dependencies deps aren't unavailable, but
+                // every dependency up the chain
+                while !depends.is_empty() && !abort {
+                    for dep in &depends {
+                        if dep.cursors().any(|d| {
+                            let e = available
+                                .iter()
+                                .chain(to_be_ordered)
+                                .chain(returned)
+                                .find(|available| d == available.cursor())
+                                .expect(&format!("unable to find dep {}, {:?}", d, available));
+                            if !e.has_dependency_on_any(&unavailable) && !e.depends_on().is_empty()
+                            {
+                                new_depends.push(e.depends_on());
+                                false
+                            } else {
+                                true
+                            }
+                        }) {
+                            abort = true;
+                            break;
+                        }
+                        if abort {
+                            break;
+                        }
+                    }
+                    std::mem::swap(&mut depends, &mut new_depends);
+                    new_depends.clear();
+                }
+                if abort {
+                    continue;
+                }
+                valid.push(env.clone());
+            }
+            valid
+        }
+    }
+
     proptest! {
         #[xmtp_common::test]
         fn orders_with_unresolvable_dependencies(
-            envelopes in resolvable_dependencies(30, vec![10, 20, 30, 40, 50, 60])
+            envelopes in resolvable_dependencies(10, vec![10, 20, 30])
         ) {
+            let valid = envelopes.only_valid_dependants();
+            let available = envelopes.available();
+            let unavailable = envelopes.unavailable();
             let EnvelopesWithResolver {
                 missing,
                 resolver
             } = envelopes;
-
-            let (available, unavailable) = (resolver.available.clone(), resolver.unavailable.clone());
             let mut ordered = Ordered::builder()
                 .envelopes(missing.envelopes)
                 .resolver(resolver)
@@ -246,12 +343,16 @@ mod test {
 
             let (result, mut topic_cursor) = ordered.into_parts();
 
+            for env in valid {
+                let clock = topic_cursor.get_or_default(&env.topic().unwrap());
+                prop_assert!(clock.has_seen(&env.cursor()), "topic cursor {:?} must have seen {}", topic_cursor, env.cursor());
+            }
+
             // Check that no envelope in the result depends on an unavailable removed envelope
             for envelope in &result {
                 let depends_on = envelope.depends_on();
                 let topic = envelope.topic().unwrap();
                 let topic_clock = topic_cursor.get_or_default(&topic);
-
                 // If this envelope's dependencies are satisfied by the topic cursor,
                 // it should not depend on any unavailable envelopes
                 if topic_clock.dominates(&depends_on) {
@@ -268,7 +369,6 @@ mod test {
                     panic!("topic clock should always be complete at conclusion of ordering. {} does not dominate envelope {} depending on {}", topic_clock, envelope.cursor(), depends_on);
                 }
             }
-
             // Verify that envelopes which were made available are in the result
             // (unless they themselves depend on unavailable envelopes)
             for available_env in &available {
@@ -292,6 +392,166 @@ mod test {
                     available_env,
                     topic_clock
                 );
+            }
+        }
+
+        #[xmtp_common::test]
+        fn orders_with_recovered_children(
+            envelopes in resolvable_dependencies(10, vec![10, 20, 30])
+        ) {
+            let valid = envelopes.only_valid_dependants();
+            let valid_cursors = valid.iter().map(|e| e.cursor()).collect::<HashSet<_>>();
+            let unavailable = envelopes.unavailable();
+            let EnvelopesWithResolver {
+                ref missing,
+                ref resolver
+            } = envelopes;
+
+            let topic_cursor = TopicCursor::default();
+            let envelopes_to_check = missing.envelopes.clone();
+            let store = InMemoryCursorStore::new();
+            let mut ordered = Ordered::builder()
+                .envelopes(missing.envelopes.clone())
+                .resolver(resolver.clone())
+                .store(store.clone())
+                .topic_cursor(topic_cursor)
+                .build()
+                .unwrap();
+
+            // Perform ordering - some dependencies cannot be resolved, so children get iced
+            ordered.order().now_or_never()
+                .expect("Future should complete immediately")
+                .unwrap();
+
+            let (first_ordering_pass, topic_cursor) = ordered.into_parts();
+            tracing::info!("TOPIC CURSOR {:?}", &topic_cursor);
+
+            // Verify that the store has some orphaned envelopes
+            let orphan_count = store.orphan_count();
+
+            // If there were unavailable dependencies and envelopes depending on them,
+            // we should have some orphans
+            if !unavailable.is_empty() {
+                let has_dependent_envelopes = envelopes_to_check.iter().any(|e| {
+                    unavailable.iter().any(|u| e.has_dependency_on(u))
+                });
+
+                if has_dependent_envelopes {
+                    prop_assert!(
+                        orphan_count > 0,
+                        "Expected some envelopes to be iced when dependencies are unavailable"
+                    );
+                }
+            }
+
+            // Now simulate a scenario where one of the unavailable envelopes becomes available
+            // and we do another ordering pass - the children should be recovered
+            if !unavailable.is_empty() && orphan_count > 0 {
+                // make the first unavailable envelope available again
+                let newly_available = envelopes.make_available(0);
+
+                let only_valid_dependants = envelopes.only_valid_dependants();
+
+                // Create a new ordered instance with the newly available envelope
+                let mut ordered = Ordered::builder()
+                    .envelopes(vec![newly_available.clone()])
+                    .resolver(resolver.clone())
+                    .store(store.clone())
+                    .topic_cursor(topic_cursor)
+                    .build()
+                    .unwrap();
+
+                // Perform ordering again - this should recover children
+                let orphan_count = store.orphan_count();
+
+                ordered.order().now_or_never()
+                    .expect("Future should complete immediately")
+                    .unwrap();
+
+                let (second_ordering_pass, mut new_topic_cursor) = ordered.into_parts();
+
+                // If the newly available envelope had children, they should be recovered
+                // (orphan count should decrease)
+                let (had_children, returned) = {
+                    let returned = store.resolve_children(&[newly_available.cursor()]);
+                    assert_ok!(&returned);
+                    let returned = returned.unwrap();
+                    // Check if any orphan was a child of the newly available envelope
+                    let had_children = returned.len() > 0;
+                    (had_children, returned)
+                };
+                let had_children = orphan_count > 0 && had_children;
+                let child_str = returned.iter().fold(String::new(), |mut s, r| {
+                    s.push_str(&format!("{:?}", r));
+                    s.push('\n');
+                    s
+                });
+                let icebox_str = store.icebox().iter().enumerate().fold(String::new(), |mut s, (i, r)| {
+                    s.push_str(&format!("{} -- {:?}", i, r));
+                    s.push('\n');
+                    s
+                });
+                let second_ordering_pass_str = second_ordering_pass.iter().enumerate().fold(String::new(), |mut s, (i, r)| {
+                    s.push_str(&format!("{} -- {:?}", i, r));
+                    s.push('\n');
+                    s
+                });
+                let first_ordering_pass_str = first_ordering_pass.iter().enumerate().fold(String::new(), |mut s, (i, r)| {
+                    s.push_str(&format!("{} -- {:?}", i, r));
+                    s.push('\n');
+                    s
+                });
+                let is_valid = valid_cursors.contains(&newly_available.cursor());
+                let valid_children = returned.iter().map(TestEnvelope::from).filter(|c| c.only_depends_on(&valid)).collect::<Vec<_>>();
+                let num_valid_children = valid_children.len();
+                let valid_children_str = valid_children.iter().enumerate().fold(String::new(), |mut s, (i, r)| {
+                    s.push_str(&format!("{} -- {:?}", i, r));
+                    s.push('\n');
+                    s
+                });
+                if had_children && is_valid {
+                    prop_assert_eq!(1 + num_valid_children, second_ordering_pass.len(),
+                        "valid orphans should be in envelopes list\n\
+                        valid_children: \n{}\n\
+                        icebox: \n{}\n\
+                        final topic_cursor: \n{}\n\
+                        first_ordering_pass: \n{}\n\
+                        newly_available->{}\n\
+                        second_ordering_pass:\n{}\n\
+                        ", valid_children_str, icebox_str, new_topic_cursor, first_ordering_pass_str, newly_available, second_ordering_pass_str,
+                    );
+                    prop_assert!(
+                        second_ordering_pass.len() >= 1,
+                        "Expected children to be recovered when parent becomes available.\n \
+                         Result length: {} \
+                         \n newly_available: {} \
+                         \nicebox:\n{} \
+                         \nlen: {} \
+                         \nrecovered_children:\n{}
+                         \n topic cursor {:?}",
+                        second_ordering_pass.len(),
+                        newly_available,
+                        icebox_str,
+                        store.orphan_count(),
+                        child_str,
+                        new_topic_cursor
+                    );
+                }
+
+                // Verify that all envelopes in the result have satisfied dependencies
+                for envelope in &second_ordering_pass {
+                    let depends_on = envelope.depends_on();
+                    let topic = envelope.topic().unwrap();
+                    let topic_clock = new_topic_cursor.get_or_default(&topic);
+
+                    prop_assert!(
+                        topic_clock.dominates(&depends_on),
+                        "Recovered envelope should have satisfied dependencies. \
+                         Envelope: {}, Topic clock: {}",
+                        envelope,
+                        topic_clock
+                    );
+                }
             }
         }
     }

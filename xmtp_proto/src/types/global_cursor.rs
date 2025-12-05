@@ -41,6 +41,14 @@ impl GlobalCursor {
         }
     }
 
+    /// iterate over all K/V pairs as a [`super::Cursor`]
+    pub fn cursors(&self) -> impl Iterator<Item = super::Cursor> {
+        self.iter().map(|(k, v)| super::Cursor {
+            originator_id: *k,
+            sequence_id: *v,
+        })
+    }
+
     /// Apply a singular cursor to 'Self'
     pub fn apply(&mut self, cursor: &super::Cursor) {
         let _ = self
