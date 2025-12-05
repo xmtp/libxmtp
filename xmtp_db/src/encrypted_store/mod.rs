@@ -102,8 +102,12 @@ pub enum ConnectionError {
     ReconnectInTransaction,
     #[error("invalid query: {0}")]
     InvalidQuery(String),
-    #[error("{0}")]
-    Generic(String),
+    #[error(
+        "Applied migrations does not match available migrations.\n\
+    This is likely due to running a database that is newer than this version of libxmtp.\n\
+    Expected: {expected}, found: {found}"
+    )]
+    InvalidVersion { expected: String, found: String },
 }
 
 impl RetryableError for ConnectionError {
@@ -115,7 +119,7 @@ impl RetryableError for ConnectionError {
             Self::DisconnectInTransaction => true,
             Self::ReconnectInTransaction => true,
             Self::InvalidQuery(_) => false,
-            Self::Generic(_) => false,
+            Self::InvalidVersion { .. } => false,
         }
     }
 }
@@ -250,16 +254,15 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
             conn.run_pending_migrations(MIGRATIONS)
                 .map_err(diesel::result::Error::QueryBuilderError)?;
 
-
             // Ensure the database version is what we expect
             let db_version = conn.final_migration()?;
             let last_migration = MIGRATIONS.final_migration();
             if db_version != last_migration {
-                return Ok(Err(ConnectionError::Generic(format!("Applied migrations does not match available migrations.\n\
-                    This is likely due to running a database that is newer than this version of libxmtp.\n\
-                    Expected: {last_migration}, found: {db_version}"))));
+                return Ok(Err(ConnectionError::InvalidVersion {
+                    expected: last_migration,
+                    found: db_version,
+                }));
             }
-
 
             let sqlite_version =
                 sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
