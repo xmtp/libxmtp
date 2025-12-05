@@ -5,6 +5,7 @@ use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_configuration::Originators;
 use xmtp_db::{
     group_intent::IntentDependency,
+    icebox::QueryIcebox,
     identity_update::QueryIdentityUpdates,
     prelude::{QueryGroupIntent, QueryRefreshState},
     refresh_state::EntityKind,
@@ -24,7 +25,12 @@ impl<Db> SqliteCursorStore<Db> {
 
 impl<Db> CursorStore for SqliteCursorStore<Db>
 where
-    Db: QueryRefreshState + QueryIdentityUpdates + QueryGroupIntent + MaybeSend + MaybeSync,
+    Db: QueryRefreshState
+        + QueryIdentityUpdates
+        + QueryGroupIntent
+        + QueryIcebox
+        + MaybeSend
+        + MaybeSync,
 {
     fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
         self.db
@@ -60,9 +66,9 @@ where
                     .db
                     .get_latest_sequence_id_for_inbox(&hex::encode(topic.identifier()))
                     .map_err(CursorStoreError::other)?;
-                let mut map = HashMap::new();
+                let mut map = GlobalCursor::default();
                 map.insert(Originators::INBOX_LOG, sid as u64);
-                Ok(GlobalCursor::new(map))
+                Ok(map)
             }
             TopicKind::KeyPackagesV1 => Ok(GlobalCursor::default()),
             _ => Err(CursorStoreError::UnhandledTopicKind(topic.kind())),
@@ -92,9 +98,9 @@ where
                     .db
                     .get_latest_sequence_id_for_inbox(&hex::encode(topic.identifier()))
                     .map_err(CursorStoreError::other)?;
-                let mut map = HashMap::new();
+                let mut map = GlobalCursor::default();
                 map.insert(Originators::INBOX_LOG, sid as u64);
-                Ok(GlobalCursor::new(map))
+                Ok(map)
             }
             TopicKind::KeyPackagesV1 => Ok(GlobalCursor::default()),
             _ => Err(CursorStoreError::UnhandledTopicKind(topic.kind())),
@@ -153,9 +159,9 @@ where
                             .db
                             .get_latest_sequence_id_for_inbox(&hex::encode(topic.identifier()))
                             .map_err(CursorStoreError::other)?;
-                        let mut map = HashMap::new();
+                        let mut map = GlobalCursor::default();
                         map.insert(Originators::INBOX_LOG, sid as u64);
-                        Ok((topic.clone(), GlobalCursor::new(map)))
+                        Ok((topic.clone(), map))
                     })
                     .collect(),
                 TopicKind::KeyPackagesV1 => Ok(topics_of_kind
@@ -184,5 +190,22 @@ where
             .into_iter()
             .map(|(h, d)| (h, d.cursor))
             .collect())
+    }
+
+    fn ice(
+        &self,
+        orphans: Vec<xmtp_proto::types::OrphanedEnvelope>,
+    ) -> Result<(), CursorStoreError> {
+        self.db.ice(orphans).map_err(CursorStoreError::other)?;
+        Ok(())
+    }
+
+    fn resolve_children(
+        &self,
+        cursors: &[Cursor],
+    ) -> Result<Vec<xmtp_proto::types::OrphanedEnvelope>, CursorStoreError> {
+        self.db
+            .future_dependants(cursors)
+            .map_err(CursorStoreError::other)
     }
 }

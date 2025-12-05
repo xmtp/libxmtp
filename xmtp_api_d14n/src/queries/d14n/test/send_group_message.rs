@@ -142,4 +142,18 @@ impl CursorStore for TestCursorStore {
     ) -> Result<HashMap<Vec<u8>, Cursor>, CursorStoreError> {
         Ok(self.dependencies.clone())
     }
+
+    fn ice(
+        &self,
+        _orphans: Vec<xmtp_proto::types::OrphanedEnvelope>,
+    ) -> Result<(), CursorStoreError> {
+        unreachable!()
+    }
+
+    fn resolve_children(
+        &self,
+        _cursors: &[Cursor],
+    ) -> Result<Vec<xmtp_proto::types::OrphanedEnvelope>, CursorStoreError> {
+        unreachable!()
+    }
 }
