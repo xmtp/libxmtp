@@ -22,6 +22,10 @@ pub mod xmtp {
             include!("xmtp.device_sync.message_backup.rs");
             include!("xmtp.device_sync.message_backup.serde.rs");
         }
+        pub mod backup {
+            include!("xmtp.device_sync.backup.rs");
+            include!("xmtp.device_sync.backup.serde.rs");
+        }
     }
     pub mod identity {
         include!("xmtp.identity.rs");

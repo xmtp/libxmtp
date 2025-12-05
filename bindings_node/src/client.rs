@@ -14,6 +14,7 @@ use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb, StorageOption};
 use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
+use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
@@ -435,8 +436,9 @@ impl Client {
   #[napi]
   pub async fn upload_debug_archive(&self, server_url: String) -> Result<String> {
     let db = self.inner_client().context.db();
+    let api = self.inner_client().context.api().clone();
     Ok(
-      upload_debug_archive(db, Some(server_url))
+      upload_debug_archive(db, api, Some(server_url))
         .await
         .map_err(ErrorWrapper::from)?,
     )

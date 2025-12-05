@@ -3,22 +3,22 @@ use crate::groups::mls_ext::{
 };
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
 use crate::worker::NeedsDbReconnect;
-use crate::{XmtpApi, verified_key_package_v2::KeyPackageVerificationError};
+use crate::{verified_key_package_v2::KeyPackageVerificationError, XmtpApi};
 use derive_builder::Builder;
-use openmls::prelude::HpkeKeyPair;
 use openmls::prelude::hash_ref::HashReference;
+use openmls::prelude::HpkeKeyPair;
 use openmls::{
-    credentials::{BasicCredential, CredentialWithKey, errors::BasicCredentialError},
+    credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
     extensions::{
         ApplicationIdExtension, Extension, ExtensionType, Extensions, LastResortExtension,
     },
     key_packages::KeyPackage,
     messages::proposals::ProposalType,
-    prelude::{Capabilities, Credential as OpenMlsCredential, tls_codec::Serialize},
+    prelude::{tls_codec::Serialize, Capabilities, Credential as OpenMlsCredential},
 };
 use openmls_libcrux_crypto::Provider as LibcruxProvider;
 use openmls_traits::{
-    OpenMlsProvider, crypto::OpenMlsCrypto, random::OpenMlsRand, types::CryptoError,
+    crypto::OpenMlsCrypto, random::OpenMlsRand, types::CryptoError, OpenMlsProvider,
 };
 use prost::Message;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,7 +28,7 @@ use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::time::now_ns;
-use xmtp_common::{RetryableError, retryable};
+use xmtp_common::{retryable, RetryableError};
 use xmtp_configuration::{
     CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
     GROUP_PERMISSIONS_EXTENSION_ID, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
@@ -41,21 +41,20 @@ use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{
-    KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError,
+    SqlKeyStoreError, KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
 };
+use xmtp_db::{prelude::*, XmtpOpenMlsProviderRef};
 use xmtp_db::{ConnectionExt, MlsProviderExt};
 use xmtp_db::{Fetch, StorageError, Store};
-use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
-    InboxId, InboxIdRef,
     associations::{
-        MemberIdentifier,
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
-        sign_with_legacy_key,
+        sign_with_legacy_key, MemberIdentifier,
     },
+    InboxId, InboxIdRef,
 };
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::xmtp::identity::MlsCredential;
@@ -930,16 +929,16 @@ mod tests {
         verified_key_package_v2::VerifiedKeyPackageV2,
     };
     use openmls::prelude::{KeyPackageBundle, KeyPackageRef};
-    use openmls_traits::{OpenMlsProvider, storage::StorageProvider};
+    use openmls_traits::{storage::StorageProvider, OpenMlsProvider};
     use tls_codec::Serialize;
     use xmtp_api_d14n::protocol::XmtpQuery;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::XmtpMlsStorageProvider;
     use xmtp_db::XmtpOpenMlsProviderRef;
     use xmtp_db::{
-        MlsProviderExt,
         group::{ConversationType, GroupQueryArgs},
         sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
+        MlsProviderExt,
     };
     use xmtp_mls_common::group::DMMetadataOptions;
     use xmtp_proto::types::TopicKind;

@@ -61,7 +61,7 @@ impl<A, S> ClientBuilder<A, S> {
 
 impl<Api, Storage, Db> ClientBuilder<Api, Storage, Db>
 where
-    Api: XmtpApi + XmtpQuery + 'static,
+    Api: XmtpApi + XmtpQuery + Clone + 'static,
     Storage: XmtpMlsStorageProvider + 'static,
     Db: xmtp_db::XmtpDb + 'static,
 {
