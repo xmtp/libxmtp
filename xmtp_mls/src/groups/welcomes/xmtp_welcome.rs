@@ -377,11 +377,13 @@ where
 
         // Check if this is a re-add scenario (user was in PENDING_REMOVE state)
         // This happens when a user leaves or is removed, then gets re-added with a NEW welcome
-        // We verify it's a new welcome by checking that the sequence_id is different
-        // This prevents incorrectly treating backup/restore as a re-add
+        // We verify it's a NEW welcome by checking that the sequence_id is GREATER (not just different)
+        // This prevents incorrectly treating backup/restore as a re-add:
+        // - True re-add: new welcome has HIGHER sequence_id than the old group
+        // - Backup/restore: welcome might have different but not necessarily higher sequence_id
         let is_readd_after_leaving = existing_group.as_ref().is_some_and(|g| {
             g.membership_state == GroupMembershipState::PendingRemove
-                && g.sequence_id != Some(welcome.cursor.sequence_id as i64)
+                && welcome.cursor.sequence_id as i64 > g.sequence_id.unwrap_or(0)
         });
 
         // Determine the membership state
@@ -457,7 +459,7 @@ where
         }
 
         // Insert or replace the group in the database.
-        // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
+        // For existing groups, this only updates the sequence_id (not membership_state).
         let stored_group = db.insert_or_replace_group(to_store)?;
 
         StoredConsentRecord::stitch_dm_consent(&db, &stored_group)?;
