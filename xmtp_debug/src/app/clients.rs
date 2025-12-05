@@ -99,6 +99,7 @@ async fn new_client_inner(
     .default_mls_store()?
     .with_remote_verifier()?
     .with_device_sync_worker_mode(Some(SyncWorkerMode::Disabled))
+    .with_disable_workers(true)
     .build()
     .await?;
 
@@ -155,6 +156,7 @@ fn existing_client_inner(
         .store(store?)
         .default_mls_store()?
         .with_device_sync_worker_mode(Some(SyncWorkerMode::Disabled))
+        .with_disable_workers(true)
         .with_allow_offline(Some(true))
         .build_offline()?;
 
