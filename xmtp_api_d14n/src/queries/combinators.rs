@@ -2,22 +2,24 @@
 
 use xmtp_proto::{api::Endpoint, api_client::Paged, types::TopicCursor};
 
-use crate::protocol::ResolveDependencies;
+use crate::protocol::{CursorStore, ResolveDependencies};
 
 mod ordered_query;
 
 pub trait D14nCombinatorExt<S>: Endpoint<S> {
-    fn ordered<R>(
+    fn ordered<R, Store>(
         self,
         resolver: R,
         topic_cursor: TopicCursor,
-    ) -> ordered_query::OrderedQuery<Self, R, <Self as Endpoint<S>>::Output>
+        store: Store,
+    ) -> ordered_query::OrderedQuery<Self, R, <Self as Endpoint<S>>::Output, Store>
     where
         Self: Sized + Endpoint<S>,
         <Self as Endpoint<S>>::Output: Paged,
         R: ResolveDependencies,
+        Store: CursorStore,
     {
-        ordered_query::ordered(self, resolver, topic_cursor)
+        ordered_query::ordered(self, resolver, topic_cursor, store)
     }
 }
 

@@ -68,6 +68,10 @@ pub enum EnvelopeError {
     NotFound(&'static str),
     #[error(transparent)]
     MissingBuilderField(#[from] UninitializedFieldError),
+    #[error(transparent)]
+    Store(#[from] CursorStoreError),
+    #[error(transparent)]
+    Decode(#[from] prost::DecodeError),
     // for extractors defined outside of this crate or
     // generic implementations like Tuples
     #[error("{0}")]
@@ -83,6 +87,8 @@ impl RetryableError for EnvelopeError {
             Self::DynError(d) => retryable!(d),
             Self::NotFound(_) => false,
             Self::MissingBuilderField(_) => false,
+            Self::Store(s) => retryable!(s),
+            Self::Decode(_) => true,
         }
     }
 }

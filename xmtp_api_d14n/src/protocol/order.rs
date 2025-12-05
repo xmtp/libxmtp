@@ -1,12 +1,12 @@
 use std::collections::HashSet;
 
 use crate::protocol::{
-    Envelope, EnvelopeError, OrderedEnvelopeCollection, ResolutionError, ResolveDependencies,
-    Resolved, Sort, VectorClock, sort, types::MissingEnvelope,
+    CursorStore, Envelope, EnvelopeError, OrderedEnvelopeCollection, ResolutionError,
+    ResolveDependencies, Resolved, Sort, VectorClock, sort, types::MissingEnvelope,
 };
 use derive_builder::Builder;
 use itertools::Itertools;
-use xmtp_proto::types::TopicCursor;
+use xmtp_proto::types::{Cursor, OrphanedEnvelope, TopicCursor};
 
 /// Order dependencies of `Self` according to [XIP](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#335-cross-originator-message-ordering)
 /// If dependencies are missing, this ordering will try to resolve them
@@ -14,90 +14,143 @@ use xmtp_proto::types::TopicCursor;
 /// construct this strategy with [`Ordered::builder`]
 #[derive(Debug, Clone, Builder)]
 #[builder(setter(strip_option), build_fn(error = "EnvelopeError"))]
-pub struct Ordered<T, R> {
+pub struct Ordered<T, R, S> {
     envelopes: Vec<T>,
     resolver: R,
     topic_cursor: TopicCursor,
+    store: S,
 }
 
-impl<T, R> Ordered<T, R> {
+impl<T, R, S> Ordered<T, R, S>
+where
+    S: CursorStore,
+    R: ResolveDependencies<ResolvedEnvelope = T>,
+    T: Envelope<'static> + prost::Message + Default,
+{
+    /// get the envelopes in the form of [`MissingEnvelope`]
+    fn missing(&mut self, missing: &[T]) -> Result<HashSet<MissingEnvelope>, EnvelopeError> {
+        missing
+            .iter()
+            .map(|e| {
+                let dependencies = e.depends_on()?.unwrap_or(Default::default());
+                let topic = e.topic()?;
+                let topic_clock = self.topic_cursor.get_or_default(&topic);
+                let need = topic_clock.missing(&dependencies);
+                Ok(need
+                    .into_iter()
+                    .map(|c| MissingEnvelope::new(topic.clone(), c))
+                    .collect::<HashSet<MissingEnvelope>>())
+            })
+            .flatten_ok()
+            .try_collect()
+    }
+
+    // convenient internal proxy to causal sorting
+    fn causal_sort(&mut self) -> Result<Option<Vec<T>>, EnvelopeError> {
+        sort::causal(&mut self.envelopes, &mut self.topic_cursor).sort()
+    }
+
+    // convenient internal proxy to timestamp sort
+    fn timestamp_sort(&mut self) -> Result<(), EnvelopeError> {
+        // timestamp sort never returns missing envelopes
+        let _ = sort::timestamp(&mut self.envelopes).sort()?;
+        Ok(())
+    }
+
+    /// try to find any lost children and re-apply them to the
+    /// end of the envelopes list before any resolution occurs
+    fn recover_lost_children(&mut self) -> Result<(), EnvelopeError> {
+        let cursors: Vec<_> = self.envelopes.iter().map(|e| e.cursor()).try_collect()?;
+        let children = self.store.resolve_children(&cursors)?;
+        if !children.is_empty() {
+            tracing::info!("recovered {} children", children.len());
+            for child in &children {
+                tracing::debug!(
+                    "recovered child@{} dependant on parent@{} for group@{}",
+                    &child.cursor,
+                    &child.depends_on,
+                    &child.group_id
+                );
+            }
+        }
+        let cursors: HashSet<Cursor> = HashSet::from_iter(cursors);
+        let mut envelopes: Vec<T> = children
+            .into_iter()
+            // ensure we don't re-add duplicates from the db
+            .filter(|o| !cursors.contains(&o.cursor))
+            .map(OrphanedEnvelope::into_payload)
+            .map(T::decode)
+            .try_collect()?;
+        // ensure we append them to the list so that causal sort inserts them into the right spot
+        self.envelopes.append(&mut envelopes);
+        Ok(())
+    }
+}
+
+impl<T, R, S> Ordered<T, R, S> {
     pub fn into_parts(self) -> (Vec<T>, TopicCursor) {
         (self.envelopes, self.topic_cursor)
     }
 }
 
-impl<T: Clone, R: Clone> Ordered<T, R> {
-    pub fn builder() -> OrderedBuilder<T, R> {
+impl<T: Clone, R: Clone, S: Clone> Ordered<T, R, S> {
+    pub fn builder() -> OrderedBuilder<T, R, S> {
         OrderedBuilder::default()
     }
 }
 
 #[xmtp_common::async_trait]
-impl<T, R> OrderedEnvelopeCollection for Ordered<T, R>
+impl<T, R, S> OrderedEnvelopeCollection for Ordered<T, R, S>
 where
-    T: Envelope<'static>,
+    T: Envelope<'static> + prost::Message + Default,
     R: ResolveDependencies<ResolvedEnvelope = T>,
+    S: CursorStore,
 {
+    // NOTE:
+    // In the case where a child has multiple dependants, and one is still missing:
+    // 1.) child is recovered
+    // 2.) child is added to "missing"
+    // 3.) resolution of missing is attempted
+    // 4.) child re-iced if resolution failed
     async fn order(&mut self) -> Result<(), ResolutionError> {
-        let Self {
-            envelopes,
-            resolver,
-            topic_cursor,
-        } = self;
-        sort::timestamp(envelopes).sort()?;
-        while let Some(mut missing) = sort::causal(envelopes, topic_cursor).sort()? {
-            let cursors = missing
-                .iter()
-                .map(|e| {
-                    let dependencies = e.depends_on()?.unwrap_or(Default::default());
-                    let topic = e.topic()?;
-                    let topic_clock = topic_cursor.get_or_default(&topic);
-                    let need = topic_clock.missing(&dependencies);
-                    Ok(need
-                        .into_iter()
-                        .map(|c| MissingEnvelope::new(topic.clone(), c))
-                        .collect::<HashSet<MissingEnvelope>>())
-                })
-                .flatten_ok()
-                .collect::<Result<HashSet<MissingEnvelope>, EnvelopeError>>()?;
+        self.recover_lost_children()?;
+        self.timestamp_sort()?;
+        while let Some(mut missing) = self.causal_sort()? {
+            let cursors = self.missing(&missing)?;
             let Resolved {
                 resolved,
                 unresolved,
-            } = resolver.resolve(cursors).await?;
-            if resolved.is_empty() {
-                // if we cant resolve anything, break the loop
-                break;
-            }
+            } = self.resolver.resolve(cursors).await?;
             if let Some(unresolved) = unresolved {
                 let unresolved = unresolved
                     .into_iter()
                     .map(|m| m.cursor)
                     .collect::<HashSet<_>>();
+                let mut new_missing = missing
+                    .into_iter()
+                    .map(|m| Ok((m.cursor()?, m)))
+                    .collect::<Result<Vec<(_, _)>, EnvelopeError>>()?;
                 // if the resolver fails to resolve some envelopes, ignore them.
                 // delete unresolved envelopes from missing envelopes list.
-                // cannot use retain directly b/c cursor returns Result<>.
+                // cannot use extract_if directly b/c cursor returns Result<>.
                 // see https://github.com/xmtp/libxmtp/issues/2691
-                // TODO:2691
-                let mut to_remove = HashSet::new();
-                for (i, m) in missing.iter().enumerate() {
-                    if unresolved.contains(&m.cursor()?) {
-                        to_remove.insert(i);
-                    }
-                }
-                let mut i = 0;
-                // or, retain all resolved envelopes
-                missing.retain(|_m| {
-                    let resolved = to_remove.contains(&i);
-                    i += 1;
-                    !resolved
-                });
+                let orphans = new_missing
+                    .extract_if(.., |(c, _)| unresolved.contains(c))
+                    .map(|(_, e)| e.orphan())
+                    .try_collect()?;
+                self.store.ice(orphans)?;
+                missing = new_missing.into_iter().map(|(_, m)| m).collect();
+            }
+            if resolved.is_empty() {
+                break;
             }
             // apply missing before resolved, so that the resolved
             // are applied to the topic cursor before the missing dependencies.
             // todo: maybe `VecDeque` better here?
-            envelopes.splice(0..0, missing.into_iter());
-            envelopes.splice(0..0, resolved.into_iter());
-            sort::timestamp(envelopes).sort()?;
+            self.envelopes.splice(0..0, missing.into_iter());
+            self.envelopes.splice(0..0, resolved.into_iter());
+            self.recover_lost_children()?;
+            self.timestamp_sort()?;
         }
         Ok(())
     }
@@ -106,7 +159,10 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::protocol::utils::test::{EnvelopesWithMissing, TestEnvelope, missing_dependencies};
+    use crate::protocol::{
+        NoCursorStore,
+        utils::test::{EnvelopesWithMissing, TestEnvelope, missing_dependencies},
+    };
     use futures::FutureExt;
     use proptest::{prelude::*, sample::subsequence};
     use xmtp_proto::types::OriginatorId;
@@ -131,7 +187,7 @@ mod test {
                 .available
                 .iter()
                 .filter(|env| {
-                    let cursor = env.cursor().unwrap();
+                    let cursor = env.cursor();
                     let topic = env.topic().unwrap();
                     missing.contains(&MissingEnvelope::new(topic, cursor))
                 })
@@ -178,6 +234,7 @@ mod test {
             let mut ordered = Ordered::builder()
                 .envelopes(missing.envelopes)
                 .resolver(resolver)
+                .store(NoCursorStore)
                 .topic_cursor(TopicCursor::default())
                 .build()
                 .unwrap();
@@ -191,7 +248,7 @@ mod test {
 
             // Check that no envelope in the result depends on an unavailable removed envelope
             for envelope in &result {
-                let depends_on = envelope.depends_on().unwrap().unwrap_or_default();
+                let depends_on = envelope.depends_on();
                 let topic = envelope.topic().unwrap();
                 let topic_clock = topic_cursor.get_or_default(&topic);
 
@@ -208,7 +265,7 @@ mod test {
                         );
                     }
                 } else {
-                    panic!("topic clock should always be complete at conclusion of ordering. {} does not dominate envelope {} depending on {}", topic_clock, envelope.cursor, depends_on);
+                    panic!("topic clock should always be complete at conclusion of ordering. {} does not dominate envelope {} depending on {}", topic_clock, envelope.cursor(), depends_on);
                 }
             }
 
@@ -224,7 +281,7 @@ mod test {
                     "Result does not contain {}", available_env
                 );
                 // If it's in the result, verify its dependencies are satisfied
-                let depends_on = available_env.depends_on().unwrap().unwrap_or_default();
+                let depends_on = available_env.depends_on();
                 let topic = available_env.topic().unwrap();
                 let topic_clock = topic_cursor.get_or_default(&topic);
 

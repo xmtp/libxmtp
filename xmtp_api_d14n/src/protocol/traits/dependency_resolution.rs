@@ -4,7 +4,7 @@ use derive_builder::UninitializedFieldError;
 use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
 use xmtp_proto::api::BodyError;
 
-use crate::protocol::{Envelope, EnvelopeError, types::MissingEnvelope};
+use crate::protocol::{CursorStoreError, Envelope, EnvelopeError, types::MissingEnvelope};
 
 pub struct Resolved<E> {
     pub resolved: Vec<E>,
@@ -75,6 +75,8 @@ pub enum ResolutionError {
     Build(#[from] UninitializedFieldError),
     #[error("Resolution failed  to find all missing dependant envelopes")]
     ResolutionFailed,
+    #[error(transparent)]
+    Store(#[from] CursorStoreError),
 }
 
 impl RetryableError for ResolutionError {
@@ -86,6 +88,7 @@ impl RetryableError for ResolutionError {
             Api(a) => a.is_retryable(),
             Build(_) => false,
             ResolutionFailed => false,
+            Store(s) => s.is_retryable(),
         }
     }
 }
