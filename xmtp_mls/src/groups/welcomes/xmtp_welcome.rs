@@ -379,12 +379,10 @@ where
         // This happens when a user leaves or is removed, then gets re-added with a NEW welcome
         // We verify it's a new welcome by checking that the sequence_id is different
         // This prevents incorrectly treating backup/restore as a re-add
-        let is_readd_after_leaving = existing_group
-            .as_ref()
-            .is_some_and(|g| {
-                g.membership_state == GroupMembershipState::PendingRemove
-                    && g.sequence_id != Some(welcome.cursor.sequence_id as i64)
-            });
+        let is_readd_after_leaving = existing_group.as_ref().is_some_and(|g| {
+            g.membership_state == GroupMembershipState::PendingRemove
+                && g.sequence_id != Some(welcome.cursor.sequence_id as i64)
+        });
 
         // Determine the membership state
         // If the user is being re-added after leaving, set to ALLOWED
@@ -450,14 +448,12 @@ where
 
         // If this is a re-add after leaving, update the existing group's membership state
         // before calling insert_or_replace_group
-        if is_readd_after_leaving {
-            if let Some(ref existing) = existing_group {
-                tracing::info!(
-                    group_id = hex::encode(&existing.id),
-                    "Updating existing group membership state from PENDING_REMOVE to ALLOWED"
-                );
-                db.update_group_membership(&existing.id, GroupMembershipState::Allowed)?;
-            }
+        if is_readd_after_leaving && let Some(ref existing) = existing_group {
+            tracing::info!(
+                group_id = hex::encode(&existing.id),
+                "Updating existing group membership state from PENDING_REMOVE to ALLOWED"
+            );
+            db.update_group_membership(&existing.id, GroupMembershipState::Allowed)?;
         }
 
         // Insert or replace the group in the database.
