@@ -108,3 +108,15 @@ extension FfiConsent {
 		)
 	}
 }
+
+extension FfiGroupMembershipState {
+	var fromFFI: GroupMembershipState {
+		switch self {
+		case .allowed: return .allowed
+		case .rejected: return .rejected
+		case .pending: return .pending
+		case .restored: return .restored
+		case .pendingRemove: return .pendingRemove
+		}
+	}
+}

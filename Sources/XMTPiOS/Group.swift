@@ -29,6 +29,10 @@ final class StreamHolder {
 	var stream: FfiStreamCloser?
 }
 
+public enum GroupMembershipState {
+	case allowed, rejected, pending, restored, pendingRemove
+}
+
 public struct Group: Identifiable, Equatable, Hashable {
 	var ffiGroup: FfiConversation
 	var ffiLastMessage: FfiMessage?
@@ -135,6 +139,12 @@ public struct Group: Identifiable, Equatable, Hashable {
 			try await ffiGroup.listMembers().map { ffiGroupMember in
 				Member(ffiGroupMember: ffiGroupMember)
 			}
+		}
+	}
+
+	public var membershipState: GroupMembershipState {
+		get throws {
+			try ffiGroup.membershipState().fromFFI
 		}
 	}
 
