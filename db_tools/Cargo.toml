@@ -1,5 +1,5 @@
 [package]
-name = "xmtp-db-manager"
+name = "xmtp-db-tools"
 edition = "2024"
 license.workspace = true
 version.workspace = true

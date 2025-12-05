@@ -8462,7 +8462,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "xmtp-db-manager"
+name = "xmtp-db-tools"
 version = "1.7.0-dev"
 dependencies = [
  "anyhow",

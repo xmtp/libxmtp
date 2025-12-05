@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
-use std::collections::HashMap;
+use std::{cmp::Ordering, collections::HashMap};
 use xmtp_db::{
-    EncryptedMessageStore, NativeDb,
+    ConnectionExt, XmtpDb,
     association_state::QueryAssociationStateCache,
     consent_record::{ConsentState, ConsentType, QueryConsentRecord, StoredConsentRecord},
     conversation_list::QueryConversationList,
@@ -25,16 +25,20 @@ macro_rules! bench {
     }};
 }
 
-pub struct DbBencher {
+pub struct DbBencher<Db> {
     rand_dm: Option<StoredGroup>,
     rand_group: Option<StoredGroup>,
     rand_inbox_id: Option<String>,
     measurements: HashMap<String, f32>,
-    store: EncryptedMessageStore<NativeDb>,
+    store: Db,
 }
 
-impl DbBencher {
-    pub fn new(store: EncryptedMessageStore<NativeDb>) -> Result<Self> {
+impl<Db> DbBencher<Db>
+where
+    Db: XmtpDb + Clone,
+    <Db as XmtpDb>::Connection: ConnectionExt,
+{
+    pub fn new(store: Db) -> Result<Self> {
         let mut dms = store.db().find_groups_by_id_paged(
             GroupQueryArgs {
                 conversation_type: Some(ConversationType::Dm),
@@ -87,39 +91,21 @@ impl DbBencher {
         last_result.unwrap()
     }
 
-    pub fn bench(&mut self) -> Result<()> {
-        self.store.db().raw_query_write(|conn| {
+    pub fn bench(&mut self) -> Result<Vec<Result<()>>> {
+        let mut results = vec![];
+        self.store.conn().raw_query_write(|conn| {
             conn.immediate_transaction(|_txn| {
-                if let Err(err) = self.bench_group_queries() {
-                    tracing::error!("bench_group_queries: {err:?}");
-                };
-                if let Err(err) = self.bench_consent_queries() {
-                    tracing::error!("bench_consent_queries: {err:?}");
-                };
-                if let Err(err) = self.bench_message_queries() {
-                    tracing::error!("bench_message_queries: {err:?}");
-                };
-                if let Err(err) = self.bench_association_state_queries() {
-                    tracing::error!("bench_association_state_queries: {err:?}");
-                };
-                if let Err(err) = self.bench_identity_update_queries() {
-                    tracing::error!("bench_identity_update_queries: {err:?}");
-                };
-                if let Err(err) = self.bench_group_intent_queries() {
-                    tracing::error!("bench_group_intent_queries: {err:?}");
-                };
-                if let Err(err) = self.bench_refresh_state_queries() {
-                    tracing::error!("bench_refresh_state_queries: {err:?}");
-                };
-                if let Err(err) = self.bench_key_package_history_queries() {
-                    tracing::error!("bench_key_package_history_queries: {err:?}");
-                };
-                if let Err(err) = self.bench_conversation_list_queries() {
-                    tracing::error!("bench_conversation_list_queries: {err:?}");
-                };
-                if let Err(err) = self.bench_commit_log_queries() {
-                    tracing::error!("bench_commit_log_queries: {err:?}");
-                };
+                results.push(self.bench_group_queries());
+                results.push(self.bench_group_intent_queries());
+                results.push(self.bench_consent_queries());
+                results.push(self.bench_message_queries());
+                results.push(self.bench_association_state_queries());
+                results.push(self.bench_identity_update_queries());
+                results.push(self.bench_group_intent_queries());
+                results.push(self.bench_refresh_state_queries());
+                results.push(self.bench_key_package_history_queries());
+                results.push(self.bench_conversation_list_queries());
+                results.push(self.bench_commit_log_queries());
 
                 Ok::<_, xmtp_db::diesel::result::Error>(())
             })
@@ -127,13 +113,20 @@ impl DbBencher {
 
         self.print_results();
 
-        Ok(())
+        for result in &results {
+            let _ = result.as_ref().inspect_err(|e| {
+                tracing::warn!("{e:?}");
+            });
+        }
+
+        Ok(results)
     }
 
     fn print_results(&self) {
         // Sort measurements by execution time (greatest to least)
         let mut sorted_measurements: Vec<_> = self.measurements.iter().collect();
-        sorted_measurements.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
+        // Send divide-by-zeroes to the bottom
+        sorted_measurements.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(Ordering::Less));
 
         println!("\n{}", "=".repeat(80));
         println!("{:^80}", "Database Benchmark Results");
@@ -492,5 +485,21 @@ impl DbBencher {
         )?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use xmtp_mls::tester;
+
+    use crate::tasks::DbBencher;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_bench_works() {
+        tester!(alix);
+
+        let mut bencher = DbBencher::new(alix.context.store().clone())?;
+        let result = bencher.bench()?;
+        assert!(result.iter().all(|r| r.is_ok()));
     }
 }

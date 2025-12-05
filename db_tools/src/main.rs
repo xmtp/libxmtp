@@ -4,16 +4,20 @@ use clap::{Parser, ValueEnum};
 use dotenvy::{dotenv, var};
 use std::io::{self, Write};
 use tracing::info;
-use xmtp_db::{EncryptedMessageStore, NativeDb, StorageOption};
+use xmtp_db::{ConnectionExt, EncryptedMessageStore, NativeDb, StorageOption, XmtpDb};
 
 mod tasks;
 
-struct Manager {
-    store: EncryptedMessageStore<NativeDb>,
+struct Manager<Db> {
+    store: Db,
 }
 
-impl Manager {
-    fn new_bencher(&self) -> Result<DbBencher> {
+impl<Db> Manager<Db>
+where
+    Db: XmtpDb + Clone,
+    <Db as XmtpDb>::Connection: ConnectionExt,
+{
+    fn new_bencher(&self) -> Result<DbBencher<Db>> {
         DbBencher::new(self.store.clone())
     }
 }
@@ -82,10 +86,14 @@ fn main() -> Result<()> {
             tasks::revert_migration(&manager.store.conn(), target)?;
         }
         Task::EnableGroup => {
-            tasks::enable_groups(&manager.store, &args.group_ids()?)?;
+            let arg_group_ids = args.group_ids()?;
+            let group_ids: Vec<_> = arg_group_ids.iter().map(Vec::as_slice).collect();
+            tasks::enable_groups(&manager.store.db(), &group_ids)?;
         }
         Task::DisableGroup => {
-            tasks::disable_groups(&manager.store, &args.group_ids()?)?;
+            let arg_group_ids = args.group_ids()?;
+            let group_ids: Vec<_> = arg_group_ids.iter().map(Vec::as_slice).collect();
+            tasks::disable_groups(&manager.store.db(), &group_ids)?;
         }
     }
 
