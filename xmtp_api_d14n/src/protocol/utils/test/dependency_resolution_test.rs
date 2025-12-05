@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::protocol::{ResolveDependencies, types::MissingEnvelope};
+use crate::protocol::{ResolveDependencies, types::RequiredDependency};
 use xmtp_proto::types::{Cursor, Topic};
 
 /// Test that all missing envelopes are found immediately on the first resolution attempt.
@@ -22,7 +22,7 @@ use xmtp_proto::types::{Cursor, Topic};
 /// * If there are any unresolved envelopes remaining
 pub async fn test_resolve_all_found_immediately<R>(
     resolver: &R,
-    missing: HashSet<MissingEnvelope>,
+    missing: HashSet<RequiredDependency>,
     expected_count: usize,
 ) where
     R: ResolveDependencies,
@@ -64,9 +64,9 @@ pub async fn test_resolve_all_found_immediately<R>(
 /// * If the unresolved set doesn't match `expected_unresolved`
 pub async fn test_resolve_partial_resolution<R>(
     resolver: &R,
-    missing: HashSet<MissingEnvelope>,
+    missing: HashSet<RequiredDependency>,
     expected_resolved_count: usize,
-    expected_unresolved: HashSet<MissingEnvelope>,
+    expected_unresolved: HashSet<RequiredDependency>,
 ) where
     R: ResolveDependencies,
 {
@@ -141,18 +141,21 @@ where
 /// * `cursors` - List of (originator_id, sequence_id) pairs
 ///
 /// # Returns
-/// A `HashSet` of `MissingEnvelope` instances
-pub fn create_missing_set(topic: Topic, cursors: Vec<(u32, u64)>) -> HashSet<MissingEnvelope> {
+/// A `HashSet` of `RequiredDependency` instances
+pub fn create_missing_set(
+    topic: Topic,
+    cursors: Vec<Cursor>,
+    needed_by: Vec<Cursor>,
+) -> HashSet<RequiredDependency> {
+    // required for zip to work correctly
+    assert_eq!(
+        cursors.len(),
+        needed_by.len(),
+        "cursors and needed_by length must be equal for correct dependency configuration"
+    );
     cursors
         .into_iter()
-        .map(|(originator_id, sequence_id)| {
-            MissingEnvelope::new(
-                topic.clone(),
-                Cursor {
-                    originator_id,
-                    sequence_id,
-                },
-            )
-        })
+        .zip(needed_by)
+        .map(|(cursor, needed_by)| RequiredDependency::new(topic.clone(), cursor, needed_by))
         .collect()
 }
