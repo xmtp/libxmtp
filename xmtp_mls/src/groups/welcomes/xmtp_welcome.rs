@@ -374,16 +374,27 @@ where
         });
 
         let existing_group = db.find_group(group_id.as_slice())?;
-        let is_readd = existing_group.is_some();
 
-        // Determine the membership state based on whether this is a re-add
-        let membership_state = if is_readd {
+        // Check if this is a re-add scenario (user was in PENDING_REMOVE state)
+        // This happens when a user leaves or is removed, then gets re-added
+        let is_readd_after_leaving = existing_group
+            .as_ref()
+            .is_some_and(|g| g.membership_state == GroupMembershipState::PendingRemove);
+
+        // Determine the membership state
+        // If the user is being re-added after leaving, set to ALLOWED
+        // Otherwise, new members start in PENDING state
+        let membership_state = if is_readd_after_leaving {
             tracing::info!(
                 group_id = hex::encode(&group_id),
-                "User is being re-added to existing group, setting membership state to ALLOWED"
+                "User is being re-added after leaving/removal, setting membership state to ALLOWED"
             );
             GroupMembershipState::Allowed
         } else {
+            tracing::debug!(
+                group_id = hex::encode(&group_id),
+                "User is being added to new group, setting membership state to PENDING"
+            );
             GroupMembershipState::Pending
         };
 
@@ -431,6 +442,19 @@ where
         };
 
         tracing::info!("storing group with welcome id {}", welcome.cursor);
+
+        // If this is a re-add after leaving, update the existing group's membership state
+        // before calling insert_or_replace_group
+        if is_readd_after_leaving {
+            if let Some(ref existing) = existing_group {
+                tracing::info!(
+                    group_id = hex::encode(&existing.id),
+                    "Updating existing group membership state from PENDING_REMOVE to ALLOWED"
+                );
+                db.update_group_membership(&existing.id, GroupMembershipState::Allowed)?;
+            }
+        }
+
         // Insert or replace the group in the database.
         // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
         let stored_group = db.insert_or_replace_group(to_store)?;
@@ -525,8 +549,8 @@ where
         // If this group is created by us - auto-consent to it.
         if context.inbox_id() == metadata.creator_inbox_id {
             group.quietly_update_consent_state(ConsentState::Allowed, &db)?;
-        } else if is_readd {
-            // If user is being re-added to a group, reset consent to Unknown
+        } else if is_readd_after_leaving {
+            // If user is being re-added after leaving, reset consent to Unknown
             // This requires the user to explicitly accept being added back
             tracing::info!(
                 group_id = hex::encode(&group.group_id),
