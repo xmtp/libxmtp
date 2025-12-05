@@ -1,6 +1,6 @@
 //! Traits and blanket implementations representing a collection of [`Envelope`]'s
 use xmtp_common::{MaybeSend, MaybeSync};
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, OrphanedEnvelope};
 
 use super::*;
 
@@ -14,6 +14,8 @@ pub trait EnvelopeCollection<'env>: MaybeSend + MaybeSync {
     fn cursors(&self) -> Result<Vec<Cursor>, EnvelopeError>;
     /// Get the payload for an envelope
     fn payloads(&self) -> Result<Vec<Payload>, EnvelopeError>;
+    /// get orphans for these envelopes
+    fn orphans(&self) -> Result<Vec<OrphanedEnvelope>, EnvelopeError>;
     /// get the data field for each envelope as a sha256 hash
     fn sha256_hashes(&self) -> Result<Vec<Vec<u8>>, EnvelopeError>;
     /// Build the ClientEnvelope
@@ -48,6 +50,10 @@ where
         self.iter()
             .map(|t| t.cursor())
             .collect::<Result<Vec<Cursor>, _>>()
+    }
+
+    fn orphans(&self) -> Result<Vec<OrphanedEnvelope>, EnvelopeError> {
+        self.iter().map(|t| t.orphan()).collect::<Result<_, _>>()
     }
 
     fn payloads(&self) -> Result<Vec<Payload>, EnvelopeError> {

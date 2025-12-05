@@ -6,7 +6,7 @@ use openmls::prelude::ContentType;
 
 /// A GroupMessage from the network
 #[derive(Clone, Builder, Debug)]
-#[builder(setter(into), build_fn(error = "ConversionError"))]
+#[builder(setter(into), build_fn(error = "ConversionError"), derive(Debug))]
 pub struct GroupMessage {
     /// Cursor of this message
     pub cursor: Cursor,

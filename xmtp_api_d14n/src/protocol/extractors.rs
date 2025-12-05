@@ -27,6 +27,10 @@ mod timestamp;
 pub use timestamp::*;
 mod depends_on;
 pub use depends_on::*;
+mod bytes;
+pub use bytes::*;
+mod orphaned_envelope;
+pub use orphaned_envelope::*;
 
 #[cfg(test)]
 pub mod test_utils;
