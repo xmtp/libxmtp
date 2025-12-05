@@ -41,8 +41,11 @@ fn main() -> Result<()> {
 
     let db = match &db_key {
         Some(key) => {
-            let key = hex::decode(key)?;
-            NativeDb::new(&storage_option, key.try_into().unwrap())
+            let key_bytes = hex::decode(key)?;
+            if key_bytes.len() != 32 {
+                bail!("Encryption key must be exactly 32 bytes (64 hex characters)");
+            }
+            NativeDb::new(&storage_option, key_bytes.try_into().unwrap())
         }
         None => NativeDb::new_unencrypted(&storage_option),
     }?;
