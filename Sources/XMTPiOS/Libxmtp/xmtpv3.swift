@@ -1235,6 +1235,8 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
     
     func listMembers() async throws  -> [FfiConversationMember]
     
+    func membershipState() throws  -> FfiGroupMembershipState
+    
     func pausedForVersion() throws  -> String?
     
     func processStreamedConversationMessage(envelopeBytes: Data) async throws  -> FfiMessage
@@ -1663,6 +1665,13 @@ open func listMembers()async throws  -> [FfiConversationMember]  {
             liftFunc: FfiConverterSequenceTypeFfiConversationMember.lift,
             errorHandler: FfiConverterTypeGenericError_lift
         )
+}
+    
+open func membershipState()throws  -> FfiGroupMembershipState  {
+    return try  FfiConverterTypeFfiGroupMembershipState_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    uniffi_xmtpv3_fn_method_fficonversation_membership_state(self.uniffiClonePointer(),$0
+    )
+})
 }
     
 open func pausedForVersion()throws  -> String?  {
@@ -7447,15 +7456,23 @@ public struct FfiGroupUpdated {
     public var removedInboxes: [FfiInbox]
     public var leftInboxes: [FfiInbox]
     public var metadataFieldChanges: [FfiMetadataFieldChange]
+    public var addedAdminInboxes: [FfiInbox]
+    public var removedAdminInboxes: [FfiInbox]
+    public var addedSuperAdminInboxes: [FfiInbox]
+    public var removedSuperAdminInboxes: [FfiInbox]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(initiatedByInboxId: String, addedInboxes: [FfiInbox], removedInboxes: [FfiInbox], leftInboxes: [FfiInbox], metadataFieldChanges: [FfiMetadataFieldChange]) {
+    public init(initiatedByInboxId: String, addedInboxes: [FfiInbox], removedInboxes: [FfiInbox], leftInboxes: [FfiInbox], metadataFieldChanges: [FfiMetadataFieldChange], addedAdminInboxes: [FfiInbox], removedAdminInboxes: [FfiInbox], addedSuperAdminInboxes: [FfiInbox], removedSuperAdminInboxes: [FfiInbox]) {
         self.initiatedByInboxId = initiatedByInboxId
         self.addedInboxes = addedInboxes
         self.removedInboxes = removedInboxes
         self.leftInboxes = leftInboxes
         self.metadataFieldChanges = metadataFieldChanges
+        self.addedAdminInboxes = addedAdminInboxes
+        self.removedAdminInboxes = removedAdminInboxes
+        self.addedSuperAdminInboxes = addedSuperAdminInboxes
+        self.removedSuperAdminInboxes = removedSuperAdminInboxes
     }
 }
 
@@ -7481,6 +7498,18 @@ extension FfiGroupUpdated: Equatable, Hashable {
         if lhs.metadataFieldChanges != rhs.metadataFieldChanges {
             return false
         }
+        if lhs.addedAdminInboxes != rhs.addedAdminInboxes {
+            return false
+        }
+        if lhs.removedAdminInboxes != rhs.removedAdminInboxes {
+            return false
+        }
+        if lhs.addedSuperAdminInboxes != rhs.addedSuperAdminInboxes {
+            return false
+        }
+        if lhs.removedSuperAdminInboxes != rhs.removedSuperAdminInboxes {
+            return false
+        }
         return true
     }
 
@@ -7490,6 +7519,10 @@ extension FfiGroupUpdated: Equatable, Hashable {
         hasher.combine(removedInboxes)
         hasher.combine(leftInboxes)
         hasher.combine(metadataFieldChanges)
+        hasher.combine(addedAdminInboxes)
+        hasher.combine(removedAdminInboxes)
+        hasher.combine(addedSuperAdminInboxes)
+        hasher.combine(removedSuperAdminInboxes)
     }
 }
 
@@ -7506,7 +7539,11 @@ public struct FfiConverterTypeFfiGroupUpdated: FfiConverterRustBuffer {
                 addedInboxes: FfiConverterSequenceTypeFfiInbox.read(from: &buf), 
                 removedInboxes: FfiConverterSequenceTypeFfiInbox.read(from: &buf), 
                 leftInboxes: FfiConverterSequenceTypeFfiInbox.read(from: &buf), 
-                metadataFieldChanges: FfiConverterSequenceTypeFfiMetadataFieldChange.read(from: &buf)
+                metadataFieldChanges: FfiConverterSequenceTypeFfiMetadataFieldChange.read(from: &buf), 
+                addedAdminInboxes: FfiConverterSequenceTypeFfiInbox.read(from: &buf), 
+                removedAdminInboxes: FfiConverterSequenceTypeFfiInbox.read(from: &buf), 
+                addedSuperAdminInboxes: FfiConverterSequenceTypeFfiInbox.read(from: &buf), 
+                removedSuperAdminInboxes: FfiConverterSequenceTypeFfiInbox.read(from: &buf)
         )
     }
 
@@ -7516,6 +7553,10 @@ public struct FfiConverterTypeFfiGroupUpdated: FfiConverterRustBuffer {
         FfiConverterSequenceTypeFfiInbox.write(value.removedInboxes, into: &buf)
         FfiConverterSequenceTypeFfiInbox.write(value.leftInboxes, into: &buf)
         FfiConverterSequenceTypeFfiMetadataFieldChange.write(value.metadataFieldChanges, into: &buf)
+        FfiConverterSequenceTypeFfiInbox.write(value.addedAdminInboxes, into: &buf)
+        FfiConverterSequenceTypeFfiInbox.write(value.removedAdminInboxes, into: &buf)
+        FfiConverterSequenceTypeFfiInbox.write(value.addedSuperAdminInboxes, into: &buf)
+        FfiConverterSequenceTypeFfiInbox.write(value.removedSuperAdminInboxes, into: &buf)
     }
 }
 
@@ -9245,12 +9286,12 @@ public struct FfiRemoteAttachment {
     public var salt: Data
     public var nonce: Data
     public var scheme: String
-    public var contentLength: UInt64
+    public var contentLength: UInt32
     public var filename: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(url: String, contentDigest: String, secret: Data, salt: Data, nonce: Data, scheme: String, contentLength: UInt64, filename: String?) {
+    public init(url: String, contentDigest: String, secret: Data, salt: Data, nonce: Data, scheme: String, contentLength: UInt32, filename: String?) {
         self.url = url
         self.contentDigest = contentDigest
         self.secret = secret
@@ -9323,7 +9364,7 @@ public struct FfiConverterTypeFfiRemoteAttachment: FfiConverterRustBuffer {
                 salt: FfiConverterData.read(from: &buf), 
                 nonce: FfiConverterData.read(from: &buf), 
                 scheme: FfiConverterString.read(from: &buf), 
-                contentLength: FfiConverterUInt64.read(from: &buf), 
+                contentLength: FfiConverterUInt32.read(from: &buf), 
                 filename: FfiConverterOptionString.read(from: &buf)
         )
     }
@@ -9335,7 +9376,7 @@ public struct FfiConverterTypeFfiRemoteAttachment: FfiConverterRustBuffer {
         FfiConverterData.write(value.salt, into: &buf)
         FfiConverterData.write(value.nonce, into: &buf)
         FfiConverterString.write(value.scheme, into: &buf)
-        FfiConverterUInt64.write(value.contentLength, into: &buf)
+        FfiConverterUInt32.write(value.contentLength, into: &buf)
         FfiConverterOptionString.write(value.filename, into: &buf)
     }
 }
@@ -11527,6 +11568,97 @@ extension FfiForkRecoveryPolicy: Equatable, Hashable {}
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
+public enum FfiGroupMembershipState {
+    
+    case allowed
+    case rejected
+    case pending
+    case restored
+    case pendingRemove
+}
+
+
+#if compiler(>=6)
+extension FfiGroupMembershipState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiGroupMembershipState: FfiConverterRustBuffer {
+    typealias SwiftType = FfiGroupMembershipState
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiGroupMembershipState {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .allowed
+        
+        case 2: return .rejected
+        
+        case 3: return .pending
+        
+        case 4: return .restored
+        
+        case 5: return .pendingRemove
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiGroupMembershipState, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .allowed:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .rejected:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .pending:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .restored:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .pendingRemove:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiGroupMembershipState_lift(_ buf: RustBuffer) throws -> FfiGroupMembershipState {
+    return try FfiConverterTypeFfiGroupMembershipState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiGroupMembershipState_lower(_ value: FfiGroupMembershipState) -> RustBuffer {
+    return FfiConverterTypeFfiGroupMembershipState.lower(value)
+}
+
+
+extension FfiGroupMembershipState: Equatable, Hashable {}
+
+
+
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 public enum FfiGroupMessageKind {
     
     case application
@@ -12422,6 +12554,85 @@ public func FfiConverterTypeFfiPreferenceUpdate_lower(_ value: FfiPreferenceUpda
 
 
 extension FfiPreferenceUpdate: Equatable, Hashable {}
+
+
+
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Enum representing process types for logging
+ */
+
+public enum FfiProcessType {
+    
+    /**
+     * Main application process
+     */
+    case main
+    /**
+     * Notification extension/service process
+     */
+    case notificationExtension
+}
+
+
+#if compiler(>=6)
+extension FfiProcessType: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiProcessType: FfiConverterRustBuffer {
+    typealias SwiftType = FfiProcessType
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiProcessType {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .main
+        
+        case 2: return .notificationExtension
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiProcessType, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .main:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .notificationExtension:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProcessType_lift(_ buf: RustBuffer) throws -> FfiProcessType {
+    return try FfiConverterTypeFfiProcessType.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProcessType_lower(_ value: FfiProcessType) -> RustBuffer {
+    return FfiConverterTypeFfiProcessType.lower(value)
+}
+
+
+extension FfiProcessType: Equatable, Hashable {}
 
 
 
@@ -15333,6 +15544,13 @@ public func decodeAttachment(bytes: Data)throws  -> FfiAttachment  {
     )
 })
 }
+public func decodeGroupUpdated(bytes: Data)throws  -> FfiGroupUpdated  {
+    return try  FfiConverterTypeFfiGroupUpdated_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    uniffi_xmtpv3_fn_func_decode_group_updated(
+        FfiConverterData.lower(bytes),$0
+    )
+})
+}
 public func decodeIntent(bytes: Data)throws  -> FfiIntent  {
     return try  FfiConverterTypeFfiIntent_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
     uniffi_xmtpv3_fn_func_decode_intent(
@@ -15375,9 +15593,23 @@ public func decodeReply(bytes: Data)throws  -> FfiReply  {
     )
 })
 }
+public func decodeText(bytes: Data)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    uniffi_xmtpv3_fn_func_decode_text(
+        FfiConverterData.lower(bytes),$0
+    )
+})
+}
 public func decodeTransactionReference(bytes: Data)throws  -> FfiTransactionReference  {
     return try  FfiConverterTypeFfiTransactionReference_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
     uniffi_xmtpv3_fn_func_decode_transaction_reference(
+        FfiConverterData.lower(bytes),$0
+    )
+})
+}
+public func decodeWalletSendCalls(bytes: Data)throws  -> FfiWalletSendCalls  {
+    return try  FfiConverterTypeFfiWalletSendCalls_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    uniffi_xmtpv3_fn_func_decode_wallet_send_calls(
         FfiConverterData.lower(bytes),$0
     )
 })
@@ -15438,6 +15670,13 @@ public func encodeReply(reply: FfiReply)throws  -> Data  {
     )
 })
 }
+public func encodeText(text: String)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    uniffi_xmtpv3_fn_func_encode_text(
+        FfiConverterString.lower(text),$0
+    )
+})
+}
 public func encodeTransactionReference(reference: FfiTransactionReference)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
     uniffi_xmtpv3_fn_func_encode_transaction_reference(
@@ -15445,33 +15684,42 @@ public func encodeTransactionReference(reference: FfiTransactionReference)throws
     )
 })
 }
+public func encodeWalletSendCalls(walletSendCalls: FfiWalletSendCalls)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    uniffi_xmtpv3_fn_func_encode_wallet_send_calls(
+        FfiConverterTypeFfiWalletSendCalls_lower(walletSendCalls),$0
+    )
+})
+}
 /**
  * turns on logging to a file on-disk in the directory specified.
- * files will be prefixed with 'libxmtp.log' and suffixed with the timestamp,
- * i.e "libxmtp.log.2025-04-02"
+ * files will be prefixed with 'libxmtp-v{version}.{commit}.{process_type}.{pid}.log' and suffixed with the timestamp,
+ * i.e "libxmtp-v1.6.0.abc123.main.12345.log.2025-04-02"
  * A maximum of 'max_files' log files are kept.
  */
-public func enterDebugWriter(directory: String, logLevel: FfiLogLevel, rotation: FfiLogRotation, maxFiles: UInt32)throws   {try rustCallWithError(FfiConverterTypeGenericError_lift) {
+public func enterDebugWriter(directory: String, logLevel: FfiLogLevel, rotation: FfiLogRotation, maxFiles: UInt32, processType: FfiProcessType)throws   {try rustCallWithError(FfiConverterTypeGenericError_lift) {
     uniffi_xmtpv3_fn_func_enter_debug_writer(
         FfiConverterString.lower(directory),
         FfiConverterTypeFfiLogLevel_lower(logLevel),
         FfiConverterTypeFfiLogRotation_lower(rotation),
-        FfiConverterUInt32.lower(maxFiles),$0
+        FfiConverterUInt32.lower(maxFiles),
+        FfiConverterTypeFfiProcessType_lower(processType),$0
     )
 }
 }
 /**
  * turns on logging to a file on-disk with a specified log level.
- * files will be prefixed with 'libxmtp.log' and suffixed with the timestamp,
- * i.e "libxmtp.log.2025-04-02"
+ * files will be prefixed with 'libxmtp-v{version}.{commit}.{process_type}.{pid}.log' and suffixed with the timestamp,
+ * i.e "libxmtp-v1.6.0.abc123.notif.67890.log.2025-04-02"
  * A maximum of 'max_files' log files are kept.
  */
-public func enterDebugWriterWithLevel(directory: String, rotation: FfiLogRotation, maxFiles: UInt32, logLevel: FfiLogLevel)throws   {try rustCallWithError(FfiConverterTypeGenericError_lift) {
+public func enterDebugWriterWithLevel(directory: String, rotation: FfiLogRotation, maxFiles: UInt32, logLevel: FfiLogLevel, processType: FfiProcessType)throws   {try rustCallWithError(FfiConverterTypeGenericError_lift) {
     uniffi_xmtpv3_fn_func_enter_debug_writer_with_level(
         FfiConverterString.lower(directory),
         FfiConverterTypeFfiLogRotation_lower(rotation),
         FfiConverterUInt32.lower(maxFiles),
-        FfiConverterTypeFfiLogLevel_lower(logLevel),$0
+        FfiConverterTypeFfiLogLevel_lower(logLevel),
+        FfiConverterTypeFfiProcessType_lower(processType),$0
     )
 }
 }
@@ -15639,6 +15887,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_decode_attachment() != 20456) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_func_decode_group_updated() != 277) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_func_decode_intent() != 24165) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -15657,7 +15908,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_decode_reply() != 41903) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_func_decode_text() != 7209) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_func_decode_transaction_reference() != 25896) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_func_decode_wallet_send_calls() != 2959) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_encode_actions() != 15414) {
@@ -15684,13 +15941,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_encode_reply() != 3022) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_func_encode_text() != 6696) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_func_encode_transaction_reference() != 22144) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_enter_debug_writer() != 7266) {
+    if (uniffi_xmtpv3_checksum_func_encode_wallet_send_calls() != 8163) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_enter_debug_writer_with_level() != 7232) {
+    if (uniffi_xmtpv3_checksum_func_enter_debug_writer() != 60052) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_func_enter_debug_writer_with_level() != 41119) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_ethereum_address_from_pubkey() != 12568) {
@@ -15838,6 +16101,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_list_members() != 21260) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_fficonversation_membership_state() != 9048) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_paused_for_version() != 61438) {
