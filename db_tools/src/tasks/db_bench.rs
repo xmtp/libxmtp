@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use std::{cmp::Ordering, collections::HashMap};
 use xmtp_db::{
-    ConnectionExt, XmtpDb,
+    ConnectionError, ConnectionExt, XmtpDb,
     association_state::QueryAssociationStateCache,
     consent_record::{ConsentState, ConsentType, QueryConsentRecord, StoredConsentRecord},
     conversation_list::QueryConversationList,
@@ -93,7 +93,7 @@ where
 
     pub fn bench(&mut self) -> Result<Vec<Result<()>>> {
         let mut results = vec![];
-        self.store.conn().raw_query_write(|conn| {
+        let result = self.store.conn().raw_query_write(|conn| {
             conn.immediate_transaction(|_txn| {
                 results.push(self.bench_group_queries());
                 results.push(self.bench_group_intent_queries());
@@ -106,9 +106,18 @@ where
                 results.push(self.bench_conversation_list_queries());
                 results.push(self.bench_commit_log_queries());
 
-                Ok::<_, xmtp_db::diesel::result::Error>(())
+                Err::<(), xmtp_db::diesel::result::Error>(
+                    xmtp_db::diesel::result::Error::RollbackTransaction,
+                )
             })
-        })?;
+        });
+
+        match result {
+            Err(ConnectionError::Database(xmtp_db::diesel::result::Error::RollbackTransaction)) => {
+                // Expected
+            }
+            result => result?,
+        }
 
         self.print_results();
 
