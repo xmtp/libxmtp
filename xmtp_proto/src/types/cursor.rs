@@ -1,8 +1,10 @@
 //! xmtp message cursor type and implementations
 use serde::{Deserialize, Serialize};
+use std::iter::Once;
 use std::{collections::HashMap, fmt};
 use xmtp_configuration::Originators;
 
+use crate::types::{OriginatorId, SequenceId};
 use crate::xmtp::xmtpv4;
 
 /// XMTP cursor type
@@ -94,6 +96,33 @@ impl From<Cursor> for xmtpv4::envelopes::Cursor {
         xmtpv4::envelopes::Cursor {
             node_id_to_sequence_id: map,
         }
+    }
+}
+
+impl<'a> IntoIterator for &'a Cursor {
+    type Item = (&'a OriginatorId, &'a SequenceId);
+    type IntoIter = Once<(&'a OriginatorId, &'a SequenceId)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        std::iter::once((&self.originator_id, &self.sequence_id))
+    }
+}
+
+impl<'a> IntoIterator for &'a mut Cursor {
+    type Item = (&'a mut OriginatorId, &'a mut SequenceId);
+    type IntoIter = Once<(&'a mut OriginatorId, &'a mut SequenceId)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        std::iter::once((&mut self.originator_id, &mut self.sequence_id))
+    }
+}
+
+impl IntoIterator for Cursor {
+    type Item = (OriginatorId, SequenceId);
+    type IntoIter = Once<(OriginatorId, SequenceId)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        std::iter::once((self.originator_id, self.sequence_id))
     }
 }
 
