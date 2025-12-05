@@ -377,13 +377,16 @@ where
 
         // Check if this is a re-add scenario (user was in PENDING_REMOVE state)
         // This happens when a user leaves or is removed, then gets re-added with a NEW welcome
-        // We verify it's a NEW welcome by checking that the sequence_id is GREATER (not just different)
-        // This prevents incorrectly treating backup/restore as a re-add:
-        // - True re-add: new welcome has HIGHER sequence_id than the old group
+        // We verify it's a NEW welcome by checking that:
+        // 1. The existing group has a valid sequence_id (Some)
+        // 2. The new welcome's sequence_id is GREATER than the existing one
+        // This prevents incorrectly treating backup/restore or groups without sequence_ids as re-adds:
+        // - True re-add: existing group has sequence_id AND new welcome has HIGHER sequence_id
         // - Backup/restore: welcome might have different but not necessarily higher sequence_id
+        // - Groups without sequence_id: should not be treated as re-adds
         let is_readd_after_leaving = existing_group.as_ref().is_some_and(|g| {
             g.membership_state == GroupMembershipState::PendingRemove
-                && welcome.cursor.sequence_id as i64 > g.sequence_id.unwrap_or(0)
+                && matches!(g.sequence_id, Some(seq) if (welcome.cursor.sequence_id as i64) > seq)
         });
 
         // Determine the membership state
