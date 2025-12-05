@@ -2,10 +2,11 @@ use std::collections::HashSet;
 
 use crate::protocol::{
     Envelope, EnvelopeError, OrderedEnvelopeCollection, ResolutionError, ResolveDependencies,
-    Resolved, Sort, VectorClock, sort, types::MissingEnvelope,
+    Resolved, Sort, sort, types::MissingEnvelope,
 };
 use derive_builder::Builder;
 use itertools::Itertools;
+use xmtp_proto::api::VectorClock;
 use xmtp_proto::types::TopicCursor;
 
 /// Order dependencies of `Self` according to [XIP](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#335-cross-originator-message-ordering)

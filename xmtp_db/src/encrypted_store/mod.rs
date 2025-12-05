@@ -42,8 +42,11 @@ pub mod user_preferences;
 mod migration_test;
 
 pub use self::db_connection::DbConnection;
-use diesel::result::DatabaseErrorKind;
-pub use diesel::sqlite::{Sqlite, SqliteConnection};
+use diesel::{migration::Migration, result::DatabaseErrorKind};
+pub use diesel::{
+    migration::MigrationSource,
+    sqlite::{Sqlite, SqliteConnection},
+};
 use openmls::storage::OpenMlsProvider;
 use prost::DecodeError;
 use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
@@ -99,6 +102,12 @@ pub enum ConnectionError {
     ReconnectInTransaction,
     #[error("invalid query: {0}")]
     InvalidQuery(String),
+    #[error(
+        "Applied migrations does not match available migrations.\n\
+    This is likely due to running a database that is newer than this version of libxmtp.\n\
+    Expected: {expected}, found: {found}"
+    )]
+    InvalidVersion { expected: String, found: String },
 }
 
 impl RetryableError for ConnectionError {
@@ -110,6 +119,7 @@ impl RetryableError for ConnectionError {
             Self::DisconnectInTransaction => true,
             Self::ReconnectInTransaction => true,
             Self::InvalidQuery(_) => false,
+            Self::InvalidVersion { .. } => false,
         }
     }
 }
@@ -244,13 +254,24 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
             conn.run_pending_migrations(MIGRATIONS)
                 .map_err(diesel::result::Error::QueryBuilderError)?;
 
+            // Ensure the database version is what we expect
+            let db_version = conn.final_migration()?;
+            let last_migration = MIGRATIONS.final_migration();
+            if db_version != last_migration {
+                return Ok(Err(ConnectionError::InvalidVersion {
+                    expected: last_migration,
+                    found: db_version,
+                }));
+            }
+
             let sqlite_version =
                 sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
             tracing::info!("sqlite_version={}", sqlite_version[0].version);
 
             tracing::info!("Migrations successful");
-            Ok(())
-        })?;
+            Ok(Ok(()))
+        })??;
+
         Ok(())
     }
 
@@ -387,6 +408,42 @@ pub trait MlsProviderExt: OpenMlsProvider<StorageError = SqlKeyStoreError> {
     type XmtpStorage: XmtpMlsStorageProvider;
 
     fn key_store(&self) -> &Self::XmtpStorage;
+}
+
+trait EmbeddedMigrationsExt {
+    fn final_migration(&self) -> String;
+}
+impl EmbeddedMigrationsExt for EmbeddedMigrations {
+    fn final_migration(&self) -> String {
+        let migrations: Vec<Box<dyn Migration<Sqlite>>> = self
+            .migrations()
+            .expect("Migrations are directly embedded, so this cannot error");
+        migrations
+            .first()
+            .expect("There is at least one migration")
+            .name()
+            .to_string()
+            .chars()
+            .filter(|c| c.is_numeric())
+            .collect()
+    }
+}
+
+trait MigrationHarnessExt {
+    fn final_migration(&mut self) -> Result<String, diesel::result::Error>;
+}
+
+impl MigrationHarnessExt for SqliteConnection {
+    fn final_migration(&mut self) -> Result<String, diesel::result::Error> {
+        let migration: String = self
+            .applied_migrations()
+            .map_err(diesel::result::Error::QueryBuilderError)?
+            .pop()
+            .expect("This function should be run after migrations are applied")
+            .to_string();
+
+        Ok(migration)
+    }
 }
 
 #[cfg(test)]

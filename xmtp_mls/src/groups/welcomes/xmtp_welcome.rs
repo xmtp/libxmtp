@@ -373,6 +373,39 @@ where
             }
         });
 
+        let existing_group = db.find_group(group_id.as_slice())?;
+
+        // Check if this is a re-add scenario (user was in PENDING_REMOVE state)
+        // This happens when a user leaves or is removed, then gets re-added with a NEW welcome
+        // We verify it's a NEW welcome by checking that:
+        // 1. The existing group has a valid sequence_id (Some)
+        // 2. The new welcome's sequence_id is GREATER than the existing one
+        // This prevents incorrectly treating backup/restore or groups without sequence_ids as re-adds:
+        // - True re-add: existing group has sequence_id AND new welcome has HIGHER sequence_id
+        // - Backup/restore: welcome might have different but not necessarily higher sequence_id
+        // - Groups without sequence_id: should not be treated as re-adds
+        let is_readd_after_leaving = existing_group.as_ref().is_some_and(|g| {
+            g.membership_state == GroupMembershipState::PendingRemove
+                && matches!(g.sequence_id, Some(seq) if (welcome.cursor.sequence_id as i64) > seq)
+        });
+
+        // Determine the membership state
+        // If the user is being re-added after leaving, set to ALLOWED
+        // Otherwise, new members start in PENDING state
+        let membership_state = if is_readd_after_leaving {
+            tracing::info!(
+                group_id = hex::encode(&group_id),
+                "User is being re-added after leaving/removal, setting membership state to ALLOWED"
+            );
+            GroupMembershipState::Allowed
+        } else {
+            tracing::debug!(
+                group_id = hex::encode(&group_id),
+                "User is being added to new group, setting membership state to PENDING"
+            );
+            GroupMembershipState::Pending
+        };
+
         let mut group = StoredGroup::builder();
         group
             .id(group_id)
@@ -390,13 +423,13 @@ where
 
         let to_store = match conversation_type {
             ConversationType::Group => group
-                .membership_state(GroupMembershipState::Pending)
+                .membership_state(membership_state)
                 .paused_for_version(paused_for_version)
                 .build()?,
             ConversationType::Dm => {
                 validate_dm_group(context, &mls_group, &added_by_inbox_id)?;
                 group
-                    .membership_state(GroupMembershipState::Pending)
+                    .membership_state(membership_state)
                     .last_message_ns(welcome.timestamp())
                     .build()?
             }
@@ -417,8 +450,19 @@ where
         };
 
         tracing::info!("storing group with welcome id {}", welcome.cursor);
+
+        // If this is a re-add after leaving, update the existing group's membership state
+        // before calling insert_or_replace_group
+        if is_readd_after_leaving && let Some(ref existing) = existing_group {
+            tracing::info!(
+                group_id = hex::encode(&existing.id),
+                "Updating existing group membership state from PENDING_REMOVE to ALLOWED"
+            );
+            db.update_group_membership(&existing.id, GroupMembershipState::Allowed)?;
+        }
+
         // Insert or replace the group in the database.
-        // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
+        // For existing groups, this only updates the sequence_id (not membership_state).
         let stored_group = db.insert_or_replace_group(to_store)?;
 
         StoredConsentRecord::stitch_dm_consent(&db, &stored_group)?;
@@ -511,6 +555,14 @@ where
         // If this group is created by us - auto-consent to it.
         if context.inbox_id() == metadata.creator_inbox_id {
             group.quietly_update_consent_state(ConsentState::Allowed, &db)?;
+        } else if is_readd_after_leaving {
+            // If user is being re-added after leaving, reset consent to Unknown
+            // This requires the user to explicitly accept being added back
+            tracing::info!(
+                group_id = hex::encode(&group.group_id),
+                "Resetting consent state to Unknown for re-added user"
+            );
+            group.quietly_update_consent_state(ConsentState::Unknown, &db)?;
         }
 
         db.update_cursor(

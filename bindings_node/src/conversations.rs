@@ -729,7 +729,7 @@ impl Conversations {
   }
 
   #[napi]
-  pub fn stream_message_deletions(
+  pub async fn stream_message_deletions(
     &self,
     callback: ThreadsafeFunction<String, ()>,
   ) -> Result<StreamCloser> {

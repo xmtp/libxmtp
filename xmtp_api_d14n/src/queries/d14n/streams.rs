@@ -1,13 +1,13 @@
 use crate::TryExtractorStream;
 use crate::d14n::SubscribeEnvelopes;
-use crate::protocol::{CursorStore, GroupMessageExtractor, VectorClock, WelcomeMessageExtractor};
+use crate::protocol::{CursorStore, GroupMessageExtractor, WelcomeMessageExtractor};
 use crate::queries::stream;
 
 use super::D14nClient;
 use xmtp_common::RetryableError;
 use xmtp_proto::api::{ApiClientError, Client, QueryStream, XmtpStream};
 use xmtp_proto::api_client::XmtpMlsStreams;
-use xmtp_proto::types::{GlobalCursor, GroupId, InstallationId, TopicCursor, TopicKind};
+use xmtp_proto::types::{GroupId, InstallationId, TopicCursor, TopicKind};
 use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse;
 
 #[xmtp_common::async_trait]
@@ -56,10 +56,7 @@ where
         topics: &TopicCursor,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         // Compute the lowest common cursor from the provided cursors
-        let lcc = topics.values().fold(GlobalCursor::default(), |mut acc, c| {
-            acc.merge_least(c);
-            acc
-        });
+        let lcc = topics.lcc();
         tracing::debug!(
             "subscribing to messages with provided cursors @cursor={}",
             lcc

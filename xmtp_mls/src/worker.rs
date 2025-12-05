@@ -161,7 +161,7 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
                 if let Err(err) = self.run_tasks().await {
                     if err.needs_db_reconnect() {
                         // drop the worker
-                        tracing::warn!("Pool disconnected. task will restart on reconnect");
+                        tracing::debug!("pool disconnected. task will restart on reconnect");
                         break;
                     } else {
                         tracing::error!("{:?} worker error: {:?}", self.kind(), err);
