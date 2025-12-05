@@ -31,9 +31,19 @@ jobs:
       - name: Build target
         env:
           CROSS_NO_WARNINGS: "0"
-          IPHONEOS_DEPLOYMENT_TARGET: 10
+          IPHONEOS_DEPLOYMENT_TARGET: "10"
         run: |
-          export BINDGEN_CLANG_PATH="$(xcrun --find clang)"
+          # Set up SDK and clang paths based on target
+          if [[ "${{ matrix.target }}" == *"-ios-sim"* ]]; then
+            export SDKROOT=$(xcrun --sdk iphonesimulator --show-sdk-path)
+            export BINDGEN_EXTRA_CLANG_ARGS="--target=arm64-apple-ios-simulator -isysroot $SDKROOT"
+          elif [[ "${{ matrix.target }}" == *"-ios" ]]; then
+            export SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path)
+            export BINDGEN_EXTRA_CLANG_ARGS="--target=arm64-apple-ios -isysroot $SDKROOT"
+          elif [[ "${{ matrix.target }}" == "x86_64-apple-ios" ]]; then
+            export SDKROOT=$(xcrun --sdk iphonesimulator --show-sdk-path)
+            export BINDGEN_EXTRA_CLANG_ARGS="--target=x86_64-apple-ios-simulator -isysroot $SDKROOT"
+          fi
           cross build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
       - name: Upload binary
         uses: actions/upload-artifact@v5
