@@ -191,9 +191,9 @@ enum Task {
     /// Requires migration name as --target para.m
     DbRevertMigration,
     /// Clear all messages in a group.
+    /// Requires hex-encoded group_id as --target param.
     DbClearMessages,
     /// Clear all messages in the database.
-    /// Requires hex-encoded group_id as --target param.
     DbClearAllMessages,
     /// Disable a group.
     /// Requires hex-encoded group_id as --target param.

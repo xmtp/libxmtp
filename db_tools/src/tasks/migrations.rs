@@ -18,12 +18,9 @@ pub fn rollback(conn: &impl ConnectionExt, target: &str) -> Result<()> {
 pub fn rollback_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
     let target: String = target.chars().filter(|c| c.is_numeric()).collect();
     while let Some(version) = applied_migrations(conn)?.first() {
-        let version: String = version
-            .to_string()
-            .chars()
-            .filter(|c| c.is_numeric())
-            .collect();
-        if version >= target {
+        let version = version.to_string();
+        let version_number: String = version.chars().filter(|c| c.is_numeric()).collect();
+        if version_number >= target {
             let result = conn.raw_query_write(|conn| {
                 Ok(conn
                     .revert_last_migration(xmtp_db::MIGRATIONS)
