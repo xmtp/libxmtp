@@ -578,9 +578,10 @@ where
             | IntentKind::ReaddInstallations => {
                 if let Some(published_in_epoch) = intent.published_in_epoch {
                     let group_epoch = group_epoch.as_u64() as i64;
+                    let message_epoch = message_epoch.as_u64() as i64;
 
                     // TODO(rich): Merge into validate_message_epoch()
-                    if published_in_epoch != group_epoch {
+                    if message_epoch != group_epoch {
                         tracing::warn!(
                             inbox_id = self.context.inbox_id(),
                             installation_id = %self.context.installation_id(),
@@ -588,18 +589,19 @@ where
                             cursor = %cursor,
                             intent.id,
                             intent.kind = %intent.kind,
-                            "Intent for msg = [{cursor}] was published in epoch {} but group is currently in epoch {}",
+                            "Intent for msg = [{cursor}] was published in epoch {} with local save intent epoch of {} but group is currently in epoch {}",
+                            message_epoch,
                             published_in_epoch,
                             group_epoch
                         );
-                        let processing_error = if published_in_epoch < group_epoch {
+                        let processing_error = if message_epoch < group_epoch {
                             GroupMessageProcessingError::OldEpoch(
-                                published_in_epoch as u64,
+                                message_epoch as u64,
                                 group_epoch as u64,
                             )
                         } else {
                             GroupMessageProcessingError::FutureEpoch(
-                                published_in_epoch as u64,
+                                message_epoch as u64,
                                 group_epoch as u64,
                             )
                         };
