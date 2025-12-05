@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: warp-macos-15-arm64-12x
 
     steps:
       - uses: actions/checkout@v3
