@@ -5,6 +5,7 @@ use xmtp_db::{
     association_state::QueryAssociationStateCache,
     consent_record::{ConsentState, ConsentType, QueryConsentRecord, StoredConsentRecord},
     conversation_list::QueryConversationList,
+    diesel::Connection,
     group::{ConversationType, GroupQueryArgs, QueryGroup, StoredGroup},
     group_intent::{IntentKind, IntentState, QueryGroupIntent},
     group_message::{MsgQueryArgs, QueryGroupMessage, RelationQuery},
@@ -94,7 +95,7 @@ where
     pub fn bench(&mut self) -> Result<Vec<Result<()>>> {
         let mut results = vec![];
         let result = self.store.conn().raw_query_write(|conn| {
-            conn.immediate_transaction(|_txn| {
+            conn.transaction(|_txn| {
                 results.push(self.bench_group_queries());
                 results.push(self.bench_group_intent_queries());
                 results.push(self.bench_consent_queries());
