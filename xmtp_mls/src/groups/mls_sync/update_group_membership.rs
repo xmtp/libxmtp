@@ -85,7 +85,7 @@ async fn compute_publish_data_for_group_membership_update(
     );
 
     // Use savepoint pattern to create commit without persisting state
-    let ((commit, maybe_welcome_message, _), staged_commit) =
+    let ((commit, maybe_welcome_message, _), staged_commit, group_epoch) =
         generate_commit_with_rollback(context.mls_storage(), openmls_group, |group, provider| {
             group.update_group_membership(
                 provider,
@@ -109,11 +109,13 @@ async fn compute_publish_data_for_group_membership_update(
     // Log the epoch, epoch authenticator, and a hash of the commit message at the moment
     // we construct the post-commit action. This lets us correlate this local operation
     // with later processing/validation of the same commit on any installation.
+    // Use the epoch returned from the transaction to ensure we have the correct epoch
+    // even if the database was updated between the transaction and now.
     if let Ok(commit_bytes) = commit.tls_serialize_detached() {
         let commit_hash = sha256(&commit_bytes);
         tracing::info!(
             "Preparing PostCommitAction for group membership update: epoch = {}, epoch_authenticator = {}, commit_hash = {}, using group ptr = {}",
-            openmls_group.epoch().as_u64(),
+            group_epoch,
             hex::encode(openmls_group.epoch_authenticator().as_slice()),
             hex::encode(&commit_hash),
             format_args!("{:p}", openmls_group)
@@ -129,6 +131,7 @@ async fn compute_publish_data_for_group_membership_update(
         post_commit_action: post_commit_action.map(|action| action.to_bytes()),
         staged_commit: Some(staged_commit),
         should_send_push_notification: false,
+        group_epoch,
     })
 }
 
