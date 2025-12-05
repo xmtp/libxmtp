@@ -19,7 +19,6 @@ jobs:
       - name: Update rust toolchains, add target
         run: |
           softwareupdate --install --all
-          xcode-select --install
           rustup update
           rustup target add ${{ matrix.target }}
       # - name: Cache
