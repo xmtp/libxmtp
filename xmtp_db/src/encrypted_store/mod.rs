@@ -436,7 +436,7 @@ impl MigrationHarnessExt for SqliteConnection {
             .applied_migrations()
             .map_err(diesel::result::Error::QueryBuilderError)?
             .pop()
-            .expect("This function is run after migrations are applied")
+            .expect("This function should be run after migrations are applied")
             .to_string();
 
         Ok(migration)
