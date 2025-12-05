@@ -29,7 +29,10 @@ pub fn clear_all_messages_confirmed(
     }
 
     if let Some(days) = limit_days {
-        let limit = now_ns() - NS_IN_DAY * days;
+        if days < 0 {
+            return Err(anyhow::anyhow!("`limit_days` must be >= 0"));
+        }
+        let limit = now_ns().saturating_sub(NS_IN_DAY.saturating_mul(days));
         query = query.filter(messages_dsl::sent_at_ns.lt(limit));
     }
 
