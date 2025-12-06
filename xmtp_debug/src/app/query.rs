@@ -196,7 +196,7 @@ impl Query {
         Ok(())
     }
 
-    /// get all keypackages for installtion keys in the app database
+    /// get all keypackages for installation keys in the app database
     pub async fn all_key_packages(&self) -> Result<()> {
         let store: IdentityStore = self.db.clone().into();
         let network = u64::from(&self.network);

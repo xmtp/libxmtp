@@ -427,7 +427,7 @@ where
         Ok(result)
     }
 
-    /// Generate a `ChangeRecoveryAddress` signature request using a new identifer
+    /// Generate a `ChangeRecoveryAddress` signature request using a new identifier
     pub async fn change_recovery_identifier(
         &self,
         new_recovery_identifier: Identifier,

@@ -190,7 +190,7 @@ pub struct ConversationDebugInfo {
 #[napi(object)]
 pub struct XmtpCursor {
   pub originator_id: u32,
-  // napi doesn't suppor u64
+  // napi doesn't support u64
   pub sequence_id: i64,
 }
 

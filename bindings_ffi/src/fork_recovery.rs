@@ -29,7 +29,7 @@ pub struct FfiForkRecoveryOpts {
     // After a 'bad' commit is made, fork recovery can be expected to take up to 4x this interval
     // to complete end-to-end, assuming both the super admin and forked installation are online
     // and streaming welcomes.
-    // This can be overriden for end-to-end/manual testing purposes.
+    // This can be overridden for end-to-end/manual testing purposes.
     // If the interval duration is less than the time it takes for a single tick of the worker to
     // complete, the worker will wait for the first tick to complete before the next tick begins.
     // Worth considering if any strange behavior is observed with low intervals.

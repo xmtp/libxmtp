@@ -72,7 +72,7 @@ impl<'a, C, V> XmtpWelcome<'a, C, V> {
 }
 
 /// result of a commit
-/// we consider a commit succesful if it either:
+/// we consider a commit successful if it either:
 /// - Fails forever (can not be retried)
 /// - Was successfully decrypted and processed
 enum CommitResult<C> {
@@ -241,7 +241,7 @@ where
     }
 
     /// Commit the welcome to the local db and memory.
-    /// Verifies the welcome processed succesfully. If it fails on a non-retryable error,
+    /// Verifies the welcome processed successfully. If it fails on a non-retryable error,
     /// increments the cursor. Otherwise state must remain as if no transaction occurred.
     /// Returns an error if group failed to commit.
     /// Once transaction succeeds, sends device sync messages
@@ -277,7 +277,7 @@ where
     }
 
     /// The welcome was validated and we haven't processed yet.
-    /// Can be commited
+    /// Can be committed
     /// Requires a transaction
     fn commit(
         &self,
