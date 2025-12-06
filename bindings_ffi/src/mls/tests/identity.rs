@@ -752,7 +752,9 @@ async fn test_cannot_create_more_than_max_installations() {
     );
 
     // Now try building alix6 again – should succeed
-    let _new_client_installation = new_test_client_no_panic(alix_wallet.clone(), None).await;
+    let _new_client_installation = new_test_client_no_panic(alix_wallet.clone(), None)
+        .await
+        .unwrap();
     let updated_state = alix.inbox_state(true).await.unwrap();
     assert_eq!(
         updated_state.installations.len(),
