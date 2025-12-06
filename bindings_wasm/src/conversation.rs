@@ -10,6 +10,7 @@ use crate::streams::{StreamCallback, StreamCloser};
 use crate::{
   consent_state::ConsentState, enriched_message::DecodedMessage, permissions::GroupPermissions,
 };
+use js_sys::Uint8Array;
 use std::collections::HashMap;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
@@ -654,6 +655,20 @@ impl Conversation {
         .ok_or(JsError::new("Not a DM conversation or missing DM ID"))?
         .other_inbox_id(inbox_id),
     )
+  }
+
+  #[wasm_bindgen(js_name = processStreamedGroupMessage)]
+  pub async fn process_streamed_group_message(
+    &self,
+    envelope_bytes: Uint8Array,
+  ) -> Result<Message, JsError> {
+    let group = self.to_mls_group();
+    let message = group
+      .process_streamed_group_message(envelope_bytes.to_vec())
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(message.into())
   }
 
   #[wasm_bindgen(js_name = updatePermissionPolicy)]
