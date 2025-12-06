@@ -885,7 +885,7 @@ async fn test_stream_all_concurrent_writes() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-#[cfg_attr(target_family = "wasm", ignore)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_new_group_does_not_duplicate_messages() {
     tester!(alix);
     tester!(bo);
@@ -912,7 +912,10 @@ async fn test_new_group_does_not_duplicate_messages() {
     // Create a new group to trigger a reconnect
     let _ = alix.create_group(Default::default(), Default::default())?;
 
-    tokio::task::spawn(async move { while (stream.next().await).is_some() {} });
+    xmtp_common::spawn(
+        None,
+        async move { while (stream.next().await).is_some() {} },
+    );
 
     xmtp_common::time::sleep(Duration::from_secs(10)).await;
 
