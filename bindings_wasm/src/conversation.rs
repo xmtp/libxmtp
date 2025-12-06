@@ -803,8 +803,8 @@ impl Conversation {
     Ok(conversations)
   }
 
-  #[wasm_bindgen(js_name = findMessagesV2)]
-  pub async fn enriched_messages(
+  #[wasm_bindgen(js_name = findEnrichedMessages)]
+  pub async fn find_enriched_messages(
     &self,
     opts: Option<ListMessagesOptions>,
   ) -> Result<Vec<DecodedMessage>, JsError> {
