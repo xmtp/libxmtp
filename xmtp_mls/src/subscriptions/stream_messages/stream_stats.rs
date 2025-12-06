@@ -129,6 +129,7 @@ impl<'a, Out> From<&State<'a, Out>> for StreamState {
     }
 }
 
+#[derive(Debug)]
 pub enum StreamStat {
     // the duration is a range of two timestamps in nanos
     Reconnection {
