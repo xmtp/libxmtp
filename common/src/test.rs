@@ -1,4 +1,4 @@
-//! Common Test Utilites
+//! Common Test Utilities
 use crate::time::Expired;
 use rand::distributions::DistString;
 use rand::{Rng, distributions::Alphanumeric, seq::IteratorRandom};

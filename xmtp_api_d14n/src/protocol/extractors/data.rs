@@ -1,5 +1,5 @@
 //! Extractor for an MLS Data field
-//! useful for verifing a message has been read or maybe duplicates.
+//! useful for verifying a message has been read or maybe duplicates.
 use xmtp_common::sha256_bytes;
 use xmtp_proto::ConversionError;
 use xmtp_proto::mls_v1::group_message_input::V1 as GroupMessageV1;

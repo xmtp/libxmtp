@@ -1,4 +1,4 @@
-//! Implementions of traits
+//! Implementations of traits
 use crate::protocol::EnvelopeCollection;
 
 use crate::protocol::traits::{EnvelopeError, EnvelopeVisitor, Extractor, ProtocolEnvelope};

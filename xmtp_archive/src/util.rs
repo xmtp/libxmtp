@@ -1,7 +1,7 @@
 use sha2::digest::{generic_array::GenericArray, typenum};
 
 pub(crate) trait GenericArrayExt {
-    /// Increment the genric array
+    /// Increment the generic array
     fn increment(&mut self);
     /// Decrement the generic array
     fn decrement(&mut self);

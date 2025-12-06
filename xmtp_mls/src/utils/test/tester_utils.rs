@@ -76,7 +76,7 @@ use xmtp_proto::{api_client::ToxicProxies, prelude::XmtpTestClient};
 type XmtpMlsProvider = XmtpOpenMlsProvider<Arc<TestMlsStorage>>;
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
-/// Makes testing easier and less repetetive.
+/// Makes testing easier and less repetitive.
 pub struct Tester<Owner = PrivateKeySigner, Client = FullXmtpClient>
 where
     Owner: InboxOwner,

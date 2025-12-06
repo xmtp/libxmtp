@@ -228,7 +228,7 @@ impl<C> ChaosConnection<C> {
     }
 
     /// Possible return a random error
-    /// Error return chace is decided by `error_frequency`.
+    /// Error return chance is decided by `error_frequency`.
     pub fn maybe_random_error<T>(&self) -> Result<(), T>
     where
         Standard: Distribution<T>,

@@ -146,7 +146,7 @@ fn identity_setup(owner: impl InboxOwner) -> IdentityStrategy {
     IdentityStrategy::new(inbox_id, ident, nonce, None)
 }
 
-/// wrapper over a `Notify` with a 60-scond timeout for waiting
+/// wrapper over a `Notify` with a 60-second timeout for waiting
 #[derive(Clone, Default)]
 pub struct Delivery {
     notify: Arc<Notify>,

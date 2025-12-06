@@ -260,7 +260,7 @@ impl std::fmt::Display for EntityKind {
 /// specify the log output
 #[derive(Args, Debug)]
 pub struct LogOptions {
-    /// Output libxmtp logs into file with a structured, ndJSON format
+    /// Output libxmtp logs into file with a structured JSON format
     #[arg(long)]
     pub json: bool,
     /// Output libxmtp into file with logfmt format

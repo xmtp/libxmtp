@@ -2,7 +2,7 @@
 //!
 //! Possible Implementation of Dependency Resolution Strategies:
 //! - keep retrying same query and error forever after and finish after some backoff
-//! - query the originator that the mesasge is stored on.
+//! - query the originator that the message is stored on.
 //! - file misbehavior report if originator message came from is unresponsive
 //! - dont resolve dependencies at all
 //! - query random originators for the dependency

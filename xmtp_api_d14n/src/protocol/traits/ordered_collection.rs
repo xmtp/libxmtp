@@ -6,7 +6,7 @@ use crate::protocol::ResolutionError;
 // since dependency resolution requires `async fn`.
 /// A ordered envelope collection
 /// an `OrderedEnvelopeCollection` differs from [`Sort`](super::Sort)
-/// since it adds the inclusing of `async`, allowing
+/// since it adds the including of `async`, allowing
 /// an `OrderedEnvelopeCollection`  to both
 /// [Sort](super::Sort) and [ResolveDependencies](super::ResolveDependencies)
 #[xmtp_common::async_trait]

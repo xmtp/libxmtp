@@ -49,7 +49,7 @@ impl Modify {
         match action {
             Remove => {
                 if inbox_id.is_none() {
-                    bail!("Inbox ID to remove must be specificied")
+                    bail!("Inbox ID to remove must be specified")
                 }
                 let inbox_id = inbox_id.expect("Checked for none");
                 local_group.member_size -= 1;
@@ -70,7 +70,7 @@ impl Modify {
                 let rng = &mut SmallRng::from_entropy();
                 let identity = identity_store
                     .load(&network)?
-                    .ok_or(eyre!("No identitites"))?
+                    .ok_or(eyre!("No identities"))?
                     .map(|i| i.value())
                     .filter(|identity| members.contains(&identity.inbox_id))
                     .choose(rng)
@@ -89,7 +89,7 @@ impl Modify {
             }
             AddExternal => {
                 let Some(inbox_id) = inbox_id else {
-                    bail!("Inbox ID to add must be specificied")
+                    bail!("Inbox ID to add must be specified")
                 };
                 group
                     .add_members_by_inbox_id(&[hex::encode(*inbox_id)])

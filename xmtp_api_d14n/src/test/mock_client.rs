@@ -63,7 +63,7 @@ mock! {
 }
 
 // Create a mock XmtpClient for testing the client wrapper
-// need separate defs for wasm and not wasm, b/c `cfg_attr` not supportd in macro! block
+// need separate defs for wasm and not wasm, b/c `cfg_attr` not supported in macro! block
 #[derive(Clone)]
 pub struct ApiClient;
 

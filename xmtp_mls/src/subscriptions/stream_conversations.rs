@@ -322,7 +322,7 @@ where
         if let Poll::Ready(Some(Ok(welcome_result))) =
             self.as_mut().project().welcome_syncs.poll_join_next(cx)
         {
-            // if filter is None, we continue to poll the innner stream.
+            // if filter is None, we continue to poll the inner stream.
             // the inner stream propagates a Pending, if its not pending, we register the task for
             // wakeup again. Therefore, we can ignore the None.
             if let Some(new_welcome) = self.as_mut().filter_welcome(welcome_result) {
