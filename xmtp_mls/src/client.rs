@@ -21,7 +21,6 @@ use crate::{
     identity_updates::{IdentityUpdateError, IdentityUpdates, load_identity_updates},
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{LocalEventError, LocalEvents, SyncWorkerEvent},
-    track,
     utils::VersionInfo,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     worker::{WorkerRunner, metrics::WorkerMetrics},
@@ -38,7 +37,6 @@ use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
-    events::EventLevel,
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
     identity::StoredIdentity,
@@ -513,16 +511,6 @@ where
         let _ = self
             .local_events
             .send(LocalEvents::NewGroup(group.group_id.clone()));
-
-        track!(
-            &self.context,
-            "Group Create",
-            {
-                "conversation_type": ConversationType::Group
-            },
-            group: &group.group_id,
-            level: EventLevel::None
-        );
 
         Ok(group)
     }

@@ -7,9 +7,9 @@ use super::{
     stream_messages::StreamGroupMessages,
 };
 use crate::groups::MlsGroup;
+use crate::groups::welcome_sync::WelcomeService;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::{context::XmtpSharedContext, subscriptions::stream_messages::MessagesApiSubscription};
-use crate::{groups::welcome_sync::WelcomeService, track};
 use futures::stream::Stream;
 use pin_project_lite::pin_project;
 use std::{
@@ -86,16 +86,6 @@ where
             WelcomeService::new(context.as_ref())
                 .sync_welcomes()
                 .await?;
-
-            track!(
-                context.as_ref(),
-                "Message Stream Connect",
-                {
-                    "conversation_type": conversation_type,
-                    "consent_states": &consent_states,
-                },
-                icon: "🚣"
-            );
 
             let groups = conn.find_groups(GroupQueryArgs {
                 conversation_type,

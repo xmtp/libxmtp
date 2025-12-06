@@ -11,7 +11,6 @@ use xmtp_api::ApiClientWrapper;
 use xmtp_api_d14n::MockApiClient;
 use xmtp_common::{ExponentialBackoff, Retry, rand_vec, tmp_path};
 use xmtp_db::XmtpTestDb;
-use xmtp_db::events::Events;
 use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_db::{Store, identity::StoredIdentity};
 
@@ -233,38 +232,6 @@ async fn test_client_creation() {
             assert!(result.is_ok());
         }
     }
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_turn_local_telemetry_off() {
-    let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-    let legacy_ident = Identifier::eth(&legacy_account_address).unwrap();
-    let inbox_id = legacy_ident.inbox_id(0).unwrap();
-
-    let identity_strategy = IdentityStrategy::new(
-        inbox_id.clone(),
-        legacy_ident.clone(),
-        0,
-        Some(legacy_key.clone()),
-    );
-    let store = xmtp_db::TestDb::create_persistent_store(None).await;
-    let client = Client::builder(identity_strategy.clone())
-        .store(store)
-        .api_clients(
-            DefaultTestClientCreator::create().build().unwrap(),
-            DefaultTestClientCreator::create().build().unwrap(),
-        )
-        .default_mls_store()
-        .unwrap()
-        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-        .with_disable_events(Some(true))
-        .build()
-        .await?;
-
-    let events = Events::all_events(&client.context.db())?;
-
-    // No events should be logged if telemetry is turned off.
-    assert!(events.is_empty());
 }
 
 // First, create a client1 using legacy key and then test following cases:

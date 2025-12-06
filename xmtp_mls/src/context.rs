@@ -20,7 +20,6 @@ use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_db::XmtpDb;
 use xmtp_db::XmtpMlsStorageProvider;
-use xmtp_db::events::Events;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProviderRef;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{InboxIdRef, associations::builder::SignatureRequest};
@@ -46,7 +45,6 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) version_info: VersionInfo,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     pub(crate) worker_events: broadcast::Sender<SyncWorkerEvent>,
-    pub(crate) events: broadcast::Sender<Events>,
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync: DeviceSync,
     pub(crate) fork_recovery_opts: ForkRecoveryOpts,
@@ -118,7 +116,6 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             version_info: self.version_info,
             local_events: self.local_events,
             worker_events: self.worker_events,
-            events: self.events,
             scw_verifier: self.scw_verifier,
             device_sync: self.device_sync,
             fork_recovery_opts: self.fork_recovery_opts,
@@ -219,7 +216,6 @@ where
     fn version_info(&self) -> &VersionInfo;
     fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent>;
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
-    fn events(&self) -> &broadcast::Sender<Events>;
     fn task_channels(&self) -> &TaskWorkerChannels;
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
@@ -285,10 +281,6 @@ where
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
         &self.local_events
-    }
-
-    fn events(&self) -> &broadcast::Sender<Events> {
-        &self.events
     }
 
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock> {
@@ -374,10 +366,6 @@ where
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
         <T as XmtpSharedContext>::local_events(self)
-    }
-
-    fn events(&self) -> &broadcast::Sender<Events> {
-        <T as XmtpSharedContext>::events(self)
     }
 
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock> {

@@ -74,7 +74,6 @@ fn create_ffi_client(c: &mut Criterion) {
                     None,
                     None,
                     None,
-                    None,
                 )
                 .instrument(span)
                 .await

@@ -217,7 +217,6 @@ where
 
         let mut client = client
             .api_clients(api_client, sync_api_client)
-            .with_disable_events(Some(!self.events))
             .with_disable_workers(self.disable_workers)
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .with_device_sync_worker_mode(Some(self.sync_mode))
@@ -359,7 +358,6 @@ where
     pub wait_for_init: bool,
     pub stream: bool,
     pub name: Option<String>,
-    pub events: bool,
     pub version: Option<VersionInfo>,
     pub proxy: bool,
     pub commit_log_worker: bool,
@@ -397,7 +395,6 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             wait_for_init: true,
             stream: false,
             name: None,
-            events: false,
             version: None,
             proxy: false,
             commit_log_worker: true, // Default to enabled to match production
@@ -430,7 +427,6 @@ where
             wait_for_init: self.wait_for_init,
             stream: self.stream,
             name: self.name,
-            events: self.events,
             version: self.version,
             proxy: self.proxy,
             commit_log_worker: self.commit_log_worker,
@@ -590,11 +586,6 @@ where
 
     pub fn with_commit_log_worker(mut self, enabled: bool) -> Self {
         self.commit_log_worker = enabled;
-        self
-    }
-
-    pub fn events(mut self) -> Self {
-        self.events = true;
         self
     }
 
