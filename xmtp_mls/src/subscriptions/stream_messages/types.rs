@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use xmtp_proto::{
     api::VectorClock,
-    types::{Cursor, GlobalCursor, GroupId, Topic, TopicCursor},
+    types::{Cursor, GlobalCursor, Topic, TopicCursor},
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -22,15 +22,8 @@ pub(super) struct GroupList {
 }
 
 impl GroupList {
-    pub(super) fn new(list: Vec<GroupId>, seen: HashSet<Cursor>) -> Self {
-        Self {
-            list: list
-                .into_iter()
-                .map(Topic::new_group_message)
-                .map(|t| (t, GlobalCursor::default()))
-                .collect(),
-            seen,
-        }
+    pub(super) fn new(list: TopicCursor, seen: HashSet<Cursor>) -> Self {
+        Self { list, seen }
     }
 
     pub(super) fn has_seen(&self, cursor: Cursor) -> bool {
