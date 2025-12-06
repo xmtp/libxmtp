@@ -27,7 +27,7 @@ pub enum MemberIdentifier {
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 /// MemberIdentifier without the installation variant
-/// is uesd to enforce parameters.
+/// is used to enforce parameters.
 /// Not everything in this enum will be able to sign,
 /// which will be enforced on the unverified signature counterparts.
 pub enum Identifier {

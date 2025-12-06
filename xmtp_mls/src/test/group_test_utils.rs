@@ -40,7 +40,7 @@ impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
 {
-    // Sends a mesage to other group and ensures delivery, returning sent message contents.
+    // Sends a message to other group and ensures delivery, returning sent message contents.
     pub async fn test_can_talk_with(&self, other: &Self) -> Result<String, TestError> {
         let msg = xmtp_common::rand_string::<20>();
         self.sync().await?;

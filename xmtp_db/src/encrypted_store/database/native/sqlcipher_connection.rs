@@ -223,7 +223,7 @@ impl EncryptedConnection {
         Ok(db_path.join(format!("{}.{}", name.to_string_lossy(), SALT_FILE_NAME)))
     }
 
-    /// Output the corect order of PRAGMAS to instantiate a connection
+    /// Output the correct order of PRAGMAS to instantiate a connection
     fn pragmas(&self) -> impl Display {
         let Self { key, salt, .. } = self;
 

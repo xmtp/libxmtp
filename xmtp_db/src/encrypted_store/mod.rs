@@ -275,7 +275,7 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
         Ok(())
     }
 
-    /// The Options this databae was created with
+    /// The Options this database was created with
     fn opts(&self) -> &StorageOption;
 
     /// Validate a connection is as expected

@@ -2931,7 +2931,7 @@ async fn test_group_mutable_data_group_permissions() {
     bola_group
         .update_group_name("New Group Name 2".to_string())
         .await
-        .expect("non creator failed to udpate group name");
+        .expect("non creator failed to update group name");
 
     // Verify amal group sees an update
     amal_group.sync().await.unwrap();
@@ -3371,7 +3371,7 @@ async fn test_can_update_permissions_after_group_creation() {
         .await
         .unwrap();
 
-    // Step 3: Bola attemps to add Caro, but fails because group is admin only
+    // Step 3: Bola attempts to add Caro, but fails because group is admin only
     let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -3522,7 +3522,7 @@ async fn test_dm_creation() {
     let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-    // Amal creates a dm group targetting bola
+    // Amal creates a dm group targeting bola
     let amal_dm = amal
         .find_or_create_dm_by_inbox_id(bola.inbox_id().to_string(), None)
         .await

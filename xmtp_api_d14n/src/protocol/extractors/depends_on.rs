@@ -1,5 +1,5 @@
 //! Extractor for an MLS Data field
-//! useful for verifing a message has been read or maybe duplicates.
+//! useful for verifying a message has been read or maybe duplicates.
 use xmtp_proto::ConversionError;
 use xmtp_proto::types::GlobalCursor;
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;

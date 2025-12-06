@@ -237,7 +237,7 @@ See [XIP 46](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-46-multi-wallet-ide
 
 The DS describes the set of mechanisms used to transport messages and key packages between clients. XMTP uses a central server that chat messages and invite/Welcome messages can be submitted to and read from without special permission. However, it is per-IP rate-limited in order in order to mitigate spam.
 
-The server provides APIs for submitting and reading (MLS-encrypted) chat messages by their group ID and Welcome messages by the installation key. Reading a message from the server does not chage the server state. The order in which the server receives the messages determines the order in which they are returned to clients.
+The server provides APIs for submitting and reading (MLS-encrypted) chat messages by their group ID and Welcome messages by the installation key. Reading a message from the server does not change the server state. The order in which the server receives the messages determines the order in which they are returned to clients.
 
 Clients can query group invites (in the form of Welcome messages) by their installation key. The Welcome messages have an additional layer of encryption using HPKE, applied at the client side. This is done because when creating a commit with several Add proposals, a large part of the Welcome messages sent to each user is shared, which would make it possible to see that several users have been added to the same group. The additional layer of encryption makes these messages unlinkable.
 
