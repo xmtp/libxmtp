@@ -28,6 +28,7 @@ use xmtp_proto::mls_v1::BatchQueryCommitLogResponse;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::types::GroupMessageMetadata;
 use xmtp_proto::types::InstallationId;
+use xmtp_proto::types::Topic;
 use xmtp_proto::types::TopicCursor;
 use xmtp_proto::types::TopicKind;
 use xmtp_proto::types::WelcomeMessage;
@@ -69,7 +70,8 @@ where
         let topics = request
             .installation_keys
             .iter()
-            .map(|key| TopicKind::KeyPackagesV1.build(key))
+            .map(Topic::new_key_package)
+            .map(Into::into)
             .collect();
 
         let result: GetNewestEnvelopeResponse = GetNewestEnvelopes::builder()
@@ -168,7 +170,7 @@ where
         group_id: GroupId,
     ) -> Result<Option<xmtp_proto::types::GroupMessage>, Self::Error> {
         let response: GetNewestEnvelopeResponse = GetNewestEnvelopes::builder()
-            .topic(TopicKind::GroupMessagesV1.build(group_id))
+            .topic(Topic::new_group_message(group_id))
             .build()?
             .query(&self.client)
             .await?;
@@ -235,7 +237,8 @@ where
         let topics: Vec<Vec<u8>> = request
             .group_ids
             .into_iter()
-            .map(|id| TopicKind::GroupMessagesV1.build(id.as_slice()))
+            .map(Topic::new_group_message)
+            .map(Into::into)
             .collect();
 
         let response = GetNewestEnvelopes::builder()

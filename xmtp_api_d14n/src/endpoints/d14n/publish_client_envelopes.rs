@@ -38,7 +38,7 @@ impl Endpoint for PublishClientEnvelopes {
 
 #[cfg(test)]
 mod test {
-    use xmtp_proto::types::TopicKind;
+    use xmtp_proto::types::Topic;
 
     use super::*;
     use xmtp_api_grpc::{error::GrpcError, test::GatewayClient};
@@ -74,7 +74,7 @@ mod test {
         let client = client.build().unwrap();
 
         let aad = AuthenticatedData {
-            target_topic: TopicKind::GroupMessagesV1.build(rand_vec::<16>()),
+            target_topic: Topic::new_group_message(rand_vec::<16>()).into(),
             depends_on: None,
         };
         let e = ClientEnvelope {

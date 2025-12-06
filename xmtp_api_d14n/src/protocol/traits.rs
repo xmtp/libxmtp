@@ -41,9 +41,6 @@ pub use extractor::*;
 mod envelope_collection;
 pub use envelope_collection::*;
 
-mod vector_clock;
-pub use vector_clock::*;
-
 mod full_api;
 pub use full_api::*;
 
