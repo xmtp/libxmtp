@@ -18,7 +18,7 @@ permissions:
   id-token: write
 jobs:
   update-xmtp-ios:
-    runs-on: warp-macos-13-arm64-6x
+    runs-on: warp-macos-15-arm64-6x
     steps:
       - name: Checkout libxmtp
         uses: actions/checkout@v5

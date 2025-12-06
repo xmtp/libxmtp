@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
 jobs:
   build-macos:
-    runs-on: warp-macos-13-arm64-6x
+    runs-on: warp-macos-15-arm64-12x
     strategy:
       fail-fast: false
       matrix:
@@ -39,7 +39,7 @@ jobs:
           path: target/${{ matrix.target }}/release/libxmtpv3.a
           retention-days: 1
   swift:
-    runs-on: warp-macos-13-arm64-6x
+    runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -67,7 +67,7 @@ jobs:
           retention-days: 1
   package-swift:
     needs: [build-macos, swift]
-    runs-on: warp-macos-13-arm64-6x
+    runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
         uses: actions/checkout@v5
