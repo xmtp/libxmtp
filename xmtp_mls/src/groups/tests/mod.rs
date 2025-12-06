@@ -5205,7 +5205,7 @@ async fn test_generate_commit_with_rollback() {
             )
             .unwrap();
             // Simulate mutable metadata update
-            let (_, _, _) = super::mls_sync::generate_commit_with_rollback(
+            let (_, _) = super::mls_sync::generate_commit_with_rollback(
                 group_provider,
                 &mut mls_group,
                 |group, provider| {

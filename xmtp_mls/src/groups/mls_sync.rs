@@ -262,7 +262,6 @@ pub(crate) struct PublishIntentData {
     post_commit_action: Option<Vec<u8>>,
     payload_to_publish: Vec<u8>,
     should_send_push_notification: bool,
-    group_epoch: u64,
 }
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -2118,8 +2117,7 @@ where
                                 payload_to_publish,
                                 post_commit_action,
                                 staged_commit,
-                                should_send_push_notification,
-                                group_epoch
+                                should_send_push_notification
                             })) => {
                         let payload_slice = payload_to_publish.as_slice();
                         let has_staged_commit = staged_commit.is_some();
@@ -2133,7 +2131,7 @@ where
                                 &intent_hash,
                                 post_commit_action,
                                 staged_commit,
-                                group_epoch as i64,
+                                mls_group.epoch().as_u64() as i64,
                             )
                         })?;
                         tracing::debug!(
@@ -2213,7 +2211,6 @@ where
                 // We can safely assume all SendMessage intents have data
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
                 // TODO: Handle pending_proposal errors and UseAfterEviction errors
-                let group_epoch = openmls_group.epoch().as_u64();
                 let msg = openmls_group.create_message(
                     &self.context.mls_provider(),
                     &self.context.identity().installation_keys,
@@ -2225,12 +2222,11 @@ where
                     post_commit_action: None,
                     staged_commit: None,
                     should_send_push_notification: intent.should_push,
-                    group_epoch,
                 }))
             }
             IntentKind::KeyUpdate => {
                 let keys = self.context.identity().installation_keys.clone();
-                let (bundle, staged_commit, group_epoch) =
+                let (bundle, staged_commit) =
                     generate_commit_with_rollback(storage, openmls_group, |group, provider| {
                         group.self_update(provider, &keys, LeafNodeParameters::default())
                     })?;
@@ -2239,7 +2235,6 @@ where
                     staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
-                    group_epoch,
                 }))
             }
             IntentKind::MetadataUpdate => {
@@ -2251,7 +2246,7 @@ where
                 )?;
 
                 let keys = self.context.identity().installation_keys.clone();
-                let ((commit, _, _), staged_commit, group_epoch) =
+                let ((commit, _, _), staged_commit) =
                     generate_commit_with_rollback(storage, openmls_group, |group, provider| {
                         group.update_group_context_extensions(
                             provider,
@@ -2267,7 +2262,6 @@ where
                     staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
-                    group_epoch,
                 }))
             }
             IntentKind::UpdateAdminList => {
@@ -2279,7 +2273,7 @@ where
                 )?;
 
                 let keys = self.context.identity().installation_keys.clone();
-                let ((commit, _, _), staged_commit, group_epoch) =
+                let ((commit, _, _), staged_commit) =
                     generate_commit_with_rollback(storage, openmls_group, |group, provider| {
                         group.update_group_context_extensions(
                             provider,
@@ -2295,7 +2289,6 @@ where
                     staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
-                    group_epoch,
                 }))
             }
             IntentKind::UpdatePermission => {
@@ -2307,7 +2300,7 @@ where
                 )?;
 
                 let keys = self.context.identity().installation_keys.clone();
-                let ((commit, _, _), staged_commit, group_epoch) =
+                let ((commit, _, _), staged_commit) =
                     generate_commit_with_rollback(storage, openmls_group, |group, provider| {
                         group.update_group_context_extensions(
                             provider,
@@ -2322,7 +2315,6 @@ where
                     staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
-                    group_epoch,
                 }))
             }
             IntentKind::ReaddInstallations => {
@@ -2938,19 +2930,16 @@ fn get_removed_leaf_nodes(
 /// 1. Runs the operation in a transaction savepoint
 /// 2. Extracts the pending commit data
 /// 3. Rolls back the transaction (avoiding the need for clear_pending_commit)
-/// 4. Returns the operation result, the staged commit, and the group epoch the commit was created in
+/// 4. Reloads the group to clear its internal cache
+/// 5. Returns the operation result and the staged commit
 ///
 /// This is more reliable than using `clear_pending_commit` because it uses
 /// SQLite's built-in savepoint rollback mechanism.
-///
-/// The epoch is captured from within the transaction before the operation,
-/// ensuring it reflects the state used during the commit creation even if
-/// the database is updated between the transaction and when the caller uses it.
 pub(super) fn generate_commit_with_rollback<S, R, E, F>(
     storage: &S,
     openmls_group: &mut OpenMlsGroup,
     operation: F,
-) -> Result<(R, Option<Vec<u8>>, u64), GroupError>
+) -> Result<(R, Option<Vec<u8>>), GroupError>
 where
     S: XmtpMlsStorageProvider,
     E: Into<GroupError>,
@@ -2961,15 +2950,10 @@ where
 {
     let mut result = None;
     let mut staged_commit = None;
-    let mut group_epoch = None;
 
     let transaction_result = storage.transaction(|conn| {
         let key_store = conn.key_store();
         let provider = XmtpOpenMlsProviderRef::new(&key_store);
-
-        // Capture the epoch before the operation to ensure we have the correct
-        // epoch even if the database is updated after the transaction and before we save the intent locally.
-        group_epoch = Some(openmls_group.epoch().as_u64());
 
         // Execute the operation (e.g., self_update, update_group_context_extensions, etc.)
         result = Some(operation(openmls_group, &provider));
@@ -2999,9 +2983,6 @@ where
         return Err(e.into());
     }
 
-    // Return early if group epoch is not set otherwise unwrap the group epoch
-    let group_epoch = group_epoch.expect("Group epoch should have been captured in transaction");
-
     // This must go after error checking
     // Reload the group to clear its internal cache after rollback
     openmls_group.reload(storage)?;
@@ -3011,7 +2992,7 @@ where
         .expect("Operation should have been called")
         .map_err(|e| e.into())?;
 
-    Ok((operation_result, staged_commit, group_epoch))
+    Ok((operation_result, staged_commit))
 }
 
 pub(crate) fn decode_staged_commit(

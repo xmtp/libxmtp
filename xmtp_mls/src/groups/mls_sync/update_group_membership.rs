@@ -75,7 +75,7 @@ async fn compute_publish_data_for_group_membership_update(
     signer: impl Signer,
 ) -> Result<PublishIntentData, GroupError> {
     // Use savepoint pattern to create commit without persisting state
-    let ((commit, maybe_welcome_message, _), staged_commit, group_epoch) =
+    let ((commit, maybe_welcome_message, _), staged_commit) =
         generate_commit_with_rollback(context.mls_storage(), openmls_group, |group, provider| {
             group.update_group_membership(
                 provider,
@@ -101,7 +101,6 @@ async fn compute_publish_data_for_group_membership_update(
         post_commit_action: post_commit_action.map(|action| action.to_bytes()),
         staged_commit: Some(staged_commit),
         should_send_push_notification: false,
-        group_epoch,
     })
 }
 
