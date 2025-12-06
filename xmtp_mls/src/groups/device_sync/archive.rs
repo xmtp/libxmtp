@@ -456,7 +456,7 @@ mod tests {
         let _ = tokio::fs::remove_file(path).await;
         exporter.write_to_file(path).await?;
 
-        let alix2 = Tester::new().await;
+        tester!(alix2, sync_worker, sync_server);
         alix2.device_sync_client().wait_for_sync_worker_init().await;
 
         // No consent before
@@ -514,7 +514,7 @@ mod tests {
         assert!(!alix2_group.is_active()?);
 
         // Add the new inbox to the groups
-        alix_group
+        alix.group(&old_group.id)?
             .add_members_by_inbox_id(&[alix2.inbox_id()])
             .await?;
         alix2.sync_welcomes().await?;

@@ -14,7 +14,7 @@ vergen-git2 = { workspace = true, features = ["build"] }
 [dependencies]
 alloy.workspace = true
 chrono.workspace = true
-clap = { version = "4.5.20", features = ["derive"] }
+clap.workspace = true
 clap-verbosity-flag = "3.0"
 color-eyre.workspace = true
 const_format.workspace = true

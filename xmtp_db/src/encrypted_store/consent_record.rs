@@ -96,7 +96,7 @@ pub trait QueryConsentRecord {
         offset: i64,
     ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError>;
 
-    // returns true if newer
+    /// Returns true if newer
     fn insert_newer_consent_record(
         &self,
         record: StoredConsentRecord,

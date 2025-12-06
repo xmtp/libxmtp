@@ -15,7 +15,7 @@ vergen-git2 = { workspace = true, features = ["build"] }
 [dependencies]
 alloy.workspace = true
 async-trait.workspace = true
-clap = { version = "4.4.6", features = ["derive"] }
+clap.workspace = true
 futures = { workspace = true }
 lru = "0.14.0"
 openmls = { workspace = true }
