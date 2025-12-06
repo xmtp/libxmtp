@@ -516,7 +516,6 @@ mod tests {
             })
             // inner tx
             .nested_transaction_calls(|db: &mut MockDbQuery| {
-                db.expect_find_group().returning(|_id| Ok(None));
                 db.expect_get_last_cursor_for_originators()
                     .returning(|_id, _entity, _| {
                         Ok(vec![Cursor {
@@ -678,7 +677,6 @@ mod tests {
             .validator(NoopValidator)
             .context(context)
             .nested_transaction_calls(|db: &mut MockDbQuery| {
-                db.expect_find_group().returning(|_id| Ok(None));
                 db.expect_get_last_cursor_for_originators()
                     .returning(|_id, _entity, _| {
                         Ok(vec![Cursor {
