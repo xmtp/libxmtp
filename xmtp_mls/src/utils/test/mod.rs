@@ -78,7 +78,6 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
         Client::builder(strategy)
             .temp_store()
             .await
-            .with_disable_events(None)
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .device_sync_server_url(xmtp_configuration::DeviceSyncUrls::LOCAL_ADDRESS)
             .enable_sqlite_triggers()
@@ -97,7 +96,6 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
     pub async fn new_test_client_vanilla(owner: &impl InboxOwner) -> FullXmtpClient {
         let client = Self::new_test_builder(owner)
             .await
-            .with_disable_events(Some(true))
             .device_sync_worker_mode(SyncWorkerMode::Disabled)
             .build()
             .await
