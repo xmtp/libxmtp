@@ -814,6 +814,16 @@ impl Conversation {
 
     Ok(crate::to_value(&times)?)
   }
+
+  #[wasm_bindgen(js_name = leaveGroup)]
+  pub async fn leave_group(&self) -> Result<(), JsError> {
+    let group = self.to_mls_group();
+    group
+      .leave_group()
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    Ok(())
+  }
 }
 
 #[cfg(test)]
