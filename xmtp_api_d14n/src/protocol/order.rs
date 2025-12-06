@@ -121,10 +121,10 @@ where
     async fn order(&mut self) -> Result<(), ResolutionError> {
         self.recover_lost_children()?;
         // self.timestamp_sort()?;
+        // maybe add a maximum resolution attempts so we don't infinite loop here
+        // if resolution keeps turning up envelopes.
         while let Some(mut missing) = self.causal_sort()? {
             let needed_envelopes = self.required_dependencies(&missing)?;
-            tracing::info!("topic_cursor: {:?}", self.topic_cursor);
-            // tracing::info!("missing \n{}", needed_str);
             let Resolved {
                 mut resolved,
                 unresolved,
@@ -134,15 +134,8 @@ where
                 self.store.ice(orphans)?;
                 break;
             }
-            tracing::info!("adding {:?}", &resolved);
-            tracing::info!("adding {:?}", &missing);
             self.envelopes.append(&mut resolved);
             self.envelopes.append(&mut missing);
-            // apply resolved before missing, so that the resolved
-            // are applied to the topic cursor before the missing dependencies.
-            // todo: maybe `VecDeque` better here?
-            // self.envelopes.splice(0..0, missing.into_iter());
-            // self.envelopes.splice(0..0, resolved.into_iter());
             self.recover_lost_children()?;
             // self.timestamp_sort()?;
         }
@@ -165,7 +158,7 @@ mod test {
     use futures::FutureExt;
     use parking_lot::Mutex;
     use proptest::{prelude::*, sample::subsequence};
-    use xmtp_common::{assert_ok, DebugDisplay};
+    use xmtp_common::{DebugDisplay, assert_ok};
     use xmtp_proto::types::OriginatorId;
 
     // Simple mock resolver that holds available envelopes to resolve
@@ -214,21 +207,22 @@ mod test {
         }
     }
 
-    // Assertion helpers with #[track_caller] for better error reporting in proptests
     #[track_caller]
-    fn assert_topic_cursor_seen(cursor: &mut TopicCursor, env: &TestEnvelope) -> Result<(), TestCaseError> {
-        let clock = cursor.get_or_default(&env.topic().unwrap());
-        prop_assert!(
-            clock.has_seen(&env.cursor()),
-            "topic cursor {:?} must have seen {}",
-            cursor,
-            env.cursor()
-        );
+    fn assert_topic_cursor_seen(
+        cursor: &TopicCursor,
+        env: &TestEnvelope,
+        message: &str,
+    ) -> Result<(), TestCaseError> {
+        let clock = cursor.get(&env.topic().unwrap()).unwrap();
+        prop_assert!(clock.has_seen(&env.cursor()), "{}", message);
         Ok(())
     }
 
     #[track_caller]
-    fn assert_dependencies_satisfied(env: &TestEnvelope, topic_cursor: &mut TopicCursor) -> Result<(), TestCaseError> {
+    fn assert_dependencies_satisfied(
+        env: &TestEnvelope,
+        topic_cursor: &mut TopicCursor,
+    ) -> Result<(), TestCaseError> {
         let topic = env.topic().unwrap();
         let clock = topic_cursor.get_or_default(&topic);
         prop_assert!(
@@ -241,7 +235,10 @@ mod test {
     }
 
     #[track_caller]
-    fn assert_no_unavailable_deps(env: &TestEnvelope, unavailable: &[TestEnvelope]) -> Result<(), TestCaseError> {
+    fn assert_no_unavailable_deps(
+        env: &TestEnvelope,
+        unavailable: &[TestEnvelope],
+    ) -> Result<(), TestCaseError> {
         for unavailable_env in unavailable {
             prop_assert!(
                 !env.has_dependency_on(unavailable_env),
@@ -288,6 +285,7 @@ mod test {
             v.clone()
         }
 
+        /// make a dependency at `idx` in `unavailable` available
         pub fn make_available(&self, idx: usize) -> TestEnvelope {
             let mut v = self.resolver.unavailable.lock();
             let mut available = self.resolver.available.lock();
@@ -301,58 +299,58 @@ mod test {
             v.clone()
         }
 
+        fn all_envelopes(&self) -> Vec<TestEnvelope> {
+            self.available()
+                .into_iter()
+                .chain(self.missing.envelopes.clone())
+                .chain(self.returned())
+                .collect()
+        }
+
+        fn find_envelope(&self, cursor: &Cursor) -> Option<TestEnvelope> {
+            self.all_envelopes()
+                .into_iter()
+                .find(|e| e.cursor() == *cursor)
+        }
+
+        fn has_unavailable_in_dependency_chain(&self, env: &TestEnvelope) -> bool {
+            let unavailable = self.unavailable();
+
+            // Check immediate dependencies
+            if env.has_dependency_on_any(&unavailable) {
+                return true;
+            }
+
+            // Check transitive dependencies
+            let mut to_check = vec![env.depends_on()];
+            while let Some(deps) = to_check.pop() {
+                if deps.is_empty() {
+                    continue;
+                }
+
+                for cursor in deps.cursors() {
+                    if let Some(dep_env) = self.find_envelope(&cursor) {
+                        if dep_env.has_dependency_on_any(&unavailable) {
+                            return true;
+                        }
+                        if !dep_env.depends_on().is_empty() {
+                            to_check.push(dep_env.depends_on());
+                        }
+                    }
+                }
+            }
+            false
+        }
+
         // get only dependencies that can be validly depended on
         // (none of the dependencies dependants are unavailable)
         pub fn only_valid_dependants(&self) -> Vec<TestEnvelope> {
-            let mut valid = Vec::new();
-            let to_be_ordered = &self.missing.envelopes;
-            let unavailable = &self.unavailable();
-            let available = self.available();
-            let returned = &self.returned();
-
-            for env in to_be_ordered {
-                // ensure that the envelope does not depend on an unavailable
-                if env.has_dependency_on_any(&unavailable) {
-                    continue;
-                }
-                let mut abort = false;
-                let mut depends = vec![env.depends_on()];
-                let mut new_depends = vec![];
-                // we not only have to check that this dependencies deps aren't unavailable, but
-                // every dependency up the chain
-                while !depends.is_empty() && !abort {
-                    for dep in &depends {
-                        if dep.cursors().any(|d| {
-                            let e = available
-                                .iter()
-                                .chain(to_be_ordered)
-                                .chain(returned)
-                                .find(|available| d == available.cursor())
-                                .expect(&format!("unable to find dep {}, {:?}", d, available));
-                            if !e.has_dependency_on_any(&unavailable) && !e.depends_on().is_empty()
-                            {
-                                new_depends.push(e.depends_on());
-                                false
-                            } else {
-                                true
-                            }
-                        }) {
-                            abort = true;
-                            break;
-                        }
-                        if abort {
-                            break;
-                        }
-                    }
-                    std::mem::swap(&mut depends, &mut new_depends);
-                    new_depends.clear();
-                }
-                if abort {
-                    continue;
-                }
-                valid.push(env.clone());
-            }
-            valid
+            self.missing
+                .envelopes
+                .iter()
+                .filter(|env| !self.has_unavailable_in_dependency_chain(env))
+                .cloned()
+                .collect()
         }
     }
 
@@ -368,10 +366,11 @@ mod test {
                 missing,
                 resolver
             } = envelopes;
+            let store = InMemoryCursorStore::new();
             let mut ordered = Ordered::builder()
                 .envelopes(missing.envelopes)
                 .resolver(resolver)
-                .store(NoCursorStore)
+                .store(store.clone())
                 .topic_cursor(TopicCursor::default())
                 .build()
                 .unwrap();
@@ -385,7 +384,14 @@ mod test {
 
             // Verify all valid envelopes are seen by topic cursor
             for env in &valid {
-                assert_topic_cursor_seen(&mut topic_cursor, env)?;
+                assert_topic_cursor_seen(
+                    &topic_cursor,
+                    env,
+                    &format!("topic cursor {} must have seen {:?}\n\
+                        ordering_pass: \n{}\n\
+                        icebox: \n{}\n",
+                        topic_cursor, env, result.format_enumerated(),store.icebox().format_enumerated()
+                    ))?;
             }
 
             // Check that all envelopes in result have satisfied dependencies
