@@ -164,7 +164,7 @@ mod test {
     use futures::FutureExt;
     use parking_lot::Mutex;
     use proptest::{prelude::*, sample::subsequence};
-    use xmtp_common::assert_ok;
+    use xmtp_common::{assert_ok, DebugDisplay};
     use xmtp_proto::types::OriginatorId;
 
     // Simple mock resolver that holds available envelopes to resolve
@@ -211,6 +211,45 @@ mod test {
                 (!unresolved.is_empty()).then_some(unresolved),
             ))
         }
+    }
+
+    // Assertion helpers with #[track_caller] for better error reporting in proptests
+    #[track_caller]
+    fn assert_topic_cursor_seen(cursor: &mut TopicCursor, env: &TestEnvelope) -> Result<(), TestCaseError> {
+        let clock = cursor.get_or_default(&env.topic().unwrap());
+        prop_assert!(
+            clock.has_seen(&env.cursor()),
+            "topic cursor {:?} must have seen {}",
+            cursor,
+            env.cursor()
+        );
+        Ok(())
+    }
+
+    #[track_caller]
+    fn assert_dependencies_satisfied(env: &TestEnvelope, topic_cursor: &mut TopicCursor) -> Result<(), TestCaseError> {
+        let topic = env.topic().unwrap();
+        let clock = topic_cursor.get_or_default(&topic);
+        prop_assert!(
+            clock.dominates(&env.depends_on()),
+            "Envelope {} should have satisfied dependencies. Topic clock: {}",
+            env,
+            clock
+        );
+        Ok(())
+    }
+
+    #[track_caller]
+    fn assert_no_unavailable_deps(env: &TestEnvelope, unavailable: &[TestEnvelope]) -> Result<(), TestCaseError> {
+        for unavailable_env in unavailable {
+            prop_assert!(
+                !env.has_dependency_on(unavailable_env),
+                "Envelope should not depend on unavailable envelope. Envelope: {}, Unavailable: {}",
+                env,
+                unavailable_env
+            );
+        }
+        Ok(())
     }
 
     prop_compose! {
@@ -262,14 +301,14 @@ mod test {
         }
 
         // get only dependencies that can be validly depended on
-        // (none of the dependencies depednants are unavailable)
+        // (none of the dependencies dependants are unavailable)
         pub fn only_valid_dependants(&self) -> Vec<TestEnvelope> {
             let mut valid = Vec::new();
             let to_be_ordered = &self.missing.envelopes;
             let unavailable = &self.unavailable();
             let available = self.available();
             let returned = &self.returned();
-            // ensure topic clock properly reflects all envelopes
+
             for env in to_be_ordered {
                 // ensure that the envelope does not depend on an unavailable
                 if env.has_dependency_on_any(&unavailable) {
@@ -343,55 +382,28 @@ mod test {
 
             let (result, mut topic_cursor) = ordered.into_parts();
 
-            for env in valid {
-                let clock = topic_cursor.get_or_default(&env.topic().unwrap());
-                prop_assert!(clock.has_seen(&env.cursor()), "topic cursor {:?} must have seen {}", topic_cursor, env.cursor());
+            // Verify all valid envelopes are seen by topic cursor
+            for env in &valid {
+                assert_topic_cursor_seen(&mut topic_cursor, env)?;
             }
 
-            // Check that no envelope in the result depends on an unavailable removed envelope
+            // Check that all envelopes in result have satisfied dependencies
             for envelope in &result {
-                let depends_on = envelope.depends_on();
-                let topic = envelope.topic().unwrap();
-                let topic_clock = topic_cursor.get_or_default(&topic);
-                // If this envelope's dependencies are satisfied by the topic cursor,
-                // it should not depend on any unavailable envelopes
-                if topic_clock.dominates(&depends_on) {
-                    for unavailable_env in &unavailable {
-                        prop_assert!(
-                            !envelope.has_dependency_on(unavailable_env),
-                            "Envelope with satisfied dependencies should not depend on unavailable envelope. \
-                             Envelope: {}, Unavailable: {}",
-                            envelope,
-                            unavailable_env
-                        );
-                    }
-                } else {
-                    panic!("topic clock should always be complete at conclusion of ordering. {} does not dominate envelope {} depending on {}", topic_clock, envelope.cursor(), depends_on);
-                }
+                assert_dependencies_satisfied(envelope, &mut topic_cursor)?;
+                // Envelopes with satisfied dependencies shouldn't depend on unavailable ones
+                assert_no_unavailable_deps(envelope, &unavailable)?;
             }
             // Verify that envelopes which were made available are in the result
-            // (unless they themselves depend on unavailable envelopes)
+            // (unless they themselves depend on unavailable envelopes or aren't needed)
             for available_env in &available {
-                //
                 if available_env.has_dependency_on_any(&unavailable) { continue; }
-                // none of the envelopes have a dependency on this one, so resolver wont care
                 if result.iter().all(|e| !e.has_dependency_on(available_env)) { continue; }
+
                 prop_assert!(
                     result.iter().any(|e| e == available_env),
                     "Result does not contain {}", available_env
                 );
-                // If it's in the result, verify its dependencies are satisfied
-                let depends_on = available_env.depends_on();
-                let topic = available_env.topic().unwrap();
-                let topic_clock = topic_cursor.get_or_default(&topic);
-
-                prop_assert!(
-                    topic_clock.dominates(&depends_on),
-                    "Available envelope in result should have satisfied dependencies. \
-                     Envelope: {}, Topic clock: {}",
-                    available_env,
-                    topic_clock
-                );
+                assert_dependencies_satisfied(available_env, &mut topic_cursor)?;
             }
         }
 
@@ -481,34 +493,14 @@ mod test {
                     (had_children, returned)
                 };
                 let had_children = orphan_count > 0 && had_children;
-                let child_str = returned.iter().fold(String::new(), |mut s, r| {
-                    s.push_str(&format!("{:?}", r));
-                    s.push('\n');
-                    s
-                });
-                let icebox_str = store.icebox().iter().enumerate().fold(String::new(), |mut s, (i, r)| {
-                    s.push_str(&format!("{} -- {:?}", i, r));
-                    s.push('\n');
-                    s
-                });
-                let second_ordering_pass_str = second_ordering_pass.iter().enumerate().fold(String::new(), |mut s, (i, r)| {
-                    s.push_str(&format!("{} -- {:?}", i, r));
-                    s.push('\n');
-                    s
-                });
-                let first_ordering_pass_str = first_ordering_pass.iter().enumerate().fold(String::new(), |mut s, (i, r)| {
-                    s.push_str(&format!("{} -- {:?}", i, r));
-                    s.push('\n');
-                    s
-                });
+                let child_str = returned.format_list();
+                let icebox_str = store.icebox().format_enumerated();
+                let second_ordering_pass_str = second_ordering_pass.format_enumerated();
+                let first_ordering_pass_str = first_ordering_pass.format_enumerated();
                 let is_valid = valid_cursors.contains(&newly_available.cursor());
                 let valid_children = returned.iter().map(TestEnvelope::from).filter(|c| c.only_depends_on(&valid)).collect::<Vec<_>>();
                 let num_valid_children = valid_children.len();
-                let valid_children_str = valid_children.iter().enumerate().fold(String::new(), |mut s, (i, r)| {
-                    s.push_str(&format!("{} -- {:?}", i, r));
-                    s.push('\n');
-                    s
-                });
+                let valid_children_str = valid_children.format_enumerated();
                 if had_children && is_valid {
                     prop_assert_eq!(1 + num_valid_children, second_ordering_pass.len(),
                         "valid orphans should be in envelopes list\n\
@@ -540,17 +532,7 @@ mod test {
 
                 // Verify that all envelopes in the result have satisfied dependencies
                 for envelope in &second_ordering_pass {
-                    let depends_on = envelope.depends_on();
-                    let topic = envelope.topic().unwrap();
-                    let topic_clock = new_topic_cursor.get_or_default(&topic);
-
-                    prop_assert!(
-                        topic_clock.dominates(&depends_on),
-                        "Recovered envelope should have satisfied dependencies. \
-                         Envelope: {}, Topic clock: {}",
-                        envelope,
-                        topic_clock
-                    );
+                    assert_dependencies_satisfied(envelope, &mut new_topic_cursor)?;
                 }
             }
         }
