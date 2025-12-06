@@ -16,7 +16,7 @@ jobs:
           - licenses
           - sources
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       # Install Rust toolchain
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
