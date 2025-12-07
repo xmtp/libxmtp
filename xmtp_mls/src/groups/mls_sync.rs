@@ -359,7 +359,6 @@ where
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(fields(who = %self.context.inbox_id())))]
     #[cfg_attr(not(any(test, feature = "test-utils")), tracing::instrument(skip_all))]
     pub async fn sync_with_conn(&self) -> Result<SyncSummary, SyncSummary> {
-        let _mutex = self.mutex.lock().await;
         let mut summary = SyncSummary::default();
 
         if !self.is_active().map_err(SyncSummary::other)? {

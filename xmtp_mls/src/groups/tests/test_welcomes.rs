@@ -154,7 +154,6 @@ async fn test_spoofed_inbox_id() {
         sync_api_client: alix.context.sync_api_client.clone(),
         store: alix.context.store.clone(),
         mls_storage: alix.context.mls_storage.clone(),
-        mutexes: alix.context.mutexes.clone(),
         mls_commit_lock: alix.context.mls_commit_lock.clone(),
         version_info: alix.context.version_info.clone(),
         local_events: alix.context.local_events.clone(),

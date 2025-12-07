@@ -62,7 +62,6 @@ use prost::Message;
 use std::collections::HashMap;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
-use tokio::sync::Mutex;
 use xmtp_common::time::now_ns;
 use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
@@ -131,7 +130,6 @@ pub struct MlsGroup<Context> {
     pub created_at_ns: i64,
     pub context: Context,
     mls_commit_lock: Arc<GroupCommitLock>,
-    mutex: Arc<Mutex<()>>,
 }
 
 impl<C> std::hash::Hash for MlsGroup<C> {
@@ -182,7 +180,6 @@ impl<Context: XmtpSharedContext> Clone for MlsGroup<Context> {
             conversation_type: self.conversation_type,
             created_at_ns: self.created_at_ns,
             context: self.context.clone(),
-            mutex: self.mutex.clone(),
             mls_commit_lock: self.mls_commit_lock.clone(),
         }
     }
@@ -268,7 +265,6 @@ impl<Context: Clone> From<MlsGroup<&Context>> for MlsGroup<Context> {
             dm_id: group.dm_id,
             created_at_ns: group.created_at_ns,
             mls_commit_lock: group.mls_commit_lock,
-            mutex: group.mutex,
             conversation_type: group.conversation_type,
         }
     }
@@ -334,13 +330,11 @@ where
         conversation_type: ConversationType,
         created_at_ns: i64,
     ) -> Self {
-        let mut mutexes = context.mutexes().clone();
         Self {
             group_id: group_id.clone(),
             dm_id,
             conversation_type,
             created_at_ns,
-            mutex: mutexes.get_mutex(group_id),
             context: context.clone(),
             mls_commit_lock: Arc::clone(context.mls_commit_lock()),
         }

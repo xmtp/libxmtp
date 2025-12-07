@@ -21,7 +21,6 @@ pub fn context() -> NewMockContext {
         identity: Identity::mock_identity(),
         api_client: ApiClientWrapper::new(MockApiClient::new(), Default::default()),
         store: xmtp_db::MockXmtpDb::new(),
-        mutexes: MutexRegistry::new(),
         mls_commit_lock: Default::default(),
         version_info: VersionInfo::default(),
         local_events,

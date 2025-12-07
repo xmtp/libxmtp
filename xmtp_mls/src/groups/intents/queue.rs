@@ -216,7 +216,6 @@ impl QueueIntent {
 #[cfg(test)]
 mod tests {
     use std::{iter, sync::Arc};
-    use tokio::sync::Mutex;
     use xmtp_db::group::{GroupMembershipState, StoredGroup};
 
     use crate::test::mock::{NewMockContext, context};
@@ -243,7 +242,6 @@ mod tests {
             created_at_ns: 1,
             context,
             mls_commit_lock: Arc::new(Default::default()),
-            mutex: Arc::new(Mutex::new(())),
             conversation_type: xmtp_db::group::ConversationType::Dm,
         }
     }
