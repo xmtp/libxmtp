@@ -98,7 +98,7 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_rollback_and_run_pending_migrations() {
-        tester!(alix);
+        tester!(alix, persistent_db);
         tester!(bo);
 
         let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
