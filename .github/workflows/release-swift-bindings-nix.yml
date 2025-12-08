@@ -15,7 +15,7 @@ jobs:
           - aarch64-apple-darwin
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Install Nix
         uses: cachix/install-nix-action@v31
         with:
@@ -42,7 +42,7 @@ jobs:
     runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - uses: DeterminateSystems/magic-nix-cache-action@v13
       - name: Cache
         uses: Swatinem/rust-cache@v2
@@ -70,7 +70,7 @@ jobs:
     runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Download artifacts
         uses: actions/download-artifact@v6
         with:
