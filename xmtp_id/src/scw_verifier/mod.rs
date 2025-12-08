@@ -178,7 +178,7 @@ impl MultiSmartContractSignatureVerifier {
     /// Upgrade the default urls to paid/private/alternative urls if the env vars are present.
     pub fn upgrade(mut self) -> Result<Self, VerifierError> {
         for (id, verifier) in self.verifiers.iter_mut() {
-            // TODO: coda - update the chain id env var ids to preceeded with "EIP155_"
+            // TODO: coda - update the chain id env var ids to preceded with "EIP155_"
             let eip_id = id.split(":").nth(1).ok_or(VerifierError::MalformedEipUrl)?;
             if let Ok(url) = std::env::var(format!("CHAIN_RPC_{eip_id}")) {
                 *verifier = Box::new(RpcSmartContractWalletVerifier::new(url)?);

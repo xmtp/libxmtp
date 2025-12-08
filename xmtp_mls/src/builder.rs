@@ -10,12 +10,11 @@ use crate::{
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
-    track,
-    utils::{VersionInfo, events::EventWorker},
+    utils::VersionInfo,
     worker::WorkerRunner,
 };
 use futures::FutureExt;
-use std::sync::{Arc, atomic::Ordering};
+use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::debug;
@@ -27,11 +26,7 @@ use xmtp_api_d14n::{
 use xmtp_common::Retry;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::XmtpMlsStorageProvider;
-use xmtp_db::{
-    XmtpDb,
-    events::{EVENTS_ENABLED, Events},
-    sql_key_store::SqlKeyStore,
-};
+use xmtp_db::{XmtpDb, sql_key_store::SqlKeyStore};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
@@ -81,7 +76,6 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) fork_recovery_opts: Option<ForkRecoveryOpts>,
     pub(crate) version_info: VersionInfo,
     pub(crate) allow_offline: bool,
-    pub(crate) disable_events: bool,
     pub(crate) disable_commit_log_worker: bool,
     pub(crate) mls_storage: Option<S>,
     pub(crate) sync_api_client: Option<ApiClient>,
@@ -142,10 +136,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             fork_recovery_opts: None,
             version_info: VersionInfo::default(),
             allow_offline: false,
-            #[cfg(not(test))]
-            disable_events: false,
-            #[cfg(test)]
-            disable_events: true,
             disable_commit_log_worker: false,
             mls_storage: None,
             sync_api_client: None,
@@ -178,10 +168,6 @@ where
             fork_recovery_opts: Some(client.context.fork_recovery_opts.clone()),
             version_info: client.context.version_info.clone(),
             allow_offline: false,
-            #[cfg(test)]
-            disable_events: true,
-            #[cfg(not(test))]
-            disable_events: false,
             disable_commit_log_worker: false,
             mls_storage: Some(client.context.mls_storage.clone()),
             sync_api_client: Some(cloned_sync_api),
@@ -226,7 +212,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             fork_recovery_opts,
             version_info,
             allow_offline,
-            disable_events,
             disable_commit_log_worker,
             mut mls_storage,
             mut sync_api_client,
@@ -292,7 +277,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         let (local_events, _) = broadcast::channel(32);
         let (worker_tx, _) = broadcast::channel(32);
-        let (events, _) = broadcast::channel(32);
         let mut workers = WorkerRunner::new();
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
@@ -305,7 +289,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mls_commit_lock: Arc::new(GroupCommitLock::new()),
             local_events: local_events.clone(),
             worker_events: worker_tx.clone(),
-            events,
             device_sync: DeviceSync {
                 server_url: device_sync_server_url,
                 mode: device_sync_worker_mode,
@@ -321,12 +304,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         if !disable_workers {
             if context.device_sync_worker_enabled() {
                 workers.register_new_worker::<SyncWorker<ContextParts<ApiClient, S, Db>>, _>(
-                    context.clone(),
-                );
-            }
-            if !disable_events {
-                EVENTS_ENABLED.store(true, Ordering::SeqCst);
-                workers.register_new_worker::<EventWorker<ContextParts<ApiClient, S, Db>>, _>(
                     context.clone(),
                 );
             }
@@ -367,12 +344,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             workers,
         };
 
-        // Clear old events
-        if let Err(err) = Events::clear_old_events(&client.db()) {
-            tracing::warn!("ClientEvents clear old events: {err:?}");
-        }
-        track!(&client.context, "Client Build");
-
         Ok(client)
     }
 
@@ -395,7 +366,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
-            disable_events: self.disable_events,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
@@ -424,7 +394,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
-            disable_events: self.disable_events,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: Some(SqlKeyStore::new(
                 self.store
@@ -453,7 +422,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
-            disable_events: self.disable_events,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: Some(mls_storage),
             sync_api_client: self.sync_api_client,
@@ -517,7 +485,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
-            disable_events: self.disable_events,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
             sync_api_client: Some(sync_api_client),
@@ -560,39 +527,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     ) -> ClientBuilder<ApiClient, S, Db> {
         Self {
             allow_offline: allow_offline.unwrap_or(false),
-            ..self
-        }
-    }
-
-    #[cfg(not(test))]
-    pub fn with_disable_events(
-        self,
-        disable_events: Option<bool>,
-    ) -> ClientBuilder<ApiClient, S, Db> {
-        Self {
-            disable_events: disable_events.unwrap_or(false),
-            ..self
-        }
-    }
-
-    #[cfg(all(test, not(target_arch = "wasm32")))]
-    pub fn with_disable_events(
-        self,
-        disable_events: Option<bool>,
-    ) -> ClientBuilder<ApiClient, S, Db> {
-        Self {
-            disable_events: disable_events.unwrap_or(true),
-            ..self
-        }
-    }
-
-    #[cfg(all(test, target_arch = "wasm32"))]
-    pub fn with_disable_events(
-        self,
-        _disable_events: Option<bool>,
-    ) -> ClientBuilder<ApiClient, S, Db> {
-        Self {
-            disable_events: true,
             ..self
         }
     }
@@ -644,7 +578,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
-            disable_events: self.disable_events,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
             sync_api_client: Some(ApiDebugWrapper::new(
@@ -678,7 +611,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
-            disable_events: self.disable_events,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
             sync_api_client: Some(TrackedStatsClient::new(
@@ -705,7 +637,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
-            disable_events: self.disable_events,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
@@ -739,7 +670,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
-            disable_events: self.disable_events,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
