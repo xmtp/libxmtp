@@ -185,7 +185,7 @@ async fn test_dm_stream_all_messages() {
         .await
         .unwrap();
     // TODO:d14n
-    // this discrepency is because of the LCC (we get duplicates)
+    // this discrepancy is because of the LCC (we get duplicates)
     // not sure if theres an easy fix
     // https://github.com/xmtp/libxmtp/issues/2613
     if cfg!(feature = "d14n") {
