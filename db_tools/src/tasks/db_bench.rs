@@ -505,8 +505,11 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_bench_works() {
-        tester!(alix);
+        tester!(alix, persistent_db);
+        tester!(bo);
 
+        alix.test_talk_in_dm_with(&bo).await?;
+        alix.test_talk_in_new_group_with(&bo).await?;
         let mut bencher = DbBencher::new(alix.context.store().clone())?;
         let result = bencher.bench()?;
         assert!(result.iter().all(|r| r.is_ok()));
