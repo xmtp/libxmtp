@@ -139,9 +139,6 @@ where
             self.recover_lost_children()?;
             // self.timestamp_sort()?;
         }
-        // self.store.ice(orphans)?;
-        //missing = new_missing.into_iter().map(|(_, m)| m).collect::<Vec<_>>();
-
         Ok(())
     }
 }

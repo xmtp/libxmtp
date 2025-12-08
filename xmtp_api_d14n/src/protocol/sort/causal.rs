@@ -8,11 +8,24 @@ pub struct CausalSort<'a, E> {
     topic_cursor: &'a mut TopicCursor,
 }
 
+impl<'a, E: Envelope<'a>> CausalSort<'a, E> {
+    // check if any of the dependencies of envelopes in `other` are
+    // satisfied by envelopes in `self.envelopes`.
+    // this lets us resolve dependencies internally
+    // for deeply-nested sets of dependencies.
+    fn valid_exist(&self, other: &[E]) -> bool {
+        todo!()
+    }
+}
+
 impl<'b, 'a: 'b, E: Envelope<'a>> Sort<Vec<E>> for CausalSort<'b, E> {
     fn sort(self) -> Result<Option<Vec<E>>, EnvelopeError> {
         let mut i = 0;
         // cant use `Vec::extract_if` b/c we are returning results
         let mut missing = Vec::new();
+        // keep track of missing envelopes we've seen, so we can potentially re-apply
+        // an envelope, if a past envelope in the array depends on a future envelope.
+        let mut missing_cursor = self.topic_cursor.clone();
         while i < self.envelopes.len() {
             let env = &mut self.envelopes[i];
             let topic = env.topic()?;
@@ -20,9 +33,11 @@ impl<'b, 'a: 'b, E: Envelope<'a>> Sort<Vec<E>> for CausalSort<'b, E> {
             let vector_clock = self.topic_cursor.get_or_default(&topic);
             if vector_clock.dominates(&last_seen) {
                 self.topic_cursor.apply(env)?;
+                missing_cursor.apply(env)?;
                 i += 1;
             } else {
-                missing.push(self.envelopes.remove(i));
+                let missing_envelope = self.envelopes.remove(i);
+                missing.push(missing_envelope);
             }
         }
         Ok((!missing.is_empty()).then_some(missing))
@@ -124,6 +139,7 @@ mod tests {
         #[xmtp_common::test]
         #[should_panic]
         fn does_not_reapply_within_array(mut envelopes in sorted_dependencies(10, vec![10, 20, 30, 40]).prop_shuffle()) {
+
             let mut topic_cursor = TopicCursor::default();
             let mut missing = vec![];
             if let Some(m) = sort::causal(&mut envelopes, &mut topic_cursor).sort()? {

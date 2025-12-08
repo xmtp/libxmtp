@@ -10,9 +10,19 @@ use crate::xmtp::xmtpv4;
 /// XMTP cursor type
 /// represents a position in an ordered sequence of messages, belonging
 // force use of the `new` constructor w/ non_exhaustive
-// so we retain some control of the internal structure/use of this type
-// and disallow ad-hoc construction
-// while still allowing access to fields with `.field` notation
+/// so we retain some control of the internal structure/use of this type
+/// and disallow ad-hoc construction
+/// while still allowing access to fields with `.field` notation
+///
+/// _NOTE_ the `Ordering` implementation does not have the of a vector clock.
+/// for instance, an ordering for (sid:oid) pairs (10:0).cmp(11:10)
+/// will return "Less Than". This does not indicate a relationship for a [`VectorClock`],
+/// rather indicates a relationship between the rust primitives on the type.
+/// for `VectorClock` ordering relationships, use the [`VectorClock`](crate::traits::VectorClock) trait
+/// on a vector clock compatible type.
+/// The ordering on this type may be used for efficient lookups in
+/// a [`BTreeMap`](std::collections::BTreeMap) or [`Vec`] separate from VectorClocks.
+/// for instance [`CursorList`](super::CursorList) keeps a sorted list of cursors
 #[non_exhaustive]
 #[derive(
     Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
