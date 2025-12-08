@@ -186,7 +186,6 @@ pub async fn create_client(
   device_sync_worker_mode: Option<DeviceSyncWorkerMode>,
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
-  disable_events: Option<bool>,
   app_version: Option<String>,
   gateway_host: Option<String>,
   nonce: Option<u64>,
@@ -256,7 +255,6 @@ pub async fn create_client(
     .enable_api_debug_wrapper()?
     .with_remote_verifier()?
     .with_allow_offline(allow_offline)
-    .with_disable_events(disable_events)
     .store(store);
 
   if let Some(u) = device_sync_server_url {

@@ -112,7 +112,6 @@ export const createToxicClient = async (user: User) => {
     undefined,
     SyncWorkerMode.disabled,
     { level: LogLevel.debug },
-    undefined,
     true
   )
 }
