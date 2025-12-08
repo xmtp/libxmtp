@@ -24,8 +24,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::{
-    attachment, group_updated, leave_request, membership_change, reaction, read_receipt,
-    remote_attachment, reply, text, transaction_reference, wallet_send_calls,
+    attachment, delete_message, group_updated, leave_request, membership_change, reaction,
+    read_receipt, remote_attachment, reply, text, transaction_reference, wallet_send_calls,
 };
 use xmtp_proto::types::Cursor;
 
@@ -184,6 +184,23 @@ where
     }
 }
 
+/// Trait for determining if a message can be deleted by users.
+pub trait Deletable {
+    /// Returns whether this message can be deleted by users.
+    fn is_deletable(&self) -> bool;
+}
+
+impl Deletable for GroupMessageKind {
+    fn is_deletable(&self) -> bool {
+        match self {
+            // Application messages are deletable
+            GroupMessageKind::Application => true,
+            // Membership changes are transcript messages - not deletable
+            GroupMessageKind::MembershipChange => false,
+        }
+    }
+}
+
 //Legacy content types found at https://github.com/xmtp/xmtp-js/tree/main/content-types
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, FromSqlRow, AsExpression)]
@@ -201,6 +218,7 @@ pub enum ContentType {
     TransactionReference = 9,
     WalletSendCalls = 10,
     LeaveRequest = 11,
+    DeleteMessage = 12,
 }
 
 impl ContentType {
@@ -218,7 +236,29 @@ impl ContentType {
             ContentType::TransactionReference,
             ContentType::WalletSendCalls,
             ContentType::LeaveRequest,
+            ContentType::DeleteMessage,
         ]
+    }
+}
+
+impl Deletable for ContentType {
+    fn is_deletable(&self) -> bool {
+        match self {
+            ContentType::GroupMembershipChange
+            | ContentType::GroupUpdated
+            | ContentType::LeaveRequest
+            | ContentType::Reaction
+            | ContentType::ReadReceipt
+            | ContentType::DeleteMessage => false,
+
+            ContentType::Text
+            | ContentType::Reply
+            | ContentType::Attachment
+            | ContentType::RemoteAttachment
+            | ContentType::TransactionReference
+            | ContentType::WalletSendCalls
+            | ContentType::Unknown => true,
+        }
     }
 }
 
@@ -237,6 +277,7 @@ impl std::fmt::Display for ContentType {
             Self::TransactionReference => transaction_reference::TransactionReferenceCodec::TYPE_ID,
             Self::WalletSendCalls => wallet_send_calls::WalletSendCallsCodec::TYPE_ID,
             Self::LeaveRequest => leave_request::LeaveRequestCodec::TYPE_ID,
+            Self::DeleteMessage => delete_message::DeleteMessageCodec::TYPE_ID,
         };
 
         write!(f, "{}", as_string)
@@ -257,6 +298,7 @@ impl From<String> for ContentType {
             transaction_reference::TransactionReferenceCodec::TYPE_ID => Self::TransactionReference,
             wallet_send_calls::WalletSendCallsCodec::TYPE_ID => Self::WalletSendCalls,
             leave_request::LeaveRequestCodec::TYPE_ID => Self::LeaveRequest,
+            delete_message::DeleteMessageCodec::TYPE_ID => Self::DeleteMessage,
             _ => Self::Unknown,
         }
     }
@@ -290,6 +332,7 @@ where
             9 => Ok(ContentType::TransactionReference),
             10 => Ok(ContentType::WalletSendCalls),
             11 => Ok(ContentType::LeaveRequest),
+            12 => Ok(ContentType::DeleteMessage),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

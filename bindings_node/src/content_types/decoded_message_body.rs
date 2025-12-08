@@ -29,6 +29,8 @@ pub struct DecodedMessageBody {
   pub wallet_send_calls_content: Option<WalletSendCalls>,
   pub intent_content: Option<Intent>,
   pub actions_content: Option<Actions>,
+  pub delete_message_content: Option<bool>,
+  pub deleted_message_content: Option<bool>,
   pub custom_content: Option<EncodedContent>,
 }
 
@@ -46,6 +48,8 @@ impl From<MessageBody> for DecodedMessageBody {
       wallet_send_calls_content: None,
       intent_content: None,
       actions_content: None,
+      delete_message_content: None,
+      deleted_message_content: None,
       custom_content: None,
     };
 
@@ -84,6 +88,8 @@ impl From<MessageBody> for DecodedMessageBody {
           None => None,
         };
       }
+      MessageBody::DeleteMessage(_) => result.delete_message_content = Some(true),
+      MessageBody::DeletedMessage { .. } => result.deleted_message_content = Some(true),
       MessageBody::Custom(c) => result.custom_content = Some(c.into()),
       MessageBody::Reply(_) => {
         // This should not happen as we are converting from a reply's content

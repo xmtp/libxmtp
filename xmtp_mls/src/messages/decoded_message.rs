@@ -2,6 +2,7 @@ use crate::groups::GroupError;
 use crate::messages::enrichment::EnrichMessageError;
 use prost::Message;
 use xmtp_content_types::actions::{Actions, ActionsCodec};
+use xmtp_content_types::delete_message::DeleteMessageCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_content_types::intent::{Intent, IntentCodec};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
@@ -21,6 +22,7 @@ use xmtp_content_types::{
 };
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
+use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent, GroupUpdated,
     content_types::{MultiRemoteAttachment, ReactionV2},
@@ -41,6 +43,14 @@ pub struct Text {
     pub content: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeletedBy {
+    /// Deleted by the original sender
+    Sender,
+    /// Deleted by a super admin
+    Admin(String), // inbox_id of the admin who deleted the message
+}
+
 #[derive(Debug, Clone)]
 pub enum MessageBody {
     Text(Text),
@@ -55,6 +65,12 @@ pub enum MessageBody {
     WalletSendCalls(WalletSendCalls),
     Intent(Option<Intent>),
     Actions(Option<Actions>),
+    /// The actual DeleteMessage content type (not shown in message lists)
+    DeleteMessage(DeleteMessage),
+    /// Placeholder for a message that has been deleted (shown in message lists)
+    DeletedMessage {
+        deleted_by: DeletedBy,
+    },
     Custom(EncodedContent),
 }
 
@@ -159,6 +175,10 @@ impl TryFrom<EncodedContent> for MessageBody {
             (ActionsCodec::TYPE_ID, ActionsCodec::MAJOR_VERSION) => {
                 let actions = ActionsCodec::decode(value)?;
                 Ok(MessageBody::Actions(Some(actions)))
+            }
+            (DeleteMessageCodec::TYPE_ID, DeleteMessageCodec::MAJOR_VERSION) => {
+                let delete_message = DeleteMessageCodec::decode(value)?;
+                Ok(MessageBody::DeleteMessage(delete_message))
             }
 
             _ => Err(CodecError::CodecNotFound(content_type.clone()).into()),
