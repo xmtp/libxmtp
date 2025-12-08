@@ -1,17 +1,6 @@
 pub use super::schema_gen::*;
 
 diesel::table! {
-    events (created_at_ns) {
-        created_at_ns -> BigInt,
-        group_id -> Nullable<Binary>,
-        event -> Text,
-        details -> Jsonb,
-        level -> Integer,
-        icon -> Nullable<Text>
-    }
-}
-
-diesel::table! {
   conversation_list (id) {
     id -> Binary,
     created_at_ns -> BigInt,

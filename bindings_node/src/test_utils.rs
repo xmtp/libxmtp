@@ -27,7 +27,6 @@ pub async fn create_local_toxic_client(
   device_sync_worker_mode: Option<SyncWorkerMode>,
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
-  disable_events: Option<bool>,
 ) -> Result<TestClient, napi::Error> {
   let api_addr = GrpcUrlsToxic::NODE.to_string();
   let proxy = ToxicNodeGoClient::proxies().await;
@@ -44,7 +43,6 @@ pub async fn create_local_toxic_client(
     device_sync_worker_mode,
     log_options,
     allow_offline,
-    disable_events,
     None,
     None,
     None,

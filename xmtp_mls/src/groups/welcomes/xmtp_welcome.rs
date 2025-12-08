@@ -15,7 +15,6 @@ use crate::{
     },
     intents::ProcessIntentError,
     subscriptions::SyncWorkerEvent,
-    track,
 };
 use derive_builder::Builder;
 use openmls::group::MlsGroup as OpenMlsGroup;
@@ -466,15 +465,6 @@ where
         let stored_group = db.insert_or_replace_group(to_store)?;
 
         StoredConsentRecord::stitch_dm_consent(&db, &stored_group)?;
-        track!(
-            &self.context,
-            "Group Welcome",
-            {
-                "conversation_type": stored_group.conversation_type,
-                "added_by_inbox_id": &stored_group.added_by_inbox_id
-            },
-            group: &stored_group.id
-        );
 
         // Create a GroupUpdated payload
         let current_inbox_id = context.inbox_id().to_string();
