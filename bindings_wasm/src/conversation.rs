@@ -10,6 +10,7 @@ use crate::streams::{StreamCallback, StreamCloser};
 use crate::{
   consent_state::ConsentState, enriched_message::DecodedMessage, permissions::GroupPermissions,
 };
+use js_sys::Uint8Array;
 use std::collections::HashMap;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
@@ -656,6 +657,20 @@ impl Conversation {
     )
   }
 
+  #[wasm_bindgen(js_name = processStreamedGroupMessage)]
+  pub async fn process_streamed_group_message(
+    &self,
+    envelope_bytes: Uint8Array,
+  ) -> Result<Message, JsError> {
+    let group = self.to_mls_group();
+    let message = group
+      .process_streamed_group_message(envelope_bytes.to_vec())
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(message.into())
+  }
+
   #[wasm_bindgen(js_name = updatePermissionPolicy)]
   pub async fn update_permission_policy(
     &self,
@@ -788,8 +803,8 @@ impl Conversation {
     Ok(conversations)
   }
 
-  #[wasm_bindgen(js_name = findMessagesV2)]
-  pub async fn enriched_messages(
+  #[wasm_bindgen(js_name = findEnrichedMessages)]
+  pub async fn find_enriched_messages(
     &self,
     opts: Option<ListMessagesOptions>,
   ) -> Result<Vec<DecodedMessage>, JsError> {
@@ -813,6 +828,16 @@ impl Conversation {
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
     Ok(crate::to_value(&times)?)
+  }
+
+  #[wasm_bindgen(js_name = leaveGroup)]
+  pub async fn leave_group(&self) -> Result<(), JsError> {
+    let group = self.to_mls_group();
+    group
+      .leave_group()
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    Ok(())
   }
 }
 

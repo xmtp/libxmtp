@@ -76,13 +76,13 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
         //  https://www.sqlite.org/rescode.html#busy
         // 2.) Promoting a transaction to write:
         // we start a transaction with BEGIN (read), then later promote the transaction to a write.
-        // another tranaction is already writing, so SQLite throws Database Locked.
+        // another transaction is already writing, so SQLite throws Database Locked.
         // code: https://www.sqlite.org/rescode.html#busy_snapshot
         // Solution:
         // - set BUSY_TIMEOUT. this is effectively a timeout for SQLite to get a lock on the
-        //      write to a table. See [BUSY_TIMOUT](xmtp_db::configuration::BUSY_TIMEOUT)
+        //      write to a table. See [BUSY_TIMEOUT](xmtp_db::configuration::BUSY_TIMEOUT)
         // - use immediate_transaction to force SQLite to respect busy_timeout as soon as the
-        //      tranaction starts. Otherwise, we still run into problem #2, even if BUSY_TIMEOUT is
+        //      transaction starts. Otherwise, we still run into problem #2, even if BUSY_TIMEOUT is
         //      set.
 
         conn.raw_query_write(|c| Ok(c.immediate_transaction(|sqlite_c| f(sqlite_c))))?
@@ -153,7 +153,7 @@ mod tests {
 
     // Test to ensure that we can use the transaction() callback without requiring a 'static
     // lifetimes
-    // This ensures we do not propogate 'static throughout all of our code.
+    // This ensures we do not propagate 'static throughout all of our code.
     // have not figured out a good, ergonomic way to pass SqlKeyStore directly into the
     // transaction callback
     struct Foo<C> {

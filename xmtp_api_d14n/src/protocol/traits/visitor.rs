@@ -35,7 +35,7 @@ use super::EnvelopeError;
 /// via the [`ProtocolEnvelope::accept`](super::ProtocolEnvelope::accept) method. The implementation of
 /// ProtocolEnvelope
 /// defines how the protobuf data structure is traversed. it is the responsibility of
-/// ProtocolEnvelope to call all relevent visitor methods defined on this trait.
+/// ProtocolEnvelope to call all relevant visitor methods defined on this trait.
 /// if a visitor is not called, it must not be present in the given input data of
 /// a ProtocolEnvelope
 ///
@@ -55,7 +55,7 @@ use super::EnvelopeError;
 /// # use xmtp_proto::mls_v1;
 /// # use xmtp_api_d14n::protocol::extractors::V3GroupMessageExtractor;
 /// # use xmtp_api_d14n::protocol::{ProtocolEnvelope, Extractor};
-/// // [`mls_v1::GroupMessage`] has a [`ProtocolEnvelope`] implemention.
+/// // [`mls_v1::GroupMessage`] has a [`ProtocolEnvelope`] implementation.
 /// fn get_group_message(response: mls_v1::GroupMessage) -> xmtp_proto::types::GroupMessage {
 ///     // our Extractor which has an implementation of [`EnvelopeVisitor`]
 ///     let mut visitor = V3GroupMessageExtractor::default();

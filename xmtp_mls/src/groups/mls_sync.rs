@@ -262,6 +262,7 @@ pub(crate) struct PublishIntentData {
     post_commit_action: Option<Vec<u8>>,
     payload_to_publish: Vec<u8>,
     should_send_push_notification: bool,
+    group_epoch: u64,
 }
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -578,9 +579,10 @@ where
             | IntentKind::ReaddInstallations => {
                 if let Some(published_in_epoch) = intent.published_in_epoch {
                     let group_epoch = group_epoch.as_u64() as i64;
+                    let message_epoch = message_epoch.as_u64() as i64;
 
                     // TODO(rich): Merge into validate_message_epoch()
-                    if published_in_epoch != group_epoch {
+                    if message_epoch != group_epoch {
                         tracing::warn!(
                             inbox_id = self.context.inbox_id(),
                             installation_id = %self.context.installation_id(),
@@ -588,18 +590,19 @@ where
                             cursor = %cursor,
                             intent.id,
                             intent.kind = %intent.kind,
-                            "Intent for msg = [{cursor}] was published in epoch {} but group is currently in epoch {}",
+                            "Intent for msg = [{cursor}] was published in epoch {} with local save intent epoch of {} but group is currently in epoch {}",
+                            message_epoch,
                             published_in_epoch,
                             group_epoch
                         );
-                        let processing_error = if published_in_epoch < group_epoch {
+                        let processing_error = if message_epoch < group_epoch {
                             GroupMessageProcessingError::OldEpoch(
-                                published_in_epoch as u64,
+                                message_epoch as u64,
                                 group_epoch as u64,
                             )
                         } else {
                             GroupMessageProcessingError::FutureEpoch(
-                                published_in_epoch as u64,
+                                message_epoch as u64,
                                 group_epoch as u64,
                             )
                         };
@@ -976,7 +979,7 @@ where
                 current_cursor.sequence_id < envelope.cursor.sequence_id
             };
             if !requires_processing {
-                // early return if the message is already procesed
+                // early return if the message is already processed
                 // _NOTE_: Not early returning and re-processing a message that
                 // has already been processed, has the potential to result in forks.
                 tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
@@ -1018,7 +1021,7 @@ where
     }
 
     /// Process an external message
-    /// returns a MessageIdentifier, identifiying the message processed if any.
+    /// returns a MessageIdentifier, identifying the message processed if any.
     #[tracing::instrument(level = "trace", skip_all)]
     fn process_external_message(
         &self,
@@ -1507,7 +1510,7 @@ where
                     envelope.cursor,
                     last_cursor
                 );
-                // early return if the message is already procesed
+                // early return if the message is already processed
                 // _NOTE_: Not early returning and re-processing a message that
                 // has already been processed, has the potential to result in forks.
                 return MessageIdentifierBuilder::from(envelope).build();
@@ -1627,7 +1630,7 @@ where
                             envelope.created_ns
                         );
 
-                        // early return if the message is already procesed
+                        // early return if the message is already processed
                         // _NOTE_: Not early returning and re-processing a message that
                         // has already been processed, has the potential to result in forks.
                         // In some cases, we may want to roll back the cursor if we updated the
@@ -1904,8 +1907,8 @@ where
 
     /// Receive messages from the last cursor network and try to process each message
     /// Return all the cursors of the messages we tried to process regardless
-    /// if they were succesfull or not. It is important to return _all_
-    /// cursor ids, so that streams do not unintentially retry O(n^2) messages.
+    /// if they were successful or not. It is important to return _all_
+    /// cursor ids, so that streams do not unintentionally retry O(n^2) messages.
     #[tracing::instrument(skip_all, level = "trace")]
     pub async fn receive(&self) -> Result<ProcessSummary, GroupError> {
         let messages = MlsStore::new(self.context.clone())
@@ -2115,7 +2118,8 @@ where
                                 payload_to_publish,
                                 post_commit_action,
                                 staged_commit,
-                                should_send_push_notification
+                                should_send_push_notification,
+                                group_epoch
                             })) => {
                         let payload_slice = payload_to_publish.as_slice();
                         let has_staged_commit = staged_commit.is_some();
@@ -2129,7 +2133,7 @@ where
                                 &intent_hash,
                                 post_commit_action,
                                 staged_commit,
-                                mls_group.epoch().as_u64() as i64,
+                                group_epoch as i64,
                             )
                         })?;
                         tracing::debug!(
@@ -2209,6 +2213,7 @@ where
                 // We can safely assume all SendMessage intents have data
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
                 // TODO: Handle pending_proposal errors and UseAfterEviction errors
+                let group_epoch = openmls_group.epoch().as_u64();
                 let msg = openmls_group.create_message(
                     &self.context.mls_provider(),
                     &self.context.identity().installation_keys,
@@ -2220,11 +2225,12 @@ where
                     post_commit_action: None,
                     staged_commit: None,
                     should_send_push_notification: intent.should_push,
+                    group_epoch,
                 }))
             }
             IntentKind::KeyUpdate => {
                 let keys = self.context.identity().installation_keys.clone();
-                let (bundle, staged_commit) =
+                let (bundle, staged_commit, group_epoch) =
                     generate_commit_with_rollback(storage, openmls_group, |group, provider| {
                         group.self_update(provider, &keys, LeafNodeParameters::default())
                     })?;
@@ -2233,6 +2239,7 @@ where
                     staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
+                    group_epoch,
                 }))
             }
             IntentKind::MetadataUpdate => {
@@ -2244,7 +2251,7 @@ where
                 )?;
 
                 let keys = self.context.identity().installation_keys.clone();
-                let ((commit, _, _), staged_commit) =
+                let ((commit, _, _), staged_commit, group_epoch) =
                     generate_commit_with_rollback(storage, openmls_group, |group, provider| {
                         group.update_group_context_extensions(
                             provider,
@@ -2260,6 +2267,7 @@ where
                     staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
+                    group_epoch,
                 }))
             }
             IntentKind::UpdateAdminList => {
@@ -2271,7 +2279,7 @@ where
                 )?;
 
                 let keys = self.context.identity().installation_keys.clone();
-                let ((commit, _, _), staged_commit) =
+                let ((commit, _, _), staged_commit, group_epoch) =
                     generate_commit_with_rollback(storage, openmls_group, |group, provider| {
                         group.update_group_context_extensions(
                             provider,
@@ -2287,6 +2295,7 @@ where
                     staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
+                    group_epoch,
                 }))
             }
             IntentKind::UpdatePermission => {
@@ -2298,7 +2307,7 @@ where
                 )?;
 
                 let keys = self.context.identity().installation_keys.clone();
-                let ((commit, _, _), staged_commit) =
+                let ((commit, _, _), staged_commit, group_epoch) =
                     generate_commit_with_rollback(storage, openmls_group, |group, provider| {
                         group.update_group_context_extensions(
                             provider,
@@ -2313,6 +2322,7 @@ where
                     staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
+                    group_epoch,
                 }))
             }
             IntentKind::ReaddInstallations => {
@@ -2928,16 +2938,19 @@ fn get_removed_leaf_nodes(
 /// 1. Runs the operation in a transaction savepoint
 /// 2. Extracts the pending commit data
 /// 3. Rolls back the transaction (avoiding the need for clear_pending_commit)
-/// 4. Reloads the group to clear its internal cache
-/// 5. Returns the operation result and the staged commit
+/// 4. Returns the operation result, the staged commit, and the group epoch the commit was created in
 ///
 /// This is more reliable than using `clear_pending_commit` because it uses
 /// SQLite's built-in savepoint rollback mechanism.
+///
+/// The epoch is captured from within the transaction before the operation,
+/// ensuring it reflects the state used during the commit creation even if
+/// the database is updated between the transaction and when the caller uses it.
 pub(super) fn generate_commit_with_rollback<S, R, E, F>(
     storage: &S,
     openmls_group: &mut OpenMlsGroup,
     operation: F,
-) -> Result<(R, Option<Vec<u8>>), GroupError>
+) -> Result<(R, Option<Vec<u8>>, u64), GroupError>
 where
     S: XmtpMlsStorageProvider,
     E: Into<GroupError>,
@@ -2948,10 +2961,15 @@ where
 {
     let mut result = None;
     let mut staged_commit = None;
+    let mut group_epoch = None;
 
     let transaction_result = storage.transaction(|conn| {
         let key_store = conn.key_store();
         let provider = XmtpOpenMlsProviderRef::new(&key_store);
+
+        // Capture the epoch before the operation to ensure we have the correct
+        // epoch even if the database is updated after the transaction and before we save the intent locally.
+        group_epoch = Some(openmls_group.epoch().as_u64());
 
         // Execute the operation (e.g., self_update, update_group_context_extensions, etc.)
         result = Some(operation(openmls_group, &provider));
@@ -2981,6 +2999,9 @@ where
         return Err(e.into());
     }
 
+    // Return early if group epoch is not set otherwise unwrap the group epoch
+    let group_epoch = group_epoch.expect("Group epoch should have been captured in transaction");
+
     // This must go after error checking
     // Reload the group to clear its internal cache after rollback
     openmls_group.reload(storage)?;
@@ -2990,7 +3011,7 @@ where
         .expect("Operation should have been called")
         .map_err(|e| e.into())?;
 
-    Ok((operation_result, staged_commit))
+    Ok((operation_result, staged_commit, group_epoch))
 }
 
 pub(crate) fn decode_staged_commit(

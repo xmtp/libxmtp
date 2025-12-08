@@ -10,7 +10,7 @@ use super::*;
 /*
 * WARN: ProtocolEnvelope implementation for a Vec<T>
 * should be avoided, since it may cause Envelope
-* to implicity act on a collection when a single envelope is expected.
+* to implicitly act on a collection when a single envelope is expected.
 * Theres a way to seal this trait implementation to
 * avoid external implementations which should be done.
 */

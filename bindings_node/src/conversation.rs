@@ -792,4 +792,11 @@ impl Conversation {
     let times = group.get_last_read_times().map_err(ErrorWrapper::from)?;
     Ok(times)
   }
+
+  #[napi]
+  pub async fn leave_group(&self) -> Result<()> {
+    let group = self.create_mls_group();
+    group.leave_group().await.map_err(ErrorWrapper::from)?;
+    Ok(())
+  }
 }

@@ -1,5 +1,5 @@
 //! Extractor for an MLS Data field
-//! useful for verifing a message has been read or maybe duplicates.
+//! useful for verifying a message has been read or maybe duplicates.
 use chrono::Utc;
 use xmtp_proto::ConversionError;
 use xmtp_proto::mls_v1::welcome_message::WelcomePointer;

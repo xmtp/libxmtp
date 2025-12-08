@@ -415,7 +415,7 @@ where
         let mut items = self
             .load(network)?
             .ok_or(eyre!("no items found, try generating some"))?;
-        // choose_mutliple will only fill up to the size of items.
+        // choose_multiple will only fill up to the size of items.
         // so we may need to load multiple times if we're trying to
         // fill a buffer of size > items.
         // items aren't loaded into memory until `value()` is called on `AccessGuard`.
