@@ -768,6 +768,7 @@ impl XmtpKeyPackageBuilder {
         let kp_builder = KeyPackage::builder()
             .leaf_node_capabilities(capabilities)
             .leaf_node_extensions(leaf_node_extensions)
+            .expect("application id extension is always valid in leaf nodes")
             .key_package_extensions(key_package_extensions);
 
         let kp_builder = {
