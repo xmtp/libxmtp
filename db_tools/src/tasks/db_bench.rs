@@ -40,20 +40,14 @@ where
     <Db as XmtpDb>::Connection: ConnectionExt,
 {
     pub fn new(store: Db) -> Result<Self> {
-        let mut dms = store.db().find_groups_by_id_paged(
-            GroupQueryArgs {
-                conversation_type: Some(ConversationType::Dm),
-                ..Default::default()
-            },
-            0,
-        )?;
-        let mut groups = store.db().find_groups_by_id_paged(
-            GroupQueryArgs {
-                conversation_type: Some(ConversationType::Group),
-                ..Default::default()
-            },
-            0,
-        )?;
+        let mut dms = store.db().find_groups(GroupQueryArgs {
+            conversation_type: Some(ConversationType::Dm),
+            ..Default::default()
+        })?;
+        let mut groups = store.db().find_groups(GroupQueryArgs {
+            conversation_type: Some(ConversationType::Group),
+            ..Default::default()
+        })?;
 
         // Try to get a random inbox_id from identity updates or association state
         let rand_inbox_id = groups.first().map(|g| g.added_by_inbox_id.clone());
@@ -499,17 +493,17 @@ where
 
 #[cfg(test)]
 mod tests {
-    use xmtp_mls::tester;
-
     use crate::tasks::DbBencher;
+    use xmtp_mls::tester;
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_bench_works() {
         tester!(alix, persistent_db);
         tester!(bo);
 
-        alix.test_talk_in_dm_with(&bo).await?;
         alix.test_talk_in_new_group_with(&bo).await?;
+        alix.test_talk_in_dm_with(&bo).await?;
+
         let mut bencher = DbBencher::new(alix.context.store().clone())?;
         let result = bencher.bench()?;
         assert!(result.iter().all(|r| r.is_ok()));
