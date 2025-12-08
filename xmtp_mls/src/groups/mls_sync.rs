@@ -27,7 +27,6 @@ use crate::{
 use crate::{
     groups::mls_ext::{CommitLogStorer, WrapWelcomeError, wrap_welcome},
     subscriptions::SyncWorkerEvent,
-    track, track_err,
 };
 use crate::{
     groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
@@ -44,7 +43,6 @@ use xmtp_configuration::{
 };
 use xmtp_db::{
     Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
-    events::EventLevel,
     group::{ConversationType, StoredGroup},
     group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -377,7 +375,6 @@ where
 
         // Even if publish fails, continue to receiving
         let result = self.publish_intents().await;
-        track_err!(&self.context, "Publish intents", &result, group: &self.group_id);
         if let Err(e) = result {
             tracing::error!("Sync: error publishing intents {e:?}",);
             summary.add_publish_err(e);
@@ -386,7 +383,6 @@ where
         // Even if receiving fails, we continue to post_commit
         // Errors are collected in the summary.
         let result = self.receive().await;
-        track_err!(&self.context, "Receive messages", &result, group: &self.group_id);
         match result {
             Ok(s) => summary.add_process(s),
             Err(e) => {
@@ -398,8 +394,6 @@ where
         }
 
         let result = self.post_commit().await;
-
-        track_err!(&self.context, "Send Welcomes", &result, group: &self.group_id);
         if let Err(e) = result {
             tracing::error!("post commit error {e:?}",);
             summary.add_post_commit_err(e);
@@ -428,16 +422,7 @@ where
             return Ok(Default::default());
         };
 
-        track!(
-            &self.context,
-            "Syncing Intents",
-            {"num_intents": intents.len()},
-            group: &self.group_id,
-            icon: "🔄"
-        );
-        let result = self.sync_until_intent_resolved(intent.id).await;
-        track_err!(&self.context, "Sync until intent resolved", &result, group: &self.group_id);
-        result
+        self.sync_until_intent_resolved(intent.id).await
     }
 
     /**
@@ -769,22 +754,6 @@ where
                     next_intent_state: IntentState::ToPublish,
                 });
             }
-            let epoch = mls_group.epoch().as_u64();
-            track!(
-                &self.context,
-                "Commit merged",
-                {
-                    "": format!("Epoch {epoch}"),
-                    "cursor": cursor,
-                    "epoch": epoch,
-                    "epoch_authenticator": hex::encode(mls_group.epoch_authenticator().as_slice()),
-                    "validated_commit": Some(&validated_commit)
-                        .and_then(|c| serde_json::to_string_pretty(c).ok()),
-                },
-                icon: "⬆️",
-                group: &envelope.group_id
-            );
-
             Self::mark_readd_requests_as_responded(
                 storage,
                 &self.group_id,
@@ -1177,22 +1146,6 @@ where
                     &validated_commit.readded_installations,
                     cursor.sequence_id as i64,
                 )?;
-
-                let epoch = mls_group.epoch().as_u64();
-                track!(
-                    &self.context,
-                    "Commit merged",
-                    {
-                        "": format!("Epoch {epoch}"),
-                        "cursor": cursor,
-                        "epoch": epoch,
-                        "epoch_authenticator": hex::encode(mls_group.epoch_authenticator().as_slice()),
-                        "validated_commit": Some(&validated_commit)
-                            .and_then(|c| serde_json::to_string_pretty(c).ok()),
-                    },
-                    icon: "⬆️",
-                    group: &message_envelope.group_id
-                );
 
                 let msg = self.save_transcript_message(
                     validated_commit.clone(),
@@ -1777,7 +1730,6 @@ where
         process_result: Result<MessageIdentifier, GroupMessageProcessingError>,
         envelope: &xmtp_proto::types::GroupMessage,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
-        track_err!(&self.context, "Process message", &process_result, group: &self.group_id);
         let message = match process_result {
             Ok(m) => {
                 tracing::info!(
@@ -1916,18 +1868,6 @@ where
             .await?;
 
         let summary = self.process_messages(messages).await;
-        track!(
-            &self.context,
-            "Receive messages",
-            {
-                "total": summary.total_messages.len(),
-                "errors": summary.errored.iter().map(|(_, err)| format!("{err:?}")).collect::<Vec<_>>(),
-                "new": summary.new_messages.len(),
-            },
-            group: &self.group_id,
-            icon: "🫴"
-        );
-
         Ok(summary)
     }
 
@@ -2052,16 +1992,6 @@ where
                     group_id = hex::encode(&self.group_id),
                     original_error = error.to_string(),
                     fork_details
-                );
-                track!(
-                    &self.context,
-                    "Possible Fork",
-                    {
-                        "message_epoch": message_epoch,
-                        "group_epoch": group_epoch
-                    },
-                    group: &self.group_id,
-                    level: EventLevel::Fault
                 );
                 let _ = self
                     .context
