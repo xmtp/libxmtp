@@ -122,4 +122,52 @@ class GroupUpdatedTest : BaseInstrumentedTest() {
             assertEquals(group.getDebugInformation().forkDetails, "")
         }
     }
+
+    @Test
+    fun testLeftInboxesPopulatedWhenMemberLeaves() =
+        runBlocking {
+            // Alix creates a group with Bo
+            val alixGroup = alixClient.conversations.newGroup(listOf(boClient.inboxId))
+
+            // Bo syncs and gets the group
+            boClient.conversations.sync()
+            val boGroup = boClient.conversations.findGroup(alixGroup.id)
+            assert(boGroup != null)
+
+            // Bo leaves the group
+            boGroup!!.leaveGroup()
+
+            // Alix syncs to process the leave request
+            alixGroup.sync()
+
+            // Wait for the admin worker to process the removal
+            Thread.sleep(3000)
+
+            // Alix syncs again to get the removal message
+            alixGroup.sync()
+
+            // Get all messages and find the one with leftInboxes
+            val messages = alixGroup.messages()
+
+            // Find the GroupUpdated message that contains the left inbox
+            val leaveMessage =
+                messages.find { msg ->
+                    val content: GroupUpdated? = msg.content()
+                    content?.leftInboxesList?.isNotEmpty() == true
+                }
+
+            assert(leaveMessage != null) { "Should find a GroupUpdated message with leftInboxes" }
+
+            val content: GroupUpdated? = leaveMessage?.content()
+            assertEquals(
+                "Bo's inbox should be in leftInboxesList",
+                listOf(boClient.inboxId),
+                content?.leftInboxesList?.map { it.inboxId },
+            )
+
+            // Verify removedInboxesList is empty for self-removal
+            assert(content?.removedInboxesList.isNullOrEmpty()) {
+                "removedInboxesList should be empty for self-removal"
+            }
+        }
 }

@@ -216,6 +216,11 @@ class DecodedMessageV2 private constructor(
                         addRemovedInboxes(mapFfiInboxToProto(ffiInbox))
                     }
 
+                    // Add left inboxes
+                    ffiGroupUpdated.leftInboxes.forEach { ffiInbox ->
+                        addLeftInboxes(mapFfiInboxToProto(ffiInbox))
+                    }
+
                     // Add metadata field changes
                     ffiGroupUpdated.metadataFieldChanges.forEach { ffiChange ->
                         addMetadataFieldChanges(mapFfiMetadataChangeToProto(ffiChange))
