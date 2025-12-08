@@ -1,5 +1,5 @@
 //! Extractor for a envelope [`Cursor`](xmtp_proto::types::Cursor)
-//! useful for verifing a message has been read or maybe duplicates.
+//! useful for verifying a message has been read or maybe duplicates.
 use xmtp_proto::ConversionError;
 use xmtp_proto::mls_v1::welcome_message::WelcomePointer as V3WelcomePointer;
 use xmtp_proto::types::Cursor;

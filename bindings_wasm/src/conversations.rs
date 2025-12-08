@@ -204,7 +204,7 @@ impl MessageDisappearingSettings {
 #[derive(Clone, serde::Serialize)]
 pub struct XmtpCursor {
   pub originator_id: u32,
-  // wasm doesn't suppor u64
+  // wasm doesn't support u64
   pub sequence_id: i64,
 }
 

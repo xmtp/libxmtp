@@ -1,7 +1,7 @@
 //! Compatibility layer for JS-Fetch POST streams & gRPC Tonic Web
 //!
 //! a web ['fetch' request](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch)
-//! may complete succesfully, but the fetch promise does not resolve until the first bytes of the
+//! may complete successfully, but the fetch promise does not resolve until the first bytes of the
 //! body are received by the browser.[issue](https://github.com/devashishdxt/tonic-web-wasm-client/issues/22).
 //!
 //! This poses a behavior inconsistency between gRPC native - HTTP/2 and gRPC-web HTTP/1.1. On
@@ -99,7 +99,7 @@ where
         }
     }
 
-    /// Internal API to contruct a started variant
+    /// Internal API to construct a started variant
     pub fn started(stream: S) -> Self {
         Self {
             state: StreamState::Started { stream },

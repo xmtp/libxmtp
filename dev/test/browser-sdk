@@ -4,7 +4,7 @@ set -eou pipefail
 # USAGE
 # ./dev/test/browser-sdk will clone browser sdk to a tmp directory and execute the tests
 # ./dev/test/browser-sdk MY_DIR will clone to MY_DIR and execute the tests
-# ./dev/test/browser-sdk MY_DIR my_branch will clone to MY_DIR checkout MY_BRANCH and excute tests
+# ./dev/test/browser-sdk MY_DIR my_branch will clone to MY_DIR checkout MY_BRANCH and execute tests
 
 function tmp() {
   mktemp -d 2>/dev/null || mktemp -d -t 'test-browser-tmp'
