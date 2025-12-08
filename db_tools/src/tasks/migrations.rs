@@ -139,7 +139,7 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_run_and_revert_specific_migration() {
-        tester!(alix);
+        tester!(alix, persistent_db);
 
         // Note: run_migration_confirmed and revert_migration_confirmed run the SQL directly
         // without updating the schema_migrations table. This test verifies this behavior
@@ -147,7 +147,7 @@ mod tests {
 
         let target_migration = "2025-11-15-232503_add_inserted_at_ns_to_group_messages";
         // The migration before our target - rollback keeps this one applied
-        let rollback_to = "2025-11-14-185054-0000_add_dm_id_index";
+        let rollback_to = "2025-10-07-180046_create_tasks";
 
         // First rollback to before the target migration (rollback_to is kept, target is reverted)
         rollback_confirmed(&alix.db(), rollback_to)?;
