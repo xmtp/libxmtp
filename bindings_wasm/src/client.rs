@@ -14,7 +14,6 @@ use xmtp_mls::builder::SyncWorkerMode;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
-use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_proto::api_client::AggregateStats;
 
 use crate::conversations::Conversations;
@@ -425,15 +424,6 @@ impl Client {
   #[wasm_bindgen(js_name = clearAllStatistics)]
   pub fn clear_all_statistics(&self) {
     self.inner_client.clear_stats()
-  }
-
-  #[wasm_bindgen(js_name = uploadDebugArchive)]
-  pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, JsError> {
-    let db = self.inner_client().context.db();
-
-    upload_debug_archive(db, Some(server_url))
-      .await
-      .map_err(|e| JsError::new(&format!("{e}")))
   }
 
   #[wasm_bindgen(js_name = deleteMessage)]
