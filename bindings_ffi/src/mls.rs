@@ -75,7 +75,6 @@ use xmtp_mls::mls_common::group::GroupMetadataOptions;
 use xmtp_mls::mls_common::group_metadata::GroupMetadata;
 use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
-use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
     client::Client as MlsClient,
@@ -285,7 +284,6 @@ pub async fn create_client(
     device_sync_server_url: Option<String>,
     device_sync_mode: Option<FfiSyncWorkerMode>,
     allow_offline: Option<bool>,
-    disable_events: Option<bool>,
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
@@ -338,7 +336,6 @@ pub async fn create_client(
         .enable_api_debug_wrapper()?
         .with_remote_verifier()?
         .with_allow_offline(allow_offline)
-        .with_disable_events(disable_events)
         .store(store);
 
     if let Some(sync_worker_mode) = device_sync_mode {
@@ -965,12 +962,6 @@ impl FfiXmtpClient {
             .await
             .map_err(DeviceSyncError::Archive)?;
         Ok(importer.metadata.into())
-    }
-
-    /// Export an encrypted debug archive to a device sync server to inspect telemetry for debugging purposes.
-    pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, GenericError> {
-        let db = self.inner_client.context.db();
-        Ok(upload_debug_archive(db, Some(server_url)).await?)
     }
 }
 

@@ -41,9 +41,9 @@ use crate::groups::{
     mls_ext::CommitLogStorer,
     validated_commit::LibXMTPVersion,
 };
+use crate::subscriptions::SyncWorkerEvent;
 use crate::{GroupCommitLock, context::XmtpSharedContext};
 use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
-use crate::{subscriptions::SyncWorkerEvent, track};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
 use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
@@ -577,9 +577,6 @@ where
         );
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
-
-        track!(context, "Group Create", { "conversation_type": ConversationType::Dm }, group: &new_group.group_id);
-
         Ok(new_group)
     }
 
@@ -880,15 +877,6 @@ where
             .queue(self)?;
 
         self.sync_until_intent_resolved(intent.id).await?;
-        track!(
-            &self.context,
-            "Group Membership Change",
-            {
-                "added": ids,
-                "removed": ()
-            },
-            group: &self.group_id
-        );
 
         ok_result
     }
@@ -946,16 +934,6 @@ where
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
 
-        track!(
-            &self.context,
-            "Group Membership Change",
-            {
-                "added": (),
-                "removed": inbox_ids
-            },
-            group: &self.group_id
-        );
-
         Ok(())
     }
 
@@ -996,15 +974,6 @@ where
             .queue(self)?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
-
-        track!(
-            &self.context,
-            "Readd Installations",
-            {
-                "installations": installations
-            },
-            group: &self.group_id
-        );
 
         Ok(())
     }
