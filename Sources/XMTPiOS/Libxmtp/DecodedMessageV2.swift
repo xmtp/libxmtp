@@ -356,6 +356,11 @@ public struct DecodedMessageV2: Identifiable {
 			inboxEntry.inboxID = inbox.inboxId
 			return inboxEntry
 		}
+		updated.leftInboxes = groupUpdated.leftInboxes.map { inbox in
+			var inboxEntry = GroupUpdated.Inbox()
+			inboxEntry.inboxID = inbox.inboxId
+			return inboxEntry
+		}
 		updated.metadataFieldChanges = groupUpdated.metadataFieldChanges.map { change in
 			var fieldChange = GroupUpdated.MetadataFieldChange()
 			fieldChange.fieldName = change.fieldName

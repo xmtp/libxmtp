@@ -1530,4 +1530,154 @@ class GroupTests: XCTestCase {
 		try await alixGroup.sync()
 		XCTAssert(try !(alixGroup.isActive()))
 	}
+
+	func testLeftInboxesPopulatedWhenMemberLeaves() async throws {
+		let fixtures = try await fixtures()
+
+		// Register the GroupUpdatedCodec
+		Client.register(codec: GroupUpdatedCodec())
+
+		// Alix creates a group with Bo
+		let alixGroup = try await fixtures.alixClient.conversations.newGroup(
+			with: [fixtures.boClient.inboxID]
+		)
+
+		// Bo syncs and gets the group
+		_ = try await fixtures.boClient.conversations.syncAllConversations()
+		let boGroup = try XCTUnwrap(fixtures.boClient.conversations.findGroup(groupId: alixGroup.id))
+
+		// Bo leaves the group
+		try await boGroup.leaveGroup()
+
+		// Alix syncs to process the leave request
+		try await alixGroup.sync()
+
+		// Wait for the admin worker to process the removal
+		try await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
+
+		// Alix syncs again to get the removal message
+		try await alixGroup.sync()
+
+		// Get all messages using enrichedMessages() which goes through DecodedMessageV2
+		// This tests the FFI-to-proto mapping in mapGroupUpdated()
+		let messages = try await alixGroup.enrichedMessages()
+
+		// Find the GroupUpdated message that contains the left inbox
+		let leaveMessage = messages.first { message in
+			if let content: GroupUpdated = try? message.content() {
+				return !content.leftInboxes.isEmpty
+			}
+			return false
+		}
+
+		XCTAssertNotNil(leaveMessage, "Should find a GroupUpdated message with leftInboxes")
+
+		let content: GroupUpdated = try leaveMessage!.content()
+		XCTAssertEqual(
+			content.leftInboxes.map(\.inboxID),
+			[fixtures.boClient.inboxID],
+			"Bo's inbox should be in leftInboxes"
+		)
+
+		// Verify removedInboxes is empty for self-removal
+		XCTAssert(content.removedInboxes.isEmpty, "removedInboxes should be empty for self-removal")
+	}
+
+	func testLeftInboxesPersistedAfterClientReinitialization() async throws {
+		// Create clients with explicit options so we can reinitialize
+		let key = Data((0 ..< 32).map { _ in UInt8.random(in: 0 ... 255) })
+		let clientOptions = ClientOptions(
+			api: ClientOptions.Api(env: XMTPEnvironment.local, isSecure: false),
+			dbEncryptionKey: key
+		)
+
+		let alixWallet = try PrivateKey.generate()
+		let boWallet = try PrivateKey.generate()
+
+		let alixClient = try await Client.create(account: alixWallet, options: clientOptions)
+		let boClient = try await Client.create(account: boWallet, options: clientOptions)
+
+		// Register the GroupUpdatedCodec
+		Client.register(codec: GroupUpdatedCodec())
+
+		// Alix creates a group with Bo
+		let alixGroup = try await alixClient.conversations.newGroup(
+			with: [boClient.inboxID]
+		)
+		let groupId = alixGroup.id
+
+		// Bo syncs and gets the group
+		_ = try await boClient.conversations.syncAllConversations()
+		let boGroup = try XCTUnwrap(boClient.conversations.findGroup(groupId: groupId))
+
+		// Bo leaves the group
+		try await boGroup.leaveGroup()
+
+		// Alix syncs to process the leave request
+		try await alixGroup.sync()
+
+		// Wait for the admin worker to process the removal
+		try await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
+
+		// Alix syncs again to get the removal message
+		try await alixGroup.sync()
+
+		// Store Alix's info before dropping connection
+		let alixDbPath = alixClient.dbPath
+		let alixDbDirectory = URL(fileURLWithPath: alixDbPath).deletingLastPathComponent().path
+		let alixPublicIdentity = alixClient.publicIdentity
+		let alixInboxId = alixClient.inboxID
+
+		// Drop the database connection to simulate app closure
+		try alixClient.dropLocalDatabaseConnection()
+
+		// Reinitialize Alix's client from the same database
+		let reinitOptions = ClientOptions(
+			api: ClientOptions.Api(env: XMTPEnvironment.local, isSecure: false),
+			dbEncryptionKey: key,
+			dbDirectory: alixDbDirectory
+		)
+		let reinitializedAlixClient = try await Client.build(
+			publicIdentity: alixPublicIdentity,
+			options: reinitOptions,
+			inboxId: alixInboxId
+		)
+
+		// Find the group again with the reinitialized client
+		let reinitializedGroup = try reinitializedAlixClient.conversations.findGroup(groupId: groupId)
+		XCTAssertNotNil(reinitializedGroup, "Should find the group after reinitialization")
+
+		// Get messages using enrichedMessages() which goes through DecodedMessageV2
+		// This tests the FFI-to-proto mapping in mapGroupUpdated() after reinitialization
+		let messagesAfterReinit = try await reinitializedGroup!.enrichedMessages()
+
+		// Find the GroupUpdated message with leftInboxes
+		let leaveMessageAfterReinit = messagesAfterReinit.first { message in
+			if let content: GroupUpdated = try? message.content() {
+				return !content.leftInboxes.isEmpty
+			}
+			return false
+		}
+
+		XCTAssertNotNil(
+			leaveMessageAfterReinit,
+			"Should find a GroupUpdated message with leftInboxes after client reinitialization"
+		)
+
+		let contentAfterReinit: GroupUpdated = try leaveMessageAfterReinit!.content()
+		XCTAssertEqual(
+			contentAfterReinit.leftInboxes.map(\.inboxID),
+			[boClient.inboxID],
+			"Bo's inbox should still be in leftInboxes after reinitialization"
+		)
+
+		// Verify removedInboxes is still empty
+		XCTAssert(
+			contentAfterReinit.removedInboxes.isEmpty,
+			"removedInboxes should still be empty after reinitialization"
+		)
+
+		// Clean up
+		try reinitializedAlixClient.dropLocalDatabaseConnection()
+	}
 }
