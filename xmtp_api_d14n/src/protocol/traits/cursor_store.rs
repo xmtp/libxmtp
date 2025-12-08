@@ -71,10 +71,7 @@ pub trait CursorStore: MaybeSend + MaybeSync {
         let sid = self
             .latest_per_originator(topic, &[originator])?
             .get(originator);
-        Ok(Cursor {
-            originator_id: *originator,
-            sequence_id: sid,
-        })
+        Ok(Cursor::new(sid, *originator))
     }
 
     /// Get the latest cursor for multiple topics at once.

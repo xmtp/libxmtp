@@ -542,10 +542,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
                     (
                         PayloadHash::from(hash),
                         IntentDependency {
-                            cursor: Cursor {
-                                sequence_id: sequence_id as u64,
-                                originator_id: originator_id as u32,
-                            },
+                            cursor: Cursor::new(sequence_id as u64, originator_id as u32),
                             group_id: group_id.into(),
                         },
                     )
@@ -1056,10 +1053,7 @@ pub(crate) mod tests {
             conn.update_cursor(
                 group_id.clone(),
                 EntityKind::CommitMessage,
-                Cursor {
-                    sequence_id: 100,
-                    originator_id: 42,
-                },
+                Cursor::new(100, 42u32),
             )
             .unwrap();
 

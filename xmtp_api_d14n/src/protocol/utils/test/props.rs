@@ -63,10 +63,7 @@ pub fn sorted_dependencies(
                             let sequence_id = advance_clock(&total_clock, &originator);
 
                             envelopes.push(TestEnvelope {
-                                cursor: Cursor {
-                                    originator_id: originator,
-                                    sequence_id,
-                                },
+                                cursor: Cursor::new(sequence_id, originator),
                                 depends_on: new_clock,
                             });
                             envelopes
