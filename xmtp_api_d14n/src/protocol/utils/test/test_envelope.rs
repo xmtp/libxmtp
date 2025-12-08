@@ -41,10 +41,7 @@ impl TestEnvelope {
     }
 
     pub fn cursor(&self) -> Cursor {
-        Cursor {
-            sequence_id: self.sequence_id,
-            originator_id: self.originator_id,
-        }
+        Cursor::new(self.sequence_id, self.originator_id)
     }
 
     pub fn depends_on(&self) -> GlobalCursor {

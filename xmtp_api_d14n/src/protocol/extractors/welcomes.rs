@@ -49,10 +49,7 @@ impl EnvelopeVisitor<'_> for WelcomeMessageExtractor {
         &mut self,
         envelope: &UnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
-        self.cursor = Cursor {
-            originator_id: envelope.originator_node_id,
-            sequence_id: envelope.originator_sequence_id,
-        };
+        self.cursor = Cursor::new(envelope.originator_sequence_id, envelope.originator_node_id);
         self.created_ns = DateTime::from_timestamp_nanos(envelope.originator_ns);
         Ok(())
     }
@@ -112,10 +109,7 @@ impl EnvelopeVisitor<'_> for V3WelcomeMessageExtractor {
         let originator_node_id = xmtp_configuration::Originators::WELCOME_MESSAGES;
 
         self.welcome_message
-            .cursor(Cursor {
-                originator_id: originator_node_id,
-                sequence_id: message.id,
-            })
+            .cursor(Cursor::new(message.id, originator_node_id))
             .created_ns(DateTime::from_timestamp_nanos(message.created_ns as i64))
             .variant(
                 WelcomeMessageV1::builder()
@@ -135,10 +129,7 @@ impl EnvelopeVisitor<'_> for V3WelcomeMessageExtractor {
     ) -> Result<(), Self::Error> {
         let originator_node_id = xmtp_configuration::Originators::WELCOME_MESSAGES;
         self.welcome_message
-            .cursor(Cursor {
-                originator_id: originator_node_id,
-                sequence_id: message.id,
-            })
+            .cursor(Cursor::new(message.id, originator_node_id))
             .created_ns(DateTime::from_timestamp_nanos(message.created_ns as i64))
             .variant(
                 WelcomePointer::builder()
@@ -184,13 +175,7 @@ mod tests {
         let welcome_message = extractor.get();
 
         let msg = welcome_message.unwrap();
-        assert_eq!(
-            msg.cursor,
-            Cursor {
-                sequence_id: 456,
-                originator_id: 123
-            }
-        );
+        assert_eq!(msg.cursor, Cursor::new(456u64, 123u32));
         assert_eq!(msg.created_ns.timestamp_nanos_opt().unwrap(), 789);
         let v1 = msg.as_v1().unwrap();
         assert_eq!(v1.installation_key, installation_key);

@@ -340,10 +340,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         let result: Vec<Cursor> = originator_ids
             .iter()
             .map(|originator| match state_map.get(originator) {
-                Some(state) => Cursor {
-                    sequence_id: state.sequence_id as u64,
-                    originator_id: state.originator_id as u32,
-                },
+                Some(state) => Cursor::new(state.sequence_id as u64, state.originator_id as u32),
                 None => Cursor::new(0, *originator),
             })
             .collect();
@@ -788,10 +785,7 @@ pub(crate) mod tests {
             assert_eq!(
                 conn.get_last_cursor_for_originator(&id, kind, Originators::MLS_COMMITS)
                     .unwrap(),
-                Cursor {
-                    sequence_id: 0,
-                    originator_id: Originators::MLS_COMMITS
-                }
+                Cursor::mls_commits(0)
             );
             let entry: Option<RefreshState> = conn
                 .get_refresh_state(&id, kind, Originators::MLS_COMMITS)
@@ -812,10 +806,7 @@ pub(crate) mod tests {
             assert_eq!(
                 conn.get_last_cursor_for_originators(&id, kind, &[0])
                     .unwrap()[0],
-                Cursor {
-                    sequence_id: 0,
-                    originator_id: Originators::MLS_COMMITS
-                }
+                Cursor::mls_commits(0)
             );
             let entry: Option<RefreshState> = conn
                 .get_refresh_state(&id, kind, Originators::MLS_COMMITS)
@@ -839,10 +830,7 @@ pub(crate) mod tests {
             assert_eq!(
                 conn.get_last_cursor_for_originator(&id, entity_kind, Originators::MLS_COMMITS)
                     .unwrap(),
-                Cursor {
-                    sequence_id: 123,
-                    originator_id: Originators::MLS_COMMITS
-                }
+                Cursor::mls_commits(123)
             );
         })
     }

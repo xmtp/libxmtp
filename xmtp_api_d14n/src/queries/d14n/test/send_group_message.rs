@@ -78,10 +78,7 @@ prop_compose! {
 // request containing potentially many group messages
 prop_compose! {
     pub fn cursor_gen()(sid in 0u64..1000, oid in 0u32..40) -> Cursor {
-        Cursor {
-            sequence_id: sid,
-            originator_id: oid
-        }
+        Cursor::new(sid, oid)
     }
 }
 prop_compose! {
