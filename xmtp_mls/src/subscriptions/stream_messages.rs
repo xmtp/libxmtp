@@ -28,7 +28,7 @@ use std::{
 };
 use xmtp_common::BoxDynFuture;
 use xmtp_db::group_message::StoredGroupMessage;
-use xmtp_proto::types::{Cursor, GlobalCursor};
+use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId, SequenceId};
 use xmtp_proto::types::{GroupId, Topic};
 use xmtp_proto::{api_client::XmtpMlsStreams, types::TopicCursor};
 
@@ -259,10 +259,7 @@ where
         Ok((
             stream,
             new_group,
-            Some(Cursor {
-                sequence_id: 1,
-                originator_id: 0,
-            }),
+            Some(Cursor::new(1 as SequenceId, 0 as OriginatorId)),
         ))
     }
 }
@@ -508,10 +505,10 @@ where
             );
             let this = self.as_mut().project();
             if let Some(msg) = processed.message {
-                this.returned.push(Cursor {
-                    sequence_id: msg.sequence_id as u64,
-                    originator_id: msg.originator_id as u32,
-                });
+                this.returned.push(Cursor::new(
+                    msg.sequence_id as SequenceId,
+                    msg.originator_id as OriginatorId,
+                ));
                 self.as_mut()
                     .set_cursor(msg.group_id.as_slice(), processed.next_message);
                 tracing::trace!(

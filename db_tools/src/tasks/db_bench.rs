@@ -216,15 +216,7 @@ where
             // Delivery status updates (non-destructive operations should be safe to benchmark)
             bench!(
                 self,
-                set_delivery_status_to_published(
-                    &message_id,
-                    0,
-                    Cursor {
-                        sequence_id: 0,
-                        originator_id: 0
-                    },
-                    None
-                )
+                set_delivery_status_to_published(&message_id, 0, Cursor::new(0, 0u32), None)
             )?;
             bench!(self, set_delivery_status_to_failed(&message_id))?;
         }
@@ -403,10 +395,7 @@ where
             update_cursor(
                 group.id.clone(),
                 EntityKind::ApplicationMessage,
-                Cursor {
-                    sequence_id: 0,
-                    originator_id: 0
-                }
+                Cursor::new(0, 0u32)
             )
         )?;
 

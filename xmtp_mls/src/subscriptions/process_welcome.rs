@@ -8,6 +8,8 @@ use crate::{groups::MlsGroup, subscriptions::WelcomeOrGroup};
 use std::collections::HashSet;
 use xmtp_common::{Retry, retry_async};
 use xmtp_db::{consent_record::ConsentState, group::ConversationType, prelude::*};
+use xmtp_proto::types::OriginatorId;
+use xmtp_proto::types::SequenceId;
 use xmtp_proto::types::{Cursor, WelcomeMessage};
 
 /// Future for processing `WelcomeorGroup`
@@ -272,10 +274,7 @@ where
                     && let Some(originator) = maybe_originator
                 {
                     Ok(ProcessWelcomeResult::IgnoreId {
-                        id: Cursor {
-                            sequence_id: id as u64,
-                            originator_id: originator as u32,
-                        },
+                        id: Cursor::new(id as SequenceId, originator as OriginatorId),
                     })
                 } else {
                     Ok(ProcessWelcomeResult::Ignore)

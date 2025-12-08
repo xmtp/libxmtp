@@ -9,10 +9,14 @@ use crate::xmtp::xmtpv4;
 
 /// XMTP cursor type
 /// represents a position in an ordered sequence of messages, belonging
+// force use of the `new` constructor w/ non_exhaustive
+// so we retain some control of the internal structure/use of this type
+// and disallow ad-hoc construction
+// while still allowing access to fields with `.field` notation
+#[non_exhaustive]
 #[derive(
     Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
-// _*NOTE:*_ comparing cursors is unsafe/undefined behavior if originator ids are not equal.
 pub struct Cursor {
     pub sequence_id: super::SequenceId,
     pub originator_id: super::OriginatorId,
