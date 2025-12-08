@@ -146,8 +146,9 @@ class GroupUpdatedTest : BaseInstrumentedTest() {
             // Alix syncs again to get the removal message
             alixGroup.sync()
 
-            // Get all messages and find the one with leftInboxes
-            val messages = alixGroup.messages()
+            // Get all messages using enrichedMessages() which goes through DecodedMessageV2
+            // This tests the FFI-to-proto mapping in mapGroupUpdated()
+            val messages = alixGroup.enrichedMessages()
 
             // Find the GroupUpdated message that contains the left inbox
             val leaveMessage =
@@ -169,5 +170,86 @@ class GroupUpdatedTest : BaseInstrumentedTest() {
             assert(content?.removedInboxesList.isNullOrEmpty()) {
                 "removedInboxesList should be empty for self-removal"
             }
+        }
+
+    @OptIn(DelicateApi::class)
+    @Test
+    fun testLeftInboxesPersistedAfterClientReinitialization() =
+        runBlocking {
+            // Alix creates a group with Bo
+            val alixGroup = alixClient.conversations.newGroup(listOf(boClient.inboxId))
+            val groupId = alixGroup.id
+
+            // Bo syncs and gets the group
+            boClient.conversations.sync()
+            val boGroup = boClient.conversations.findGroup(groupId)
+            assert(boGroup != null)
+
+            // Bo leaves the group
+            boGroup!!.leaveGroup()
+
+            // Alix syncs to process the leave request
+            alixGroup.sync()
+
+            // Wait for the admin worker to process the removal
+            Thread.sleep(3000)
+
+            // Alix syncs again to get the removal message
+            alixGroup.sync()
+
+            // Store Alix's db path and identity before dropping connection
+            val alixDbDirectory = java.io.File(alixClient.dbPath).parent
+            val alixPublicIdentity = alixClient.publicIdentity
+            val alixInboxId = alixClient.inboxId
+
+            // Drop the database connection to simulate app closure
+            alixClient.dropLocalDatabaseConnection()
+
+            // Reinitialize Alix's client from the same database
+            val reinitializedAlixClient =
+                Client.build(
+                    alixPublicIdentity,
+                    ClientOptions(
+                        api = ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                        dbEncryptionKey = dbEncryptionKey,
+                        appContext = context,
+                        dbDirectory = alixDbDirectory,
+                    ),
+                    alixInboxId,
+                )
+
+            // Find the group again with the reinitialized client
+            val reinitializedGroup = reinitializedAlixClient.conversations.findGroup(groupId)
+            assert(reinitializedGroup != null) { "Should find the group after reinitialization" }
+
+            // Get messages using enrichedMessages() which goes through DecodedMessageV2
+            // This tests the FFI-to-proto mapping in mapGroupUpdated() after reinitialization
+            val messagesAfterReinit = reinitializedGroup!!.enrichedMessages()
+
+            // Find the GroupUpdated message with leftInboxes
+            val leaveMessageAfterReinit =
+                messagesAfterReinit.find { msg ->
+                    val content: GroupUpdated? = msg.content()
+                    content?.leftInboxesList?.isNotEmpty() == true
+                }
+
+            assert(leaveMessageAfterReinit != null) {
+                "Should find a GroupUpdated message with leftInboxes after client reinitialization"
+            }
+
+            val contentAfterReinit: GroupUpdated? = leaveMessageAfterReinit?.content()
+            assertEquals(
+                "Bo's inbox should still be in leftInboxesList after reinitialization",
+                listOf(boClient.inboxId),
+                contentAfterReinit?.leftInboxesList?.map { it.inboxId },
+            )
+
+            // Verify removedInboxesList is still empty
+            assert(contentAfterReinit?.removedInboxesList.isNullOrEmpty()) {
+                "removedInboxesList should still be empty after reinitialization"
+            }
+
+            // Clean up the reinitialized client
+            reinitializedAlixClient.dropLocalDatabaseConnection()
         }
 }
