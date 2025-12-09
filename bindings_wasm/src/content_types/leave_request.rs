@@ -4,16 +4,29 @@ use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::{ContentCodec, leave_request::LeaveRequestCodec};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[wasm_bindgen]
 pub struct LeaveRequest {
-  pub authenticated_note: Option<Vec<u8>>,
+  #[wasm_bindgen(getter_with_clone, js_name = "authenticatedNote")]
+  pub authenticated_note: Option<Uint8Array>,
+}
+
+impl Clone for LeaveRequest {
+  fn clone(&self) -> Self {
+    Self {
+      authenticated_note: self
+        .authenticated_note
+        .as_ref()
+        .map(|v| Uint8Array::from(v.to_vec().as_slice())),
+    }
+  }
 }
 
 impl From<xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest> for LeaveRequest {
   fn from(lr: xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest) -> Self {
     Self {
-      authenticated_note: lr.authenticated_note,
+      authenticated_note: lr
+        .authenticated_note
+        .map(|v| Uint8Array::from(v.as_slice())),
     }
   }
 }
@@ -21,7 +34,7 @@ impl From<xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest> 
 impl From<LeaveRequest> for xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest {
   fn from(lr: LeaveRequest) -> Self {
     Self {
-      authenticated_note: lr.authenticated_note,
+      authenticated_note: lr.authenticated_note.map(|v| v.to_vec()),
     }
   }
 }
