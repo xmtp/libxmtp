@@ -1,0 +1,28 @@
+[package]
+name = "xmtp-db-tools"
+edition = "2024"
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+diesel_migrations = { workspace = true, features = ["sqlite"] }
+dotenvy = "0.15.7"
+hex.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["fmt"] }
+xmtp_common.workspace = true
+xmtp_db.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+xmtp_mls = { workspace = true, features = ["test-utils"] }
+
+[lints]
+workspace = true
+
+[features]
+default = []
+test-utils = []
+bench = []
