@@ -3,6 +3,7 @@ use xmtp_mls::messages::decoded_message::{DecodedMessage as XmtpDecodedMessage, 
 
 use crate::content_types::attachment::Attachment;
 use crate::content_types::group_updated::GroupUpdated;
+use crate::content_types::leave_request::LeaveRequest;
 use crate::content_types::multi_remote_attachment::MultiRemoteAttachmentPayload;
 use crate::content_types::reaction::ReactionPayload;
 use crate::content_types::read_receipt::ReadReceipt;
@@ -126,6 +127,14 @@ impl DecodedMessage {
   pub fn read_receipt_content(&self) -> Option<ReadReceipt> {
     match &self.inner.content {
       MessageBody::ReadReceipt(rr) => Some(rr.clone().into()),
+      _ => None,
+    }
+  }
+
+  #[napi(getter)]
+  pub fn leave_request_content(&self) -> Option<LeaveRequest> {
+    match &self.inner.content {
+      MessageBody::LeaveRequest(lr) => Some(lr.clone().into()),
       _ => None,
     }
   }

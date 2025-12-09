@@ -5,6 +5,7 @@ use super::actions::Actions;
 use super::attachment::Attachment;
 use super::group_updated::GroupUpdated;
 use super::intent::Intent;
+use super::leave_request::LeaveRequest;
 use super::multi_remote_attachment::MultiRemoteAttachmentPayload;
 use super::reaction::ReactionPayload;
 use super::read_receipt::ReadReceipt;
@@ -26,6 +27,7 @@ pub struct DecodedMessageBody {
   pub transaction_reference_content: Option<TransactionReference>,
   pub group_updated_content: Option<GroupUpdated>,
   pub read_receipt_content: Option<ReadReceipt>,
+  pub leave_request_content: Option<LeaveRequest>,
   pub wallet_send_calls_content: Option<WalletSendCalls>,
   pub intent_content: Option<Intent>,
   pub actions_content: Option<Actions>,
@@ -43,6 +45,7 @@ impl From<MessageBody> for DecodedMessageBody {
       transaction_reference_content: None,
       group_updated_content: None,
       read_receipt_content: None,
+      leave_request_content: None,
       wallet_send_calls_content: None,
       intent_content: None,
       actions_content: None,
@@ -70,6 +73,7 @@ impl From<MessageBody> for DecodedMessageBody {
       }
       MessageBody::GroupUpdated(gu) => result.group_updated_content = Some(gu.into()),
       MessageBody::ReadReceipt(rr) => result.read_receipt_content = Some(rr.into()),
+      MessageBody::LeaveRequest(lr) => result.leave_request_content = Some(lr.into()),
       MessageBody::WalletSendCalls(wsc) => result.wallet_send_calls_content = Some(wsc.into()),
       MessageBody::Intent(intent) => result.intent_content = intent.map(Into::into),
       MessageBody::Actions(actions) => {

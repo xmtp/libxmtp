@@ -6,6 +6,7 @@ pub mod attachment;
 pub mod decoded_message_body;
 pub mod group_updated;
 pub mod intent;
+pub mod leave_request;
 pub mod multi_remote_attachment;
 pub mod reaction;
 pub mod read_receipt;
