@@ -1,0 +1,148 @@
+name: Create Dynamic Library Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_tag:
+        description: 'Tag to create the dynamic library release from'
+        required: true
+        type: string
+      create_release:
+        description: 'Create a GitHub release'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build:
+    runs-on: warp-macos-15-arm64-12x
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.source_tag }}
+
+      - name: Display source reference
+        run: |
+          echo "Building from tag: ${{ github.event.inputs.source_tag }}"
+          echo "Current commit: $(git rev-parse HEAD)"
+
+      - name: Extract libxmtp release tag from Package.swift
+        id: extract_libxmtp_tag
+        run: |
+          # Extract the release tag from the existing Package.swift URL
+          # URL format: https://github.com/xmtp/libxmtp/releases/download/{release_tag}/LibXMTPSwiftFFI.zip
+          LIBXMTP_RELEASE_TAG=$(grep -o 'download/[^/]*/LibXMTPSwiftFFI.zip' Package.swift | sed 's|download/||' | sed 's|/LibXMTPSwiftFFI.zip||')
+          echo "LIBXMTP_RELEASE_TAG=$LIBXMTP_RELEASE_TAG" >> $GITHUB_ENV
+          echo "Extracted libxmtp release tag: $LIBXMTP_RELEASE_TAG"
+
+      - name: Update Package.swift to Dynamic Library Release
+        id: update_package_swift
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Using libxmtp release tag: $LIBXMTP_RELEASE_TAG"
+          
+          # Get the dynamic library URL from the libxmtp release
+          DYN_RELEASE_URL=$(gh release --repo xmtp/libxmtp view "$LIBXMTP_RELEASE_TAG" --json assets -q '.assets[] | select(.name == "LibXMTPSwiftFFIDynamic.zip") | .url')
+          echo "Dynamic library URL: $DYN_RELEASE_URL"
+          
+          # Get the dynamic library checksum
+          DYNAMIC_CHECKSUM_URL=$(gh release --repo xmtp/libxmtp view "$LIBXMTP_RELEASE_TAG" --json assets --jq '.assets[] | select(.name == "LibXMTPSwiftFFIDynamic.sha256") | .url')
+          DYNAMIC_CHECKSUM=$(curl -s -L "$DYNAMIC_CHECKSUM_URL")
+          echo "Dynamic library checksum: $DYNAMIC_CHECKSUM"
+          
+          # 1. Add type: .dynamic to the XMTPiOS library product
+          sed -i '' '/name: "XMTPiOS",$/a\
+          			type: .dynamic,' Package.swift
+          
+          # 2. Update binary target name from LibXMTPSwiftFFI to LibXMTPSwiftFFIDynamic
+          sed -i '' 's/name: "LibXMTPSwiftFFI"/name: "LibXMTPSwiftFFIDynamic"/' Package.swift
+          
+          # 3. Update the URL to point to LibXMTPSwiftFFIDynamic.zip
+          sed -i '' "s|LibXMTPSwiftFFI.zip|LibXMTPSwiftFFIDynamic.zip|" Package.swift
+          
+          # 4. Update the checksum
+          sed -i '' "s/checksum: \"[a-f0-9]*\"/checksum: \"$DYNAMIC_CHECKSUM\"/" Package.swift
+          
+          # 5. Update the dependency reference in the target
+          sed -i '' 's/"LibXMTPSwiftFFI"/"LibXMTPSwiftFFIDynamic"/g' Package.swift
+          
+          echo "Updated Package.swift to Dynamic Library Release"
+          echo "--- Updated Package.swift contents ---"
+          cat Package.swift
+
+      - name: Replace xmtpv3.swift with dynamic version from libxmtp release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Using libxmtp release tag: $LIBXMTP_RELEASE_TAG"
+          
+          # Get the dynamic library URL from the libxmtp release
+          DYN_RELEASE_URL=$(gh release --repo xmtp/libxmtp view "$LIBXMTP_RELEASE_TAG" --json assets -q '.assets[] | select(.name == "LibXMTPSwiftFFIDynamic.zip") | .url')
+          echo "Dynamic library URL: $DYN_RELEASE_URL"
+          
+          # Download and extract only the dynamic xmtpv3.swift file
+          curl -L "$DYN_RELEASE_URL" -o LibXMTPSwiftFFIDynamic.zip
+          unzip -qo LibXMTPSwiftFFIDynamic.zip 'Sources/LibXMTP/Dynamic/xmtpv3.swift' -d temp_extract
+          
+          # Delete the existing xmtpv3.swift and replace with dynamic version
+          rm -f Sources/XMTPiOS/Libxmtp/xmtpv3.swift
+          mv temp_extract/Sources/LibXMTP/Dynamic/xmtpv3.swift Sources/XMTPiOS/Libxmtp/xmtpv3.swift
+          
+          # Clean up
+          rm -rf temp_extract LibXMTPSwiftFFIDynamic.zip
+          
+          echo "Replaced xmtpv3.swift with dynamic version"
+          echo "--- Verify file exists ---"
+          ls -la Sources/XMTPiOS/Libxmtp/xmtpv3.swift
+
+
+      - name: Create branch, commit changes, and tag
+        run: |
+          SOURCE_TAG="${{ github.event.inputs.source_tag }}"
+          DYLIB_TAG="${SOURCE_TAG}-dylib"
+          DYLIB_BRANCH="release/${DYLIB_TAG}"
+          
+          echo "Source tag: $SOURCE_TAG"
+          echo "Dynamic library tag: $DYLIB_TAG"
+          echo "Branch name: $DYLIB_BRANCH"
+          
+          # Configure git
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # Create a new branch from the current state (which is the source tag)
+          git checkout -b "$DYLIB_BRANCH"
+          
+          # Stage and commit the changes
+          git add Package.swift Sources/XMTPiOS/Libxmtp/xmtpv3.swift
+          git commit -m "Convert to dynamic library release ($DYLIB_TAG)"
+          
+          # Push the branch
+          git push origin "$DYLIB_BRANCH"
+          echo "Created and pushed branch: $DYLIB_BRANCH"
+          
+          # # Create and push the dylib tag (commented out for testing)
+          # git tag -a "$DYLIB_TAG" -m "Dynamic library release $DYLIB_TAG"
+          # git push origin "$DYLIB_TAG"
+          # echo "Created and pushed tag: $DYLIB_TAG"
+          
+          echo "[DRY RUN] Would create and push tag: $DYLIB_TAG"
+          
+          # Export for use in release step
+          echo "DYLIB_TAG=$DYLIB_TAG" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        if: ${{ github.event.inputs.create_release == 'true' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.DYLIB_TAG }}
+          name: ${{ env.DYLIB_TAG }}
+          body: |
+            Dynamic library release based on ${{ github.event.inputs.source_tag }}
+          make_latest: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
