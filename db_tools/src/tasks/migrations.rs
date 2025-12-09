@@ -29,6 +29,7 @@ pub fn rollback_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()>
             });
             if let Err(err) = result {
                 tracing::warn!("{err:?}");
+                break;
             } else {
                 info!("Reverted {version}");
             }
