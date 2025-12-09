@@ -92,6 +92,7 @@ fn applied_migrations(conn: &impl ConnectionExt) -> Result<Vec<MigrationVersion<
 #[cfg(test)]
 mod tests {
     use diesel_migrations::MigrationHarness;
+    use xmtp_db::diesel::{self, QueryableByName, RunQueryDsl, sql_query, sql_types::Text};
     use xmtp_mls::tester;
 
     use super::{applied_migrations, revert_migration_confirmed, run_migration_confirmed};
@@ -108,6 +109,14 @@ mod tests {
         let bo_msgs = bo_dm.find_messages(&Default::default())?;
         assert_eq!(bo_msgs.len(), 2);
 
+        #[derive(QueryableByName, Debug, PartialEq, Eq)]
+        struct SchemaEntry {
+            #[diesel(sql_type = Text)]
+            sql: String,
+        }
+
+        let schema: Vec<SchemaEntry> = alix.db().raw_query_read(|c| sql_query("SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").load(c))?;
+
         // Go back and forth a couple times
         for _ in 0..2 {
             rollback_confirmed(&alix.db(), "2025-07-08-010431_modify_commit_log")?;
@@ -117,6 +126,9 @@ mod tests {
             })?;
         }
 
+        let new_schema = alix.db().raw_query_read(|c| sql_query("SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").load(c))?;
+
+        assert_eq!(schema, new_schema);
         alix.test_talk_in_dm_with(&bo).await?;
     }
 
