@@ -6,16 +6,23 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 use crate::ErrorWrapper;
 
-#[derive(Clone)]
 #[napi(object)]
 pub struct LeaveRequest {
-  pub authenticated_note: Option<Vec<u8>>,
+  pub authenticated_note: Option<Uint8Array>,
+}
+
+impl Clone for LeaveRequest {
+  fn clone(&self) -> Self {
+    Self {
+      authenticated_note: self.authenticated_note.as_ref().map(|v| v.to_vec().into()),
+    }
+  }
 }
 
 impl From<xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest> for LeaveRequest {
   fn from(lr: xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest) -> Self {
     Self {
-      authenticated_note: lr.authenticated_note,
+      authenticated_note: lr.authenticated_note.map(|v| v.into()),
     }
   }
 }
@@ -23,7 +30,7 @@ impl From<xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest> 
 impl From<LeaveRequest> for xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest {
   fn from(lr: LeaveRequest) -> Self {
     Self {
-      authenticated_note: lr.authenticated_note,
+      authenticated_note: lr.authenticated_note.map(|v| v.to_vec()),
     }
   }
 }
