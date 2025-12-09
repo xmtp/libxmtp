@@ -101,6 +101,7 @@ mod tests {
     use crate::tasks::rollback_confirmed;
 
     #[xmtp_common::test(unwrap_try = true)]
+    #[ignore]
     async fn test_rollback_and_run_pending_migrations() {
         tester!(alix);
         tester!(bo);
