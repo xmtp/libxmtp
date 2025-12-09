@@ -15,7 +15,7 @@ jobs:
           - aarch64-apple-darwin
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Update rust toolchains, add target
         run: |
           rustup update
@@ -58,7 +58,7 @@ jobs:
     runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Update rust toolchains, add target
         run: |
           rustup update
@@ -92,7 +92,7 @@ jobs:
     runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Download artifacts
         uses: actions/download-artifact@v6
         with:
@@ -106,7 +106,7 @@ jobs:
           cp ../LICENSE ./LICENSE
           zip -r LibXMTPSwiftFFI.zip Sources LibXMTPSwiftFFI.xcframework LICENSE
       - name: Upload static
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: LibXMTPSwiftFFI
           retention-days: 1
@@ -117,7 +117,7 @@ jobs:
     runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Download artifacts
         uses: actions/download-artifact@v6
         with:
@@ -131,7 +131,7 @@ jobs:
           cp ../LICENSE ./LICENSE
           zip -r LibXMTPSwiftFFIDynamic.zip Sources LibXMTPSwiftFFIDynamic.xcframework LICENSE
       - name: Upload dynamic
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: LibXMTPSwiftFFIDynamic
           retention-days: 1
@@ -142,9 +142,9 @@ jobs:
     runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Download artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           pattern: LibXMTPSwiftFFI*
           merge-multiple: true
