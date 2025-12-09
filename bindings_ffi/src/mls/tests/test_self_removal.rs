@@ -167,3 +167,173 @@ async fn test_membership_state_after_readd() {
         "Both Alix and Bo should be in the group"
     );
 }
+
+/// Test that leave request messages are visible and properly decoded.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn test_leave_request_message_is_visible() {
+    let alix = new_test_client().await;
+    let bo = new_test_client().await;
+
+    // Alix creates a group and adds Bo
+    let alix_group = alix
+        .conversations()
+        .create_group(
+            vec![bo.account_identifier.clone()],
+            FfiCreateGroupOptions::default(),
+        )
+        .await
+        .unwrap();
+
+    // Bo syncs and gets the group
+    bo.conversations().sync().await.unwrap();
+    let bo_group = bo.conversation(alix_group.id()).unwrap();
+
+    // Get initial message count
+    let initial_messages = alix_group
+        .find_messages(FfiListMessagesOptions::default())
+        .await
+        .unwrap();
+    let initial_count = initial_messages.len();
+    println!("Initial message count: {}", initial_count);
+
+    // Bo leaves the group - this should create a LeaveRequest message
+    bo_group.leave_group().await.unwrap();
+
+    // Alix syncs to receive the leave request
+    alix_group.sync().await.unwrap();
+
+    // Get all messages after the leave request
+    let messages_after_leave = alix_group
+        .find_messages(FfiListMessagesOptions::default())
+        .await
+        .unwrap();
+
+    println!(
+        "Message count after leave request: {}",
+        messages_after_leave.len()
+    );
+
+    // Print all message content types to see what we have
+    for (i, msg) in messages_after_leave.iter().enumerate() {
+        println!(
+            "Message {}: kind={:?}, sender={}",
+            i, msg.kind, msg.sender_inbox_id
+        );
+    }
+
+    // The leave request message should be present
+    // If it's not, it means the message is being filtered out or not stored properly
+    assert!(
+        messages_after_leave.len() > initial_count,
+        "There should be more messages after Bo's leave request. Initial: {}, After: {}",
+        initial_count,
+        messages_after_leave.len()
+    );
+
+    // Wait for admin worker to process the removal
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    alix_group.sync().await.unwrap();
+
+    // Get final messages including the GroupUpdated message from the removal
+    let final_messages = alix_group
+        .find_messages(FfiListMessagesOptions::default())
+        .await
+        .unwrap();
+
+    println!("Final message count: {}", final_messages.len());
+
+    // Find any messages that are from Bo (the one who left)
+    let bo_messages: Vec<_> = final_messages
+        .iter()
+        .filter(|m| m.sender_inbox_id == bo.inner_client.inbox_id())
+        .collect();
+
+    println!("Messages from Bo: {}", bo_messages.len());
+    for (i, msg) in bo_messages.iter().enumerate() {
+        println!("Bo's message {}: kind={:?}", i, msg.kind);
+    }
+
+    // Now try to get enriched messages - this will attempt to decode the content
+    // The LeaveRequest message should be decodable for UI display purposes
+    println!("\n--- Testing enriched messages (decoded content) ---");
+
+    let enriched_messages = alix_group
+        .find_enriched_messages(FfiListMessagesOptions::default())
+        .unwrap();
+
+    println!("Enriched message count: {}", enriched_messages.len());
+
+    for (i, msg) in enriched_messages.iter().enumerate() {
+        println!(
+            "Enriched message {}: kind={:?}, content_type={:?}",
+            i,
+            msg.kind(),
+            msg.content_type_id()
+        );
+    }
+
+    // Find the leave request message from Bo
+    let bo_enriched_messages: Vec<_> = enriched_messages
+        .iter()
+        .filter(|m| m.sender_inbox_id() == bo.inner_client.inbox_id())
+        .collect();
+
+    println!(
+        "\nEnriched messages from Bo: {}",
+        bo_enriched_messages.len()
+    );
+    for (i, msg) in bo_enriched_messages.iter().enumerate() {
+        println!(
+            "Bo's enriched message {}: content_type_id={}",
+            i,
+            msg.content_type_id().type_id
+        );
+    }
+
+    // Verify the leave request message is present and decodable
+    assert!(
+        !bo_enriched_messages.is_empty(),
+        "Bo's leave request message should be present in enriched messages"
+    );
+
+    // Check if the leave request content type is properly identified
+    let leave_request_msg = bo_enriched_messages
+        .iter()
+        .find(|m| m.content_type_id().type_id == "leave_request");
+
+    if let Some(leave_msg) = leave_request_msg {
+        println!("SUCCESS: Leave request message found with correct content type!");
+
+        // Now try to access the content - LeaveRequest should be properly decoded
+        let content = leave_msg.content();
+        println!("Leave request content variant: {:?}", content);
+
+        // Verify that LeaveRequest is properly decoded (not as Custom)
+        match content {
+            FfiDecodedMessageContent::LeaveRequest(leave_request) => {
+                println!(
+                    "Leave request properly decoded! authenticated_note: {:?}",
+                    leave_request.authenticated_note
+                );
+            }
+            FfiDecodedMessageContent::Custom(encoded) => {
+                panic!(
+                    "Leave request should NOT be decoded as Custom. Type ID: {:?}",
+                    encoded.type_id
+                );
+            }
+            _ => {
+                panic!("Unexpected content variant: {:?}", content);
+            }
+        }
+    } else {
+        panic!(
+            "Leave request message not found with 'leave_request' content type. \
+             Available types: {:?}",
+            bo_enriched_messages
+                .iter()
+                .map(|m| m.content_type_id().type_id.clone())
+                .collect::<Vec<_>>()
+        );
+    }
+}
