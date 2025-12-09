@@ -6,6 +6,7 @@ pub mod attachment;
 pub mod decoded_message_content;
 pub mod group_updated;
 pub mod intent;
+pub mod leave_request;
 pub mod multi_remote_attachment;
 pub mod reaction;
 pub mod read_receipt;
@@ -20,6 +21,7 @@ pub mod wallet_send_calls;
 pub enum ContentType {
   Unknown,
   Text,
+  LeaveRequest,
   GroupMembershipChange,
   GroupUpdated,
   Reaction,
@@ -35,6 +37,7 @@ impl From<ContentType> for XmtpContentType {
     match value {
       ContentType::Unknown => XmtpContentType::Unknown,
       ContentType::Text => XmtpContentType::Text,
+      ContentType::LeaveRequest => XmtpContentType::LeaveRequest,
       ContentType::GroupMembershipChange => XmtpContentType::GroupMembershipChange,
       ContentType::GroupUpdated => XmtpContentType::GroupUpdated,
       ContentType::Reaction => XmtpContentType::Reaction,
