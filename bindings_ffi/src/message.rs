@@ -20,7 +20,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     content_types::{
-        MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2, RemoteAttachmentInfo,
+        LeaveRequest, MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2,
+        RemoteAttachmentInfo,
     },
     group_updated::Inbox,
 };
@@ -51,6 +52,7 @@ pub enum FfiDecodedMessageBody {
     WalletSendCalls(FfiWalletSendCalls),
     Intent(FfiIntent),
     Actions(FfiActions),
+    LeaveRequest(FfiLeaveRequest),
     Custom(FfiEncodedContent),
 }
 
@@ -261,6 +263,13 @@ pub struct FfiMetadataFieldChange {
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiReadReceipt {}
 
+/// Represents a leave request message sent when a user wants to leave a group.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiLeaveRequest {
+    /// Optional authenticated note for the leave request
+    pub authenticated_note: Option<Vec<u8>>,
+}
+
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiWalletSendCalls {
     pub version: String,
@@ -373,6 +382,7 @@ pub enum FfiDecodedMessageContent {
     WalletSendCalls(FfiWalletSendCalls),
     Intent(Option<FfiIntent>),
     Actions(Option<FfiActions>),
+    LeaveRequest(FfiLeaveRequest),
     Custom(FfiEncodedContent),
 }
 
@@ -686,6 +696,22 @@ impl From<ReadReceipt> for FfiReadReceipt {
 impl From<FfiReadReceipt> for ReadReceipt {
     fn from(_ffi: FfiReadReceipt) -> Self {
         ReadReceipt {}
+    }
+}
+
+impl From<LeaveRequest> for FfiLeaveRequest {
+    fn from(value: LeaveRequest) -> Self {
+        FfiLeaveRequest {
+            authenticated_note: value.authenticated_note,
+        }
+    }
+}
+
+impl From<FfiLeaveRequest> for LeaveRequest {
+    fn from(value: FfiLeaveRequest) -> Self {
+        LeaveRequest {
+            authenticated_note: value.authenticated_note,
+        }
     }
 }
 
@@ -1065,6 +1091,9 @@ impl From<MessageBody> for FfiDecodedMessageContent {
                     FfiDecodedMessageContent::Actions(None)
                 }
             }
+            MessageBody::LeaveRequest(leave_request) => {
+                FfiDecodedMessageContent::LeaveRequest(leave_request.into())
+            }
             MessageBody::Custom(encoded) => FfiDecodedMessageContent::Custom(encoded.into()),
         }
     }
@@ -1129,6 +1158,9 @@ pub fn content_to_optional_body(content: MessageBody) -> Option<FfiDecodedMessag
             } else {
                 None
             }
+        }
+        MessageBody::LeaveRequest(leave_request) => {
+            Some(FfiDecodedMessageBody::LeaveRequest(leave_request.into()))
         }
         MessageBody::Custom(encoded) => Some(FfiDecodedMessageBody::Custom(encoded.into())),
     }

@@ -2257,6 +2257,7 @@ pub enum FfiContentType {
     Attachment,
     RemoteAttachment,
     TransactionReference,
+    LeaveRequest,
 }
 
 impl From<FfiContentType> for ContentType {
@@ -2272,6 +2273,7 @@ impl From<FfiContentType> for ContentType {
             FfiContentType::Attachment => ContentType::Attachment,
             FfiContentType::RemoteAttachment => ContentType::RemoteAttachment,
             FfiContentType::TransactionReference => ContentType::TransactionReference,
+            FfiContentType::LeaveRequest => ContentType::LeaveRequest,
         }
     }
 }

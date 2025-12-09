@@ -4,9 +4,9 @@ use xmtp_mls::messages::decoded_message::MessageBody;
 
 use super::{
   actions::Actions, attachment::Attachment, group_updated::GroupUpdated, intent::Intent,
-  multi_remote_attachment::MultiRemoteAttachment, reaction::ReactionPayload,
-  read_receipt::ReadReceipt, remote_attachment::RemoteAttachment, reply::EnrichedReply,
-  text::TextContent, transaction_reference::TransactionReference,
+  leave_request::LeaveRequest, multi_remote_attachment::MultiRemoteAttachment,
+  reaction::ReactionPayload, read_receipt::ReadReceipt, remote_attachment::RemoteAttachment,
+  reply::EnrichedReply, text::TextContent, transaction_reference::TransactionReference,
   wallet_send_calls::WalletSendCalls,
 };
 use crate::encoded_content::EncodedContent;
@@ -22,6 +22,7 @@ pub enum PayloadType {
   TransactionReference,
   GroupUpdated,
   ReadReceipt,
+  LeaveRequest,
   WalletSendCalls,
   Intent,
   Actions,
@@ -48,6 +49,7 @@ impl DecodedMessageContent {
       MessageBody::TransactionReference(_) => PayloadType::TransactionReference,
       MessageBody::GroupUpdated(_) => PayloadType::GroupUpdated,
       MessageBody::ReadReceipt(_) => PayloadType::ReadReceipt,
+      MessageBody::LeaveRequest(_) => PayloadType::LeaveRequest,
       MessageBody::WalletSendCalls(_) => PayloadType::WalletSendCalls,
       MessageBody::Intent(_) => PayloadType::Intent,
       MessageBody::Actions(_) => PayloadType::Actions,
@@ -129,6 +131,14 @@ impl DecodedMessageContent {
   pub fn as_read_receipt(&self) -> Option<ReadReceipt> {
     match &self.payload {
       MessageBody::ReadReceipt(rr) => Some(rr.clone().into()),
+      _ => None,
+    }
+  }
+
+  #[wasm_bindgen(js_name = asLeaveRequest)]
+  pub fn as_leave_request(&self) -> Option<LeaveRequest> {
+    match &self.payload {
+      MessageBody::LeaveRequest(lr) => Some(lr.clone().into()),
       _ => None,
     }
   }
