@@ -5,7 +5,7 @@ on:
       - release
 
 env:
-  RELEASE_VERSION: "4.6.7"
+  RELEASE_VERSION: "4.6.8"
 
 jobs:
   library:
@@ -24,7 +24,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
       - name: Run build with Gradle Wrapper
-        run: ./gradlew build
+        run: ./gradlew :library:build
       - name: Tag version ${{ env.RELEASE_VERSION }}
         run: |
           git tag ${{ env.RELEASE_VERSION }}
