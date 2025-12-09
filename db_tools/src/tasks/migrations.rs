@@ -1,5 +1,5 @@
 use crate::confirm_destructive;
-use anyhow::Result;
+use anyhow::{Result, bail};
 use diesel_migrations::MigrationHarness;
 use tracing::info;
 use xmtp_db::{
@@ -56,9 +56,11 @@ fn run_migration_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()
 
         info!("Running migration for {target}...");
         conn.raw_query_write(|c| migration.run(c).map_err(DieselError::QueryBuilderError))?;
+
+        return Ok(());
     }
 
-    Ok(())
+    bail!("Unable to find migration of that name.");
 }
 
 pub fn revert_migration(conn: &impl ConnectionExt, target: &str) -> Result<()> {
@@ -100,7 +102,7 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_rollback_and_run_pending_migrations() {
-        tester!(alix, persistent_db);
+        tester!(alix);
         tester!(bo);
 
         let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
