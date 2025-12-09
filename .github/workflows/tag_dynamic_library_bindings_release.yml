@@ -1,4 +1,4 @@
-name: Create Dynamic Library Release
+name: Tag and Create Dynamic Library Release
 
 on:
   workflow_dispatch:
@@ -54,8 +54,8 @@ jobs:
           echo "Dynamic library checksum: $DYNAMIC_CHECKSUM"
           
           # 1. Add type: .dynamic to the XMTPiOS library product
-          sed -i '' '/name: "XMTPiOS",$/a\
-          			type: .dynamic,' Package.swift
+          # Insert before 'targets: ["XMTPiOS"]' which only appears in the .library block
+          awk '/targets: \["XMTPiOS"\]/ {print "\t\t\ttype: .dynamic,"} {print}' Package.swift > Package.swift.tmp && mv Package.swift.tmp Package.swift
           
           # 2. Update binary target name from LibXMTPSwiftFFI to LibXMTPSwiftFFIDynamic
           sed -i '' 's/name: "LibXMTPSwiftFFI"/name: "LibXMTPSwiftFFIDynamic"/' Package.swift
@@ -66,7 +66,7 @@ jobs:
           # 4. Update the checksum
           sed -i '' "s/checksum: \"[a-f0-9]*\"/checksum: \"$DYNAMIC_CHECKSUM\"/" Package.swift
           
-          # 5. Update the dependency reference in the target
+          # 5. Update LibXMTPSwiftFFI to LibXMTPSwiftFFIDynamic (in binaryTarget name and dependency reference)
           sed -i '' 's/"LibXMTPSwiftFFI"/"LibXMTPSwiftFFIDynamic"/g' Package.swift
           
           echo "Updated Package.swift to Dynamic Library Release"
@@ -124,13 +124,11 @@ jobs:
           git push origin "$DYLIB_BRANCH"
           echo "Created and pushed branch: $DYLIB_BRANCH"
           
-          # # Create and push the dylib tag (commented out for testing)
-          # git tag -a "$DYLIB_TAG" -m "Dynamic library release $DYLIB_TAG"
-          # git push origin "$DYLIB_TAG"
-          # echo "Created and pushed tag: $DYLIB_TAG"
-          
-          echo "[DRY RUN] Would create and push tag: $DYLIB_TAG"
-          
+          # Create and push the dylib tag
+          git tag -a "$DYLIB_TAG" -m "Dynamic library release $DYLIB_TAG"
+          git push origin "$DYLIB_TAG"
+          echo "Created and pushed tag: $DYLIB_TAG"
+                    
           # Export for use in release step
           echo "DYLIB_TAG=$DYLIB_TAG" >> $GITHUB_ENV
 
