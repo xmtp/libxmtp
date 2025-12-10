@@ -700,4 +700,27 @@ mod tests {
             assert_eq!(result.len(), 0);
         })
     }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_querying_dependencies_in_middle_works() {
+        with_connection(|conn| {
+            let group_id = create_test_group(conn);
+            let orphans = iced(group_id);
+
+            conn.ice(orphans.clone())?;
+
+            let mut result = conn.past_dependents(&[Cursor::new(40, 1u32)])?;
+            assert_eq!(result.len(), 2);
+            result.sort_by_key(|d| d.cursor.originator_id);
+            assert_eq!(result[0].cursor, Cursor::new(40, 1u32));
+            assert_eq!(result[0].depends_on, Cursor::new(39, 2u32).into());
+            assert_eq!(result[1].cursor, Cursor::new(39, 2u32));
+            assert_eq!(result[1].depends_on, Cursor::new(38, 2u32).into());
+
+            let result = conn.future_dependents(&[Cursor::new(40, 1u32)])?;
+            assert_eq!(result.len(), 1);
+            assert_eq!(result[0].cursor, Cursor::new(41, 1u32));
+            assert_eq!(result[0].depends_on, Cursor::new(40, 1u32).into());
+        })
+    }
 }
