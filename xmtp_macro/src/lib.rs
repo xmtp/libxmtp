@@ -177,11 +177,10 @@ pub fn log_event_macro(_attr: TokenStream1, item: TokenStream1) -> TokenStream1 
     let macro_body = macro_arms.join("\n        ");
     let macro_def_str = format!(
         r#"
+#[macro_export]
 macro_rules! log_event {{
     {}
 }}
-
-pub(crate) use log_event;
 "#,
         macro_body
     );

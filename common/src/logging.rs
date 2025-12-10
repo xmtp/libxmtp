@@ -11,3 +11,13 @@ pub fn filter_directive(level: &str) -> EnvFilter {
     );
     EnvFilter::builder().parse_lossy(filter)
 }
+
+#[xmtp_macro::log_event_macro]
+pub enum Log {
+    /// Received staged commit. Merging and clearing any pending commits.
+    #[context(group_id, inbox_id, sender_inbox_id, msg_epoch, current_epoch)]
+    MLSReceivedStagedCommit,
+    /// Processed staged commit.
+    #[context(group_id, current_epoch)]
+    MLSProcessedStagedCommit,
+}
