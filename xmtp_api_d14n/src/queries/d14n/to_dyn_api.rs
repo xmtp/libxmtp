@@ -13,7 +13,7 @@ impl<M, Store, E> ToDynApi for D14nClient<M, Store>
 where
     E: Error + RetryableError + 'static,
     M: Client<Error = E> + IsConnectedCheck + 'static,
-    Store: CursorStore + 'static,
+    Store: CursorStore + Clone + 'static,
     <M as Client>::Stream: 'static,
 {
     type Error = ApiClientError<E>;
