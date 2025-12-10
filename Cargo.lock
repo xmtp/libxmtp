@@ -8974,6 +8974,7 @@ dependencies = [
  "xmtp_db",
  "xmtp_db_test",
  "xmtp_id",
+ "xmtp_macro",
  "xmtp_mls_common",
  "xmtp_proto",
  "zeroize",
