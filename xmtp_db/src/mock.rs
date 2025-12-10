@@ -1,3 +1,4 @@
+use crate::StorageError;
 use crate::association_state::QueryAssociationStateCache;
 use crate::group::ConversationType;
 use crate::group::StoredGroupCommitLogPublicKey;
@@ -5,10 +6,11 @@ use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
 use crate::remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder};
 use std::collections::HashMap;
 use std::sync::Arc;
-use xmtp_proto::types::{Cursor, GlobalCursor, Topic};
+use xmtp_proto::types::{Cursor, GlobalCursor, OrphanedEnvelope, Topic};
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
-use diesel::prelude::SqliteConnection;
+use crate::SqliteConnection;
+use crate::prelude::*;
 use mockall::mock;
 use parking_lot::Mutex;
 
@@ -62,9 +64,6 @@ impl ConnectionExt for MockConnection {
         Ok(())
     }
 }
-
-use crate::StorageError;
-use crate::prelude::*;
 
 mock! {
     pub DbQuery {
@@ -757,17 +756,35 @@ mock! {
         &self,
         group_id: &[u8],
     ) -> Result<Vec<String>, crate::ConnectionError>;
-    fn delete_pending_remove_users(
-    &self,
-        group_id: &[u8],
-        inbox_ids: Vec<String>,
-    ) -> Result<usize, crate::ConnectionError>;
-         fn get_user_pending_remove_status(&self,
-        group_id: &[u8],
-        inbox_id: &str,
-    ) -> Result<bool, crate::ConnectionError>;
+        fn delete_pending_remove_users(
+        &self,
+            group_id: &[u8],
+            inbox_ids: Vec<String>,
+        ) -> Result<usize, crate::ConnectionError>;
+             fn get_user_pending_remove_status(&self,
+            group_id: &[u8],
+            inbox_id: &str,
+        ) -> Result<bool, crate::ConnectionError>;
     }
 
+    impl QueryIcebox for DbQuery {
+        fn past_dependants(
+            &self,
+            sequence_id: i64,
+            originator_id: i64,
+        ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
+
+        fn future_dependants(
+            &self,
+            sequence_id: i64,
+            originator_id: i64,
+        ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
+
+        fn ice(
+            &self,
+            orphans: Vec<OrphanedEnvelope>,
+        ) -> Result<usize, crate::ConnectionError>;
+    }
 }
 
 impl ConnectionExt for MockDbQuery {
