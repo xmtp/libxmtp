@@ -4,8 +4,6 @@ use crate::schema::icebox::dsl;
 use crate::schema::icebox_dependencies;
 use crate::{impl_store, schema::icebox};
 use diesel::prelude::*;
-use diesel::query_builder::SqlQuery;
-use diesel::sql_types::BigInt;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use xmtp_proto::types::{
@@ -67,25 +65,23 @@ pub struct IceboxDependency {
 impl_store!(IceboxDependency, icebox_dependencies);
 
 pub trait QueryIcebox {
-    /// Returns the envelope (if it exists) plus all its dependencies, and
+    /// Returns the envelopes (if they exist) plus all their dependencies, and
     /// dependencies of dependencies, along with each envelope's own dependencies.
-    /// this could be useful for resolving issues where a commit that could have been
+    /// This could be useful for resolving issues where a commit that could have been
     /// processed, was accidentally committed to the icebox.
-    /// Generaly, if a envelope has a dependency on something in the icebox already
+    /// Generally, if an envelope has a dependency on something in the icebox already
     /// it means its dependency could not be processed, so it must also be iceboxed.
-    fn past_dependants(
+    fn past_dependents(
         &self,
-        sequence_id: i64,
-        originator_id: i64,
+        cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
 
-    /// Returns envelopes that depend on the specified envelope,
+    /// Returns envelopes that depend on any of the specified cursors,
     /// along with each envelope's own dependencies.
-    /// Does not return the envelope itself, if it exists in the chain.
-    fn future_dependants(
+    /// Does not return the cursors themselves, if they exist in the chain.
+    fn future_dependents(
         &self,
-        sequence_id: i64,
-        originator_id: i64,
+        cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
 
     /// cache the orphans until its parent(s) may be found.
@@ -96,20 +92,18 @@ impl<T> QueryIcebox for &T
 where
     T: QueryIcebox,
 {
-    fn past_dependants(
+    fn past_dependents(
         &self,
-        sequence_id: i64,
-        originator_id: i64,
+        cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
-        (**self).past_dependants(sequence_id, originator_id)
+        (**self).past_dependents(cursors)
     }
 
-    fn future_dependants(
+    fn future_dependents(
         &self,
-        sequence_id: i64,
-        originator_id: i64,
+        cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
-        (**self).future_dependants(sequence_id, originator_id)
+        (**self).future_dependents(cursors)
     }
 
     fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError> {
@@ -120,13 +114,10 @@ where
 impl<C: ConnectionExt> DbConnection<C> {
     fn do_icebox_query(
         &self,
-        query: SqlQuery,
-        sid: i64,
-        oid: i64,
+        query_str: String,
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
-        let query = query.bind::<BigInt, _>(sid).bind::<BigInt, _>(oid);
         self.raw_query_read(|conn| {
-            query
+            diesel::sql_query(query_str)
                 .load_iter::<IceboxWithDep, _>(conn)?
                 .process_results(|iter| {
                     // since we're using load_iter
@@ -176,111 +167,155 @@ impl<C: ConnectionExt> DbConnection<C> {
 }
 
 impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
-    fn past_dependants(
+    fn past_dependents(
         &self,
-        sequence_id: i64,
-        originator_id: i64,
+        cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
-        let query = diesel::sql_query(
+        if cursors.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let values_clause = cursors
+            .iter()
+            .map(|c| format!("({}, {})", c.originator_id, c.sequence_id))
+            .join(", ");
+
+        let query_str = format!(
             r#"
-            WITH RECURSIVE dependency_chain AS (
-                -- Base case: Start with the specified envelope if it exists,
-                -- OR start with its immediate dependencies if it doesn't
-                SELECT i.sequence_id, i.originator_id, i.group_id, i.envelope_payload
+            WITH RECURSIVE
+            start_cursors(originator_id, sequence_id) AS (
+                VALUES {}
+            ),
+            dependency_chain AS (
+                -- Base case: Start with the specified envelopes if they exist
+                SELECT i.originator_id, i.sequence_id, i.group_id, i.envelope_payload
                 FROM icebox i
-                WHERE i.sequence_id = $1 AND i.originator_id = $2
+                JOIN start_cursors sc ON i.originator_id = sc.originator_id
+                                      AND i.sequence_id = sc.sequence_id
 
                 UNION
 
-                SELECT i.sequence_id, i.originator_id, i.group_id, i.envelope_payload
+                -- OR start with their immediate dependencies if they don't
+                SELECT i.originator_id, i.sequence_id, i.group_id, i.envelope_payload
                 FROM icebox i
-                JOIN icebox_dependencies d ON i.sequence_id = d.dependency_sequence_id
-                                           AND i.originator_id = d.dependency_originator_id
-                WHERE d.envelope_sequence_id = $1 AND d.envelope_originator_id = $2
+                JOIN icebox_dependencies d ON i.originator_id = d.dependency_originator_id
+                                           AND i.sequence_id = d.dependency_sequence_id
+                JOIN start_cursors sc ON d.envelope_originator_id = sc.originator_id
+                                      AND d.envelope_sequence_id = sc.sequence_id
 
                 UNION ALL
 
                 -- Recursive case: Continue traversing the dependency chain
-                SELECT i.sequence_id, i.originator_id, i.group_id, i.envelope_payload
+                SELECT i.originator_id, i.sequence_id, i.group_id, i.envelope_payload
                 FROM icebox i
-                JOIN icebox_dependencies d ON i.sequence_id = d.dependency_sequence_id
-                                           AND i.originator_id = d.dependency_originator_id
-                JOIN dependency_chain dc ON d.envelope_sequence_id = dc.sequence_id
-                                         AND d.envelope_originator_id = dc.originator_id
+                JOIN icebox_dependencies d ON i.originator_id = d.dependency_originator_id
+                                           AND i.sequence_id = d.dependency_sequence_id
+                JOIN dependency_chain dc ON d.envelope_originator_id = dc.originator_id
+                                         AND d.envelope_sequence_id = dc.sequence_id
             )
             SELECT
-                dc.sequence_id,
                 dc.originator_id,
+                dc.sequence_id,
                 dc.group_id,
                 dc.envelope_payload,
                 d.dependency_originator_id,
                 d.dependency_sequence_id
             FROM (SELECT DISTINCT * FROM dependency_chain) dc
             INNER JOIN icebox_dependencies d
-                ON dc.sequence_id = d.envelope_sequence_id
-                AND dc.originator_id = d.envelope_originator_id
-            ORDER BY dc.sequence_id DESC, dc.originator_id DESC
-        "#,
+                ON dc.originator_id = d.envelope_originator_id
+                AND dc.sequence_id = d.envelope_sequence_id
+            ORDER BY dc.originator_id DESC, dc.sequence_id DESC
+            "#,
+            values_clause
         );
-        self.do_icebox_query(query, sequence_id, originator_id)
+
+        self.do_icebox_query(query_str)
     }
 
-    fn future_dependants(
+    fn future_dependents(
         &self,
-        sequence_id: i64,
-        originator_id: i64,
+        cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
-        let query = diesel::sql_query(
+        if cursors.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Build the VALUES clause with actual values (safe since they're i64)
+        let values_clause = cursors
+            .iter()
+            .map(|c| format!("({}, {})", c.originator_id, c.sequence_id))
+            .join(", ");
+
+        let query_str = format!(
             r#"
-            WITH RECURSIVE dependency_chain AS (
-                -- Base case: Find all immediate dependents from icebox_dependencies
-                -- even if the envelope itself isn't in the icebox yet
-                SELECT i.sequence_id, i.originator_id, i.group_id, i.envelope_payload
+            WITH RECURSIVE
+            start_cursors(originator_id, sequence_id) AS (
+                VALUES {}
+            ),
+            dependency_chain AS (
+                -- Base case: Find all immediate dependents from any starting cursor
+                SELECT i.originator_id, i.sequence_id, i.group_id, i.envelope_payload
                 FROM icebox i
-                JOIN icebox_dependencies d ON i.sequence_id = d.envelope_sequence_id
-                                           AND i.originator_id = d.envelope_originator_id
-                WHERE d.dependency_sequence_id = $1 AND d.dependency_originator_id = $2
+                JOIN icebox_dependencies d ON i.originator_id = d.envelope_originator_id
+                                           AND i.sequence_id = d.envelope_sequence_id
+                JOIN start_cursors sc ON d.dependency_originator_id = sc.originator_id
+                                      AND d.dependency_sequence_id = sc.sequence_id
 
                 UNION ALL
 
                 -- Recursive case: Continue traversing the dependent chain
-                SELECT i.sequence_id, i.originator_id, i.group_id, i.envelope_payload
+                SELECT i.originator_id, i.sequence_id, i.group_id, i.envelope_payload
                 FROM icebox i
-                JOIN icebox_dependencies d ON i.sequence_id = d.envelope_sequence_id
-                                           AND i.originator_id = d.envelope_originator_id
-                JOIN dependency_chain dc ON d.dependency_sequence_id = dc.sequence_id
-                                         AND d.dependency_originator_id = dc.originator_id
+                JOIN icebox_dependencies d ON i.originator_id = d.envelope_originator_id
+                                           AND i.sequence_id = d.envelope_sequence_id
+                JOIN dependency_chain dc ON d.dependency_originator_id = dc.originator_id
+                                         AND d.dependency_sequence_id = dc.sequence_id
             )
             SELECT
-                dc.sequence_id,
                 dc.originator_id,
+                dc.sequence_id,
                 dc.group_id,
                 dc.envelope_payload,
                 d.dependency_originator_id,
                 d.dependency_sequence_id
             FROM dependency_chain dc
             INNER JOIN icebox_dependencies d
-                ON dc.sequence_id = d.envelope_sequence_id
-                AND dc.originator_id = d.envelope_originator_id
-        "#,
+                ON dc.originator_id = d.envelope_originator_id
+                AND dc.sequence_id = d.envelope_sequence_id
+            "#,
+            values_clause
         );
-        self.do_icebox_query(query, sequence_id, originator_id)
+
+        self.do_icebox_query(query_str)
     }
 
     fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError> {
+        if orphans.is_empty() {
+            return Ok(0);
+        }
         self.raw_query_write(|conn| {
-            let dependencies = orphans.iter().flat_map(|o| o.deps()).collect::<Vec<_>>();
-            // Insert orphaned envelopes
-            let envelopes = diesel::insert_into(dsl::icebox)
-                .values(orphans.into_iter().map(Icebox::from).collect::<Vec<_>>())
-                .execute(conn)?;
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                let mut total = 0;
 
-            // Insert dependencies
-            let deps = diesel::insert_into(icebox_dependencies::table)
-                .values(dependencies)
-                .execute(conn)?;
+                for orphan in &orphans {
+                    let inserted = diesel::insert_into(dsl::icebox)
+                        .values(Icebox::from(orphan.clone()))
+                        .on_conflict_do_nothing()
+                        .execute(conn)?;
+                    total += inserted;
+                }
 
-            Ok(envelopes + deps)
+                let dependencies = orphans.iter().flat_map(|o| o.deps()).collect::<Vec<_>>();
+                for dep in dependencies {
+                    let inserted = diesel::insert_into(icebox_dependencies::table)
+                        .values(dep)
+                        .on_conflict_do_nothing()
+                        .execute(conn)?;
+                    total += inserted;
+                }
+
+                Ok(total)
+            })
         })
     }
 }
@@ -376,16 +411,22 @@ mod tests {
             // Store envelopes and dependencies
             conn.ice(orphans.clone())?;
 
-            // past_dependants returns the starting envelope + all dependencies
-            let dep_chain = conn.past_dependants(41, 1)?;
+            // past_dependents returns the starting envelope + all dependencies
+            let dep_chain = conn.past_dependents(&[Cursor {
+                sequence_id: 41,
+                originator_id: 1,
+            }])?;
             assert_eq!(dep_chain.len(), 3);
 
             assert_eq!(orphans[0].depends_on[&1], 40);
             assert_eq!(orphans[1].depends_on[&2], 39);
             assert_eq!(orphans[2].depends_on[&2], 38);
 
-            // future_dependants returns only envelopes that depend on (39, 2)
-            let mut dep_chain = conn.future_dependants(39, 2)?;
+            // future_dependents returns only envelopes that depend on (39, 2)
+            let mut dep_chain = conn.future_dependents(&[Cursor {
+                sequence_id: 39,
+                originator_id: 2,
+            }])?;
             dep_chain.sort_by_key(|d| d.cursor.sequence_id);
             assert_eq!(dep_chain.len(), 2);
             assert_eq!(dep_chain[0].cursor.sequence_id, 40);
@@ -421,10 +462,13 @@ mod tests {
 
             conn.ice(orphans)?;
 
-            let mut dep_chain = conn.past_dependants(41, 1)?;
+            let mut dep_chain = conn.past_dependents(&[Cursor {
+                sequence_id: 41,
+                originator_id: 1,
+            }])?;
             dep_chain.sort_by_key(|d| d.cursor.sequence_id);
             // The last iced message should not be there due to the wrong originator_id.
-            // past_dependants returns starting envelope + dependencies
+            // past_dependents returns starting envelope + dependencies
             // Should only return (41, 1) and (40, 1) because (40, 1) depends on (39, 2) which doesn't exist
             assert_eq!(dep_chain.len(), 2);
             assert_eq!(dep_chain[0].depends_on[&2], 39);
@@ -432,7 +476,10 @@ mod tests {
 
             // With the changed originator, envelope (39, 1) has no dependents
             // (40, 1) depends on (39, 2), not (39, 1)
-            let dep_chain = conn.future_dependants(39, 1)?;
+            let dep_chain = conn.future_dependents(&[Cursor {
+                sequence_id: 39,
+                originator_id: 1,
+            }])?;
             assert_eq!(dep_chain.len(), 0);
         })
     }
@@ -460,18 +507,24 @@ mod tests {
 
             conn.ice(orphans)?;
 
-            let mut dep_chain = conn.past_dependants(41, 1)?;
+            let mut dep_chain = conn.past_dependents(&[Cursor {
+                sequence_id: 41,
+                originator_id: 1,
+            }])?;
             dep_chain.sort_by_key(|d| d.cursor.sequence_id);
 
             // The last iced message should not be there due to the wrong sequence_id.
-            // past_dependants returns starting envelope + dependencies
+            // past_dependents returns starting envelope + dependencies
             // Should only return (41, 1) and (40, 1) because (40, 1) depends on (39, 2) which doesn't exist
             assert_eq!(dep_chain.len(), 2);
             assert_eq!(dep_chain[0].depends_on[&2], 39);
             assert_eq!(dep_chain[1].depends_on[&1], 40);
             // With the changed sequence_id, envelope (100, 2) has no dependents
             // Nothing depends on (100, 2) in the dependency chain
-            let dep_chain = conn.future_dependants(100, 2)?;
+            let dep_chain = conn.future_dependents(&[Cursor {
+                sequence_id: 100,
+                originator_id: 2,
+            }])?;
             assert_eq!(dep_chain.len(), 0);
         })
     }
@@ -514,7 +567,10 @@ mod tests {
             let result = conn.ice(orphans);
             assert!(result.is_ok());
 
-            let mut got = conn.future_dependants(10, 0)?;
+            let mut got = conn.future_dependents(&[Cursor {
+                sequence_id: 10,
+                originator_id: 0,
+            }])?;
             got.sort_by_key(|d| d.cursor.sequence_id);
             assert_eq!(got.len(), 2);
             assert_eq!(got[0].cursor.sequence_id, 1);
@@ -580,7 +636,10 @@ mod tests {
             let result = conn.ice(orphans);
             assert!(result.is_ok());
 
-            let mut got = conn.future_dependants(2, 0)?;
+            let mut got = conn.future_dependents(&[Cursor {
+                sequence_id: 2,
+                originator_id: 0,
+            }])?;
             got.sort_by_key(|i| i.cursor.sequence_id);
             assert_eq!(got.len(), 3);
 
@@ -590,6 +649,78 @@ mod tests {
             assert_eq!(got[1].cursor.originator_id, 100);
             assert_eq!(got[2].cursor.sequence_id, 3);
             assert_eq!(got[2].cursor.originator_id, 0);
+        })
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_future_dependents_multiple_cursors() {
+        with_connection(|conn| {
+            let group_id = create_test_group(conn);
+            let orphans = iced(group_id);
+
+            // Store envelopes and dependencies
+            conn.ice(orphans)?;
+
+            // Test query with multiple cursors
+            let cursors = vec![
+                Cursor {
+                    sequence_id: 39,
+                    originator_id: 2,
+                },
+                Cursor {
+                    sequence_id: 40,
+                    originator_id: 1,
+                },
+            ];
+
+            let mut result = conn.future_dependents(&cursors)?;
+            result.sort_by_key(|d| d.cursor.sequence_id);
+
+            // Verify we get the union of dependants
+            // (39, 2) is depended on by (40, 1) and (41, 1)
+            // (40, 1) is depended on by (41, 1)
+            // So we should get (40, 1) and (41, 1), deduplicated
+            assert_eq!(result.len(), 2);
+            assert_eq!(result[0].cursor.sequence_id, 40);
+            assert_eq!(result[0].cursor.originator_id, 1);
+            assert_eq!(result[1].cursor.sequence_id, 41);
+            assert_eq!(result[1].cursor.originator_id, 1);
+
+            // Verify dependencies are correct
+            assert_eq!(result[0].depends_on[&2], 39);
+            assert_eq!(result[1].depends_on[&1], 40);
+        })
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_future_dependents_empty() {
+        with_connection(|conn| {
+            // Test with empty cursor list
+            let result = conn.future_dependents(&[])?;
+            assert_eq!(result.len(), 0);
+        })
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_querying_dependencies_in_middle_works() {
+        with_connection(|conn| {
+            let group_id = create_test_group(conn);
+            let orphans = iced(group_id);
+
+            conn.ice(orphans.clone())?;
+
+            let mut result = conn.past_dependents(&[Cursor::new(40, 1u32)])?;
+            assert_eq!(result.len(), 2);
+            result.sort_by_key(|d| d.cursor.originator_id);
+            assert_eq!(result[0].cursor, Cursor::new(40, 1u32));
+            assert_eq!(result[0].depends_on, Cursor::new(39, 2u32).into());
+            assert_eq!(result[1].cursor, Cursor::new(39, 2u32));
+            assert_eq!(result[1].depends_on, Cursor::new(38, 2u32).into());
+
+            let result = conn.future_dependents(&[Cursor::new(40, 1u32)])?;
+            assert_eq!(result.len(), 1);
+            assert_eq!(result[0].cursor, Cursor::new(41, 1u32));
+            assert_eq!(result[0].depends_on, Cursor::new(40, 1u32).into());
         })
     }
 }
