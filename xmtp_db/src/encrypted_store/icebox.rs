@@ -71,7 +71,7 @@ pub trait QueryIcebox {
     /// processed, was accidentally committed to the icebox.
     /// Generally, if an envelope has a dependency on something in the icebox already
     /// it means its dependency could not be processed, so it must also be iceboxed.
-    fn past_dependants(
+    fn past_dependents(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
@@ -79,7 +79,7 @@ pub trait QueryIcebox {
     /// Returns envelopes that depend on any of the specified cursors,
     /// along with each envelope's own dependencies.
     /// Does not return the cursors themselves, if they exist in the chain.
-    fn future_dependants(
+    fn future_dependents(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
@@ -92,18 +92,18 @@ impl<T> QueryIcebox for &T
 where
     T: QueryIcebox,
 {
-    fn past_dependants(
+    fn past_dependents(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
-        (**self).past_dependants(cursors)
+        (**self).past_dependents(cursors)
     }
 
-    fn future_dependants(
+    fn future_dependents(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
-        (**self).future_dependants(cursors)
+        (**self).future_dependents(cursors)
     }
 
     fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError> {
@@ -167,7 +167,7 @@ impl<C: ConnectionExt> DbConnection<C> {
 }
 
 impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
-    fn past_dependants(
+    fn past_dependents(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
@@ -232,7 +232,7 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
         self.do_icebox_query(query_str)
     }
 
-    fn future_dependants(
+    fn future_dependents(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
@@ -411,8 +411,8 @@ mod tests {
             // Store envelopes and dependencies
             conn.ice(orphans.clone())?;
 
-            // past_dependants returns the starting envelope + all dependencies
-            let dep_chain = conn.past_dependants(&[Cursor {
+            // past_dependents returns the starting envelope + all dependencies
+            let dep_chain = conn.past_dependents(&[Cursor {
                 sequence_id: 41,
                 originator_id: 1,
             }])?;
@@ -422,8 +422,8 @@ mod tests {
             assert_eq!(orphans[1].depends_on[&2], 39);
             assert_eq!(orphans[2].depends_on[&2], 38);
 
-            // future_dependants returns only envelopes that depend on (39, 2)
-            let mut dep_chain = conn.future_dependants(&[Cursor {
+            // future_dependents returns only envelopes that depend on (39, 2)
+            let mut dep_chain = conn.future_dependents(&[Cursor {
                 sequence_id: 39,
                 originator_id: 2,
             }])?;
@@ -462,13 +462,13 @@ mod tests {
 
             conn.ice(orphans)?;
 
-            let mut dep_chain = conn.past_dependants(&[Cursor {
+            let mut dep_chain = conn.past_dependents(&[Cursor {
                 sequence_id: 41,
                 originator_id: 1,
             }])?;
             dep_chain.sort_by_key(|d| d.cursor.sequence_id);
             // The last iced message should not be there due to the wrong originator_id.
-            // past_dependants returns starting envelope + dependencies
+            // past_dependents returns starting envelope + dependencies
             // Should only return (41, 1) and (40, 1) because (40, 1) depends on (39, 2) which doesn't exist
             assert_eq!(dep_chain.len(), 2);
             assert_eq!(dep_chain[0].depends_on[&2], 39);
@@ -476,7 +476,7 @@ mod tests {
 
             // With the changed originator, envelope (39, 1) has no dependents
             // (40, 1) depends on (39, 2), not (39, 1)
-            let dep_chain = conn.future_dependants(&[Cursor {
+            let dep_chain = conn.future_dependents(&[Cursor {
                 sequence_id: 39,
                 originator_id: 1,
             }])?;
@@ -507,21 +507,21 @@ mod tests {
 
             conn.ice(orphans)?;
 
-            let mut dep_chain = conn.past_dependants(&[Cursor {
+            let mut dep_chain = conn.past_dependents(&[Cursor {
                 sequence_id: 41,
                 originator_id: 1,
             }])?;
             dep_chain.sort_by_key(|d| d.cursor.sequence_id);
 
             // The last iced message should not be there due to the wrong sequence_id.
-            // past_dependants returns starting envelope + dependencies
+            // past_dependents returns starting envelope + dependencies
             // Should only return (41, 1) and (40, 1) because (40, 1) depends on (39, 2) which doesn't exist
             assert_eq!(dep_chain.len(), 2);
             assert_eq!(dep_chain[0].depends_on[&2], 39);
             assert_eq!(dep_chain[1].depends_on[&1], 40);
             // With the changed sequence_id, envelope (100, 2) has no dependents
             // Nothing depends on (100, 2) in the dependency chain
-            let dep_chain = conn.future_dependants(&[Cursor {
+            let dep_chain = conn.future_dependents(&[Cursor {
                 sequence_id: 100,
                 originator_id: 2,
             }])?;
@@ -567,7 +567,7 @@ mod tests {
             let result = conn.ice(orphans);
             assert!(result.is_ok());
 
-            let mut got = conn.future_dependants(&[Cursor {
+            let mut got = conn.future_dependents(&[Cursor {
                 sequence_id: 10,
                 originator_id: 0,
             }])?;
@@ -636,7 +636,7 @@ mod tests {
             let result = conn.ice(orphans);
             assert!(result.is_ok());
 
-            let mut got = conn.future_dependants(&[Cursor {
+            let mut got = conn.future_dependents(&[Cursor {
                 sequence_id: 2,
                 originator_id: 0,
             }])?;
@@ -653,7 +653,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_future_dependants_multiple_cursors() {
+    fn test_future_dependents_multiple_cursors() {
         with_connection(|conn| {
             let group_id = create_test_group(conn);
             let orphans = iced(group_id);
@@ -673,7 +673,7 @@ mod tests {
                 },
             ];
 
-            let mut result = conn.future_dependants(&cursors)?;
+            let mut result = conn.future_dependents(&cursors)?;
             result.sort_by_key(|d| d.cursor.sequence_id);
 
             // Verify we get the union of dependants
@@ -693,10 +693,10 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_future_dependants_empty() {
+    fn test_future_dependents_empty() {
         with_connection(|conn| {
             // Test with empty cursor list
-            let result = conn.future_dependants(&[])?;
+            let result = conn.future_dependents(&[])?;
             assert_eq!(result.len(), 0);
         })
     }

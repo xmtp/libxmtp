@@ -762,12 +762,12 @@ mock! {
     }
 
     impl QueryIcebox for DbQuery {
-        fn past_dependants(
+        fn past_dependents(
             &self,
             cursors: &[xmtp_proto::types::Cursor],
         ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
 
-        fn future_dependants(
+        fn future_dependents(
             &self,
             cursors: &[xmtp_proto::types::Cursor],
         ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
