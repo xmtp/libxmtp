@@ -1,6 +1,9 @@
 use std::collections::HashSet;
 use syn::{Attribute, Expr, Meta};
 
+/// Value format patterns for tracing fields: `field = expr`, `field = %expr`, `field = ?expr`, `field` (shorthand)
+const VALUE_PATTERNS: &[&str] = &["= $val:expr", "= %$val:expr", "= ?$val:expr", ""];
+
 /// Generate macro arms that enforce required context fields while allowing extra fields.
 ///
 /// Strategy: Validate that required fields exist, then pass ALL original tokens directly
@@ -15,45 +18,37 @@ pub(crate) fn generate_field_arms(
     doc_comment: &str,
     _has_inbox_id: bool,
 ) -> Vec<String> {
-    // Deduplicate fields
+    // Deduplicate fields while preserving order
     let mut seen = HashSet::new();
-    let unique_fields: Vec<&String> = fields.iter().filter(|f| seen.insert(*f)).collect();
+    let unique_fields: Vec<_> = fields.iter().filter(|f| seen.insert(*f)).collect();
 
     if unique_fields.is_empty() {
-        // No required fields - just pass through
-        let arm = format!(
+        return vec![format!(
             r#"({} $(, $($fields:tt)*)?) => {{
         ::tracing::info!($($($fields)*)? {})
     }};"#,
             full_path,
             quote_string(doc_comment),
-        );
-        return vec![arm];
+        )];
     }
 
-    let fields_list = unique_fields
-        .iter()
-        .map(|s| s.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
+    let n = unique_fields.len();
+    let fields_list = unique_fields.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ");
 
-    let mut arms = Vec::new();
+    // Helper to generate state patterns like "$s0:tt $s1:tt ..."
+    let state_pattern = |start: usize, count: usize| {
+        (start..start + count).map(|j| format!("$s{}:tt", j)).collect::<Vec<_>>().join(" ")
+    };
+    let state_output = |start: usize, count: usize| {
+        (start..start + count).map(|j| format!("$s{}", j)).collect::<Vec<_>>().join(" ")
+    };
 
-    // Entry point: save original input and start validation
-    // State is represented as: [field1 missing] [field2 missing] ...
-    let initial_state = unique_fields
-        .iter()
-        .map(|f| format!("[{} missing]", f))
-        .collect::<Vec<_>>()
-        .join(" ");
+    let initial_state = unique_fields.iter().map(|f| format!("[{} missing]", f)).collect::<Vec<_>>().join(" ");
+    let success_state = unique_fields.iter().map(|f| format!("[{} found]", f)).collect::<Vec<_>>().join(" ");
 
-    let success_state = unique_fields
-        .iter()
-        .map(|f| format!("[{} found]", f))
-        .collect::<Vec<_>>()
-        .join(" ");
+    let mut arms = Vec::with_capacity(n * 8 + 7);
 
-    // Entry point: save original tokens in @orig, start validation with @cur
+    // Entry point: save original tokens and start validation
     arms.push(format!(
         r#"({} $(, $($input:tt)*)?) => {{
         log_event!(@validate {} {} @orig[ $($($input)*)? ] @cur[ $($($input)*)? ])
@@ -61,137 +56,52 @@ pub(crate) fn generate_field_arms(
         full_path, full_path, initial_state
     ));
 
-    // For each required field, generate validation arms
+    // Per-field validation arms: handle both "missing" and "found" states
     for (i, field) in unique_fields.iter().enumerate() {
-        let before_pattern: String = (0..i).map(|j| format!("$s{}:tt", j)).collect::<Vec<_>>().join(" ");
-        let after_pattern: String = (i + 1..unique_fields.len())
-            .map(|j| format!("$s{}:tt", j))
-            .collect::<Vec<_>>()
-            .join(" ");
+        let before = state_pattern(0, i);
+        let after = state_pattern(i + 1, n - i - 1);
+        let before_out = state_output(0, i);
+        let after_out = state_output(i + 1, n - i - 1);
 
-        let before_output: String = (0..i).map(|j| format!("$s{}", j)).collect::<Vec<_>>().join(" ");
-        let after_output: String = (i + 1..unique_fields.len())
-            .map(|j| format!("$s{}", j))
-            .collect::<Vec<_>>()
-            .join(" ");
+        for state in ["missing", "found"] {
+            for pattern in VALUE_PATTERNS {
+                let field_pattern = if pattern.is_empty() {
+                    field.to_string()
+                } else {
+                    format!("{} {}", field, pattern)
+                };
 
-        // field = expr - mark as found, skip this field in @cur
-        arms.push(format!(
-            r#"(@validate {} {} [{} missing] {} @orig[ $($orig:tt)* ] @cur[ {} = $val:expr $(, $($rest:tt)*)? ]) => {{
+                arms.push(format!(
+                    r#"(@validate {} {} [{} {}] {} @orig[ $($orig:tt)* ] @cur[ {} $(, $($rest:tt)*)? ]) => {{
         log_event!(@validate {} {} [{} found] {} @orig[ $($orig)* ] @cur[ $($($rest)*)? ])
     }};"#,
-            full_path, before_pattern, field, after_pattern, field,
-            full_path, before_output, field, after_output
-        ));
+                    full_path, before, field, state, after, field_pattern,
+                    full_path, before_out, field, after_out
+                ));
+            }
+        }
+    }
 
-        // field = %expr
-        arms.push(format!(
-            r#"(@validate {} {} [{} missing] {} @orig[ $($orig:tt)* ] @cur[ {} = %$val:expr $(, $($rest:tt)*)? ]) => {{
-        log_event!(@validate {} {} [{} found] {} @orig[ $($orig)* ] @cur[ $($($rest)*)? ])
-    }};"#,
-            full_path, before_pattern, field, after_pattern, field,
-            full_path, before_output, field, after_output
-        ));
+    // Non-required field handlers: skip any field not in the required list
+    let all_state = state_pattern(0, n);
+    let all_out = state_output(0, n);
 
-        // field = ?expr
-        arms.push(format!(
-            r#"(@validate {} {} [{} missing] {} @orig[ $($orig:tt)* ] @cur[ {} = ?$val:expr $(, $($rest:tt)*)? ]) => {{
-        log_event!(@validate {} {} [{} found] {} @orig[ $($orig)* ] @cur[ $($($rest)*)? ])
-    }};"#,
-            full_path, before_pattern, field, after_pattern, field,
-            full_path, before_output, field, after_output
-        ));
-
-        // field (shorthand) - mark as found
-        arms.push(format!(
-            r#"(@validate {} {} [{} missing] {} @orig[ $($orig:tt)* ] @cur[ {} $(, $($rest:tt)*)? ]) => {{
-        log_event!(@validate {} {} [{} found] {} @orig[ $($orig)* ] @cur[ $($($rest)*)? ])
-    }};"#,
-            full_path, before_pattern, field, after_pattern, field,
-            full_path, before_output, field, after_output
-        ));
-
-        // When field is already found, still need to skip it in @cur
-        arms.push(format!(
-            r#"(@validate {} {} [{} found] {} @orig[ $($orig:tt)* ] @cur[ {} = $val:expr $(, $($rest:tt)*)? ]) => {{
-        log_event!(@validate {} {} [{} found] {} @orig[ $($orig)* ] @cur[ $($($rest)*)? ])
-    }};"#,
-            full_path, before_pattern, field, after_pattern, field,
-            full_path, before_output, field, after_output
-        ));
+    for pattern in VALUE_PATTERNS {
+        let field_pattern = if pattern.is_empty() {
+            "$field:tt".to_string()
+        } else {
+            format!("$field:tt {}", pattern)
+        };
 
         arms.push(format!(
-            r#"(@validate {} {} [{} found] {} @orig[ $($orig:tt)* ] @cur[ {} = %$val:expr $(, $($rest:tt)*)? ]) => {{
-        log_event!(@validate {} {} [{} found] {} @orig[ $($orig)* ] @cur[ $($($rest)*)? ])
+            r#"(@validate {} {} @orig[ $($orig:tt)* ] @cur[ {} $(, $($rest:tt)*)? ]) => {{
+        log_event!(@validate {} {} @orig[ $($orig)* ] @cur[ $($($rest)*)? ])
     }};"#,
-            full_path, before_pattern, field, after_pattern, field,
-            full_path, before_output, field, after_output
-        ));
-
-        arms.push(format!(
-            r#"(@validate {} {} [{} found] {} @orig[ $($orig:tt)* ] @cur[ {} = ?$val:expr $(, $($rest:tt)*)? ]) => {{
-        log_event!(@validate {} {} [{} found] {} @orig[ $($orig)* ] @cur[ $($($rest)*)? ])
-    }};"#,
-            full_path, before_pattern, field, after_pattern, field,
-            full_path, before_output, field, after_output
-        ));
-
-        arms.push(format!(
-            r#"(@validate {} {} [{} found] {} @orig[ $($orig:tt)* ] @cur[ {} $(, $($rest:tt)*)? ]) => {{
-        log_event!(@validate {} {} [{} found] {} @orig[ $($orig)* ] @cur[ $($($rest)*)? ])
-    }};"#,
-            full_path, before_pattern, field, after_pattern, field,
-            full_path, before_output, field, after_output
+            full_path, all_state, field_pattern, full_path, all_out
         ));
     }
 
-    // Handle non-required fields - just skip them in @cur
-    let all_state_pattern: String = (0..unique_fields.len())
-        .map(|j| format!("$s{}:tt", j))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let all_state_output: String = (0..unique_fields.len())
-        .map(|j| format!("$s{}", j))
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    // Non-required field = expr
-    arms.push(format!(
-        r#"(@validate {} {} @orig[ $($orig:tt)* ] @cur[ $field:tt = $val:expr $(, $($rest:tt)*)? ]) => {{
-        log_event!(@validate {} {} @orig[ $($orig)* ] @cur[ $($($rest)*)? ])
-    }};"#,
-        full_path, all_state_pattern,
-        full_path, all_state_output
-    ));
-
-    // Non-required field = %expr
-    arms.push(format!(
-        r#"(@validate {} {} @orig[ $($orig:tt)* ] @cur[ $field:tt = %$val:expr $(, $($rest:tt)*)? ]) => {{
-        log_event!(@validate {} {} @orig[ $($orig)* ] @cur[ $($($rest)*)? ])
-    }};"#,
-        full_path, all_state_pattern,
-        full_path, all_state_output
-    ));
-
-    // Non-required field = ?expr
-    arms.push(format!(
-        r#"(@validate {} {} @orig[ $($orig:tt)* ] @cur[ $field:tt = ?$val:expr $(, $($rest:tt)*)? ]) => {{
-        log_event!(@validate {} {} @orig[ $($orig)* ] @cur[ $($($rest)*)? ])
-    }};"#,
-        full_path, all_state_pattern,
-        full_path, all_state_output
-    ));
-
-    // Non-required field (shorthand)
-    arms.push(format!(
-        r#"(@validate {} {} @orig[ $($orig:tt)* ] @cur[ $field:tt $(, $($rest:tt)*)? ]) => {{
-        log_event!(@validate {} {} @orig[ $($orig)* ] @cur[ $($($rest)*)? ])
-    }};"#,
-        full_path, all_state_pattern,
-        full_path, all_state_output
-    ));
-
-    // Terminal: all required fields found, @cur exhausted - emit with ORIGINAL tokens
+    // Success terminal: all required fields found
     arms.push(format!(
         r#"(@validate {} {} @orig[ $($orig:tt)* ] @cur[ ]) => {{
         ::tracing::info!($($orig)* {})
@@ -199,22 +109,16 @@ pub(crate) fn generate_field_arms(
         full_path, success_state, quote_string(doc_comment)
     ));
 
-    // Terminal: @cur exhausted but some required fields still missing -> error
+    // Error terminals: missing required fields
     for (i, field) in unique_fields.iter().enumerate() {
-        let before_pattern: String = (0..i)
-            .map(|j| format!("$s{}:tt", j))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let after_pattern: String = (i + 1..unique_fields.len())
-            .map(|j| format!("$s{}:tt", j))
-            .collect::<Vec<_>>()
-            .join(" ");
+        let before = state_pattern(0, i);
+        let after = state_pattern(i + 1, n - i - 1);
 
         arms.push(format!(
             r#"(@validate {} {} [{} missing] {} @orig[ $($orig:tt)* ] @cur[ ]) => {{
         ::core::compile_error!(concat!("{} requires context fields: {}", ". Missing field: {}."))
     }};"#,
-            full_path, before_pattern, field, after_pattern, full_path, fields_list, field
+            full_path, before, field, after, full_path, fields_list, field
         ));
     }
 
@@ -222,34 +126,35 @@ pub(crate) fn generate_field_arms(
 }
 
 pub(crate) fn get_doc_comment(attrs: &[Attribute]) -> String {
-    for attr in attrs {
-        if attr.path().is_ident("doc") {
-            if let Meta::NameValue(nv) = &attr.meta {
-                if let Expr::Lit(expr_lit) = &nv.value {
-                    if let syn::Lit::Str(s) = &expr_lit.lit {
-                        return s.value().trim().to_string();
-                    }
+    attrs.iter().find_map(|attr| {
+        if !attr.path().is_ident("doc") {
+            return None;
+        }
+        if let Meta::NameValue(nv) = &attr.meta {
+            if let Expr::Lit(expr_lit) = &nv.value {
+                if let syn::Lit::Str(s) = &expr_lit.lit {
+                    return Some(s.value().trim().to_string());
                 }
             }
         }
-    }
-    String::new()
+        None
+    }).unwrap_or_default()
 }
 
 pub(crate) fn get_context_fields(attrs: &[Attribute]) -> Vec<String> {
-    for attr in attrs {
-        if attr.path().is_ident("context") {
-            let mut fields = Vec::new();
-            let _ = attr.parse_nested_meta(|meta| {
-                if let Some(ident) = meta.path.get_ident() {
-                    fields.push(ident.to_string());
-                }
-                Ok(())
-            });
-            return fields;
+    attrs.iter().find_map(|attr| {
+        if !attr.path().is_ident("context") {
+            return None;
         }
-    }
-    Vec::new()
+        let mut fields = Vec::new();
+        let _ = attr.parse_nested_meta(|meta| {
+            if let Some(ident) = meta.path.get_ident() {
+                fields.push(ident.to_string());
+            }
+            Ok(())
+        });
+        Some(fields)
+    }).unwrap_or_default()
 }
 
 pub(crate) fn quote_string(s: &str) -> String {
