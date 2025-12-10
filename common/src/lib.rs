@@ -16,6 +16,8 @@ pub use xmtp_macro::test;
 #[doc(inline)]
 pub use xmtp_macro::async_trait;
 
+pub use xmtp_macro::log_event_macro;
+
 #[cfg(feature = "bench")]
 pub mod bench;
 

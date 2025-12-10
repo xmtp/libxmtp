@@ -10,6 +10,10 @@ pub mod groups;
 pub mod identity;
 pub mod identity_updates;
 mod intents;
+
+pub mod logs;
+use logs::log_event;
+
 pub mod messages;
 pub mod mls_store;
 mod mutex_registry;

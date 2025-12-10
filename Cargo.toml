@@ -21,7 +21,7 @@ members = [
   "xmtp_archive",
   "xmtp_mls_common",
   "xmtp_configuration",
-  "db_tools",
+  "db_tools"
 ]
 
 # Used when cargo commands in the workspace root, such as `cargo test`, are run without flags.

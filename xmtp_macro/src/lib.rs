@@ -1,7 +1,13 @@
 extern crate proc_macro;
 
+mod logging;
+
+use proc_macro::TokenStream as TokenStream1;
 use proc_macro2::*;
 use quote::{quote, quote_spanned};
+use syn::{Data, DeriveInput, parse_macro_input};
+
+use crate::logging::*;
 
 /// A proc macro attribute that wraps the input in an `async_trait` implementation,
 /// delegating to the appropriate `async_trait` implementation based on the target architecture.
@@ -97,6 +103,148 @@ pub fn test(
         #test_attrs
         #input_fn
     })
+}
+
+#[proc_macro_attribute]
+pub fn log_event_macro(_attr: TokenStream1, item: TokenStream1) -> TokenStream1 {
+    let input = parse_macro_input!(item as DeriveInput);
+
+    let enum_name = &input.ident;
+    let visibility = &input.vis;
+    let attrs = &input.attrs;
+
+    let Data::Enum(data_enum) = &input.data else {
+        return syn::Error::new_spanned(&input, "log_event_macro can only be used on enums")
+            .to_compile_error()
+            .into();
+    };
+
+    let mut display_arms = Vec::new();
+    let mut macro_arms = Vec::new();
+    let mut cleaned_variants = Vec::new();
+
+    for variant in &data_enum.variants {
+        let variant_name = &variant.ident;
+        let doc_comment = get_doc_comment(&variant.attrs);
+        let context_fields = get_context_fields(&variant.attrs);
+
+        // Filter out #[context(...)] attributes for the output enum
+        let filtered_attrs: Vec<_> = variant
+            .attrs
+            .iter()
+            .filter(|a| !a.path().is_ident("context"))
+            .collect();
+
+        // Rebuild variant without context attribute
+        let variant_fields = &variant.fields;
+        let variant_discriminant = variant
+            .discriminant
+            .as_ref()
+            .map(|(eq, expr)| quote! { #eq #expr });
+
+        cleaned_variants.push(quote! {
+            #(#filtered_attrs)*
+            #variant_name #variant_fields #variant_discriminant
+        });
+
+        // Display impl arm
+        display_arms.push(quote! {
+            #enum_name::#variant_name => write!(f, #doc_comment),
+        });
+
+        // Check if inbox_id is in context fields for message formatting
+        let has_inbox_id = context_fields.contains(&"inbox_id".to_string());
+
+        // Macro arm
+        let full_path = format!("{}::{}", enum_name, variant_name);
+
+        if context_fields.is_empty() {
+            let arm = format!(
+                r#"({} $(, $($extra:tt)*)?) => {{
+        ::tracing::info!($($($extra)*)? {})
+    }};"#,
+                full_path,
+                quote_string(&doc_comment),
+            );
+            macro_arms.push(arm);
+        } else {
+            let arms = generate_field_arms(&full_path, &context_fields, &doc_comment, has_inbox_id);
+            macro_arms.extend(arms);
+        }
+    }
+
+    // Build the macro_rules as a string and parse it
+    let macro_body = macro_arms.join("\n        ");
+    let macro_def_str = format!(
+        r#"
+macro_rules! log_event {{
+    {}
+}}
+
+pub(crate) use log_event;
+"#,
+        macro_body
+    );
+
+    let macro_def: TokenStream = macro_def_str
+        .parse()
+        .expect("Failed to parse generated macro");
+
+    let expanded = quote! {
+        #(#attrs)*
+        #visibility enum #enum_name {
+            #(#cleaned_variants),*
+        }
+
+        impl ::core::fmt::Display for #enum_name {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                match self {
+                    #(#display_arms)*
+                }
+            }
+        }
+
+        #macro_def
+    };
+
+    expanded.into()
+}
+
+/// Derive macro for just the Display impl (if you don't need the log_event! macro)
+#[proc_macro_derive(LogEvent, attributes(context))]
+pub fn derive_log_event(input: TokenStream1) -> TokenStream1 {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    let enum_name = &input.ident;
+
+    let Data::Enum(data_enum) = &input.data else {
+        return syn::Error::new_spanned(&input, "LogEvent can only be derived for enums")
+            .to_compile_error()
+            .into();
+    };
+
+    let mut display_arms = Vec::new();
+
+    for variant in &data_enum.variants {
+        let variant_name = &variant.ident;
+        let doc_comment = get_doc_comment(&variant.attrs);
+
+        display_arms.push(quote! {
+            #enum_name::#variant_name => write!(f, #doc_comment),
+        });
+    }
+
+    let expanded = quote! {
+        impl ::core::fmt::Display for #enum_name {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                match self {
+                    #(#display_arms)*
+                }
+            }
+        }
+    };
+
+    expanded.into()
 }
 
 // Check if a function's return type is () (unit)
