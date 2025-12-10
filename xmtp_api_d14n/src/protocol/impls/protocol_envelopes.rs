@@ -10,7 +10,7 @@ use xmtp_proto::mls_v1::subscribe_welcome_messages_request::Filter as SubscribeW
 use xmtp_proto::mls_v1::{
     SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest, welcome_message,
 };
-use xmtp_proto::types::{Cursor, Topic};
+use xmtp_proto::types::{Cursor, OrphanedEnvelope, Topic};
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     SubscribeEnvelopesResponse, get_newest_envelope_response,
 };
@@ -523,6 +523,10 @@ impl EnvelopeCollection<'_> for SubscribeEnvelopesResponse {
     ) -> Result<Vec<Option<xmtp_proto::types::WelcomeMessage>>, EnvelopeError> {
         self.envelopes.welcome_messages()
     }
+
+    fn orphans(&self) -> Result<Vec<OrphanedEnvelope>, EnvelopeError> {
+        self.envelopes.orphans()
+    }
 }
 
 impl EnvelopeCollection<'_> for SubscribeGroupMessagesRequest {
@@ -574,6 +578,10 @@ impl EnvelopeCollection<'_> for SubscribeGroupMessagesRequest {
     ) -> Result<Vec<Option<xmtp_proto::types::WelcomeMessage>>, EnvelopeError> {
         self.filters.welcome_messages()
     }
+
+    fn orphans(&self) -> Result<Vec<OrphanedEnvelope>, EnvelopeError> {
+        self.filters.orphans()
+    }
 }
 
 impl EnvelopeCollection<'_> for SubscribeWelcomeMessagesRequest {
@@ -624,6 +632,10 @@ impl EnvelopeCollection<'_> for SubscribeWelcomeMessagesRequest {
         &self,
     ) -> Result<Vec<Option<xmtp_proto::types::WelcomeMessage>>, EnvelopeError> {
         self.filters.welcome_messages()
+    }
+
+    fn orphans(&self) -> Result<Vec<OrphanedEnvelope>, EnvelopeError> {
+        self.filters.orphans()
     }
 }
 
