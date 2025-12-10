@@ -99,6 +99,12 @@ impl TopicCursor {
     }
 }
 
+impl From<HashMap<Topic, GlobalCursor>> for TopicCursor {
+    fn from(inner: HashMap<Topic, GlobalCursor>) -> Self {
+        TopicCursor { inner }
+    }
+}
+
 impl FromIterator<(Topic, GlobalCursor)> for TopicCursor {
     fn from_iter<T: IntoIterator<Item = (Topic, GlobalCursor)>>(iter: T) -> Self {
         TopicCursor {
