@@ -24,7 +24,11 @@ pub struct Installation {
 #[wasm_bindgen]
 impl Installation {
   #[wasm_bindgen(constructor)]
-  pub fn new(bytes: Uint8Array, id: String, client_timestamp_ns: Option<u64>) -> Self {
+  pub fn new(
+    bytes: Uint8Array,
+    id: String,
+    #[wasm_bindgen(js_name = clientTimestampNs)] client_timestamp_ns: Option<u64>,
+  ) -> Self {
     Self {
       bytes,
       client_timestamp_ns,
@@ -48,10 +52,10 @@ pub struct InboxState {
 impl InboxState {
   #[wasm_bindgen(constructor)]
   pub fn new(
-    inbox_id: String,
-    recovery_identifier: Identifier,
+    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+    #[wasm_bindgen(js_name = recoveryIdentifier)] recovery_identifier: Identifier,
     installations: Vec<Installation>,
-    account_identifiers: Vec<Identifier>,
+    #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
   ) -> Self {
     Self {
       inbox_id,
@@ -98,7 +102,9 @@ pub struct KeyPackageStatus {
 #[wasm_bindgen]
 #[derive(Clone, serde::Serialize)]
 pub struct Lifetime {
+  #[wasm_bindgen(js_name = notBefore)]
   pub not_before: u64,
+  #[wasm_bindgen(js_name = notAfter)]
   pub not_after: u64,
 }
 
@@ -122,9 +128,9 @@ impl From<VerifiedKeyPackageV2> for KeyPackageStatus {
 
 #[wasm_bindgen(js_name = inboxStateFromInboxIds)]
 pub async fn inbox_state_from_inbox_ids(
-  v3_host: String,
-  gateway_host: Option<String>,
-  inbox_ids: Vec<String>,
+  #[wasm_bindgen(js_name = host)] v3_host: String,
+  #[wasm_bindgen(js_name = gatewayHost)] gateway_host: Option<String>,
+  #[wasm_bindgen(js_name = inboxIds)] inbox_ids: Vec<String>,
 ) -> Result<Vec<InboxState>, JsError> {
   let backend = MessageBackendBuilder::default()
     .v3_host(&v3_host)
@@ -160,7 +166,10 @@ impl Client {
    * Otherwise, the state will be read from the local database.
    */
   #[wasm_bindgen(js_name = inboxState)]
-  pub async fn inbox_state(&self, refresh_from_network: bool) -> Result<InboxState, JsError> {
+  pub async fn inbox_state(
+    &self,
+    #[wasm_bindgen(js_name = refreshFromNetwork)] refresh_from_network: bool,
+  ) -> Result<InboxState, JsError> {
     let state = self
       .inner_client()
       .inbox_state(refresh_from_network)
@@ -170,7 +179,10 @@ impl Client {
   }
 
   #[wasm_bindgen(js_name = getLatestInboxState)]
-  pub async fn get_latest_inbox_state(&self, inbox_id: String) -> Result<InboxState, JsError> {
+  pub async fn get_latest_inbox_state(
+    &self,
+    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+  ) -> Result<InboxState, JsError> {
     let conn = self.inner_client().context.store().db();
     let state = self
       .inner_client()
@@ -189,7 +201,7 @@ impl Client {
   #[wasm_bindgen(js_name = getKeyPackageStatusesForInstallationIds)]
   pub async fn get_key_package_statuses_for_installation_ids(
     &self,
-    installation_ids: Vec<String>,
+    #[wasm_bindgen(js_name = installationIds)] installation_ids: Vec<String>,
   ) -> Result<JsValue, JsError> {
     // Convert String to Vec<u8>
     let installation_ids = installation_ids
