@@ -177,8 +177,8 @@ pub async fn create_client(
   disable_events: Option<bool>,
   app_version: Option<String>,
   nonce: Option<BigInt>,
-  auth_callback: Option<&gateway_auth::FfiAuthCallback>,
-  auth_handle: Option<&gateway_auth::FfiAuthHandle>,
+  auth_callback: Option<&gateway_auth::AuthCallback>,
+  auth_handle: Option<&gateway_auth::AuthHandle>,
   client_mode: Option<ClientMode>,
 ) -> Result<Client> {
   let client_mode = client_mode.unwrap_or_default();

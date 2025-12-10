@@ -1,6 +1,6 @@
 use crate::ErrorWrapper;
 use crate::encoded_content::EncodedContent;
-use crate::enriched_message::DecodedMessage as NodeDecodedMessage;
+use crate::enriched_message::DecodedMessage;
 use napi::bindgen_prelude::{Result, Uint8Array};
 use napi_derive::napi;
 use prost::Message;
@@ -32,7 +32,7 @@ impl EnrichedReply {
   }
 
   #[napi(getter)]
-  pub fn in_reply_to(&self) -> Option<NodeDecodedMessage> {
+  pub fn in_reply_to(&self) -> Option<DecodedMessage> {
     self.in_reply_to.clone().map(|m| (*m).into())
   }
 }
