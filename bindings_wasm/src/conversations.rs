@@ -206,6 +206,7 @@ impl MessageDisappearingSettings {
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct XmtpCursor {
   #[wasm_bindgen(js_name = originatorId)]
   pub originator_id: u32,
@@ -225,25 +226,20 @@ impl From<Cursor> for XmtpCursor {
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConversationDebugInfo {
   pub epoch: u64,
   #[wasm_bindgen(js_name = maybeForked)]
-  #[serde(rename = "maybeForked")]
   pub maybe_forked: bool,
   #[wasm_bindgen(js_name = forkDetails)]
-  #[serde(rename = "forkDetails")]
   pub fork_details: String,
   #[wasm_bindgen(js_name = isCommitLogForked)]
-  #[serde(rename = "isCommitLogForked")]
   pub is_commit_log_forked: Option<bool>,
   #[wasm_bindgen(js_name = localCommitLog)]
-  #[serde(rename = "localCommitLog")]
   pub local_commit_log: String,
   #[wasm_bindgen(js_name = remoteCommitLog)]
-  #[serde(rename = "remoteCommitLog")]
   pub remote_commit_log: String,
   #[wasm_bindgen(js_name = cursor)]
-  #[serde(rename = "cursor")]
   pub cursor: Vec<XmtpCursor>,
 }
 
@@ -562,7 +558,7 @@ impl Conversations {
   #[wasm_bindgen(js_name = findEnrichedMessageById)]
   pub async fn find_enriched_message_by_id(
     &self,
-    message_id: String,
+    #[wasm_bindgen(js_name = messageId)] message_id: String,
   ) -> Result<DecodedMessage, JsError> {
     let message_id =
       hex::decode(message_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
@@ -576,7 +572,10 @@ impl Conversations {
   }
 
   #[wasm_bindgen(js_name = deleteMessageById)]
-  pub fn delete_message_by_id(&self, message_id: String) -> Result<u32, JsError> {
+  pub fn delete_message_by_id(
+    &self,
+    #[wasm_bindgen(js_name = messageId)] message_id: String,
+  ) -> Result<u32, JsError> {
     let message_id =
       hex::decode(message_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 

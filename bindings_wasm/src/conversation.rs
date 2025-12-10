@@ -85,21 +85,17 @@ pub enum PermissionLevel {
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupMember {
   #[wasm_bindgen(js_name = inboxId)]
-  #[serde(rename = "inboxId")]
   pub inbox_id: String,
   #[wasm_bindgen(js_name = accountIdentifiers)]
-  #[serde(rename = "accountIdentifiers")]
   pub account_identifiers: Vec<Identifier>,
   #[wasm_bindgen(js_name = installationIds)]
-  #[serde(rename = "installationIds")]
   pub installation_ids: Vec<String>,
   #[wasm_bindgen(js_name = permissionLevel)]
-  #[serde(rename = "permissionLevel")]
   pub permission_level: PermissionLevel,
   #[wasm_bindgen(js_name = consentState)]
-  #[serde(rename = "consentState")]
   pub consent_state: ConsentState,
 }
 

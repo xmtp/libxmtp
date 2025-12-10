@@ -91,16 +91,16 @@ impl From<AssociationState> for InboxState {
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct KeyPackageStatus {
-  #[wasm_bindgen(js_name = lifetime)]
   pub lifetime: Option<Lifetime>,
   #[wasm_bindgen(js_name = validationError)]
-  #[serde(rename = "validationError")]
   pub validation_error: Option<String>,
 }
 
 #[wasm_bindgen]
 #[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Lifetime {
   #[wasm_bindgen(js_name = notBefore)]
   pub not_before: u64,
