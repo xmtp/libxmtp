@@ -12610,6 +12610,40 @@ public object FfiConverterTypeFfiKeyPackageStatus: FfiConverterRustBuffer<FfiKey
 
 
 
+/**
+ * Represents a leave request message sent when a user wants to leave a group.
+ */
+data class FfiLeaveRequest (
+    /**
+     * Optional authenticated note for the leave request
+     */
+    var `authenticatedNote`: kotlin.ByteArray?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiLeaveRequest: FfiConverterRustBuffer<FfiLeaveRequest> {
+    override fun read(buf: ByteBuffer): FfiLeaveRequest {
+        return FfiLeaveRequest(
+            FfiConverterOptionalByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiLeaveRequest) = (
+            FfiConverterOptionalByteArray.allocationSize(value.`authenticatedNote`)
+    )
+
+    override fun write(value: FfiLeaveRequest, buf: ByteBuffer) {
+            FfiConverterOptionalByteArray.write(value.`authenticatedNote`, buf)
+    }
+}
+
+
+
 data class FfiLifetime (
     var `notBefore`: kotlin.ULong, 
     var `notAfter`: kotlin.ULong
@@ -13750,7 +13784,8 @@ enum class FfiContentType {
     REPLY,
     ATTACHMENT,
     REMOTE_ATTACHMENT,
-    TRANSACTION_REFERENCE;
+    TRANSACTION_REFERENCE,
+    LEAVE_REQUEST;
     companion object
 }
 
@@ -13993,6 +14028,11 @@ sealed class FfiDecodedMessageBody {
         companion object
     }
     
+    data class LeaveRequest(
+        val v1: FfiLeaveRequest) : FfiDecodedMessageBody() {
+        companion object
+    }
+    
     data class Custom(
         val v1: FfiEncodedContent) : FfiDecodedMessageBody() {
         companion object
@@ -14042,7 +14082,10 @@ public object FfiConverterTypeFfiDecodedMessageBody : FfiConverterRustBuffer<Ffi
             11 -> FfiDecodedMessageBody.Actions(
                 FfiConverterTypeFfiActions.read(buf),
                 )
-            12 -> FfiDecodedMessageBody.Custom(
+            12 -> FfiDecodedMessageBody.LeaveRequest(
+                FfiConverterTypeFfiLeaveRequest.read(buf),
+                )
+            13 -> FfiDecodedMessageBody.Custom(
                 FfiConverterTypeFfiEncodedContent.read(buf),
                 )
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
@@ -14127,6 +14170,13 @@ public object FfiConverterTypeFfiDecodedMessageBody : FfiConverterRustBuffer<Ffi
                 + FfiConverterTypeFfiActions.allocationSize(value.v1)
             )
         }
+        is FfiDecodedMessageBody.LeaveRequest -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiLeaveRequest.allocationSize(value.v1)
+            )
+        }
         is FfiDecodedMessageBody.Custom -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
@@ -14193,8 +14243,13 @@ public object FfiConverterTypeFfiDecodedMessageBody : FfiConverterRustBuffer<Ffi
                 FfiConverterTypeFfiActions.write(value.v1, buf)
                 Unit
             }
-            is FfiDecodedMessageBody.Custom -> {
+            is FfiDecodedMessageBody.LeaveRequest -> {
                 buf.putInt(12)
+                FfiConverterTypeFfiLeaveRequest.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageBody.Custom -> {
+                buf.putInt(13)
                 FfiConverterTypeFfiEncodedContent.write(value.v1, buf)
                 Unit
             }
@@ -14265,6 +14320,11 @@ sealed class FfiDecodedMessageContent: Disposable  {
     
     data class Actions(
         val v1: FfiActions?) : FfiDecodedMessageContent() {
+        companion object
+    }
+    
+    data class LeaveRequest(
+        val v1: FfiLeaveRequest) : FfiDecodedMessageContent() {
         companion object
     }
     
@@ -14362,6 +14422,13 @@ sealed class FfiDecodedMessageContent: Disposable  {
     )
                 
             }
+            is FfiDecodedMessageContent.LeaveRequest -> {
+                
+    Disposable.destroy(
+        this.v1
+    )
+                
+            }
             is FfiDecodedMessageContent.Custom -> {
                 
     Disposable.destroy(
@@ -14417,7 +14484,10 @@ public object FfiConverterTypeFfiDecodedMessageContent : FfiConverterRustBuffer<
             12 -> FfiDecodedMessageContent.Actions(
                 FfiConverterOptionalTypeFfiActions.read(buf),
                 )
-            13 -> FfiDecodedMessageContent.Custom(
+            13 -> FfiDecodedMessageContent.LeaveRequest(
+                FfiConverterTypeFfiLeaveRequest.read(buf),
+                )
+            14 -> FfiDecodedMessageContent.Custom(
                 FfiConverterTypeFfiEncodedContent.read(buf),
                 )
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
@@ -14509,6 +14579,13 @@ public object FfiConverterTypeFfiDecodedMessageContent : FfiConverterRustBuffer<
                 + FfiConverterOptionalTypeFfiActions.allocationSize(value.v1)
             )
         }
+        is FfiDecodedMessageContent.LeaveRequest -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFfiLeaveRequest.allocationSize(value.v1)
+            )
+        }
         is FfiDecodedMessageContent.Custom -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
@@ -14580,8 +14657,13 @@ public object FfiConverterTypeFfiDecodedMessageContent : FfiConverterRustBuffer<
                 FfiConverterOptionalTypeFfiActions.write(value.v1, buf)
                 Unit
             }
-            is FfiDecodedMessageContent.Custom -> {
+            is FfiDecodedMessageContent.LeaveRequest -> {
                 buf.putInt(13)
+                FfiConverterTypeFfiLeaveRequest.write(value.v1, buf)
+                Unit
+            }
+            is FfiDecodedMessageContent.Custom -> {
+                buf.putInt(14)
                 FfiConverterTypeFfiEncodedContent.write(value.v1, buf)
                 Unit
             }
