@@ -80,6 +80,10 @@ where
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
         self.client.stream(request, path, body).await
     }
+
+    fn fake_stream(&self) -> http::Response<Self::Stream> {
+        self.client.fake_stream()
+    }
 }
 
 #[xmtp_common::async_trait]

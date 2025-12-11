@@ -11,9 +11,9 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, SubscribeEnvelopesRe
 #[derive(Debug, Builder, Default, Clone)]
 #[builder(build_fn(error = "BodyError"))]
 pub struct SubscribeEnvelopes {
-    #[builder(setter(each(name = "topic", into)))]
+    #[builder(setter(each(name = "topic", into)), default)]
     topics: Vec<Topic>,
-    #[builder(setter(into))]
+    #[builder(setter(into), default)]
     last_seen: Option<GlobalCursor>,
     #[builder(default)]
     originators: Vec<OriginatorId>,

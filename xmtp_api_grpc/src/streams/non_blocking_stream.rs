@@ -35,7 +35,7 @@ use std::{
 };
 use tonic::Status;
 
-use crate::streams::IntoInner;
+use crate::streams::{FakeEmptyStream, IntoInner};
 
 pin_project! {
     /// The establish future for the http post stream
@@ -103,6 +103,16 @@ where
     pub fn started(stream: S) -> Self {
         Self {
             state: StreamState::Started { stream },
+        }
+    }
+}
+
+impl<F> NonBlockingWebStream<F, FakeEmptyStream<Status>> {
+    pub fn empty() -> Self {
+        Self {
+            state: StreamState::Started {
+                stream: FakeEmptyStream::<Status>::new(),
+            },
         }
     }
 }
