@@ -105,6 +105,9 @@ pub trait Client: MaybeSend + MaybeSync {
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>>;
+
+    /// start a "fake" stream that does not create a TCP connection and will always be pending
+    fn fake_stream(&self) -> http::Response<Self::Stream>;
 }
 
 #[xmtp_common::async_trait]
@@ -132,6 +135,10 @@ where
         body: Bytes,
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
         (**self).stream(request, path, body).await
+    }
+
+    fn fake_stream(&self) -> http::Response<Self::Stream> {
+        (**self).fake_stream()
     }
 }
 
@@ -161,6 +168,10 @@ where
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
         (**self).stream(request, path, body).await
     }
+
+    fn fake_stream(&self) -> http::Response<Self::Stream> {
+        (**self).fake_stream()
+    }
 }
 
 #[xmtp_common::async_trait]
@@ -184,10 +195,15 @@ where
     async fn stream(
         &self,
         request: request::Builder,
-        path: http::uri::PathAndQuery,
+        path: PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
         (**self).stream(request, path, body).await
+    }
+
+    /// start a "fake" stream that does not create a TCP connection and will always be pending
+    fn fake_stream(&self) -> http::Response<Self::Stream> {
+        (**self).fake_stream()
     }
 }
 
@@ -226,6 +242,8 @@ where
         &mut self,
         client: &C,
     ) -> Result<XmtpStream<<C as Client>::Stream, T>, ApiClientError<C::Error>>;
+
+    fn fake_stream(&mut self, client: &C) -> XmtpStream<<C as Client>::Stream, T>;
 }
 
 #[xmtp_common::async_trait]

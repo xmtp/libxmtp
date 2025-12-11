@@ -74,4 +74,11 @@ where
         let stream = XmtpStream::new(stream, ApiEndpoint::Path(endpoint.into_owned()));
         Ok(stream)
     }
+
+    fn fake_stream(&mut self, client: &C) -> XmtpStream<<C as Client>::Stream, T> {
+        let endpoint = self.grpc_endpoint();
+        let rsp = client.fake_stream();
+        let stream = rsp.into_body();
+        XmtpStream::new(stream, ApiEndpoint::Path(endpoint.into_owned()))
+    }
 }

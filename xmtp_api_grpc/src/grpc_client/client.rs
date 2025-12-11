@@ -5,9 +5,11 @@
 
 use crate::{
     error::{GrpcBuilderError, GrpcError},
-    streams::EscapableTonicStream,
+    streams::{EscapableTonicStream, FakeEmptyStream, NonBlockingWebStream},
 };
 use futures::Stream;
+use http::{StatusCode, request, uri::PathAndQuery};
+use http_body_util::StreamBody;
 use pin_project_lite::pin_project;
 use prost::bytes::Bytes;
 use std::{
@@ -15,8 +17,9 @@ use std::{
     task::{Context, Poll, ready},
 };
 use tonic::{
-    Status,
+    Response, Status, Streaming,
     client::Grpc,
+    codec::Codec,
     metadata::{self, MetadataMap, MetadataValue},
 };
 use xmtp_common::Retry;
@@ -161,8 +164,8 @@ impl Client for GrpcClient {
 
     async fn stream(
         &self,
-        request: http::request::Builder,
-        path: http::uri::PathAndQuery,
+        request: request::Builder,
+        path: PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
         let this = self.clone();
@@ -182,6 +185,18 @@ impl Client for GrpcClient {
             inner: EscapableTonicStream::new(body),
         });
         Ok(response.to_http().map(Into::into))
+    }
+
+    // just need to ensure the type is the same as `stream`
+    fn fake_stream(&self) -> http::Response<Self::Stream> {
+        let mut codec = TransparentCodec::default();
+        let s = StreamBody::new(FakeEmptyStream::<GrpcError>::new());
+        let response = Streaming::new_response(codec.decoder(), s, StatusCode::OK, None, None);
+        let response = Response::new(response);
+        let response = response.map(|body| GrpcStream {
+            inner: EscapableTonicStream::new(NonBlockingWebStream::started(body)),
+        });
+        response.to_http()
     }
 }
 

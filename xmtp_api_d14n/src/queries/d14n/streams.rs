@@ -34,6 +34,17 @@ where
         &self,
         group_ids: &[&GroupId],
     ) -> Result<Self::GroupMessageStream, Self::Error> {
+        if group_ids.is_empty() {
+            let s = SubscribeEnvelopes::builder()
+                .build()?
+                .fake_stream(&self.client);
+            let s = stream::ordered(
+                stream::flattened(s),
+                self.cursor_store.clone(),
+                TopicCursor::default(),
+            );
+            return Ok(stream::try_extractor(s));
+        }
         let topics = group_ids
             .iter()
             .map(|gid| TopicKind::GroupMessagesV1.create(gid))
@@ -55,6 +66,17 @@ where
         &self,
         topics: &TopicCursor,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
+        if topics.is_empty() {
+            let s = SubscribeEnvelopes::builder()
+                .build()?
+                .fake_stream(&self.client);
+            let s = stream::ordered(
+                stream::flattened(s),
+                self.cursor_store.clone(),
+                TopicCursor::default(),
+            );
+            return Ok(stream::try_extractor(s));
+        }
         // Compute the lowest common cursor from the provided cursors
         let lcc = topics.lcc();
         tracing::debug!(
@@ -74,6 +96,12 @@ where
         &self,
         installations: &[&InstallationId],
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
+        if installations.is_empty() {
+            let s = SubscribeEnvelopes::builder()
+                .build()?
+                .fake_stream(&self.client);
+            return Ok(stream::try_extractor(s));
+        }
         let topics = installations
             .iter()
             .map(|ins| TopicKind::WelcomeMessagesV1.create(ins))
