@@ -39,12 +39,10 @@ where
             .envelopes(envelopes)
             .resolver(&self.resolver)
             .store(&self.store)
-            // todo: maybe no clone here?
-            .topic_cursor(self.topic_cursor.clone())
+            .topic_cursor(&mut self.topic_cursor)
             .build()?;
         ordering.order().await.map_err(ApiClientError::other)?;
-        let (envelopes, _) = ordering.into_parts();
-        Ok(envelopes)
+        Ok(ordering.into_envelopes())
     }
 }
 

@@ -141,6 +141,9 @@ where
         group_id: GroupId,
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
         let topic = TopicKind::GroupMessagesV1.create(&group_id);
+        // lcc will be the topic cursor since only querying for a single topic.
+        // if querying for more than on topic, must do another "latest_for_topic"
+        // query to get correct topic cursor.
         let lcc = self.cursor_store.lowest_common_cursor(&[&topic])?;
         let mut topic_cursor = TopicCursor::default();
         topic_cursor.insert(topic.clone(), lcc.clone());

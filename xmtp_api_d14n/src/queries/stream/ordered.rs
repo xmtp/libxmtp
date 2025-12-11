@@ -89,16 +89,15 @@ where
             None => return Poll::Ready(None),
         };
         let envelopes = item?;
+        let this = self.as_mut().project();
         let mut ordering = Ordered::builder()
             .envelopes(envelopes)
             .resolver(TypedNoopResolver::<T>::new())
-            .topic_cursor(self.topic_cursor.clone())
-            .store(&self.cursor_store)
+            .topic_cursor(this.topic_cursor)
+            .store(this.cursor_store)
             .build()?;
         ordering.order_offline().map_err(OrderedStreamError::from)?;
-        let (envelopes, mut new_cursor) = ordering.into_parts();
-        let this = self.as_mut().project();
-        std::mem::swap(this.topic_cursor, &mut new_cursor);
+        let envelopes = ordering.into_envelopes();
         Poll::Ready(Some(Ok(envelopes)))
     }
 }
