@@ -111,6 +111,12 @@ mock! {
             &self,
             dm_id: &str,
         ) -> Result<Vec<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
+
+        fn get_consent_records_batch(
+            &self,
+            entities: &[String],
+            entity_type: crate::consent_record::ConsentType,
+        ) -> Result<Vec<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
     }
 
     impl QueryConversationList for DbQuery {
