@@ -239,40 +239,7 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             const PROVIDED: &[&str] = &[#(#provided_names_tokens),*];
 
             // Compile-time validation: ensure all required context fields are provided
-            const _: () = {
-                const fn str_eq(a: &str, b: &str) -> bool {
-                    let a = a.as_bytes();
-                    let b = b.as_bytes();
-                    if a.len() != b.len() {
-                        return false;
-                    }
-                    let mut i = 0;
-                    while i < a.len() {
-                        if a[i] != b[i] {
-                            return false;
-                        }
-                        i += 1;
-                    }
-                    true
-                }
-
-                let meta = #event.metadata();
-                let mut i = 0;
-                while i < meta.context_fields.len() {
-                    let required = meta.context_fields[i];
-                    let mut found = false;
-                    let mut j = 0;
-                    while j < PROVIDED.len() {
-                        if str_eq(required, PROVIDED[j]) {
-                            found = true;
-                            break;
-                        }
-                        j += 1;
-                    }
-                    assert!(found, "log_event! missing required context field");
-                    i += 1;
-                }
-            };
+            const _: () = #event.metadata().validate_fields(PROVIDED);
 
             let __meta = #event.metadata();
 

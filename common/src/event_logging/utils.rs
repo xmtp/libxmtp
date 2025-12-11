@@ -12,6 +12,52 @@ pub struct EventMetadata {
     pub context_fields: &'static [&'static str],
 }
 
+impl EventMetadata {
+    /// Validates that all required context fields are provided.
+    /// Panics at compile time with the missing field name if validation fails.
+    pub const fn validate_fields(&self, provided: &[&str]) {
+        let mut i = 0;
+        while i < self.context_fields.len() {
+            let required = self.context_fields[i];
+            if !str_contains(provided, required) {
+                const_panic::concat_panic!(
+                    "log_event! missing required context field: `",
+                    required,
+                    "`"
+                );
+            }
+            i += 1;
+        }
+    }
+}
+
+const fn str_contains(haystack: &[&str], needle: &str) -> bool {
+    let mut i = 0;
+    while i < haystack.len() {
+        if str_eq(haystack[i], needle) {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+const fn str_eq(a: &str, b: &str) -> bool {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
 const UNINITIALIZED: u8 = 0;
 const STRUCTURED: u8 = 1;
 const NOT_STRUCTURED: u8 = 2;
