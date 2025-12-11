@@ -146,13 +146,7 @@ pub fn create_missing_set(topic: Topic, cursors: Vec<(u32, u64)>) -> HashSet<Mis
     cursors
         .into_iter()
         .map(|(originator_id, sequence_id)| {
-            MissingEnvelope::new(
-                topic.clone(),
-                Cursor {
-                    originator_id,
-                    sequence_id,
-                },
-            )
+            MissingEnvelope::new(topic.clone(), Cursor::new(sequence_id, originator_id))
         })
         .collect()
 }

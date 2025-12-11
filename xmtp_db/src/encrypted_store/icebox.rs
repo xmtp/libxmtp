@@ -141,19 +141,19 @@ impl<C: ConnectionExt> DbConnection<C> {
                                 let group_id = unsafe { row.group_id() };
                                 let payload = unsafe { row.envelope_payload() };
                                 builder
-                                    .cursor(Cursor {
-                                        sequence_id: row.sequence_id as SequenceId,
-                                        originator_id: row.originator_id as OriginatorId,
-                                    })
+                                    .cursor(Cursor::new(
+                                        row.sequence_id as SequenceId,
+                                        row.originator_id as OriginatorId,
+                                    ))
                                     .payload(payload)
                                     .group_id(group_id);
                                 builder
                             },
                             |mut acc, _key, row| {
-                                acc.depending_on(Cursor {
-                                    originator_id: row.dependency_originator_id as OriginatorId,
-                                    sequence_id: row.dependency_sequence_id as SequenceId,
-                                });
+                                acc.depending_on(Cursor::new(
+                                    row.dependency_sequence_id as SequenceId,
+                                    row.dependency_originator_id as OriginatorId,
+                                ));
                                 acc
                             },
                         )
@@ -361,40 +361,22 @@ mod tests {
     fn iced(group_id: Vec<u8>) -> Vec<OrphanedEnvelope> {
         vec![
             OrphanedEnvelope::builder()
-                .cursor(Cursor {
-                    sequence_id: 41,
-                    originator_id: 1,
-                })
-                .depending_on(Cursor {
-                    sequence_id: 40,
-                    originator_id: 1,
-                })
+                .cursor(Cursor::new(41, 1u32))
+                .depending_on(Cursor::new(40, 1u32))
                 .payload(vec![1, 2, 3])
                 .group_id(group_id.clone())
                 .build()
                 .unwrap(),
             OrphanedEnvelope::builder()
-                .cursor(Cursor {
-                    sequence_id: 40,
-                    originator_id: 1,
-                })
-                .depending_on(Cursor {
-                    sequence_id: 39,
-                    originator_id: 2,
-                })
+                .cursor(Cursor::new(40, 1u32))
+                .depending_on(Cursor::new(39, 2u32))
                 .payload(vec![1, 2, 3])
                 .group_id(group_id.clone())
                 .build()
                 .unwrap(),
             OrphanedEnvelope::builder()
-                .cursor(Cursor {
-                    sequence_id: 39,
-                    originator_id: 2,
-                })
-                .depending_on(Cursor {
-                    sequence_id: 38,
-                    originator_id: 2,
-                })
+                .cursor(Cursor::new(39, 2u32))
+                .depending_on(Cursor::new(38, 2u32))
                 .payload(vec![1, 2, 3])
                 .group_id(group_id)
                 .build()
@@ -411,22 +393,14 @@ mod tests {
             // Store envelopes and dependencies
             conn.ice(orphans.clone())?;
 
-            // past_dependents returns the starting envelope + all dependencies
-            let dep_chain = conn.past_dependents(&[Cursor {
-                sequence_id: 41,
-                originator_id: 1,
-            }])?;
+            let dep_chain = conn.past_dependents(&[Cursor::new(41, 1u32)])?;
             assert_eq!(dep_chain.len(), 3);
 
             assert_eq!(orphans[0].depends_on[&1], 40);
             assert_eq!(orphans[1].depends_on[&2], 39);
             assert_eq!(orphans[2].depends_on[&2], 38);
 
-            // future_dependents returns only envelopes that depend on (39, 2)
-            let mut dep_chain = conn.future_dependents(&[Cursor {
-                sequence_id: 39,
-                originator_id: 2,
-            }])?;
+            let mut dep_chain = conn.future_dependents(&[Cursor::new(39, 2u32)])?;
             dep_chain.sort_by_key(|d| d.cursor.sequence_id);
             assert_eq!(dep_chain.len(), 2);
             assert_eq!(dep_chain[0].cursor.sequence_id, 40);
@@ -447,14 +421,8 @@ mod tests {
             let mut orphans = iced(group_id.clone());
             // Change envelope (39, 2) to (39, 1), breaking the chain
             orphans[2] = OrphanedEnvelope::builder()
-                .cursor(Cursor {
-                    sequence_id: 39,
-                    originator_id: 1, // Changed from 2 to 1
-                })
-                .depending_on(Cursor {
-                    sequence_id: 38,
-                    originator_id: 1, // Changed from 2 to 1
-                })
+                .cursor(Cursor::new(39, 1u32))
+                .depending_on(Cursor::new(38, 1u32))
                 .payload(vec![1, 2, 3])
                 .group_id(group_id)
                 .build()
@@ -462,10 +430,7 @@ mod tests {
 
             conn.ice(orphans)?;
 
-            let mut dep_chain = conn.past_dependents(&[Cursor {
-                sequence_id: 41,
-                originator_id: 1,
-            }])?;
+            let mut dep_chain = conn.past_dependents(&[Cursor::new(41, 1u32)])?;
             dep_chain.sort_by_key(|d| d.cursor.sequence_id);
             // The last iced message should not be there due to the wrong originator_id.
             // past_dependents returns starting envelope + dependencies
@@ -476,10 +441,7 @@ mod tests {
 
             // With the changed originator, envelope (39, 1) has no dependents
             // (40, 1) depends on (39, 2), not (39, 1)
-            let dep_chain = conn.future_dependents(&[Cursor {
-                sequence_id: 39,
-                originator_id: 1,
-            }])?;
+            let dep_chain = conn.future_dependents(&[Cursor::new(39, 1u32)])?;
             assert_eq!(dep_chain.len(), 0);
         })
     }
@@ -492,14 +454,8 @@ mod tests {
             let mut orphans = iced(group_id.clone());
             // Change envelope (39, 2) to (100, 2), breaking the chain
             orphans[2] = OrphanedEnvelope::builder()
-                .cursor(Cursor {
-                    sequence_id: 100, // Changed from 39 to 100
-                    originator_id: 2,
-                })
-                .depending_on(Cursor {
-                    sequence_id: 38,
-                    originator_id: 2,
-                })
+                .cursor(Cursor::new(100, 2u32))
+                .depending_on(Cursor::new(38, 2u32))
                 .payload(vec![1, 2, 3])
                 .group_id(group_id)
                 .build()
@@ -507,10 +463,7 @@ mod tests {
 
             conn.ice(orphans)?;
 
-            let mut dep_chain = conn.past_dependents(&[Cursor {
-                sequence_id: 41,
-                originator_id: 1,
-            }])?;
+            let mut dep_chain = conn.past_dependents(&[Cursor::new(41, 1u32)])?;
             dep_chain.sort_by_key(|d| d.cursor.sequence_id);
 
             // The last iced message should not be there due to the wrong sequence_id.
@@ -521,10 +474,7 @@ mod tests {
             assert_eq!(dep_chain[1].depends_on[&1], 40);
             // With the changed sequence_id, envelope (100, 2) has no dependents
             // Nothing depends on (100, 2) in the dependency chain
-            let dep_chain = conn.future_dependents(&[Cursor {
-                sequence_id: 100,
-                originator_id: 2,
-            }])?;
+            let dep_chain = conn.future_dependents(&[Cursor::new(100, 2u32)])?;
             assert_eq!(dep_chain.len(), 0);
         })
     }
@@ -537,27 +487,15 @@ mod tests {
             // Test that two envelopes can depend on the same envelope
             let orphans = vec![
                 OrphanedEnvelope::builder()
-                    .cursor(Cursor {
-                        sequence_id: 1,
-                        originator_id: 100,
-                    })
-                    .depending_on(Cursor {
-                        sequence_id: 10,
-                        originator_id: 0,
-                    })
+                    .cursor(Cursor::new(1, 100u32))
+                    .depending_on(Cursor::new(10, 0u32))
                     .payload(vec![1; 5])
                     .group_id(group_id.clone())
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
-                    .cursor(Cursor {
-                        sequence_id: 2,
-                        originator_id: 100,
-                    })
-                    .depending_on(Cursor {
-                        sequence_id: 10,
-                        originator_id: 0,
-                    })
+                    .cursor(Cursor::new(2, 100u32))
+                    .depending_on(Cursor::new(10, 0u32))
                     .payload(vec![1; 5])
                     .group_id(group_id)
                     .build()
@@ -567,10 +505,7 @@ mod tests {
             let result = conn.ice(orphans);
             assert!(result.is_ok());
 
-            let mut got = conn.future_dependents(&[Cursor {
-                sequence_id: 10,
-                originator_id: 0,
-            }])?;
+            let mut got = conn.future_dependents(&[Cursor::new(10, 0u32)])?;
             got.sort_by_key(|d| d.cursor.sequence_id);
             assert_eq!(got.len(), 2);
             assert_eq!(got[0].cursor.sequence_id, 1);
@@ -593,40 +528,22 @@ mod tests {
             // Test a chain where envelope 3 depends on 2, and both 1 and 2 depend on 3
             let orphans = vec![
                 OrphanedEnvelope::builder()
-                    .cursor(Cursor {
-                        sequence_id: 1,
-                        originator_id: 100,
-                    })
-                    .depending_on(Cursor {
-                        sequence_id: 3,
-                        originator_id: 0,
-                    })
+                    .cursor(Cursor::new(1, 100u32))
+                    .depending_on(Cursor::new(3, 0u32))
                     .payload(vec![1])
                     .group_id(group_id.clone())
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
-                    .cursor(Cursor {
-                        sequence_id: 2,
-                        originator_id: 100,
-                    })
-                    .depending_on(Cursor {
-                        sequence_id: 3,
-                        originator_id: 0,
-                    })
+                    .cursor(Cursor::new(2, 100u32))
+                    .depending_on(Cursor::new(3, 0u32))
                     .payload(vec![1])
                     .group_id(group_id.clone())
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
-                    .cursor(Cursor {
-                        sequence_id: 3,
-                        originator_id: 0,
-                    })
-                    .depending_on(Cursor {
-                        sequence_id: 2,
-                        originator_id: 0,
-                    })
+                    .cursor(Cursor::new(3, 0u32))
+                    .depending_on(Cursor::new(2, 0u32))
                     .payload(vec![1])
                     .group_id(group_id)
                     .build()
@@ -636,10 +553,7 @@ mod tests {
             let result = conn.ice(orphans);
             assert!(result.is_ok());
 
-            let mut got = conn.future_dependents(&[Cursor {
-                sequence_id: 2,
-                originator_id: 0,
-            }])?;
+            let mut got = conn.future_dependents(&[Cursor::new(2, 0u32)])?;
             got.sort_by_key(|i| i.cursor.sequence_id);
             assert_eq!(got.len(), 3);
 
@@ -662,16 +576,7 @@ mod tests {
             conn.ice(orphans)?;
 
             // Test query with multiple cursors
-            let cursors = vec![
-                Cursor {
-                    sequence_id: 39,
-                    originator_id: 2,
-                },
-                Cursor {
-                    sequence_id: 40,
-                    originator_id: 1,
-                },
-            ];
+            let cursors = vec![Cursor::new(39, 2u32), Cursor::new(40, 1u32)];
 
             let mut result = conn.future_dependents(&cursors)?;
             result.sort_by_key(|d| d.cursor.sequence_id);

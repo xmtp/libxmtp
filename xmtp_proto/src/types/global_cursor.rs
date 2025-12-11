@@ -51,10 +51,7 @@ impl GlobalCursor {
 
     /// get the full [`super::Cursor`] that belongs to this [`OriginatorId``
     pub fn cursor(&self, originator: &OriginatorId) -> super::Cursor {
-        super::Cursor {
-            originator_id: *originator,
-            sequence_id: self.get(originator),
-        }
+        super::Cursor::new(self.get(originator), *originator)
     }
 
     /// Get the max sequence id across all originator ids
@@ -88,14 +85,8 @@ impl GlobalCursor {
 
     /// get the latest sequence id for the mls commit originator (v3/d14n)
     pub fn commit_cursor(&self) -> super::Cursor {
-        super::Cursor {
-            sequence_id: self
-                .inner
-                .get(&(Originators::MLS_COMMITS))
-                .copied()
-                .unwrap_or_default(),
-            originator_id: Originators::MLS_COMMITS,
-        }
+        let sequence_id = self.get(&(Originators::MLS_COMMITS));
+        super::Cursor::mls_commits(sequence_id)
     }
 
     /// get the latest sequence_id for the installation/key package originator
@@ -119,14 +110,7 @@ impl fmt::Display for GlobalCursor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = String::new();
         for (oid, sid) in self.inner.iter() {
-            write!(
-                s,
-                "{}",
-                crate::types::Cursor {
-                    sequence_id: *sid,
-                    originator_id: *oid
-                }
-            )?;
+            write!(s, "{}", super::Cursor::new(*sid, *oid))?;
         }
         write!(f, "{:25}", s)
     }
@@ -177,10 +161,7 @@ impl TryFrom<GlobalCursor> for crate::types::Cursor {
             .into_iter()
             .next()
             .expect("ensured length is at least one");
-        Ok(crate::types::Cursor {
-            originator_id: oid,
-            sequence_id: sid,
-        })
+        Ok(super::Cursor::new(sid, oid))
     }
 }
 
@@ -274,10 +255,7 @@ impl VectorClock for GlobalCursor {
         other
             .iter()
             .filter_map(|(&node, &seq)| {
-                (self.get(&node) < seq).then_some(super::Cursor {
-                    originator_id: node,
-                    sequence_id: seq,
-                })
+                (self.get(&node) < seq).then_some(super::Cursor::new(seq, node))
             })
             .collect()
     }
