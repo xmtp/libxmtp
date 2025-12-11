@@ -1,4 +1,5 @@
 use crate::consent_state::{Consent, ConsentState};
+use crate::enriched_message::DecodedMessage;
 use crate::identity::Identifier;
 use crate::messages::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
@@ -535,6 +536,22 @@ impl Conversations {
       .inner_client
       .message(message_id)
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    Ok(message.into())
+  }
+
+  #[wasm_bindgen(js_name = findEnrichedMessageById)]
+  pub async fn find_enriched_message_by_id(
+    &self,
+    message_id: String,
+  ) -> Result<DecodedMessage, JsError> {
+    let message_id =
+      hex::decode(message_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    let message = self
+      .inner_client
+      .message_v2(message_id)
+      .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(message.into())
   }
