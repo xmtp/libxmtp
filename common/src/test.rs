@@ -307,3 +307,29 @@ where
 
     Ok(())
 }
+
+/// Extension trait for formatting collections of Debug items in tests
+pub trait DebugDisplay {
+    /// Format items as debug output, one per line
+    fn format_list(&self) -> String;
+
+    /// Format items with enumeration (index -- item)
+    fn format_enumerated(&self) -> String;
+}
+
+impl<T: std::fmt::Debug> DebugDisplay for [T] {
+    fn format_list(&self) -> String {
+        self.iter()
+            .map(|item| format!("{:?}", item))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn format_enumerated(&self) -> String {
+        self.iter()
+            .enumerate()
+            .map(|(i, item)| format!("{} -- {:?}", i, item))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
