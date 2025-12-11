@@ -428,6 +428,7 @@ impl Client {
     self.inner_client.clear_stats()
   }
 
+  #[napi]
   pub fn release_db_connection(&self) -> Result<()> {
     self
       .inner_client
