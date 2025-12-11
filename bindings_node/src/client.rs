@@ -1,6 +1,5 @@
 use crate::ErrorWrapper;
 use crate::conversations::Conversations;
-use crate::enriched_message::DecodedMessage;
 use crate::identity::{ApiStats, Identifier, IdentityExt, IdentityStats};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestHandle;
@@ -427,25 +426,6 @@ impl Client {
   #[napi]
   pub fn clear_all_statistics(&self) {
     self.inner_client.clear_stats()
-  }
-
-  #[napi]
-  pub fn delete_message(&self, message_id: Uint8Array) -> Result<u32> {
-    let deleted_count = self
-      .inner_client
-      .delete_message(message_id.to_vec())
-      .map_err(ErrorWrapper::from)?;
-    Ok(deleted_count as u32)
-  }
-
-  #[napi]
-  pub async fn enriched_message(&self, message_id: Vec<u8>) -> Result<DecodedMessage> {
-    let message = self
-      .inner_client
-      .message_v2(message_id)
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(message.into())
   }
 
   #[napi]
