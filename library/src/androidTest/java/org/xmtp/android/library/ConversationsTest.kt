@@ -20,6 +20,7 @@ import org.junit.runner.RunWith
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.DecodedMessage
+import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import java.security.SecureRandom
 import kotlin.time.Duration.Companion.seconds
@@ -648,4 +649,43 @@ class ConversationsTest : BaseInstrumentedTest() {
             assertEquals(4L, publishedCountAfter)
             assertEquals(0L, unpublishedCountAfter)
         }
+
+    @Test
+    fun testCanStreamMessageDeletions() {
+        val deletedMessageIds = mutableListOf<String>()
+
+        val job =
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    boClient.conversations.streamMessageDeletions().collect { messageId ->
+                        deletedMessageIds.add(messageId)
+                    }
+                } catch (e: Exception) {
+                }
+            }
+
+        Thread.sleep(1000)
+
+        runBlocking {
+            val disappearingSettings =
+                DisappearingMessageSettings(
+                    1_000_000_000,
+                    1_000_000_000,
+                )
+
+            val dm =
+                boClient.conversations.findOrCreateDm(
+                    alixClient.inboxId,
+                    disappearingMessageSettings = disappearingSettings,
+                )
+
+            val messageId = dm.send("This message will disappear")
+
+            Thread.sleep(3000)
+
+            assertTrue(deletedMessageIds.contains(messageId))
+        }
+
+        job.cancel()
+    }
 }

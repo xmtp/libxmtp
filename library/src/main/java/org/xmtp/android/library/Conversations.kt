@@ -28,6 +28,7 @@ import uniffi.xmtpv3.FfiGroupSyncSummary
 import uniffi.xmtpv3.FfiListConversationsOptions
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
+import uniffi.xmtpv3.FfiMessageDeletionCallback
 import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiPermissionPolicySet
 import uniffi.xmtpv3.FfiSubscribeException
@@ -669,6 +670,23 @@ data class Conversations(
                 }
 
             awaitClose { stream.end() }
+        }
+
+    fun streamMessageDeletions(onClose: (() -> Unit)? = null): Flow<String> =
+        callbackFlow {
+            val deletionCallback =
+                object : FfiMessageDeletionCallback {
+                    override fun onMessageDeleted(messageId: ByteArray) {
+                        trySend(messageId.toHex())
+                    }
+                }
+
+            val stream = ffiConversations.streamMessageDeletions(deletionCallback)
+
+            awaitClose {
+                onClose?.invoke()
+                stream.end()
+            }
         }
 
     suspend fun getHmacKeys(): Keystore.GetConversationHmacKeysResponse =
