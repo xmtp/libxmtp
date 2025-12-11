@@ -14,16 +14,20 @@ use xmtp_proto::types::{Cursor, OrphanedEnvelope, TopicCursor};
 /// If dependencies are missing, this ordering will try to resolve them
 /// and re-apply resolved dependencies to the front of the envelope list
 /// construct this strategy with [`Ordered::builder`]
-#[derive(Debug, Clone, Builder)]
-#[builder(setter(strip_option), build_fn(error = "EnvelopeError"))]
-pub struct Ordered<T, R, S> {
+#[derive(Debug, Builder)]
+#[builder(
+    setter(strip_option),
+    build_fn(error = "EnvelopeError"),
+    pattern = "owned"
+)]
+pub struct Ordered<'a, T, R, S> {
     envelopes: Vec<T>,
     resolver: R,
-    topic_cursor: TopicCursor,
+    topic_cursor: &'a mut TopicCursor,
     store: S,
 }
 
-impl<T, R, S> Ordered<T, R, S>
+impl<'a, T, R, S> Ordered<'a, T, R, S>
 where
     S: CursorStore,
     R: ResolveDependencies<ResolvedEnvelope = T>,
@@ -52,7 +56,7 @@ where
 
     // convenient internal proxy to causal sorting
     fn causal_sort(&mut self) -> Result<Option<Vec<T>>, EnvelopeError> {
-        sort::causal(&mut self.envelopes, &mut self.topic_cursor).sort()
+        sort::causal(&mut self.envelopes, self.topic_cursor).sort()
     }
 
     // convenient internal proxy to timestamp sort
@@ -95,20 +99,20 @@ where
     }
 }
 
-impl<T, R, S> Ordered<T, R, S> {
-    pub fn into_parts(self) -> (Vec<T>, TopicCursor) {
-        (self.envelopes, self.topic_cursor)
+impl<'a, T, R, S> Ordered<'a, T, R, S> {
+    pub fn into_envelopes(self) -> Vec<T> {
+        self.envelopes
     }
 }
 
-impl<T: Clone, R: Clone, S: Clone> Ordered<T, R, S> {
-    pub fn builder() -> OrderedBuilder<T, R, S> {
+impl<'a, T, R, S> Ordered<'a, T, R, S> {
+    pub fn builder() -> OrderedBuilder<'a, T, R, S> {
         OrderedBuilder::default()
     }
 }
 
 #[xmtp_common::async_trait]
-impl<T, R, S> OrderedEnvelopeCollection for Ordered<T, R, S>
+impl<'a, T, R, S> OrderedEnvelopeCollection for Ordered<'a, T, R, S>
 where
     T: Envelope<'static> + prost::Message + Default,
     R: ResolveDependencies<ResolvedEnvelope = T>,
@@ -372,11 +376,12 @@ mod test {
                 resolver
             } = envelopes;
             let store = InMemoryCursorStore::new();
+            let mut topic_cursor = TopicCursor::default();
             let mut ordered = Ordered::builder()
                 .envelopes(missing.envelopes)
                 .resolver(resolver)
                 .store(store.clone())
-                .topic_cursor(TopicCursor::default())
+                .topic_cursor(&mut topic_cursor)
                 .build()
                 .unwrap();
 
@@ -385,7 +390,7 @@ mod test {
                 .expect("Future should complete immediately")
                 .unwrap();
 
-            let (result, mut topic_cursor) = ordered.into_parts();
+            let result = ordered.into_envelopes();
 
             // Verify all valid envelopes are seen by topic cursor
             for env in &valid {
@@ -431,14 +436,14 @@ mod test {
                 ref resolver
             } = envelopes;
 
-            let topic_cursor = TopicCursor::default();
+            let mut topic_cursor = TopicCursor::default();
             let envelopes_to_check = missing.envelopes.clone();
             let store = InMemoryCursorStore::new();
             let mut ordered = Ordered::builder()
                 .envelopes(missing.envelopes.clone())
                 .resolver(resolver.clone())
                 .store(store.clone())
-                .topic_cursor(topic_cursor)
+                .topic_cursor(&mut topic_cursor)
                 .build()
                 .unwrap();
 
@@ -447,7 +452,7 @@ mod test {
                 .expect("Future should complete immediately")
                 .unwrap();
 
-            let (first_ordering_pass, topic_cursor) = ordered.into_parts();
+            let first_ordering_pass = ordered.into_envelopes();
 
             // Verify that the store has some orphaned envelopes
             let orphan_count = store.orphan_count();
@@ -478,12 +483,17 @@ mod test {
                     .envelopes(vec![newly_available.clone()])
                     .resolver(resolver.clone())
                     .store(store.clone())
-                    .topic_cursor(topic_cursor)
+                    .topic_cursor(&mut topic_cursor)
                     .build()
                     .unwrap();
 
                 // Perform ordering again - this should recover children
                 let orphan_count = store.orphan_count();
+
+                 ordered.order().now_or_never()
+                     .expect("Future should complete immediately")
+                     .unwrap();
+                 let second_ordering_pass = ordered.into_envelopes();
 
                 // If the newly available envelope had children, they should be recovered
                 // (orphan count should decrease)
@@ -495,13 +505,6 @@ mod test {
                     let had_children = !returned.is_empty();
                     (had_children, returned)
                 };
-
-                ordered.order().now_or_never()
-                    .expect("Future should complete immediately")
-                    .unwrap();
-
-                let (second_ordering_pass, mut new_topic_cursor) = ordered.into_parts();
-
                 let had_children = orphan_count > 0 && had_children;
                 let child_str = returned.format_list();
                 let icebox_str = store.icebox().format_enumerated();
@@ -520,7 +523,7 @@ mod test {
                         first_ordering_pass: \n{}\n\
                         newly_available->{}\n\
                         second_ordering_pass:\n{}\n\
-                        ", valid_children_str, icebox_str, new_topic_cursor, first_ordering_pass_str, newly_available, second_ordering_pass_str,
+                        ", valid_children_str, icebox_str, topic_cursor, first_ordering_pass_str, newly_available, second_ordering_pass_str,
                     );
                     prop_assert!(
                         !second_ordering_pass.is_empty(),
@@ -536,13 +539,13 @@ mod test {
                         icebox_str,
                         store.orphan_count(),
                         child_str,
-                        new_topic_cursor
+                        topic_cursor
                     );
                 }
 
                 // Verify that all envelopes in the result have satisfied dependencies
                 for envelope in &second_ordering_pass {
-                    assert_dependencies_satisfied(envelope, &mut new_topic_cursor)?;
+                    assert_dependencies_satisfied(envelope, &mut topic_cursor)?;
                 }
             }
         }
