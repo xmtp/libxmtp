@@ -76,4 +76,38 @@ mod tests {
         let group_msgs = alix_group.find_messages(&MsgQueryArgs::default())?;
         assert_eq!(group_msgs.len(), 0);
     }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_clear_messages_retention_days() {
+        tester!(alix, disable_workers);
+        tester!(bo);
+
+        let dm = alix
+            .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
+            .await?;
+        dm.send_message(b"Message 1", Default::default()).await?;
+        dm.send_message(b"Message 2", Default::default()).await?;
+
+        let initial_count = dm.find_messages(&MsgQueryArgs::default())?.len();
+        // 1 commit message from DM creation + 2 application messages
+        assert_eq!(initial_count, 3);
+
+        // retention_days = 1 means "delete messages older than 1 day"
+        // Since these messages were just created, they should NOT be deleted
+        clear_all_messages_confirmed(&alix.db(), Some(1), None)?;
+        let after_retention_1 = dm.find_messages(&MsgQueryArgs::default())?.len();
+        assert_eq!(
+            after_retention_1, initial_count,
+            "Recent messages should not be deleted with retention_days=1"
+        );
+
+        // retention_days = 0 means "delete messages older than now"
+        // All messages were created before now, so they should all be deleted
+        clear_all_messages_confirmed(&alix.db(), Some(0), None)?;
+        let after_retention_0 = dm.find_messages(&MsgQueryArgs::default())?.len();
+        assert_eq!(
+            after_retention_0, 0,
+            "All messages should be deleted with retention_days=0"
+        );
+    }
 }
