@@ -8,6 +8,8 @@ mod test_extract_readded_installations;
 mod test_group_updated;
 mod test_libxmtp_version;
 #[cfg(not(target_arch = "wasm32"))]
+mod test_mls_group_lock;
+#[cfg(not(target_arch = "wasm32"))]
 mod test_network;
 mod test_send_message_opts;
 mod test_welcome_pointers;
@@ -310,7 +312,7 @@ async fn test_add_member_conflict() {
     // Check Amal's MLS group state.
     let amal_db = amal.context.db();
     let amal_members_len = amal_group
-        .load_mls_group_with_lock(amal.context.mls_storage(), |mls_group| {
+        .load_mls_group(amal.context.mls_storage(), |mls_group| {
             Ok(mls_group.members().count())
         })
         .unwrap();
@@ -320,7 +322,7 @@ async fn test_add_member_conflict() {
     // Check Bola's MLS group state.
     let bola_db = bola.context.db();
     let bola_members_len = bola_group
-        .load_mls_group_with_lock(amal.context.mls_storage(), |mls_group| {
+        .load_mls_group(amal.context.mls_storage(), |mls_group| {
             Ok(mls_group.members().count())
         })
         .unwrap();
