@@ -5,7 +5,7 @@ use crate::confirm_destructive;
 
 pub fn clear_all_messages<C: ConnectionExt>(
     conn: &C,
-    limit_days: Option<i64>,
+    limit_days: Option<u32>,
     group_ids: Option<&[Vec<u8>]>,
 ) -> Result<()> {
     confirm_destructive()?;
@@ -14,7 +14,7 @@ pub fn clear_all_messages<C: ConnectionExt>(
 
 pub fn clear_all_messages_confirmed<C: ConnectionExt>(
     conn: &C,
-    limit_days: Option<i64>,
+    limit_days: Option<u32>,
     group_ids: Option<&[Vec<u8>]>,
 ) -> Result<()> {
     let db = DbConnection::new(conn);

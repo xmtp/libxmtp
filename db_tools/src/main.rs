@@ -173,8 +173,16 @@ struct Args {
     db_key: Option<String>,
 
     /// Number of days worth of data you'd like to retain on delete tasks.
-    #[arg(long, value_enum)]
-    retain_days: Option<i64>,
+    #[arg(long, value_parser = parse_retain_days)]
+    retain_days: Option<u32>,
+}
+
+fn parse_retain_days(s: &str) -> Result<u32, String> {
+    let value: i64 = s.parse().map_err(|_| format!("invalid number: {s}"))?;
+    if value < 0 {
+        return Err("retain days cannot be negative".to_string());
+    }
+    u32::try_from(value).map_err(|_| format!("value too large: {value}"))
 }
 
 impl Args {

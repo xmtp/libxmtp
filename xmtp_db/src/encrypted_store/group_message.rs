@@ -551,7 +551,7 @@ pub trait QueryGroupMessage {
     fn clear_messages(
         &self,
         group_ids: Option<&[Vec<u8>]>,
-        retention_days: Option<i64>,
+        retention_days: Option<u32>,
     ) -> Result<usize, crate::ConnectionError>;
 }
 
@@ -706,7 +706,7 @@ where
     fn clear_messages(
         &self,
         group_ids: Option<&[Vec<u8>]>,
-        retention_days: Option<i64>,
+        retention_days: Option<u32>,
     ) -> Result<usize, crate::ConnectionError> {
         (**self).clear_messages(group_ids, retention_days)
     }
@@ -1356,7 +1356,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     fn clear_messages(
         &self,
         group_ids: Option<&[Vec<u8>]>,
-        retention_days: Option<i64>,
+        retention_days: Option<u32>,
     ) -> Result<usize, crate::ConnectionError> {
         let mut query = diesel::delete(dsl::group_messages).into_boxed();
 
@@ -1365,7 +1365,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         }
 
         if let Some(days) = retention_days {
-            let limit = now_ns().saturating_sub(NS_IN_DAY.saturating_mul(days));
+            let limit = now_ns().saturating_sub(NS_IN_DAY.saturating_mul(i64::from(days)));
             query = query.filter(dsl::sent_at_ns.lt(limit));
         }
 
