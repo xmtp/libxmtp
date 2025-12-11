@@ -4,7 +4,10 @@ use clap::{Parser, ValueEnum};
 use dotenvy::{dotenv, var};
 use std::io::{self, Write};
 use tracing::info;
-use xmtp_db::{ConnectionExt, EncryptedMessageStore, NativeDb, StorageOption, XmtpDb};
+use xmtp_db::{
+    ConnectionExt, DbConnection, EncryptedMessageStore, NativeDb, StorageOption, XmtpDb,
+    migrations::QueryMigrations,
+};
 
 mod tasks;
 
@@ -95,6 +98,26 @@ fn main() -> Result<()> {
             let arg_group_ids = args.group_ids()?;
             let group_ids: Vec<_> = arg_group_ids.iter().map(Vec::as_slice).collect();
             tasks::disable_groups(&manager.store.db(), &group_ids)?;
+        }
+        Task::DbListMigrations => {
+            let conn = manager.store.conn();
+            let db = DbConnection::new(&conn);
+            let mut available = db.available_migrations()?;
+            let applied = db.applied_migrations()?;
+
+            // Sort by date descending (most recent first)
+            available.sort_by(|a, b| b.cmp(a));
+
+            println!("Available migrations ({}):", available.len());
+            for name in &available {
+                let name_version: String = name.chars().filter(|c| c.is_numeric()).collect();
+                let status = if applied.iter().any(|a| name_version.starts_with(a)) {
+                    "[applied]"
+                } else {
+                    "[pending]"
+                };
+                println!("  {status} {name}");
+            }
         }
     }
 
@@ -200,4 +223,6 @@ enum Task {
     /// Enable a group.
     /// Requires hex-encoded group_id as --target param.
     EnableGroup,
+    /// List all available migrations and their status.
+    DbListMigrations,
 }

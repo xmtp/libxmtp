@@ -55,6 +55,16 @@ mod tests {
     use super::{applied_migrations, revert_migration_confirmed, run_migration_confirmed};
     use crate::tasks::rollback_confirmed;
 
+    /// Determine if a migration is applied based on its name and the list of applied versions.
+    fn migration_status(name: &str, applied: &[String]) -> &'static str {
+        let name_version: String = name.chars().filter(|c| c.is_numeric()).collect();
+        if applied.iter().any(|a| name_version.starts_with(a)) {
+            "[applied]"
+        } else {
+            "[pending]"
+        }
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     #[ignore]
     async fn test_rollback_and_run_pending_migrations() {
@@ -146,5 +156,82 @@ mod tests {
 
         // Run pending migrations to restore full state
         xmtp_db::DbConnection::new(&alix.db()).run_pending_migrations()?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_migration_status_applied_and_pending() {
+        tester!(alix, persistent_db);
+
+        let conn = alix.db();
+        let db = xmtp_db::DbConnection::new(&conn);
+
+        // Get migrations sorted by date descending (newest first)
+        let mut available = db.available_migrations()?;
+        available.sort_by(|a, b| b.cmp(a));
+
+        assert!(available.len() >= 10, "Need enough migrations for this test");
+
+        // Pick migrations from the sorted list
+        let newest = &available[0];
+        let mid_recent = &available[5]; // Rollback target
+        let mid_old = &available[6]; // Just before rollback target
+        let oldest = available.last().unwrap();
+
+        let applied_before = db.applied_migrations()?;
+
+        // All should be applied initially
+        for name in [newest, mid_recent, mid_old, oldest] {
+            assert_eq!(
+                migration_status(name, &applied_before),
+                "[applied]",
+                "{name} should be applied initially"
+            );
+        }
+
+        // Rollback - mid_recent and newer become pending
+        rollback_confirmed(&alix.db(), mid_recent)?;
+
+        let applied_after = db.applied_migrations()?;
+
+        // Migrations before rollback point should still be applied
+        assert_eq!(
+            migration_status(mid_old, &applied_after),
+            "[applied]",
+            "{mid_old} should still be applied after rollback"
+        );
+        assert_eq!(
+            migration_status(oldest, &applied_after),
+            "[applied]",
+            "{oldest} should still be applied after rollback"
+        );
+
+        // Rollback target and newer migrations should be pending
+        assert_eq!(
+            migration_status(mid_recent, &applied_after),
+            "[pending]",
+            "{mid_recent} should be pending after rollback"
+        );
+        assert_eq!(
+            migration_status(newest, &applied_after),
+            "[pending]",
+            "{newest} should be pending after rollback"
+        );
+
+        // Restore full state
+        db.run_pending_migrations()?;
+
+        let applied_restored = db.applied_migrations()?;
+
+        // All migrations should be applied again
+        assert_eq!(
+            migration_status(mid_recent, &applied_restored),
+            "[applied]",
+            "{mid_recent} should be applied after restore"
+        );
+        assert_eq!(
+            migration_status(newest, &applied_restored),
+            "[applied]",
+            "{newest} should be applied after restore"
+        );
     }
 }
