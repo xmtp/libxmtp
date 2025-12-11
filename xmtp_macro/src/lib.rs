@@ -227,7 +227,7 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             let name_str = f.name.to_string();
             let value = f.value_tokens();
             quote! {
-                #name_str => Some(format!("{}={:?}", #name_str, #value))
+                #name_str => Some(format!("{}: {:?}", #name_str, #value))
             }
         })
         .collect();
@@ -274,7 +274,7 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 if __context_str.is_empty() {
                     __meta.doc.to_string()
                 } else {
-                    format!("{} [{}]", __meta.doc, __context_str)
+                    format!("{} {{{}}}", __meta.doc, __context_str)
                 }
             };
 
