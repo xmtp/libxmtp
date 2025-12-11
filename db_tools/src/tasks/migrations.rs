@@ -58,7 +58,10 @@ mod tests {
     /// Determine if a migration is applied based on its name and the list of applied versions.
     fn migration_status(name: &str, applied: &[String]) -> &'static str {
         let name_version: String = name.chars().filter(|c| c.is_numeric()).collect();
-        if applied.iter().any(|a| name_version.starts_with(a)) {
+        if applied.iter().any(|a| {
+            let applied_version: String = a.chars().filter(|c| c.is_numeric()).collect();
+            name_version == applied_version
+        }) {
             "[applied]"
         } else {
             "[pending]"

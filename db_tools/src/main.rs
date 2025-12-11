@@ -111,7 +111,10 @@ fn main() -> Result<()> {
             println!("Available migrations ({}):", available.len());
             for name in &available {
                 let name_version: String = name.chars().filter(|c| c.is_numeric()).collect();
-                let status = if applied.iter().any(|a| name_version.starts_with(a)) {
+                let status = if applied.iter().any(|a| {
+                    let applied_version: String = a.chars().filter(|c| c.is_numeric()).collect();
+                    name_version == applied_version
+                }) {
                     "[applied]"
                 } else {
                     "[pending]"
