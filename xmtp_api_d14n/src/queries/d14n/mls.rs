@@ -11,7 +11,6 @@ use crate::protocol::MessageMetadataExtractor;
 use crate::protocol::ProtocolEnvelope;
 use crate::protocol::SequencedExtractor;
 use crate::protocol::WelcomeMessageExtractor;
-use crate::protocol::resolve;
 use crate::protocol::traits::Envelope;
 use crate::protocol::traits::EnvelopeCollection;
 use crate::protocol::traits::Extractor;
@@ -147,13 +146,12 @@ where
         let lcc = self.cursor_store.lowest_common_cursor(&[&topic])?;
         let mut topic_cursor = TopicCursor::default();
         topic_cursor.insert(topic.clone(), lcc.clone());
-        let resolver = resolve::network_backoff(&self.client);
         let response = QueryEnvelope::builder()
             .topic(topic)
             .last_seen(lcc)
             .limit(MAX_PAGE_SIZE)
             .build()?
-            .ordered(resolver, topic_cursor, &self.cursor_store)
+            .offline_ordered(topic_cursor, &self.cursor_store)
             .query(&self.client)
             .await?;
 
