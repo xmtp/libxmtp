@@ -223,6 +223,53 @@ impl<T: CursorStore + ?Sized> CursorStore for &T {
     }
 }
 
+impl<T: CursorStore + ?Sized> CursorStore for &mut T {
+    fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
+        (**self).lowest_common_cursor(topics)
+    }
+
+    fn latest(&self, topic: &Topic) -> Result<GlobalCursor, CursorStoreError> {
+        (**self).latest(topic)
+    }
+
+    fn latest_per_originator(
+        &self,
+        topic: &Topic,
+        originators: &[&OriginatorId],
+    ) -> Result<GlobalCursor, CursorStoreError> {
+        (**self).latest_per_originator(topic, originators)
+    }
+
+    fn latest_for_topics(
+        &self,
+        topics: &mut dyn Iterator<Item = &Topic>,
+    ) -> Result<HashMap<Topic, GlobalCursor>, CursorStoreError> {
+        (**self).latest_for_topics(topics)
+    }
+
+    fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
+        (**self).lcc_maybe_missing(topic)
+    }
+
+    fn find_message_dependencies(
+        &self,
+        hashes: &[&[u8]],
+    ) -> Result<HashMap<Vec<u8>, Cursor>, CursorStoreError> {
+        (**self).find_message_dependencies(hashes)
+    }
+
+    fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<(), CursorStoreError> {
+        (**self).ice(orphans)
+    }
+
+    fn resolve_children(
+        &self,
+        cursors: &[Cursor],
+    ) -> Result<Vec<OrphanedEnvelope>, CursorStoreError> {
+        (**self).resolve_children(cursors)
+    }
+}
+
 impl<T: CursorStore + ?Sized> CursorStore for Arc<T> {
     fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
         (**self).lowest_common_cursor(topics)
