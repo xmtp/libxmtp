@@ -63,12 +63,6 @@ pub trait Envelope<'env>: std::fmt::Debug + MaybeSend + MaybeSync {
     fn group_message(&self) -> Result<Option<GroupMessage>, EnvelopeError>;
     /// Try to get a welcome message
     fn welcome_message(&self) -> Result<Option<WelcomeMessage>, EnvelopeError>;
-    /// consume this envelope by extracting its contents with extractor `E`
-    fn consume<E>(&self, extractor: E) -> Result<E::Output, EnvelopeError>
-    where
-        Self: Sized,
-        for<'a> EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
-        for<'a> E: EnvelopeVisitor<'a> + Extractor;
 }
 
 // Allows us to call these methods straight on the protobuf types without any
@@ -148,16 +142,6 @@ where
             }),
             payload: Some(payload),
         })
-    }
-
-    fn consume<E>(&self, mut extractor: E) -> Result<E::Output, EnvelopeError>
-    where
-        Self: Sized,
-        for<'a> E: EnvelopeVisitor<'a> + Extractor,
-        for<'a> EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
-    {
-        self.accept(&mut extractor)?;
-        Ok(extractor.get())
     }
 
     fn group_message(&self) -> Result<Option<GroupMessage>, EnvelopeError> {

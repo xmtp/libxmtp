@@ -318,7 +318,7 @@ impl<T: CursorStore + ?Sized> CursorStore for Box<T> {
 }
 
 /// This cursor store always returns 0
-#[derive(Default)]
+#[derive(Default, Copy, Clone)]
 pub struct NoCursorStore;
 
 impl CursorStore for NoCursorStore {

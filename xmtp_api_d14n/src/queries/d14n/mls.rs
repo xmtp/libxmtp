@@ -150,7 +150,7 @@ where
             .last_seen(lcc)
             .limit(MAX_PAGE_SIZE)
             .build()?
-            .ordered(resolver, topic_cursor)
+            .ordered(resolver, topic_cursor, &self.cursor_store)
             .query(&self.client)
             .await?;
 
