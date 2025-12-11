@@ -3,10 +3,10 @@ use napi_derive::napi;
 use prost::Message;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
 
 use crate::ErrorWrapper;
+use crate::encoded_content::EncodedContent;
 
 #[derive(Clone)]
 #[napi(object)]
@@ -67,13 +67,9 @@ pub fn encode_reaction(reaction: Reaction) -> Result<Uint8Array> {
 }
 
 #[napi]
-pub fn decode_reaction(bytes: Uint8Array) -> Result<Reaction> {
-  // Decode bytes into EncodedContent
-  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
-
-  // Use ReactionCodec to decode into Reaction and convert to Reaction
+pub fn decode_reaction(encoded_content: EncodedContent) -> Result<Reaction> {
   Ok(
-    ReactionCodec::decode(encoded_content)
+    ReactionCodec::decode(encoded_content.into())
       .map(Into::into)
       .map_err(ErrorWrapper::from)?,
   )

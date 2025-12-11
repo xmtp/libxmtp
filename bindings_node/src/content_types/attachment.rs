@@ -2,9 +2,8 @@ use napi::bindgen_prelude::{Result, Uint8Array};
 use napi_derive::napi;
 use prost::Message;
 use xmtp_content_types::{ContentCodec, attachment::AttachmentCodec};
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-use crate::ErrorWrapper;
+use crate::{ErrorWrapper, encoded_content::EncodedContent};
 
 #[derive(Clone)]
 #[napi(object)]
@@ -47,13 +46,9 @@ pub fn encode_attachment(attachment: Attachment) -> Result<Uint8Array> {
 }
 
 #[napi]
-pub fn decode_attachment(bytes: Uint8Array) -> Result<Attachment> {
-  // Decode bytes into EncodedContent
-  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
-
-  // Use AttachmentCodec to decode into Attachment and convert to Attachment
+pub fn decode_attachment(encoded_content: EncodedContent) -> Result<Attachment> {
   Ok(
-    AttachmentCodec::decode(encoded_content)
+    AttachmentCodec::decode(encoded_content.into())
       .map(Into::into)
       .map_err(ErrorWrapper::from)?,
   )
