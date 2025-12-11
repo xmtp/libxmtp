@@ -66,9 +66,8 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    #[ignore]
     async fn test_rollback_and_run_pending_migrations() {
-        tester!(alix);
+        tester!(alix, persistent_db);
         tester!(bo);
 
         let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
@@ -77,10 +76,17 @@ mod tests {
         let bo_msgs = bo_dm.find_messages(&Default::default())?;
         assert_eq!(bo_msgs.len(), 2);
 
+        // Get a migration from the middle of the list to rollback to
+        let conn = alix.db();
+        let db = xmtp_db::DbConnection::new(&conn);
+        let mut available = db.available_migrations()?;
+        available.sort_by(|a, b| b.cmp(a));
+        let rollback_target = &available[available.len() / 2];
+
         // Go back and forth a couple times
         for _ in 0..2 {
-            rollback_confirmed(&alix.db(), "2025-07-08-010431_modify_commit_log")?;
-            xmtp_db::DbConnection::new(&alix.db()).run_pending_migrations()?;
+            rollback_confirmed(&alix.db(), rollback_target)?;
+            db.run_pending_migrations()?;
         }
 
         // Verify messaging still works after migrations
@@ -169,7 +175,10 @@ mod tests {
         let mut available = db.available_migrations()?;
         available.sort_by(|a, b| b.cmp(a));
 
-        assert!(available.len() >= 10, "Need enough migrations for this test");
+        assert!(
+            available.len() >= 10,
+            "Need enough migrations for this test"
+        );
 
         // Pick migrations from the sorted list
         let newest = &available[0];
