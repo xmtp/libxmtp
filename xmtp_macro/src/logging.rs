@@ -1,148 +1,92 @@
-use std::collections::HashSet;
-use syn::{Attribute, Expr, Meta, Variant};
+use proc_macro2::TokenStream as TokenStream2;
+use quote::{ToTokens, quote};
+use syn::{
+    Attribute, Expr, Ident, Meta, Path, Token, Variant,
+    parse::{Parse, ParseStream},
+};
 
-/// Value format patterns for tracing fields: `field = expr`, `field = %expr`, `field = ?expr`, `field` (shorthand)
-const VALUE_PATTERNS: &[&str] = &["= $val:expr", "= %$val:expr", "= ?$val:expr", ""];
+pub(crate) struct Field {
+    pub(crate) name: Ident,
+    pub(crate) sigil: Option<char>,
+    pub(crate) value: Option<Expr>,
+}
 
-/// Generate macro arms that enforce required context fields while allowing extra fields.
-///
-/// Strategy: Validate that required fields exist, then pass ALL original tokens directly
-/// to tracing::info! to preserve hygiene. We do this by:
-/// 1. Saving the original input tokens
-/// 2. Scanning a copy of input tokens to check for required field names
-/// 3. If all required fields found, emit tracing::info! with original tokens
-/// 4. If missing fields, emit compile_error!
-pub(crate) fn generate_field_arms(
-    full_path: &str,
-    fields: &[String],
-    doc_comment: &str,
-    _has_inbox_id: bool,
-) -> Vec<String> {
-    // Deduplicate fields while preserving order
-    let mut seen = HashSet::new();
-    let unique_fields: Vec<_> = fields.iter().filter(|f| seen.insert(*f)).collect();
+pub(crate) struct LogEventInput {
+    pub(crate) event: Path,
+    pub(crate) fields: Vec<Field>,
+}
 
-    if unique_fields.is_empty() {
-        return vec![format!(
-            r#"({} $(, $($fields:tt)*)?) => {{
-        ::tracing::info!($($($fields)*)? {})
-    }};"#,
-            full_path,
-            quote_string(doc_comment),
-        )];
-    }
+impl Parse for LogEventInput {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let event: Path = input.parse()?;
+        let mut fields = Vec::new();
 
-    let n = unique_fields.len();
-    let fields_list = unique_fields
-        .iter()
-        .map(|s| s.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
+        while input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            if input.is_empty() {
+                break;
+            }
 
-    // Helper to generate state patterns like "$s0:tt $s1:tt ..."
-    let state_pattern = |start: usize, count: usize| {
-        (start..start + count)
-            .map(|j| format!("$s{}:tt", j))
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
-    let state_output = |start: usize, count: usize| {
-        (start..start + count)
-            .map(|j| format!("$s{}", j))
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
+            let sigil = if input.peek(Token![%]) {
+                input.parse::<Token![%]>()?;
+                Some('%')
+            } else if input.peek(Token![?]) {
+                input.parse::<Token![?]>()?;
+                Some('?')
+            } else {
+                None
+            };
 
-    let initial_state = unique_fields
-        .iter()
-        .map(|f| format!("[{} missing]", f))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let success_state = unique_fields
-        .iter()
-        .map(|f| format!("[{} found]", f))
-        .collect::<Vec<_>>()
-        .join(" ");
+            let name: Ident = input.parse()?;
 
-    let mut arms = Vec::with_capacity(n * 8 + 7);
+            let (sigil, value) = if input.peek(Token![=]) {
+                input.parse::<Token![=]>()?;
 
-    // Entry point: save original tokens and start validation
-    arms.push(format!(
-        r#"({} $(, $($input:tt)*)?) => {{
-        log_event!(@validate {} {} @orig[ $($($input)*)? ] @cur[ $($($input)*)? ])
-    }};"#,
-        full_path, full_path, initial_state
-    ));
-
-    // Per-field validation arms: handle both "missing" and "found" states
-    for (i, field) in unique_fields.iter().enumerate() {
-        let before = state_pattern(0, i);
-        let after = state_pattern(i + 1, n - i - 1);
-        let before_out = state_output(0, i);
-        let after_out = state_output(i + 1, n - i - 1);
-
-        for state in ["missing", "found"] {
-            for pattern in VALUE_PATTERNS {
-                let field_pattern = if pattern.is_empty() {
-                    field.to_string()
+                let value_sigil = if input.peek(Token![%]) {
+                    input.parse::<Token![%]>()?;
+                    Some('%')
+                } else if input.peek(Token![?]) {
+                    input.parse::<Token![?]>()?;
+                    Some('?')
                 } else {
-                    format!("{} {}", field, pattern)
+                    None
                 };
 
-                arms.push(format!(
-                    r#"(@validate {} {} [{} {}] {} @orig[ $($orig:tt)* ] @cur[ {} $(, $($rest:tt)*)? ]) => {{
-        log_event!(@validate {} {} [{} found] {} @orig[ $($orig)* ] @cur[ $($($rest)*)? ])
-    }};"#,
-                    full_path, before, field, state, after, field_pattern,
-                    full_path, before_out, field, after_out
-                ));
-            }
+                let expr: Expr = input.parse()?;
+                (sigil.or(value_sigil), Some(expr))
+            } else {
+                (sigil, None)
+            };
+
+            fields.push(Field { name, sigil, value });
+        }
+
+        Ok(LogEventInput { event, fields })
+    }
+}
+
+impl Field {
+    pub(crate) fn to_tracing_tokens(&self) -> TokenStream2 {
+        let name = &self.name;
+        let value = self
+            .value
+            .as_ref()
+            .map(|e| e.to_token_stream())
+            .unwrap_or_else(|| name.to_token_stream());
+
+        match self.sigil {
+            Some('%') => quote! { #name = %#value },
+            Some('?') => quote! { #name = ?#value },
+            _ => quote! { #name = #value },
         }
     }
 
-    // Non-required field handlers: skip any field not in the required list
-    let all_state = state_pattern(0, n);
-    let all_out = state_output(0, n);
-
-    for pattern in VALUE_PATTERNS {
-        let field_pattern = if pattern.is_empty() {
-            "$field:tt".to_string()
-        } else {
-            format!("$field:tt {}", pattern)
-        };
-
-        arms.push(format!(
-            r#"(@validate {} {} @orig[ $($orig:tt)* ] @cur[ {} $(, $($rest:tt)*)? ]) => {{
-        log_event!(@validate {} {} @orig[ $($orig)* ] @cur[ $($($rest)*)? ])
-    }};"#,
-            full_path, all_state, field_pattern, full_path, all_out
-        ));
+    pub(crate) fn value_tokens(&self) -> TokenStream2 {
+        self.value
+            .as_ref()
+            .map(|e| e.to_token_stream())
+            .unwrap_or_else(|| self.name.to_token_stream())
     }
-
-    // Success terminal: all required fields found
-    arms.push(format!(
-        r#"(@validate {} {} @orig[ $($orig:tt)* ] @cur[ ]) => {{
-        ::tracing::info!($($orig)* {})
-    }};"#,
-        full_path,
-        success_state,
-        quote_string(doc_comment)
-    ));
-
-    // Error terminals: missing required fields
-    for (i, field) in unique_fields.iter().enumerate() {
-        let before = state_pattern(0, i);
-        let after = state_pattern(i + 1, n - i - 1);
-
-        arms.push(format!(
-            r#"(@validate {} {} [{} missing] {} @orig[ $($orig:tt)* ] @cur[ ]) => {{
-        ::core::compile_error!(concat!("{} requires context fields: {}", ". Missing field: {}."))
-    }};"#,
-            full_path, before, field, after, full_path, fields_list, field
-        ));
-    }
-
-    arms
 }
 
 pub(crate) fn get_doc_comment(variant: &Variant) -> Result<String, syn::Error> {
@@ -180,8 +124,4 @@ pub(crate) fn get_context_fields(attrs: &[Attribute]) -> Vec<String> {
             Some(fields)
         })
         .unwrap_or_default()
-}
-
-pub(crate) fn quote_string(s: &str) -> String {
-    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }

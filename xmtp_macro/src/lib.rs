@@ -6,7 +6,7 @@ use proc_macro2::*;
 use quote::{quote, quote_spanned};
 use syn::{Data, DeriveInput, parse_macro_input};
 
-use crate::logging::*;
+use crate::logging::{LogEventInput, get_context_fields, get_doc_comment};
 
 /// A proc macro attribute that wraps the input in an `async_trait` implementation,
 /// delegating to the appropriate `async_trait` implementation based on the target architecture.
@@ -105,7 +105,7 @@ pub fn test(
 }
 
 #[proc_macro_attribute]
-pub fn log_event_macro(
+pub fn build_logging_metadata(
     _attr: proc_macro::TokenStream,
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
@@ -122,11 +122,13 @@ pub fn log_event_macro(
     };
 
     let mut display_arms = Vec::new();
-    let mut macro_arms = Vec::new();
+    let mut metadata_entries = Vec::new();
     let mut cleaned_variants = Vec::new();
+    let mut metadata_match_arms = Vec::new();
 
     for variant in &data_enum.variants {
         let variant_name = &variant.ident;
+        let variant_name_str = variant_name.to_string();
         let doc_comment = match get_doc_comment(&variant) {
             Ok(dc) => dc,
             Err(err) => return err.to_compile_error().into(),
@@ -157,47 +159,43 @@ pub fn log_event_macro(
             #enum_name::#variant_name => write!(f, #doc_comment),
         });
 
-        // Check if inbox_id is in context fields for message formatting
-        let has_inbox_id = context_fields.contains(&"inbox_id".to_string());
+        // Metadata entry for the const array
+        let context_fields_tokens: Vec<_> = context_fields.iter().map(|f| quote! { #f }).collect();
+        metadata_entries.push(quote! {
+            crate::logging::EventMetadata {
+                name: #variant_name_str,
+                doc: #doc_comment,
+                context_fields: &[#(#context_fields_tokens),*],
+            }
+        });
 
-        // Macro arm
-        let full_path = format!("{}::{}", enum_name, variant_name);
-
-        if context_fields.is_empty() {
-            let arm = format!(
-                r#"({} $(, $($extra:tt)*)?) => {{
-        ::tracing::info!($($($extra)*)? {})
-    }};"#,
-                full_path,
-                quote_string(&doc_comment),
-            );
-            macro_arms.push(arm);
-        } else {
-            let arms = generate_field_arms(&full_path, &context_fields, &doc_comment, has_inbox_id);
-            macro_arms.extend(arms);
-        }
+        // Match arm for the metadata() method
+        metadata_match_arms.push(quote! {
+            #enum_name::#variant_name => &Self::METADATA[#enum_name::#variant_name as usize],
+        });
     }
 
-    // Build the macro_rules as a string and parse it
-    let macro_body = macro_arms.join("\n        ");
-    let macro_def_str = format!(
-        r#"
-#[macro_export]
-macro_rules! log_event {{
-    {}
-}}
-"#,
-        macro_body
-    );
-
-    let macro_def: TokenStream = macro_def_str
-        .parse()
-        .expect("Failed to parse generated macro");
+    let variant_count = cleaned_variants.len();
 
     let expanded = quote! {
         #(#attrs)*
+        #[repr(usize)]
         #visibility enum #enum_name {
             #(#cleaned_variants),*
+        }
+
+        impl #enum_name {
+            /// Metadata for all variants of this enum, indexed by variant discriminant.
+            pub const METADATA: [crate::logging::EventMetadata; #variant_count] = [
+                #(#metadata_entries),*
+            ];
+
+            /// Returns the metadata for this event variant.
+            pub const fn metadata(&self) -> &'static crate::logging::EventMetadata {
+                match self {
+                    #(#metadata_match_arms)*
+                }
+            }
         }
 
         impl ::core::fmt::Display for #enum_name {
@@ -207,11 +205,81 @@ macro_rules! log_event {{
                 }
             }
         }
-
-        #macro_def
     };
 
     expanded.into()
+}
+
+#[proc_macro]
+pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as LogEventInput);
+    let event = &input.event;
+
+    let provided_names: Vec<String> = input.fields.iter().map(|f| f.name.to_string()).collect();
+    let tracing_fields: Vec<TokenStream> =
+        input.fields.iter().map(|f| f.to_tracing_tokens()).collect();
+
+    // Generate match arms for building context string
+    let context_match_arms: Vec<TokenStream> = input
+        .fields
+        .iter()
+        .map(|f| {
+            let name_str = f.name.to_string();
+            let value = f.value_tokens();
+            quote! {
+                #name_str => Some(format!("{}={:?}", #name_str, #value))
+            }
+        })
+        .collect();
+
+    let provided_names_tokens = provided_names.iter().map(|n| quote! { #n });
+
+    quote! {
+        {
+            const PROVIDED: &[&str] = &[#(#provided_names_tokens),*];
+            let __meta = #event.metadata();
+
+            // Validation: panic if missing required fields
+            let __missing: ::std::vec::Vec<&str> = __meta.context_fields
+                .iter()
+                .copied()
+                .filter(|f| !PROVIDED.contains(f))
+                .collect();
+
+            if !__missing.is_empty() {
+                panic!(
+                    "log_event!({}) missing required context fields: {:?}",
+                    __meta.name,
+                    __missing
+                );
+            }
+
+            // Build context string from context_fields
+            let __context_parts: ::std::vec::Vec<String> = __meta.context_fields
+                .iter()
+                .filter_map(|&field_name| {
+                    match field_name {
+                        #(#context_match_arms,)*
+                        _ => None,
+                    }
+                })
+                .collect();
+
+            let __context_str = __context_parts.join(", ");
+            let __message = if __context_str.is_empty() {
+                __meta.doc.to_string()
+            } else {
+                format!("{} [{}]", __meta.doc, __context_str)
+            };
+
+            ::tracing::info!(
+                #(#tracing_fields,)*
+                "{}",
+                __message
+            );
+        }
+    }
+    .into()
 }
 
 // Check if a function's return type is () (unit)

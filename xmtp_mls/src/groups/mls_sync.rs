@@ -61,7 +61,7 @@ use std::{
 use thiserror::Error;
 use tracing::debug;
 use update_group_membership::apply_update_group_membership_intent;
-use xmtp_common::{Retry, RetryableError, log_event, retry_async, time::now_ns};
+use xmtp_common::{Event, Retry, RetryableError, log_event, retry_async, time::now_ns};
 use xmtp_configuration::{
     GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
     SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
