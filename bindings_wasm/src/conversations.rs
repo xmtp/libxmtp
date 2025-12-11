@@ -556,6 +556,19 @@ impl Conversations {
     Ok(message.into())
   }
 
+  #[wasm_bindgen(js_name = deleteMessageById)]
+  pub fn delete_message_by_id(&self, message_id: String) -> Result<u32, JsError> {
+    let message_id =
+      hex::decode(message_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    let deleted_count = self
+      .inner_client
+      .delete_message(message_id)
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(deleted_count as u32)
+  }
+
   #[wasm_bindgen]
   pub async fn sync(&self) -> Result<(), JsError> {
     self

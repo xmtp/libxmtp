@@ -479,6 +479,18 @@ impl Conversations {
   }
 
   #[napi]
+  pub fn delete_message_by_id(&self, message_id: String) -> Result<u32> {
+    let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
+
+    let deleted_count = self
+      .inner_client
+      .delete_message(message_id)
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(deleted_count as u32)
+  }
+
+  #[napi]
   pub async fn process_streamed_welcome_message(
     &self,
     envelope_bytes: Uint8Array,

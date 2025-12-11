@@ -424,13 +424,4 @@ impl Client {
   pub fn clear_all_statistics(&self) {
     self.inner_client.clear_stats()
   }
-
-  #[wasm_bindgen(js_name = deleteMessage)]
-  pub fn delete_message(&self, message_id: Vec<u8>) -> Result<u32, JsError> {
-    let deleted_count = self
-      .inner_client
-      .delete_message(message_id)
-      .map_err(|e| JsError::new(&format!("{e}")))?;
-    Ok(deleted_count as u32)
-  }
 }

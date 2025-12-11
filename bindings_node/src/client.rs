@@ -428,15 +428,6 @@ impl Client {
     self.inner_client.clear_stats()
   }
 
-  #[napi]
-  pub fn delete_message(&self, message_id: Uint8Array) -> Result<u32> {
-    let deleted_count = self
-      .inner_client
-      .delete_message(message_id.to_vec())
-      .map_err(ErrorWrapper::from)?;
-    Ok(deleted_count as u32)
-  }
-
   pub fn release_db_connection(&self) -> Result<()> {
     self
       .inner_client
