@@ -783,6 +783,29 @@ mock! {
             orphans: Vec<OrphanedEnvelope>,
         ) -> Result<usize, crate::ConnectionError>;
     }
+
+    impl crate::migrations::QueryMigrations for DbQuery {
+        fn applied_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
+
+        fn available_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
+
+        fn rollback_to_version<'a>(
+            &self,
+            version: &'a str,
+        ) -> Result<Vec<String>, crate::ConnectionError>;
+
+        fn run_migration<'a>(
+            &self,
+            name: &'a str,
+        ) -> Result<(), crate::ConnectionError>;
+
+        fn revert_migration<'a>(
+            &self,
+            name: &'a str,
+        ) -> Result<(), crate::ConnectionError>;
+
+        fn run_pending_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
+    }
 }
 
 impl ConnectionExt for MockDbQuery {
