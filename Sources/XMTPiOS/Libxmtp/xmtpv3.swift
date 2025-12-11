@@ -8176,6 +8176,77 @@ public func FfiConverterTypeFfiKeyPackageStatus_lower(_ value: FfiKeyPackageStat
 }
 
 
+/**
+ * Represents a leave request message sent when a user wants to leave a group.
+ */
+public struct FfiLeaveRequest {
+    /**
+     * Optional authenticated note for the leave request
+     */
+    public var authenticatedNote: Data?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Optional authenticated note for the leave request
+         */authenticatedNote: Data?) {
+        self.authenticatedNote = authenticatedNote
+    }
+}
+
+#if compiler(>=6)
+extension FfiLeaveRequest: Sendable {}
+#endif
+
+
+extension FfiLeaveRequest: Equatable, Hashable {
+    public static func ==(lhs: FfiLeaveRequest, rhs: FfiLeaveRequest) -> Bool {
+        if lhs.authenticatedNote != rhs.authenticatedNote {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(authenticatedNote)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiLeaveRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiLeaveRequest {
+        return
+            try FfiLeaveRequest(
+                authenticatedNote: FfiConverterOptionData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiLeaveRequest, into buf: inout [UInt8]) {
+        FfiConverterOptionData.write(value.authenticatedNote, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiLeaveRequest_lift(_ buf: RustBuffer) throws -> FfiLeaveRequest {
+    return try FfiConverterTypeFfiLeaveRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiLeaveRequest_lower(_ value: FfiLeaveRequest) -> RustBuffer {
+    return FfiConverterTypeFfiLeaveRequest.lower(value)
+}
+
+
 public struct FfiLifetime {
     public var notBefore: UInt64
     public var notAfter: UInt64
@@ -10627,6 +10698,7 @@ public enum FfiContentType {
     case attachment
     case remoteAttachment
     case transactionReference
+    case leaveRequest
 }
 
 
@@ -10663,6 +10735,8 @@ public struct FfiConverterTypeFfiContentType: FfiConverterRustBuffer {
         case 9: return .remoteAttachment
         
         case 10: return .transactionReference
+        
+        case 11: return .leaveRequest
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -10710,6 +10784,10 @@ public struct FfiConverterTypeFfiContentType: FfiConverterRustBuffer {
         
         case .transactionReference:
             writeInt(&buf, Int32(10))
+        
+        
+        case .leaveRequest:
+            writeInt(&buf, Int32(11))
         
         }
     }
@@ -11009,6 +11087,8 @@ public enum FfiDecodedMessageBody {
     )
     case actions(FfiActions
     )
+    case leaveRequest(FfiLeaveRequest
+    )
     case custom(FfiEncodedContent
     )
 }
@@ -11061,7 +11141,10 @@ public struct FfiConverterTypeFfiDecodedMessageBody: FfiConverterRustBuffer {
         case 11: return .actions(try FfiConverterTypeFfiActions.read(from: &buf)
         )
         
-        case 12: return .custom(try FfiConverterTypeFfiEncodedContent.read(from: &buf)
+        case 12: return .leaveRequest(try FfiConverterTypeFfiLeaveRequest.read(from: &buf)
+        )
+        
+        case 13: return .custom(try FfiConverterTypeFfiEncodedContent.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -11127,8 +11210,13 @@ public struct FfiConverterTypeFfiDecodedMessageBody: FfiConverterRustBuffer {
             FfiConverterTypeFfiActions.write(v1, into: &buf)
             
         
-        case let .custom(v1):
+        case let .leaveRequest(v1):
             writeInt(&buf, Int32(12))
+            FfiConverterTypeFfiLeaveRequest.write(v1, into: &buf)
+            
+        
+        case let .custom(v1):
+            writeInt(&buf, Int32(13))
             FfiConverterTypeFfiEncodedContent.write(v1, into: &buf)
             
         }
@@ -11187,6 +11275,8 @@ public enum FfiDecodedMessageContent {
     )
     case actions(FfiActions?
     )
+    case leaveRequest(FfiLeaveRequest
+    )
     case custom(FfiEncodedContent
     )
 }
@@ -11242,7 +11332,10 @@ public struct FfiConverterTypeFfiDecodedMessageContent: FfiConverterRustBuffer {
         case 12: return .actions(try FfiConverterOptionTypeFfiActions.read(from: &buf)
         )
         
-        case 13: return .custom(try FfiConverterTypeFfiEncodedContent.read(from: &buf)
+        case 13: return .leaveRequest(try FfiConverterTypeFfiLeaveRequest.read(from: &buf)
+        )
+        
+        case 14: return .custom(try FfiConverterTypeFfiEncodedContent.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -11313,8 +11406,13 @@ public struct FfiConverterTypeFfiDecodedMessageContent: FfiConverterRustBuffer {
             FfiConverterOptionTypeFfiActions.write(v1, into: &buf)
             
         
-        case let .custom(v1):
+        case let .leaveRequest(v1):
             writeInt(&buf, Int32(13))
+            FfiConverterTypeFfiLeaveRequest.write(v1, into: &buf)
+            
+        
+        case let .custom(v1):
+            writeInt(&buf, Int32(14))
             FfiConverterTypeFfiEncodedContent.write(v1, into: &buf)
             
         }
