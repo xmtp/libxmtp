@@ -49,7 +49,7 @@ paranoid-android = "0.2"
 tracing_android_trace = "0.1"
 
 [target.'cfg(target_os = "ios")'.dependencies]
-tracing-oslog = "0.2"
+tracing-oslog = "0.3"
 
 [build-dependencies]
 uniffi = { version = "0.29.0", features = ["build"] }
