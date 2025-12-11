@@ -80,10 +80,7 @@ pub struct StoredGroupMessage {
 
 impl StoredGroupMessage {
     pub fn cursor(&self) -> Cursor {
-        Cursor {
-            sequence_id: self.sequence_id as u64,
-            originator_id: self.originator_id as u32,
-        }
+        Cursor::new(self.sequence_id as u64, self.originator_id as u32)
     }
 }
 
@@ -1327,10 +1324,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             })?;
 
             for (originator_id, sequence_id) in messages {
-                all_cursors.push(Cursor {
-                    sequence_id: sequence_id as u64,
-                    originator_id: originator_id as u32,
-                });
+                all_cursors.push(Cursor::new(sequence_id as u64, originator_id as u32));
             }
         }
 

@@ -40,10 +40,7 @@ impl EnvelopeVisitor<'_> for CursorExtractor {
         &mut self,
         e: &UnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
-        self.cursor = Some(Cursor {
-            sequence_id: e.originator_sequence_id,
-            originator_id: e.originator_node_id,
-        });
+        self.cursor = Some(Cursor::new(e.originator_sequence_id, e.originator_node_id));
         Ok(())
     }
 
