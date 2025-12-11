@@ -778,4 +778,41 @@ class ConversationTests: XCTestCase {
 
 		try fixtures.cleanUpDatabases()
 	}
+
+	func testStreamMessageDeletions() async throws {
+		let fixtures = try await fixtures()
+
+		// Set disappearing messages to start immediately (fromNs=0) with 1 second retention
+		let disappearingSettings = DisappearingMessageSettings(
+			disappearStartingAtNs: 1,
+			retentionDurationInNs: 1_000_000 // 1 second
+		)
+
+		let group = try await fixtures.alixClient.conversations.newGroup(
+			with: [fixtures.boClient.inboxID],
+			disappearingMessageSettings: disappearingSettings
+		)
+
+		var deletedMessageIds: [String] = []
+
+		let task = Task {
+			for try await messageId in fixtures.alixClient.conversations
+				.streamMessageDeletions()
+			{
+				deletedMessageIds.append(messageId)
+			}
+		}
+
+		// Send a message that should eventually be deleted by the disappearing messages worker
+		let sentMessageId = try await group.send(content: "This message will disappear")
+
+		// Give the stream time to establish and wait for potential deletions
+		try await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
+
+		task.cancel()
+
+		XCTAssert(deletedMessageIds.contains(sentMessageId))
+
+		try fixtures.cleanUpDatabases()
+	}
 }
