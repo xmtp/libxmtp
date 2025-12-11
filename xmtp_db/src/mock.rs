@@ -495,6 +495,12 @@ mock! {
             &self,
             cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
         ) -> Result<Vec<Cursor>, crate::ConnectionError>;
+
+        fn clear_messages<'a>(
+            &self,
+            group_ids: Option<&'a [Vec<u8>]>,
+            retention_days: Option<i64>,
+        ) -> Result<usize, crate::ConnectionError>;
     }
 
     impl QueryIdentity for DbQuery {

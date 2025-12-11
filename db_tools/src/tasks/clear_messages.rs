@@ -1,43 +1,24 @@
 use anyhow::Result;
-use xmtp_common::{NS_IN_DAY, time::now_ns};
-use xmtp_db::{
-    ConnectionExt,
-    diesel::{self, ExpressionMethods, RunQueryDsl},
-    schema::group_messages::dsl as messages_dsl,
-};
+use xmtp_db::{ConnectionExt, DbConnection, group_message::QueryGroupMessage};
 
 use crate::confirm_destructive;
 
-pub fn clear_all_messages(
-    conn: &impl ConnectionExt,
+pub fn clear_all_messages<C: ConnectionExt>(
+    conn: &C,
     limit_days: Option<i64>,
-    group_ids: Option<&[&[u8]]>,
+    group_ids: Option<&[Vec<u8>]>,
 ) -> Result<()> {
     confirm_destructive()?;
     clear_all_messages_confirmed(conn, limit_days, group_ids)
 }
 
-pub fn clear_all_messages_confirmed(
-    conn: &impl ConnectionExt,
+pub fn clear_all_messages_confirmed<C: ConnectionExt>(
+    conn: &C,
     limit_days: Option<i64>,
-    group_ids: Option<&[&[u8]]>,
+    group_ids: Option<&[Vec<u8>]>,
 ) -> Result<()> {
-    let mut query = diesel::delete(messages_dsl::group_messages).into_boxed();
-
-    if let Some(group_ids) = group_ids {
-        query = query.filter(messages_dsl::group_id.eq_any(group_ids));
-    }
-
-    if let Some(days) = limit_days {
-        if days < 0 {
-            return Err(anyhow::anyhow!("`limit_days` must be >= 0"));
-        }
-        let limit = now_ns().saturating_sub(NS_IN_DAY.saturating_mul(days));
-        query = query.filter(messages_dsl::sent_at_ns.lt(limit));
-    }
-
-    conn.raw_query_write(|c| query.execute(c))?;
-
+    let db = DbConnection::new(conn);
+    db.clear_messages(group_ids, limit_days)?;
     Ok(())
 }
 
@@ -74,7 +55,11 @@ mod tests {
         // Commit and application msg
         assert_eq!(alix_msgs.len(), 2);
 
-        clear_all_messages_confirmed(&alix.db(), None, Some(&[&alix_bo_dm.group_id]))?;
+        clear_all_messages_confirmed(
+            &alix.db(),
+            None,
+            Some(std::slice::from_ref(&alix_bo_dm.group_id)),
+        )?;
         let alix_msgs = alix_bo_dm.find_messages(&MsgQueryArgs::default())?;
         // Commit and application msg
         assert_eq!(alix_msgs.len(), 0);
