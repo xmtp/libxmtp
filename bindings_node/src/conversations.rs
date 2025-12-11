@@ -1,5 +1,6 @@
 use crate::ErrorWrapper;
 use crate::consent_state::{Consent, ConsentState};
+use crate::enriched_message::DecodedMessage;
 use crate::identity::Identifier;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
@@ -463,6 +464,30 @@ impl Conversations {
       .map_err(ErrorWrapper::from)?;
 
     Ok(Message::from(message))
+  }
+
+  #[napi]
+  pub async fn find_enriched_message_by_id(&self, message_id: String) -> Result<DecodedMessage> {
+    let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
+
+    let message = self
+      .inner_client
+      .message_v2(message_id)
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(message.into())
+  }
+
+  #[napi]
+  pub fn delete_message_by_id(&self, message_id: String) -> Result<u32> {
+    let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
+
+    let deleted_count = self
+      .inner_client
+      .delete_message(message_id)
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(deleted_count as u32)
   }
 
   #[napi]
