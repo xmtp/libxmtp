@@ -105,9 +105,7 @@ pub fn encode_reply(reply: Reply) -> Result<Uint8Array, JsError> {
 #[wasm_bindgen(js_name = "decodeReply")]
 pub fn decode_reply(encoded_content: EncodedContent) -> Result<Reply, JsError> {
   // Use ReplyCodec to decode and convert to Reply
-  Ok(
-    ReplyCodec::decode(encoded_content.into())
-      .map(Into::into)
-      .map_err(|e| JsError::new(&format!("{}", e)))?,
-  )
+  ReplyCodec::decode(encoded_content.into())
+    .map(Into::into)
+    .map_err(|e| JsError::new(&format!("{}", e)))
 }
