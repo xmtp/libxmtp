@@ -13,4 +13,7 @@ use crate::protocol::ResolutionError;
 pub trait OrderedEnvelopeCollection: MaybeSend + MaybeSync {
     /// Order dependencies of `Self` according to [XIP](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#335-cross-originator-message-ordering)
     async fn order(&mut self) -> Result<(), ResolutionError>;
+
+    /// order without trying to resolve dependencies
+    fn order_offline(&mut self) -> Result<(), ResolutionError>;
 }

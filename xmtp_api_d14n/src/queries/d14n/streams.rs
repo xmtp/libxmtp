@@ -1,14 +1,22 @@
-use crate::TryExtractorStream;
 use crate::d14n::SubscribeEnvelopes;
 use crate::protocol::{CursorStore, GroupMessageExtractor, WelcomeMessageExtractor};
 use crate::queries::stream;
+use crate::{FlattenedStream, OrderedStream, TryExtractorStream};
 
 use super::D14nClient;
 use xmtp_common::RetryableError;
 use xmtp_proto::api::{ApiClientError, Client, QueryStream, XmtpStream};
-use xmtp_proto::api_client::XmtpMlsStreams;
+use xmtp_proto::api_client::{Paged, XmtpMlsStreams};
 use xmtp_proto::types::{GroupId, InstallationId, TopicCursor, TopicKind};
 use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse;
+
+type PagedItem = <SubscribeEnvelopesResponse as Paged>::Message;
+
+type OrderedStreamT<C, Store> = OrderedStream<
+    FlattenedStream<XmtpStream<<C as Client>::Stream, SubscribeEnvelopesResponse>>,
+    Store,
+    PagedItem,
+>;
 
 #[xmtp_common::async_trait]
 impl<C, Store, E> XmtpMlsStreams for D14nClient<C, Store>
@@ -16,14 +24,11 @@ where
     C: Client<Error = E>,
     <C as Client>::Stream: 'static,
     E: RetryableError + 'static,
-    Store: CursorStore,
+    Store: CursorStore + Clone,
 {
     type Error = ApiClientError<E>;
 
-    type GroupMessageStream = TryExtractorStream<
-        XmtpStream<<C as Client>::Stream, SubscribeEnvelopesResponse>,
-        GroupMessageExtractor,
-    >;
+    type GroupMessageStream = TryExtractorStream<OrderedStreamT<C, Store>, GroupMessageExtractor>;
 
     type WelcomeMessageStream = TryExtractorStream<
         XmtpStream<<C as Client>::Stream, SubscribeEnvelopesResponse>,
@@ -38,6 +43,11 @@ where
             let s = SubscribeEnvelopes::builder()
                 .build()?
                 .fake_stream(&self.client);
+            let s = stream::ordered(
+                stream::flattened(s),
+                self.cursor_store.clone(),
+                TopicCursor::default(),
+            );
             return Ok(stream::try_extractor(s));
         }
         let topics = group_ids
@@ -47,6 +57,10 @@ where
         let lcc = self
             .cursor_store
             .lcc_maybe_missing(&topics.iter().collect::<Vec<_>>())?;
+        let topic_cursor: TopicCursor = self
+            .cursor_store
+            .latest_for_topics(&mut topics.iter())?
+            .into();
         tracing::debug!("subscribing to messages @cursor={}", lcc);
         let s = SubscribeEnvelopes::builder()
             .topics(topics)
@@ -54,6 +68,11 @@ where
             .build()?
             .stream(&self.client)
             .await?;
+        let s = stream::ordered(
+            stream::flattened(s),
+            self.cursor_store.clone(),
+            topic_cursor,
+        );
         Ok(stream::try_extractor(s))
     }
 
@@ -65,6 +84,11 @@ where
             let s = SubscribeEnvelopes::builder()
                 .build()?
                 .fake_stream(&self.client);
+            let s = stream::ordered(
+                stream::flattened(s),
+                self.cursor_store.clone(),
+                TopicCursor::default(),
+            );
             return Ok(stream::try_extractor(s));
         }
         // Compute the lowest common cursor from the provided cursors
@@ -79,6 +103,11 @@ where
             .build()?
             .stream(&self.client)
             .await?;
+        let s = stream::ordered(
+            stream::flattened(s),
+            self.cursor_store.clone(),
+            topics.clone(),
+        );
         Ok(stream::try_extractor(s))
     }
 

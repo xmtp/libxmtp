@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, marker::PhantomData};
 
 use derive_builder::UninitializedFieldError;
 use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
@@ -61,6 +61,36 @@ impl ResolveDependencies for NoopResolver {
     ) -> Result<Resolved<()>, ResolutionError> {
         Ok(Resolved {
             resolved: vec![],
+            unresolved: Some(m),
+        })
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct TypedNoopResolver<T> {
+    _marker: PhantomData<T>,
+}
+
+impl<T> TypedNoopResolver<T> {
+    pub fn new() -> Self {
+        Self {
+            _marker: PhantomData,
+        }
+    }
+}
+
+#[xmtp_common::async_trait]
+impl<T> ResolveDependencies for TypedNoopResolver<T>
+where
+    T: Envelope<'static>,
+{
+    type ResolvedEnvelope = T;
+    async fn resolve(
+        &self,
+        m: HashSet<RequiredDependency>,
+    ) -> Result<Resolved<T>, ResolutionError> {
+        Ok(Resolved {
+            resolved: Vec::<T>::new(),
             unresolved: Some(m),
         })
     }
