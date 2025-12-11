@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use syn::{Attribute, Expr, Meta};
+use syn::{Attribute, Expr, Meta, Variant};
 
 /// Value format patterns for tracing fields: `field = expr`, `field = %expr`, `field = ?expr`, `field` (shorthand)
 const VALUE_PATTERNS: &[&str] = &["= $val:expr", "= %$val:expr", "= ?$val:expr", ""];
@@ -33,18 +33,36 @@ pub(crate) fn generate_field_arms(
     }
 
     let n = unique_fields.len();
-    let fields_list = unique_fields.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ");
+    let fields_list = unique_fields
+        .iter()
+        .map(|s| s.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
 
     // Helper to generate state patterns like "$s0:tt $s1:tt ..."
     let state_pattern = |start: usize, count: usize| {
-        (start..start + count).map(|j| format!("$s{}:tt", j)).collect::<Vec<_>>().join(" ")
+        (start..start + count)
+            .map(|j| format!("$s{}:tt", j))
+            .collect::<Vec<_>>()
+            .join(" ")
     };
     let state_output = |start: usize, count: usize| {
-        (start..start + count).map(|j| format!("$s{}", j)).collect::<Vec<_>>().join(" ")
+        (start..start + count)
+            .map(|j| format!("$s{}", j))
+            .collect::<Vec<_>>()
+            .join(" ")
     };
 
-    let initial_state = unique_fields.iter().map(|f| format!("[{} missing]", f)).collect::<Vec<_>>().join(" ");
-    let success_state = unique_fields.iter().map(|f| format!("[{} found]", f)).collect::<Vec<_>>().join(" ");
+    let initial_state = unique_fields
+        .iter()
+        .map(|f| format!("[{} missing]", f))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let success_state = unique_fields
+        .iter()
+        .map(|f| format!("[{} found]", f))
+        .collect::<Vec<_>>()
+        .join(" ");
 
     let mut arms = Vec::with_capacity(n * 8 + 7);
 
@@ -106,7 +124,9 @@ pub(crate) fn generate_field_arms(
         r#"(@validate {} {} @orig[ $($orig:tt)* ] @cur[ ]) => {{
         ::tracing::info!($($orig)* {})
     }};"#,
-        full_path, success_state, quote_string(doc_comment)
+        full_path,
+        success_state,
+        quote_string(doc_comment)
     ));
 
     // Error terminals: missing required fields
@@ -125,8 +145,8 @@ pub(crate) fn generate_field_arms(
     arms
 }
 
-pub(crate) fn get_doc_comment(attrs: &[Attribute]) -> String {
-    attrs.iter().find_map(|attr| {
+pub(crate) fn get_doc_comment(variant: &Variant) -> Result<String, syn::Error> {
+    let doc_comment = variant.attrs.iter().find_map(|attr| {
         if !attr.path().is_ident("doc") {
             return None;
         }
@@ -138,23 +158,28 @@ pub(crate) fn get_doc_comment(attrs: &[Attribute]) -> String {
             }
         }
         None
-    }).unwrap_or_default()
+    });
+
+    doc_comment.ok_or_else(|| syn::Error::new_spanned(variant, "Doc comment is required."))
 }
 
 pub(crate) fn get_context_fields(attrs: &[Attribute]) -> Vec<String> {
-    attrs.iter().find_map(|attr| {
-        if !attr.path().is_ident("context") {
-            return None;
-        }
-        let mut fields = Vec::new();
-        let _ = attr.parse_nested_meta(|meta| {
-            if let Some(ident) = meta.path.get_ident() {
-                fields.push(ident.to_string());
+    attrs
+        .iter()
+        .find_map(|attr| {
+            if !attr.path().is_ident("context") {
+                return None;
             }
-            Ok(())
-        });
-        Some(fields)
-    }).unwrap_or_default()
+            let mut fields = Vec::new();
+            let _ = attr.parse_nested_meta(|meta| {
+                if let Some(ident) = meta.path.get_ident() {
+                    fields.push(ident.to_string());
+                }
+                Ok(())
+            });
+            Some(fields)
+        })
+        .unwrap_or_default()
 }
 
 pub(crate) fn quote_string(s: &str) -> String {

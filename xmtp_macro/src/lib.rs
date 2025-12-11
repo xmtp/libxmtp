@@ -2,7 +2,6 @@ extern crate proc_macro;
 
 mod logging;
 
-use proc_macro::TokenStream as TokenStream1;
 use proc_macro2::*;
 use quote::{quote, quote_spanned};
 use syn::{Data, DeriveInput, parse_macro_input};
@@ -106,7 +105,10 @@ pub fn test(
 }
 
 #[proc_macro_attribute]
-pub fn log_event_macro(_attr: TokenStream1, item: TokenStream1) -> TokenStream1 {
+pub fn log_event_macro(
+    _attr: proc_macro::TokenStream,
+    item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
     let input = parse_macro_input!(item as DeriveInput);
 
     let enum_name = &input.ident;
@@ -125,7 +127,10 @@ pub fn log_event_macro(_attr: TokenStream1, item: TokenStream1) -> TokenStream1 
 
     for variant in &data_enum.variants {
         let variant_name = &variant.ident;
-        let doc_comment = get_doc_comment(&variant.attrs);
+        let doc_comment = match get_doc_comment(&variant) {
+            Ok(dc) => dc,
+            Err(err) => return err.to_compile_error().into(),
+        };
         let context_fields = get_context_fields(&variant.attrs);
 
         // Filter out #[context(...)] attributes for the output enum
@@ -204,43 +209,6 @@ macro_rules! log_event {{
         }
 
         #macro_def
-    };
-
-    expanded.into()
-}
-
-/// Derive macro for just the Display impl (if you don't need the log_event! macro)
-#[proc_macro_derive(LogEvent, attributes(context))]
-pub fn derive_log_event(input: TokenStream1) -> TokenStream1 {
-    let input = parse_macro_input!(input as DeriveInput);
-
-    let enum_name = &input.ident;
-
-    let Data::Enum(data_enum) = &input.data else {
-        return syn::Error::new_spanned(&input, "LogEvent can only be derived for enums")
-            .to_compile_error()
-            .into();
-    };
-
-    let mut display_arms = Vec::new();
-
-    for variant in &data_enum.variants {
-        let variant_name = &variant.ident;
-        let doc_comment = get_doc_comment(&variant.attrs);
-
-        display_arms.push(quote! {
-            #enum_name::#variant_name => write!(f, #doc_comment),
-        });
-    }
-
-    let expanded = quote! {
-        impl ::core::fmt::Display for #enum_name {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                match self {
-                    #(#display_arms)*
-                }
-            }
-        }
     };
 
     expanded.into()

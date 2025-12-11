@@ -1003,17 +1003,16 @@ where
         let mut identifier = MessageIdentifierBuilder::from(message_envelope);
         match processed_message.into_content() {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
-                tracing::info!(
+                log_event!(
+                    Event::MLSReceivedApplicationMessage,
                     inbox_id = self.context.inbox_id(),
                     sender_inbox_id = sender_inbox_id,
                     sender_installation_id = hex::encode(&sender_installation_id),
                     installation_id = %self.context.installation_id(),group_id = hex::encode(&self.group_id),
                     current_epoch = mls_group.epoch().as_u64(),
                     msg_epoch,
-                    msg_group_id,
+                    group_id = msg_group_id,
                     cursor = %cursor,
-                    "[{}] decoding application message",
-                    self.context.inbox_id()
                 );
                 let message_bytes = application_message.into_bytes();
 
@@ -1073,6 +1072,11 @@ where
                             self.process_leave_request_message(mls_group, storage, &message)?;
                         }
 
+                        log_event!(
+                            Event::MLSProcessedApplicationMessage,
+                            group_id = msg_group_id,
+                        );
+
                         Ok::<_, GroupMessageProcessingError>(())
                     }
                     Some(Content::V2(V2 { .. })) => {
@@ -1099,7 +1103,7 @@ where
                     validated_commit.expect("Needs to be present when this is a staged commit");
 
                 log_event!(
-                    Log::MLSReceivedStagedCommit,
+                    Event::MLSReceivedStagedCommit,
                     inbox_id = self.context.inbox_id(),
                     sender_inbox_id = sender_inbox_id,
                     installation_id = %self.context.installation_id(),
@@ -1149,7 +1153,7 @@ where
                 identifier.internal_id(msg.as_ref().map(|m| m.id.clone()));
 
                 log_event!(
-                    Log::MLSProcessedStagedCommit,
+                    Event::MLSProcessedStagedCommit,
                     group_id = hex::encode(&self.group_id),
                     current_epoch = mls_group.epoch().as_u64(),
                 );
