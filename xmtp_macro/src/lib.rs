@@ -6,7 +6,7 @@ use proc_macro2::*;
 use quote::{quote, quote_spanned};
 use syn::{Data, DeriveInput, parse_macro_input};
 
-use crate::logging::{LogEventInput, get_context_fields, get_doc_comment};
+use crate::{LogEventInput, get_context_fields, get_doc_comment};
 
 /// A proc macro attribute that wraps the input in an `async_trait` implementation,
 /// delegating to the appropriate `async_trait` implementation based on the target architecture.
@@ -162,7 +162,7 @@ pub fn build_logging_metadata(
         // Metadata entry for the const array
         let context_fields_tokens: Vec<_> = context_fields.iter().map(|f| quote! { #f }).collect();
         metadata_entries.push(quote! {
-            crate::logging::EventMetadata {
+            crate::EventMetadata {
                 name: #variant_name_str,
                 doc: #doc_comment,
                 context_fields: &[#(#context_fields_tokens),*],
@@ -186,12 +186,12 @@ pub fn build_logging_metadata(
 
         impl #enum_name {
             /// Metadata for all variants of this enum, indexed by variant discriminant.
-            pub const METADATA: [crate::logging::EventMetadata; #variant_count] = [
+            pub const METADATA: [crate::EventMetadata; #variant_count] = [
                 #(#metadata_entries),*
             ];
 
             /// Returns the metadata for this event variant.
-            pub const fn metadata(&self) -> &'static crate::logging::EventMetadata {
+            pub const fn metadata(&self) -> &'static crate::EventMetadata {
                 match self {
                     #(#metadata_match_arms)*
                 }
