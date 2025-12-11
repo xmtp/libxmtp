@@ -1,10 +1,8 @@
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::Result;
 use napi_derive::napi;
-use prost::Message;
 use xmtp_content_types::{ContentCodec, group_updated::GroupUpdatedCodec};
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-use crate::ErrorWrapper;
+use crate::{ErrorWrapper, encoded_content::EncodedContent};
 
 #[derive(Clone)]
 #[napi(object)]
@@ -165,13 +163,9 @@ impl From<MetadataFieldChange>
 }
 
 #[napi]
-pub fn decode_group_updated(bytes: Uint8Array) -> Result<GroupUpdated> {
-  // Decode bytes into EncodedContent
-  let encoded = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
-
-  // Use GroupUpdatedCodec to decode into GroupUpdated and convert to GroupUpdated
+pub fn decode_group_updated(encoded_content: EncodedContent) -> Result<GroupUpdated> {
   Ok(
-    GroupUpdatedCodec::decode(encoded)
+    GroupUpdatedCodec::decode(encoded_content.into())
       .map(Into::into)
       .map_err(ErrorWrapper::from)?,
   )

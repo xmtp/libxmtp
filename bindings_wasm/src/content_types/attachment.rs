@@ -1,9 +1,9 @@
+use crate::encoded_content::EncodedContent;
 use js_sys::Uint8Array;
 use prost::Message;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::attachment::AttachmentCodec;
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
@@ -50,13 +50,9 @@ pub fn encode_attachment(attachment: Attachment) -> Result<Uint8Array, JsError> 
 }
 
 #[wasm_bindgen(js_name = "decodeAttachment")]
-pub fn decode_attachment(bytes: Uint8Array) -> Result<Attachment, JsError> {
-  // Decode bytes into EncodedContent
-  let encoded_content = EncodedContent::decode(bytes.to_vec().as_slice())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
+pub fn decode_attachment(encoded_content: EncodedContent) -> Result<Attachment, JsError> {
   // Use AttachmentCodec to decode into Attachment and convert to Attachment
-  AttachmentCodec::decode(encoded_content)
+  AttachmentCodec::decode(encoded_content.into())
     .map(Into::into)
     .map_err(|e| JsError::new(&format!("{}", e)))
 }

@@ -2,9 +2,8 @@ use napi::bindgen_prelude::{Result, Uint8Array};
 use napi_derive::napi;
 use prost::Message;
 use xmtp_content_types::{ContentCodec, text::TextCodec};
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-use crate::ErrorWrapper;
+use crate::{ErrorWrapper, encoded_content::EncodedContent};
 
 #[derive(Clone)]
 #[napi(object)]
@@ -33,10 +32,7 @@ pub fn encode_text(text: String) -> Result<Uint8Array> {
 }
 
 #[napi]
-pub fn decode_text(bytes: Uint8Array) -> Result<String> {
-  // Decode bytes into EncodedContent
-  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
-
+pub fn decode_text(encoded_content: EncodedContent) -> Result<String> {
   // Use TextCodec to decode into String
-  Ok(TextCodec::decode(encoded_content).map_err(ErrorWrapper::from)?)
+  Ok(TextCodec::decode(encoded_content.into()).map_err(ErrorWrapper::from)?)
 }

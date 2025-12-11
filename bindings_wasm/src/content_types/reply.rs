@@ -6,7 +6,6 @@ use prost::Message;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reply::ReplyCodec;
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 #[wasm_bindgen]
 #[derive(Clone)]
@@ -104,17 +103,9 @@ pub fn encode_reply(reply: Reply) -> Result<Uint8Array, JsError> {
 }
 
 #[wasm_bindgen(js_name = "decodeReply")]
-pub fn decode_reply(bytes: Uint8Array) -> Result<Reply, JsError> {
-  // Decode bytes into EncodedContent
-  let encoded_content = XmtpEncodedContent::decode(bytes.to_vec().as_slice())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
+pub fn decode_reply(encoded_content: EncodedContent) -> Result<Reply, JsError> {
   // Use ReplyCodec to decode and convert to Reply
-  let reply = ReplyCodec::decode(encoded_content).map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  Ok(Reply {
-    content: reply.content.into(),
-    reference: reply.reference,
-    reference_inbox_id: reply.reference_inbox_id,
-  })
+  ReplyCodec::decode(encoded_content.into())
+    .map(Into::into)
+    .map_err(|e| JsError::new(&format!("{}", e)))
 }

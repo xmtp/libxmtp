@@ -3,9 +3,8 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
 use prost::Message;
 use xmtp_content_types::{ContentCodec, actions::ActionsCodec};
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-use crate::ErrorWrapper;
+use crate::{ErrorWrapper, encoded_content::EncodedContent};
 
 #[derive(Clone)]
 #[napi(object)]
@@ -162,12 +161,7 @@ pub fn encode_actions(actions: Actions) -> Result<Uint8Array> {
 }
 
 #[napi]
-pub fn decode_actions(bytes: Uint8Array) -> Result<Actions> {
-  // Decode bytes into EncodedContent
-  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
-
-  // Use ActionsCodec to decode into Actions and convert to Actions
-  let actions = ActionsCodec::decode(encoded_content).map_err(ErrorWrapper::from)?;
-
-  actions.try_into()
+pub fn decode_actions(encoded_content: EncodedContent) -> Result<Actions> {
+  let decoded = ActionsCodec::decode(encoded_content.into()).map_err(ErrorWrapper::from)?;
+  decoded.try_into()
 }

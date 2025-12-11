@@ -3,9 +3,8 @@ use napi_derive::napi;
 use prost::Message;
 use std::convert::TryFrom;
 use xmtp_content_types::{ContentCodec, remote_attachment::RemoteAttachmentCodec};
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-use crate::ErrorWrapper;
+use crate::{ErrorWrapper, encoded_content::EncodedContent};
 
 #[derive(Clone)]
 #[napi(object)]
@@ -76,13 +75,8 @@ pub fn encode_remote_attachment(remote_attachment: RemoteAttachment) -> Result<U
 }
 
 #[napi]
-pub fn decode_remote_attachment(bytes: Uint8Array) -> Result<RemoteAttachment> {
-  // Decode bytes into EncodedContent
-  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
-
-  // Use RemoteAttachmentCodec to decode into RemoteAttachment
-  let attachment = RemoteAttachmentCodec::decode(encoded_content).map_err(ErrorWrapper::from)?;
-
-  // Convert to bindings type with error handling
-  RemoteAttachment::try_from(attachment)
+pub fn decode_remote_attachment(encoded_content: EncodedContent) -> Result<RemoteAttachment> {
+  let decoded =
+    RemoteAttachmentCodec::decode(encoded_content.into()).map_err(ErrorWrapper::from)?;
+  decoded.try_into()
 }

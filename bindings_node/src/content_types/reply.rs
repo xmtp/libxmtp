@@ -6,7 +6,6 @@ use napi_derive::napi;
 use prost::Message;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reply::ReplyCodec;
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use super::decoded_message_body::DecodedMessageBody;
 use xmtp_mls::messages::decoded_message::DecodedMessage as RustDecodedMessage;
@@ -88,16 +87,10 @@ pub fn encode_reply(reply: Reply) -> Result<Uint8Array> {
 }
 
 #[napi]
-pub fn decode_reply(bytes: Uint8Array) -> Result<Reply> {
-  // Decode bytes into EncodedContent
-  let encoded_content = XmtpEncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
-
-  // Use ReplyCodec to decode and convert to Reply
-  let reply = ReplyCodec::decode(encoded_content).map_err(ErrorWrapper::from)?;
-
-  Ok(Reply {
-    content: reply.content.into(),
-    reference: reply.reference,
-    reference_inbox_id: reply.reference_inbox_id,
-  })
+pub fn decode_reply(encoded_content: EncodedContent) -> Result<Reply> {
+  Ok(
+    ReplyCodec::decode(encoded_content.into())
+      .map(Into::into)
+      .map_err(ErrorWrapper::from)?,
+  )
 }
