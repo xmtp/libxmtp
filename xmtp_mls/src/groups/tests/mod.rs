@@ -3458,7 +3458,6 @@ async fn test_optimistic_send() {
 
     let text = messages
         .iter()
-        .cloned()
         .map(|m| String::from_utf8_lossy(&m.decrypted_message_bytes).to_string())
         .collect::<Vec<String>>();
     assert_eq!(
@@ -3481,7 +3480,6 @@ async fn test_optimistic_send() {
 
     let delivery = messages
         .iter()
-        .cloned()
         .map(|m| m.delivery_status)
         .collect::<Vec<DeliveryStatus>>();
     assert_eq!(
@@ -3500,7 +3498,6 @@ async fn test_optimistic_send() {
     let messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
     let delivery = messages
         .iter()
-        .cloned()
         .map(|m| m.delivery_status)
         .collect::<Vec<DeliveryStatus>>();
     assert_eq!(
