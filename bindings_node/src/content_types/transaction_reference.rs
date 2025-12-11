@@ -2,9 +2,8 @@ use napi::bindgen_prelude::{Result, Uint8Array};
 use napi_derive::napi;
 use prost::Message;
 use xmtp_content_types::{ContentCodec, transaction_reference::TransactionReferenceCodec};
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-use crate::ErrorWrapper;
+use crate::{ErrorWrapper, encoded_content::EncodedContent};
 
 #[derive(Clone)]
 #[napi(object)]
@@ -94,13 +93,12 @@ pub fn encode_transaction_reference(
 }
 
 #[napi]
-pub fn decode_transaction_reference(bytes: Uint8Array) -> Result<TransactionReference> {
-  // Decode bytes into EncodedContent
-  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
-
+pub fn decode_transaction_reference(
+  encoded_content: EncodedContent,
+) -> Result<TransactionReference> {
   // Use TransactionReferenceCodec to decode into TransactionReference and convert to TransactionReference
   Ok(
-    TransactionReferenceCodec::decode(encoded_content)
+    TransactionReferenceCodec::decode(encoded_content.into())
       .map(Into::into)
       .map_err(ErrorWrapper::from)?,
   )
