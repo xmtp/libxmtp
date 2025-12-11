@@ -6,7 +6,7 @@ use proc_macro2::*;
 use quote::{quote, quote_spanned};
 use syn::{Data, DeriveInput, parse_macro_input};
 
-use crate::{LogEventInput, get_context_fields, get_doc_comment};
+use crate::logging::{LogEventInput, get_context_fields, get_doc_comment};
 
 /// A proc macro attribute that wraps the input in an `async_trait` implementation,
 /// delegating to the appropriate `async_trait` implementation based on the target architecture.
@@ -219,7 +219,7 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let tracing_fields: Vec<TokenStream> =
         input.fields.iter().map(|f| f.to_tracing_tokens()).collect();
 
-    // Generate match arms for building context string
+    // Generate match arms for building context string (non-structured logging only)
     let context_match_arms: Vec<TokenStream> = input
         .fields
         .iter()
@@ -254,22 +254,28 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 );
             }
 
-            // Build context string from context_fields
-            let __context_parts: ::std::vec::Vec<String> = __meta.context_fields
-                .iter()
-                .filter_map(|&field_name| {
-                    match field_name {
-                        #(#context_match_arms,)*
-                        _ => None,
-                    }
-                })
-                .collect();
-
-            let __context_str = __context_parts.join(", ");
-            let __message = if __context_str.is_empty() {
+            // Build message with context for non-structured logging
+            let __message = if ::xmtp_common::is_structured_logging() {
+                // Structured logging: fields are already in JSON, don't duplicate in message
                 __meta.doc.to_string()
             } else {
-                format!("{} [{}]", __meta.doc, __context_str)
+                // Non-structured logging: embed context in message for readability
+                let __context_parts: ::std::vec::Vec<String> = __meta.context_fields
+                    .iter()
+                    .filter_map(|&field_name| {
+                        match field_name {
+                            #(#context_match_arms,)*
+                            _ => None,
+                        }
+                    })
+                    .collect();
+
+                let __context_str = __context_parts.join(", ");
+                if __context_str.is_empty() {
+                    __meta.doc.to_string()
+                } else {
+                    format!("{} [{}]", __meta.doc, __context_str)
+                }
             };
 
             ::tracing::info!(
