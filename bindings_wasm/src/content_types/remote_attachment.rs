@@ -1,10 +1,10 @@
+use crate::encoded_content::EncodedContent;
 use js_sys::Uint8Array;
 use prost::Message;
 use std::convert::TryFrom;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::remote_attachment::RemoteAttachmentCodec;
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
@@ -81,14 +81,12 @@ pub fn encode_remote_attachment(
 }
 
 #[wasm_bindgen(js_name = "decodeRemoteAttachment")]
-pub fn decode_remote_attachment(bytes: Uint8Array) -> Result<RemoteAttachment, JsError> {
-  // Decode bytes into EncodedContent
-  let encoded_content = EncodedContent::decode(bytes.to_vec().as_slice())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
+pub fn decode_remote_attachment(
+  encoded_content: EncodedContent,
+) -> Result<RemoteAttachment, JsError> {
   // Use RemoteAttachmentCodec to decode into RemoteAttachment
-  let attachment =
-    RemoteAttachmentCodec::decode(encoded_content).map_err(|e| JsError::new(&format!("{}", e)))?;
+  let attachment = RemoteAttachmentCodec::decode(encoded_content.into())
+    .map_err(|e| JsError::new(&format!("{}", e)))?;
 
   // Convert to bindings type with error handling
   RemoteAttachment::try_from(attachment)
