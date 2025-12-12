@@ -353,6 +353,7 @@ where
         let mut summary = SyncSummary::default();
 
         if !self.is_active().map_err(SyncSummary::other)? {
+            log_event!(Event::GroupSyncGroupInactive, group_id = ?hex::encode(&self.group_id));
             return Err(SyncSummary::other(GroupError::GroupInactive));
         }
 
@@ -433,7 +434,24 @@ where
         &self,
         intent_id: ID,
     ) -> Result<SyncSummary, GroupError> {
+        log_event!(
+            Event::GroupSyncStart,
+            group_id = ?hex::encode(&self.group_id)
+        );
+
         let result = self.sync_until_intent_resolved_inner(intent_id).await;
+        let summary = match &result {
+            Ok(summary) => Some(summary),
+            Err(GroupError::Sync(summary)) => Some(&**summary),
+            _ => None,
+        };
+
+        log_event!(
+            Event::GroupSyncFinished,
+            group_id = ?hex::encode(&self.group_id),
+            summary = ?summary,
+            success = result.is_ok()
+        );
 
         result
     }
@@ -455,7 +473,7 @@ where
             match self.sync_with_conn().await {
                 Ok(s) => summary.extend(s),
                 Err(s) => {
-                    tracing::error!("error syncing group {}", s);
+                    tracing::error!("error syncing group {s}");
                     summary.extend(s);
                 }
             }
@@ -483,16 +501,22 @@ where
                     log_event!(
                         Event::GroupSyncIntentErrored,
                         level = warn,
+                        group_id = ?hex::encode(&self.group_id),
                         intent_id = intent_id,
                         summary = ?summary
                     );
                     return Err(GroupError::from(summary));
                 }
                 Ok(Some(StoredGroupIntent { state, .. })) => {
-                    log_event!(Event::GroupSyncIntentRetry, level = warn, intent_id = intent_id, state = ?state);
+                    log_event!(
+                        Event::GroupSyncIntentRetry,
+                        level = warn,
+                        group_id = ?hex::encode(&self.group_id),
+                        intent_id = intent_id, state = ?state
+                    );
                 }
                 Err(err) => {
-                    tracing::error!("database error fetching intent {:?}", err);
+                    tracing::error!("database error fetching intent {err:?}");
                     summary.add_other(GroupError::Storage(err));
                 }
             };

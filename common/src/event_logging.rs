@@ -3,6 +3,7 @@ pub use utils::*;
 
 #[xmtp_macro::build_logging_metadata]
 pub enum Event {
+    // ===================== Group Operations =====================
     /// DM created
     #[context(group_id, target_inbox_id)]
     CreatedDM,
@@ -12,6 +13,8 @@ pub enum Event {
     /// Added members to group
     #[context(group_id, members)]
     AddedMembers,
+
+    // ===================== MLS Operations =====================
     /// Received staged commit. Merging and clearing any pending commits.
     #[context(group_id, inbox_id, sender_inbox_id, msg_epoch, current_epoch)]
     MLSReceivedStagedCommit,
@@ -25,10 +28,20 @@ pub enum Event {
     #[context(group_id)]
     MLSProcessedApplicationMessage,
 
-    /// Intent was found to be in error after attempting to sync.
-    #[context(intent_id, summary)]
-    GroupSyncIntentErrored,
-    /// Intent failed to sync. Probably due to bad network connection.
-    #[context(intent_id, state)]
+    // ===================== Group Syncing =====================
+    /// Begin syncing group.
+    #[context(group_id)]
+    GroupSyncStart,
+    /// Group sync complete.
+    #[context(group_id, summary, success)]
+    GroupSyncFinished,
+    /// Attempted to sync on an inactive group.
+    #[context(group_id)]
+    GroupSyncGroupInactive,
+    /// Intent failed to sync but did not error. This can happen for a variety of reasons.
+    #[context(group_id, intent_id, state)]
     GroupSyncIntentRetry,
+    /// Intent was found to be in error after attempting to sync.
+    #[context(group_id, intent_id, summary)]
+    GroupSyncIntentErrored,
 }
