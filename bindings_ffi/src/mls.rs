@@ -1596,11 +1596,11 @@ impl FfiConversations {
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<Arc<FfiConversation>, GenericError> {
+    ) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
         self.inner_client
             .process_streamed_welcome_message(envelope_bytes)
             .await
-            .map(|g| Arc::new(g.into()))
+            .map(|list| list.into_iter().map(|g| Arc::new(g.into())).collect())
             .map_err(Into::into)
     }
 
@@ -2423,14 +2423,12 @@ impl FfiConversation {
     pub async fn process_streamed_conversation_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<FfiMessage, FfiSubscribeError> {
+    ) -> Result<Vec<FfiMessage>, FfiSubscribeError> {
         let message = self
             .inner
             .process_streamed_group_message(envelope_bytes)
             .await?;
-        let ffi_message = message.into();
-
-        Ok(ffi_message)
+        Ok(message.into_iter().map(Into::into).collect())
     }
 
     pub async fn list_members(&self) -> Result<Vec<FfiConversationMember>, GenericError> {

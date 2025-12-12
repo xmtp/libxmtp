@@ -494,14 +494,15 @@ impl Conversations {
   pub async fn process_streamed_welcome_message(
     &self,
     envelope_bytes: Uint8Array,
-  ) -> Result<Conversation> {
+  ) -> Result<Vec<Conversation>> {
     let envelope_bytes = envelope_bytes.deref().to_vec();
     let group = self
       .inner_client
       .process_streamed_welcome_message(envelope_bytes)
       .await
       .map_err(ErrorWrapper::from)?;
-    Ok(group.into())
+
+    Ok(group.into_iter().map(Into::into).collect())
   }
 
   #[napi]

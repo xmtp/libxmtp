@@ -696,14 +696,13 @@ impl Conversation {
   pub async fn process_streamed_group_message(
     &self,
     #[wasm_bindgen(js_name = envelopeBytes)] envelope_bytes: Uint8Array,
-  ) -> Result<Message, JsError> {
+  ) -> Result<Vec<Message>, JsError> {
     let group = self.to_mls_group();
     let message = group
       .process_streamed_group_message(envelope_bytes.to_vec())
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
-
-    Ok(message.into())
+    Ok(message.into_iter().map(Into::into).collect())
   }
 
   #[wasm_bindgen(js_name = updatePermissionPolicy)]
