@@ -26,9 +26,9 @@ pub struct SignatureRequestHandle {
 
 #[wasm_bindgen(js_name = verifySignedWithPublicKey)]
 pub fn verify_signed_with_public_key(
-  signature_text: String,
-  signature_bytes: Uint8Array,
-  public_key: Uint8Array,
+  #[wasm_bindgen(js_name = signatureText)] signature_text: String,
+  #[wasm_bindgen(js_name = signatureBytes)] signature_bytes: Uint8Array,
+  #[wasm_bindgen(js_name = publicKey)] public_key: Uint8Array,
 ) -> Result<(), JsError> {
   let signature_bytes = signature_bytes.to_vec();
   let signature_bytes: [u8; 64] = signature_bytes
@@ -46,11 +46,11 @@ pub fn verify_signed_with_public_key(
 
 #[wasm_bindgen(js_name = revokeInstallationsSignatureRequest)]
 pub fn revoke_installations_signature_request(
-  v3_host: String,
-  gateway_host: Option<String>,
-  recovery_identifier: Identifier,
-  inbox_id: String,
-  installation_ids: Vec<Uint8Array>,
+  #[wasm_bindgen(js_name = host)] v3_host: String,
+  #[wasm_bindgen(js_name = gatewayHost)] gateway_host: Option<String>,
+  #[wasm_bindgen(js_name = recoveryIdentifier)] recovery_identifier: Identifier,
+  #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+  #[wasm_bindgen(js_name = installationIds)] installation_ids: Vec<Uint8Array>,
 ) -> Result<SignatureRequestHandle, JsError> {
   let backend = MessageBackendBuilder::default()
     .v3_host(&v3_host)
@@ -76,9 +76,9 @@ pub fn revoke_installations_signature_request(
 
 #[wasm_bindgen(js_name = applySignatureRequest)]
 pub async fn apply_signature_request(
-  v3_host: String,
-  gateway_host: Option<String>,
-  signature_request: &SignatureRequestHandle,
+  #[wasm_bindgen(js_name = host)] v3_host: String,
+  #[wasm_bindgen(js_name = gatewayHost)] gateway_host: Option<String>,
+  #[wasm_bindgen(js_name = signatureRequest)] signature_request: &SignatureRequestHandle,
 ) -> Result<(), JsError> {
   let backend = MessageBackendBuilder::default()
     .v3_host(&v3_host)
@@ -105,10 +105,32 @@ pub async fn apply_signature_request(
 
 #[wasm_bindgen]
 pub struct PasskeySignature {
+  #[wasm_bindgen(js_name = publicKey)]
   public_key: Vec<u8>,
+  #[wasm_bindgen(js_name = signature)]
   signature: Vec<u8>,
+  #[wasm_bindgen(js_name = authenticatorData)]
   authenticator_data: Vec<u8>,
+  #[wasm_bindgen(js_name = clientDataJson)]
   client_data_json: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl PasskeySignature {
+  #[wasm_bindgen(constructor)]
+  pub fn new(
+    #[wasm_bindgen(js_name = publicKey)] public_key: Vec<u8>,
+    signature: Vec<u8>,
+    #[wasm_bindgen(js_name = authenticatorData)] authenticator_data: Vec<u8>,
+    #[wasm_bindgen(js_name = clientDataJson)] client_data_json: Vec<u8>,
+  ) -> Self {
+    Self {
+      public_key,
+      signature,
+      authenticator_data,
+      client_data_json,
+    }
+  }
 }
 
 /// Methods on SignatureRequestHandle
@@ -120,7 +142,10 @@ impl SignatureRequestHandle {
   }
 
   #[wasm_bindgen(js_name = addEcdsaSignature)]
-  pub async fn add_ecdsa_signature(&self, signature_bytes: Uint8Array) -> Result<(), JsError> {
+  pub async fn add_ecdsa_signature(
+    &self,
+    #[wasm_bindgen(js_name = signatureBytes)] signature_bytes: Uint8Array,
+  ) -> Result<(), JsError> {
     let sig = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.to_vec());
     self
       .inner
@@ -153,10 +178,10 @@ impl SignatureRequestHandle {
   #[wasm_bindgen(js_name = addScwSignature)]
   pub async fn add_scw_signature(
     &self,
-    account_identifier: Identifier,
-    signature_bytes: Uint8Array,
-    chain_id: u64,
-    block_number: Option<u64>,
+    #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
+    #[wasm_bindgen(js_name = signatureBytes)] signature_bytes: Uint8Array,
+    #[wasm_bindgen(js_name = chainId)] chain_id: u64,
+    #[wasm_bindgen(js_name = blockNumber)] block_number: Option<u64>,
   ) -> Result<(), JsError> {
     if !matches!(account_identifier.identifier_kind, IdentifierKind::Ethereum) {
       return Err(JsError::new("Account identifier must be Ethereum-based"));
@@ -202,7 +227,7 @@ impl Client {
   #[wasm_bindgen(js_name = addWalletSignatureRequest)]
   pub async fn add_identifier_signature_request(
     &self,
-    new_identifier: Identifier,
+    #[wasm_bindgen(js_name = newIdentifier)] new_identifier: Identifier,
   ) -> Result<SignatureRequestHandle, JsError> {
     let signature_request = self
       .inner_client()
@@ -270,7 +295,7 @@ impl Client {
   #[wasm_bindgen(js_name = revokeInstallationsSignatureRequest)]
   pub async fn revoke_installations_signature_request(
     &mut self,
-    installation_ids: Vec<Uint8Array>,
+    #[wasm_bindgen(js_name = installationIds)] installation_ids: Vec<Uint8Array>,
   ) -> Result<SignatureRequestHandle, JsError> {
     let installation_ids_bytes: Vec<Vec<u8>> =
       installation_ids.iter().map(|id| id.to_vec()).collect();
@@ -290,7 +315,7 @@ impl Client {
   #[wasm_bindgen(js_name = changeRecoveryIdentifierSignatureRequest)]
   pub async fn change_recovery_identifier_signature_request(
     &mut self,
-    new_recovery_identifier: Identifier,
+    #[wasm_bindgen(js_name = newRecoveryIdentifier)] new_recovery_identifier: Identifier,
   ) -> Result<SignatureRequestHandle, JsError> {
     let signature_request = self
       .inner_client()
@@ -307,7 +332,7 @@ impl Client {
   #[wasm_bindgen(js_name = applySignatureRequest)]
   pub async fn apply_signature_request(
     &mut self,
-    signature_request: &SignatureRequestHandle,
+    #[wasm_bindgen(js_name = signatureRequest)] signature_request: &SignatureRequestHandle,
   ) -> Result<(), JsError> {
     let signature_request = signature_request.inner.lock().await;
 
@@ -324,7 +349,7 @@ impl Client {
   #[wasm_bindgen(js_name = registerIdentity)]
   pub async fn register_identity(
     &mut self,
-    signature_request: SignatureRequestHandle,
+    #[wasm_bindgen(js_name = signatureRequest)] signature_request: SignatureRequestHandle,
   ) -> Result<(), JsError> {
     if self.is_registered() {
       return Err(JsError::new(
@@ -346,7 +371,7 @@ impl Client {
   #[wasm_bindgen(js_name = signWithInstallationKey)]
   pub fn sign_with_installation_key(
     &mut self,
-    signature_text: String,
+    #[wasm_bindgen(js_name = signatureText)] signature_text: String,
   ) -> Result<Uint8Array, JsError> {
     let result = self
       .inner_client()
@@ -360,8 +385,8 @@ impl Client {
   #[wasm_bindgen(js_name = verifySignedWithInstallationKey)]
   pub fn verify_signed_with_installation_key(
     &mut self,
-    signature_text: String,
-    signature_bytes: Uint8Array,
+    #[wasm_bindgen(js_name = signatureText)] signature_text: String,
+    #[wasm_bindgen(js_name = signatureBytes)] signature_bytes: Uint8Array,
   ) -> Result<(), JsError> {
     let public_key = self.inner_client().installation_public_key();
     verify_signed_with_public_key(
