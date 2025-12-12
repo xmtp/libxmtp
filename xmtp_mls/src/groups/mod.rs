@@ -878,7 +878,7 @@ where
         self.sync_until_intent_resolved(intent.id).await?;
 
         log_event!(
-            Event::AddMembers,
+            Event::AddedMembers,
             group_id = %hex::encode(&self.group_id),
             members = ?ids
         );

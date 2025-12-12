@@ -223,8 +223,9 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let context_match_arms: Vec<TokenStream> = input
         .fields
         .iter()
-        .map(|f| {
-            let name_str = f.name.to_string();
+        .enumerate()
+        .map(|(i, f)| {
+            let name_str = &provided_names[i];
             let value = f.value_tokens();
             quote! {
                 #name_str => Some(format!("{}: {:?}", #name_str, #value))
@@ -232,7 +233,32 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         })
         .collect();
 
-    let provided_names_tokens = provided_names.iter().map(|n| quote! { #n });
+    let provided_names_tokens = provided_names.into_iter().map(|n| quote! { #n });
+
+    // Generate the appropriate tracing macro call based on level
+    let tracing_call = match input.level {
+        logging::LogLevel::Info => quote! {
+            ::tracing::info!(
+                #(#tracing_fields,)*
+                "{}",
+                __message
+            );
+        },
+        logging::LogLevel::Warn => quote! {
+            ::tracing::warn!(
+                #(#tracing_fields,)*
+                "{}",
+                __message
+            );
+        },
+        logging::LogLevel::Error => quote! {
+            ::tracing::error!(
+                #(#tracing_fields,)*
+                "{}",
+                __message
+            );
+        },
+    };
 
     quote! {
         {
@@ -267,11 +293,7 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 }
             };
 
-            ::tracing::info!(
-                #(#tracing_fields,)*
-                "{}",
-                __message
-            );
+            #tracing_call
         }
     }
     .into()

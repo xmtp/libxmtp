@@ -433,6 +433,20 @@ where
         &self,
         intent_id: ID,
     ) -> Result<SyncSummary, GroupError> {
+        let result = self.sync_until_intent_resolved_inner(intent_id).await;
+
+        result
+    }
+
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
+    async fn sync_until_intent_resolved_inner(
+        &self,
+        intent_id: ID,
+    ) -> Result<SyncSummary, GroupError> {
         let mut summary = SyncSummary::default();
         let db = self.context.db();
         let mut num_attempts = 0;
@@ -446,34 +460,36 @@ where
                 }
             }
             match Fetch::<StoredGroupIntent>::fetch(&db, &intent_id) {
-                Ok(None) => {
-                    // This is expected. The intent gets deleted on success
-                    return Ok(summary);
-                }
                 Ok(Some(StoredGroupIntent {
-                    id,
-                    state: IntentState::Error,
-                    ..
-                })) => {
-                    tracing::warn!(
-                        "not retrying intent ID {id}. since it is in state Error. {:?}",
-                        summary
-                    );
-                    return Err(GroupError::from(summary));
-                }
-                Ok(Some(StoredGroupIntent {
-                    id,
                     state: IntentState::Processed,
                     ..
                 })) => {
-                    tracing::debug!(
-                        "not retrying intent ID {id}. since it is in state processed. {}",
-                        summary
+                    // This is expected, we mark intents as processed on success.
+                    return Ok(summary);
+                }
+                Ok(None) => {
+                    // This is somewhat expected, we used to delete intents on success.
+                    tracing::warn!(
+                        "Intent was deleted when it should have been marked as processed.\
+                         This is still okay, but unexpected. intent_id: {intent_id}",
                     );
                     return Ok(summary);
                 }
-                Ok(Some(StoredGroupIntent { id, state, .. })) => {
-                    tracing::warn!("retrying intent ID {id}. intent currently in state {state:?}");
+
+                Ok(Some(StoredGroupIntent {
+                    state: IntentState::Error,
+                    ..
+                })) => {
+                    log_event!(
+                        Event::GroupSyncIntentErrored,
+                        level = warn,
+                        intent_id = intent_id,
+                        summary = ?summary
+                    );
+                    return Err(GroupError::from(summary));
+                }
+                Ok(Some(StoredGroupIntent { state, .. })) => {
+                    log_event!(Event::GroupSyncIntentRetry, level = warn, intent_id = intent_id, state = ?state);
                 }
                 Err(err) => {
                     tracing::error!("database error fetching intent {:?}", err);

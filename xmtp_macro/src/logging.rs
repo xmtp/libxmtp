@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{ToTokens, quote};
 use syn::{
@@ -11,14 +13,31 @@ pub(crate) struct Field {
     pub(crate) value: Option<Expr>,
 }
 
+pub(crate) enum LogLevel {
+    Info,
+    Warn,
+    Error,
+}
+impl Display for LogLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Info => write!(f, "info"),
+            Self::Warn => write!(f, "warn"),
+            Self::Error => write!(f, "error"),
+        }
+    }
+}
+
 pub(crate) struct LogEventInput {
     pub(crate) event: Path,
+    pub(crate) level: LogLevel,
     pub(crate) fields: Vec<Field>,
 }
 
 impl Parse for LogEventInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let event: Path = input.parse()?;
+        let mut level = LogLevel::Info;
         let mut fields = Vec::new();
 
         while input.peek(Token![,]) {
@@ -58,10 +77,50 @@ impl Parse for LogEventInput {
                 (sigil, None)
             };
 
+            if name.to_string() == "level" {
+                let Some(value) = value else {
+                    return syn::Result::Err(syn::Error::new(
+                        input.span(),
+                        "`level` is missing value.",
+                    ));
+                };
+                // Extract the identifier from the expression
+                let level_str = match &value {
+                    Expr::Path(expr_path) if expr_path.path.get_ident().is_some() => {
+                        expr_path.path.get_ident().unwrap().to_string()
+                    }
+                    _ => {
+                        return syn::Result::Err(syn::Error::new_spanned(
+                            &value,
+                            "level must be an identifier: info, warn, or error",
+                        ));
+                    }
+                };
+                level = match level_str.as_str() {
+                    "info" => LogLevel::Info,
+                    "warn" => LogLevel::Warn,
+                    "error" => LogLevel::Error,
+                    val => {
+                        return syn::Result::Err(syn::Error::new_spanned(
+                            &value,
+                            format!(
+                                "{val} is an invalid value for `level`. \
+                                 Valid values are `info`, `warn`, `error`."
+                            ),
+                        ));
+                    }
+                };
+                continue;
+            }
+
             fields.push(Field { name, sigil, value });
         }
 
-        Ok(LogEventInput { event, fields })
+        Ok(LogEventInput {
+            event,
+            level,
+            fields,
+        })
     }
 }
 
