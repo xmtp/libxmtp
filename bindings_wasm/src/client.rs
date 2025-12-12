@@ -113,7 +113,10 @@ pub struct GroupSyncSummary {
 #[wasm_bindgen]
 impl GroupSyncSummary {
   #[wasm_bindgen(constructor)]
-  pub fn new(num_eligible: u32, num_synced: u32) -> Self {
+  pub fn new(
+    #[wasm_bindgen(js_name = numEligible)] num_eligible: u32,
+    #[wasm_bindgen(js_name = numSynced)] num_synced: u32,
+  ) -> Self {
     Self {
       num_eligible,
       num_synced,
@@ -176,20 +179,22 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
 #[allow(clippy::too_many_arguments)]
 pub async fn create_client(
   host: String,
-  inbox_id: String,
-  account_identifier: Identifier,
-  db_path: Option<String>,
-  encryption_key: Option<Uint8Array>,
-  device_sync_server_url: Option<String>,
-  device_sync_worker_mode: Option<DeviceSyncWorkerMode>,
-  log_options: Option<LogOptions>,
-  allow_offline: Option<bool>,
-  app_version: Option<String>,
-  gateway_host: Option<String>,
+  #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+  #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
+  #[wasm_bindgen(js_name = dbPath)] db_path: Option<String>,
+  #[wasm_bindgen(js_name = encryptionKey)] encryption_key: Option<Uint8Array>,
+  #[wasm_bindgen(js_name = deviceSyncServerUrl)] device_sync_server_url: Option<String>,
+  #[wasm_bindgen(js_name = deviceSyncWorkerMode)] device_sync_worker_mode: Option<
+    DeviceSyncWorkerMode,
+  >,
+  #[wasm_bindgen(js_name = logOptions)] log_options: Option<LogOptions>,
+  #[wasm_bindgen(js_name = allowOffline)] allow_offline: Option<bool>,
+  #[wasm_bindgen(js_name = appVersion)] app_version: Option<String>,
+  #[wasm_bindgen(js_name = gatewayHost)] gateway_host: Option<String>,
   nonce: Option<u64>,
-  auth_callback: Option<gateway_auth::AuthCallback>,
-  auth_handle: Option<gateway_auth::AuthHandle>,
-  client_mode: Option<ClientMode>,
+  #[wasm_bindgen(js_name = authCallback)] auth_callback: Option<gateway_auth::AuthCallback>,
+  #[wasm_bindgen(js_name = authHandle)] auth_handle: Option<gateway_auth::AuthHandle>,
+  #[wasm_bindgen(js_name = clientMode)] client_mode: Option<ClientMode>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
   tracing::info!(host, gateway_host, "Creating client in rust");
@@ -318,7 +323,7 @@ impl Client {
   /// Output booleans should be zipped with the index of input identifiers
   pub async fn can_message(
     &self,
-    account_identifiers: Vec<Identifier>,
+    #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
   ) -> Result<JsValue, JsError> {
     let account_identifiers: Result<Vec<XmtpIdentifier>, JsError> = account_identifiers
       .iter()
@@ -371,8 +376,8 @@ impl Client {
   #[wasm_bindgen(js_name = inboxStateFromInboxIds)]
   pub async fn inbox_state_from_inbox_ids(
     &self,
-    inbox_ids: Vec<String>,
-    refresh_from_network: bool,
+    #[wasm_bindgen(js_name = inboxIds)] inbox_ids: Vec<String>,
+    #[wasm_bindgen(js_name = refreshFromNetwork)] refresh_from_network: bool,
   ) -> Result<Vec<InboxState>, JsError> {
     let state = self
       .inner_client

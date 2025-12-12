@@ -13,7 +13,11 @@ pub struct Credential {
 #[wasm_bindgen]
 impl Credential {
   #[wasm_bindgen(constructor)]
-  pub fn new(name: Option<String>, value: String, expires_at_seconds: i64) -> Self {
+  pub fn new(
+    name: Option<String>,
+    value: String,
+    #[wasm_bindgen(js_name = expiresAtSeconds)] expires_at_seconds: i64,
+  ) -> Self {
     Self {
       name,
       value,
