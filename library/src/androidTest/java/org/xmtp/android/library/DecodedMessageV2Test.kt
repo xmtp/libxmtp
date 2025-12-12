@@ -9,6 +9,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.codecs.ContentTypeReaction
+import org.xmtp.android.library.codecs.LeaveRequest
 import org.xmtp.android.library.codecs.Reaction
 import org.xmtp.android.library.codecs.ReactionAction
 import org.xmtp.android.library.codecs.ReactionCodec
@@ -300,4 +301,38 @@ class DecodedMessageV2Test : BaseInstrumentedTest() {
         assertEquals(5, message!!.reactionCount.toInt())
         assertEquals(5, message.reactions.size)
     }
+
+    @Test
+    fun testLeaveRequestMessageIsDecodedProperly() =
+        runBlocking {
+            val alixGroup = alixClient.conversations.newGroup(listOf(boClient.inboxId))
+
+            boClient.conversations.sync()
+            val boGroup = boClient.conversations.findGroup(alixGroup.id)
+            assertNotNull(boGroup)
+
+            // Bo leaves the group - this creates a LeaveRequest message
+            boGroup!!.leaveGroup()
+
+            // Alix syncs to receive the leave request
+            alixGroup.sync()
+
+            // Get enriched messages - this goes through DecodedMessageV2 which decodes LeaveRequest
+            val messages = alixGroup.enrichedMessages()
+
+            // Find the message from Bo (the leave request)
+            val boMessages = messages.filter { it.senderInboxId == boClient.inboxId }
+            assertTrue("Bo should have sent at least one message", boMessages.isNotEmpty())
+
+            // Find the leave request message
+            val leaveRequestMessage =
+                boMessages.find { msg ->
+                    msg.content<LeaveRequest>() != null
+                }
+
+            assertNotNull("LeaveRequest message should be properly decoded", leaveRequestMessage)
+
+            val leaveRequest = leaveRequestMessage!!.content<LeaveRequest>()
+            assertNotNull(leaveRequest)
+        }
 }

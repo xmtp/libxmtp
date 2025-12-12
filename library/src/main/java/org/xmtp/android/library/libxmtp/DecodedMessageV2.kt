@@ -6,6 +6,7 @@ import org.xmtp.android.library.InboxId
 import org.xmtp.android.library.codecs.Attachment
 import org.xmtp.android.library.codecs.ContentTypeId
 import org.xmtp.android.library.codecs.ContentTypeIdBuilder
+import org.xmtp.android.library.codecs.LeaveRequest
 import org.xmtp.android.library.codecs.MultiRemoteAttachment
 import org.xmtp.android.library.codecs.Reaction
 import org.xmtp.android.library.codecs.ReactionAction
@@ -24,6 +25,7 @@ import uniffi.xmtpv3.FfiDecodedMessageContent
 import uniffi.xmtpv3.FfiDeliveryStatus
 import uniffi.xmtpv3.FfiGroupUpdated
 import uniffi.xmtpv3.FfiInbox
+import uniffi.xmtpv3.FfiLeaveRequest
 import uniffi.xmtpv3.FfiMetadataFieldChange
 import uniffi.xmtpv3.FfiMultiRemoteAttachment
 import uniffi.xmtpv3.FfiReactionAction
@@ -177,6 +179,9 @@ class DecodedMessageV2 private constructor(
                 metadata = ffiTx.metadata?.let { mapTransactionMetadata(it) },
             )
 
+        private fun mapLeaveRequest(ffiLeaveRequest: FfiLeaveRequest): LeaveRequest =
+            LeaveRequest.create(authenticatedNote = ffiLeaveRequest.authenticatedNote)
+
         // Helper functions for GroupUpdated proto mapping
 
         private fun mapFfiInboxToProto(
@@ -246,6 +251,7 @@ class DecodedMessageV2 private constructor(
                 is FfiDecodedMessageContent.WalletSendCalls -> content.v1
                 is FfiDecodedMessageContent.GroupUpdated -> mapGroupUpdated(content.v1)
                 is FfiDecodedMessageContent.ReadReceipt -> ReadReceipt
+                is FfiDecodedMessageContent.LeaveRequest -> mapLeaveRequest(content.v1)
                 is FfiDecodedMessageContent.Custom -> {
                     val encodedContent = encodedContentFromFfi(content.v1)
                     encodedContent.decoded<Any>()
@@ -267,6 +273,7 @@ class DecodedMessageV2 private constructor(
                 is FfiDecodedMessageBody.TransactionReference -> mapTransactionReference(body.v1)
                 is FfiDecodedMessageBody.WalletSendCalls -> body.v1
                 is FfiDecodedMessageBody.GroupUpdated -> mapGroupUpdated(body.v1)
+                is FfiDecodedMessageBody.LeaveRequest -> mapLeaveRequest(body.v1)
                 is FfiDecodedMessageBody.Custom -> {
                     val encodedContent = encodedContentFromFfi(body.v1)
                     encodedContent.decoded<Any>()
