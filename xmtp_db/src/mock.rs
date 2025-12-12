@@ -501,6 +501,12 @@ mock! {
             &self,
             cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
         ) -> Result<Vec<Cursor>, crate::ConnectionError>;
+
+        fn clear_messages<'a>(
+            &self,
+            group_ids: Option<&'a [Vec<u8>]>,
+            retention_days: Option<u32>,
+        ) -> Result<usize, crate::ConnectionError>;
     }
 
     impl QueryIdentity for DbQuery {
@@ -782,6 +788,29 @@ mock! {
             &self,
             orphans: Vec<OrphanedEnvelope>,
         ) -> Result<usize, crate::ConnectionError>;
+    }
+
+    impl crate::migrations::QueryMigrations for DbQuery {
+        fn applied_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
+
+        fn available_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
+
+        fn rollback_to_version<'a>(
+            &self,
+            version: &'a str,
+        ) -> Result<Vec<String>, crate::ConnectionError>;
+
+        fn run_migration<'a>(
+            &self,
+            name: &'a str,
+        ) -> Result<(), crate::ConnectionError>;
+
+        fn revert_migration<'a>(
+            &self,
+            name: &'a str,
+        ) -> Result<(), crate::ConnectionError>;
+
+        fn run_pending_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
     }
 }
 

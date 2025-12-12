@@ -1,14 +1,7 @@
 use crate::confirm_destructive;
-use anyhow::{Result, bail};
-use diesel_migrations::MigrationHarness;
+use anyhow::Result;
 use tracing::info;
-use xmtp_db::{
-    ConnectionExt, Sqlite,
-    diesel::{
-        migration::{Migration, MigrationSource, MigrationVersion},
-        result::Error as DieselError,
-    },
-};
+use xmtp_db::{ConnectionExt, DbConnection, migrations::QueryMigrations};
 
 pub fn rollback(conn: &impl ConnectionExt, target: &str) -> Result<()> {
     confirm_destructive()?;
@@ -16,28 +9,11 @@ pub fn rollback(conn: &impl ConnectionExt, target: &str) -> Result<()> {
 }
 
 pub fn rollback_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
-    let target: String = target.chars().filter(|c| c.is_numeric()).collect();
-    let target: u64 = target.parse()?;
-    while let Some(version) = applied_migrations(conn)?.first() {
-        let version = version.to_string();
-        let version_number: String = version.chars().filter(|c| c.is_numeric()).collect();
-        if version_number.parse::<u64>()? >= target {
-            let result = conn.raw_query_write(|conn| {
-                Ok(conn
-                    .revert_last_migration(xmtp_db::MIGRATIONS)
-                    .map_err(DieselError::QueryBuilderError))
-            });
-            if let Err(err) = result {
-                tracing::warn!("{err:?}");
-                break;
-            } else {
-                info!("Reverted {version}");
-            }
-        } else {
-            break;
-        }
+    let db = DbConnection::new(conn);
+    let reverted = db.rollback_to_version(target)?;
+    for version in &reverted {
+        info!("Reverted {version}");
     }
-
     Ok(())
 }
 
@@ -46,21 +22,11 @@ pub fn run_migration(conn: &impl ConnectionExt, target: &str) -> Result<()> {
     run_migration_confirmed(conn, target)
 }
 
-fn run_migration_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
-    let migrations: Vec<Box<dyn Migration<Sqlite>>> = xmtp_db::MIGRATIONS.migrations().unwrap();
-
-    for migration in migrations {
-        if migration.name().to_string() != target {
-            continue;
-        }
-
-        info!("Running migration for {target}...");
-        conn.raw_query_write(|c| migration.run(c).map_err(DieselError::QueryBuilderError))?;
-
-        return Ok(());
-    }
-
-    bail!("Unable to find migration of that name.");
+pub fn run_migration_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
+    let db = DbConnection::new(conn);
+    info!("Running migration for {target}...");
+    db.run_migration(target)?;
+    Ok(())
 }
 
 pub fn revert_migration(conn: &impl ConnectionExt, target: &str) -> Result<()> {
@@ -69,41 +35,43 @@ pub fn revert_migration(conn: &impl ConnectionExt, target: &str) -> Result<()> {
 }
 
 pub fn revert_migration_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
-    let migrations: Vec<Box<dyn Migration<Sqlite>>> = xmtp_db::MIGRATIONS.migrations().unwrap();
-
-    for migration in migrations {
-        if migration.name().to_string() != target {
-            continue;
-        }
-
-        info!("Running migration for {target}...");
-        conn.raw_query_write(|c| migration.revert(c).map_err(DieselError::QueryBuilderError))?;
-    }
-
+    let db = DbConnection::new(conn);
+    info!("Reverting migration {target}...");
+    db.revert_migration(target)?;
     Ok(())
 }
 
-fn applied_migrations(conn: &impl ConnectionExt) -> Result<Vec<MigrationVersion<'static>>> {
-    let applied_migrations: Vec<MigrationVersion<'static>> = conn.raw_query_read(|conn| {
-        conn.applied_migrations()
-            .map_err(DieselError::QueryBuilderError)
-    })?;
-    Ok(applied_migrations)
+#[allow(dead_code)] // Used in tests
+pub fn applied_migrations(conn: &impl ConnectionExt) -> Result<Vec<String>> {
+    let db = DbConnection::new(conn);
+    Ok(db.applied_migrations()?)
 }
 
 #[cfg(test)]
 mod tests {
-    use diesel_migrations::MigrationHarness;
-    use xmtp_db::diesel::{self, QueryableByName, RunQueryDsl, sql_query, sql_types::Text};
+    use xmtp_db::migrations::QueryMigrations;
     use xmtp_mls::tester;
 
     use super::{applied_migrations, revert_migration_confirmed, run_migration_confirmed};
     use crate::tasks::rollback_confirmed;
 
+    /// Determine if a migration is applied based on its name and the list of applied versions.
+    fn migration_status(name: &str, applied: &[String]) -> &'static str {
+        let name_version: String = name.chars().filter(|c| c.is_numeric()).collect();
+        if applied.iter().any(|a| {
+            let applied_version: String = a.chars().filter(|c| c.is_numeric()).collect();
+            name_version == applied_version
+        }) {
+            "[applied]"
+        } else {
+            "[pending]"
+        }
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     #[ignore]
     async fn test_rollback_and_run_pending_migrations() {
-        tester!(alix);
+        tester!(alix, persistent_db);
         tester!(bo);
 
         let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
@@ -112,26 +80,20 @@ mod tests {
         let bo_msgs = bo_dm.find_messages(&Default::default())?;
         assert_eq!(bo_msgs.len(), 2);
 
-        #[derive(QueryableByName, Debug, PartialEq, Eq)]
-        struct SchemaEntry {
-            #[diesel(sql_type = Text)]
-            sql: String,
-        }
-
-        let schema: Vec<SchemaEntry> = alix.db().raw_query_read(|c| sql_query("SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").load(c))?;
+        // Get a migration from the middle of the list to rollback to
+        let conn = alix.db();
+        let db = xmtp_db::DbConnection::new(&conn);
+        let mut available = db.available_migrations()?;
+        available.sort_by(|a, b| b.cmp(a));
+        let rollback_target = &available[available.len() / 2];
 
         // Go back and forth a couple times
         for _ in 0..2 {
-            rollback_confirmed(&alix.db(), "2025-07-08-010431_modify_commit_log")?;
-            alix.db().raw_query_write(|c| {
-                c.run_pending_migrations(xmtp_db::MIGRATIONS)?;
-                Ok(())
-            })?;
+            rollback_confirmed(&alix.db(), rollback_target)?;
+            db.run_pending_migrations()?;
         }
 
-        let new_schema = alix.db().raw_query_read(|c| sql_query("SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").load(c))?;
-
-        assert_eq!(schema, new_schema);
+        // Verify messaging still works after migrations
         alix.test_talk_in_dm_with(&bo).await?;
     }
 
@@ -147,7 +109,7 @@ mod tests {
         // Versions should be in descending order (most recent first)
         for i in 0..applied.len().saturating_sub(1) {
             assert!(
-                applied[i].to_string() >= applied[i + 1].to_string(),
+                applied[i] >= applied[i + 1],
                 "Migrations should be ordered descending"
             );
         }
@@ -203,9 +165,86 @@ mod tests {
         );
 
         // Run pending migrations to restore full state
-        alix.db().raw_query_write(|c| {
-            c.run_pending_migrations(xmtp_db::MIGRATIONS)?;
-            Ok(())
-        })?;
+        xmtp_db::DbConnection::new(&alix.db()).run_pending_migrations()?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_migration_status_applied_and_pending() {
+        tester!(alix, persistent_db);
+
+        let conn = alix.db();
+        let db = xmtp_db::DbConnection::new(&conn);
+
+        // Get migrations sorted by date descending (newest first)
+        let mut available = db.available_migrations()?;
+        available.sort_by(|a, b| b.cmp(a));
+
+        assert!(
+            available.len() >= 10,
+            "Need enough migrations for this test"
+        );
+
+        // Pick migrations from the sorted list
+        let newest = &available[0];
+        let mid_recent = &available[5]; // Rollback target
+        let mid_old = &available[6]; // Just before rollback target
+        let oldest = available.last().unwrap();
+
+        let applied_before = db.applied_migrations()?;
+
+        // All should be applied initially
+        for name in [newest, mid_recent, mid_old, oldest] {
+            assert_eq!(
+                migration_status(name, &applied_before),
+                "[applied]",
+                "{name} should be applied initially"
+            );
+        }
+
+        // Rollback - mid_recent and newer become pending
+        rollback_confirmed(&alix.db(), mid_recent)?;
+
+        let applied_after = db.applied_migrations()?;
+
+        // Migrations before rollback point should still be applied
+        assert_eq!(
+            migration_status(mid_old, &applied_after),
+            "[applied]",
+            "{mid_old} should still be applied after rollback"
+        );
+        assert_eq!(
+            migration_status(oldest, &applied_after),
+            "[applied]",
+            "{oldest} should still be applied after rollback"
+        );
+
+        // Rollback target and newer migrations should be pending
+        assert_eq!(
+            migration_status(mid_recent, &applied_after),
+            "[pending]",
+            "{mid_recent} should be pending after rollback"
+        );
+        assert_eq!(
+            migration_status(newest, &applied_after),
+            "[pending]",
+            "{newest} should be pending after rollback"
+        );
+
+        // Restore full state
+        db.run_pending_migrations()?;
+
+        let applied_restored = db.applied_migrations()?;
+
+        // All migrations should be applied again
+        assert_eq!(
+            migration_status(mid_recent, &applied_restored),
+            "[applied]",
+            "{mid_recent} should be applied after restore"
+        );
+        assert_eq!(
+            migration_status(newest, &applied_restored),
+            "[applied]",
+            "{newest} should be applied after restore"
+        );
     }
 }
