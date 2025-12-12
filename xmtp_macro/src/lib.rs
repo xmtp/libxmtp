@@ -241,29 +241,20 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let provided_names_tokens = provided_names.into_iter().map(|n| quote! { #n });
 
-    // Generate the appropriate tracing macro call based on level
-    let tracing_call = match input.level {
-        logging::LogLevel::Info => quote! {
-            ::tracing::info!(
-                #(#tracing_fields,)*
-                "{}",
-                __message
-            );
-        },
-        logging::LogLevel::Warn => quote! {
-            ::tracing::warn!(
-                #(#tracing_fields,)*
-                "{}",
-                __message
-            );
-        },
-        logging::LogLevel::Error => quote! {
-            ::tracing::error!(
-                #(#tracing_fields,)*
-                "{}",
-                __message
-            );
-        },
+    // Generate the appropriate tracing level
+    let level = match input.level {
+        logging::LogLevel::Info => quote! { ::tracing::Level::INFO },
+        logging::LogLevel::Warn => quote! { ::tracing::Level::WARN },
+        logging::LogLevel::Error => quote! { ::tracing::Level::ERROR },
+    };
+
+    let tracing_call = quote! {
+        ::tracing::event!(
+            #level,
+            #(#tracing_fields,)*
+            "{}",
+            __message
+        );
     };
 
     quote! {
