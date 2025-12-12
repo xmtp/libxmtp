@@ -3112,8 +3112,6 @@ pub fn decode_actions(bytes: Vec<u8>) -> Result<FfiActions, GenericError> {
 }
 
 // LeaveRequest FFI decode function
-// Note: encode is not exposed as leave requests are sent via the leaveGroup() function
-
 #[uniffi::export]
 pub fn decode_leave_request(bytes: Vec<u8>) -> Result<FfiLeaveRequest, GenericError> {
     let encoded_content = EncodedContent::decode(bytes.as_slice())
