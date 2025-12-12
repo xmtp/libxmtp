@@ -15656,6 +15656,13 @@ public func decodeIntent(bytes: Data)throws  -> FfiIntent  {
     )
 })
 }
+public func decodeLeaveRequest(bytes: Data)throws  -> FfiLeaveRequest  {
+    return try  FfiConverterTypeFfiLeaveRequest_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    uniffi_xmtpv3_fn_func_decode_leave_request(
+        FfiConverterData.lower(bytes),$0
+    )
+})
+}
 public func decodeMultiRemoteAttachment(bytes: Data)throws  -> FfiMultiRemoteAttachment  {
     return try  FfiConverterTypeFfiMultiRemoteAttachment_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
     uniffi_xmtpv3_fn_func_decode_multi_remote_attachment(
@@ -15730,6 +15737,13 @@ public func encodeIntent(intent: FfiIntent)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
     uniffi_xmtpv3_fn_func_encode_intent(
         FfiConverterTypeFfiIntent_lower(intent),$0
+    )
+})
+}
+public func encodeLeaveRequest(request: FfiLeaveRequest)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    uniffi_xmtpv3_fn_func_encode_leave_request(
+        FfiConverterTypeFfiLeaveRequest_lower(request),$0
     )
 })
 }
@@ -15991,6 +16005,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_decode_intent() != 24165) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_func_decode_leave_request() != 20951) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_func_decode_multi_remote_attachment() != 59746) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -16022,6 +16039,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_encode_intent() != 64568) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_func_encode_leave_request() != 28716) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_encode_multi_remote_attachment() != 28938) {
