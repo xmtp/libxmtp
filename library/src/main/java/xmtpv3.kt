@@ -1363,6 +1363,10 @@ internal open class UniffiVTableCallbackInterfaceFfiPreferenceCallback(
 
 
 
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1392,6 +1396,8 @@ fun uniffi_xmtpv3_checksum_func_decode_group_updated(
 ): Short
 fun uniffi_xmtpv3_checksum_func_decode_intent(
 ): Short
+fun uniffi_xmtpv3_checksum_func_decode_leave_request(
+): Short
 fun uniffi_xmtpv3_checksum_func_decode_multi_remote_attachment(
 ): Short
 fun uniffi_xmtpv3_checksum_func_decode_reaction(
@@ -1413,6 +1419,8 @@ fun uniffi_xmtpv3_checksum_func_encode_actions(
 fun uniffi_xmtpv3_checksum_func_encode_attachment(
 ): Short
 fun uniffi_xmtpv3_checksum_func_encode_intent(
+): Short
+fun uniffi_xmtpv3_checksum_func_encode_leave_request(
 ): Short
 fun uniffi_xmtpv3_checksum_func_encode_multi_remote_attachment(
 ): Short
@@ -2284,6 +2292,8 @@ fun uniffi_xmtpv3_fn_func_decode_group_updated(`bytes`: RustBuffer.ByValue,uniff
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_decode_intent(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_decode_leave_request(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_decode_multi_remote_attachment(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_decode_reaction(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -2305,6 +2315,8 @@ fun uniffi_xmtpv3_fn_func_encode_actions(`actions`: RustBuffer.ByValue,uniffi_ou
 fun uniffi_xmtpv3_fn_func_encode_attachment(`attachment`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_encode_intent(`intent`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_encode_leave_request(`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_encode_multi_remote_attachment(`ffiMultiRemoteAttachment`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -2495,6 +2507,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_func_decode_intent() != 24165.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_func_decode_leave_request() != 20951.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_func_decode_multi_remote_attachment() != 59746.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2526,6 +2541,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_encode_intent() != 64568.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_encode_leave_request() != 28716.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_encode_multi_remote_attachment() != 28938.toShort()) {
@@ -18014,6 +18032,16 @@ public object FfiConverterMapTypeFfiIdentifierBoolean: FfiConverterRustBuffer<Ma
     }
     
 
+    @Throws(GenericException::class) fun `decodeLeaveRequest`(`bytes`: kotlin.ByteArray): FfiLeaveRequest {
+            return FfiConverterTypeFfiLeaveRequest.lift(
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_decode_leave_request(
+        FfiConverterByteArray.lower(`bytes`),_status)
+}
+    )
+    }
+    
+
     @Throws(GenericException::class) fun `decodeMultiRemoteAttachment`(`bytes`: kotlin.ByteArray): FfiMultiRemoteAttachment {
             return FfiConverterTypeFfiMultiRemoteAttachment.lift(
     uniffiRustCallWithError(GenericException) { _status ->
@@ -18119,6 +18147,16 @@ public object FfiConverterMapTypeFfiIdentifierBoolean: FfiConverterRustBuffer<Ma
     uniffiRustCallWithError(GenericException) { _status ->
     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_encode_intent(
         FfiConverterTypeFfiIntent.lower(`intent`),_status)
+}
+    )
+    }
+    
+
+    @Throws(GenericException::class) fun `encodeLeaveRequest`(`request`: FfiLeaveRequest): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_encode_leave_request(
+        FfiConverterTypeFfiLeaveRequest.lower(`request`),_status)
 }
     )
     }
