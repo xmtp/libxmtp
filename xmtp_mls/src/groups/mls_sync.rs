@@ -443,6 +443,7 @@ where
         let summary = match &result {
             Ok(summary) => Some(summary),
             Err(GroupError::Sync(summary)) => Some(&**summary),
+            Err(GroupError::SyncFailedToWait(summary)) => Some(&**summary),
             _ => None,
         };
 
