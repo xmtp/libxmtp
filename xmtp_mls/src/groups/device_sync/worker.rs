@@ -78,6 +78,7 @@ struct Factory<Context> {
 impl<Context> WorkerFactory for Factory<Context>
 where
     Context: XmtpSharedContext + 'static,
+    <Context as XmtpSharedContext>::ApiClient: Clone,
 {
     fn create(&self, metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>) {
         let worker = SyncWorker::new(self.context.clone(), metrics);
@@ -95,6 +96,7 @@ where
 impl<Context> Worker for SyncWorker<Context>
 where
     Context: XmtpSharedContext + 'static,
+    <Context as XmtpSharedContext>::ApiClient: Clone,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::DeviceSync
@@ -107,6 +109,7 @@ where
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
         C: XmtpSharedContext + 'static,
+        <C as XmtpSharedContext>::ApiClient: Clone,
     {
         Factory { context }
     }
@@ -119,6 +122,7 @@ where
 impl<Context> SyncWorker<Context>
 where
     Context: XmtpSharedContext + 'static,
+    <Context as XmtpSharedContext>::ApiClient: Clone + 'static,
 {
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
         // Wait for the identity to be ready & verified before doing anything
@@ -241,6 +245,7 @@ where
     ) -> Result<(), DeviceSyncError>
     where
         Context::Db: 'static,
+        Context::ApiClient: Clone + 'static,
     {
         let unprocessed_messages = self.context.db().unprocessed_sync_group_messages()?;
         let installation_id = self.installation_id();
@@ -284,6 +289,7 @@ where
     ) -> Result<(), DeviceSyncError>
     where
         Context::Db: 'static,
+        Context::ApiClient: Clone + 'static,
     {
         let conn = self.context.db();
         let installation_id = self.context.installation_id();
@@ -387,6 +393,7 @@ where
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<(), DeviceSyncError>>,
         Context::Db: 'static,
+        Context::ApiClient: Clone + 'static,
     {
         if let Some(request) = &request
             && request.kind() != BackupElementSelection::Unspecified
@@ -427,7 +434,8 @@ where
         //
         // 1. Build the exporter
         let db = self.context.db();
-        let exporter = ArchiveExporter::new(options, db, &key);
+        let api = self.context.api().clone();
+        let exporter = ArchiveExporter::new(options, db, api, &key);
         let metadata = exporter.metadata().clone();
 
         // 5. Make the request

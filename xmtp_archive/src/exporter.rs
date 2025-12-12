@@ -8,8 +8,13 @@ use pin_project_lite::pin_project;
 use prost::Message;
 #[allow(deprecated)]
 use sha2::digest::{generic_array::GenericArray, typenum};
-use std::{future::Future, io, pin::Pin, sync::Arc, task::Poll};
+use std::{future::Future, io, marker::PhantomData, pin::Pin, sync::Arc, task::Poll};
+#[cfg(not(target_arch = "wasm32"))]
+use xmtp_api::ApiClientWrapper;
+use xmtp_api_d14n::definitions::FullD14nClient;
 use xmtp_db::prelude::*;
+#[cfg(not(target_arch = "wasm32"))]
+use xmtp_proto::api_client::XmtpApi;
 use xmtp_proto::xmtp::device_sync::{
     BackupElement, BackupMetadataSave, BackupOptions, backup_element::Element,
 };
@@ -18,7 +23,7 @@ use xmtp_proto::xmtp::device_sync::{
 mod file_export;
 
 pin_project! {
-    pub struct ArchiveExporter {
+    pub struct ArchiveExporter<C: XmtpApi = FullD14nClient> {
         stage: Stage,
         metadata: BackupMetadataSave,
         #[pin] stream: BatchExportStream,
@@ -31,6 +36,7 @@ pin_project! {
 
         // Used to write the nonce, contains the same data as nonce.
         nonce_buffer: Vec<u8>,
+        _phantom_client: PhantomData<C>
     }
 
 }
@@ -43,18 +49,22 @@ pub(super) enum Stage {
     Elements,
 }
 
-impl ArchiveExporter {
+impl<C> ArchiveExporter<C>
+where
+    C: XmtpApi + Clone + 'static,
+{
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn export_to_file<D>(
         options: BackupOptions,
         db: D,
+        api: ApiClientWrapper<C>,
         path: impl AsRef<std::path::Path>,
         key: &[u8],
     ) -> Result<(), crate::ArchiveError>
     where
         D: DbQuery + 'static,
     {
-        let mut exporter = Self::new(options, db, key);
+        let mut exporter = Self::new(options, db, api, key);
         exporter.write_to_file(path).await?;
 
         Ok(())
@@ -94,7 +104,7 @@ impl ArchiveExporter {
         Ok(response.text().await?)
     }
 
-    pub fn new<D>(options: BackupOptions, db: D, key: &[u8]) -> Self
+    pub fn new<D>(options: BackupOptions, db: D, api: ApiClientWrapper<C>, key: &[u8]) -> Self
     where
         D: DbQuery + 'static,
     {
@@ -105,7 +115,7 @@ impl ArchiveExporter {
         Self {
             position: 0,
             stage: Stage::default(),
-            stream: BatchExportStream::new(&options, Arc::new(db)),
+            stream: BatchExportStream::new(&options, Arc::new(db), api),
             metadata: BackupMetadataSave::from_options(options),
             zstd_encoder: ZstdEncoder::new(Vec::new()),
             encoder_finished: false,
@@ -115,6 +125,7 @@ impl ArchiveExporter {
             #[allow(deprecated)]
             nonce: GenericArray::clone_from_slice(&nonce),
             nonce_buffer,
+            _phantom_client: PhantomData,
         }
     }
 
@@ -129,7 +140,7 @@ impl ArchiveExporter {
 //
 // To get around this, we implement AsyncRead using future_util, and use a
 // compat layer from tokio_util to be able to interact with it in tokio.
-impl AsyncRead for ArchiveExporter {
+impl<C: XmtpApi> AsyncRead for ArchiveExporter<C> {
     /// This function encrypts first, and compresses second.
     fn poll_read(
         self: Pin<&mut Self>,

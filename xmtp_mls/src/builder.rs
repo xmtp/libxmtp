@@ -184,7 +184,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     /// returns an error if the client failed to build as offline
     pub fn build_offline(self) -> Result<Client<ContextParts<ApiClient, S, Db>>, ClientBuilderError>
     where
-        ApiClient: XmtpApi + XmtpQuery + 'static,
+        ApiClient: XmtpApi + XmtpQuery + Clone + 'static,
         Db: xmtp_db::XmtpDb + 'static,
         S: XmtpMlsStorageProvider + 'static,
     {
@@ -196,7 +196,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
     pub async fn build(self) -> Result<Client<ContextParts<ApiClient, S, Db>>, ClientBuilderError>
     where
-        ApiClient: XmtpApi + XmtpQuery + 'static,
+        ApiClient: XmtpApi + XmtpQuery + Clone + 'static,
         Db: xmtp_db::XmtpDb + 'static,
         S: XmtpMlsStorageProvider + 'static,
     {

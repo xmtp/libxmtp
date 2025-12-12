@@ -8,7 +8,8 @@ use crate::{
     context::XmtpSharedContext,
     cursor_store::SqliteCursorStore,
     groups::{GroupError, device_sync::worker::SyncMetric, intents::UpdateGroupMembershipResult},
-    identity::{Identity, IdentityStrategy},
+    identity::{Identity, IdentityStrategy, pq_key_package_references_key},
+    identity_updates::load_identity_updates,
     subscriptions::SubscribeError,
     utils::{
         TestClient, TestMlsStorage, ToxicOnlyTestClientCreator, VersionInfo, register_client,
@@ -17,8 +18,11 @@ use crate::{
     worker::metrics::WorkerMetrics,
 };
 use alloy::signers::local::PrivateKeySigner;
-use diesel::QueryableByName;
-use futures::Stream;
+use diesel::{QueryDsl, QueryableByName};
+use futures::{
+    AsyncReadExt, Stream, StreamExt,
+    io::{BufReader, Cursor},
+};
 use futures_executor::block_on;
 use parking_lot::Mutex;
 use passkey::{
@@ -43,35 +47,48 @@ use xmtp_api_d14n::{
     DevOnlyTestClientCreator, LocalOnlyTestClientCreator, XmtpTestClientExt,
     protocol::InMemoryCursorStore,
 };
+use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
 use xmtp_common::StreamHandle;
 use xmtp_common::TestLogReplace;
-use xmtp_configuration::LOCALHOST;
 use xmtp_configuration::{DeviceSyncUrls, DockerUrls};
+use xmtp_configuration::{KEY_PACKAGE_ROTATION_INTERVAL_NS, LOCALHOST};
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
 #[cfg(not(target_arch = "wasm32"))]
 use xmtp_db::NativeDb;
 #[cfg(target_arch = "wasm32")]
 use xmtp_db::WasmDb;
 use xmtp_db::{
-    ConnectionExt, ReadOnly, TestDb, XmtpTestDb,
+    ConnectionExt, ReadOnly, TestDb, XmtpMlsStorageProvider, XmtpTestDb,
     diesel::{self, Connection, RunQueryDsl, SqliteConnection, sql_query},
+    key_package_history::StoredKeyPackageHistoryEntry,
+    prelude::{QueryIdentity, QueryIdentityUpdates},
+    sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
 };
 use xmtp_db::{
     EncryptedMessageStore, MlsProviderExt, StorageOption, XmtpOpenMlsProvider,
-    group_message::StoredGroupMessage, sql_key_store::SqlKeyStore,
+    group_message::StoredGroupMessage,
 };
 use xmtp_id::{
     InboxOwner,
     associations::{
         Identifier, ident,
         test_utils::MockSmartContractSignatureVerifier,
-        unverified::{UnverifiedPasskeySignature, UnverifiedSignature},
+        unverified::{UnverifiedIdentityUpdate, UnverifiedPasskeySignature, UnverifiedSignature},
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
-use xmtp_proto::api_client::ToxicTestClient;
-use xmtp_proto::{api_client::ApiBuilder, xmtp::message_contents::PrivateKey};
+use xmtp_proto::{
+    api_client::ApiBuilder,
+    xmtp::{
+        device_sync::{BackupElement, backup::SnapshotSave, backup_element::Element},
+        message_contents::PrivateKey,
+    },
+};
 use xmtp_proto::{api_client::ToxicProxies, prelude::XmtpTestClient};
+use xmtp_proto::{
+    api_client::ToxicTestClient,
+    xmtp::device_sync::{BackupElementSelection, BackupOptions},
+};
 
 type XmtpMlsProvider = XmtpOpenMlsProvider<Arc<TestMlsStorage>>;
 
@@ -112,7 +129,7 @@ where
             .unwrap()
     }
 
-    pub fn save_db_snapshot_to_file(&self, path: impl AsRef<Path>) {
+    pub fn save_snapshot_to_file(&self, path: impl AsRef<Path>) {
         let snapshot = self.db_snapshot();
         std::fs::write(path, &snapshot).unwrap();
     }
@@ -180,7 +197,7 @@ where
         if self.ephemeral_db || self.snapshot.is_some() {
             let db = if let Some(snapshot) = &self.snapshot {
                 client.allow_offline = true;
-                TestDb::create_ephemeral_store_from_snapshot(snapshot, self.snapshot_path.as_ref())
+                TestDb::create_ephemeral_store_from_snapshot(&snapshot, self.snapshot_path.as_ref())
                     .await
             } else {
                 TestDb::create_ephemeral_store().await
@@ -253,6 +270,46 @@ where
                 worker = client.context.sync_metrics();
             }
             worker.as_ref().unwrap().wait_for_init().await.unwrap();
+        }
+
+        if self.snapshot.is_some() {
+            let updates = client
+                .db()
+                .get_identity_updates(client.inbox_id(), None, None)
+                .unwrap();
+            for update in updates {
+                let update: UnverifiedIdentityUpdate = update.payload.try_into().unwrap();
+                let result = client
+                    .context
+                    .api_client
+                    .publish_identity_update(update)
+                    .await;
+                tracing::info!("{result:?}");
+            }
+
+            client.rotate_and_upload_key_package().await.unwrap();
+
+            client.context.db().raw_query_write(|c| {
+                xmtp_db::diesel::delete(xmtp_db::schema::association_state::table)
+                    .execute(c)
+                    .unwrap();
+                xmtp_db::diesel::delete(xmtp_db::schema::identity_cache::table)
+                    .execute(c)
+                    .unwrap();
+                xmtp_db::diesel::delete(xmtp_db::schema::identity_updates::table)
+                    .execute(c)
+                    .unwrap();
+
+                Ok(())
+            });
+
+            load_identity_updates(
+                &client.context.api_client,
+                &client.db(),
+                &[client.inbox_id()],
+            )
+            .await
+            .unwrap();
         }
 
         client.sync_welcomes().await;

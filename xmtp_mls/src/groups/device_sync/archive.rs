@@ -224,7 +224,8 @@ mod tests {
         };
         let export = {
             let mut file = vec![];
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+            let mut exporter =
+                ArchiveExporter::new(opts, alix.db(), alix.context.api_client.clone(), &key);
             exporter.read_to_end(&mut file).await?;
             file
         };
@@ -289,7 +290,9 @@ mod tests {
         };
         let export = {
             let mut file = vec![];
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+
+            let mut exporter =
+                ArchiveExporter::new(opts, alix.db(), alix.context.api().clone(), &key);
             exporter.read_to_end(&mut file).await?;
             file
         };
@@ -356,7 +359,8 @@ mod tests {
 
         let file = {
             let mut file = Vec::new();
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+            let mut exporter =
+                ArchiveExporter::new(opts, alix.db(), alix.context.api().clone(), &key);
             exporter.read_to_end(&mut file).await.unwrap();
             file
         };
@@ -451,7 +455,7 @@ mod tests {
         };
 
         let key = xmtp_common::rand_vec::<32>();
-        let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+        let mut exporter = ArchiveExporter::new(opts, alix.db(), alix.context.api().clone(), &key);
         let path = Path::new("archive.xmtp");
         let _ = tokio::fs::remove_file(path).await;
         exporter.write_to_file(path).await?;

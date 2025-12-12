@@ -3,9 +3,13 @@ use pin_project_lite::pin_project;
 use std::{
     marker::PhantomData,
     pin::Pin,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicI64, Ordering},
+    },
     task::{Context, Poll},
 };
+use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{MaybeSend, MaybeSendFuture, if_native, if_wasm};
 use xmtp_db::{StorageError, prelude::*};
 use xmtp_proto::xmtp::device_sync::{
@@ -33,23 +37,33 @@ pin_project! {
 }
 
 impl BatchExportStream {
-    pub(super) fn new<D>(opts: &BackupOptions, db: Arc<D>) -> Self
+    pub(super) fn new<D, Api>(opts: &BackupOptions, db: Arc<D>, api: ApiClientWrapper<Api>) -> Self
     where
         D: DbQuery + 'static,
+        Api: XmtpApi + Clone + 'static,
     {
         let input_streams = opts
             .elements()
             .flat_map(|e| match e {
                 BackupElementSelection::Consent => {
-                    vec![BackupRecordStreamer::<ConsentSave, D>::new_stream(
+                    vec![BackupRecordStreamer::<ConsentSave, D, Api>::new_stream(
                         db.clone(),
-                        opts,
+                        api.clone(),
+                        opts.clone(),
                     )]
                 }
                 BackupElementSelection::Messages => vec![
                     // Order matters here. Don't put messages before groups.
-                    BackupRecordStreamer::<GroupSave, D>::new_stream(db.clone(), opts),
-                    BackupRecordStreamer::<GroupMessageSave, D>::new_stream(db.clone(), opts),
+                    BackupRecordStreamer::<GroupSave, D, Api>::new_stream(
+                        db.clone(),
+                        api.clone(),
+                        opts.clone(),
+                    ),
+                    BackupRecordStreamer::<GroupMessageSave, D, Api>::new_stream(
+                        db.clone(),
+                        api.clone(),
+                        opts.clone(),
+                    ),
                 ],
                 BackupElementSelection::Event => vec![],
                 BackupElementSelection::Unspecified => vec![],
@@ -111,51 +125,59 @@ impl Stream for BatchExportStream {
 #[xmtp_common::async_trait]
 pub(crate) trait BackupRecordProvider: MaybeSend + Sized + 'static {
     const BATCH_SIZE: i64;
-    async fn backup_records<D>(
-        db: Arc<D>,
-        start_ns: Option<i64>,
-        end_ns: Option<i64>,
-        exclude_disappearing_messages: bool,
-        cursor: i64,
+    async fn backup_records<D, Api>(
+        state: Arc<BackupProviderState<D, Api>>,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
-        D: MaybeSend + DbQuery + 'static;
+        D: MaybeSend + DbQuery + 'static,
+        Api: XmtpApi + 'static;
+}
+
+pub struct BackupProviderState<D, Api> {
+    db: Arc<D>,
+    #[allow(unused)]
+    api: ApiClientWrapper<Api>,
+    cursor: AtomicI64,
+    opts: BackupOptions,
 }
 
 pin_project! {
-    pub(crate) struct BackupRecordStreamer<R, D> {
-        cursor: i64,
-        db: Arc<D>,
-        start_ns: Option<i64>,
-        end_ns: Option<i64>,
-        exclude_disappearing_messages: bool,
+    pub(crate) struct BackupRecordStreamer<R, D, Api> {
+        provider_state: Arc<BackupProviderState<D, Api>>,
         #[pin] current_future: Option<Pin<Box<dyn MaybeSendFuture<Output = Result<Vec<BackupElement>, StorageError>>>>>,
         _phantom: PhantomData<R>,
     }
 }
 
-impl<R, D> BackupRecordStreamer<R, D>
+impl<R, D, Api> BackupRecordStreamer<R, D, Api>
 where
     R: BackupRecordProvider + 'static,
     D: DbQuery + 'static,
+    Api: XmtpApi + 'static,
 {
-    pub(super) fn new_stream(db: Arc<D>, opts: &BackupOptions) -> BackupInputStream {
+    pub(super) fn new_stream(
+        db: Arc<D>,
+        api: ApiClientWrapper<Api>,
+        opts: BackupOptions,
+    ) -> BackupInputStream {
         Box::pin(Self {
-            cursor: 0,
-            db,
-            start_ns: opts.start_ns,
-            end_ns: opts.end_ns,
-            exclude_disappearing_messages: opts.exclude_disappearing_messages,
+            provider_state: Arc::new(BackupProviderState {
+                db,
+                api,
+                cursor: AtomicI64::new(0),
+                opts,
+            }),
             _phantom: PhantomData,
             current_future: None,
         })
     }
 }
 
-impl<R, D> Stream for BackupRecordStreamer<R, D>
+impl<R, D, Api> Stream for BackupRecordStreamer<R, D, Api>
 where
     R: BackupRecordProvider + 'static,
     D: DbQuery + 'static,
+    Api: XmtpApi + 'static,
 {
     type Item = Result<Vec<BackupElement>, StorageError>;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -163,13 +185,7 @@ where
 
         // Create the future if it doesn't exist
         if this.current_future.is_none() {
-            let fut = R::backup_records(
-                this.db.clone(),
-                *this.start_ns,
-                *this.end_ns,
-                *this.exclude_disappearing_messages,
-                *this.cursor,
-            );
+            let fut = R::backup_records(this.provider_state.clone());
             this.current_future.set(Some(Box::pin(fut)));
         }
 
@@ -191,7 +207,9 @@ where
             }
             Ok(elements) => {
                 // Update cursor for next batch
-                *this.cursor += elements.len() as i64;
+                this.provider_state
+                    .cursor
+                    .fetch_add(elements.len() as i64, Ordering::SeqCst);
                 Poll::Ready(Some(Ok(elements)))
             }
             Err(e) => {
