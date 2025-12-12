@@ -1,43 +1,24 @@
 use anyhow::Result;
-use xmtp_common::{NS_IN_DAY, time::now_ns};
-use xmtp_db::{
-    ConnectionExt,
-    diesel::{self, ExpressionMethods, RunQueryDsl},
-    schema::group_messages::dsl as messages_dsl,
-};
+use xmtp_db::{ConnectionExt, DbConnection, group_message::QueryGroupMessage};
 
 use crate::confirm_destructive;
 
-pub fn clear_all_messages(
-    conn: &impl ConnectionExt,
-    limit_days: Option<i64>,
-    group_ids: Option<&[&[u8]]>,
+pub fn clear_all_messages<C: ConnectionExt>(
+    conn: &C,
+    limit_days: Option<u32>,
+    group_ids: Option<&[Vec<u8>]>,
 ) -> Result<()> {
     confirm_destructive()?;
     clear_all_messages_confirmed(conn, limit_days, group_ids)
 }
 
-pub fn clear_all_messages_confirmed(
-    conn: &impl ConnectionExt,
-    limit_days: Option<i64>,
-    group_ids: Option<&[&[u8]]>,
+pub fn clear_all_messages_confirmed<C: ConnectionExt>(
+    conn: &C,
+    limit_days: Option<u32>,
+    group_ids: Option<&[Vec<u8>]>,
 ) -> Result<()> {
-    let mut query = diesel::delete(messages_dsl::group_messages).into_boxed();
-
-    if let Some(group_ids) = group_ids {
-        query = query.filter(messages_dsl::group_id.eq_any(group_ids));
-    }
-
-    if let Some(days) = limit_days {
-        if days < 0 {
-            return Err(anyhow::anyhow!("`limit_days` must be >= 0"));
-        }
-        let limit = now_ns().saturating_sub(NS_IN_DAY.saturating_mul(days));
-        query = query.filter(messages_dsl::sent_at_ns.lt(limit));
-    }
-
-    conn.raw_query_write(|c| query.execute(c))?;
-
+    let db = DbConnection::new(conn);
+    db.clear_messages(group_ids, limit_days)?;
     Ok(())
 }
 
@@ -74,7 +55,11 @@ mod tests {
         // Commit and application msg
         assert_eq!(alix_msgs.len(), 2);
 
-        clear_all_messages_confirmed(&alix.db(), None, Some(&[&alix_bo_dm.group_id]))?;
+        clear_all_messages_confirmed(
+            &alix.db(),
+            None,
+            Some(std::slice::from_ref(&alix_bo_dm.group_id)),
+        )?;
         let alix_msgs = alix_bo_dm.find_messages(&MsgQueryArgs::default())?;
         // Commit and application msg
         assert_eq!(alix_msgs.len(), 0);
@@ -90,5 +75,39 @@ mod tests {
         clear_all_messages_confirmed(&alix.db(), None, None)?;
         let group_msgs = alix_group.find_messages(&MsgQueryArgs::default())?;
         assert_eq!(group_msgs.len(), 0);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_clear_messages_retention_days() {
+        tester!(alix, disable_workers);
+        tester!(bo);
+
+        let dm = alix
+            .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
+            .await?;
+        dm.send_message(b"Message 1", Default::default()).await?;
+        dm.send_message(b"Message 2", Default::default()).await?;
+
+        let initial_count = dm.find_messages(&MsgQueryArgs::default())?.len();
+        // 1 commit message from DM creation + 2 application messages
+        assert_eq!(initial_count, 3);
+
+        // retention_days = 1 means "delete messages older than 1 day"
+        // Since these messages were just created, they should NOT be deleted
+        clear_all_messages_confirmed(&alix.db(), Some(1), None)?;
+        let after_retention_1 = dm.find_messages(&MsgQueryArgs::default())?.len();
+        assert_eq!(
+            after_retention_1, initial_count,
+            "Recent messages should not be deleted with retention_days=1"
+        );
+
+        // retention_days = 0 means "delete messages older than now"
+        // All messages were created before now, so they should all be deleted
+        clear_all_messages_confirmed(&alix.db(), Some(0), None)?;
+        let after_retention_0 = dm.find_messages(&MsgQueryArgs::default())?.len();
+        assert_eq!(
+            after_retention_0, 0,
+            "All messages should be deleted with retention_days=0"
+        );
     }
 }

@@ -4,7 +4,10 @@ use clap::{Parser, ValueEnum};
 use dotenvy::{dotenv, var};
 use std::io::{self, Write};
 use tracing::info;
-use xmtp_db::{ConnectionExt, EncryptedMessageStore, NativeDb, StorageOption, XmtpDb};
+use xmtp_db::{
+    ConnectionExt, DbConnection, EncryptedMessageStore, NativeDb, StorageOption, XmtpDb,
+    migrations::QueryMigrations,
+};
 
 mod tasks;
 
@@ -71,8 +74,7 @@ fn main() -> Result<()> {
             tasks::clear_all_messages(&manager.store.conn(), args.retain_days, None)?;
         }
         Task::DbClearMessages => {
-            let arg_group_ids = args.group_ids()?;
-            let group_ids: Vec<_> = arg_group_ids.iter().map(Vec::as_slice).collect();
+            let group_ids = args.group_ids()?;
             tasks::clear_all_messages(&manager.store.conn(), args.retain_days, Some(&group_ids))?;
         }
         Task::DbRunMigration => {
@@ -97,24 +99,32 @@ fn main() -> Result<()> {
             let group_ids: Vec<_> = arg_group_ids.iter().map(Vec::as_slice).collect();
             tasks::disable_groups(&manager.store.db(), &group_ids)?;
         }
+        Task::DbListMigrations => {
+            let conn = manager.store.conn();
+            let db = DbConnection::new(&conn);
+            let mut available = db.available_migrations()?;
+            let applied = db.applied_migrations()?;
+
+            // Sort by date descending (most recent first)
+            available.sort_by(|a, b| b.cmp(a));
+
+            println!("Available migrations ({}):", available.len());
+            for name in &available {
+                let name_version: String = name.chars().filter(|c| c.is_numeric()).collect();
+                let status = if applied.iter().any(|a| {
+                    let applied_version: String = a.chars().filter(|c| c.is_numeric()).collect();
+                    name_version == applied_version
+                }) {
+                    "[applied]"
+                } else {
+                    "[pending]"
+                };
+                println!("  {status} {name}");
+            }
+        }
     }
 
     Ok(())
-}
-
-impl Args {
-    fn group_ids(&self) -> Result<Vec<Vec<u8>>> {
-        let Some(group_id) = &self.target else {
-            bail!("A hex-encoded group_id must be provided as the --target param for this task.");
-        };
-        let group_ids = group_id
-            .split(",")
-            .filter(|id| !id.trim().is_empty())
-            .map(hex::decode)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(group_ids)
-    }
 }
 
 fn confirm_destructive() -> Result<()> {
@@ -151,8 +161,8 @@ struct Args {
     db_key: Option<String>,
 
     /// Number of days worth of data you'd like to retain on delete tasks.
-    #[arg(long, value_enum)]
-    retain_days: Option<i64>,
+    #[arg(long, value_parser = clap::value_parser!(u32).range(0..))]
+    retain_days: Option<u32>,
 }
 
 impl Args {
@@ -171,6 +181,23 @@ impl Args {
         self.target.as_ref().unwrap_or_else(|| {
             panic!("--target argument must be provided for this task.\n {reason}")
         })
+    }
+
+    fn group_ids(&self) -> Result<Vec<Vec<u8>>> {
+        let Some(group_id) = &self.target else {
+            bail!("A hex-encoded group_id must be provided as the --target param for this task.");
+        };
+        let group_ids: Vec<Vec<u8>> = group_id
+            .split(',')
+            .filter(|id| !id.trim().is_empty())
+            .map(hex::decode)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if group_ids.is_empty() {
+            bail!("At least one group_id must be provided.");
+        }
+
+        Ok(group_ids)
     }
 }
 
@@ -201,4 +228,6 @@ enum Task {
     /// Enable a group.
     /// Requires hex-encoded group_id as --target param.
     EnableGroup,
+    /// List all available migrations and their status.
+    DbListMigrations,
 }
