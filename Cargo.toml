@@ -72,6 +72,7 @@ clap = { version = "4", features = ["derive"] }
 color-eyre = "0.6"
 console_error_panic_hook = "0.1"
 const_format = "0.2"
+const_panic = "0.2"
 ctor = "0.6"
 criterion = { version = "0.7", features = ["html_reports", "async_tokio"] }
 derive_builder = "0.20"

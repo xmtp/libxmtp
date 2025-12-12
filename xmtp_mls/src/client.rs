@@ -7,6 +7,7 @@ use crate::{
     },
 };
 use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
+use xmtp_macro::log_event;
 
 use crate::{
     builder::SyncWorkerMode,
@@ -30,7 +31,7 @@ use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
-use xmtp_common::{Retry, retry_async, retryable};
+use xmtp_common::{Event, Retry, retry_async, retryable};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{
     ConnectionExt, NotFound, StorageError, XmtpDb,
@@ -497,7 +498,6 @@ where
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
         self.ensure_identity_ready()?;
-        tracing::info!("creating group");
 
         let group: MlsGroup<Context> = MlsGroup::create_and_insert(
             self.context.clone(),
@@ -506,6 +506,8 @@ where
             opts.unwrap_or_default(),
             None,
         )?;
+
+        log_event!(Event::CreatedGroup, group_id = %hex::encode(&group.group_id));
 
         // notify streams of our new group
         let _ = self
@@ -522,7 +524,6 @@ where
         permissions_policy_set: Option<PolicySet>,
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
-        tracing::info!("creating group");
         let group = self.create_group(permissions_policy_set, opts)?;
 
         group.add_members(account_identifiers).await?;
@@ -547,19 +548,19 @@ where
     /// Create a new Direct Message with the default settings
     async fn create_dm_by_inbox_id(
         &self,
-        dm_target_inbox_id: InboxId,
+        target_inbox_id: InboxId,
         opts: Option<DMMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
-        tracing::info!("creating dm with {}", dm_target_inbox_id);
         let group: MlsGroup<Context> = MlsGroup::create_dm_and_insert(
             &self.context,
             GroupMembershipState::Allowed,
-            dm_target_inbox_id.clone(),
+            target_inbox_id.clone(),
             opts.unwrap_or_default(),
             None,
         )?;
 
-        group.add_members_by_inbox_id(&[dm_target_inbox_id]).await?;
+        log_event!(Event::CreatedDM, group_id = %hex::encode(&group.group_id), target_inbox_id);
+        group.add_members_by_inbox_id(&[target_inbox_id]).await?;
 
         // notify any streams of the new group
         let _ = self
