@@ -101,6 +101,7 @@ use xmtp_proto::types::ApiIdentifier;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
 use xmtp_proto::xmtp::mls::message_contents::content_types::{MultiRemoteAttachment, ReactionV2};
 
 // Re-export types from message module that are used in public APIs
@@ -3109,6 +3110,22 @@ pub fn decode_actions(bytes: Vec<u8>) -> Result<FfiActions, GenericError> {
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;
 
     actions.try_into()
+}
+
+// LeaveRequest FFI encode function
+#[uniffi::export]
+pub fn encode_leave_request(request: FfiLeaveRequest) -> Result<Vec<u8>, GenericError> {
+    let leave_request: LeaveRequest = request.into();
+
+    let encoded = LeaveRequestCodec::encode(leave_request)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
 }
 
 // LeaveRequest FFI decode function

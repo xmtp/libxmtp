@@ -1266,33 +1266,22 @@ async fn test_group_updated_codec() {
 }
 
 #[tokio::test]
-async fn test_leave_request_decode() {
-    use prost::Message;
-    use xmtp_content_types::ContentCodec;
-    use xmtp_content_types::leave_request::LeaveRequestCodec;
-    use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
-
-    // Test decoding leave request with no authenticated note
-    let leave_request_no_note = LeaveRequest {
+async fn test_leave_request_encode_decode() {
+    // Test with no authenticated note
+    let ffi_leave_request_no_note = FfiLeaveRequest {
         authenticated_note: None,
     };
-    let encoded = LeaveRequestCodec::encode(leave_request_no_note).unwrap();
-    let mut buf = Vec::new();
-    encoded.encode(&mut buf).unwrap();
-
-    let decoded = decode_leave_request(buf).unwrap();
+    let encoded = encode_leave_request(ffi_leave_request_no_note).unwrap();
+    let decoded = decode_leave_request(encoded).unwrap();
     assert!(decoded.authenticated_note.is_none());
 
-    // Test decoding leave request with authenticated note
+    // Test with authenticated note
     let note_data = b"I am leaving because of reasons".to_vec();
-    let leave_request_with_note = LeaveRequest {
+    let ffi_leave_request_with_note = FfiLeaveRequest {
         authenticated_note: Some(note_data.clone()),
     };
-    let encoded = LeaveRequestCodec::encode(leave_request_with_note).unwrap();
-    let mut buf = Vec::new();
-    encoded.encode(&mut buf).unwrap();
-
-    let decoded = decode_leave_request(buf).unwrap();
+    let encoded = encode_leave_request(ffi_leave_request_with_note).unwrap();
+    let decoded = decode_leave_request(encoded).unwrap();
     assert_eq!(decoded.authenticated_note, Some(note_data));
 
     // Test decoding invalid bytes
