@@ -37,8 +37,13 @@ pub mod types;
 pub mod r#const;
 pub use r#const::*;
 
+mod event_logging;
+pub use event_logging::*;
+
 pub use xmtp_cryptography::hash::*;
 pub use xmtp_cryptography::rand::*;
+
+pub use xmtp_macro::log_event;
 
 #[cfg(feature = "logging")]
 pub mod logging;

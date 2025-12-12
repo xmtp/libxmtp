@@ -8,54 +8,30 @@ use super::{
     summary::{MessageIdentifier, MessageIdentifierBuilder, ProcessSummary, SyncSummary},
     validated_commit::{CommitValidationError, LibXMTPVersion, extract_group_membership},
 };
-use crate::groups::{
-    intents::QueueIntent, mls_sync::update_group_membership::apply_readd_installations_intent,
-};
-use crate::groups::{
-    intents::ReaddInstallationsIntentData,
-    mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage,
-};
-use crate::identity_updates::IdentityUpdates;
 use crate::{
-    client::ClientError, context::XmtpSharedContext, groups::mls_ext::MlsGroupReload,
-    mls_store::MlsStore,
-};
-use crate::{
-    groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
-    utils::id::calculate_message_id_for_intent,
-};
-use crate::{
-    groups::mls_ext::{CommitLogStorer, WrapWelcomeError, wrap_welcome},
-    subscriptions::SyncWorkerEvent,
-};
-use crate::{
-    groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
+    client::ClientError,
+    context::XmtpSharedContext,
+    groups::{
+        group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
+        intents::{QueueIntent, ReaddInstallationsIntentData, UpdateMetadataIntentData},
+        mls_ext::{CommitLogStorer, MlsGroupReload, WrapWelcomeError, wrap_welcome},
+        mls_sync::{
+            GroupMessageProcessingError::OpenMlsProcessMessage,
+            update_group_membership::apply_readd_installations_intent,
+        },
+        validated_commit::{Inbox, MutableMetadataValidationInfo, ValidatedCommit},
+    },
     identity::{IdentityError, parse_credential},
+    identity_updates::IdentityUpdates,
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
+    mls_store::MlsStore,
     subscriptions::LocalEvents,
+    subscriptions::SyncWorkerEvent,
+    traits::IntoWith,
+    utils::id::calculate_message_id_for_intent,
     utils::{self, hash::sha256, id::calculate_message_id, time::hmac_epoch},
 };
-use update_group_membership::apply_update_group_membership_intent;
-use xmtp_configuration::{
-    GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
-    SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
-};
-use xmtp_db::{
-    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
-    group::{ConversationType, StoredGroup},
-    group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
-    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-    remote_commit_log::CommitResult,
-    sql_key_store,
-    user_preferences::StoredUserPreferences,
-};
-use xmtp_db::{TransactionalKeyStore, XmtpMlsStorageProvider, refresh_state::HasEntityKind};
-use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
-use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
-
-use crate::groups::validated_commit::{Inbox, MutableMetadataValidationInfo};
-use crate::traits::IntoWith;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -84,13 +60,29 @@ use std::{
 };
 use thiserror::Error;
 use tracing::debug;
-use xmtp_common::time::now_ns;
-use xmtp_common::{Retry, RetryableError, retry_async};
+use update_group_membership::apply_update_group_membership_intent;
+use xmtp_common::{Event, Retry, RetryableError, log_event, retry_async, time::now_ns};
+use xmtp_configuration::{
+    GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
+    SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
+};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::group::GroupMembershipState;
 use xmtp_db::pending_remove::{PendingRemove, QueryPendingRemove};
+use xmtp_db::{
+    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
+    group::{ConversationType, StoredGroup},
+    group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
+    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    remote_commit_log::CommitResult,
+    sql_key_store,
+    user_preferences::StoredUserPreferences,
+};
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
+use xmtp_db::{TransactionalKeyStore, XmtpMlsStorageProvider, refresh_state::HasEntityKind};
+use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 use xmtp_proto::types::{Cursor, GroupMessage};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -361,6 +353,7 @@ where
         let mut summary = SyncSummary::default();
 
         if !self.is_active().map_err(SyncSummary::other)? {
+            log_event!(Event::GroupSyncGroupInactive, group_id = ?hex::encode(&self.group_id));
             return Err(SyncSummary::other(GroupError::GroupInactive));
         }
 
@@ -441,6 +434,38 @@ where
         &self,
         intent_id: ID,
     ) -> Result<SyncSummary, GroupError> {
+        log_event!(
+            Event::GroupSyncStart,
+            group_id = ?hex::encode(&self.group_id)
+        );
+
+        let result = self.sync_until_intent_resolved_inner(intent_id).await;
+        let summary = match &result {
+            Ok(summary) => Some(summary),
+            Err(GroupError::Sync(summary)) => Some(&**summary),
+            Err(GroupError::SyncFailedToWait(summary)) => Some(&**summary),
+            _ => None,
+        };
+
+        log_event!(
+            Event::GroupSyncFinished,
+            group_id = ?hex::encode(&self.group_id),
+            summary = ?summary,
+            success = result.is_ok()
+        );
+
+        result
+    }
+
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
+    async fn sync_until_intent_resolved_inner(
+        &self,
+        intent_id: ID,
+    ) -> Result<SyncSummary, GroupError> {
         let mut summary = SyncSummary::default();
         let db = self.context.db();
         let mut num_attempts = 0;
@@ -449,42 +474,50 @@ where
             match self.sync_with_conn().await {
                 Ok(s) => summary.extend(s),
                 Err(s) => {
-                    tracing::error!("error syncing group {}", s);
+                    tracing::error!("error syncing group {s}");
                     summary.extend(s);
                 }
             }
             match Fetch::<StoredGroupIntent>::fetch(&db, &intent_id) {
-                Ok(None) => {
-                    // This is expected. The intent gets deleted on success
-                    return Ok(summary);
-                }
                 Ok(Some(StoredGroupIntent {
-                    id,
-                    state: IntentState::Error,
-                    ..
-                })) => {
-                    tracing::warn!(
-                        "not retrying intent ID {id}. since it is in state Error. {:?}",
-                        summary
-                    );
-                    return Err(GroupError::from(summary));
-                }
-                Ok(Some(StoredGroupIntent {
-                    id,
                     state: IntentState::Processed,
                     ..
                 })) => {
-                    tracing::debug!(
-                        "not retrying intent ID {id}. since it is in state processed. {}",
-                        summary
+                    // This is expected, we mark intents as processed on success.
+                    return Ok(summary);
+                }
+                Ok(None) => {
+                    // This is somewhat expected, we used to delete intents on success.
+                    tracing::warn!(
+                        "Intent was deleted when it should have been marked as processed.\
+                         This is still okay, but unexpected. intent_id: {intent_id}",
                     );
                     return Ok(summary);
                 }
-                Ok(Some(StoredGroupIntent { id, state, .. })) => {
-                    tracing::warn!("retrying intent ID {id}. intent currently in state {state:?}");
+
+                Ok(Some(StoredGroupIntent {
+                    state: IntentState::Error,
+                    ..
+                })) => {
+                    log_event!(
+                        Event::GroupSyncIntentErrored,
+                        level = warn,
+                        group_id = ?hex::encode(&self.group_id),
+                        intent_id = intent_id,
+                        summary = ?summary
+                    );
+                    return Err(GroupError::from(summary));
+                }
+                Ok(Some(StoredGroupIntent { state, .. })) => {
+                    log_event!(
+                        Event::GroupSyncIntentRetry,
+                        level = warn,
+                        group_id = ?hex::encode(&self.group_id),
+                        intent_id = intent_id, state = ?state
+                    );
                 }
                 Err(err) => {
-                    tracing::error!("database error fetching intent {:?}", err);
+                    tracing::error!("database error fetching intent {err:?}");
                     summary.add_other(GroupError::Storage(err));
                 }
             };
@@ -1011,17 +1044,16 @@ where
         let mut identifier = MessageIdentifierBuilder::from(message_envelope);
         match processed_message.into_content() {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
-                tracing::info!(
+                log_event!(
+                    Event::MLSReceivedApplicationMessage,
                     inbox_id = self.context.inbox_id(),
                     sender_inbox_id = sender_inbox_id,
                     sender_installation_id = hex::encode(&sender_installation_id),
                     installation_id = %self.context.installation_id(),group_id = hex::encode(&self.group_id),
                     current_epoch = mls_group.epoch().as_u64(),
                     msg_epoch,
-                    msg_group_id,
+                    group_id = msg_group_id,
                     cursor = %cursor,
-                    "[{}] decoding application message",
-                    self.context.inbox_id()
                 );
                 let message_bytes = application_message.into_bytes();
 
@@ -1081,6 +1113,11 @@ where
                             self.process_leave_request_message(mls_group, storage, &message)?;
                         }
 
+                        log_event!(
+                            Event::MLSProcessedApplicationMessage,
+                            group_id = msg_group_id,
+                        );
+
                         Ok::<_, GroupMessageProcessingError>(())
                     }
                     Some(Content::V2(V2 { .. })) => {
@@ -1106,31 +1143,19 @@ where
                 let validated_commit =
                     validated_commit.expect("Needs to be present when this is a staged commit");
 
-                tracing::info!(
+                log_event!(
+                    Event::MLSReceivedStagedCommit,
                     inbox_id = self.context.inbox_id(),
                     sender_inbox_id = sender_inbox_id,
-                    installation_id = %self.context.installation_id(),sender_installation_id = hex::encode(&sender_installation_id),
+                    installation_id = %self.context.installation_id(),
+                    sender_installation_id = hex::encode(&sender_installation_id),
                     group_id = hex::encode(&self.group_id),
                     current_epoch = mls_group.epoch().as_u64(),
                     msg_epoch,
                     msg_group_id,
                     cursor = %cursor,
-                    "[{}] received staged commit. Merging and clearing any pending commits",
-                    self.context.inbox_id()
                 );
 
-                tracing::info!(
-                    inbox_id = self.context.inbox_id(),
-                    sender_inbox_id = sender_inbox_id,
-                    installation_id = %self.context.installation_id(),sender_installation_id = hex::encode(&sender_installation_id),
-                    group_id = hex::encode(&self.group_id),
-                    current_epoch = mls_group.epoch().as_u64(),
-                    msg_epoch,
-                    msg_group_id,
-                    cursor = %cursor,
-                    "[{}] staged commit is valid, will attempt to merge",
-                    self.context.inbox_id()
-                );
                 identifier.group_context(staged_commit.group_context().clone());
 
                 mls_group.merge_staged_commit_logged(
@@ -1167,6 +1192,13 @@ where
                 );
 
                 identifier.internal_id(msg.as_ref().map(|m| m.id.clone()));
+
+                log_event!(
+                    Event::MLSProcessedStagedCommit,
+                    group_id = hex::encode(&self.group_id),
+                    current_epoch = mls_group.epoch().as_u64(),
+                );
+
                 Ok(())
             }
         }?;

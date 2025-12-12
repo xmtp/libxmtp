@@ -63,7 +63,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
-use xmtp_common::time::now_ns;
+use xmtp_common::{Event, log_event, time::now_ns};
 use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
     MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators,
@@ -876,6 +876,12 @@ where
             .queue(self)?;
 
         self.sync_until_intent_resolved(intent.id).await?;
+
+        log_event!(
+            Event::AddedMembers,
+            group_id = %hex::encode(&self.group_id),
+            members = ?ids
+        );
 
         ok_result
     }
