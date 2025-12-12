@@ -5,7 +5,7 @@ on:
       - release
 
 env:
-  RELEASE_VERSION: "4.6.8"
+  RELEASE_VERSION: "4.6.9"
 
 jobs:
   library:
