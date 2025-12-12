@@ -21,6 +21,7 @@ use xmtp_content_types::attachment::Attachment;
 use xmtp_content_types::attachment::AttachmentCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_content_types::intent::{Intent, IntentCodec};
+use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::read_receipt::ReadReceipt;
@@ -104,7 +105,7 @@ use xmtp_proto::xmtp::mls::message_contents::content_types::{MultiRemoteAttachme
 
 // Re-export types from message module that are used in public APIs
 pub use crate::message::{
-    FfiAttachment, FfiMultiRemoteAttachment, FfiReadReceipt, FfiRemoteAttachment,
+    FfiAttachment, FfiLeaveRequest, FfiMultiRemoteAttachment, FfiReadReceipt, FfiRemoteAttachment,
     FfiTransactionReference,
 };
 
@@ -3108,6 +3109,19 @@ pub fn decode_actions(bytes: Vec<u8>) -> Result<FfiActions, GenericError> {
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;
 
     actions.try_into()
+}
+
+// LeaveRequest FFI decode function
+// Note: encode is not exposed as leave requests are sent via the leaveGroup() function
+
+#[uniffi::export]
+pub fn decode_leave_request(bytes: Vec<u8>) -> Result<FfiLeaveRequest, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    LeaveRequestCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
 }
 
 #[uniffi::export]

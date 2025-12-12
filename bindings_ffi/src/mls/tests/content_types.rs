@@ -1266,6 +1266,42 @@ async fn test_group_updated_codec() {
 }
 
 #[tokio::test]
+async fn test_leave_request_decode() {
+    use prost::Message;
+    use xmtp_content_types::ContentCodec;
+    use xmtp_content_types::leave_request::LeaveRequestCodec;
+    use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
+
+    // Test decoding leave request with no authenticated note
+    let leave_request_no_note = LeaveRequest {
+        authenticated_note: None,
+    };
+    let encoded = LeaveRequestCodec::encode(leave_request_no_note).unwrap();
+    let mut buf = Vec::new();
+    encoded.encode(&mut buf).unwrap();
+
+    let decoded = decode_leave_request(buf).unwrap();
+    assert!(decoded.authenticated_note.is_none());
+
+    // Test decoding leave request with authenticated note
+    let note_data = b"I am leaving because of reasons".to_vec();
+    let leave_request_with_note = LeaveRequest {
+        authenticated_note: Some(note_data.clone()),
+    };
+    let encoded = LeaveRequestCodec::encode(leave_request_with_note).unwrap();
+    let mut buf = Vec::new();
+    encoded.encode(&mut buf).unwrap();
+
+    let decoded = decode_leave_request(buf).unwrap();
+    assert_eq!(decoded.authenticated_note, Some(note_data));
+
+    // Test decoding invalid bytes
+    let invalid_bytes = vec![0xFF, 0xFF, 0xFF, 0xFF];
+    let result = decode_leave_request(invalid_bytes);
+    assert!(result.is_err());
+}
+
+#[tokio::test]
 async fn test_text_codec() {
     // Test basic text encoding/decoding
     let basic_text = "Hello, World!".to_string();
