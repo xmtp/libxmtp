@@ -869,6 +869,7 @@ where
                 .mark_key_package_before_id_to_be_deleted(history_id)?;
             Ok::<(), StorageError>(())
         })?;
+
         self.context
             .mls_storage()
             .db()

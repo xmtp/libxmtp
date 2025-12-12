@@ -504,9 +504,9 @@ impl Identity {
                 )
                 .build();
 
+            // We can pre-sign the request with an installation key signature, since we have access to the key
             let sig = installation_keys
                 .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
-            // We can pre-sign the request with an installation key signature, since we have access to the key
             signature_request
                 .add_signature(
                     UnverifiedSignature::new_installation_key(

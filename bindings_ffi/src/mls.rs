@@ -60,6 +60,7 @@ use xmtp_id::{
     },
 };
 use xmtp_mls::client::inbox_addresses_with_verifier;
+use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::ConversationDebugInfo;
 use xmtp_mls::groups::device_sync::DeviceSyncError;
@@ -936,8 +937,9 @@ impl FfiXmtpClient {
         key: Vec<u8>,
     ) -> Result<(), GenericError> {
         let db = self.inner_client.context.db();
+        let api = self.inner_client.context.api().clone();
         let options: BackupOptions = opts.into();
-        ArchiveExporter::export_to_file(options, db, path, &check_key(key)?)
+        ArchiveExporter::export_to_file(options, db, api, path, &check_key(key)?)
             .await
             .map_err(DeviceSyncError::Archive)?;
         Ok(())
