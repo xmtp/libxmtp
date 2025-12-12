@@ -18,7 +18,11 @@ pub struct Intent {
 #[wasm_bindgen]
 impl Intent {
   #[wasm_bindgen(constructor)]
-  pub fn new(id: String, action_id: String, metadata: JsValue) -> Self {
+  pub fn new(
+    id: String,
+    #[wasm_bindgen(js_name = actionId)] action_id: String,
+    metadata: JsValue,
+  ) -> Self {
     Self {
       id,
       action_id,

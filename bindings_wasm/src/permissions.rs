@@ -179,13 +179,15 @@ impl PermissionPolicySet {
   #[wasm_bindgen(constructor)]
   #[allow(clippy::too_many_arguments)]
   pub fn new(
-    add_member_policy: PermissionPolicy,
-    remove_member_policy: PermissionPolicy,
-    add_admin_policy: PermissionPolicy,
-    remove_admin_policy: PermissionPolicy,
-    update_group_name_policy: PermissionPolicy,
+    #[wasm_bindgen(js_name = addMemberPolicy)] add_member_policy: PermissionPolicy,
+    #[wasm_bindgen(js_name = removeMemberPolicy)] remove_member_policy: PermissionPolicy,
+    #[wasm_bindgen(js_name = addAdminPolicy)] add_admin_policy: PermissionPolicy,
+    #[wasm_bindgen(js_name = removeAdminPolicy)] remove_admin_policy: PermissionPolicy,
+    #[wasm_bindgen(js_name = updateGroupNamePolicy)] update_group_name_policy: PermissionPolicy,
+    #[wasm_bindgen(js_name = updateGroupDescriptionPolicy)]
     update_group_description_policy: PermissionPolicy,
-    update_group_image_url_square_policy: PermissionPolicy,
+    #[wasm_bindgen(js_name = updateGroupImageUrlSquarePolicy)] update_group_image_url_square_policy: PermissionPolicy,
+    #[wasm_bindgen(js_name = updateMessageDisappearingPolicy)]
     update_message_disappearing_policy: PermissionPolicy,
   ) -> Self {
     Self {

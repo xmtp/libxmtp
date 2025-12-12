@@ -104,7 +104,9 @@ impl From<WalletCallMetadata> for xmtp_content_types::wallet_send_calls::WalletC
 }
 
 #[wasm_bindgen(js_name = "encodeWalletSendCalls")]
-pub fn encode_wallet_send_calls(wallet_send_calls: JsValue) -> Result<Uint8Array, JsError> {
+pub fn encode_wallet_send_calls(
+  #[wasm_bindgen(js_name = walletSendCalls)] wallet_send_calls: JsValue,
+) -> Result<Uint8Array, JsError> {
   let wallet_send_calls: WalletSendCalls = serde_wasm_bindgen::from_value(wallet_send_calls)
     .map_err(|e| JsError::new(&format!("{}", e)))?;
 
