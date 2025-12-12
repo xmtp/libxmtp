@@ -127,21 +127,6 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-impl Args {
-    fn group_ids(&self) -> Result<Vec<Vec<u8>>> {
-        let Some(group_id) = &self.target else {
-            bail!("A hex-encoded group_id must be provided as the --target param for this task.");
-        };
-        let group_ids = group_id
-            .split(",")
-            .filter(|id| !id.trim().is_empty())
-            .map(hex::decode)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(group_ids)
-    }
-}
-
 fn confirm_destructive() -> Result<()> {
     print!(
         "Please confirm that you have backed up your database. This action can result in loss of data. (y/n): "
@@ -176,16 +161,8 @@ struct Args {
     db_key: Option<String>,
 
     /// Number of days worth of data you'd like to retain on delete tasks.
-    #[arg(long, value_parser = parse_retain_days)]
+    #[arg(long, value_parser = clap::value_parser!(u32).range(0..))]
     retain_days: Option<u32>,
-}
-
-fn parse_retain_days(s: &str) -> Result<u32, String> {
-    let value: i64 = s.parse().map_err(|_| format!("invalid number: {s}"))?;
-    if value < 0 {
-        return Err("retain days cannot be negative".to_string());
-    }
-    u32::try_from(value).map_err(|_| format!("value too large: {value}"))
 }
 
 impl Args {
@@ -204,6 +181,23 @@ impl Args {
         self.target.as_ref().unwrap_or_else(|| {
             panic!("--target argument must be provided for this task.\n {reason}")
         })
+    }
+
+    fn group_ids(&self) -> Result<Vec<Vec<u8>>> {
+        let Some(group_id) = &self.target else {
+            bail!("A hex-encoded group_id must be provided as the --target param for this task.");
+        };
+        let group_ids: Vec<Vec<u8>> = group_id
+            .split(',')
+            .filter(|id| !id.trim().is_empty())
+            .map(hex::decode)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if group_ids.is_empty() {
+            bail!("At least one group_id must be provided.");
+        }
+
+        Ok(group_ids)
     }
 }
 
