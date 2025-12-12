@@ -64,6 +64,10 @@ impl Client for MultiNodeClient {
 
         inner.stream(request, path, body).await
     }
+
+    fn fake_stream(&self) -> http::Response<Self::Stream> {
+        self.gateway_client.fake_stream()
+    }
 }
 
 #[xmtp_common::async_trait]

@@ -4,9 +4,8 @@ use napi::bindgen_prelude::{Result, Uint8Array};
 use napi_derive::napi;
 use prost::Message;
 use xmtp_content_types::{ContentCodec, wallet_send_calls::WalletSendCallsCodec};
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-use crate::ErrorWrapper;
+use crate::{ErrorWrapper, encoded_content::EncodedContent};
 
 #[derive(Clone)]
 #[napi(object)]
@@ -118,13 +117,9 @@ pub fn encode_wallet_send_calls(wallet_send_calls: WalletSendCalls) -> Result<Ui
 }
 
 #[napi]
-pub fn decode_wallet_send_calls(bytes: Uint8Array) -> Result<WalletSendCalls> {
-  // Decode bytes into EncodedContent
-  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
-
-  // Use WalletSendCallsCodec to decode into WalletSendCalls and convert to WalletSendCalls
+pub fn decode_wallet_send_calls(encoded_content: EncodedContent) -> Result<WalletSendCalls> {
   Ok(
-    WalletSendCallsCodec::decode(encoded_content)
+    WalletSendCallsCodec::decode(encoded_content.into())
       .map(Into::into)
       .map_err(ErrorWrapper::from)?,
   )

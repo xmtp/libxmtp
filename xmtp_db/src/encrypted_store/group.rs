@@ -130,10 +130,7 @@ impl StoredGroup {
         if let Some(sequence_id) = self.sequence_id
             && let Some(originator) = self.originator_id
         {
-            return Some(Cursor {
-                sequence_id: sequence_id as u64,
-                originator_id: originator as u32,
-            });
+            return Some(Cursor::new(sequence_id as u64, originator as u32));
         }
         None
     }
@@ -953,10 +950,11 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                 .select((dsl::sequence_id, dsl::originator_id))
                 .load::<(Option<i64>, Option<i64>)>(conn)?
                 .into_iter()
-                .map(|(seq, orig)| Cursor {
-                    sequence_id: seq.expect("Filtered for not null") as u64,
-                    originator_id: orig.expect("if seq is not null, originator must not be null")
-                        as u32,
+                .map(|(seq, orig)| {
+                    Cursor::new(
+                        seq.expect("Filtered for not null") as u64,
+                        orig.expect("if seq is not null, originator must not be null") as u32,
+                    )
                 })
                 .collect())
         })

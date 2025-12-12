@@ -83,10 +83,7 @@ pub fn generate_errored_summary(error_cursors: &[u64], successful_cursors: &[u64
                     .iter()
                     .copied()
                     .chain(successful_cursors.iter().copied())
-                    .map(|c| Cursor {
-                        sequence_id: c,
-                        originator_id: xmtp_configuration::Originators::APPLICATION_MESSAGES,
-                    }),
+                    .map(Cursor::v3_messages),
             ),
             new_messages: generate_messages_with_ids(successful_cursors)
                 .iter()

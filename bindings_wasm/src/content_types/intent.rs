@@ -1,10 +1,10 @@
+use crate::encoded_content::EncodedContent;
 use js_sys::Uint8Array;
 use prost::Message;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::intent::IntentCodec;
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
@@ -18,7 +18,11 @@ pub struct Intent {
 #[wasm_bindgen]
 impl Intent {
   #[wasm_bindgen(constructor)]
-  pub fn new(id: String, action_id: String, metadata: JsValue) -> Self {
+  pub fn new(
+    id: String,
+    #[wasm_bindgen(js_name = actionId)] action_id: String,
+    metadata: JsValue,
+  ) -> Self {
     Self {
       id,
       action_id,
@@ -83,13 +87,10 @@ pub fn encode_intent(intent: Intent) -> Result<Uint8Array, JsError> {
 }
 
 #[wasm_bindgen(js_name = "decodeIntent")]
-pub fn decode_intent(bytes: Uint8Array) -> Result<Intent, JsError> {
-  // Decode bytes into EncodedContent
-  let encoded_content = EncodedContent::decode(bytes.to_vec().as_slice())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
+pub fn decode_intent(encoded_content: EncodedContent) -> Result<Intent, JsError> {
   // Use IntentCodec to decode into Intent and convert to WASM Intent
-  let intent = IntentCodec::decode(encoded_content).map_err(|e| JsError::new(&format!("{}", e)))?;
+  let intent =
+    IntentCodec::decode(encoded_content.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
 
   intent.try_into()
 }

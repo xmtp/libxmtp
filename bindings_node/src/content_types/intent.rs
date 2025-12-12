@@ -5,9 +5,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::intent::IntentCodec;
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 use crate::ErrorWrapper;
+use crate::encoded_content::EncodedContent;
 
 #[derive(Clone)]
 #[napi(object)]
@@ -50,13 +50,9 @@ pub fn encode_intent(intent: Intent) -> Result<Uint8Array> {
 }
 
 #[napi]
-pub fn decode_intent(bytes: Uint8Array) -> Result<Intent> {
-  // Decode bytes into EncodedContent
-  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
-
-  // Use IntentCodec to decode into Intent and convert to Intent
+pub fn decode_intent(encoded_content: EncodedContent) -> Result<Intent> {
   Ok(
-    IntentCodec::decode(encoded_content)
+    IntentCodec::decode(encoded_content.into())
       .map(Into::into)
       .map_err(ErrorWrapper::from)?,
   )

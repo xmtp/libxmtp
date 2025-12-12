@@ -1,8 +1,8 @@
+use crate::encoded_content::EncodedContent;
 use js_sys::Uint8Array;
 use prost::Message;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::{ContentCodec, leave_request::LeaveRequestCodec};
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 #[wasm_bindgen]
 pub struct LeaveRequest {
@@ -55,11 +55,8 @@ pub fn encode_leave_request(
 }
 
 #[wasm_bindgen(js_name = "decodeLeaveRequest")]
-pub fn decode_leave_request(bytes: Uint8Array) -> Result<LeaveRequest, JsError> {
-  let encoded_content = EncodedContent::decode(bytes.to_vec().as_slice())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  LeaveRequestCodec::decode(encoded_content)
+pub fn decode_leave_request(encoded_content: EncodedContent) -> Result<LeaveRequest, JsError> {
+  LeaveRequestCodec::decode(encoded_content.into())
     .map(Into::into)
     .map_err(|e| JsError::new(&format!("{}", e)))
 }

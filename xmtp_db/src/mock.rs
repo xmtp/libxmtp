@@ -1,3 +1,4 @@
+use crate::StorageError;
 use crate::association_state::QueryAssociationStateCache;
 use crate::group::ConversationType;
 use crate::group::StoredGroupCommitLogPublicKey;
@@ -5,10 +6,11 @@ use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
 use crate::remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder};
 use std::collections::HashMap;
 use std::sync::Arc;
-use xmtp_proto::types::{Cursor, GlobalCursor, Topic};
+use xmtp_proto::types::{Cursor, GlobalCursor, OrphanedEnvelope, Topic};
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
-use diesel::prelude::SqliteConnection;
+use crate::SqliteConnection;
+use crate::prelude::*;
 use mockall::mock;
 use parking_lot::Mutex;
 
@@ -62,9 +64,6 @@ impl ConnectionExt for MockConnection {
         Ok(())
     }
 }
-
-use crate::StorageError;
-use crate::prelude::*;
 
 mock! {
     pub DbQuery {
@@ -496,6 +495,12 @@ mock! {
             &self,
             cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
         ) -> Result<Vec<Cursor>, crate::ConnectionError>;
+
+        fn clear_messages<'a>(
+            &self,
+            group_ids: Option<&'a [Vec<u8>]>,
+            retention_days: Option<u32>,
+        ) -> Result<usize, crate::ConnectionError>;
     }
 
     impl QueryIdentity for DbQuery {
@@ -751,17 +756,56 @@ mock! {
         &self,
         group_id: &[u8],
     ) -> Result<Vec<String>, crate::ConnectionError>;
-    fn delete_pending_remove_users(
-    &self,
-        group_id: &[u8],
-        inbox_ids: Vec<String>,
-    ) -> Result<usize, crate::ConnectionError>;
-         fn get_user_pending_remove_status(&self,
-        group_id: &[u8],
-        inbox_id: &str,
-    ) -> Result<bool, crate::ConnectionError>;
+        fn delete_pending_remove_users(
+        &self,
+            group_id: &[u8],
+            inbox_ids: Vec<String>,
+        ) -> Result<usize, crate::ConnectionError>;
+             fn get_user_pending_remove_status(&self,
+            group_id: &[u8],
+            inbox_id: &str,
+        ) -> Result<bool, crate::ConnectionError>;
     }
 
+    impl QueryIcebox for DbQuery {
+        fn past_dependents(
+            &self,
+            cursors: &[xmtp_proto::types::Cursor],
+        ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
+
+        fn future_dependents(
+            &self,
+            cursors: &[xmtp_proto::types::Cursor],
+        ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
+
+        fn ice(
+            &self,
+            orphans: Vec<OrphanedEnvelope>,
+        ) -> Result<usize, crate::ConnectionError>;
+    }
+
+    impl crate::migrations::QueryMigrations for DbQuery {
+        fn applied_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
+
+        fn available_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
+
+        fn rollback_to_version<'a>(
+            &self,
+            version: &'a str,
+        ) -> Result<Vec<String>, crate::ConnectionError>;
+
+        fn run_migration<'a>(
+            &self,
+            name: &'a str,
+        ) -> Result<(), crate::ConnectionError>;
+
+        fn revert_migration<'a>(
+            &self,
+            name: &'a str,
+        ) -> Result<(), crate::ConnectionError>;
+
+        fn run_pending_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
+    }
 }
 
 impl ConnectionExt for MockDbQuery {

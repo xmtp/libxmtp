@@ -2,9 +2,8 @@ use napi::bindgen_prelude::{Result, Uint8Array};
 use napi_derive::napi;
 use prost::Message;
 use xmtp_content_types::{ContentCodec, read_receipt::ReadReceiptCodec};
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-use crate::ErrorWrapper;
+use crate::{ErrorWrapper, encoded_content::EncodedContent};
 
 #[derive(Clone)]
 #[napi(object)]
@@ -35,13 +34,9 @@ pub fn encode_read_receipt(read_receipt: ReadReceipt) -> Result<Uint8Array> {
 }
 
 #[napi]
-pub fn decode_read_receipt(bytes: Uint8Array) -> Result<ReadReceipt> {
-  // Decode bytes into EncodedContent
-  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
-
-  // Use ReadReceiptCodec to decode into ReadReceipt and convert to ReadReceipt
+pub fn decode_read_receipt(encoded_content: EncodedContent) -> Result<ReadReceipt> {
   Ok(
-    ReadReceiptCodec::decode(encoded_content)
+    ReadReceiptCodec::decode(encoded_content.into())
       .map(Into::into)
       .map_err(ErrorWrapper::from)?,
   )

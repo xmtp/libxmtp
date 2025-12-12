@@ -8639,6 +8639,7 @@ dependencies = [
  "getrandom 0.3.4",
  "h2 0.4.12",
  "http 1.4.0",
+ "http-body-util",
  "hyper 1.8.1",
  "hyper-util",
  "pbjson-types",

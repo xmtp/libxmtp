@@ -41,12 +41,14 @@ pub mod prelude {
     pub use super::group::QueryGroupVersion;
     pub use super::group_intent::QueryGroupIntent;
     pub use super::group_message::QueryGroupMessage;
+    pub use super::icebox::QueryIcebox;
     pub use super::identity::QueryIdentity;
     pub use super::identity_cache::QueryIdentityCache;
     pub use super::identity_update::QueryIdentityUpdates;
     pub use super::key_package_history::QueryKeyPackageHistory;
     pub use super::key_store_entry::QueryKeyStoreEntry;
     pub use super::local_commit_log::QueryLocalCommitLog;
+    pub use super::migrations::QueryMigrations;
     pub use super::pragmas::Pragmas;
     pub use super::processed_device_sync_messages::QueryDeviceSyncMessages;
     pub use super::readd_status::QueryReaddStatus;

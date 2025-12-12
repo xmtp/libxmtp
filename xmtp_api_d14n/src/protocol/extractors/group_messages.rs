@@ -16,7 +16,7 @@ use xmtp_proto::xmtp::mls::api::v1::group_message_input;
 use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
 
 /// Type to extract a Group Message from Originator Envelopes
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 pub struct GroupMessageExtractor {
     cursor: Cursor,
     created_ns: DateTime<Utc>,
@@ -55,10 +55,7 @@ impl EnvelopeVisitor<'_> for GroupMessageExtractor {
         &mut self,
         envelope: &UnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
-        self.cursor = Cursor {
-            originator_id: envelope.originator_node_id,
-            sequence_id: envelope.originator_sequence_id,
-        };
+        self.cursor = Cursor::new(envelope.originator_sequence_id, envelope.originator_node_id);
         self.created_ns = DateTime::from_timestamp_nanos(envelope.originator_ns);
         Ok(())
     }
@@ -121,10 +118,7 @@ impl EnvelopeVisitor<'_> for V3GroupMessageExtractor {
             xmtp_configuration::Originators::APPLICATION_MESSAGES
         };
         group_message
-            .cursor(Cursor {
-                originator_id: originator_node_id,
-                sequence_id: message.id,
-            })
+            .cursor(Cursor::new(message.id, originator_node_id))
             .created_ns(DateTime::from_timestamp_nanos(message.created_ns as i64))
             .sender_hmac(message.sender_hmac.clone())
             .should_push(message.should_push)

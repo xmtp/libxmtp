@@ -23,10 +23,10 @@ pub struct ContentTypeId {
 impl ContentTypeId {
   #[wasm_bindgen(constructor)]
   pub fn new(
-    authority_id: String,
-    type_id: String,
-    version_major: u32,
-    version_minor: u32,
+    #[wasm_bindgen(js_name = authorityId)] authority_id: String,
+    #[wasm_bindgen(js_name = typeId)] type_id: String,
+    #[wasm_bindgen(js_name = versionMajor)] version_major: u32,
+    #[wasm_bindgen(js_name = versionMinor)] version_minor: u32,
   ) -> Self {
     Self {
       authority_id,

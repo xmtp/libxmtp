@@ -185,6 +185,10 @@ impl<C: Client> Client for AuthMiddleware<C> {
         let request = self.modify_request(request).await?;
         self.inner.stream(request, path, body).await
     }
+
+    fn fake_stream(&self) -> http::Response<Self::Stream> {
+        self.inner.fake_stream()
+    }
 }
 
 #[xmtp_common::async_trait]
@@ -281,6 +285,12 @@ mod tests {
             Ok(http::Response::new(futures::stream::once(Box::pin(
                 async move { Ok::<_, Self::Error>(body) },
             ))))
+        }
+
+        fn fake_stream(&self) -> http::Response<Self::Stream> {
+            http::Response::new(futures::stream::once(Box::pin(async move {
+                Ok::<_, Self::Error>(Default::default())
+            })))
         }
     }
 

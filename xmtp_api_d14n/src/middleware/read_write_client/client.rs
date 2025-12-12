@@ -66,6 +66,10 @@ where
             self.read.stream(request, path, body).await
         }
     }
+
+    fn fake_stream(&self) -> http::Response<Self::Stream> {
+        self.read.fake_stream()
+    }
 }
 
 #[xmtp_common::async_trait]

@@ -9,13 +9,14 @@ use bytes::Bytes;
 #[builder(setter(into), build_fn(error = "ConversionError"))]
 pub struct OrphanedEnvelope {
     // the cursor of this envelope
-    cursor: Cursor,
+    pub cursor: Cursor,
     /// the envelopes this orphan depends on
-    depends_on: GlobalCursor,
+    #[builder(setter(each(name = "depending_on")))]
+    pub depends_on: GlobalCursor,
     /// the original payload
-    payload: Bytes,
+    pub payload: Bytes,
     /// the group this orphan belongs to
-    group_id: GroupId,
+    pub group_id: GroupId,
 }
 
 impl OrphanedEnvelope {
@@ -23,22 +24,8 @@ impl OrphanedEnvelope {
         OrphanedEnvelopeBuilder::default()
     }
 
-    /// get the cursor of this envelope
-    pub fn cursor(&self) -> &Cursor {
-        &self.cursor
-    }
-
-    /// get the depending envelope
-    pub fn depends_on(&self) -> &GlobalCursor {
-        &self.depends_on
-    }
-
     ///  turn this envelope back into its parts
     pub fn into_payload(self) -> Bytes {
         self.payload
-    }
-
-    pub fn group_id(&self) -> &GroupId {
-        &self.group_id
     }
 }

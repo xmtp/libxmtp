@@ -3458,7 +3458,6 @@ async fn test_optimistic_send() {
 
     let text = messages
         .iter()
-        .cloned()
         .map(|m| String::from_utf8_lossy(&m.decrypted_message_bytes).to_string())
         .collect::<Vec<String>>();
     assert_eq!(
@@ -3481,7 +3480,6 @@ async fn test_optimistic_send() {
 
     let delivery = messages
         .iter()
-        .cloned()
         .map(|m| m.delivery_status)
         .collect::<Vec<DeliveryStatus>>();
     assert_eq!(
@@ -3500,7 +3498,6 @@ async fn test_optimistic_send() {
     let messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
     let delivery = messages
         .iter()
-        .cloned()
         .map(|m| m.delivery_status)
         .collect::<Vec<DeliveryStatus>>();
     assert_eq!(
@@ -5138,10 +5135,7 @@ async fn non_retryable_error_increments_cursor() {
     // making us actually return the message as already processed, since it loops back to 0,
     // thereby less than group cursor. Thats why we take i64 max before casting to u64, rather than
     // u64::MAX.
-    let new_cursor = Cursor {
-        sequence_id: (i64::MAX - 1_000) as u64,
-        originator_id: Originators::MLS_COMMITS,
-    };
+    let new_cursor = Cursor::mls_commits((i64::MAX - 1_000) as u64);
 
     let message = xmtp_proto::types::GroupMessage {
         cursor: new_cursor,

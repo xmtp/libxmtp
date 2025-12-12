@@ -2,9 +2,8 @@ use napi::bindgen_prelude::{Result, Uint8Array};
 use napi_derive::napi;
 use prost::Message;
 use xmtp_content_types::{ContentCodec, leave_request::LeaveRequestCodec};
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-use crate::ErrorWrapper;
+use crate::{ErrorWrapper, encoded_content::EncodedContent};
 
 #[napi(object)]
 pub struct LeaveRequest {
@@ -46,11 +45,9 @@ pub fn encode_leave_request(leave_request: LeaveRequest) -> Result<Uint8Array> {
 }
 
 #[napi]
-pub fn decode_leave_request(bytes: Uint8Array) -> Result<LeaveRequest> {
-  let encoded_content = EncodedContent::decode(bytes.as_ref()).map_err(ErrorWrapper::from)?;
-
+pub fn decode_leave_request(encoded_content: EncodedContent) -> Result<LeaveRequest> {
   Ok(
-    LeaveRequestCodec::decode(encoded_content)
+    LeaveRequestCodec::decode(encoded_content.into())
       .map(Into::into)
       .map_err(ErrorWrapper::from)?,
   )

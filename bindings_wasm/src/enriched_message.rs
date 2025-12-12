@@ -9,16 +9,24 @@ use crate::messages::{DeliveryStatus, GroupMessageKind};
 #[derive(Clone)]
 pub struct DecodedMessage {
   pub id: Vec<u8>,
+  #[wasm_bindgen(js_name = sentAtNs)]
   pub sent_at_ns: i64,
   pub kind: GroupMessageKind,
+  #[wasm_bindgen(js_name = senderInstallationId)]
   pub sender_installation_id: Vec<u8>,
+  #[wasm_bindgen(js_name = senderInboxId)]
   pub sender_inbox_id: String,
+  #[wasm_bindgen(js_name = contentType)]
   pub content_type: ContentTypeId,
+  #[wasm_bindgen(js_name = conversationId)]
   pub conversation_id: Vec<u8>,
   pub content: DecodedMessageContent,
+  #[wasm_bindgen(js_name = fallbackText)]
   pub fallback_text: Option<String>,
   pub reactions: Vec<DecodedMessage>,
+  #[wasm_bindgen(js_name = deliveryStatus)]
   pub delivery_status: DeliveryStatus,
+  #[wasm_bindgen(js_name = numReplies)]
   pub num_replies: i64,
 }
 

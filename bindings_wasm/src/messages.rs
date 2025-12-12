@@ -150,18 +150,18 @@ impl ListMessagesOptions {
   #[allow(clippy::too_many_arguments)]
   #[wasm_bindgen(constructor)]
   pub fn new(
-    sent_before_ns: Option<i64>,
-    sent_after_ns: Option<i64>,
+    #[wasm_bindgen(js_name = sentBeforeNs)] sent_before_ns: Option<i64>,
+    #[wasm_bindgen(js_name = sentAfterNs)] sent_after_ns: Option<i64>,
     limit: Option<i64>,
-    delivery_status: Option<DeliveryStatus>,
+    #[wasm_bindgen(js_name = deliveryStatus)] delivery_status: Option<DeliveryStatus>,
     direction: Option<SortDirection>,
-    content_types: Option<Vec<ContentType>>,
-    exclude_content_types: Option<Vec<ContentType>>,
+    #[wasm_bindgen(js_name = contentTypes)] content_types: Option<Vec<ContentType>>,
+    #[wasm_bindgen(js_name = excludeContentTypes)] exclude_content_types: Option<Vec<ContentType>>,
     kind: Option<GroupMessageKind>,
-    exclude_sender_inbox_ids: Option<Vec<String>>,
-    sort_by: Option<MessageSortBy>,
-    inserted_after_ns: Option<i64>,
-    inserted_before_ns: Option<i64>,
+    #[wasm_bindgen(js_name = excludeSenderInboxIds)] exclude_sender_inbox_ids: Option<Vec<String>>,
+    #[wasm_bindgen(js_name = sortBy)] sort_by: Option<MessageSortBy>,
+    #[wasm_bindgen(js_name = insertedAfterNs)] inserted_after_ns: Option<i64>,
+    #[wasm_bindgen(js_name = insertedBeforeNs)] inserted_before_ns: Option<i64>,
   ) -> Self {
     Self {
       sent_before_ns,
@@ -201,12 +201,12 @@ impl Message {
   #[wasm_bindgen(constructor)]
   pub fn new(
     id: String,
-    sent_at_ns: i64,
-    convo_id: String,
-    sender_inbox_id: String,
+    #[wasm_bindgen(js_name = sentAtNs)] sent_at_ns: i64,
+    #[wasm_bindgen(js_name = conversationId)] convo_id: String,
+    #[wasm_bindgen(js_name = senderInboxId)] sender_inbox_id: String,
     content: EncodedContent,
     kind: GroupMessageKind,
-    delivery_status: DeliveryStatus,
+    #[wasm_bindgen(js_name = deliveryStatus)] delivery_status: DeliveryStatus,
   ) -> Self {
     Self {
       id,
