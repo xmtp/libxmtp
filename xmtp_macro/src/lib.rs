@@ -227,8 +227,14 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         .map(|(i, f)| {
             let name_str = &provided_names[i];
             let value = f.value_tokens();
-            quote! {
-                #name_str => Some(format!("{}: {:?}", #name_str, #value))
+            if matches!(f.sigil, Some('%')) {
+                quote! {
+                    #name_str => Some(format!("{}: {}", #name_str, #value))
+                }
+            } else {
+                quote! {
+                    #name_str => Some(format!("{}: {:?}", #name_str, #value))
+                }
             }
         })
         .collect();
