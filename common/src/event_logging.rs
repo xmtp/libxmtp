@@ -4,13 +4,13 @@ pub use utils::*;
 #[xmtp_macro::build_logging_metadata]
 pub enum Event {
     // ===================== Group Operations =====================
-    /// DM created
+    /// DM created.
     #[context(group_id, target_inbox_id)]
     CreatedDM,
-    /// Group created
+    /// Group created.
     #[context(group_id)]
     CreatedGroup,
-    /// Added members to group
+    /// Added members to group.
     #[context(group_id, members)]
     AddedMembers,
 

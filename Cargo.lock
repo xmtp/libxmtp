@@ -8930,7 +8930,6 @@ dependencies = [
  "ctor",
  "derive_builder",
  "diesel",
- "displaydoc",
  "dyn-clone",
  "fdlimit",
  "futures",
