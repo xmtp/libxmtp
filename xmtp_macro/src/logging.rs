@@ -77,7 +77,7 @@ impl Parse for LogEventInput {
                 (sigil, None)
             };
 
-            if name.to_string() == "level" {
+            if name == "level" {
                 let Some(value) = value else {
                     return syn::Result::Err(syn::Error::new(
                         input.span(),
@@ -153,12 +153,11 @@ pub(crate) fn get_doc_comment(variant: &Variant) -> Result<String, syn::Error> {
         if !attr.path().is_ident("doc") {
             return None;
         }
-        if let Meta::NameValue(nv) = &attr.meta {
-            if let Expr::Lit(expr_lit) = &nv.value {
-                if let syn::Lit::Str(s) = &expr_lit.lit {
-                    return Some(s.value().trim().to_string());
-                }
-            }
+        if let Meta::NameValue(nv) = &attr.meta
+            && let Expr::Lit(expr_lit) = &nv.value
+            && let syn::Lit::Str(s) = &expr_lit.lit
+        {
+            return Some(s.value().trim().to_string());
         }
         None
     });

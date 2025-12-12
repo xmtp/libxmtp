@@ -129,7 +129,7 @@ pub fn build_logging_metadata(
     for variant in &data_enum.variants {
         let variant_name = &variant.ident;
         let variant_name_str = variant_name.to_string();
-        let doc_comment = match get_doc_comment(&variant) {
+        let doc_comment = match get_doc_comment(variant) {
             Ok(dc) => dc,
             Err(err) => return err.to_compile_error().into(),
         };
