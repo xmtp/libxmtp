@@ -20,7 +20,11 @@ pub struct Actions {
 #[wasm_bindgen]
 impl Actions {
   #[wasm_bindgen(constructor)]
-  pub fn new(id: String, description: String, expires_at_ns: Option<i64>) -> Self {
+  pub fn new(
+    id: String,
+    description: String,
+    #[wasm_bindgen(js_name = expiresAtNs)] expires_at_ns: Option<i64>,
+  ) -> Self {
     Self {
       id,
       description,
@@ -114,9 +118,9 @@ impl Action {
   pub fn new(
     id: String,
     label: String,
-    image_url: Option<String>,
+    #[wasm_bindgen(js_name = imageUrl)] image_url: Option<String>,
     style: Option<ActionStyle>,
-    expires_at_ns: Option<i64>,
+    #[wasm_bindgen(js_name = expiresAtNs)] expires_at_ns: Option<i64>,
   ) -> Self {
     Self {
       id,
