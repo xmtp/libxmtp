@@ -1266,6 +1266,31 @@ async fn test_group_updated_codec() {
 }
 
 #[tokio::test]
+async fn test_leave_request_encode_decode() {
+    // Test with no authenticated note
+    let ffi_leave_request_no_note = FfiLeaveRequest {
+        authenticated_note: None,
+    };
+    let encoded = encode_leave_request(ffi_leave_request_no_note).unwrap();
+    let decoded = decode_leave_request(encoded).unwrap();
+    assert!(decoded.authenticated_note.is_none());
+
+    // Test with authenticated note
+    let note_data = b"I am leaving because of reasons".to_vec();
+    let ffi_leave_request_with_note = FfiLeaveRequest {
+        authenticated_note: Some(note_data.clone()),
+    };
+    let encoded = encode_leave_request(ffi_leave_request_with_note).unwrap();
+    let decoded = decode_leave_request(encoded).unwrap();
+    assert_eq!(decoded.authenticated_note, Some(note_data));
+
+    // Test decoding invalid bytes
+    let invalid_bytes = vec![0xFF, 0xFF, 0xFF, 0xFF];
+    let result = decode_leave_request(invalid_bytes);
+    assert!(result.is_err());
+}
+
+#[tokio::test]
 async fn test_text_codec() {
     // Test basic text encoding/decoding
     let basic_text = "Hello, World!".to_string();
