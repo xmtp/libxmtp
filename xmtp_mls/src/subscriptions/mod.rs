@@ -1,19 +1,18 @@
 use futures::{Stream, StreamExt};
 use process_welcome::ProcessWelcomeFuture;
-use prost::Message;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
-use xmtp_api_d14n::protocol::{Extractor, ProtocolEnvelope as _};
 
 use tracing::instrument;
 use xmtp_db::prelude::*;
-use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
+use xmtp_proto::api_client::XmtpMlsStreams;
 
 use process_welcome::ProcessWelcomeResult;
 use stream_all::StreamAllMessages;
 use stream_conversations::{StreamConversations, WelcomeOrGroup};
 
+pub(crate) mod d14n_compat;
 pub mod process_message;
 pub mod process_welcome;
 mod stream_all;
@@ -31,6 +30,7 @@ use crate::{
         GroupError, MlsGroup, device_sync::preference_sync::PreferenceUpdate,
         mls_sync::GroupMessageProcessingError,
     },
+    subscriptions::d14n_compat::decode_welcome_message,
 };
 use thiserror::Error;
 use xmtp_common::{MaybeSend, RetryableError, StreamHandle, retryable};
@@ -204,8 +204,12 @@ pub enum SubscribeError {
     Conversion(#[from] xmtp_proto::ConversionError),
     #[error(transparent)]
     Envelope(#[from] xmtp_api_d14n::protocol::EnvelopeError),
-    #[error("the originators of the messages do not match expected: {expected}, got: {got}")]
-    MismatchedOriginators { expected: u32, got: u32 },
+}
+
+impl SubscribeError {
+    pub fn dyn_err(other: impl RetryableError + 'static) -> Self {
+        SubscribeError::BoxError(Box::new(other) as _)
+    }
 }
 
 impl From<GroupError> for SubscribeError {
@@ -237,8 +241,6 @@ impl RetryableError for SubscribeError {
             Db(c) => retryable!(c),
             Conversion(c) => retryable!(c),
             Envelope(c) => retryable!(c),
-            // this is an error which should never occur
-            MismatchedOriginators { .. } => false,
         }
     }
 }
@@ -255,13 +257,8 @@ where
         envelope_bytes: Vec<u8>,
     ) -> Result<MlsGroup<Context>> {
         let conn = self.context.db();
-        let envelope =
-            WelcomeMessage::decode(envelope_bytes.as_slice()).map_err(SubscribeError::from)?;
         let known_welcomes = HashSet::from_iter(conn.group_cursors()?.into_iter());
-        let mut extractor = xmtp_api_d14n::protocol::V3WelcomeMessageExtractor::default();
-        envelope.accept(&mut extractor)?;
-        let welcome: xmtp_proto::types::WelcomeMessage = extractor.get()?;
-
+        let welcome = decode_welcome_message(envelope_bytes.as_slice())?;
         let future = ProcessWelcomeFuture::new(
             known_welcomes,
             self.context.clone(),

@@ -1,21 +1,29 @@
 use super::MlsGroup;
 use crate::{
     context::XmtpSharedContext,
+    cursor_store::SqliteCursorStore,
     subscriptions::{
         Result, SubscribeError,
+        d14n_compat::{V3OrD14n, decode_group_message},
         process_message::{ProcessFutureFactory, ProcessMessageFuture},
-        stream_messages::{MessageStreamError, StreamGroupMessages},
+        stream_messages::StreamGroupMessages,
     },
 };
-use futures::{Stream, StreamExt};
-use prost::Message;
+use futures::{FutureExt, Stream, StreamExt, TryStreamExt, future, stream as future_stream};
+use std::result::Result as StdResult;
 use tokio::sync::oneshot;
-use xmtp_api_d14n::protocol::{Extractor, ProtocolEnvelope as _};
+use xmtp_api_d14n::{
+    protocol::{
+        CursorStore, EnvelopeCollection, EnvelopeError, GroupMessageExtractor,
+        V3GroupMessageExtractor,
+    },
+    stream,
+};
 use xmtp_common::MaybeSend;
 use xmtp_common::StreamHandle;
 use xmtp_db::group_message::StoredGroupMessage;
-use xmtp_proto::api_client::XmtpMlsStreams;
-use xmtp_proto::{types::GroupId, xmtp::mls::api::v1::GroupMessage};
+use xmtp_proto::types::{GroupId, GroupMessage};
+use xmtp_proto::{api_client::XmtpMlsStreams, types::TopicCursor};
 
 impl<Context> MlsGroup<Context>
 where
@@ -24,20 +32,65 @@ where
     /// External proxy for `process_stream_entry`
     /// Converts some `SubscribeError` variants to an Option, if they are inconsequential.
     /// Useful for streaming outside of an InboxApp, like for Push Notifications.
-    /// Pulls a new provider connection.
+    /// in d14n, this may potentially return multiple
+    /// [`StoredGroupMessage`](xmtp_db::group_message::StoredGroupMessage)'s,
+    /// since a subscription response may include many
+    /// [`OriginatorEnvelope`](xmtp_proto::xmtp::xmtpv4::envelopes::OriginatorEnvelope)'s.
+    /// D14n may also icebox the message if it cannot be processed, in which case this function
+    /// will return `Ok(None)`
     pub async fn process_streamed_group_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<StoredGroupMessage> {
-        let envelope = GroupMessage::decode(envelope_bytes.as_slice())?;
-        let mut extractor = xmtp_api_d14n::protocol::V3GroupMessageExtractor::default();
-        envelope.accept(&mut extractor)?;
-        let msg = extractor.get()?.ok_or(MessageStreamError::InvalidPayload)?;
-        ProcessMessageFuture::new(self.context.clone())
-            .create(msg)
-            .await?
-            .message
-            .ok_or(SubscribeError::GroupMessageNotFound)
+    ) -> Result<Option<Vec<StoredGroupMessage>>> {
+        let message = decode_group_message(envelope_bytes.as_slice())?;
+        let messages: Option<StdResult<Vec<_>, _>> = match message {
+            V3OrD14n::D14n(subscribe) => {
+                let messages = subscribe.envelopes;
+                let topics = messages.topics()?;
+                let store = SqliteCursorStore::new(self.context.db());
+                // this is where it would be nice to have a notification-specific client
+                // a spearate notification client could store the topic cursor in memory
+                // rather than rely on DB (which has potential implications for 0xd3ad10cc).
+                let cursor: TopicCursor = store
+                    .latest_for_topics(&mut topics.iter())
+                    .map_err(SubscribeError::dyn_err)?
+                    .into();
+                stream::try_extractor::<_, GroupMessageExtractor>(stream::ordered(
+                    future_stream::once(future::ready(Ok::<_, EnvelopeError>(messages))),
+                    store,
+                    cursor,
+                ))
+                .try_collect()
+                .now_or_never()
+            }
+            V3OrD14n::V3(message) => {
+                let s: Vec<GroupMessage> =
+                    stream::try_extractor::<_, V3GroupMessageExtractor>(future_stream::iter(vec![
+                        Ok::<_, EnvelopeError>(vec![message]),
+                    ]))
+                    .try_collect::<Vec<Option<GroupMessage>>>()
+                    .now_or_never()
+                    .expect("stream must not fail because it is statically initialized")?
+                    .into_iter()
+                    .map(|m| m.expect("`V3GroupMessage` must be present because it is decoded and statically known"))
+                    .collect();
+                Some(Ok(s))
+            }
+        };
+
+        let mut out = Vec::new();
+        if let Some(messages) = messages {
+            let messages = messages?;
+            for msg in messages {
+                let processed = ProcessMessageFuture::new(self.context.clone())
+                    .create(msg)
+                    .await?
+                    .message
+                    .ok_or(SubscribeError::GroupMessageNotFound)?;
+                out.push(processed)
+            }
+        }
+        Ok((!out.is_empty()).then_some(out))
     }
 
     pub async fn stream<'a>(
