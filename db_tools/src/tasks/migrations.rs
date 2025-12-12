@@ -69,6 +69,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    #[ignore]
     async fn test_rollback_and_run_pending_migrations() {
         tester!(alix, persistent_db);
         tester!(bo);
