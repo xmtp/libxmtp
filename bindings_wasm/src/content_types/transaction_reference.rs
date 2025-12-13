@@ -1,6 +1,4 @@
 use crate::encoded_content::EncodedContent;
-use js_sys::Uint8Array;
-use prost::Message;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
@@ -84,18 +82,10 @@ impl From<TransactionMetadata> for xmtp_content_types::transaction_reference::Tr
 #[wasm_bindgen(js_name = "encodeTransactionReference")]
 pub fn encode_transaction_reference(
   #[wasm_bindgen(js_name = "transactionReference")] transaction_reference: TransactionReference,
-) -> Result<Uint8Array, JsError> {
-  // Use TransactionReferenceCodec to encode the transaction reference
-  let encoded = TransactionReferenceCodec::encode(transaction_reference.into())
+) -> Result<EncodedContent, JsError> {
+  let encoded_content = TransactionReferenceCodec::encode(transaction_reference.into())
     .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
+  Ok(encoded_content.into())
 }
 
 #[wasm_bindgen(js_name = "decodeTransactionReference")]

@@ -1,6 +1,5 @@
 use crate::encoded_content::EncodedContent;
 use js_sys::Uint8Array;
-use prost::Message;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
@@ -122,28 +121,17 @@ impl From<XmtpMultiRemoteAttachment> for MultiRemoteAttachment {
 #[wasm_bindgen(js_name = "encodeMultiRemoteAttachment")]
 pub fn encode_multi_remote_attachment(
   #[wasm_bindgen(js_name = "multiRemoteAttachment")] multi_remote_attachment: MultiRemoteAttachment,
-) -> Result<Uint8Array, JsError> {
-  // Convert MultiRemoteAttachment to MultiRemoteAttachment
+) -> Result<EncodedContent, JsError> {
   let multi_remote_attachment: XmtpMultiRemoteAttachment = multi_remote_attachment.into();
-
-  // Use MultiRemoteAttachmentCodec to encode the attachments
-  let encoded = MultiRemoteAttachmentCodec::encode(multi_remote_attachment)
+  let encoded_content = MultiRemoteAttachmentCodec::encode(multi_remote_attachment)
     .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
+  Ok(encoded_content.into())
 }
 
 #[wasm_bindgen(js_name = "decodeMultiRemoteAttachment")]
 pub fn decode_multi_remote_attachment(
   encoded_content: EncodedContent,
 ) -> Result<MultiRemoteAttachment, JsError> {
-  // Use MultiRemoteAttachmentCodec to decode into MultiRemoteAttachment and convert to MultiRemoteAttachment
   MultiRemoteAttachmentCodec::decode(encoded_content.into())
     .map(Into::into)
     .map_err(|e| JsError::new(&format!("{}", e)))

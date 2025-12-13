@@ -1,7 +1,5 @@
 use crate::encoded_content::EncodedContent;
 use chrono::DateTime;
-use js_sys::Uint8Array;
-use prost::Message;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::{ContentCodec, actions::ActionsCodec};
@@ -210,25 +208,15 @@ impl From<ActionStyle> for xmtp_content_types::actions::ActionStyle {
 }
 
 #[wasm_bindgen(js_name = "encodeActions")]
-pub fn encode_actions(actions: Actions) -> Result<Uint8Array, JsError> {
-  // Convert Actions and use ActionsCodec to encode
-  let encoded =
+pub fn encode_actions(actions: Actions) -> Result<EncodedContent, JsError> {
+  let encoded_content =
     ActionsCodec::encode(actions.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
+  Ok(encoded_content.into())
 }
 
 #[wasm_bindgen(js_name = "decodeActions")]
 pub fn decode_actions(encoded_content: EncodedContent) -> Result<Actions, JsError> {
-  // Use ActionsCodec to decode into Actions and convert to Actions
   let actions =
     ActionsCodec::decode(encoded_content.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
-
   actions.try_into()
 }

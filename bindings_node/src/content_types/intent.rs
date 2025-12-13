@@ -1,6 +1,5 @@
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::Result;
 use napi_derive::napi;
-use prost::Message;
 use serde_json::Value;
 use std::collections::HashMap;
 use xmtp_content_types::ContentCodec;
@@ -38,15 +37,9 @@ impl From<Intent> for xmtp_content_types::intent::Intent {
 }
 
 #[napi]
-pub fn encode_intent(intent: Intent) -> Result<Uint8Array> {
-  // Use IntentCodec to encode the intent
-  let encoded = IntentCodec::encode(intent.into()).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
+pub fn encode_intent(intent: Intent) -> Result<EncodedContent> {
+  let encoded_content = IntentCodec::encode(intent.into()).map_err(ErrorWrapper::from)?;
+  Ok(encoded_content.into())
 }
 
 #[napi]

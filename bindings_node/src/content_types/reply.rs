@@ -75,15 +75,9 @@ impl From<Reply> for xmtp_content_types::reply::Reply {
 }
 
 #[napi]
-pub fn encode_reply(reply: Reply) -> Result<Uint8Array> {
-  // Convert Reply to xmtp_content_types::reply::Reply
-  let encoded = ReplyCodec::encode(reply.into()).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
+pub fn encode_reply(reply: Reply) -> Result<EncodedContent> {
+  let encoded_content = ReplyCodec::encode(reply.into()).map_err(ErrorWrapper::from)?;
+  Ok(encoded_content.into())
 }
 
 #[napi]

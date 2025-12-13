@@ -91,10 +91,8 @@ impl EncodedContent {
 
 impl From<XmtpEncodedContent> for EncodedContent {
   fn from(content: XmtpEncodedContent) -> EncodedContent {
-    let r#type = content.r#type.map(|v| v.into());
-
     EncodedContent {
-      r#type,
+      r#type: content.r#type.map(Into::into),
       parameters: crate::to_value(&content.parameters).unwrap_throw(),
       fallback: content.fallback,
       compression: content.compression,
@@ -105,10 +103,8 @@ impl From<XmtpEncodedContent> for EncodedContent {
 
 impl From<EncodedContent> for XmtpEncodedContent {
   fn from(content: EncodedContent) -> Self {
-    let r#type = content.r#type.map(|v| v.into());
-
     XmtpEncodedContent {
-      r#type,
+      r#type: content.r#type.map(Into::into),
       parameters: serde_wasm_bindgen::from_value(content.parameters).unwrap_throw(),
       fallback: content.fallback,
       compression: content.compression,

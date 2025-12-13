@@ -1,6 +1,5 @@
 use napi::bindgen_prelude::{Result, Uint8Array};
 use napi_derive::napi;
-use prost::Message;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_proto::xmtp::mls::message_contents::content_types::{
@@ -84,19 +83,11 @@ impl From<XmtpMultiRemoteAttachment> for MultiRemoteAttachment {
 #[napi]
 pub fn encode_multi_remote_attachment(
   multi_remote_attachment: MultiRemoteAttachment,
-) -> Result<Uint8Array> {
-  // Convert MultiRemoteAttachment to MultiRemoteAttachment
+) -> Result<EncodedContent> {
   let multi_remote_attachment: XmtpMultiRemoteAttachment = multi_remote_attachment.into();
-
-  // Use MultiRemoteAttachmentCodec to encode the attachments
-  let encoded =
+  let encoded_content =
     MultiRemoteAttachmentCodec::encode(multi_remote_attachment).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(buf.into())
+  Ok(encoded_content.into())
 }
 
 #[napi]

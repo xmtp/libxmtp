@@ -20,19 +20,12 @@ impl From<xmtp_mls::messages::decoded_message::Text> for TextContent {
 }
 
 #[napi]
-pub fn encode_text(text: String) -> Result<Uint8Array> {
-  // Use TextCodec to encode the text
-  let encoded = TextCodec::encode(text).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(buf.into())
+pub fn encode_text(text: String) -> Result<EncodedContent> {
+  let encoded_content = TextCodec::encode(text).map_err(ErrorWrapper::from)?;
+  Ok(encoded_content.into())
 }
 
 #[napi]
 pub fn decode_text(encoded_content: EncodedContent) -> Result<String> {
-  // Use TextCodec to decode into String
   Ok(TextCodec::decode(encoded_content.into()).map_err(ErrorWrapper::from)?)
 }

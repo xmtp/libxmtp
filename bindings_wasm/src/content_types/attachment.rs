@@ -1,6 +1,4 @@
 use crate::encoded_content::EncodedContent;
-use js_sys::Uint8Array;
-use prost::Message;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::attachment::AttachmentCodec;
@@ -35,18 +33,10 @@ impl From<Attachment> for xmtp_content_types::attachment::Attachment {
 }
 
 #[wasm_bindgen(js_name = "encodeAttachment")]
-pub fn encode_attachment(attachment: Attachment) -> Result<Uint8Array, JsError> {
-  // Use AttachmentCodec to encode the attachment
-  let encoded =
+pub fn encode_attachment(attachment: Attachment) -> Result<EncodedContent, JsError> {
+  let encoded_content =
     AttachmentCodec::encode(attachment.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
+  Ok(encoded_content.into())
 }
 
 #[wasm_bindgen(js_name = "decodeAttachment")]

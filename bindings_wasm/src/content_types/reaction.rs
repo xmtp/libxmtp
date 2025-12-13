@@ -1,6 +1,4 @@
 use crate::encoded_content::EncodedContent;
-use js_sys::Uint8Array;
-use prost::Message;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
@@ -70,25 +68,15 @@ impl From<ReactionV2> for Reaction {
 }
 
 #[wasm_bindgen(js_name = "encodeReaction")]
-pub fn encode_reaction(reaction: Reaction) -> Result<Uint8Array, JsError> {
-  // Convert Reaction to Reaction
+pub fn encode_reaction(reaction: Reaction) -> Result<EncodedContent, JsError> {
   let reaction: ReactionV2 = reaction.into();
-
-  // Use ReactionCodec to encode the reaction
-  let encoded = ReactionCodec::encode(reaction).map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
+  let encoded_content =
+    ReactionCodec::encode(reaction).map_err(|e| JsError::new(&format!("{}", e)))?;
+  Ok(encoded_content.into())
 }
 
 #[wasm_bindgen(js_name = "decodeReaction")]
 pub fn decode_reaction(encoded_content: EncodedContent) -> Result<Reaction, JsError> {
-  // Use ReactionCodec to decode into Reaction and convert to Reaction
   ReactionCodec::decode(encoded_content.into())
     .map(Into::into)
     .map_err(|e| JsError::new(&format!("{}", e)))
