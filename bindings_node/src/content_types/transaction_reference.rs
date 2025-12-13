@@ -80,16 +80,10 @@ impl From<TransactionMetadata> for xmtp_content_types::transaction_reference::Tr
 #[napi]
 pub fn encode_transaction_reference(
   transaction_reference: TransactionReference,
-) -> Result<Uint8Array> {
-  // Use TransactionReferenceCodec to encode the transaction reference
-  let encoded =
+) -> Result<EncodedContent> {
+  let encoded_content =
     TransactionReferenceCodec::encode(transaction_reference.into()).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(buf.into())
+  Ok(encoded_content.into())
 }
 
 #[napi]

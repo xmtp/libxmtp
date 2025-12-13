@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::Result;
 use napi_derive::napi;
-use prost::Message;
 use xmtp_content_types::{ContentCodec, wallet_send_calls::WalletSendCallsCodec};
 
 use crate::{ErrorWrapper, encoded_content::EncodedContent};
@@ -104,16 +103,10 @@ impl From<WalletCallMetadata> for xmtp_content_types::wallet_send_calls::WalletC
 }
 
 #[napi]
-pub fn encode_wallet_send_calls(wallet_send_calls: WalletSendCalls) -> Result<Uint8Array> {
-  // Use WalletSendCallsCodec to encode the wallet send calls
-  let encoded =
+pub fn encode_wallet_send_calls(wallet_send_calls: WalletSendCalls) -> Result<EncodedContent> {
+  let encoded_content =
     WalletSendCallsCodec::encode(wallet_send_calls.into()).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(buf.into())
+  Ok(encoded_content.into())
 }
 
 #[napi]

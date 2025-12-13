@@ -1,6 +1,5 @@
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::Result;
 use napi_derive::napi;
-use prost::Message;
 use xmtp_content_types::{ContentCodec, attachment::AttachmentCodec};
 
 use crate::{ErrorWrapper, encoded_content::EncodedContent};
@@ -34,15 +33,9 @@ impl From<Attachment> for xmtp_content_types::attachment::Attachment {
 }
 
 #[napi]
-pub fn encode_attachment(attachment: Attachment) -> Result<Uint8Array> {
-  // Use AttachmentCodec to encode the attachment
-  let encoded = AttachmentCodec::encode(attachment.into()).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(buf.into())
+pub fn encode_attachment(attachment: Attachment) -> Result<EncodedContent> {
+  let encoded_content = AttachmentCodec::encode(attachment.into()).map_err(ErrorWrapper::from)?;
+  Ok(encoded_content.into())
 }
 
 #[napi]

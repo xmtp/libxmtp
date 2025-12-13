@@ -62,50 +62,6 @@ impl From<xmtp_proto::xmtp::mls::message_contents::GroupUpdated> for GroupUpdate
   }
 }
 
-impl From<GroupUpdated> for xmtp_proto::xmtp::mls::message_contents::GroupUpdated {
-  fn from(updated: GroupUpdated) -> Self {
-    Self {
-      initiated_by_inbox_id: updated.initiated_by_inbox_id,
-      added_inboxes: updated
-        .added_inboxes
-        .into_iter()
-        .map(|i| i.into())
-        .collect(),
-      removed_inboxes: updated
-        .removed_inboxes
-        .into_iter()
-        .map(|i| i.into())
-        .collect(),
-      left_inboxes: updated.left_inboxes.into_iter().map(|i| i.into()).collect(),
-      metadata_field_changes: updated
-        .metadata_field_changes
-        .into_iter()
-        .map(|c| c.into())
-        .collect(),
-      added_admin_inboxes: updated
-        .added_admin_inboxes
-        .into_iter()
-        .map(|i| i.into())
-        .collect(),
-      removed_admin_inboxes: updated
-        .removed_admin_inboxes
-        .into_iter()
-        .map(|i| i.into())
-        .collect(),
-      added_super_admin_inboxes: updated
-        .added_super_admin_inboxes
-        .into_iter()
-        .map(|i| i.into())
-        .collect(),
-      removed_super_admin_inboxes: updated
-        .removed_super_admin_inboxes
-        .into_iter()
-        .map(|i| i.into())
-        .collect(),
-    }
-  }
-}
-
 #[derive(Clone)]
 #[napi(object)]
 pub struct Inbox {

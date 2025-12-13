@@ -1,6 +1,5 @@
-use napi::bindgen_prelude::{Error, Result, Uint8Array};
+use napi::bindgen_prelude::{Error, Result};
 use napi_derive::napi;
-use prost::Message;
 use std::convert::TryFrom;
 use xmtp_content_types::{ContentCodec, remote_attachment::RemoteAttachmentCodec};
 
@@ -62,16 +61,10 @@ impl From<RemoteAttachment> for xmtp_content_types::remote_attachment::RemoteAtt
 }
 
 #[napi]
-pub fn encode_remote_attachment(remote_attachment: RemoteAttachment) -> Result<Uint8Array> {
-  // Use RemoteAttachmentCodec to encode the remote attachment
-  let encoded =
+pub fn encode_remote_attachment(remote_attachment: RemoteAttachment) -> Result<EncodedContent> {
+  let encoded_content =
     RemoteAttachmentCodec::encode(remote_attachment.into()).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(buf.into())
+  Ok(encoded_content.into())
 }
 
 #[napi]

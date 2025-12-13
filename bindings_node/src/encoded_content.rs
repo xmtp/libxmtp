@@ -86,10 +86,8 @@ pub fn serialize_encoded_content(content: EncodedContent) -> Result<Uint8Array> 
 
 impl From<XmtpEncodedContent> for EncodedContent {
   fn from(content: XmtpEncodedContent) -> EncodedContent {
-    let r#type = content.r#type.map(|v| v.into());
-
     EncodedContent {
-      r#type,
+      r#type: content.r#type.map(Into::into),
       parameters: content.parameters,
       fallback: content.fallback,
       compression: content.compression,
@@ -100,15 +98,12 @@ impl From<XmtpEncodedContent> for EncodedContent {
 
 impl From<EncodedContent> for XmtpEncodedContent {
   fn from(content: EncodedContent) -> Self {
-    let r#type = content.r#type.map(|v| v.into());
-    let content_bytes: Vec<u8> = content.content.deref().to_vec();
-
     XmtpEncodedContent {
-      r#type,
+      r#type: content.r#type.map(Into::into),
       parameters: content.parameters,
       fallback: content.fallback,
       compression: content.compression,
-      content: content_bytes,
+      content: content.content.deref().to_vec(),
     }
   }
 }

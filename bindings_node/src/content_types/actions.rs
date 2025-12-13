@@ -1,7 +1,6 @@
 use chrono::DateTime;
-use napi::bindgen_prelude::{Error, Result, Uint8Array};
+use napi::bindgen_prelude::{Error, Result};
 use napi_derive::napi;
-use prost::Message;
 use xmtp_content_types::{ContentCodec, actions::ActionsCodec};
 
 use crate::{ErrorWrapper, encoded_content::EncodedContent};
@@ -149,15 +148,9 @@ impl From<ActionStyle> for xmtp_content_types::actions::ActionStyle {
 }
 
 #[napi]
-pub fn encode_actions(actions: Actions) -> Result<Uint8Array> {
-  // Convert Actions and use ActionsCodec to encode
-  let encoded = ActionsCodec::encode(actions.into()).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
+pub fn encode_actions(actions: Actions) -> Result<EncodedContent> {
+  let encoded_content = ActionsCodec::encode(actions.into()).map_err(ErrorWrapper::from)?;
+  Ok(encoded_content.into())
 }
 
 #[napi]

@@ -1,6 +1,5 @@
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::Result;
 use napi_derive::napi;
-use prost::Message;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
@@ -52,18 +51,10 @@ impl From<ReactionV2> for Reaction {
 }
 
 #[napi]
-pub fn encode_reaction(reaction: Reaction) -> Result<Uint8Array> {
-  // Convert Reaction to Reaction
+pub fn encode_reaction(reaction: Reaction) -> Result<EncodedContent> {
   let reaction: ReactionV2 = reaction.into();
-
-  // Use ReactionCodec to encode the reaction
-  let encoded = ReactionCodec::encode(reaction).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
+  let encoded_content = ReactionCodec::encode(reaction).map_err(ErrorWrapper::from)?;
+  Ok(encoded_content.into())
 }
 
 #[napi]

@@ -1,8 +1,6 @@
 use super::decoded_message_content::DecodedMessageContent;
 use crate::encoded_content::EncodedContent;
 use crate::enriched_message::DecodedMessage;
-use js_sys::Uint8Array;
-use prost::Message;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reply::ReplyCodec;
@@ -89,22 +87,14 @@ impl From<Reply> for xmtp_content_types::reply::Reply {
 }
 
 #[wasm_bindgen(js_name = "encodeReply")]
-pub fn encode_reply(reply: Reply) -> Result<Uint8Array, JsError> {
-  // Convert Reply to xmtp_content_types::reply::Reply
-  let encoded = ReplyCodec::encode(reply.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
+pub fn encode_reply(reply: Reply) -> Result<EncodedContent, JsError> {
+  let encoded_content =
+    ReplyCodec::encode(reply.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
+  Ok(encoded_content.into())
 }
 
 #[wasm_bindgen(js_name = "decodeReply")]
 pub fn decode_reply(encoded_content: EncodedContent) -> Result<Reply, JsError> {
-  // Use ReplyCodec to decode and convert to Reply
   ReplyCodec::decode(encoded_content.into())
     .map(Into::into)
     .map_err(|e| JsError::new(&format!("{}", e)))
