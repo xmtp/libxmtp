@@ -1,9 +1,11 @@
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::Result;
 use napi_derive::napi;
-use prost::Message;
-use xmtp_content_types::{ContentCodec, text::TextCodec};
+use xmtp_content_types::{ContentCodec, text::TextCodec as XmtpTextCodec};
 
-use crate::{ErrorWrapper, encoded_content::EncodedContent};
+use crate::{
+  ErrorWrapper,
+  encoded_content::{ContentTypeId, EncodedContent},
+};
 
 #[derive(Clone)]
 #[napi(object)]
@@ -20,19 +22,28 @@ impl From<xmtp_mls::messages::decoded_message::Text> for TextContent {
 }
 
 #[napi]
-pub fn encode_text(text: String) -> Result<Uint8Array> {
-  // Use TextCodec to encode the text
-  let encoded = TextCodec::encode(text).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(buf.into())
-}
+pub struct TextCodec {}
 
 #[napi]
-pub fn decode_text(encoded_content: EncodedContent) -> Result<String> {
-  // Use TextCodec to decode into String
-  Ok(TextCodec::decode(encoded_content.into()).map_err(ErrorWrapper::from)?)
+impl TextCodec {
+  #[napi]
+  pub fn content_type() -> ContentTypeId {
+    XmtpTextCodec::content_type().into()
+  }
+
+  #[napi]
+  pub fn encode(text: String) -> Result<EncodedContent> {
+    let encoded_content = XmtpTextCodec::encode(text).map_err(ErrorWrapper::from)?;
+    Ok(encoded_content.into())
+  }
+
+  #[napi]
+  pub fn decode(encoded_content: EncodedContent) -> Result<String> {
+    Ok(XmtpTextCodec::decode(encoded_content.into()).map_err(ErrorWrapper::from)?)
+  }
+
+  #[napi]
+  pub fn should_push() -> bool {
+    XmtpTextCodec::should_push()
+  }
 }

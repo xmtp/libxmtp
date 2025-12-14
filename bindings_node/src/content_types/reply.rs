@@ -1,11 +1,10 @@
 use crate::ErrorWrapper;
-use crate::encoded_content::EncodedContent;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 use crate::enriched_message::DecodedMessage;
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::Result;
 use napi_derive::napi;
-use prost::Message;
 use xmtp_content_types::ContentCodec;
-use xmtp_content_types::reply::ReplyCodec;
+use xmtp_content_types::reply::ReplyCodec as XmtpReplyCodec;
 
 use super::decoded_message_body::DecodedMessageBody;
 use xmtp_mls::messages::decoded_message::DecodedMessage as RustDecodedMessage;
@@ -75,22 +74,32 @@ impl From<Reply> for xmtp_content_types::reply::Reply {
 }
 
 #[napi]
-pub fn encode_reply(reply: Reply) -> Result<Uint8Array> {
-  // Convert Reply to xmtp_content_types::reply::Reply
-  let encoded = ReplyCodec::encode(reply.into()).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
-}
+pub struct ReplyCodec {}
 
 #[napi]
-pub fn decode_reply(encoded_content: EncodedContent) -> Result<Reply> {
-  Ok(
-    ReplyCodec::decode(encoded_content.into())
-      .map(Into::into)
-      .map_err(ErrorWrapper::from)?,
-  )
+impl ReplyCodec {
+  #[napi]
+  pub fn content_type() -> ContentTypeId {
+    XmtpReplyCodec::content_type().into()
+  }
+
+  #[napi]
+  pub fn encode(reply: Reply) -> Result<EncodedContent> {
+    let encoded_content = XmtpReplyCodec::encode(reply.into()).map_err(ErrorWrapper::from)?;
+    Ok(encoded_content.into())
+  }
+
+  #[napi]
+  pub fn decode(encoded_content: EncodedContent) -> Result<Reply> {
+    Ok(
+      XmtpReplyCodec::decode(encoded_content.into())
+        .map(Into::into)
+        .map_err(ErrorWrapper::from)?,
+    )
+  }
+
+  #[napi]
+  pub fn should_push() -> bool {
+    XmtpReplyCodec::should_push()
+  }
 }

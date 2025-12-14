@@ -18,7 +18,7 @@ impl MultiRemoteAttachmentCodec {
 impl MultiRemoteAttachmentCodec {
     fn fallback(_: &MultiRemoteAttachment) -> Option<String> {
         Some(
-            "Can’t display this content. This app doesn’t support multiple remote attachments."
+            "Can't display this content. This app doesn't support multiple remote attachments."
                 .to_string(),
         )
     }

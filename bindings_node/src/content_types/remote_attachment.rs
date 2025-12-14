@@ -1,22 +1,40 @@
 use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
-use prost::Message;
 use std::convert::TryFrom;
-use xmtp_content_types::{ContentCodec, remote_attachment::RemoteAttachmentCodec};
+use xmtp_content_types::{
+  ContentCodec, remote_attachment::RemoteAttachmentCodec as XmtpRemoteAttachmentCodec,
+};
 
-use crate::{ErrorWrapper, encoded_content::EncodedContent};
+use crate::{
+  ErrorWrapper,
+  encoded_content::{ContentTypeId, EncodedContent},
+};
 
-#[derive(Clone)]
 #[napi(object)]
 pub struct RemoteAttachment {
   pub url: String,
   pub content_digest: String,
-  pub secret: Vec<u8>,
-  pub salt: Vec<u8>,
-  pub nonce: Vec<u8>,
+  pub secret: Uint8Array,
+  pub salt: Uint8Array,
+  pub nonce: Uint8Array,
   pub scheme: String,
   pub content_length: u32,
   pub filename: Option<String>,
+}
+
+impl Clone for RemoteAttachment {
+  fn clone(&self) -> Self {
+    Self {
+      url: self.url.clone(),
+      content_digest: self.content_digest.clone(),
+      secret: Uint8Array::from(self.secret.to_vec()),
+      salt: Uint8Array::from(self.salt.to_vec()),
+      nonce: Uint8Array::from(self.nonce.to_vec()),
+      scheme: self.scheme.clone(),
+      content_length: self.content_length,
+      filename: self.filename.clone(),
+    }
+  }
 }
 
 impl TryFrom<xmtp_content_types::remote_attachment::RemoteAttachment> for RemoteAttachment {
@@ -36,9 +54,9 @@ impl TryFrom<xmtp_content_types::remote_attachment::RemoteAttachment> for Remote
     Ok(Self {
       url: remote.url,
       content_digest: remote.content_digest,
-      secret: remote.secret,
-      salt: remote.salt,
-      nonce: remote.nonce,
+      secret: remote.secret.into(),
+      salt: remote.salt.into(),
+      nonce: remote.nonce.into(),
       scheme: remote.scheme,
       content_length,
       filename: remote.filename,
@@ -51,9 +69,9 @@ impl From<RemoteAttachment> for xmtp_content_types::remote_attachment::RemoteAtt
     Self {
       url: remote.url,
       content_digest: remote.content_digest,
-      secret: remote.secret,
-      salt: remote.salt,
-      nonce: remote.nonce,
+      secret: remote.secret.to_vec(),
+      salt: remote.salt.to_vec(),
+      nonce: remote.nonce.to_vec(),
       scheme: remote.scheme,
       content_length: remote.content_length as usize,
       filename: remote.filename,
@@ -62,21 +80,31 @@ impl From<RemoteAttachment> for xmtp_content_types::remote_attachment::RemoteAtt
 }
 
 #[napi]
-pub fn encode_remote_attachment(remote_attachment: RemoteAttachment) -> Result<Uint8Array> {
-  // Use RemoteAttachmentCodec to encode the remote attachment
-  let encoded =
-    RemoteAttachmentCodec::encode(remote_attachment.into()).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(buf.into())
-}
+pub struct RemoteAttachmentCodec {}
 
 #[napi]
-pub fn decode_remote_attachment(encoded_content: EncodedContent) -> Result<RemoteAttachment> {
-  let decoded =
-    RemoteAttachmentCodec::decode(encoded_content.into()).map_err(ErrorWrapper::from)?;
-  decoded.try_into()
+impl RemoteAttachmentCodec {
+  #[napi]
+  pub fn content_type() -> ContentTypeId {
+    XmtpRemoteAttachmentCodec::content_type().into()
+  }
+
+  #[napi]
+  pub fn encode(remote_attachment: RemoteAttachment) -> Result<EncodedContent> {
+    let encoded_content =
+      XmtpRemoteAttachmentCodec::encode(remote_attachment.into()).map_err(ErrorWrapper::from)?;
+    Ok(encoded_content.into())
+  }
+
+  #[napi]
+  pub fn decode(encoded_content: EncodedContent) -> Result<RemoteAttachment> {
+    let decoded =
+      XmtpRemoteAttachmentCodec::decode(encoded_content.into()).map_err(ErrorWrapper::from)?;
+    decoded.try_into()
+  }
+
+  #[napi]
+  pub fn should_push() -> bool {
+    XmtpRemoteAttachmentCodec::should_push()
+  }
 }

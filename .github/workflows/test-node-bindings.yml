@@ -52,10 +52,6 @@ jobs:
         working-directory: bindings_node
         run: |
           yarn
-      - name: Build release
-        working-directory: bindings_node
-        run: |
-          yarn build
       - name: Run tests
         working-directory: bindings_node
         run: |

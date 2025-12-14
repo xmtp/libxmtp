@@ -1,12 +1,11 @@
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::Result;
 use napi_derive::napi;
-use prost::Message;
 use xmtp_content_types::ContentCodec;
-use xmtp_content_types::reaction::ReactionCodec;
+use xmtp_content_types::reaction::ReactionCodec as XmtpReactionCodec;
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
 
 use crate::ErrorWrapper;
-use crate::encoded_content::EncodedContent;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 
 #[derive(Clone)]
 #[napi(object)]
@@ -52,27 +51,34 @@ impl From<ReactionV2> for Reaction {
 }
 
 #[napi]
-pub fn encode_reaction(reaction: Reaction) -> Result<Uint8Array> {
-  // Convert Reaction to Reaction
-  let reaction: ReactionV2 = reaction.into();
-
-  // Use ReactionCodec to encode the reaction
-  let encoded = ReactionCodec::encode(reaction).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
-}
+pub struct ReactionCodec {}
 
 #[napi]
-pub fn decode_reaction(encoded_content: EncodedContent) -> Result<Reaction> {
-  Ok(
-    ReactionCodec::decode(encoded_content.into())
-      .map(Into::into)
-      .map_err(ErrorWrapper::from)?,
-  )
+impl ReactionCodec {
+  #[napi]
+  pub fn content_type() -> ContentTypeId {
+    XmtpReactionCodec::content_type().into()
+  }
+
+  #[napi]
+  pub fn encode(reaction: Reaction) -> Result<EncodedContent> {
+    let encoded_content = XmtpReactionCodec::encode(reaction.into()).map_err(ErrorWrapper::from)?;
+    Ok(encoded_content.into())
+  }
+
+  #[napi]
+  pub fn decode(encoded_content: EncodedContent) -> Result<Reaction> {
+    Ok(
+      XmtpReactionCodec::decode(encoded_content.into())
+        .map(Into::into)
+        .map_err(ErrorWrapper::from)?,
+    )
+  }
+
+  #[napi]
+  pub fn should_push() -> bool {
+    XmtpReactionCodec::should_push()
+  }
 }
 
 #[napi]

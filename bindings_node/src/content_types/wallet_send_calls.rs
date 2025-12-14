@@ -1,11 +1,15 @@
 use std::collections::HashMap;
 
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::Result;
 use napi_derive::napi;
-use prost::Message;
-use xmtp_content_types::{ContentCodec, wallet_send_calls::WalletSendCallsCodec};
+use xmtp_content_types::{
+  ContentCodec, wallet_send_calls::WalletSendCallsCodec as XmtpWalletSendCallsCodec,
+};
 
-use crate::{ErrorWrapper, encoded_content::EncodedContent};
+use crate::{
+  ErrorWrapper,
+  encoded_content::{ContentTypeId, EncodedContent},
+};
 
 #[derive(Clone)]
 #[napi(object)]
@@ -104,23 +108,49 @@ impl From<WalletCallMetadata> for xmtp_content_types::wallet_send_calls::WalletC
 }
 
 #[napi]
-pub fn encode_wallet_send_calls(wallet_send_calls: WalletSendCalls) -> Result<Uint8Array> {
-  // Use WalletSendCallsCodec to encode the wallet send calls
-  let encoded =
-    WalletSendCallsCodec::encode(wallet_send_calls.into()).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(buf.into())
+pub fn encode_wallet_send_calls(wallet_send_calls: WalletSendCalls) -> Result<EncodedContent> {
+  let encoded_content =
+    XmtpWalletSendCallsCodec::encode(wallet_send_calls.into()).map_err(ErrorWrapper::from)?;
+  Ok(encoded_content.into())
 }
 
 #[napi]
 pub fn decode_wallet_send_calls(encoded_content: EncodedContent) -> Result<WalletSendCalls> {
   Ok(
-    WalletSendCallsCodec::decode(encoded_content.into())
+    XmtpWalletSendCallsCodec::decode(encoded_content.into())
       .map(Into::into)
       .map_err(ErrorWrapper::from)?,
   )
+}
+
+#[napi]
+pub struct WalletSendCallsCodec {}
+
+#[napi]
+impl WalletSendCallsCodec {
+  #[napi]
+  pub fn content_type() -> ContentTypeId {
+    XmtpWalletSendCallsCodec::content_type().into()
+  }
+
+  #[napi]
+  pub fn encode(wallet_send_calls: WalletSendCalls) -> Result<EncodedContent> {
+    let encoded_content =
+      XmtpWalletSendCallsCodec::encode(wallet_send_calls.into()).map_err(ErrorWrapper::from)?;
+    Ok(encoded_content.into())
+  }
+
+  #[napi]
+  pub fn decode(encoded_content: EncodedContent) -> Result<WalletSendCalls> {
+    Ok(
+      XmtpWalletSendCallsCodec::decode(encoded_content.into())
+        .map(Into::into)
+        .map_err(ErrorWrapper::from)?,
+    )
+  }
+
+  #[napi]
+  pub fn should_push() -> bool {
+    XmtpWalletSendCallsCodec::should_push()
+  }
 }

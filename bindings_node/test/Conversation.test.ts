@@ -1,19 +1,13 @@
+import { describe, expect, it } from 'vitest'
+import { createRegisteredClient, createUser } from '@test/helpers'
 import {
   ConsentState,
-  EncodedContent,
   IdentifierKind,
-  Message,
   MetadataField,
   PermissionPolicy,
   PermissionUpdateType,
-} from '@xmtp/node-bindings'
-import { describe, expect, it } from 'vitest'
-import {
-  createRegisteredClient,
-  createUser,
-  encodeTextMessage,
-  sleep,
-} from '@test/helpers'
+  TextCodec,
+} from '../dist'
 
 describe.concurrent('Conversation', () => {
   it('should update conversation name', async () => {
@@ -211,7 +205,9 @@ describe.concurrent('Conversation', () => {
       },
     ])
 
-    await conversation.send(encodeTextMessage('gm'), { shouldPush: true })
+    await conversation.send(TextCodec.encode('gm'), {
+      shouldPush: TextCodec.shouldPush(),
+    })
 
     const messages = await conversation.findMessages()
     expect(messages.length).toBe(2)
@@ -241,7 +237,9 @@ describe.concurrent('Conversation', () => {
       },
     ])
 
-    conversation.sendOptimistic(encodeTextMessage('gm'), { shouldPush: true })
+    conversation.sendOptimistic(TextCodec.encode('gm'), {
+      shouldPush: TextCodec.shouldPush(),
+    })
 
     const messages = await conversation.findMessages()
     expect(messages.length).toBe(2)
@@ -293,11 +291,11 @@ describe.concurrent('Conversation', () => {
       }
     )
     await new Promise((resolve) => setTimeout(resolve, 10000))
-    const message1 = await conversation.send(encodeTextMessage('gm'), {
-      shouldPush: true,
+    const message1 = await conversation.send(TextCodec.encode('gm'), {
+      shouldPush: TextCodec.shouldPush(),
     })
-    const message2 = await conversation.send(encodeTextMessage('gm2'), {
-      shouldPush: true,
+    const message2 = await conversation.send(TextCodec.encode('gm2'), {
+      shouldPush: TextCodec.shouldPush(),
     })
 
     // Add sleep to allow messages to be processed
@@ -389,14 +387,18 @@ describe.concurrent('Conversation', () => {
     const group2 = client2.conversations().findGroupById(group.id())
     expect(group2).toBeDefined()
     expect(group2!.consentState()).toBe(ConsentState.Unknown)
-    await group2!.send(encodeTextMessage('gm!'), { shouldPush: true })
+    await group2!.send(TextCodec.encode('gm!'), {
+      shouldPush: TextCodec.shouldPush(),
+    })
     expect(group2!.consentState()).toBe(ConsentState.Allowed)
 
     await client3.conversations().sync()
     const dmGroup2 = client3.conversations().findGroupById(dmGroup.id())
     expect(dmGroup2).toBeDefined()
     expect(dmGroup2!.consentState()).toBe(ConsentState.Unknown)
-    await dmGroup2!.send(encodeTextMessage('gm!'), { shouldPush: true })
+    await dmGroup2!.send(TextCodec.encode('gm!'), {
+      shouldPush: TextCodec.shouldPush(),
+    })
     expect(dmGroup2!.consentState()).toBe(ConsentState.Allowed)
   })
 

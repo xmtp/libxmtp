@@ -1,10 +1,12 @@
 use chrono::DateTime;
-use napi::bindgen_prelude::{Error, Result, Uint8Array};
+use napi::bindgen_prelude::{Error, Result};
 use napi_derive::napi;
-use prost::Message;
-use xmtp_content_types::{ContentCodec, actions::ActionsCodec};
+use xmtp_content_types::{ContentCodec, actions::ActionsCodec as XmtpActionsCodec};
 
-use crate::{ErrorWrapper, encoded_content::EncodedContent};
+use crate::{
+  ErrorWrapper,
+  encoded_content::{ContentTypeId, EncodedContent},
+};
 
 #[derive(Clone)]
 #[napi(object)]
@@ -149,19 +151,29 @@ impl From<ActionStyle> for xmtp_content_types::actions::ActionStyle {
 }
 
 #[napi]
-pub fn encode_actions(actions: Actions) -> Result<Uint8Array> {
-  // Convert Actions and use ActionsCodec to encode
-  let encoded = ActionsCodec::encode(actions.into()).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
-}
+pub struct ActionsCodec {}
 
 #[napi]
-pub fn decode_actions(encoded_content: EncodedContent) -> Result<Actions> {
-  let decoded = ActionsCodec::decode(encoded_content.into()).map_err(ErrorWrapper::from)?;
-  decoded.try_into()
+impl ActionsCodec {
+  #[napi]
+  pub fn content_type() -> ContentTypeId {
+    XmtpActionsCodec::content_type().into()
+  }
+
+  #[napi]
+  pub fn encode(actions: Actions) -> Result<EncodedContent> {
+    let encoded_content = XmtpActionsCodec::encode(actions.into()).map_err(ErrorWrapper::from)?;
+    Ok(encoded_content.into())
+  }
+
+  #[napi]
+  pub fn decode(encoded_content: EncodedContent) -> Result<Actions> {
+    let decoded = XmtpActionsCodec::decode(encoded_content.into()).map_err(ErrorWrapper::from)?;
+    decoded.try_into()
+  }
+
+  #[napi]
+  pub fn should_push() -> bool {
+    XmtpActionsCodec::should_push()
+  }
 }

@@ -1,18 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import {
-  createRegisteredClient,
-  createUser,
-  encodeReactionMessage,
-  encodeReplyMessage,
-  encodeTextMessage,
-} from '@test/helpers'
+import { createRegisteredClient, createUser } from '@test/helpers'
 import {
   DecodedMessage,
   EncodedContent,
   IdentifierKind,
   ReactionAction,
+  ReactionCodec,
   ReactionSchema,
+  ReplyCodec,
   SortDirection,
+  TextCodec,
 } from '../dist'
 
 describe.concurrent('EnrichedMessage', () => {
@@ -35,11 +32,11 @@ describe.concurrent('EnrichedMessage', () => {
     it('should return enriched messages with basic fields populated', async () => {
       const { client1, conversation } = await setupConversation()
 
-      await conversation.send(encodeTextMessage('Hello World'), {
-        shouldPush: true,
+      await conversation.send(TextCodec.encode('Hello World'), {
+        shouldPush: TextCodec.shouldPush(),
       })
-      await conversation.send(encodeTextMessage('Second message'), {
-        shouldPush: true,
+      await conversation.send(TextCodec.encode('Second message'), {
+        shouldPush: TextCodec.shouldPush(),
       })
 
       const messages = await conversation.findEnrichedMessages()
@@ -64,14 +61,14 @@ describe.concurrent('EnrichedMessage', () => {
     it('should handle list options', async () => {
       const { conversation } = await setupConversation()
 
-      await conversation.send(encodeTextMessage('Message 1'), {
-        shouldPush: true,
+      await conversation.send(TextCodec.encode('Message 1'), {
+        shouldPush: TextCodec.shouldPush(),
       })
-      await conversation.send(encodeTextMessage('Message 2'), {
-        shouldPush: true,
+      await conversation.send(TextCodec.encode('Message 2'), {
+        shouldPush: TextCodec.shouldPush(),
       })
-      await conversation.send(encodeTextMessage('Message 3'), {
-        shouldPush: true,
+      await conversation.send(TextCodec.encode('Message 3'), {
+        shouldPush: TextCodec.shouldPush(),
       })
 
       const limitedMessages = await conversation.findEnrichedMessages({
@@ -93,7 +90,9 @@ describe.concurrent('EnrichedMessage', () => {
     it('should include message kind', async () => {
       const { conversation } = await setupConversation()
 
-      await conversation.send(encodeTextMessage('Test'), { shouldPush: true })
+      await conversation.send(TextCodec.encode('Test'), {
+        shouldPush: TextCodec.shouldPush(),
+      })
 
       const messages = await conversation.findEnrichedMessages()
 
@@ -128,7 +127,7 @@ describe.concurrent('EnrichedMessage', () => {
     const contentTypeTestCases: TestCase[] = [
       {
         name: 'text content',
-        content: encodeTextMessage(fixtures.messageText),
+        content: TextCodec.encode(fixtures.messageText),
         assertions: (message: DecodedMessage) => {
           expect(message.textContent).toBeDefined()
           expect(message.textContent?.content).toBe(fixtures.messageText)
@@ -296,8 +295,8 @@ describe.concurrent('EnrichedMessage', () => {
       const { client1, conversation } = await setupConversation()
 
       // Send a text message first to react to
-      await conversation.send(encodeTextMessage('Original message'), {
-        shouldPush: true,
+      await conversation.send(TextCodec.encode('Original message'), {
+        shouldPush: TextCodec.shouldPush(),
       })
       const messagesBefore = await conversation.findEnrichedMessages()
       const textMessage = messagesBefore.find(
@@ -308,14 +307,16 @@ describe.concurrent('EnrichedMessage', () => {
 
       // Send a reaction to the text message
       const messageIdHex = Buffer.from(textMessage!.id).toString('hex')
-      const reactionContent = encodeReactionMessage(
-        messageIdHex,
-        client1.inboxId(),
-        '👍',
-        ReactionAction.Added,
-        ReactionSchema.Unicode
-      )
-      await conversation.send(reactionContent, { shouldPush: true })
+      const reactionContent = ReactionCodec.encode({
+        reference: messageIdHex,
+        referenceInboxId: client1.inboxId(),
+        action: ReactionAction.Added,
+        content: '👍',
+        schema: ReactionSchema.Unicode,
+      })
+      await conversation.send(reactionContent, {
+        shouldPush: ReactionCodec.shouldPush(),
+      })
 
       // Sync to ensure the reaction is processed
       await conversation.sync()
@@ -348,8 +349,8 @@ describe.concurrent('EnrichedMessage', () => {
 
       // Send a text message first to reply to
       const textMessageID = await conversation.send(
-        encodeTextMessage('Original message'),
-        { shouldPush: true }
+        TextCodec.encode('Original message'),
+        { shouldPush: TextCodec.shouldPush() }
       )
       const messages = await conversation.findEnrichedMessages()
       const textMessage = messages.find(
@@ -358,7 +359,10 @@ describe.concurrent('EnrichedMessage', () => {
       expect(textMessage).toBeDefined()
 
       // Send a reply to the text message
-      const replyContent = encodeReplyMessage(textMessageID, 'This is a reply')
+      const replyContent = ReplyCodec.encode({
+        reference: textMessageID,
+        content: TextCodec.encode('This is a reply'),
+      })
       // Verify we can send the reply message
       const replyId = await conversation.send(replyContent, {
         shouldPush: true,
@@ -380,7 +384,7 @@ describe.concurrent('EnrichedMessage', () => {
 
       expect(replyMessage?.replyContent?.inReplyTo).toBeDefined()
       expect(
-        replyMessage?.replyContent?.inReplyTo.textContent?.content
+        replyMessage?.replyContent?.inReplyTo?.textContent?.content
       ).toEqual('Original message')
     })
   })
