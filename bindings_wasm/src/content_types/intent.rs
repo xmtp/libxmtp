@@ -1,10 +1,8 @@
-use crate::encoded_content::EncodedContent;
-use js_sys::Uint8Array;
-use prost::Message;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
 use xmtp_content_types::ContentCodec;
-use xmtp_content_types::intent::IntentCodec;
+use xmtp_content_types::intent::IntentCodec as XmtpIntentCodec;
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
@@ -71,26 +69,33 @@ impl TryFrom<Intent> for xmtp_content_types::intent::Intent {
   }
 }
 
-#[wasm_bindgen(js_name = "encodeIntent")]
-pub fn encode_intent(intent: Intent) -> Result<Uint8Array, JsError> {
-  // Convert Intent and use IntentCodec to encode
-  let intent: xmtp_content_types::intent::Intent = intent.try_into()?;
-  let encoded = IntentCodec::encode(intent).map_err(|e| JsError::new(&format!("{}", e)))?;
+#[wasm_bindgen]
+pub struct IntentCodec;
 
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+#[wasm_bindgen]
+impl IntentCodec {
+  #[wasm_bindgen(js_name = "contentType")]
+  pub fn content_type() -> ContentTypeId {
+    XmtpIntentCodec::content_type().into()
+  }
 
-  Ok(Uint8Array::from(buf.as_slice()))
-}
+  #[wasm_bindgen]
+  pub fn encode(intent: Intent) -> Result<EncodedContent, JsError> {
+    let intent: xmtp_content_types::intent::Intent = intent.try_into()?;
+    let encoded_content =
+      XmtpIntentCodec::encode(intent).map_err(|e| JsError::new(&format!("{}", e)))?;
+    Ok(encoded_content.into())
+  }
 
-#[wasm_bindgen(js_name = "decodeIntent")]
-pub fn decode_intent(encoded_content: EncodedContent) -> Result<Intent, JsError> {
-  // Use IntentCodec to decode into Intent and convert to WASM Intent
-  let intent =
-    IntentCodec::decode(encoded_content.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
+  #[wasm_bindgen]
+  pub fn decode(encoded_content: EncodedContent) -> Result<Intent, JsError> {
+    let intent = XmtpIntentCodec::decode(encoded_content.into())
+      .map_err(|e| JsError::new(&format!("{}", e)))?;
+    intent.try_into()
+  }
 
-  intent.try_into()
+  #[wasm_bindgen(js_name = "shouldPush")]
+  pub fn should_push() -> bool {
+    XmtpIntentCodec::should_push()
+  }
 }

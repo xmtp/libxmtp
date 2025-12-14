@@ -1,13 +1,12 @@
-use crate::encoded_content::EncodedContent;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 use chrono::DateTime;
-use js_sys::Uint8Array;
-use prost::Message;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
-use xmtp_content_types::{ContentCodec, actions::ActionsCodec};
+use xmtp_content_types::{ContentCodec, actions::ActionsCodec as XmtpActionsCodec};
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Actions {
   pub id: String,
   pub description: String,
@@ -101,6 +100,7 @@ impl From<Actions> for xmtp_content_types::actions::Actions {
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Action {
   pub id: String,
   pub label: String,
@@ -209,26 +209,32 @@ impl From<ActionStyle> for xmtp_content_types::actions::ActionStyle {
   }
 }
 
-#[wasm_bindgen(js_name = "encodeActions")]
-pub fn encode_actions(actions: Actions) -> Result<Uint8Array, JsError> {
-  // Convert Actions and use ActionsCodec to encode
-  let encoded =
-    ActionsCodec::encode(actions.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
+#[wasm_bindgen]
+pub struct ActionsCodec;
 
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+#[wasm_bindgen]
+impl ActionsCodec {
+  #[wasm_bindgen(js_name = "contentType")]
+  pub fn content_type() -> ContentTypeId {
+    XmtpActionsCodec::content_type().into()
+  }
 
-  Ok(Uint8Array::from(buf.as_slice()))
-}
+  #[wasm_bindgen]
+  pub fn encode(actions: Actions) -> Result<EncodedContent, JsError> {
+    let encoded_content =
+      XmtpActionsCodec::encode(actions.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
+    Ok(encoded_content.into())
+  }
 
-#[wasm_bindgen(js_name = "decodeActions")]
-pub fn decode_actions(encoded_content: EncodedContent) -> Result<Actions, JsError> {
-  // Use ActionsCodec to decode into Actions and convert to Actions
-  let actions =
-    ActionsCodec::decode(encoded_content.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
+  #[wasm_bindgen]
+  pub fn decode(encoded_content: EncodedContent) -> Result<Actions, JsError> {
+    let actions = XmtpActionsCodec::decode(encoded_content.into())
+      .map_err(|e| JsError::new(&format!("{}", e)))?;
+    actions.try_into()
+  }
 
-  actions.try_into()
+  #[wasm_bindgen(js_name = "shouldPush")]
+  pub fn should_push() -> bool {
+    XmtpActionsCodec::should_push()
+  }
 }

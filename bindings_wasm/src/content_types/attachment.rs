@@ -1,9 +1,8 @@
-use crate::encoded_content::EncodedContent;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 use js_sys::Uint8Array;
-use prost::Message;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
-use xmtp_content_types::attachment::AttachmentCodec;
+use xmtp_content_types::attachment::AttachmentCodec as XmtpAttachmentCodec;
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
@@ -11,7 +10,23 @@ pub struct Attachment {
   pub filename: Option<String>,
   #[wasm_bindgen(js_name = "mimeType")]
   pub mime_type: String,
-  pub content: Vec<u8>,
+  pub content: Uint8Array,
+}
+
+#[wasm_bindgen]
+impl Attachment {
+  #[wasm_bindgen(constructor)]
+  pub fn new(
+    filename: Option<String>,
+    #[wasm_bindgen(js_name = "mimeType")] mime_type: String,
+    content: Uint8Array,
+  ) -> Self {
+    Self {
+      filename,
+      mime_type,
+      content,
+    }
+  }
 }
 
 impl From<xmtp_content_types::attachment::Attachment> for Attachment {
@@ -19,7 +34,7 @@ impl From<xmtp_content_types::attachment::Attachment> for Attachment {
     Self {
       filename: attachment.filename,
       mime_type: attachment.mime_type,
-      content: attachment.content,
+      content: attachment.content.as_slice().into(),
     }
   }
 }
@@ -29,30 +44,37 @@ impl From<Attachment> for xmtp_content_types::attachment::Attachment {
     Self {
       filename: attachment.filename,
       mime_type: attachment.mime_type,
-      content: attachment.content,
+      content: attachment.content.to_vec(),
     }
   }
 }
 
-#[wasm_bindgen(js_name = "encodeAttachment")]
-pub fn encode_attachment(attachment: Attachment) -> Result<Uint8Array, JsError> {
-  // Use AttachmentCodec to encode the attachment
-  let encoded =
-    AttachmentCodec::encode(attachment.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
+#[wasm_bindgen]
+pub struct AttachmentCodec;
 
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+#[wasm_bindgen]
+impl AttachmentCodec {
+  #[wasm_bindgen(js_name = "contentType")]
+  pub fn content_type() -> ContentTypeId {
+    XmtpAttachmentCodec::content_type().into()
+  }
 
-  Ok(Uint8Array::from(buf.as_slice()))
-}
+  #[wasm_bindgen]
+  pub fn encode(attachment: Attachment) -> Result<EncodedContent, JsError> {
+    let encoded_content = XmtpAttachmentCodec::encode(attachment.into())
+      .map_err(|e| JsError::new(&format!("{}", e)))?;
+    Ok(encoded_content.into())
+  }
 
-#[wasm_bindgen(js_name = "decodeAttachment")]
-pub fn decode_attachment(encoded_content: EncodedContent) -> Result<Attachment, JsError> {
-  // Use AttachmentCodec to decode into Attachment and convert to Attachment
-  AttachmentCodec::decode(encoded_content.into())
-    .map(Into::into)
-    .map_err(|e| JsError::new(&format!("{}", e)))
+  #[wasm_bindgen]
+  pub fn decode(encoded_content: EncodedContent) -> Result<Attachment, JsError> {
+    XmtpAttachmentCodec::decode(encoded_content.into())
+      .map(Into::into)
+      .map_err(|e| JsError::new(&format!("{}", e)))
+  }
+
+  #[wasm_bindgen(js_name = "shouldPush")]
+  pub fn should_push() -> bool {
+    XmtpAttachmentCodec::should_push()
+  }
 }

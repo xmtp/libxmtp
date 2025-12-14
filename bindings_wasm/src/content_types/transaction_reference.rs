@@ -1,9 +1,7 @@
-use crate::encoded_content::EncodedContent;
-use js_sys::Uint8Array;
-use prost::Message;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
-use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
+use xmtp_content_types::transaction_reference::TransactionReferenceCodec as XmtpTransactionReferenceCodec;
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
@@ -13,6 +11,24 @@ pub struct TransactionReference {
   pub network_id: String,
   pub reference: String,
   pub metadata: Option<TransactionMetadata>,
+}
+
+#[wasm_bindgen]
+impl TransactionReference {
+  #[wasm_bindgen(constructor)]
+  pub fn new(
+    namespace: Option<String>,
+    #[wasm_bindgen(js_name = "networkId")] network_id: String,
+    reference: String,
+    metadata: Option<TransactionMetadata>,
+  ) -> Self {
+    Self {
+      namespace,
+      network_id,
+      reference,
+      metadata,
+    }
+  }
 }
 
 impl From<xmtp_content_types::transaction_reference::TransactionReference>
@@ -55,6 +71,28 @@ pub struct TransactionMetadata {
   pub to_address: String,
 }
 
+#[wasm_bindgen]
+impl TransactionMetadata {
+  #[wasm_bindgen(constructor)]
+  pub fn new(
+    #[wasm_bindgen(js_name = "transactionType")] transaction_type: String,
+    currency: String,
+    amount: f64,
+    decimals: u32,
+    #[wasm_bindgen(js_name = "fromAddress")] from_address: String,
+    #[wasm_bindgen(js_name = "toAddress")] to_address: String,
+  ) -> Self {
+    Self {
+      transaction_type,
+      currency,
+      amount,
+      decimals,
+      from_address,
+      to_address,
+    }
+  }
+}
+
 impl From<xmtp_content_types::transaction_reference::TransactionMetadata> for TransactionMetadata {
   fn from(meta: xmtp_content_types::transaction_reference::TransactionMetadata) -> Self {
     Self {
@@ -81,29 +119,32 @@ impl From<TransactionMetadata> for xmtp_content_types::transaction_reference::Tr
   }
 }
 
-#[wasm_bindgen(js_name = "encodeTransactionReference")]
-pub fn encode_transaction_reference(
-  #[wasm_bindgen(js_name = "transactionReference")] transaction_reference: TransactionReference,
-) -> Result<Uint8Array, JsError> {
-  // Use TransactionReferenceCodec to encode the transaction reference
-  let encoded = TransactionReferenceCodec::encode(transaction_reference.into())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+#[wasm_bindgen]
+pub struct TransactionReferenceCodec;
 
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+#[wasm_bindgen]
+impl TransactionReferenceCodec {
+  #[wasm_bindgen(js_name = "contentType")]
+  pub fn content_type() -> ContentTypeId {
+    XmtpTransactionReferenceCodec::content_type().into()
+  }
 
-  Ok(Uint8Array::from(buf.as_slice()))
-}
+  #[wasm_bindgen]
+  pub fn encode(transaction_reference: TransactionReference) -> Result<EncodedContent, JsError> {
+    let encoded_content = XmtpTransactionReferenceCodec::encode(transaction_reference.into())
+      .map_err(|e| JsError::new(&format!("{}", e)))?;
+    Ok(encoded_content.into())
+  }
 
-#[wasm_bindgen(js_name = "decodeTransactionReference")]
-pub fn decode_transaction_reference(
-  encoded_content: EncodedContent,
-) -> Result<TransactionReference, JsError> {
-  // Use TransactionReferenceCodec to decode into TransactionReference and convert to TransactionReference
-  TransactionReferenceCodec::decode(encoded_content.into())
-    .map(Into::into)
-    .map_err(|e| JsError::new(&format!("{}", e)))
+  #[wasm_bindgen]
+  pub fn decode(encoded_content: EncodedContent) -> Result<TransactionReference, JsError> {
+    XmtpTransactionReferenceCodec::decode(encoded_content.into())
+      .map(Into::into)
+      .map_err(|e| JsError::new(&format!("{}", e)))
+  }
+
+  #[wasm_bindgen(js_name = "shouldPush")]
+  pub fn should_push() -> bool {
+    XmtpTransactionReferenceCodec::should_push()
+  }
 }

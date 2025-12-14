@@ -1,8 +1,7 @@
-use crate::encoded_content::EncodedContent;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 use js_sys::Uint8Array;
-use prost::Message;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
-use xmtp_content_types::{ContentCodec, leave_request::LeaveRequestCodec};
+use xmtp_content_types::{ContentCodec, leave_request::LeaveRequestCodec as XmtpLeaveRequestCodec};
 
 #[wasm_bindgen]
 pub struct LeaveRequest {
@@ -39,24 +38,25 @@ impl From<LeaveRequest> for xmtp_proto::xmtp::mls::message_contents::content_typ
   }
 }
 
-#[wasm_bindgen(js_name = "encodeLeaveRequest")]
-pub fn encode_leave_request(
-  #[wasm_bindgen(js_name = "leaveRequest")] leave_request: LeaveRequest,
-) -> Result<Uint8Array, JsError> {
-  let encoded =
-    LeaveRequestCodec::encode(leave_request.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
+#[wasm_bindgen]
+pub struct LeaveRequestCodec;
 
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+#[wasm_bindgen]
+impl LeaveRequestCodec {
+  #[wasm_bindgen(js_name = "contentType")]
+  pub fn content_type() -> ContentTypeId {
+    XmtpLeaveRequestCodec::content_type().into()
+  }
 
-  Ok(Uint8Array::from(buf.as_slice()))
-}
+  #[wasm_bindgen]
+  pub fn decode(encoded_content: EncodedContent) -> Result<LeaveRequest, JsError> {
+    XmtpLeaveRequestCodec::decode(encoded_content.into())
+      .map(Into::into)
+      .map_err(|e| JsError::new(&format!("{}", e)))
+  }
 
-#[wasm_bindgen(js_name = "decodeLeaveRequest")]
-pub fn decode_leave_request(encoded_content: EncodedContent) -> Result<LeaveRequest, JsError> {
-  LeaveRequestCodec::decode(encoded_content.into())
-    .map(Into::into)
-    .map_err(|e| JsError::new(&format!("{}", e)))
+  #[wasm_bindgen(js_name = "shouldPush")]
+  pub fn should_push() -> bool {
+    XmtpLeaveRequestCodec::should_push()
+  }
 }

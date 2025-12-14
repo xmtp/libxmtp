@@ -1,5 +1,5 @@
+use wasm_bindgen::JsError;
 use wasm_bindgen::prelude::wasm_bindgen;
-use wasm_bindgen::{JsError, JsValue};
 use xmtp_mls::messages::decoded_message::MessageBody;
 
 use super::{
@@ -144,14 +144,10 @@ impl DecodedMessageContent {
   }
 
   #[wasm_bindgen(js_name = asWalletSendCalls)]
-  pub fn as_wallet_send_calls(&self) -> Result<JsValue, JsValue> {
+  pub fn as_wallet_send_calls(&self) -> Option<WalletSendCalls> {
     match &self.payload {
-      MessageBody::WalletSendCalls(wsc) => {
-        let converted: WalletSendCalls = wsc.clone().into();
-        serde_wasm_bindgen::to_value(&converted)
-          .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
-      }
-      _ => Ok(JsValue::NULL),
+      MessageBody::WalletSendCalls(wsc) => Some(wsc.clone().into()),
+      _ => None,
     }
   }
 

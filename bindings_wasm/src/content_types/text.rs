@@ -1,9 +1,7 @@
-use crate::encoded_content::EncodedContent;
-use js_sys::Uint8Array;
-use prost::Message;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
-use xmtp_content_types::text::TextCodec;
+use xmtp_content_types::text::TextCodec as XmtpTextCodec;
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
@@ -19,25 +17,30 @@ impl From<xmtp_mls::messages::decoded_message::Text> for TextContent {
   }
 }
 
-#[wasm_bindgen(js_name = "encodeXmtpText")]
-pub fn encode_text(text: String) -> Result<Uint8Array, JsError> {
-  // Use TextCodec to encode the text
-  let encoded = TextCodec::encode(text).map_err(|e| JsError::new(&format!("{}", e)))?;
+#[wasm_bindgen]
+pub struct TextCodec;
 
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+#[wasm_bindgen]
+impl TextCodec {
+  #[wasm_bindgen(js_name = "contentType")]
+  pub fn content_type() -> ContentTypeId {
+    XmtpTextCodec::content_type().into()
+  }
 
-  Ok(Uint8Array::from(buf.as_slice()))
-}
+  #[wasm_bindgen]
+  pub fn encode(text: String) -> Result<EncodedContent, JsError> {
+    let encoded_content =
+      XmtpTextCodec::encode(text).map_err(|e| JsError::new(&format!("{}", e)))?;
+    Ok(encoded_content.into())
+  }
 
-// `decode` conflicts with some wasm function in bindgen/tests/somewhere
-// breaking `bindings_wasm` tests
-// PR: https://github.com/xmtp/libxmtp/pull/2863
-#[wasm_bindgen(js_name = "decodeXmtpText")]
-pub fn decode_text(encoded_content: EncodedContent) -> Result<String, JsError> {
-  // Use TextCodec to decode into String
-  TextCodec::decode(encoded_content.into()).map_err(|e| JsError::new(&format!("{}", e)))
+  #[wasm_bindgen]
+  pub fn decode(encoded_content: EncodedContent) -> Result<String, JsError> {
+    XmtpTextCodec::decode(encoded_content.into()).map_err(|e| JsError::new(&format!("{}", e)))
+  }
+
+  #[wasm_bindgen(js_name = "shouldPush")]
+  pub fn should_push() -> bool {
+    XmtpTextCodec::should_push()
+  }
 }

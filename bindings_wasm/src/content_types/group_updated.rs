@@ -1,7 +1,7 @@
-use crate::encoded_content::EncodedContent;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
-use xmtp_content_types::group_updated::GroupUpdatedCodec;
+use xmtp_content_types::group_updated::GroupUpdatedCodec as XmtpGroupUpdatedCodec;
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
@@ -166,10 +166,25 @@ impl From<MetadataFieldChange>
   }
 }
 
-#[wasm_bindgen(js_name = "decodeGroupUpdated")]
-pub fn decode_group_updated(encoded_content: EncodedContent) -> Result<GroupUpdated, JsError> {
-  // Use GroupUpdatedCodec to decode into GroupUpdated and convert to GroupUpdated
-  GroupUpdatedCodec::decode(encoded_content.into())
-    .map(Into::into)
-    .map_err(|e| JsError::new(&format!("{}", e)))
+#[wasm_bindgen]
+pub struct GroupUpdatedCodec;
+
+#[wasm_bindgen]
+impl GroupUpdatedCodec {
+  #[wasm_bindgen(js_name = "contentType")]
+  pub fn content_type() -> ContentTypeId {
+    XmtpGroupUpdatedCodec::content_type().into()
+  }
+
+  #[wasm_bindgen]
+  pub fn decode(encoded_content: EncodedContent) -> Result<GroupUpdated, JsError> {
+    XmtpGroupUpdatedCodec::decode(encoded_content.into())
+      .map(Into::into)
+      .map_err(|e| JsError::new(&format!("{}", e)))
+  }
+
+  #[wasm_bindgen(js_name = "shouldPush")]
+  pub fn should_push() -> bool {
+    XmtpGroupUpdatedCodec::should_push()
+  }
 }

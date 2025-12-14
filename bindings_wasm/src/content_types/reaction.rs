@@ -1,9 +1,7 @@
-use crate::encoded_content::EncodedContent;
-use js_sys::Uint8Array;
-use prost::Message;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
-use xmtp_content_types::reaction::ReactionCodec;
+use xmtp_content_types::reaction::ReactionCodec as XmtpReactionCodec;
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
 
 #[wasm_bindgen(getter_with_clone)]
@@ -69,29 +67,34 @@ impl From<ReactionV2> for Reaction {
   }
 }
 
-#[wasm_bindgen(js_name = "encodeReaction")]
-pub fn encode_reaction(reaction: Reaction) -> Result<Uint8Array, JsError> {
-  // Convert Reaction to Reaction
-  let reaction: ReactionV2 = reaction.into();
+#[wasm_bindgen]
+pub struct ReactionCodec;
 
-  // Use ReactionCodec to encode the reaction
-  let encoded = ReactionCodec::encode(reaction).map_err(|e| JsError::new(&format!("{}", e)))?;
+#[wasm_bindgen]
+impl ReactionCodec {
+  #[wasm_bindgen(js_name = "contentType")]
+  pub fn content_type() -> ContentTypeId {
+    XmtpReactionCodec::content_type().into()
+  }
 
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+  #[wasm_bindgen]
+  pub fn encode(reaction: Reaction) -> Result<EncodedContent, JsError> {
+    let encoded_content =
+      XmtpReactionCodec::encode(reaction.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
+    Ok(encoded_content.into())
+  }
 
-  Ok(Uint8Array::from(buf.as_slice()))
-}
+  #[wasm_bindgen]
+  pub fn decode(encoded_content: EncodedContent) -> Result<Reaction, JsError> {
+    XmtpReactionCodec::decode(encoded_content.into())
+      .map(Into::into)
+      .map_err(|e| JsError::new(&format!("{}", e)))
+  }
 
-#[wasm_bindgen(js_name = "decodeReaction")]
-pub fn decode_reaction(encoded_content: EncodedContent) -> Result<Reaction, JsError> {
-  // Use ReactionCodec to decode into Reaction and convert to Reaction
-  ReactionCodec::decode(encoded_content.into())
-    .map(Into::into)
-    .map_err(|e| JsError::new(&format!("{}", e)))
+  #[wasm_bindgen(js_name = "shouldPush")]
+  pub fn should_push() -> bool {
+    XmtpReactionCodec::should_push()
+  }
 }
 
 #[wasm_bindgen]
