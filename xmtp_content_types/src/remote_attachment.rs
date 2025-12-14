@@ -15,6 +15,18 @@ impl RemoteAttachmentCodec {
     pub const MINOR_VERSION: u32 = 0;
 }
 
+impl RemoteAttachmentCodec {
+    fn fallback(content: &RemoteAttachment) -> Option<String> {
+        Some(format!(
+            "Can't display {}. This app doesn't support remote attachments.",
+            content
+                .filename
+                .clone()
+                .unwrap_or("this content".to_string())
+        ))
+    }
+}
+
 impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
     fn content_type() -> ContentTypeId {
         ContentTypeId {
@@ -26,6 +38,7 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
     }
 
     fn encode(data: RemoteAttachment) -> Result<EncodedContent, CodecError> {
+        let fallback = Self::fallback(&data);
         let mut parameters = [
             ("contentDigest", data.content_digest),
             ("salt", hex::encode(data.salt)),
@@ -45,7 +58,7 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
             parameters,
-            fallback: None,
+            fallback,
             compression: None,
             content: data.url.into_bytes(),
         })
@@ -81,6 +94,10 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
             scheme,
             content_length,
         })
+    }
+
+    fn should_push() -> bool {
+        true
     }
 }
 

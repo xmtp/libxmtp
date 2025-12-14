@@ -45,6 +45,10 @@ impl ContentCodec<GroupUpdated> for GroupUpdatedCodec {
 
         Ok(decoded)
     }
+
+    fn should_push() -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

@@ -14,6 +14,12 @@ impl IntentCodec {
     pub const MINOR_VERSION: u32 = 0;
 }
 
+impl IntentCodec {
+    fn fallback(intent: &Intent) -> Option<String> {
+        Some(format!("User selected action: {}", intent.action_id))
+    }
+}
+
 impl ContentCodec<Intent> for IntentCodec {
     fn content_type() -> ContentTypeId {
         ContentTypeId {
@@ -40,12 +46,10 @@ impl ContentCodec<Intent> for IntentCodec {
         let intent_json = serde_json::to_vec(&intent)
             .map_err(|e| CodecError::Encode(format!("Unable to serialize intent. {e:?}")))?;
 
-        let fallback = format!("User selected action: {}", intent.action_id);
-
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
             content: intent_json,
-            fallback: Some(fallback),
+            fallback: Self::fallback(&intent),
             ..Default::default()
         })
     }
@@ -55,6 +59,10 @@ impl ContentCodec<Intent> for IntentCodec {
             .map_err(|e| CodecError::Decode(format!("Unable to deserialize intent. {e:?}")))?;
 
         Ok(intent)
+    }
+
+    fn should_push() -> bool {
+        true
     }
 }
 
