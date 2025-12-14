@@ -19,6 +19,20 @@ impl ReactionCodec {
     pub const MINOR_VERSION: u32 = 0;
 }
 
+impl ReactionCodec {
+    fn fallback(content: &ReactionV2) -> Option<String> {
+        let (action, prepos) = if content.action == ReactionAction::Removed as i32 {
+            ("Removed", "from")
+        } else {
+            ("Reacted with", "to")
+        };
+        Some(format!(
+            "{} \"{}\" {} an earlier message",
+            action, content.content, prepos
+        ))
+    }
+}
+
 impl ContentCodec<ReactionV2> for ReactionCodec {
     fn content_type() -> ContentTypeId {
         ContentTypeId {
@@ -37,7 +51,7 @@ impl ContentCodec<ReactionV2> for ReactionCodec {
         Ok(EncodedContent {
             r#type: Some(ReactionCodec::content_type()),
             parameters: HashMap::new(),
-            fallback: None,
+            fallback: Self::fallback(&data),
             compression: None,
             content: buf,
         })
@@ -48,6 +62,10 @@ impl ContentCodec<ReactionV2> for ReactionCodec {
             .map_err(|e| CodecError::Decode(e.to_string()))?;
 
         Ok(decoded)
+    }
+
+    fn should_push() -> bool {
+        false
     }
 }
 
@@ -122,6 +140,20 @@ impl LegacyReactionCodec {
     pub const MINOR_VERSION: u32 = 0;
 }
 
+impl LegacyReactionCodec {
+    fn fallback(content: &LegacyReaction) -> Option<String> {
+        let (action, prepos) = if content.action == "removed" {
+            ("Removed", "from")
+        } else {
+            ("Reacted with", "to")
+        };
+        Some(format!(
+            "{} \"{}\" {} an earlier message",
+            action, content.content, prepos
+        ))
+    }
+}
+
 impl ContentCodec<LegacyReaction> for LegacyReactionCodec {
     fn content_type() -> ContentTypeId {
         ContentTypeId {
@@ -137,7 +169,7 @@ impl ContentCodec<LegacyReaction> for LegacyReactionCodec {
         Ok(EncodedContent {
             r#type: Some(LegacyReactionCodec::content_type()),
             parameters: std::collections::HashMap::new(),
-            fallback: None,
+            fallback: Self::fallback(&data),
             compression: None,
             content: json.into_bytes(),
         })
@@ -148,6 +180,10 @@ impl ContentCodec<LegacyReaction> for LegacyReactionCodec {
             .map_err(|e| CodecError::Decode(e.to_string()))?;
 
         Ok(decoded)
+    }
+
+    fn should_push() -> bool {
+        false
     }
 }
 

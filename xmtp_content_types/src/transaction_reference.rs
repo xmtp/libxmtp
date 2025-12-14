@@ -15,6 +15,19 @@ impl TransactionReferenceCodec {
     pub const MINOR_VERSION: u32 = 0;
 }
 
+impl TransactionReferenceCodec {
+    fn fallback(content: &TransactionReference) -> Option<String> {
+        if !content.reference.is_empty() {
+            Some(format!(
+                "[Crypto transaction] Use a blockchain explorer to learn more using the transaction hash: {}",
+                content.reference
+            ))
+        } else {
+            Some("Crypto transaction".to_string())
+        }
+    }
+}
+
 impl ContentCodec<TransactionReference> for TransactionReferenceCodec {
     fn content_type() -> ContentTypeId {
         ContentTypeId {
@@ -32,7 +45,7 @@ impl ContentCodec<TransactionReference> for TransactionReferenceCodec {
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
             parameters: HashMap::new(),
-            fallback: Some(Self::fallback(&data)),
+            fallback: Self::fallback(&data),
             compression: None,
             content: json,
         })
@@ -42,18 +55,9 @@ impl ContentCodec<TransactionReference> for TransactionReferenceCodec {
         serde_json::from_slice(&encoded.content)
             .map_err(|e| CodecError::Decode(format!("JSON decode error: {e}")))
     }
-}
 
-impl TransactionReferenceCodec {
-    fn fallback(content: &TransactionReference) -> String {
-        if !content.reference.is_empty() {
-            format!(
-                "[Crypto transaction] Use a blockchain explorer to learn more using the transaction hash: {}",
-                content.reference
-            )
-        } else {
-            "Crypto transaction".to_string()
-        }
+    fn should_push() -> bool {
+        true
     }
 }
 
