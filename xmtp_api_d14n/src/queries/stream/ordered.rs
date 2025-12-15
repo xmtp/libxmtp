@@ -102,3 +102,56 @@ where
         Poll::Ready(Some(Ok(envelopes)))
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::protocol::{InMemoryCursorStore, test::missing_dependencies};
+    use futures::{FutureExt, StreamExt, stream};
+    use proptest::prelude::*;
+    use xmtp_proto::api::VectorClock;
+
+    proptest! {
+        #[xmtp_common::test]
+        fn orders_stream_and_ices_missing(
+            envelopes in missing_dependencies(10, vec![10, 20, 30])
+        ) {
+            let store = InMemoryCursorStore::new();
+            let envs = envelopes.envelopes.clone();
+            let s = stream::once(async move { Ok::<_, EnvelopeError>(envs) });
+            let ordered_stream = ordered(s, store.clone(), TopicCursor::default());
+            futures::pin_mut!(ordered_stream);
+
+            let result = ordered_stream.next().now_or_never()
+                .expect("Stream should yield immediately")
+                .expect("Stream should not be empty")
+                .expect("Should not error");
+
+            let mut topic_cursor = TopicCursor::default();
+            for env in &result {
+                let topic = env.topic().unwrap();
+                topic_cursor.entry(topic.clone()).or_default().apply(&env.cursor());
+            }
+
+            for env in &result {
+                let topic = env.topic().unwrap();
+                let clock = topic_cursor.get_or_default(&topic);
+                prop_assert!(
+                    clock.dominates(&env.depends_on()),
+                    "Envelope {} should have satisfied dependencies. Topic clock: {}",
+                    env, clock
+                );
+            }
+
+            // Verify that if dependencies are missing, some envelopes are iced
+            if !envelopes.removed.is_empty() {
+                let has_deps_on_removed = envelopes.envelopes.iter()
+                    .any(|e| envelopes.removed.iter().any(|r| e.has_dependency_on(r)));
+                if has_deps_on_removed {
+                    prop_assert!(!store.icebox().is_empty(),
+                        "Expected some envelopes to be iced when dependencies are missing");
+                }
+            }
+        }
+    }
+}
