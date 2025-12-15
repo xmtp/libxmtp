@@ -1,25 +1,14 @@
 use crate::encoded_content::{ContentTypeId, EncodedContent};
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use serde::{Deserialize, Serialize};
+use tsify::Tsify;
+use wasm_bindgen::JsError;
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::read_receipt::ReadReceiptCodec as XmtpReadReceiptCodec;
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, type = "Record<string, never>")]
 pub struct ReadReceipt {}
-
-#[wasm_bindgen]
-impl ReadReceipt {
-  #[wasm_bindgen(constructor)]
-  pub fn new() -> Self {
-    Self {}
-  }
-}
-
-impl Default for ReadReceipt {
-  fn default() -> Self {
-    Self::new()
-  }
-}
 
 impl From<xmtp_content_types::read_receipt::ReadReceipt> for ReadReceipt {
   fn from(_: xmtp_content_types::read_receipt::ReadReceipt) -> Self {
@@ -44,8 +33,8 @@ impl ReadReceiptCodec {
   }
 
   #[wasm_bindgen]
-  pub fn encode(read_receipt: ReadReceipt) -> Result<EncodedContent, JsError> {
-    let encoded_content = XmtpReadReceiptCodec::encode(read_receipt.into())
+  pub fn encode() -> Result<EncodedContent, JsError> {
+    let encoded_content = XmtpReadReceiptCodec::encode(ReadReceipt {}.into())
       .map_err(|e| JsError::new(&format!("{}", e)))?;
     Ok(encoded_content.into())
   }

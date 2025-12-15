@@ -1,6 +1,8 @@
 use crate::encoded_content::{ContentTypeId, EncodedContent};
-use js_sys::Uint8Array;
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use serde::{Deserialize, Serialize};
+use tsify::Tsify;
+use wasm_bindgen::JsError;
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec as XmtpMultiRemoteAttachmentCodec;
 use xmtp_proto::xmtp::mls::message_contents::content_types::{
@@ -8,112 +10,78 @@ use xmtp_proto::xmtp::mls::message_contents::content_types::{
   RemoteAttachmentInfo as XmtpRemoteAttachmentInfo,
 };
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Default)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct RemoteAttachmentInfo {
-  pub secret: Uint8Array,
-  #[wasm_bindgen(js_name = "contentDigest")]
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
+  pub secret: Vec<u8>,
   pub content_digest: String,
-  pub nonce: Uint8Array,
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
+  pub nonce: Vec<u8>,
   pub scheme: String,
   pub url: String,
-  pub salt: Uint8Array,
-  #[wasm_bindgen(js_name = "contentLength")]
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
+  pub salt: Vec<u8>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[tsify(optional)]
   pub content_length: Option<u32>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[tsify(optional)]
   pub filename: Option<String>,
 }
 
-#[wasm_bindgen]
-impl RemoteAttachmentInfo {
-  #[wasm_bindgen(constructor)]
-  #[allow(clippy::too_many_arguments)]
-  pub fn new(
-    secret: Uint8Array,
-    #[wasm_bindgen(js_name = "contentDigest")] content_digest: String,
-    nonce: Uint8Array,
-    scheme: String,
-    url: String,
-    salt: Uint8Array,
-    #[wasm_bindgen(js_name = "contentLength")] content_length: Option<u32>,
-    filename: Option<String>,
-  ) -> Self {
-    Self {
-      secret,
-      content_digest,
-      nonce,
-      scheme,
-      url,
-      salt,
-      content_length,
-      filename,
-    }
-  }
-}
-
 impl From<RemoteAttachmentInfo> for XmtpRemoteAttachmentInfo {
-  fn from(remote_attachment_info: RemoteAttachmentInfo) -> Self {
+  fn from(info: RemoteAttachmentInfo) -> Self {
     XmtpRemoteAttachmentInfo {
-      content_digest: remote_attachment_info.content_digest,
-      secret: remote_attachment_info.secret.to_vec(),
-      nonce: remote_attachment_info.nonce.to_vec(),
-      salt: remote_attachment_info.salt.to_vec(),
-      scheme: remote_attachment_info.scheme,
-      url: remote_attachment_info.url,
-      content_length: remote_attachment_info.content_length,
-      filename: remote_attachment_info.filename,
+      content_digest: info.content_digest,
+      secret: info.secret,
+      nonce: info.nonce,
+      salt: info.salt,
+      scheme: info.scheme,
+      url: info.url,
+      content_length: info.content_length,
+      filename: info.filename,
     }
   }
 }
 
 impl From<XmtpRemoteAttachmentInfo> for RemoteAttachmentInfo {
-  fn from(remote_attachment_info: XmtpRemoteAttachmentInfo) -> Self {
+  fn from(info: XmtpRemoteAttachmentInfo) -> Self {
     RemoteAttachmentInfo {
-      secret: Uint8Array::from(remote_attachment_info.secret.as_slice()),
-      content_digest: remote_attachment_info.content_digest,
-      nonce: Uint8Array::from(remote_attachment_info.nonce.as_slice()),
-      scheme: remote_attachment_info.scheme,
-      url: remote_attachment_info.url,
-      salt: Uint8Array::from(remote_attachment_info.salt.as_slice()),
-      content_length: remote_attachment_info.content_length,
-      filename: remote_attachment_info.filename,
+      secret: info.secret,
+      content_digest: info.content_digest,
+      nonce: info.nonce,
+      scheme: info.scheme,
+      url: info.url,
+      salt: info.salt,
+      content_length: info.content_length,
+      filename: info.filename,
     }
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Default)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct MultiRemoteAttachment {
   pub attachments: Vec<RemoteAttachmentInfo>,
 }
 
-#[wasm_bindgen]
-impl MultiRemoteAttachment {
-  #[wasm_bindgen(constructor)]
-  pub fn new(attachments: Vec<RemoteAttachmentInfo>) -> Self {
-    Self { attachments }
-  }
-}
-
 impl From<MultiRemoteAttachment> for XmtpMultiRemoteAttachment {
-  fn from(multi_remote_attachment: MultiRemoteAttachment) -> Self {
+  fn from(multi: MultiRemoteAttachment) -> Self {
     XmtpMultiRemoteAttachment {
-      attachments: multi_remote_attachment
-        .attachments
-        .into_iter()
-        .map(Into::into)
-        .collect(),
+      attachments: multi.attachments.into_iter().map(Into::into).collect(),
     }
   }
 }
 
 impl From<XmtpMultiRemoteAttachment> for MultiRemoteAttachment {
-  fn from(multi_remote_attachment: XmtpMultiRemoteAttachment) -> Self {
+  fn from(multi: XmtpMultiRemoteAttachment) -> Self {
     MultiRemoteAttachment {
-      attachments: multi_remote_attachment
-        .attachments
-        .into_iter()
-        .map(Into::into)
-        .collect(),
+      attachments: multi.attachments.into_iter().map(Into::into).collect(),
     }
   }
 }

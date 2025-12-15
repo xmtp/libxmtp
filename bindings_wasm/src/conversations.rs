@@ -568,7 +568,7 @@ impl Conversations {
       .message_v2(message_id)
       .map_err(|e| JsError::new(&e.to_string()))?;
 
-    Ok(message.into())
+    message.try_into()
   }
 
   #[wasm_bindgen(js_name = deleteMessageById)]

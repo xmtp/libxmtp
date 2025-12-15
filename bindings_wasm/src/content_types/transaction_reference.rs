@@ -1,34 +1,22 @@
 use crate::encoded_content::{ContentTypeId, EncodedContent};
+use serde::{Deserialize, Serialize};
+use tsify::Tsify;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::transaction_reference::TransactionReferenceCodec as XmtpTransactionReferenceCodec;
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct TransactionReference {
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub namespace: Option<String>,
-  #[wasm_bindgen(js_name = "networkId")]
   pub network_id: String,
   pub reference: String,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub metadata: Option<TransactionMetadata>,
-}
-
-#[wasm_bindgen]
-impl TransactionReference {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    namespace: Option<String>,
-    #[wasm_bindgen(js_name = "networkId")] network_id: String,
-    reference: String,
-    metadata: Option<TransactionMetadata>,
-  ) -> Self {
-    Self {
-      namespace,
-      network_id,
-      reference,
-      metadata,
-    }
-  }
 }
 
 impl From<xmtp_content_types::transaction_reference::TransactionReference>
@@ -57,40 +45,16 @@ impl From<TransactionReference>
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct TransactionMetadata {
-  #[wasm_bindgen(js_name = "transactionType")]
   pub transaction_type: String,
   pub currency: String,
   pub amount: f64,
   pub decimals: u32,
-  #[wasm_bindgen(js_name = "fromAddress")]
   pub from_address: String,
-  #[wasm_bindgen(js_name = "toAddress")]
   pub to_address: String,
-}
-
-#[wasm_bindgen]
-impl TransactionMetadata {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    #[wasm_bindgen(js_name = "transactionType")] transaction_type: String,
-    currency: String,
-    amount: f64,
-    decimals: u32,
-    #[wasm_bindgen(js_name = "fromAddress")] from_address: String,
-    #[wasm_bindgen(js_name = "toAddress")] to_address: String,
-  ) -> Self {
-    Self {
-      transaction_type,
-      currency,
-      amount,
-      decimals,
-      from_address,
-      to_address,
-    }
-  }
 }
 
 impl From<xmtp_content_types::transaction_reference::TransactionMetadata> for TransactionMetadata {

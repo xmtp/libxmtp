@@ -1,50 +1,32 @@
 use crate::encoded_content::{ContentTypeId, EncodedContent};
-use js_sys::Uint8Array;
+use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use tsify::Tsify;
+use wasm_bindgen::JsError;
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::remote_attachment::RemoteAttachmentCodec as XmtpRemoteAttachmentCodec;
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct RemoteAttachment {
   pub url: String,
-  #[wasm_bindgen(js_name = "contentDigest")]
   pub content_digest: String,
-  pub secret: Uint8Array,
-  pub salt: Uint8Array,
-  pub nonce: Uint8Array,
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
+  pub secret: Vec<u8>,
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
+  pub salt: Vec<u8>,
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
+  pub nonce: Vec<u8>,
   pub scheme: String,
-  #[wasm_bindgen(js_name = "contentLength")]
   pub content_length: u32,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[tsify(optional)]
   pub filename: Option<String>,
-}
-
-#[wasm_bindgen]
-impl RemoteAttachment {
-  #[wasm_bindgen(constructor)]
-  #[allow(clippy::too_many_arguments)]
-  pub fn new(
-    url: String,
-    #[wasm_bindgen(js_name = "contentDigest")] content_digest: String,
-    secret: Uint8Array,
-    salt: Uint8Array,
-    nonce: Uint8Array,
-    scheme: String,
-    #[wasm_bindgen(js_name = "contentLength")] content_length: u32,
-    filename: Option<String>,
-  ) -> Self {
-    Self {
-      url,
-      content_digest,
-      secret,
-      salt,
-      nonce,
-      scheme,
-      content_length,
-      filename,
-    }
-  }
 }
 
 impl TryFrom<xmtp_content_types::remote_attachment::RemoteAttachment> for RemoteAttachment {
@@ -64,9 +46,9 @@ impl TryFrom<xmtp_content_types::remote_attachment::RemoteAttachment> for Remote
     Ok(Self {
       url: remote.url,
       content_digest: remote.content_digest,
-      secret: Uint8Array::from(remote.secret.as_slice()),
-      salt: Uint8Array::from(remote.salt.as_slice()),
-      nonce: Uint8Array::from(remote.nonce.as_slice()),
+      secret: remote.secret,
+      salt: remote.salt,
+      nonce: remote.nonce,
       scheme: remote.scheme,
       content_length,
       filename: remote.filename,
@@ -79,9 +61,9 @@ impl From<RemoteAttachment> for xmtp_content_types::remote_attachment::RemoteAtt
     Self {
       url: remote.url,
       content_digest: remote.content_digest,
-      secret: remote.secret.to_vec(),
-      salt: remote.salt.to_vec(),
-      nonce: remote.nonce.to_vec(),
+      secret: remote.secret,
+      salt: remote.salt,
+      nonce: remote.nonce,
       scheme: remote.scheme,
       content_length: remote.content_length as usize,
       filename: remote.filename,

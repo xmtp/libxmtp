@@ -1,32 +1,19 @@
 use crate::encoded_content::{ContentTypeId, EncodedContent};
-use js_sys::Uint8Array;
+use serde::{Deserialize, Serialize};
+use tsify::Tsify;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::attachment::AttachmentCodec as XmtpAttachmentCodec;
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct Attachment {
   pub filename: Option<String>,
-  #[wasm_bindgen(js_name = "mimeType")]
   pub mime_type: String,
-  pub content: Uint8Array,
-}
-
-#[wasm_bindgen]
-impl Attachment {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    filename: Option<String>,
-    #[wasm_bindgen(js_name = "mimeType")] mime_type: String,
-    content: Uint8Array,
-  ) -> Self {
-    Self {
-      filename,
-      mime_type,
-      content,
-    }
-  }
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
+  pub content: Vec<u8>,
 }
 
 impl From<xmtp_content_types::attachment::Attachment> for Attachment {
@@ -34,7 +21,7 @@ impl From<xmtp_content_types::attachment::Attachment> for Attachment {
     Self {
       filename: attachment.filename,
       mime_type: attachment.mime_type,
-      content: attachment.content.as_slice().into(),
+      content: attachment.content,
     }
   }
 }
@@ -44,7 +31,7 @@ impl From<Attachment> for xmtp_content_types::attachment::Attachment {
     Self {
       filename: attachment.filename,
       mime_type: attachment.mime_type,
-      content: attachment.content.to_vec(),
+      content: attachment.content,
     }
   }
 }

@@ -11,7 +11,9 @@ use crate::{
   consent_state::ConsentState, enriched_message::DecodedMessage, permissions::GroupPermissions,
 };
 use js_sys::Uint8Array;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tsify::Tsify;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_db::group::{ConversationType, DmIdExt};
@@ -30,18 +32,11 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedConten
 
 use prost::Message as ProstMessage;
 
-#[wasm_bindgen]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct SendMessageOpts {
-  #[wasm_bindgen(js_name = shouldPush)]
   pub should_push: bool,
-}
-
-#[wasm_bindgen]
-impl SendMessageOpts {
-  #[wasm_bindgen(constructor)]
-  pub fn new(#[wasm_bindgen(js_name = shouldPush)] should_push: bool) -> Self {
-    Self { should_push }
-  }
 }
 
 impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
@@ -845,14 +840,14 @@ impl Conversation {
   ) -> Result<Vec<DecodedMessage>, JsError> {
     let opts = opts.unwrap_or_default();
     let group = self.to_mls_group();
-    let messages: Vec<DecodedMessage> = group
+    let messages: Result<Vec<DecodedMessage>, _> = group
       .find_messages_v2(&opts.into())
       .map_err(|e| JsError::new(&format!("{e}")))?
       .into_iter()
-      .map(|msg| msg.into())
+      .map(|msg| msg.try_into())
       .collect();
 
-    Ok(messages)
+    messages
   }
 
   #[wasm_bindgen(js_name = getLastReadTimes)]

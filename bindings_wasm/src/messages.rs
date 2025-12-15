@@ -1,5 +1,6 @@
-use js_sys::Uint8Array;
 use prost::Message as ProstMessage;
+use serde::{Deserialize, Serialize};
+use tsify::Tsify;
 use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_db::group_message::{
   DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs,
@@ -10,8 +11,9 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedConten
 
 use crate::{content_types::ContentType, encoded_content::EncodedContent};
 
-#[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "lowercase")]
 pub enum GroupMessageKind {
   Application,
   MembershipChange,
@@ -35,8 +37,9 @@ impl From<GroupMessageKind> for XmtpGroupMessageKind {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "lowercase")]
 pub enum DeliveryStatus {
   Unpublished,
   Published,
@@ -63,8 +66,9 @@ impl From<DeliveryStatus> for XmtpDeliveryStatus {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "lowercase")]
 pub enum SortDirection {
   Ascending,
   Descending,
@@ -79,8 +83,9 @@ impl From<SortDirection> for XmtpSortDirection {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub enum MessageSortBy {
   SentAt,
   InsertedAt,
@@ -234,7 +239,7 @@ impl From<StoredGroupMessage> for Message {
           parameters: Default::default(),
           fallback: None,
           compression: None,
-          content: Uint8Array::new_with_length(0),
+          content: Vec::new(),
         }
       }
     };

@@ -1,69 +1,58 @@
 use super::decoded_message_content::DecodedMessageContent;
 use crate::encoded_content::{ContentTypeId, EncodedContent};
 use crate::enriched_message::DecodedMessage;
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use serde::{Deserialize, Serialize};
+use tsify::Tsify;
+use wasm_bindgen::JsError;
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reply::ReplyCodec as XmtpReplyCodec;
 
-#[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct EnrichedReply {
-  in_reply_to_msg: Option<DecodedMessage>,
-  content: DecodedMessageContent,
-  reference_id: String,
-}
-
-#[wasm_bindgen]
-impl EnrichedReply {
-  #[wasm_bindgen(getter, js_name = "referenceId")]
-  pub fn reference_id(&self) -> String {
-    self.reference_id.clone()
-  }
-
-  #[wasm_bindgen(getter)]
-  pub fn content(&self) -> DecodedMessageContent {
-    self.content.clone()
-  }
-
-  #[wasm_bindgen(getter, js_name = "inReplyTo")]
-  pub fn in_reply_to(&self) -> Option<DecodedMessage> {
-    self.in_reply_to_msg.clone()
-  }
+  pub reference_id: String,
+  pub content: Box<DecodedMessageContent>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[tsify(optional)]
+  pub in_reply_to: Option<Box<DecodedMessage>>,
 }
 
 impl From<xmtp_mls::messages::decoded_message::Reply> for EnrichedReply {
   fn from(reply: xmtp_mls::messages::decoded_message::Reply) -> Self {
+    // Note: We need to handle the TryFrom for DecodedMessageContent
+    // For now, we unwrap - a more robust solution would propagate the error
+    let content = reply
+      .content
+      .as_ref()
+      .clone()
+      .try_into()
+      .expect("Failed to convert message content");
+    let in_reply_to = reply.in_reply_to.map(|m| {
+      let msg: DecodedMessage = (*m)
+        .try_into()
+        .expect("Failed to convert in_reply_to message");
+      Box::new(msg)
+    });
+
     Self {
-      in_reply_to_msg: reply.in_reply_to.map(|m| (*m).into()),
-      content: reply.content.as_ref().clone().into(),
       reference_id: reply.reference_id,
+      content: Box::new(content),
+      in_reply_to,
     }
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct Reply {
   pub content: EncodedContent,
   pub reference: String,
-  #[wasm_bindgen(js_name = "referenceInboxId")]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[tsify(optional)]
   pub reference_inbox_id: Option<String>,
-}
-
-#[wasm_bindgen]
-impl Reply {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    content: EncodedContent,
-    reference: String,
-    #[wasm_bindgen(js_name = "referenceInboxId")] reference_inbox_id: Option<String>,
-  ) -> Self {
-    Self {
-      content,
-      reference,
-      reference_inbox_id,
-    }
-  }
 }
 
 impl From<xmtp_content_types::reply::Reply> for Reply {

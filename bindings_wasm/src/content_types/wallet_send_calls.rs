@@ -9,13 +9,15 @@ use xmtp_content_types::wallet_send_calls::{
 };
 
 #[derive(Clone, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
+#[tsify(into_wasm_abi, from_wasm_abi, hashmap_as_object)]
 #[serde(rename_all = "camelCase")]
 pub struct WalletSendCalls {
   pub version: String,
   pub chain_id: String,
   pub from: String,
   pub calls: Vec<WalletCall>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub capabilities: Option<HashMap<String, String>>,
 }
 
@@ -46,10 +48,20 @@ impl From<WalletSendCalls> for XmtpWalletSendCalls {
 #[derive(Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct WalletCall {
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub to: Option<String>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub data: Option<String>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub value: Option<String>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub gas: Option<String>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub metadata: Option<WalletCallMetadata>,
 }
 
@@ -78,7 +90,7 @@ impl From<WalletCall> for xmtp_content_types::wallet_send_calls::WalletCall {
 }
 
 #[derive(Clone, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
+#[tsify(into_wasm_abi, from_wasm_abi, hashmap_as_object)]
 #[serde(rename_all = "camelCase")]
 pub struct WalletCallMetadata {
   pub description: String,

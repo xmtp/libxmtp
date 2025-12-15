@@ -1,183 +1,73 @@
+use serde::{Deserialize, Serialize};
+use tsify::Tsify;
 use wasm_bindgen::JsError;
-use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_mls::messages::decoded_message::MessageBody;
 
 use super::{
   actions::Actions, attachment::Attachment, group_updated::GroupUpdated, intent::Intent,
-  leave_request::LeaveRequest, multi_remote_attachment::MultiRemoteAttachment,
-  reaction::ReactionPayload, read_receipt::ReadReceipt, remote_attachment::RemoteAttachment,
-  reply::EnrichedReply, text::TextContent, transaction_reference::TransactionReference,
-  wallet_send_calls::WalletSendCalls,
+  leave_request::LeaveRequest, multi_remote_attachment::MultiRemoteAttachment, reaction::Reaction,
+  read_receipt::ReadReceipt, remote_attachment::RemoteAttachment, reply::EnrichedReply,
+  transaction_reference::TransactionReference, wallet_send_calls::WalletSendCalls,
 };
 use crate::encoded_content::EncodedContent;
 
-#[wasm_bindgen]
-pub enum PayloadType {
-  Text,
-  Reply,
-  Reaction,
-  Attachment,
-  RemoteAttachment,
-  MultiRemoteAttachment,
-  TransactionReference,
-  GroupUpdated,
-  ReadReceipt,
-  LeaveRequest,
-  WalletSendCalls,
-  Intent,
-  Actions,
-  Custom,
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum DecodedMessageContent {
+  Text { content: String },
+  Reply { content: Box<EnrichedReply> },
+  Reaction { content: Reaction },
+  Attachment { content: Attachment },
+  RemoteAttachment { content: RemoteAttachment },
+  MultiRemoteAttachment { content: MultiRemoteAttachment },
+  TransactionReference { content: TransactionReference },
+  GroupUpdated { content: GroupUpdated },
+  ReadReceipt { content: ReadReceipt },
+  LeaveRequest { content: LeaveRequest },
+  WalletSendCalls { content: WalletSendCalls },
+  Intent { content: Option<Intent> },
+  Actions { content: Option<Actions> },
+  Custom { content: EncodedContent },
 }
 
-#[wasm_bindgen]
-#[derive(Clone)]
-pub struct DecodedMessageContent {
-  payload: MessageBody,
-}
+impl TryFrom<MessageBody> for DecodedMessageContent {
+  type Error = JsError;
 
-#[wasm_bindgen]
-impl DecodedMessageContent {
-  #[wasm_bindgen(getter, js_name = payloadType)]
-  pub fn payload_type(&self) -> PayloadType {
-    match &self.payload {
-      MessageBody::Text(_) => PayloadType::Text,
-      MessageBody::Reply(_) => PayloadType::Reply,
-      MessageBody::Reaction(_) => PayloadType::Reaction,
-      MessageBody::Attachment(_) => PayloadType::Attachment,
-      MessageBody::RemoteAttachment(_) => PayloadType::RemoteAttachment,
-      MessageBody::MultiRemoteAttachment(_) => PayloadType::MultiRemoteAttachment,
-      MessageBody::TransactionReference(_) => PayloadType::TransactionReference,
-      MessageBody::GroupUpdated(_) => PayloadType::GroupUpdated,
-      MessageBody::ReadReceipt(_) => PayloadType::ReadReceipt,
-      MessageBody::LeaveRequest(_) => PayloadType::LeaveRequest,
-      MessageBody::WalletSendCalls(_) => PayloadType::WalletSendCalls,
-      MessageBody::Intent(_) => PayloadType::Intent,
-      MessageBody::Actions(_) => PayloadType::Actions,
-      MessageBody::Custom(_) => PayloadType::Custom,
+  fn try_from(body: MessageBody) -> Result<Self, Self::Error> {
+    match body {
+      MessageBody::Text(t) => Ok(DecodedMessageContent::Text { content: t.content }),
+      MessageBody::Reply(r) => Ok(DecodedMessageContent::Reply {
+        content: Box::new(r.into()),
+      }),
+      MessageBody::Reaction(r) => Ok(DecodedMessageContent::Reaction { content: r.into() }),
+      MessageBody::Attachment(a) => Ok(DecodedMessageContent::Attachment { content: a.into() }),
+      MessageBody::RemoteAttachment(ra) => Ok(DecodedMessageContent::RemoteAttachment {
+        content: ra.try_into()?,
+      }),
+      MessageBody::MultiRemoteAttachment(mra) => Ok(DecodedMessageContent::MultiRemoteAttachment {
+        content: mra.into(),
+      }),
+      MessageBody::TransactionReference(tr) => {
+        Ok(DecodedMessageContent::TransactionReference { content: tr.into() })
+      }
+      MessageBody::GroupUpdated(gu) => {
+        Ok(DecodedMessageContent::GroupUpdated { content: gu.into() })
+      }
+      MessageBody::ReadReceipt(rr) => Ok(DecodedMessageContent::ReadReceipt { content: rr.into() }),
+      MessageBody::LeaveRequest(lr) => {
+        Ok(DecodedMessageContent::LeaveRequest { content: lr.into() })
+      }
+      MessageBody::WalletSendCalls(wsc) => Ok(DecodedMessageContent::WalletSendCalls {
+        content: wsc.into(),
+      }),
+      MessageBody::Intent(i) => Ok(DecodedMessageContent::Intent {
+        content: i.map(Into::into),
+      }),
+      MessageBody::Actions(a) => Ok(DecodedMessageContent::Actions {
+        content: a.map(|a| a.try_into()).transpose()?,
+      }),
+      MessageBody::Custom(c) => Ok(DecodedMessageContent::Custom { content: c.into() }),
     }
-  }
-
-  #[wasm_bindgen(js_name = asText)]
-  pub fn as_text(&self) -> Option<TextContent> {
-    match &self.payload {
-      MessageBody::Text(t) => Some(t.clone().into()),
-      _ => None,
-    }
-  }
-
-  #[wasm_bindgen(js_name = asReply)]
-  pub fn as_reply(&self) -> Option<EnrichedReply> {
-    match &self.payload {
-      MessageBody::Reply(r) => Some(r.clone().into()),
-      _ => None,
-    }
-  }
-
-  #[wasm_bindgen(js_name = asReaction)]
-  pub fn as_reaction(&self) -> Option<ReactionPayload> {
-    match &self.payload {
-      MessageBody::Reaction(r) => Some(r.clone().into()),
-      _ => None,
-    }
-  }
-
-  #[wasm_bindgen(js_name = asAttachment)]
-  pub fn as_attachment(&self) -> Option<Attachment> {
-    match &self.payload {
-      MessageBody::Attachment(a) => Some(a.clone().into()),
-      _ => None,
-    }
-  }
-
-  #[wasm_bindgen(js_name = asRemoteAttachment)]
-  pub fn as_remote_attachment(&self) -> Option<RemoteAttachment> {
-    match &self.payload {
-      MessageBody::RemoteAttachment(ra) => match ra.clone().try_into() {
-        Ok(ra) => Some(ra),
-        Err(e) => {
-          tracing::error!("Failed to convert RemoteAttachment: {:?}", e);
-          None
-        }
-      },
-      _ => None,
-    }
-  }
-
-  #[wasm_bindgen(js_name = asMultiRemoteAttachment)]
-  pub fn as_multi_remote_attachment(&self) -> Option<MultiRemoteAttachment> {
-    match &self.payload {
-      MessageBody::MultiRemoteAttachment(mra) => Some(mra.clone().into()),
-      _ => None,
-    }
-  }
-
-  #[wasm_bindgen(js_name = asTransactionReference)]
-  pub fn as_transaction_reference(&self) -> Option<TransactionReference> {
-    match &self.payload {
-      MessageBody::TransactionReference(tr) => Some(tr.clone().into()),
-      _ => None,
-    }
-  }
-
-  #[wasm_bindgen(js_name = asGroupUpdated)]
-  pub fn as_group_updated(&self) -> Option<GroupUpdated> {
-    match &self.payload {
-      MessageBody::GroupUpdated(gu) => Some(gu.clone().into()),
-      _ => None,
-    }
-  }
-
-  #[wasm_bindgen(js_name = asReadReceipt)]
-  pub fn as_read_receipt(&self) -> Option<ReadReceipt> {
-    match &self.payload {
-      MessageBody::ReadReceipt(rr) => Some(rr.clone().into()),
-      _ => None,
-    }
-  }
-
-  #[wasm_bindgen(js_name = asLeaveRequest)]
-  pub fn as_leave_request(&self) -> Option<LeaveRequest> {
-    match &self.payload {
-      MessageBody::LeaveRequest(lr) => Some(lr.clone().into()),
-      _ => None,
-    }
-  }
-
-  #[wasm_bindgen(js_name = asWalletSendCalls)]
-  pub fn as_wallet_send_calls(&self) -> Option<WalletSendCalls> {
-    match &self.payload {
-      MessageBody::WalletSendCalls(wsc) => Some(wsc.clone().into()),
-      _ => None,
-    }
-  }
-
-  #[wasm_bindgen(js_name = asIntent)]
-  pub fn as_intent(&self) -> Result<Option<Intent>, JsError> {
-    match &self.payload {
-      MessageBody::Intent(Some(intent)) => Ok(Some(intent.clone().try_into()?)),
-      _ => Ok(None),
-    }
-  }
-
-  #[wasm_bindgen(js_name = asActions)]
-  pub fn as_actions(&self) -> Result<Option<Actions>, JsError> {
-    match &self.payload {
-      MessageBody::Actions(Some(actions)) => Ok(Some(actions.clone().try_into()?)),
-      _ => Ok(None),
-    }
-  }
-
-  #[wasm_bindgen(js_name = asCustom)]
-  pub fn as_custom(&self) -> Option<EncodedContent> {
-    match &self.payload {
-      MessageBody::Custom(c) => Some(c.clone().into()),
-      _ => None,
-    }
-  }
-}
-
-impl From<MessageBody> for DecodedMessageContent {
-  fn from(body: MessageBody) -> Self {
-    DecodedMessageContent { payload: body }
   }
 }

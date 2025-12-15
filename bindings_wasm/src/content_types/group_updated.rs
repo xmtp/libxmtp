@@ -1,28 +1,22 @@
 use crate::encoded_content::{ContentTypeId, EncodedContent};
+use serde::{Deserialize, Serialize};
+use tsify::Tsify;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec as XmtpGroupUpdatedCodec;
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupUpdated {
-  #[wasm_bindgen(js_name = "initiatedByInboxId")]
   pub initiated_by_inbox_id: String,
-  #[wasm_bindgen(js_name = "addedInboxes")]
   pub added_inboxes: Vec<Inbox>,
-  #[wasm_bindgen(js_name = "removedInboxes")]
   pub removed_inboxes: Vec<Inbox>,
-  #[wasm_bindgen(js_name = "leftInboxes")]
   pub left_inboxes: Vec<Inbox>,
-  #[wasm_bindgen(js_name = "metadataFieldChanges")]
   pub metadata_field_changes: Vec<MetadataFieldChange>,
-  #[wasm_bindgen(js_name = "addedAdminInboxes")]
   pub added_admin_inboxes: Vec<Inbox>,
-  #[wasm_bindgen(js_name = "removedAdminInboxes")]
   pub removed_admin_inboxes: Vec<Inbox>,
-  #[wasm_bindgen(js_name = "addedSuperAdminInboxes")]
   pub added_super_admin_inboxes: Vec<Inbox>,
-  #[wasm_bindgen(js_name = "removedSuperAdminInboxes")]
   pub removed_super_admin_inboxes: Vec<Inbox>,
 }
 
@@ -106,10 +100,10 @@ impl From<GroupUpdated> for xmtp_proto::xmtp::mls::message_contents::GroupUpdate
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct Inbox {
-  #[wasm_bindgen(js_name = "inboxId")]
   pub inbox_id: String,
 }
 
@@ -129,14 +123,12 @@ impl From<Inbox> for xmtp_proto::xmtp::mls::message_contents::group_updated::Inb
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct MetadataFieldChange {
-  #[wasm_bindgen(js_name = "fieldName")]
   pub field_name: String,
-  #[wasm_bindgen(js_name = "oldValue")]
   pub old_value: Option<String>,
-  #[wasm_bindgen(js_name = "newValue")]
   pub new_value: Option<String>,
 }
 
