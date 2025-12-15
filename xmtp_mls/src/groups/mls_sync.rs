@@ -39,7 +39,6 @@ use xmtp_configuration::{
 };
 use xmtp_db::{
     Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
-    events::EventLevel,
     group::{ConversationType, StoredGroup},
     group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
     group_message::{ContentType, Deletable, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -52,8 +51,6 @@ use xmtp_db::{TransactionalKeyStore, XmtpMlsStorageProvider, refresh_state::HasE
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 
-use crate::groups::validated_commit::{Inbox, MutableMetadataValidationInfo};
-use crate::traits::IntoWith;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -82,29 +79,12 @@ use std::{
 };
 use thiserror::Error;
 use tracing::debug;
-use update_group_membership::apply_update_group_membership_intent;
 use xmtp_common::{Event, Retry, RetryableError, log_event, retry_async, time::now_ns};
-use xmtp_configuration::{
-    GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
-    SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
-};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::group::GroupMembershipState;
 use xmtp_db::pending_remove::{PendingRemove, QueryPendingRemove};
-use xmtp_db::{
-    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
-    group::{ConversationType, StoredGroup},
-    group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
-    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-    remote_commit_log::CommitResult,
-    sql_key_store,
-    user_preferences::StoredUserPreferences,
-};
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
-use xmtp_db::{TransactionalKeyStore, XmtpMlsStorageProvider, refresh_state::HasEntityKind};
-use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_id::{InboxId, InboxIdRef};
-use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 use xmtp_proto::types::{Cursor, GroupMessage};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
