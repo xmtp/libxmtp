@@ -20,8 +20,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     content_types::{
-        LeaveRequest, MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2,
-        RemoteAttachmentInfo,
+        DeleteMessage, LeaveRequest, MultiRemoteAttachment, ReactionAction, ReactionSchema,
+        ReactionV2, RemoteAttachmentInfo,
     },
     group_updated::Inbox,
 };
@@ -279,6 +279,13 @@ pub struct FfiReadReceipt {}
 pub struct FfiLeaveRequest {
     /// Optional authenticated note for the leave request
     pub authenticated_note: Option<Vec<u8>>,
+}
+
+/// Represents a delete message request sent when a user wants to delete a message.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiDeleteMessage {
+    /// The ID of the message to delete (hex-encoded)
+    pub message_id: String,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -732,6 +739,22 @@ impl From<FfiLeaveRequest> for LeaveRequest {
     fn from(value: FfiLeaveRequest) -> Self {
         LeaveRequest {
             authenticated_note: value.authenticated_note,
+        }
+    }
+}
+
+impl From<DeleteMessage> for FfiDeleteMessage {
+    fn from(value: DeleteMessage) -> Self {
+        FfiDeleteMessage {
+            message_id: value.message_id,
+        }
+    }
+}
+
+impl From<FfiDeleteMessage> for DeleteMessage {
+    fn from(value: FfiDeleteMessage) -> Self {
+        DeleteMessage {
+            message_id: value.message_id,
         }
     }
 }

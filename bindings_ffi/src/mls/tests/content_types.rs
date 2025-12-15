@@ -1345,3 +1345,36 @@ async fn test_text_codec() {
     let result = decode_text(invalid_bytes);
     assert!(result.is_err());
 }
+
+#[tokio::test]
+async fn test_delete_message_encode_decode() {
+    // Test with a typical message ID
+    let ffi_delete_message = FfiDeleteMessage {
+        message_id: "0x1234567890abcdef".to_string(),
+    };
+    let encoded = encode_delete_message(ffi_delete_message.clone()).unwrap();
+    let decoded = decode_delete_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, ffi_delete_message.message_id);
+
+    // Test with empty message ID (edge case)
+    let ffi_delete_message_empty = FfiDeleteMessage {
+        message_id: "".to_string(),
+    };
+    let encoded = encode_delete_message(ffi_delete_message_empty.clone()).unwrap();
+    let decoded = decode_delete_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, ffi_delete_message_empty.message_id);
+
+    // Test with a very long message ID
+    let long_id = "a".repeat(1000);
+    let ffi_delete_message_long = FfiDeleteMessage {
+        message_id: long_id.clone(),
+    };
+    let encoded = encode_delete_message(ffi_delete_message_long).unwrap();
+    let decoded = decode_delete_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, long_id);
+
+    // Test decoding invalid bytes
+    let invalid_bytes = vec![0xFF, 0xFF, 0xFF, 0xFF];
+    let result = decode_delete_message(invalid_bytes);
+    assert!(result.is_err());
+}
