@@ -3139,6 +3139,12 @@ pub fn decode_leave_request(bytes: Vec<u8>) -> Result<FfiLeaveRequest, GenericEr
         .map_err(|e| GenericError::Generic { err: e.to_string() })
 }
 
+// LeaveRequest FFI fallback function
+#[uniffi::export]
+pub fn leave_request_fallback() -> String {
+    LeaveRequestCodec::FALLBACK_TEXT.to_string()
+}
+
 #[uniffi::export]
 pub fn decode_group_updated(bytes: Vec<u8>) -> Result<FfiGroupUpdated, GenericError> {
     let encoded_content = EncodedContent::decode(bytes.as_slice())

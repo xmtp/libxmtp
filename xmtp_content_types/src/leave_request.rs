@@ -18,6 +18,11 @@ impl LeaveRequestCodec {
     pub const MINOR_VERSION: u32 = 0;
 }
 
+impl LeaveRequestCodec {
+    /// Fallback text shown when the leave request content cannot be decoded
+    pub const FALLBACK_TEXT: &'static str = "A member has requested leaving the group";
+}
+
 impl ContentCodec<LeaveRequest> for LeaveRequestCodec {
     fn content_type() -> ContentTypeId {
         ContentTypeId {
@@ -36,7 +41,7 @@ impl ContentCodec<LeaveRequest> for LeaveRequestCodec {
         Ok(EncodedContent {
             r#type: Some(LeaveRequestCodec::content_type()),
             parameters: HashMap::new(),
-            fallback: None,
+            fallback: Some(LeaveRequestCodec::FALLBACK_TEXT.to_string()),
             compression: None,
             content: buf,
         })
