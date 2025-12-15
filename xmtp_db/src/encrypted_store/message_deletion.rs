@@ -223,13 +223,14 @@ mod tests {
             expire_at_ns: None,
             sequence_id: 1,
             originator_id: 1,
+            inserted_at_ns: 0,
         }
         .store(conn)
         .unwrap();
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn test_store_and_get_deletion() {
+    fn test_store_and_get_deletion() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let message_id = vec![4, 5, 6];
@@ -260,11 +261,10 @@ mod tests {
             assert!(by_deleted_id.is_some());
             assert_eq!(by_deleted_id.unwrap().id, delete_message_id);
         })
-        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn test_is_message_deleted() {
+    fn test_is_message_deleted() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let message_id = vec![4, 5, 6];
@@ -291,11 +291,10 @@ mod tests {
             // Now it's deleted
             assert!(conn.is_message_deleted(&message_id)?);
         })
-        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn test_get_deletions_for_messages() {
+    fn test_get_deletions_for_messages() {
         with_connection(|conn| {
             let group_id = vec![1, 2, 3];
             let msg1 = vec![4, 5, 6];
@@ -340,11 +339,10 @@ mod tests {
             // msg3 should not be deleted
             assert!(!conn.is_message_deleted(&msg3)?);
         })
-        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn test_get_group_deletions() {
+    fn test_get_group_deletions() {
         with_connection(|conn| {
             let group1 = vec![1, 2, 3];
             let group2 = vec![4, 5, 6];
@@ -390,6 +388,5 @@ mod tests {
             assert_eq!(group2_deletions.len(), 1);
             assert_eq!(group2_deletions[0].deleted_message_id, msg2);
         })
-        .await
     }
 }
