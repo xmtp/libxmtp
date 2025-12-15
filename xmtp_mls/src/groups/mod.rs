@@ -672,6 +672,13 @@ where
     ///
     /// Only the original sender or a super admin can delete a message.
     ///
+    /// # Wire Protocol
+    /// The `DeleteMessage` protobuf encodes `message_id` as a hex-encoded string for wire
+    /// transmission, while the database stores message IDs as raw bytes. This function handles
+    /// the conversion: it accepts raw bytes, hex-encodes them for the wire protocol, and when
+    /// processing incoming deletions (in `process_delete_message`), the hex string is decoded
+    /// back to bytes for database lookups.
+    ///
     /// # Arguments
     /// * `message_id` - The message ID as bytes
     ///
@@ -698,6 +705,12 @@ where
         }
 
         // Authorization check: sender OR super admin
+        // NOTE: There is an inherent race condition here. The super admin status is checked
+        // at the time of sending, but could change by the time the message is processed by
+        // other clients. This is acceptable because:
+        // 1. `process_delete_message` performs its own authorization check at processing time
+        // 2. If admin status changed, other clients will reject the deletion
+        // 3. The local optimistic deletion will be inconsistent, but this is a rare edge case
         let sender_inbox_id = self.context.inbox_id();
         let is_sender = original_msg.sender_inbox_id == sender_inbox_id;
         let is_super_admin = self.is_super_admin(sender_inbox_id.to_string())?;
@@ -713,6 +726,10 @@ where
         }
 
         // Create DeleteMessage proto
+        // The wire protocol uses hex-encoded message_id strings, while db stores raw bytes.
+        // Note: `hex::encode` always produces valid hex output, so no validation is needed here.
+        // The receiving side (`process_delete_message` in mls_sync.rs) uses `hex::decode` which
+        // returns `InvalidPayload` for malformed hex strings from malicious actors.
         let delete_msg = DeleteMessage {
             message_id: hex::encode(&message_id),
         };
@@ -727,7 +744,10 @@ where
         let deletion_message_id =
             self.send_message_optimistic(&delete_bytes, SendMessageOpts::default())?;
 
-        // Store the deletion record immediately
+        // Store the deletion record immediately for optimistic local display.
+        // Note: If a crash occurs between send and store, the deletion record will be
+        // recreated when the message syncs back via `process_delete_message` in mls_sync.rs,
+        // which uses `store_or_ignore` for idempotent insertion.
         // It's only a super admin deletion if the deleter is NOT the original sender
         let is_super_admin_deletion = if is_sender { false } else { is_super_admin };
 

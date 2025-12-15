@@ -1264,6 +1264,19 @@ where
         Ok(())
     }
 
+    /// Process an incoming DeleteMessage from the network.
+    ///
+    /// # Error Handling
+    /// This function intentionally returns `Ok(())` for unauthorized or invalid deletion attempts
+    /// rather than propagating errors. This design choice differs from `delete_message` (which
+    /// returns errors to the caller) because:
+    /// 1. **Sync resilience**: Invalid deletions should not halt message processing for the group
+    /// 2. **Malicious tolerance**: Bad actors could spam invalid deletions to disrupt sync
+    /// 3. **Network consistency**: The message was already accepted by the network; rejecting
+    ///    it locally doesn't prevent others from seeing it
+    ///
+    /// Invalid attempts are logged as warnings for debugging but silently ignored to maintain
+    /// smooth sync operations.
     fn process_delete_message(
         &self,
         mls_group: &OpenMlsGroup,
@@ -1312,10 +1325,15 @@ where
             .map(|msg| msg.sender_inbox_id == message.sender_inbox_id)
             .unwrap_or(false);
 
-        // Determine if this is a super admin deletion
+        // Determine if this is a super admin deletion.
         // It's only a super admin deletion if:
-        // 1. The deleter is a super admin, AND
+        // 1. The deleter is a super admin at processing time, AND
         // 2. The deleter is NOT the original sender (deleting someone else's message)
+        //
+        // NOTE: Admin status is checked at deletion processing time, not at the time
+        // the original message was sent. This means a super admin can delete messages
+        // that were sent before they became admin—this is intentional behavior for
+        // moderation purposes.
         let is_super_admin_deletion = if is_sender {
             false
         } else {

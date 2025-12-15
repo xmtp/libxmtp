@@ -1,3 +1,14 @@
+-- Tracks message deletions for soft-delete functionality.
+--
+-- Cleanup strategy: Deletion records are automatically removed when the DeleteMessage
+-- itself is purged from group_messages (via FK CASCADE). The target message (deleted_message_id)
+-- is NOT cascade-deleted because:
+-- 1. The deletion record serves as audit trail even if target is already gone
+-- 2. Clients may receive DeleteMessage before the target message (out-of-order delivery)
+-- 3. Allows UI to show "message deleted" placeholder until full cleanup
+--
+-- For long-term storage optimization, consider periodic cleanup of deletion records
+-- where the target message no longer exists in group_messages.
 CREATE TABLE message_deletions (
   -- Primary key: the ID of the DeleteMessage in the group_messages table
   id BLOB PRIMARY KEY NOT NULL,
