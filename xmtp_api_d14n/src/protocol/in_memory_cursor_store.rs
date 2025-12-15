@@ -1,18 +1,22 @@
 use crate::protocol::{CursorStore, CursorStoreError};
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::Arc;
 use xmtp_proto::api::VectorClock;
-use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId, Topic};
+use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId, OrphanedEnvelope, Topic};
 
 #[derive(Default, Clone)]
 pub struct InMemoryCursorStore {
     topics: HashMap<Topic, GlobalCursor>,
+    icebox: Arc<Mutex<Vec<OrphanedEnvelope>>>,
 }
 
 impl InMemoryCursorStore {
     pub fn new() -> Self {
         Self {
             topics: HashMap::new(),
+            icebox: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -30,7 +34,7 @@ impl InMemoryCursorStore {
     /// Compute the lowest common cursor across a set of topics.
     /// For each node_id, uses the **minimum** sequence ID seen across all topics.
     pub fn lowest_common_cursor(&self, topics: &[&Topic]) -> GlobalCursor {
-        let mut min_clock: HashMap<u32, u64> = HashMap::new();
+        let mut min_clock = GlobalCursor::default();
 
         for topic in topics {
             if let Some(cursor) = self.get_latest(topic) {
@@ -42,8 +46,7 @@ impl InMemoryCursorStore {
                 }
             }
         }
-
-        GlobalCursor::new(min_clock)
+        min_clock
     }
 }
 
@@ -103,6 +106,27 @@ impl CursorStore for InMemoryCursorStore {
         Err(CursorStoreError::NoDependenciesFound(
             hash.iter().map(hex::encode).collect(),
         ))
+    }
+
+    fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<(), CursorStoreError> {
+        let mut icebox = self.icebox.lock();
+        (*icebox).extend(orphans);
+        Ok(())
+    }
+
+    fn resolve_children(
+        &self,
+        cursors: &[Cursor],
+    ) -> Result<Vec<OrphanedEnvelope>, CursorStoreError> {
+        let mut icebox = self.icebox.lock();
+        let children = cursors.iter().fold(Vec::new(), |mut acc, cursor| {
+            let children = icebox
+                .extract_if(.., |o| o.is_child_of(cursor))
+                .collect::<Vec<_>>();
+            acc.extend(children);
+            acc
+        });
+        Ok(children)
     }
 }
 
