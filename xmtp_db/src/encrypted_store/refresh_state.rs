@@ -126,7 +126,7 @@ struct SingleCursor {
 fn rows_to_global_cursor_map(
     rows: Vec<(Vec<u8>, i32, Option<i64>)>,
 ) -> HashMap<Vec<u8>, GlobalCursor> {
-    let mut map: HashMap<Vec<u8>, HashMap<u32, u64>> = HashMap::new();
+    let mut map: HashMap<Vec<u8>, GlobalCursor> = HashMap::new();
 
     for (entity_id, originator_id, sequence_id) in rows {
         let cursors = map.entry(entity_id).or_default();
@@ -136,10 +136,7 @@ fn rows_to_global_cursor_map(
         cursors.insert(originator_id_u32, sequence_id_u64);
     }
 
-    // Convert inner HashMaps to GlobalCursors
-    map.into_iter()
-        .map(|(entity_id, cursors)| (entity_id, GlobalCursor::new(cursors)))
-        .collect()
+    map
 }
 
 pub trait QueryRefreshState {
@@ -502,7 +499,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
                 .process_results(|iter| iter.into_grouping_map().min())
         })?;
 
-        Ok(GlobalCursor::new(cursor))
+        Ok(GlobalCursor::with_hashmap(cursor))
     }
 
     // _NOTE:_ TEMP until reliable streams
@@ -541,7 +538,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         let has_entities = !entities.is_empty();
 
         if !has_entities && !has_identity_updates {
-            return Ok(GlobalCursor::new(HashMap::new()));
+            return Ok(GlobalCursor::default());
         }
 
         let mut query_parts = Vec::new();
@@ -621,10 +618,10 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
 
             q.load_iter::<SingleCursor, DefaultLoadingMode>(conn)?
                 .map_ok(|c| (c.originator_id as u32, c.sequence_id as u64))
-                .collect::<QueryResult<HashMap<_, _>>>()
+                .collect::<QueryResult<GlobalCursor>>()
         })?;
 
-        Ok(GlobalCursor::new(cursor))
+        Ok(cursor)
     }
 
     fn latest_cursor_for_id<Id: AsRef<[u8]>>(
@@ -662,10 +659,10 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
             Ok(results
                 .into_iter()
                 .filter_map(|(orig_id, seq_id)| seq_id.map(|seq| (orig_id as u32, seq as u64)))
-                .collect::<HashMap<_, _>>())
+                .collect::<GlobalCursor>())
         })?;
 
-        Ok(GlobalCursor::new(cursor_map))
+        Ok(cursor_map)
     }
 
     // _NOTE:_ TEMP until reliable streams
@@ -758,10 +755,10 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
 
             q.load_iter::<SingleCursor, DefaultLoadingMode>(conn)?
                 .map_ok(|c| (c.originator_id as u32, c.sequence_id as u64))
-                .collect::<QueryResult<HashMap<_, _>>>()
+                .collect::<QueryResult<GlobalCursor>>()
         })?;
 
-        Ok(GlobalCursor::new(cursor_map))
+        Ok(cursor_map)
     }
 }
 
