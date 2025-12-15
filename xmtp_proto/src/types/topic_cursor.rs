@@ -99,6 +99,12 @@ impl TopicCursor {
     }
 }
 
+impl From<HashMap<Topic, GlobalCursor>> for TopicCursor {
+    fn from(inner: HashMap<Topic, GlobalCursor>) -> Self {
+        TopicCursor { inner }
+    }
+}
+
 impl FromIterator<(Topic, GlobalCursor)> for TopicCursor {
     fn from_iter<T: IntoIterator<Item = (Topic, GlobalCursor)>>(iter: T) -> Self {
         TopicCursor {
@@ -149,5 +155,14 @@ impl DerefMut for TopicCursor {
 impl TopicCursor {
     pub fn add(&mut self, topic: Topic, cursor: GlobalCursor) {
         self.inner.insert(topic, cursor);
+    }
+}
+
+impl std::fmt::Display for TopicCursor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (topic, has_seen) in self.inner.iter() {
+            writeln!(f, "{} -> {}", topic, has_seen)?;
+        }
+        Ok(())
     }
 }

@@ -2,7 +2,9 @@ use std::collections::HashSet;
 
 use crate::{
     d14n::QueryEnvelope,
-    protocol::{Envelope, ResolutionError, ResolveDependencies, Resolved, types::MissingEnvelope},
+    protocol::{
+        Envelope, ResolutionError, ResolveDependencies, Resolved, types::RequiredDependency,
+    },
 };
 use itertools::Itertools;
 use tracing::warn;
@@ -42,7 +44,7 @@ where
     /// * `HashSet<Self::ResolvedEnvelope>`: The list of envelopes which were resolved.
     async fn resolve(
         &self,
-        mut missing: HashSet<MissingEnvelope>,
+        mut missing: HashSet<RequiredDependency>,
     ) -> Result<Resolved<Self::ResolvedEnvelope>, ResolutionError> {
         let mut attempts = 0;
         let time_spent = xmtp_common::time::Instant::now();
@@ -83,7 +85,7 @@ where
 }
 
 /// Get the LCC and topics from a list of missing envelopes
-fn lcc(missing: &HashSet<MissingEnvelope>) -> (Vec<Topic>, GlobalCursor) {
+fn lcc(missing: &HashSet<RequiredDependency>) -> (Vec<Topic>, GlobalCursor) {
     // get the lcc by first getting lowest Cursor
     // per topic, then merging the global cursor of every topic into
     // one.
@@ -120,7 +122,11 @@ mod tests {
         let mut client = MockNetworkClient::new();
         let topic = Topic::new(TopicKind::GroupMessagesV1, vec![1, 2, 3]);
 
-        let missing = test::create_missing_set(topic.clone(), vec![(1, 10), (2, 20)]);
+        let missing = test::create_missing_set(
+            topic.clone(),
+            vec![Cursor::new(10, 1u32), Cursor::new(20, 2u32)],
+            vec![Cursor::new(11, 1u32), Cursor::new(21, 2u32)],
+        );
 
         let envelope1 = TestEnvelopeBuilder::new()
             .with_originator_node_id(1)
@@ -149,8 +155,16 @@ mod tests {
         let mut client = MockNetworkClient::new();
         let topic = Topic::new(TopicKind::GroupMessagesV1, vec![1, 2, 3]);
 
-        let missing = test::create_missing_set(topic.clone(), vec![(1, 10), (2, 20)]);
-        let expected_unresolved = test::create_missing_set(topic.clone(), vec![(2, 20)]);
+        let missing = test::create_missing_set(
+            topic.clone(),
+            vec![Cursor::new(10, 1u32), Cursor::new(20, 2u32)],
+            vec![Cursor::new(11, 1u32), Cursor::new(21, 2u32)],
+        );
+        let expected_unresolved = test::create_missing_set(
+            topic.clone(),
+            vec![Cursor::new(20, 2u32)],
+            vec![Cursor::new(21, 2u32)],
+        );
 
         // Only return one of the two requested envelopes
         let envelope1 = TestEnvelopeBuilder::new()
