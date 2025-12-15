@@ -58,9 +58,6 @@ where
         match envelope {
             Some(item) => {
                 let item = item?;
-                //TODO:d14n figure out why we get so many failures
-                //but messages still go through
-                //probably the LCC calc?
                 let (success, _failure) = item.try_consume::<E>()?;
                 let mut consumed = success.into_iter();
                 let ready_item = consumed.next();

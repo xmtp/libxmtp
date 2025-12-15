@@ -127,6 +127,7 @@ where
             let needed_envelopes = self.required_dependencies(&missing)?;
             let Resolved { mut resolved, .. } = self.resolver.resolve(needed_envelopes).await?;
             if resolved.is_empty() {
+                tracing::debug!("icing {} orphans", missing.len());
                 let orphans = missing.into_iter().map(|e| e.orphan()).try_collect()?;
                 self.store.ice(orphans)?;
                 break;
@@ -134,6 +135,17 @@ where
             self.envelopes.append(&mut resolved);
             self.envelopes.append(&mut missing);
             self.recover_lost_children()?;
+        }
+        Ok(())
+    }
+
+    fn order_offline(&mut self) -> Result<(), ResolutionError> {
+        self.recover_lost_children()?;
+        self.timestamp_sort()?;
+        if let Some(missing) = self.causal_sort()? {
+            tracing::debug!("icing {} orphans", missing.len());
+            let orphans = missing.into_iter().map(|e| e.orphan()).try_collect()?;
+            self.store.ice(orphans)?;
         }
         Ok(())
     }

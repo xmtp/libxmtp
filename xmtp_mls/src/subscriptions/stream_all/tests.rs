@@ -503,8 +503,8 @@ async fn stream_messages_keeps_track_of_cursor() {
 #[xmtp_common::test]
 #[timeout(Duration::from_secs(20))]
 async fn test_stream_all_messages_filters_conversations_created_after_init() {
-    let sender = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let receiver = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let sender = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
+    let receiver = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
 
     // Start stream filtering for only "allowed" conversations
     let stream = receiver

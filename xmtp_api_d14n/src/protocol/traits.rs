@@ -75,6 +75,12 @@ pub enum EnvelopeError {
     DynError(Box<dyn RetryableError>),
 }
 
+impl EnvelopeError {
+    pub fn other(self) -> Self {
+        EnvelopeError::DynError(Box::new(self) as _)
+    }
+}
+
 impl RetryableError for EnvelopeError {
     fn is_retryable(&self) -> bool {
         match self {
