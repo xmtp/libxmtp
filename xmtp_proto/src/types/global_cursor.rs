@@ -9,22 +9,23 @@ use crate::{
 use core::fmt;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::Write,
     ops::{Deref, DerefMut},
 };
 use xmtp_configuration::Originators;
 
-/// a cursor which represents the position across many nodes in the network
+/// a cursor backed by a [`BTreeMap`].
+/// represents the position across many nodes in the network
 /// a.k.a vector clock
-#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default, Debug, Clone, Hash, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GlobalCursor {
-    inner: HashMap<OriginatorId, SequenceId>,
+    inner: BTreeMap<OriginatorId, SequenceId>,
 }
 
 impl GlobalCursor {
-    /// Construct a new cursor from a HashMap
-    pub fn new(map: HashMap<OriginatorId, SequenceId>) -> Self {
+    /// Construct a new cursor from a BTreeMap
+    pub fn new(map: BTreeMap<OriginatorId, SequenceId>) -> Self {
         Self { inner: map }
     }
 
@@ -32,6 +33,22 @@ impl GlobalCursor {
     pub fn has_seen(&self, other: &super::Cursor) -> bool {
         let sid = self.get(&other.originator_id);
         sid >= other.sequence_id
+    }
+
+    /// creates a from a [`HashMap`], internally converting to a [`BTreeMap`]
+    pub fn with_hashmap(map: HashMap<OriginatorId, SequenceId>) -> Self {
+        Self {
+            inner: BTreeMap::from_iter(map),
+        }
+    }
+
+    /// Apply a singular cursor to 'Self'
+    pub fn apply(&mut self, cursor: &super::Cursor) {
+        let _ = self
+            .inner
+            .entry(cursor.originator_id)
+            .and_modify(|sid| *sid = (*sid).max(cursor.sequence_id))
+            .or_insert(cursor.sequence_id);
     }
 
     /// apply a cursor to `Self`, and take the lowest value of SequenceId between
@@ -118,14 +135,14 @@ impl fmt::Display for GlobalCursor {
 
 impl FromIterator<(OriginatorId, SequenceId)> for GlobalCursor {
     fn from_iter<T: IntoIterator<Item = (OriginatorId, SequenceId)>>(iter: T) -> Self {
-        GlobalCursor::new(HashMap::from_iter(iter))
+        GlobalCursor::new(BTreeMap::from_iter(iter))
     }
 }
 
 impl From<Cursor> for GlobalCursor {
     fn from(value: Cursor) -> Self {
         GlobalCursor {
-            inner: value.node_id_to_sequence_id,
+            inner: BTreeMap::from_iter(value.node_id_to_sequence_id),
         }
     }
 }
@@ -133,7 +150,7 @@ impl From<Cursor> for GlobalCursor {
 impl From<GlobalCursor> for Cursor {
     fn from(value: GlobalCursor) -> Self {
         Cursor {
-            node_id_to_sequence_id: value.inner,
+            node_id_to_sequence_id: HashMap::from_iter(value.inner),
         }
     }
 }
@@ -176,21 +193,21 @@ impl TryFrom<Cursor> for crate::types::Cursor {
 
 impl From<crate::types::Cursor> for GlobalCursor {
     fn from(value: crate::types::Cursor) -> Self {
-        let mut map = HashMap::new();
+        let mut map = BTreeMap::new();
         map.insert(value.originator_id, value.sequence_id);
         GlobalCursor { inner: map }
     }
 }
 
-impl From<HashMap<OriginatorId, SequenceId>> for GlobalCursor {
-    fn from(value: HashMap<OriginatorId, SequenceId>) -> Self {
+impl From<BTreeMap<OriginatorId, SequenceId>> for GlobalCursor {
+    fn from(value: BTreeMap<OriginatorId, SequenceId>) -> Self {
         GlobalCursor { inner: value }
     }
 }
 
 impl IntoIterator for GlobalCursor {
     type Item = (OriginatorId, SequenceId);
-    type IntoIter = <HashMap<OriginatorId, SequenceId> as IntoIterator>::IntoIter;
+    type IntoIter = <BTreeMap<OriginatorId, SequenceId> as IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
         self.inner.into_iter()
@@ -199,7 +216,7 @@ impl IntoIterator for GlobalCursor {
 
 impl<'a> IntoIterator for &'a GlobalCursor {
     type Item = (&'a OriginatorId, &'a SequenceId);
-    type IntoIter = std::collections::hash_map::Iter<'a, OriginatorId, SequenceId>;
+    type IntoIter = std::collections::btree_map::Iter<'a, OriginatorId, SequenceId>;
     fn into_iter(self) -> Self::IntoIter {
         self.inner.iter()
     }
@@ -207,7 +224,7 @@ impl<'a> IntoIterator for &'a GlobalCursor {
 
 impl<'a> IntoIterator for &'a mut GlobalCursor {
     type Item = (&'a OriginatorId, &'a mut SequenceId);
-    type IntoIter = std::collections::hash_map::IterMut<'a, OriginatorId, SequenceId>;
+    type IntoIter = std::collections::btree_map::IterMut<'a, OriginatorId, SequenceId>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.inner.iter_mut()
@@ -215,7 +232,7 @@ impl<'a> IntoIterator for &'a mut GlobalCursor {
 }
 
 impl Deref for GlobalCursor {
-    type Target = HashMap<OriginatorId, SequenceId>;
+    type Target = BTreeMap<OriginatorId, SequenceId>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -234,6 +251,12 @@ impl<C: Into<super::Cursor>> Extend<C> for GlobalCursor {
             let c: super::Cursor = c.into();
             (c.originator_id, c.sequence_id)
         }))
+    }
+}
+
+impl From<HashMap<OriginatorId, SequenceId>> for GlobalCursor {
+    fn from(value: HashMap<OriginatorId, SequenceId>) -> Self {
+        GlobalCursor::with_hashmap(value)
     }
 }
 

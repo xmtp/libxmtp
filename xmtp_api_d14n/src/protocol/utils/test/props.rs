@@ -2,10 +2,7 @@ use super::TestEnvelope;
 use itertools::Itertools;
 use proptest::prelude::*;
 use proptest::sample::subsequence;
-use xmtp_proto::{
-    api::VectorClock,
-    types::{Cursor, GlobalCursor, OriginatorId, SequenceId},
-};
+use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId, SequenceId};
 
 // Advance the clock for a given originator
 fn advance_clock(base: &GlobalCursor, originator: &OriginatorId) -> SequenceId {
