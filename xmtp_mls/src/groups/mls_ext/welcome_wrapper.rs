@@ -61,7 +61,7 @@ pub fn wrap_welcome(
     // but uses the context to encrypt multiple messages at once using the same context
     // because openmls only supports one shot messages.
 
-    let context = openmls::prelude::hpke::EncryptContext::new(WELCOME_HPKE_LABEL, vec![].into());
+    let context = openmls::prelude::hpke::EncryptContext::from((WELCOME_HPKE_LABEL, [].as_slice()));
     let info = context.tls_serialize_detached()?;
     let aad = &[];
 
@@ -106,7 +106,7 @@ pub fn unwrap_welcome(
     // but uses the context to decrypt multiple messages at once using the same context
     // because openmls only supports one shot messages.
 
-    let context = openmls::prelude::hpke::EncryptContext::new(WELCOME_HPKE_LABEL, vec![].into());
+    let context = openmls::prelude::hpke::EncryptContext::from((WELCOME_HPKE_LABEL, [].as_slice()));
     let info = context.tls_serialize_detached()?;
     let aad = &[];
 

@@ -1813,3 +1813,32 @@ async fn test_pagination_of_conversations_list() {
         );
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn test_membership_state() {
+    let amal = new_test_client().await;
+    let bola = new_test_client().await;
+
+    // Create a group with amal as creator
+    let group = amal
+        .conversations()
+        .create_group(
+            vec![bola.account_identifier.clone()],
+            FfiCreateGroupOptions::default(),
+        )
+        .await
+        .unwrap();
+
+    // Amal should have Allowed membership state (creator is immediately Allowed)
+    let state = group.membership_state().unwrap();
+    assert_eq!(state, FfiGroupMembershipState::Allowed);
+
+    // Sync so bola receives the group
+    bola.conversations().sync().await.unwrap();
+    let bola_group = bola.conversation(group.id()).unwrap();
+
+    // Bola should have Pending membership state when first receiving the welcome
+    // (invited members start as Pending until explicitly accepted)
+    let bola_state = bola_group.membership_state().unwrap();
+    assert_eq!(bola_state, FfiGroupMembershipState::Pending);
+}

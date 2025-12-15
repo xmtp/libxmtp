@@ -87,6 +87,8 @@ mockall::mock! {
             path: http::uri::PathAndQuery,
             body: Bytes,
         ) -> Result<http::Response<MockStreamT>, ApiClientError<MockError>>;
+
+        fn fake_stream(&self) -> http::Response<MockStreamT>;
     }
 }
 

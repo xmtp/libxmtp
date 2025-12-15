@@ -22,7 +22,7 @@ use diesel::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use xmtp_common::time::now_ns;
+use xmtp_common::{NS_IN_DAY, time::now_ns};
 use xmtp_content_types::{
     attachment, delete_message, group_updated, leave_request, membership_change, reaction,
     read_receipt, remote_attachment, reply, text, transaction_reference, wallet_send_calls,
@@ -80,10 +80,7 @@ pub struct StoredGroupMessage {
 
 impl StoredGroupMessage {
     pub fn cursor(&self) -> Cursor {
-        Cursor {
-            sequence_id: self.sequence_id as u64,
-            originator_id: self.originator_id as u32,
-        }
+        Cursor::new(self.sequence_id as u64, self.originator_id as u32)
     }
 }
 
@@ -585,6 +582,20 @@ pub trait QueryGroupMessage {
         &self,
         cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
     ) -> Result<Vec<Cursor>, crate::ConnectionError>;
+
+    /// Clear messages from the database with optional filtering.
+    ///
+    /// # Arguments
+    /// * `group_ids` - If provided, only delete messages in these groups. If None, delete from all groups.
+    /// * `retention_days` - If provided, only delete messages older than this many days. If None, delete all matching messages.
+    ///
+    /// # Returns
+    /// The number of messages deleted.
+    fn clear_messages(
+        &self,
+        group_ids: Option<&[Vec<u8>]>,
+        retention_days: Option<u32>,
+    ) -> Result<usize, crate::ConnectionError>;
 }
 
 impl<T> QueryGroupMessage for &T
@@ -733,6 +744,14 @@ where
         cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
     ) -> Result<Vec<Cursor>, crate::ConnectionError> {
         (**self).messages_newer_than(cursors_by_group)
+    }
+
+    fn clear_messages(
+        &self,
+        group_ids: Option<&[Vec<u8>]>,
+        retention_days: Option<u32>,
+    ) -> Result<usize, crate::ConnectionError> {
+        (**self).clear_messages(group_ids, retention_days)
     }
 }
 
@@ -1370,14 +1389,30 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             })?;
 
             for (originator_id, sequence_id) in messages {
-                all_cursors.push(Cursor {
-                    sequence_id: sequence_id as u64,
-                    originator_id: originator_id as u32,
-                });
+                all_cursors.push(Cursor::new(sequence_id as u64, originator_id as u32));
             }
         }
 
         Ok(all_cursors)
+    }
+
+    fn clear_messages(
+        &self,
+        group_ids: Option<&[Vec<u8>]>,
+        retention_days: Option<u32>,
+    ) -> Result<usize, crate::ConnectionError> {
+        let mut query = diesel::delete(dsl::group_messages).into_boxed();
+
+        if let Some(group_ids) = group_ids {
+            query = query.filter(dsl::group_id.eq_any(group_ids));
+        }
+
+        if let Some(days) = retention_days {
+            let limit = now_ns().saturating_sub(NS_IN_DAY.saturating_mul(i64::from(days)));
+            query = query.filter(dsl::sent_at_ns.lt(limit));
+        }
+
+        self.raw_query_write(|conn| query.execute(conn))
     }
 }
 

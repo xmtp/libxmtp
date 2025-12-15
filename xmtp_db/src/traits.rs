@@ -1,6 +1,7 @@
 use crate::ConnectionExt;
 use crate::StorageError;
 use crate::association_state::QueryAssociationStateCache;
+use crate::icebox::QueryIcebox;
 use crate::message_deletion::QueryMessageDeletion;
 use crate::pending_remove::QueryPendingRemove;
 use crate::prelude::*;
@@ -87,6 +88,7 @@ pub trait DbQuery:
     + QueryReaddStatus
     + QueryTasks
     + QueryPendingRemove
+    + QueryIcebox
     + QueryMessageDeletion
     + Pragmas
     + crate::ConnectionExt
@@ -117,6 +119,7 @@ impl<T: ?Sized> DbQuery for T where
         + QueryReaddStatus
         + QueryTasks
         + QueryPendingRemove
+        + QueryIcebox
         + QueryMessageDeletion
         + Pragmas
         + crate::ConnectionExt

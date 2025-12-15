@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::DeviceSyncError;
 use crate::{
     context::XmtpSharedContext,
@@ -6,30 +8,65 @@ use crate::{
 use futures::StreamExt;
 pub use xmtp_archive::*;
 use xmtp_db::{
-    StoreOrIgnore,
+    ConnectionExt, StoreOrIgnore,
     consent_record::StoredConsentRecord,
     group::{ConversationType, DmIdExt, GroupMembershipState},
     group_message::StoredGroupMessage,
     prelude::*,
 };
 use xmtp_mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
+use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
+
+#[derive(Default)]
+struct ImportContext {
+    group_timestamps: HashMap<Vec<u8>, Option<i64>>,
+}
+
+impl ImportContext {
+    fn post_import(&self, context: &impl XmtpSharedContext) -> Result<(), DeviceSyncError> {
+        use xmtp_db::diesel::prelude::*;
+        use xmtp_db::schema::groups::dsl;
+
+        // We want to update the group timestamps to either be what they were before the import,
+        // or what they are in the archive group field.
+        for (group_id, timestamp) in &self.group_timestamps {
+            if let Err(err) = context.db().raw_query_write(|conn| {
+                xmtp_db::diesel::update(dsl::groups.find(group_id))
+                    .set(dsl::last_message_ns.eq(*timestamp))
+                    .execute(conn)
+            }) {
+                tracing::warn!("Unable to update last_message_ns for group {group_id:?}: {err:?}");
+            }
+        }
+
+        Ok(())
+    }
+}
 
 pub async fn insert_importer(
     importer: &mut ArchiveImporter,
     context: &impl XmtpSharedContext,
 ) -> Result<(), DeviceSyncError> {
+    let mut import_ctx = ImportContext::default();
+
     while let Some(element) = importer.next().await {
         let element = element?;
-        if let Err(err) = insert(element, context) {
+        if let Err(err) = insert(element, context, &mut import_ctx) {
             tracing::warn!("Unable to insert record: {err:?}");
         };
     }
 
+    import_ctx.post_import(context)?;
+
     Ok(())
 }
 
-fn insert(element: BackupElement, context: &impl XmtpSharedContext) -> Result<(), DeviceSyncError> {
+fn insert(
+    element: BackupElement,
+    context: &impl XmtpSharedContext,
+    import_context: &mut ImportContext,
+) -> Result<(), DeviceSyncError> {
     let Some(element) = element.element else {
         return Ok(());
     };
@@ -40,7 +77,17 @@ fn insert(element: BackupElement, context: &impl XmtpSharedContext) -> Result<()
             context.db().insert_newer_consent_record(consent)?;
         }
         Element::Group(save) => {
-            if let Ok(Some(_)) = context.db().find_group(&save.id) {
+            if let Ok(Some(existing_group)) = context.db().find_group(&save.id) {
+                let timestamp = match (existing_group.last_message_ns, save.last_message_ns) {
+                    (Some(e), Some(s)) => Some(e.max(s)),
+                    (None, Some(s)) => Some(s),
+                    (Some(e), None) => Some(e),
+                    (None, None) => None,
+                };
+
+                import_context
+                    .group_timestamps
+                    .insert(existing_group.id, timestamp);
                 // Do not restore groups that already exist.
                 return Ok(());
             }
@@ -50,6 +97,20 @@ fn insert(element: BackupElement, context: &impl XmtpSharedContext) -> Result<()
                 .mutable_metadata
                 .map(|m| m.attributes)
                 .unwrap_or_default();
+
+            // Save the timestamp. We'll need to come back around and re-insert this
+            // because triggers will set this field to now_ns in the database which
+            // is sub-par UX.
+            import_context
+                .group_timestamps
+                .insert(save.id.clone(), save.last_message_ns);
+            let message_disappearing_settings =
+                match (save.message_disappear_from_ns, save.message_disappear_in_ns) {
+                    (Some(from_ns), Some(in_ns)) => {
+                        Some(MessageDisappearingSettings::new(from_ns, in_ns))
+                    }
+                    _ => None,
+                };
 
             match conversation_type {
                 ConversationType::Dm => {
@@ -66,7 +127,9 @@ fn insert(element: BackupElement, context: &impl XmtpSharedContext) -> Result<()
                         context,
                         GroupMembershipState::Restored,
                         target_inbox_id,
-                        DMMetadataOptions::default(),
+                        DMMetadataOptions {
+                            message_disappearing_settings,
+                        },
                         Some(&save.id),
                     )?;
                 }
@@ -81,7 +144,8 @@ fn insert(element: BackupElement, context: &impl XmtpSharedContext) -> Result<()
                             name: attributes.get("group_name").cloned(),
                             image_url_square: attributes.get("group_image_url_square").cloned(),
                             description: attributes.get("description").cloned(),
-                            ..Default::default()
+                            app_data: attributes.get("app_data").cloned(),
+                            message_disappearing_settings,
                         },
                         None,
                     )?;
@@ -124,6 +188,79 @@ mod tests {
     use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
     #[xmtp_common::test(unwrap_try = true)]
+    async fn test_archive_timestamps() {
+        tester!(alix, disable_workers);
+        tester!(alix2, from: alix);
+        tester!(bo, disable_workers);
+
+        let alix_group = alix
+            .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+            .await?;
+        alix_group.send_message(b"hi", Default::default()).await?;
+
+        alix2.sync_welcomes().await?;
+        bo.sync_welcomes().await?;
+
+        let alix2_group = alix2.group(&alix_group.group_id)?;
+        let bo_group = bo.group(&alix_group.group_id)?;
+
+        alix2_group.sync().await?;
+        bo_group.sync().await?;
+
+        // We want to send this message so that alix's group timestamp gets ahead of alix2.
+        alix_group
+            .send_message(b"Hello again", Default::default())
+            .await?;
+
+        let key = vec![7; 32];
+        let opts = BackupOptions {
+            start_ns: None,
+            end_ns: None,
+            elements: vec![
+                BackupElementSelection::Messages as i32,
+                BackupElementSelection::Consent as i32,
+            ],
+            exclude_disappearing_messages: false,
+        };
+        let export = {
+            let mut file = vec![];
+            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+            exporter.read_to_end(&mut file).await?;
+            file
+        };
+
+        tester!(alix3, from: alix);
+
+        // Now we will have alix2 and alix3 import the archives.
+        // One installation has the group already, one does not.
+        let reader = Box::pin(BufReader::new(Cursor::new(export.clone())));
+        let mut importer = ArchiveImporter::load(reader, &key).await?;
+        insert_importer(&mut importer, &alix2.context).await?;
+
+        let reader = Box::pin(BufReader::new(Cursor::new(export)));
+        let mut importer = ArchiveImporter::load(reader, &key).await?;
+        insert_importer(&mut importer, &alix3.context).await?;
+
+        let alix_timestamp = alix
+            .db()
+            .find_group(&alix_group.group_id)??
+            .last_message_ns?;
+        let alix2_timestamp = alix2
+            .db()
+            .find_group(&alix_group.group_id)??
+            .last_message_ns?;
+        let alix3_timestamp = alix3
+            .db()
+            .find_group(&alix_group.group_id)??
+            .last_message_ns?;
+
+        // Alix2's older timestamp on the existing group should be updated.
+        assert_eq!(alix2_timestamp, alix_timestamp);
+        // Alix3's timestamp should equal alix's timestamp.
+        assert_eq!(alix3_timestamp, alix_timestamp);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
     async fn test_dm_archive() {
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
@@ -134,6 +271,11 @@ mod tests {
         alix_bo_dm
             .send_message(b"old group", Default::default())
             .await?;
+
+        let timestamp = alix
+            .db()
+            .find_group(&alix_bo_dm.group_id)??
+            .last_message_ns?;
 
         let key = vec![7; 32];
         let opts = BackupOptions {
@@ -165,6 +307,12 @@ mod tests {
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[1].decrypted_message_bytes, b"old group");
         // assert_eq!(alix2_bo_dm.test_last_message_bytes().await??, b"old group");
+
+        let timestamp2 = alix2
+            .db()
+            .find_group(&alix_bo_dm.group_id)??
+            .last_message_ns?;
+        assert_eq!(timestamp, timestamp2);
 
         alix2_bo_dm
             .send_message(b"hi bo", Default::default())
@@ -308,7 +456,7 @@ mod tests {
         let _ = tokio::fs::remove_file(path).await;
         exporter.write_to_file(path).await?;
 
-        let alix2 = Tester::new().await;
+        tester!(alix2, sync_worker, sync_server);
         alix2.device_sync_client().wait_for_sync_worker_init().await;
 
         // No consent before
@@ -366,7 +514,7 @@ mod tests {
         assert!(!alix2_group.is_active()?);
 
         // Add the new inbox to the groups
-        alix_group
+        alix.group(&old_group.id)?
             .add_members_by_inbox_id(&[alix2.inbox_id()])
             .await?;
         alix2.sync_welcomes().await?;
@@ -406,7 +554,6 @@ mod tests {
 
         let key = vec![0; 32];
         let path = PathBuf::from("tests/assets/archive-legacy.xmtp");
-        tracing::info!("{path:?}");
         let mut importer = ArchiveImporter::from_file(path, &key).await?;
 
         tester!(alix);

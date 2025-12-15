@@ -69,7 +69,6 @@ impl StreamCloser {
 impl StreamCloser {
   /// Signal the stream to end
   /// Does not wait for the stream to end.
-  #[wasm_bindgen(js_name = "end")]
   pub fn end(&self) {
     self.abort.end();
   }

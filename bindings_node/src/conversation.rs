@@ -8,6 +8,8 @@ use xmtp_db::{
   group::{ConversationType, DmIdExt},
   group_message::MsgQueryArgs,
 };
+
+use crate::conversations::GroupMembershipState;
 use xmtp_mls::{
   groups::{
     MlsGroup, UpdateAdminListType, intents::PermissionUpdateType as XmtpPermissionUpdateType,
@@ -315,6 +317,13 @@ impl Conversation {
       .collect();
 
     Ok(members)
+  }
+
+  #[napi]
+  pub fn membership_state(&self) -> Result<GroupMembershipState> {
+    let group = self.create_mls_group();
+    let state = group.membership_state().map_err(ErrorWrapper::from)?;
+    Ok(state.into())
   }
 
   #[napi]
@@ -782,5 +791,12 @@ impl Conversation {
     let group = self.create_mls_group();
     let times = group.get_last_read_times().map_err(ErrorWrapper::from)?;
     Ok(times)
+  }
+
+  #[napi]
+  pub async fn leave_group(&self) -> Result<()> {
+    let group = self.create_mls_group();
+    group.leave_group().await.map_err(ErrorWrapper::from)?;
+    Ok(())
   }
 }

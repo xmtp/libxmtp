@@ -1,6 +1,5 @@
 use crate::ErrorWrapper;
 use crate::conversations::Conversations;
-use crate::enriched_message::DecodedMessage;
 use crate::identity::{ApiStats, Identifier, IdentityExt, IdentityStats};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestHandle;
@@ -17,7 +16,6 @@ use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
-use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_proto::api_client::AggregateStats;
 
 mod gateway_auth;
@@ -174,11 +172,10 @@ pub async fn create_client(
   device_sync_worker_mode: Option<SyncWorkerMode>,
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
-  disable_events: Option<bool>,
   app_version: Option<String>,
   nonce: Option<BigInt>,
-  auth_callback: Option<&gateway_auth::FfiAuthCallback>,
-  auth_handle: Option<&gateway_auth::FfiAuthHandle>,
+  auth_callback: Option<&gateway_auth::AuthCallback>,
+  auth_handle: Option<&gateway_auth::AuthHandle>,
   client_mode: Option<ClientMode>,
 ) -> Result<Client> {
   let client_mode = client_mode.unwrap_or_default();
@@ -250,7 +247,6 @@ pub async fn create_client(
     .with_remote_verifier()
     .map_err(ErrorWrapper::from)?
     .with_allow_offline(allow_offline)
-    .with_disable_events(disable_events)
     .store(store);
 
   if let Some(u) = device_sync_server_url {
@@ -430,35 +426,6 @@ impl Client {
   #[napi]
   pub fn clear_all_statistics(&self) {
     self.inner_client.clear_stats()
-  }
-
-  #[napi]
-  pub async fn upload_debug_archive(&self, server_url: String) -> Result<String> {
-    let db = self.inner_client().context.db();
-    Ok(
-      upload_debug_archive(db, Some(server_url))
-        .await
-        .map_err(ErrorWrapper::from)?,
-    )
-  }
-
-  #[napi]
-  pub fn delete_message(&self, message_id: Uint8Array) -> Result<u32> {
-    let deleted_count = self
-      .inner_client
-      .delete_message(message_id.to_vec())
-      .map_err(ErrorWrapper::from)?;
-    Ok(deleted_count as u32)
-  }
-
-  #[napi]
-  pub async fn enriched_message(&self, message_id: Vec<u8>) -> Result<DecodedMessage> {
-    let message = self
-      .inner_client
-      .message_v2(message_id)
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(message.into())
   }
 
   #[napi]

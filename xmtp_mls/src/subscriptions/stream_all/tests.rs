@@ -4,6 +4,7 @@ use crate::groups::send_message_opts::SendMessageOpts;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+use crate::subscriptions::stream_messages::stream_stats::StreamWithStats;
 use crate::tester;
 use crate::{assert_msg, builder::ClientBuilder};
 use futures::StreamExt;
@@ -184,7 +185,7 @@ async fn test_dm_stream_all_messages() {
         .await
         .unwrap();
     // TODO:d14n
-    // this discrepency is because of the LCC (we get duplicates)
+    // this discrepancy is because of the LCC (we get duplicates)
     // not sure if theres an easy fix
     // https://github.com/xmtp/libxmtp/issues/2613
     if cfg!(feature = "d14n") {
@@ -501,7 +502,6 @@ async fn stream_messages_keeps_track_of_cursor() {
 #[rstest::rstest]
 #[xmtp_common::test]
 #[timeout(Duration::from_secs(20))]
-#[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_stream_all_messages_filters_conversations_created_after_init() {
     let sender = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let receiver = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -880,5 +880,49 @@ async fn test_stream_all_concurrent_writes() {
         "Received {} messages. Expected {} (40 from Alix + 20 from Bo + 10 from Davon + 20 from Caro)",
         num_received,
         num_sent
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn test_new_group_does_not_duplicate_messages() {
+    tester!(alix);
+    tester!(bo);
+
+    // Create 250 groups with both accounts and send one message to each
+    let mut initial_groups = Vec::with_capacity(50);
+    for i in 0..50 {
+        let group = alix.create_group(Default::default(), Default::default())?;
+        group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+        group
+            .send_message(
+                format!("Initial message {}", i).as_bytes(),
+                Default::default(),
+            )
+            .await?;
+        initial_groups.push(group);
+    }
+
+    let mut stream = alix
+        .stream_all_messages_owned_with_stats(None, None)
+        .await?;
+    let stats = stream.stats();
+
+    // Create a new group to trigger a reconnect
+    let _ = alix.create_group(Default::default(), Default::default())?;
+
+    xmtp_common::spawn(
+        None,
+        async move { while (stream.next().await).is_some() {} },
+    );
+
+    xmtp_common::time::sleep(Duration::from_secs(10)).await;
+
+    let new_stats = stats.new_stats().await;
+
+    assert!(
+        new_stats.len() < 5,
+        "Stream has processed {} messages when expected to have processed 1",
+        new_stats.len()
     );
 }

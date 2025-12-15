@@ -3,7 +3,13 @@ use std::{
     ops::Deref,
 };
 
-use crate::{ConversionError, xmtp::xmtpv4::envelopes::AuthenticatedData};
+use smallvec::SmallVec;
+
+use crate::{ConversionError, types::InstallationId, xmtp::xmtpv4::envelopes::AuthenticatedData};
+
+/// the max size of an item in a [`TopicKind`] is 32 bytes (installation id).
+/// the 1st byte is interpreted as the prefixed [`TopicKind`] byte.
+type TopicBytes = SmallVec<[u8; 33]>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -46,9 +52,9 @@ impl Display for TopicKind {
 }
 
 impl TopicKind {
-    pub fn build<B: AsRef<[u8]>>(&self, bytes: B) -> Vec<u8> {
+    fn build<B: AsRef<[u8]>>(&self, bytes: B) -> TopicBytes {
         let bytes = bytes.as_ref();
-        let mut topic = Vec::with_capacity(1 + bytes.len());
+        let mut topic = TopicBytes::new();
         topic.push(*self as u8);
         topic.extend_from_slice(bytes);
         topic
@@ -65,7 +71,7 @@ impl TopicKind {
 /// https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#332-envelopes
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Topic {
-    inner: Vec<u8>,
+    inner: TopicBytes,
 }
 
 impl Topic {
@@ -73,6 +79,31 @@ impl Topic {
         Self {
             inner: kind.build(bytes),
         }
+    }
+
+    /// create a new [`TopicKind::GroupMessagesV1`] topic
+    pub fn new_group_message(group_id: impl AsRef<[u8]>) -> Self {
+        TopicKind::GroupMessagesV1.create(group_id)
+    }
+
+    /// create a new identity update Topic with `inbox_id` bytes
+    /// _NOTE_
+    /// this function expects the decoded hex from an InboxId,
+    /// not the UTF-8 bytes of a InboxId.
+    pub fn new_identity_update(inbox_id: impl AsRef<[u8]>) -> Self {
+        TopicKind::IdentityUpdatesV1.create(inbox_id)
+    }
+
+    /// create a new [`TopicKind::WelcomeMessagesV1`] topic
+    /// from an [`InstallationId`]
+    pub fn new_welcome_message(installation_id: InstallationId) -> Self {
+        TopicKind::WelcomeMessagesV1.create(installation_id)
+    }
+
+    /// create a new [`TopicKind::KeyPackagesV1`] topic
+    /// from an [`InstallationId`]
+    pub fn new_key_package(installation_id: impl AsRef<[u8]>) -> Self {
+        TopicKind::KeyPackagesV1.create(installation_id.as_ref())
     }
 
     pub fn kind(&self) -> TopicKind {
@@ -86,14 +117,20 @@ impl Topic {
         &self.inner[1..]
     }
 
-    pub fn bytes(&self) -> Vec<u8> {
-        self.inner.clone()
+    /// get the full topic bytes as a [`Vec`] by cloning, including the identifying [`TopicKind`]
+    pub fn cloned_vec(&self) -> Vec<u8> {
+        self.inner.clone().to_vec()
     }
 
-    pub fn to_bytes(self) -> Vec<u8> {
+    /// consume this [`Topic`] into its bytes as a Vec
+    pub fn to_bytes(self) -> TopicBytes {
         self.inner
     }
 
+    /// treat this topic as a [`TopicKind::IdentityUpdatesV1`],
+    /// otherwise returns [`Option::None`].
+    /// useful for collection `filter_map` operations when a single topic type
+    /// is required
     pub fn identity_updates(&self) -> Option<&Topic> {
         if self.kind() == TopicKind::IdentityUpdatesV1 {
             Some(self)
@@ -102,6 +139,10 @@ impl Topic {
         }
     }
 
+    /// treat this topic as a [`TopicKind::GroupMessagesV1`],
+    /// otherwise returns [`Option::None`].
+    /// useful for collection `filter_map` operations when a single topic type
+    /// is required
     pub fn group_message_v1(&self) -> Option<&Topic> {
         if self.kind() == TopicKind::GroupMessagesV1 {
             Some(self)
@@ -110,6 +151,10 @@ impl Topic {
         }
     }
 
+    /// treat this topic as a [`TopicKind::WelcomeMessagesV1`],
+    /// otherwise returns [`Option::None`].
+    /// useful for collection `filter_map` operations when a single topic type
+    /// is required
     pub fn welcome_message_v1(&self) -> Option<&Topic> {
         if self.kind() == TopicKind::WelcomeMessagesV1 {
             Some(self)
@@ -118,6 +163,10 @@ impl Topic {
         }
     }
 
+    /// treat this topic as a [`TopicKind::KeyPackagesV1`],
+    /// otherwise returns [`Option::None`].
+    /// useful for collection `filter_map` operations when a single topic type
+    /// is required
     pub fn key_packages_v1(&self) -> Option<&Topic> {
         if self.kind() == TopicKind::KeyPackagesV1 {
             Some(self)
@@ -131,8 +180,10 @@ impl Topic {
     /// invalid byte layout will result in
     /// undefined behavior.
     #[cfg(any(feature = "test-utils", test))]
-    pub fn from_bytes(bytes: Vec<u8>) -> Self {
-        Self { inner: bytes }
+    pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Self {
+        Self {
+            inner: SmallVec::from_slice(bytes.as_ref()),
+        }
     }
 }
 
@@ -155,7 +206,7 @@ impl TryFrom<Vec<u8>> for Topic {
 
 impl From<Topic> for Vec<u8> {
     fn from(topic: Topic) -> Vec<u8> {
-        topic.to_bytes()
+        topic.to_bytes().to_vec()
     }
 }
 
@@ -175,10 +226,10 @@ impl Display for Topic {
 }
 
 impl Deref for Topic {
-    type Target = Vec<u8>;
+    type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        self.inner.deref()
     }
 }
 
@@ -201,7 +252,7 @@ impl AsRef<Topic> for Topic {
 impl AuthenticatedData {
     pub fn with_topic(topic: Topic) -> AuthenticatedData {
         AuthenticatedData {
-            target_topic: topic.to_bytes(),
+            target_topic: topic.into(),
             depends_on: None,
         }
     }

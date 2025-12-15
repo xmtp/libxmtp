@@ -1,13 +1,16 @@
 //! A global cursor is type of cursor representing a view of our position across all originators
 //! in the network.
 use crate::{
+    ConversionError,
+    api::VectorClock,
     types::{OriginatorId, SequenceId},
     xmtp::xmtpv4::envelopes::Cursor,
 };
 use core::fmt;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
+    fmt::Write,
     ops::{Deref, DerefMut},
 };
 use xmtp_configuration::Originators;
@@ -25,13 +28,10 @@ impl GlobalCursor {
         Self { inner: map }
     }
 
-    /// Apply a singular cursor to 'Self'
-    pub fn apply(&mut self, cursor: &super::Cursor) {
-        let _ = self
-            .inner
-            .entry(cursor.originator_id)
-            .and_modify(|sid| *sid = (*sid).max(cursor.sequence_id))
-            .or_insert(cursor.sequence_id);
+    /// check if this cursor has seen `other`
+    pub fn has_seen(&self, other: &super::Cursor) -> bool {
+        let sid = self.get(&other.originator_id);
+        sid >= other.sequence_id
     }
 
     /// apply a cursor to `Self`, and take the lowest value of SequenceId between
@@ -51,10 +51,7 @@ impl GlobalCursor {
 
     /// get the full [`super::Cursor`] that belongs to this [`OriginatorId``
     pub fn cursor(&self, originator: &OriginatorId) -> super::Cursor {
-        super::Cursor {
-            originator_id: *originator,
-            sequence_id: self.get(originator),
-        }
+        super::Cursor::new(self.get(originator), *originator)
     }
 
     /// Get the max sequence id across all originator ids
@@ -86,6 +83,12 @@ impl GlobalCursor {
             .unwrap_or_default()
     }
 
+    /// get the latest sequence id for the mls commit originator (v3/d14n)
+    pub fn commit_cursor(&self) -> super::Cursor {
+        let sequence_id = self.get(&(Originators::MLS_COMMITS));
+        super::Cursor::mls_commits(sequence_id)
+    }
+
     /// get the latest sequence_id for the installation/key package originator
     pub fn v3_installations(&self) -> SequenceId {
         self.inner
@@ -105,17 +108,11 @@ impl GlobalCursor {
 
 impl fmt::Display for GlobalCursor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = String::new();
         for (oid, sid) in self.inner.iter() {
-            write!(
-                f,
-                "{}",
-                crate::types::Cursor {
-                    sequence_id: *sid,
-                    originator_id: *oid
-                }
-            )?;
+            write!(s, "{}", super::Cursor::new(*sid, *oid))?;
         }
-        Ok(())
+        write!(f, "{:25}", s)
     }
 }
 
@@ -138,6 +135,42 @@ impl From<GlobalCursor> for Cursor {
         Cursor {
             node_id_to_sequence_id: value.inner,
         }
+    }
+}
+
+impl TryFrom<GlobalCursor> for crate::types::Cursor {
+    type Error = ConversionError;
+
+    fn try_from(value: GlobalCursor) -> Result<Self, Self::Error> {
+        if value.len() > 1 {
+            return Err(ConversionError::InvalidLength {
+                item: std::any::type_name::<GlobalCursor>(),
+                expected: 1,
+                got: value.len(),
+            });
+        }
+        if value.is_empty() {
+            return Err(ConversionError::InvalidLength {
+                item: std::any::type_name::<GlobalCursor>(),
+                expected: 1,
+                got: 0,
+            });
+        }
+
+        let (oid, sid) = value
+            .into_iter()
+            .next()
+            .expect("ensured length is at least one");
+        Ok(super::Cursor::new(sid, oid))
+    }
+}
+
+impl TryFrom<Cursor> for crate::types::Cursor {
+    type Error = ConversionError;
+
+    fn try_from(value: Cursor) -> Result<Self, Self::Error> {
+        let global: GlobalCursor = value.into();
+        global.try_into()
     }
 }
 
@@ -195,10 +228,95 @@ impl DerefMut for GlobalCursor {
     }
 }
 
+impl<C: Into<super::Cursor>> Extend<C> for GlobalCursor {
+    fn extend<T: IntoIterator<Item = C>>(&mut self, iter: T) {
+        self.inner.extend(iter.into_iter().map(|c| {
+            let c: super::Cursor = c.into();
+            (c.originator_id, c.sequence_id)
+        }))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClockOrdering {
     Equal,
     Ancestor,
     Descendant,
     Concurrent,
+}
+
+impl VectorClock for GlobalCursor {
+    fn dominates(&self, other: &Self) -> bool {
+        other.iter().all(|(&node, &seq)| self.get(&node) >= seq)
+    }
+
+    /// gets all updates in `other` that are not seen by `self`.
+    fn missing(&self, other: &Self) -> Vec<super::Cursor> {
+        other
+            .iter()
+            .filter_map(|(&node, &seq)| {
+                (self.get(&node) < seq).then_some(super::Cursor::new(seq, node))
+            })
+            .collect()
+    }
+
+    fn merge(&mut self, other: &Self) {
+        for (&node, &seq) in other {
+            let entry = self.entry(node).or_insert(0);
+            *entry = (*entry).max(seq);
+        }
+    }
+
+    fn merge_least(&mut self, other: &Self) {
+        for (&node, &seq) in other {
+            let entry = self.entry(node).or_insert(seq);
+            *entry = (*entry).min(seq);
+        }
+    }
+
+    fn compare(&self, other: &Self) -> ClockOrdering {
+        let all_nodes: HashSet<_> = self.keys().chain(other.keys()).collect();
+
+        let mut self_greater = false;
+        let mut other_greater = false;
+
+        for node in all_nodes {
+            let a = self.get(node);
+            let b = other.get(node);
+
+            if a > b {
+                self_greater = true;
+            } else if a < b {
+                other_greater = true;
+            }
+        }
+
+        match (self_greater, other_greater) {
+            (false, false) => ClockOrdering::Equal,
+            (true, false) => ClockOrdering::Descendant,
+            (false, true) => ClockOrdering::Ancestor,
+            (true, true) => ClockOrdering::Concurrent,
+        }
+    }
+
+    fn apply(&mut self, cursor: &super::Cursor) {
+        let _ = self
+            .inner
+            .entry(cursor.originator_id)
+            .and_modify(|sid| *sid = (*sid).max(cursor.sequence_id))
+            .or_insert(cursor.sequence_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test]
+    fn dominates_empty() {
+        let empty = GlobalCursor::default();
+        let mut not_empty = GlobalCursor::default();
+        not_empty.insert(1, 1);
+        assert!(not_empty.dominates(&empty));
+    }
 }

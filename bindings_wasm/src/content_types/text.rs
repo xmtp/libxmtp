@@ -1,9 +1,9 @@
+use crate::encoded_content::EncodedContent;
 use js_sys::Uint8Array;
 use prost::Message;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::text::TextCodec;
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
@@ -19,7 +19,7 @@ impl From<xmtp_mls::messages::decoded_message::Text> for TextContent {
   }
 }
 
-#[wasm_bindgen(js_name = "encodeText")]
+#[wasm_bindgen(js_name = "encodeXmtpText")]
 pub fn encode_text(text: String) -> Result<Uint8Array, JsError> {
   // Use TextCodec to encode the text
   let encoded = TextCodec::encode(text).map_err(|e| JsError::new(&format!("{}", e)))?;
@@ -33,12 +33,11 @@ pub fn encode_text(text: String) -> Result<Uint8Array, JsError> {
   Ok(Uint8Array::from(buf.as_slice()))
 }
 
-#[wasm_bindgen(js_name = "decodeText")]
-pub fn decode_text(bytes: Uint8Array) -> Result<String, JsError> {
-  // Decode bytes into EncodedContent
-  let encoded_content = EncodedContent::decode(bytes.to_vec().as_slice())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
+// `decode` conflicts with some wasm function in bindgen/tests/somewhere
+// breaking `bindings_wasm` tests
+// PR: https://github.com/xmtp/libxmtp/pull/2863
+#[wasm_bindgen(js_name = "decodeXmtpText")]
+pub fn decode_text(encoded_content: EncodedContent) -> Result<String, JsError> {
   // Use TextCodec to decode into String
-  TextCodec::decode(encoded_content).map_err(|e| JsError::new(&format!("{}", e)))
+  TextCodec::decode(encoded_content.into()).map_err(|e| JsError::new(&format!("{}", e)))
 }

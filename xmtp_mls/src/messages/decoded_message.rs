@@ -5,6 +5,7 @@ use xmtp_content_types::actions::{Actions, ActionsCodec};
 use xmtp_content_types::delete_message::DeleteMessageCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_content_types::intent::{Intent, IntentCodec};
+use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::{LegacyReactionCodec, ReactionCodec};
 use xmtp_content_types::read_receipt::ReadReceiptCodec;
@@ -25,7 +26,7 @@ use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent, GroupUpdated,
-    content_types::{MultiRemoteAttachment, ReactionV2},
+    content_types::{LeaveRequest, MultiRemoteAttachment, ReactionV2},
 };
 
 #[derive(Debug, Clone)]
@@ -65,6 +66,7 @@ pub enum MessageBody {
     WalletSendCalls(WalletSendCalls),
     Intent(Option<Intent>),
     Actions(Option<Actions>),
+    LeaveRequest(LeaveRequest),
     /// The actual DeleteMessage content type (not shown in message lists)
     DeleteMessage(DeleteMessage),
     /// Placeholder for a message that has been deleted (shown in message lists)
@@ -175,6 +177,10 @@ impl TryFrom<EncodedContent> for MessageBody {
             (ActionsCodec::TYPE_ID, ActionsCodec::MAJOR_VERSION) => {
                 let actions = ActionsCodec::decode(value)?;
                 Ok(MessageBody::Actions(Some(actions)))
+            }
+            (LeaveRequestCodec::TYPE_ID, LeaveRequestCodec::MAJOR_VERSION) => {
+                let leave_request = LeaveRequestCodec::decode(value)?;
+                Ok(MessageBody::LeaveRequest(leave_request))
             }
             (DeleteMessageCodec::TYPE_ID, DeleteMessageCodec::MAJOR_VERSION) => {
                 let delete_message = DeleteMessageCodec::decode(value)?;

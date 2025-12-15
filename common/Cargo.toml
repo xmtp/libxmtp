@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+const_panic.workspace = true
 futures = { workspace = true, features = ["std"] }
 hex.workspace = true
 rand.workspace = true

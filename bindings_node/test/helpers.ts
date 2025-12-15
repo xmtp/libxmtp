@@ -67,7 +67,6 @@ export const createClient = async (user: User, appVersion?: string) => {
     SyncWorkerMode.disabled,
     { level: LogLevel.error },
     undefined,
-    true,
     appVersion ?? null
   )
 }
@@ -112,7 +111,6 @@ export const createToxicClient = async (user: User) => {
     undefined,
     SyncWorkerMode.disabled,
     { level: LogLevel.debug },
-    undefined,
     true
   )
 }

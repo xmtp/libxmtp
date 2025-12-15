@@ -1,5 +1,5 @@
 //! Extractor for a envelope [`Cursor`](xmtp_proto::types::Cursor)
-//! useful for verifing a message has been read or maybe duplicates.
+//! useful for verifying a message has been read or maybe duplicates.
 use xmtp_proto::ConversionError;
 use xmtp_proto::mls_v1::welcome_message::WelcomePointer as V3WelcomePointer;
 use xmtp_proto::types::Cursor;
@@ -40,10 +40,7 @@ impl EnvelopeVisitor<'_> for CursorExtractor {
         &mut self,
         e: &UnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
-        self.cursor = Some(Cursor {
-            sequence_id: e.originator_sequence_id,
-            originator_id: e.originator_node_id,
-        });
+        self.cursor = Some(Cursor::new(e.originator_sequence_id, e.originator_node_id));
         Ok(())
     }
 

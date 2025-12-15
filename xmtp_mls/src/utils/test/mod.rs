@@ -6,6 +6,8 @@ pub mod tester_utils;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod fixtures;
 pub mod test_mocks_helpers;
+mod tester_utils_trait_ext;
+pub use tester_utils_trait_ext::*;
 
 use crate::XmtpApi;
 use crate::cursor_store::SqliteCursorStore;
@@ -76,7 +78,6 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
         Client::builder(strategy)
             .temp_store()
             .await
-            .with_disable_events(None)
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .device_sync_server_url(xmtp_configuration::DeviceSyncUrls::LOCAL_ADDRESS)
             .enable_sqlite_triggers()
@@ -95,7 +96,6 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
     pub async fn new_test_client_vanilla(owner: &impl InboxOwner) -> FullXmtpClient {
         let client = Self::new_test_builder(owner)
             .await
-            .with_disable_events(Some(true))
             .device_sync_worker_mode(SyncWorkerMode::Disabled)
             .build()
             .await
@@ -144,7 +144,7 @@ fn identity_setup(owner: impl InboxOwner) -> IdentityStrategy {
     IdentityStrategy::new(inbox_id, ident, nonce, None)
 }
 
-/// wrapper over a `Notify` with a 60-scond timeout for waiting
+/// wrapper over a `Notify` with a 60-second timeout for waiting
 #[derive(Clone, Default)]
 pub struct Delivery {
     notify: Arc<Notify>,

@@ -138,7 +138,7 @@ impl AsyncRead for ArchiveExporter {
     ) -> Poll<io::Result<usize>> {
         let mut this = self.project();
         loop {
-            // Putting this up here becuase we don't want to encrypt or compress the nonce.
+            // Putting this up here because we don't want to encrypt or compress the nonce.
             if matches!(this.stage, Stage::Nonce) {
                 let amount = this.nonce_buffer.len().min(buf.len());
                 let nonce_bytes: Vec<_> = this.nonce_buffer.drain(..amount).collect();

@@ -16,7 +16,6 @@ use rstest::*;
 pub fn context() -> NewMockContext {
     let (local_events, _) = tokio::sync::broadcast::channel(32);
     let (worker_events, _) = tokio::sync::broadcast::channel(32);
-    let (events, _) = tokio::sync::broadcast::channel(32);
     XmtpMlsLocalContext {
         identity: Identity::mock_identity(),
         api_client: ApiClientWrapper::new(MockApiClient::new(), Default::default()),
@@ -26,7 +25,6 @@ pub fn context() -> NewMockContext {
         version_info: VersionInfo::default(),
         local_events,
         worker_events,
-        events,
         scw_verifier: Arc::new(Box::new(MockSmartContractSignatureVerifier::new(true))),
         device_sync: DeviceSync {
             server_url: None,
@@ -85,10 +83,7 @@ pub fn generate_errored_summary(error_cursors: &[u64], successful_cursors: &[u64
                     .iter()
                     .copied()
                     .chain(successful_cursors.iter().copied())
-                    .map(|c| Cursor {
-                        sequence_id: c,
-                        originator_id: xmtp_configuration::Originators::APPLICATION_MESSAGES,
-                    }),
+                    .map(Cursor::v3_messages),
             ),
             new_messages: generate_messages_with_ids(successful_cursors)
                 .iter()

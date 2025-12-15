@@ -113,6 +113,18 @@ mod tests {
         fn depends_on(&self) -> Result<Option<xmtp_proto::types::GlobalCursor>, EnvelopeError> {
             unreachable!()
         }
+
+        fn sha256_hash(&self) -> Result<Vec<u8>, EnvelopeError> {
+            unreachable!()
+        }
+
+        fn bytes(&self) -> Result<Vec<u8>, EnvelopeError> {
+            unreachable!()
+        }
+
+        fn orphan(&self) -> Result<xmtp_proto::types::OrphanedEnvelope, EnvelopeError> {
+            todo!()
+        }
     }
 
     prop_compose! {

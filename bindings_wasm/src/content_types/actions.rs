@@ -1,10 +1,10 @@
+use crate::encoded_content::EncodedContent;
 use chrono::DateTime;
 use js_sys::Uint8Array;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::{ContentCodec, actions::ActionsCodec};
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, Serialize, Deserialize)]
@@ -20,7 +20,11 @@ pub struct Actions {
 #[wasm_bindgen]
 impl Actions {
   #[wasm_bindgen(constructor)]
-  pub fn new(id: String, description: String, expires_at_ns: Option<i64>) -> Self {
+  pub fn new(
+    id: String,
+    description: String,
+    #[wasm_bindgen(js_name = expiresAtNs)] expires_at_ns: Option<i64>,
+  ) -> Self {
     Self {
       id,
       description,
@@ -114,9 +118,9 @@ impl Action {
   pub fn new(
     id: String,
     label: String,
-    image_url: Option<String>,
+    #[wasm_bindgen(js_name = imageUrl)] image_url: Option<String>,
     style: Option<ActionStyle>,
-    expires_at_ns: Option<i64>,
+    #[wasm_bindgen(js_name = expiresAtNs)] expires_at_ns: Option<i64>,
   ) -> Self {
     Self {
       id,
@@ -221,14 +225,10 @@ pub fn encode_actions(actions: Actions) -> Result<Uint8Array, JsError> {
 }
 
 #[wasm_bindgen(js_name = "decodeActions")]
-pub fn decode_actions(bytes: Uint8Array) -> Result<Actions, JsError> {
-  // Decode bytes into EncodedContent
-  let encoded_content = EncodedContent::decode(bytes.to_vec().as_slice())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
+pub fn decode_actions(encoded_content: EncodedContent) -> Result<Actions, JsError> {
   // Use ActionsCodec to decode into Actions and convert to Actions
   let actions =
-    ActionsCodec::decode(encoded_content).map_err(|e| JsError::new(&format!("{}", e)))?;
+    ActionsCodec::decode(encoded_content.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
 
   actions.try_into()
 }

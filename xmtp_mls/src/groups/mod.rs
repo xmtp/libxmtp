@@ -40,9 +40,9 @@ use crate::groups::{
     mls_ext::CommitLogStorer,
     validated_commit::LibXMTPVersion,
 };
+use crate::subscriptions::SyncWorkerEvent;
 use crate::{GroupCommitLock, context::XmtpSharedContext};
 use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
-use crate::{subscriptions::SyncWorkerEvent, track};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
 use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
@@ -63,7 +63,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
-use xmtp_common::time::now_ns;
+use xmtp_common::{Event, log_event, time::now_ns};
 use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
     MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators,
@@ -583,9 +583,6 @@ where
         );
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
-
-        track!(context, "Group Create", { "conversation_type": ConversationType::Dm }, group: &new_group.group_id);
-
         Ok(new_group)
     }
 
@@ -975,14 +972,11 @@ where
             .queue(self)?;
 
         self.sync_until_intent_resolved(intent.id).await?;
-        track!(
-            &self.context,
-            "Group Membership Change",
-            {
-                "added": ids,
-                "removed": ()
-            },
-            group: &self.group_id
+
+        log_event!(
+            Event::AddedMembers,
+            group_id = %hex::encode(&self.group_id),
+            members = ?ids
         );
 
         ok_result
@@ -1041,16 +1035,6 @@ where
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
 
-        track!(
-            &self.context,
-            "Group Membership Change",
-            {
-                "added": (),
-                "removed": inbox_ids
-            },
-            group: &self.group_id
-        );
-
         Ok(())
     }
 
@@ -1091,15 +1075,6 @@ where
             .queue(self)?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
-
-        track!(
-            &self.context,
-            "Readd Installations",
-            {
-                "installations": installations
-            },
-            group: &self.group_id
-        );
 
         Ok(())
     }
@@ -1984,6 +1959,17 @@ where
         self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
             Ok(mls_group.is_active())
         })
+    }
+
+    /// Returns the membership state of the current user in this group.
+    #[tracing::instrument(skip_all, level = "trace")]
+    pub fn membership_state(&self) -> Result<GroupMembershipState, GroupError> {
+        let stored_group = self
+            .context
+            .db()
+            .find_group(&self.group_id)?
+            .ok_or_else(|| GroupError::NotFound(NotFound::GroupById(self.group_id.clone())))?;
+        Ok(stored_group.membership_state)
     }
 
     /// Get the `GroupMetadata` of the group.

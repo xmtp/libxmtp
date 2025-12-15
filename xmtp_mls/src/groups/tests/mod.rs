@@ -7,13 +7,16 @@ mod test_delete_message;
 mod test_dm;
 mod test_extract_readded_installations;
 mod test_group_updated;
-mod test_key_updates;
 mod test_libxmtp_version;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_network;
 mod test_send_message_opts;
 mod test_welcome_pointers;
 mod test_welcomes;
+
+xmtp_common::if_d14n! {
+    mod test_message_dependencies;
+}
 
 use crate::groups::send_message_opts::SendMessageOpts;
 use chrono::DateTime;
@@ -1402,14 +1405,132 @@ async fn test_self_removal_simple() {
     let bola_group = bola_groups.first().unwrap();
     assert_eq!(bola_group.members().await.unwrap().len(), 2);
 
+    // Verify Bola's membership state is Pending when first invited
+    assert_eq!(
+        bola_group.membership_state().unwrap(),
+        GroupMembershipState::Pending
+    );
+
     bola_group.leave_group().await.unwrap();
+
+    // Verify Bola's membership state is PendingRemove after requesting to leave
+    assert_eq!(
+        bola_group.membership_state().unwrap(),
+        GroupMembershipState::PendingRemove
+    );
+
     amal_group.sync().await.unwrap();
     xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
     bola_group.sync().await.unwrap();
     xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
     assert!(!bola_group.is_active().unwrap());
     assert_eq!(amal_group.members().await.unwrap().len(), 1);
+
+    // Verify Amal's membership state remains Allowed
+    assert_eq!(
+        amal_group.membership_state().unwrap(),
+        GroupMembershipState::Allowed
+    );
 }
+
+#[xmtp_common::test(flavor = "current_thread")]
+async fn test_membership_state_after_readd() {
+    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+    // Amal creates a group and adds Bola
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group
+        .add_members_by_inbox_id(&[bola.inbox_id()])
+        .await
+        .unwrap();
+
+    // Bola syncs and gets the group
+    bola.sync_welcomes().await.unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+    let bola_group = bola_groups.first().unwrap();
+
+    // Verify Bola's initial membership state is Pending
+    assert_eq!(
+        bola_group.membership_state().unwrap(),
+        GroupMembershipState::Pending,
+        "Bola should be in Pending state when first invited"
+    );
+
+    // Bola leaves the group
+    bola_group.leave_group().await.unwrap();
+
+    // Verify Bola's membership state is PendingRemove after requesting to leave
+    assert_eq!(
+        bola_group.membership_state().unwrap(),
+        GroupMembershipState::PendingRemove,
+        "Bola should be in PendingRemove state after leaving"
+    );
+
+    // Amal syncs to process the leave request
+    amal_group.sync().await.unwrap();
+
+    // Wait for admin worker to process the removal
+    xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    // Bola syncs to get the final removal
+    bola_group.sync().await.unwrap();
+
+    // Verify Bola's group is no longer active
+    assert!(
+        !bola_group.is_active().unwrap(),
+        "Bola's group should be inactive after removal"
+    );
+
+    // Amal re-adds Bola to the group
+    amal_group
+        .add_members_by_inbox_id(&[bola.inbox_id()])
+        .await
+        .unwrap();
+
+    // Amal syncs to send the add
+    amal_group.sync().await.unwrap();
+
+    // Bola syncs to receive the welcome message for being re-added
+    bola.sync_welcomes().await.unwrap();
+
+    // Bola should have the group again (same ID)
+    let bola_groups_after_readd = bola.find_groups(GroupQueryArgs::default()).unwrap();
+    let bola_group_after_readd = bola_groups_after_readd
+        .iter()
+        .find(|g| g.group_id == bola_group.group_id)
+        .expect("Bola should have the group after being re-added");
+
+    // CRITICAL: Verify Bola's membership state is Allowed (not PendingRemove)
+    assert_eq!(
+        bola_group_after_readd.membership_state().unwrap(),
+        GroupMembershipState::Allowed,
+        "Bola should be in Allowed state after being re-added, not PendingRemove"
+    );
+
+    // Verify the group is active again
+    assert!(
+        bola_group_after_readd.is_active().unwrap(),
+        "Bola's group should be active after re-add"
+    );
+
+    // Verify consent state is Unknown (user needs to accept)
+    assert_eq!(
+        bola_group_after_readd.consent_state().unwrap(),
+        ConsentState::Unknown,
+        "Bola's consent should be Unknown after re-add, requiring explicit acceptance"
+    );
+
+    // Verify both members are back in the group
+    amal_group.sync().await.unwrap();
+    let members_after_readd = amal_group.members().await.unwrap();
+    assert_eq!(
+        members_after_readd.len(),
+        2,
+        "Both Amal and Bola should be in the group"
+    );
+}
+
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_group_update_message() {
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1502,7 +1623,21 @@ async fn test_self_removal_single_installations() {
 
     // Bola should be able to leave the group
     bola_group.sync().await.unwrap();
+
+    // Verify Bola's membership state is Pending when first invited
+    assert_eq!(
+        bola_group.membership_state().unwrap(),
+        GroupMembershipState::Pending
+    );
+
     bola_group.leave_group().await.unwrap();
+
+    // Verify Bola's membership state is PendingRemove after requesting to leave
+    assert_eq!(
+        bola_group.membership_state().unwrap(),
+        GroupMembershipState::PendingRemove
+    );
+
     let bola_group_pending_leave_users = bola
         .db()
         .get_pending_remove_users(&bola_group.group_id)
@@ -2796,7 +2931,7 @@ async fn test_group_mutable_data_group_permissions() {
     bola_group
         .update_group_name("New Group Name 2".to_string())
         .await
-        .expect("non creator failed to udpate group name");
+        .expect("non creator failed to update group name");
 
     // Verify amal group sees an update
     amal_group.sync().await.unwrap();
@@ -3236,7 +3371,7 @@ async fn test_can_update_permissions_after_group_creation() {
         .await
         .unwrap();
 
-    // Step 3: Bola attemps to add Caro, but fails because group is admin only
+    // Step 3: Bola attempts to add Caro, but fails because group is admin only
     let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -3324,7 +3459,6 @@ async fn test_optimistic_send() {
 
     let text = messages
         .iter()
-        .cloned()
         .map(|m| String::from_utf8_lossy(&m.decrypted_message_bytes).to_string())
         .collect::<Vec<String>>();
     assert_eq!(
@@ -3347,7 +3481,6 @@ async fn test_optimistic_send() {
 
     let delivery = messages
         .iter()
-        .cloned()
         .map(|m| m.delivery_status)
         .collect::<Vec<DeliveryStatus>>();
     assert_eq!(
@@ -3366,7 +3499,6 @@ async fn test_optimistic_send() {
     let messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
     let delivery = messages
         .iter()
-        .cloned()
         .map(|m| m.delivery_status)
         .collect::<Vec<DeliveryStatus>>();
     assert_eq!(
@@ -3387,7 +3519,7 @@ async fn test_dm_creation() {
     let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-    // Amal creates a dm group targetting bola
+    // Amal creates a dm group targeting bola
     let amal_dm = amal
         .find_or_create_dm_by_inbox_id(bola.inbox_id().to_string(), None)
         .await
@@ -5004,10 +5136,7 @@ async fn non_retryable_error_increments_cursor() {
     // making us actually return the message as already processed, since it loops back to 0,
     // thereby less than group cursor. Thats why we take i64 max before casting to u64, rather than
     // u64::MAX.
-    let new_cursor = Cursor {
-        sequence_id: (i64::MAX - 1_000) as u64,
-        originator_id: Originators::MLS_COMMITS,
-    };
+    let new_cursor = Cursor::mls_commits((i64::MAX - 1_000) as u64);
 
     let message = xmtp_proto::types::GroupMessage {
         cursor: new_cursor,
@@ -5020,6 +5149,7 @@ async fn non_retryable_error_increments_cursor() {
         sender_hmac: vec![],
         should_push: false,
         payload_hash: vec![],
+        depends_on: Default::default(),
     };
 
     let res = group.process_message(&message, true).await;
@@ -5069,7 +5199,7 @@ async fn test_generate_commit_with_rollback() {
             )
             .unwrap();
             // Simulate mutable metadata update
-            let (_, _) = super::mls_sync::generate_commit_with_rollback(
+            let (_, _, _) = super::mls_sync::generate_commit_with_rollback(
                 group_provider,
                 &mut mls_group,
                 |group, provider| {
@@ -5104,4 +5234,30 @@ async fn test_generate_commit_with_rollback() {
     );
     assert_eq!(start_hash, in_generate_commit_before_hash);
     assert_ne!(end_hash, in_generate_commit_after_hash);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_membership_state() {
+    tester!(alix);
+    tester!(bola);
+
+    // Create a group with alix as creator
+    let group = alix.create_group(None, None)?;
+
+    // Alix should have Allowed membership state (creator is immediately Allowed)
+    let state = group.membership_state()?;
+    assert_eq!(state, GroupMembershipState::Allowed);
+
+    // Add bola to the group
+    group.add_members_by_inbox_id(&[bola.inbox_id()]).await?;
+
+    // Sync so bola receives the welcome
+    bola.sync_welcomes().await?;
+    let bola_groups = bola.find_groups(GroupQueryArgs::default())?;
+    assert_eq!(bola_groups.len(), 1);
+    let bola_group = &bola_groups[0];
+
+    // Bola should have Pending membership state when first receiving the welcome
+    let bola_state = bola_group.membership_state()?;
+    assert_eq!(bola_state, GroupMembershipState::Pending);
 }

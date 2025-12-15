@@ -21,6 +21,7 @@ use xmtp_content_types::attachment::Attachment;
 use xmtp_content_types::attachment::AttachmentCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_content_types::intent::{Intent, IntentCodec};
+use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::read_receipt::ReadReceipt;
@@ -36,7 +37,7 @@ use xmtp_content_types::wallet_send_calls::WalletSendCallsCodec;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
 use xmtp_db::NativeDb;
 use xmtp_db::group::DmIdExt;
-use xmtp_db::group::{ConversationType, GroupQueryOrderBy};
+use xmtp_db::group::{ConversationType, GroupMembershipState, GroupQueryOrderBy};
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::group_message::{SortBy, SortDirection, StoredGroupMessageWithReactions};
 use xmtp_db::user_preferences::HmacKey;
@@ -75,7 +76,6 @@ use xmtp_mls::mls_common::group::GroupMetadataOptions;
 use xmtp_mls::mls_common::group_metadata::GroupMetadata;
 use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
-use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
     client::Client as MlsClient,
@@ -101,11 +101,12 @@ use xmtp_proto::types::ApiIdentifier;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
 use xmtp_proto::xmtp::mls::message_contents::content_types::{MultiRemoteAttachment, ReactionV2};
 
 // Re-export types from message module that are used in public APIs
 pub use crate::message::{
-    FfiAttachment, FfiMultiRemoteAttachment, FfiReadReceipt, FfiRemoteAttachment,
+    FfiAttachment, FfiLeaveRequest, FfiMultiRemoteAttachment, FfiReadReceipt, FfiRemoteAttachment,
     FfiTransactionReference,
 };
 
@@ -285,7 +286,6 @@ pub async fn create_client(
     device_sync_server_url: Option<String>,
     device_sync_mode: Option<FfiSyncWorkerMode>,
     allow_offline: Option<bool>,
-    disable_events: Option<bool>,
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
@@ -338,7 +338,6 @@ pub async fn create_client(
         .enable_api_debug_wrapper()?
         .with_remote_verifier()?
         .with_allow_offline(allow_offline)
-        .with_disable_events(disable_events)
         .store(store);
 
     if let Some(sync_worker_mode) = device_sync_mode {
@@ -965,12 +964,6 @@ impl FfiXmtpClient {
             .await
             .map_err(DeviceSyncError::Archive)?;
         Ok(importer.metadata.into())
-    }
-
-    /// Export an encrypted debug archive to a device sync server to inspect telemetry for debugging purposes.
-    pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, GenericError> {
-        let db = self.inner_client.context.db();
-        Ok(upload_debug_archive(db, Some(server_url)).await?)
     }
 }
 
@@ -2131,6 +2124,39 @@ impl From<FfiConsentState> for ConsentState {
     }
 }
 
+#[derive(uniffi::Enum, PartialEq, Debug)]
+pub enum FfiGroupMembershipState {
+    Allowed,
+    Rejected,
+    Pending,
+    Restored,
+    PendingRemove,
+}
+
+impl From<GroupMembershipState> for FfiGroupMembershipState {
+    fn from(state: GroupMembershipState) -> Self {
+        match state {
+            GroupMembershipState::Allowed => FfiGroupMembershipState::Allowed,
+            GroupMembershipState::Rejected => FfiGroupMembershipState::Rejected,
+            GroupMembershipState::Pending => FfiGroupMembershipState::Pending,
+            GroupMembershipState::Restored => FfiGroupMembershipState::Restored,
+            GroupMembershipState::PendingRemove => FfiGroupMembershipState::PendingRemove,
+        }
+    }
+}
+
+impl From<FfiGroupMembershipState> for GroupMembershipState {
+    fn from(state: FfiGroupMembershipState) -> Self {
+        match state {
+            FfiGroupMembershipState::Allowed => GroupMembershipState::Allowed,
+            FfiGroupMembershipState::Rejected => GroupMembershipState::Rejected,
+            FfiGroupMembershipState::Pending => GroupMembershipState::Pending,
+            FfiGroupMembershipState::Restored => GroupMembershipState::Restored,
+            FfiGroupMembershipState::PendingRemove => GroupMembershipState::PendingRemove,
+        }
+    }
+}
+
 #[derive(uniffi::Enum)]
 pub enum FfiConsentEntityType {
     ConversationId,
@@ -2233,6 +2259,7 @@ pub enum FfiContentType {
     Attachment,
     RemoteAttachment,
     TransactionReference,
+    LeaveRequest,
 }
 
 impl From<FfiContentType> for ContentType {
@@ -2248,6 +2275,7 @@ impl From<FfiContentType> for ContentType {
             FfiContentType::Attachment => ContentType::Attachment,
             FfiContentType::RemoteAttachment => ContentType::RemoteAttachment,
             FfiContentType::TransactionReference => ContentType::TransactionReference,
+            FfiContentType::LeaveRequest => ContentType::LeaveRequest,
         }
     }
 }
@@ -2431,6 +2459,11 @@ impl FfiConversation {
             .collect();
 
         Ok(members)
+    }
+
+    pub fn membership_state(&self) -> Result<FfiGroupMembershipState, GenericError> {
+        let state = self.inner.membership_state()?;
+        Ok(state.into())
     }
 
     pub async fn add_members(
@@ -3083,6 +3116,33 @@ pub fn decode_actions(bytes: Vec<u8>) -> Result<FfiActions, GenericError> {
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;
 
     actions.try_into()
+}
+
+// LeaveRequest FFI encode function
+#[uniffi::export]
+pub fn encode_leave_request(request: FfiLeaveRequest) -> Result<Vec<u8>, GenericError> {
+    let leave_request: LeaveRequest = request.into();
+
+    let encoded = LeaveRequestCodec::encode(leave_request)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+// LeaveRequest FFI decode function
+#[uniffi::export]
+pub fn decode_leave_request(bytes: Vec<u8>) -> Result<FfiLeaveRequest, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    LeaveRequestCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
 }
 
 #[uniffi::export]

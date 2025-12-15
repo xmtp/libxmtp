@@ -83,7 +83,11 @@ pub struct Consent {
 #[wasm_bindgen]
 impl Consent {
   #[wasm_bindgen(constructor)]
-  pub fn new(entity_type: ConsentEntityType, state: ConsentState, entity: String) -> Self {
+  pub fn new(
+    #[wasm_bindgen(js_name = entityType)] entity_type: ConsentEntityType,
+    state: ConsentState,
+    entity: String,
+  ) -> Self {
     Self {
       entity_type,
       state,
@@ -134,7 +138,7 @@ impl Client {
   #[wasm_bindgen(js_name = getConsentState)]
   pub async fn get_consent_state(
     &self,
-    entity_type: ConsentEntityType,
+    #[wasm_bindgen(js_name = entityType)] entity_type: ConsentEntityType,
     entity: String,
   ) -> Result<ConsentState, JsError> {
     let result = self

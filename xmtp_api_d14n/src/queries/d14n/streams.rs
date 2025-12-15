@@ -4,11 +4,10 @@ use crate::protocol::{CursorStore, GroupMessageExtractor, WelcomeMessageExtracto
 use crate::queries::stream;
 
 use super::D14nClient;
-use std::collections::HashMap;
 use xmtp_common::RetryableError;
 use xmtp_proto::api::{ApiClientError, Client, QueryStream, XmtpStream};
 use xmtp_proto::api_client::XmtpMlsStreams;
-use xmtp_proto::types::{GlobalCursor, GroupId, InstallationId, TopicKind};
+use xmtp_proto::types::{GroupId, InstallationId, TopicCursor, TopicKind};
 use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse;
 
 #[xmtp_common::async_trait]
@@ -35,6 +34,12 @@ where
         &self,
         group_ids: &[&GroupId],
     ) -> Result<Self::GroupMessageStream, Self::Error> {
+        if group_ids.is_empty() {
+            let s = SubscribeEnvelopes::builder()
+                .build()?
+                .fake_stream(&self.client);
+            return Ok(stream::try_extractor(s));
+        }
         let topics = group_ids
             .iter()
             .map(|gid| TopicKind::GroupMessagesV1.create(gid))
@@ -54,31 +59,22 @@ where
 
     async fn subscribe_group_messages_with_cursors(
         &self,
-        groups_with_cursors: &[(&GroupId, GlobalCursor)],
+        topics: &TopicCursor,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        let topics = groups_with_cursors
-            .iter()
-            .map(|(gid, _)| TopicKind::GroupMessagesV1.create(gid))
-            .collect::<Vec<_>>();
-
-        // Compute the lowest common cursor from the provided cursors
-        let mut min_clock: HashMap<u32, u64> = HashMap::new();
-        for (_, cursor) in groups_with_cursors {
-            for (&node_id, &seq_id) in cursor.iter() {
-                min_clock
-                    .entry(node_id)
-                    .and_modify(|existing| *existing = (*existing).min(seq_id))
-                    .or_insert(seq_id);
-            }
+        if topics.is_empty() {
+            let s = SubscribeEnvelopes::builder()
+                .build()?
+                .fake_stream(&self.client);
+            return Ok(stream::try_extractor(s));
         }
-        let lcc = GlobalCursor::new(min_clock);
-
+        // Compute the lowest common cursor from the provided cursors
+        let lcc = topics.lcc();
         tracing::debug!(
             "subscribing to messages with provided cursors @cursor={}",
             lcc
         );
         let s = SubscribeEnvelopes::builder()
-            .topics(topics)
+            .topics(topics.topics())
             .last_seen(lcc)
             .build()?
             .stream(&self.client)
@@ -90,6 +86,12 @@ where
         &self,
         installations: &[&InstallationId],
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
+        if installations.is_empty() {
+            let s = SubscribeEnvelopes::builder()
+                .build()?
+                .fake_stream(&self.client);
+            return Ok(stream::try_extractor(s));
+        }
         let topics = installations
             .iter()
             .map(|ins| TopicKind::WelcomeMessagesV1.create(ins))

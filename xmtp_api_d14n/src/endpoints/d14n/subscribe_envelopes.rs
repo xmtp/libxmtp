@@ -11,9 +11,9 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, SubscribeEnvelopesRe
 #[derive(Debug, Builder, Default, Clone)]
 #[builder(build_fn(error = "BodyError"))]
 pub struct SubscribeEnvelopes {
-    #[builder(setter(each(name = "topic", into)))]
+    #[builder(setter(each(name = "topic", into)), default)]
     topics: Vec<Topic>,
-    #[builder(setter(into))]
+    #[builder(setter(into), default)]
     last_seen: Option<GlobalCursor>,
     #[builder(default)]
     originators: Vec<OriginatorId>,
@@ -36,7 +36,7 @@ impl Endpoint for SubscribeEnvelopes {
             tracing::info!("subscribing to {}", topic.clone());
         }
         let query = EnvelopesQuery {
-            topics: self.topics.iter().map(Topic::bytes).collect(),
+            topics: self.topics.iter().map(Topic::cloned_vec).collect(),
             last_seen: self.last_seen.clone().map(Into::into),
             originator_node_ids: self.originators.clone(),
         };

@@ -70,6 +70,11 @@ where
         let s = s.map(|s| Box::pin(s) as Pin<Box<_>>);
         Ok(s)
     }
+
+    fn fake_stream(&self) -> http::Response<Self::Stream> {
+        let s = self.inner.fake_stream();
+        s.map(|s| Box::pin(s) as Pin<Box<_>>)
+    }
 }
 
 pub trait ToBoxedClient {

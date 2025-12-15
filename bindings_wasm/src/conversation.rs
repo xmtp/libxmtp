@@ -1,5 +1,7 @@
 use crate::client::RustMlsGroup;
-use crate::conversations::{ConversationDebugInfo, HmacKey, MessageDisappearingSettings};
+use crate::conversations::{
+  ConversationDebugInfo, GroupMembershipState, HmacKey, MessageDisappearingSettings,
+};
 use crate::encoded_content::EncodedContent;
 use crate::identity::{Identifier, IdentityExt};
 use crate::messages::{ListMessagesOptions, Message, MessageWithReactions};
@@ -8,6 +10,7 @@ use crate::streams::{StreamCallback, StreamCloser};
 use crate::{
   consent_state::ConsentState, enriched_message::DecodedMessage, permissions::GroupPermissions,
 };
+use js_sys::Uint8Array;
 use std::collections::HashMap;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
@@ -36,7 +39,7 @@ pub struct SendMessageOpts {
 #[wasm_bindgen]
 impl SendMessageOpts {
   #[wasm_bindgen(constructor)]
-  pub fn new(should_push: bool) -> Self {
+  pub fn new(#[wasm_bindgen(js_name = shouldPush)] should_push: bool) -> Self {
     Self { should_push }
   }
 }
@@ -82,21 +85,17 @@ pub enum PermissionLevel {
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupMember {
   #[wasm_bindgen(js_name = inboxId)]
-  #[serde(rename = "inboxId")]
   pub inbox_id: String,
   #[wasm_bindgen(js_name = accountIdentifiers)]
-  #[serde(rename = "accountIdentifiers")]
   pub account_identifiers: Vec<Identifier>,
   #[wasm_bindgen(js_name = installationIds)]
-  #[serde(rename = "installationIds")]
   pub installation_ids: Vec<String>,
   #[wasm_bindgen(js_name = permissionLevel)]
-  #[serde(rename = "permissionLevel")]
   pub permission_level: PermissionLevel,
   #[wasm_bindgen(js_name = consentState)]
-  #[serde(rename = "consentState")]
   pub consent_state: ConsentState,
 }
 
@@ -176,7 +175,7 @@ impl Conversation {
   #[wasm_bindgen]
   pub async fn send(
     &self,
-    encoded_content: EncodedContent,
+    #[wasm_bindgen(js_name = encodedContent)] encoded_content: EncodedContent,
     opts: SendMessageOpts,
   ) -> Result<String, JsError> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
@@ -194,7 +193,7 @@ impl Conversation {
   #[wasm_bindgen(js_name = sendOptimistic)]
   pub fn send_optimistic(
     &self,
-    encoded_content: EncodedContent,
+    #[wasm_bindgen(js_name = encodedContent)] encoded_content: EncodedContent,
     opts: SendMessageOpts,
   ) -> Result<String, JsError> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
@@ -340,6 +339,15 @@ impl Conversation {
     Ok(crate::to_value(&members)?)
   }
 
+  #[wasm_bindgen(js_name = membershipState)]
+  pub fn membership_state(&self) -> Result<GroupMembershipState, JsError> {
+    let group = self.to_mls_group();
+    let state = group
+      .membership_state()
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    Ok(state.into())
+  }
+
   #[wasm_bindgen(js_name = adminList)]
   pub fn admin_list(&self) -> Result<Vec<String>, JsError> {
     let group = self.to_mls_group();
@@ -361,19 +369,28 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = isAdmin)]
-  pub fn is_admin(&self, inbox_id: String) -> Result<bool, JsError> {
+  pub fn is_admin(
+    &self,
+    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+  ) -> Result<bool, JsError> {
     let admin_list = self.admin_list()?;
     Ok(admin_list.contains(&inbox_id))
   }
 
   #[wasm_bindgen(js_name = isSuperAdmin)]
-  pub fn is_super_admin(&self, inbox_id: String) -> Result<bool, JsError> {
+  pub fn is_super_admin(
+    &self,
+    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+  ) -> Result<bool, JsError> {
     let super_admin_list = self.super_admin_list()?;
     Ok(super_admin_list.contains(&inbox_id))
   }
 
   #[wasm_bindgen(js_name = addMembers)]
-  pub async fn add_members(&self, account_identifiers: Vec<Identifier>) -> Result<(), JsError> {
+  pub async fn add_members(
+    &self,
+    #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -385,7 +402,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = addAdmin)]
-  pub async fn add_admin(&self, inbox_id: String) -> Result<(), JsError> {
+  pub async fn add_admin(
+    &self,
+    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
     group
       .update_admin_list(UpdateAdminListType::Add, inbox_id)
@@ -396,7 +416,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = removeAdmin)]
-  pub async fn remove_admin(&self, inbox_id: String) -> Result<(), JsError> {
+  pub async fn remove_admin(
+    &self,
+    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -408,7 +431,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = addSuperAdmin)]
-  pub async fn add_super_admin(&self, inbox_id: String) -> Result<(), JsError> {
+  pub async fn add_super_admin(
+    &self,
+    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -420,7 +446,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = removeSuperAdmin)]
-  pub async fn remove_super_admin(&self, inbox_id: String) -> Result<(), JsError> {
+  pub async fn remove_super_admin(
+    &self,
+    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -443,7 +472,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = addMembersByInboxId)]
-  pub async fn add_members_by_inbox_id(&self, inbox_ids: Vec<String>) -> Result<(), JsError> {
+  pub async fn add_members_by_inbox_id(
+    &self,
+    #[wasm_bindgen(js_name = inboxIds)] inbox_ids: Vec<String>,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -455,7 +487,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = removeMembers)]
-  pub async fn remove_members(&self, account_identifiers: Vec<Identifier>) -> Result<(), JsError> {
+  pub async fn remove_members(
+    &self,
+    #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -467,7 +502,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = removeMembersByInboxId)]
-  pub async fn remove_members_by_inbox_id(&self, inbox_ids: Vec<String>) -> Result<(), JsError> {
+  pub async fn remove_members_by_inbox_id(
+    &self,
+    #[wasm_bindgen(js_name = inboxIds)] inbox_ids: Vec<String>,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
@@ -480,7 +518,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = updateGroupName)]
-  pub async fn update_group_name(&self, group_name: String) -> Result<(), JsError> {
+  pub async fn update_group_name(
+    &self,
+    #[wasm_bindgen(js_name = groupName)] group_name: String,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -503,7 +544,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = updateAppData)]
-  pub async fn update_app_data(&self, app_data: String) -> Result<(), JsError> {
+  pub async fn update_app_data(
+    &self,
+    #[wasm_bindgen(js_name = appData)] app_data: String,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -528,7 +572,7 @@ impl Conversation {
   #[wasm_bindgen(js_name = updateGroupImageUrlSquare)]
   pub async fn update_group_image_url_square(
     &self,
-    group_image_url_square: String,
+    #[wasm_bindgen(js_name = groupImageUrlSquare)] group_image_url_square: String,
   ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
@@ -552,7 +596,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = updateGroupDescription)]
-  pub async fn update_group_description(&self, group_description: String) -> Result<(), JsError> {
+  pub async fn update_group_description(
+    &self,
+    #[wasm_bindgen(js_name = groupDescription)] group_description: String,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -645,12 +692,26 @@ impl Conversation {
     )
   }
 
+  #[wasm_bindgen(js_name = processStreamedGroupMessage)]
+  pub async fn process_streamed_group_message(
+    &self,
+    #[wasm_bindgen(js_name = envelopeBytes)] envelope_bytes: Uint8Array,
+  ) -> Result<Message, JsError> {
+    let group = self.to_mls_group();
+    let message = group
+      .process_streamed_group_message(envelope_bytes.to_vec())
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(message.into())
+  }
+
   #[wasm_bindgen(js_name = updatePermissionPolicy)]
   pub async fn update_permission_policy(
     &self,
-    permission_update_type: PermissionUpdateType,
-    permission_policy_option: PermissionPolicy,
-    metadata_field: Option<MetadataField>,
+    #[wasm_bindgen(js_name = permissionUpdateType)] permission_update_type: PermissionUpdateType,
+    #[wasm_bindgen(js_name = permissionPolicyOption)] permission_policy_option: PermissionPolicy,
+    #[wasm_bindgen(js_name = metadataField)] metadata_field: Option<MetadataField>,
   ) -> Result<(), JsError> {
     self
       .to_mls_group()
@@ -777,8 +838,8 @@ impl Conversation {
     Ok(conversations)
   }
 
-  #[wasm_bindgen(js_name = findMessagesV2)]
-  pub async fn enriched_messages(
+  #[wasm_bindgen(js_name = findEnrichedMessages)]
+  pub async fn find_enriched_messages(
     &self,
     opts: Option<ListMessagesOptions>,
   ) -> Result<Vec<DecodedMessage>, JsError> {
@@ -802,6 +863,16 @@ impl Conversation {
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
     Ok(crate::to_value(&times)?)
+  }
+
+  #[wasm_bindgen(js_name = leaveGroup)]
+  pub async fn leave_group(&self) -> Result<(), JsError> {
+    let group = self.to_mls_group();
+    group
+      .leave_group()
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    Ok(())
   }
 }
 

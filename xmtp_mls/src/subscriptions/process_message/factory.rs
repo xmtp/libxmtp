@@ -14,12 +14,12 @@ use xmtp_common::{Retry, retry_async};
 use xmtp_db::group::ConversationType;
 use xmtp_db::prelude::*;
 use xmtp_db::{StorageError, group_message::StoredGroupMessage, refresh_state::EntityKind};
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, GlobalCursor};
 
 #[cfg_attr(test, mockall::automock)]
 pub trait GroupDatabase {
     /// Get the last cursor for a message
-    fn last_cursor(&self, group_id: &[u8], originator_id: u32) -> Result<Cursor, StorageError>;
+    fn last_cursor(&self, group_id: &[u8]) -> Result<GlobalCursor, StorageError>;
     /// get a message from the database
     // not needless, required by mockall
     #[allow(clippy::needless_lifetimes)]
@@ -39,16 +39,20 @@ impl<Context> GroupDb<Context> {
     }
 }
 
+/// the entities of interest for group messages
+const MESSAGE_ENTITIES: [EntityKind; 2] =
+    [EntityKind::ApplicationMessage, EntityKind::CommitMessage];
+
 impl<Context> GroupDatabase for GroupDb<Context>
 where
     Context: XmtpSharedContext,
 {
-    fn last_cursor(&self, group_id: &[u8], originator_id: u32) -> Result<Cursor, StorageError> {
-        self.0.db().get_last_cursor_for_originator(
-            group_id,
-            EntityKind::ApplicationMessage,
-            originator_id,
-        )
+    fn last_cursor(&self, group_id: &[u8]) -> Result<GlobalCursor, StorageError> {
+        let mut maps = self
+            .0
+            .db()
+            .get_last_cursor_for_ids(&[group_id], &MESSAGE_ENTITIES)?;
+        Ok(maps.remove(group_id).unwrap_or_default())
     }
 
     fn msg(
@@ -72,7 +76,7 @@ where
 #[cfg_attr(test, mockall::automock)]
 #[xmtp_common::async_trait]
 pub trait Sync {
-    /// Try to process a single mesage
+    /// Try to process a single message
     async fn process(
         &self,
         msg: &xmtp_proto::types::GroupMessage,
@@ -176,10 +180,10 @@ where
     /// 4. Returns metadata about the processing result
     ///    - All messages are sorted by cursor.
     ///    - If no message was able to be processed in the sync, 'processed_message' will be 'None'.
-    ///    - if the current message processed succesfully, the cursor is set to that message
-    ///    - if multiple messages were succesfully processed, but the current message failed to
-    ///    process, 'next_message' is set to the cursor of the next sucessfully processed message.
-    ///    - if no messages were sucessfully processed, the cursor is set to the latest message which
+    ///    - if the current message processed successfully, the cursor is set to that message
+    ///    - if multiple messages were successfully processed, but the current message failed to
+    ///    process, 'next_message' is set to the cursor of the next successfully processed message.
+    ///    - if no messages were successfully processed, the cursor is set to the latest message which
     ///    failed to process.
     ///
     /// The function handles the complexities of out-of-order message delivery and
@@ -292,30 +296,20 @@ where
     /// # Errors
     /// Returns an error if the database query for the last cursor fails.
     fn needs_to_sync(&self, msg: &xmtp_proto::types::GroupMessage) -> Result<bool, SubscribeError> {
-        let last_synced_id = self
-            .group_db
-            .last_cursor(&msg.group_id, msg.originator_id())?;
-        // _*NOTE:*_ this should never happen since we pass the originator to the db query
-        // but exists defensively regardless.
-        if msg.originator_id() != last_synced_id.originator_id {
-            return Err(SubscribeError::MismatchedOriginators {
-                expected: msg.originator_id(),
-                got: last_synced_id.originator_id,
-            });
-        }
-        if last_synced_id.sequence_id < msg.sequence_id() {
+        let clock = self.group_db.last_cursor(&msg.group_id)?;
+        if !clock.has_seen(&msg.cursor) {
             tracing::debug!(
                 "stream requires sync; last_synced@[{}], this message @[{}]",
-                last_synced_id,
+                clock,
                 msg.cursor
             );
         } else {
             tracing::debug!(
                 "stream does not require sync; last_synced@[{}], this message @[{}]",
-                last_synced_id,
+                clock,
                 msg.cursor
             );
         }
-        Ok(last_synced_id.sequence_id < msg.cursor.sequence_id)
+        Ok(!clock.has_seen(&msg.cursor))
     }
 }

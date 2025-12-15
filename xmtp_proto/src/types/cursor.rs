@@ -1,14 +1,22 @@
 //! xmtp message cursor type and implementations
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::iter::Once;
+use std::{collections::HashMap, fmt};
 use xmtp_configuration::Originators;
+
+use crate::types::{OriginatorId, SequenceId};
+use crate::xmtp::xmtpv4;
 
 /// XMTP cursor type
 /// represents a position in an ordered sequence of messages, belonging
+// force use of the `new` constructor w/ non_exhaustive
+// so we retain some control of the internal structure/use of this type
+// and disallow ad-hoc construction
+// while still allowing access to fields with `.field` notation
+#[non_exhaustive]
 #[derive(
     Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
-// _*NOTE:*_ comparing cursors is unsafe/undefined behavior if originator ids are not equal.
 pub struct Cursor {
     pub sequence_id: super::SequenceId,
     pub originator_id: super::OriginatorId,
@@ -67,7 +75,11 @@ impl Cursor {
 
 impl fmt::Display for Cursor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[sid({}):oid({})]", self.sequence_id, self.originator_id)
+        write!(
+            f,
+            "[sid({:6}):oid({:3})]",
+            self.sequence_id, self.originator_id
+        )
     }
 }
 
@@ -78,6 +90,43 @@ impl xmtp_common::Generate for Cursor {
             sequence_id: xmtp_common::rand_u64(),
             originator_id: openmls::test_utils::random_u32(),
         }
+    }
+}
+
+impl From<Cursor> for xmtpv4::envelopes::Cursor {
+    fn from(value: Cursor) -> Self {
+        let mut map = HashMap::new();
+        map.insert(value.originator_id, value.sequence_id);
+        xmtpv4::envelopes::Cursor {
+            node_id_to_sequence_id: map,
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a Cursor {
+    type Item = (&'a OriginatorId, &'a SequenceId);
+    type IntoIter = Once<(&'a OriginatorId, &'a SequenceId)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        std::iter::once((&self.originator_id, &self.sequence_id))
+    }
+}
+
+impl<'a> IntoIterator for &'a mut Cursor {
+    type Item = (&'a mut OriginatorId, &'a mut SequenceId);
+    type IntoIter = Once<(&'a mut OriginatorId, &'a mut SequenceId)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        std::iter::once((&mut self.originator_id, &mut self.sequence_id))
+    }
+}
+
+impl IntoIterator for Cursor {
+    type Item = (OriginatorId, SequenceId);
+    type IntoIter = Once<(OriginatorId, SequenceId)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        std::iter::once((self.originator_id, self.sequence_id))
     }
 }
 

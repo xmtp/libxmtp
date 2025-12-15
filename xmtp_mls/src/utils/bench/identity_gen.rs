@@ -131,7 +131,7 @@ pub async fn create_identities_if_dont_exist(
     }
 
     tracing::info!(
-        "Could not find any identitites to load, creating new identitites \n
+        "Could not find any identities to load, creating new identities \n
         Beware, this fills $TMPDIR with ~10GBs of identities"
     );
 

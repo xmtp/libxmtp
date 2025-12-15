@@ -9,6 +9,7 @@ async-trait.workspace = true
 futures = { workspace = true, features = ["alloc"] }
 h2 = "0.4"
 http = "1.2"
+http-body-util.workspace = true
 pin-project-lite = "0.2.15"
 prost = { workspace = true, features = ["derive"] }
 thiserror.workspace = true

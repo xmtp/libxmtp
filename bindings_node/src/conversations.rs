@@ -1,5 +1,6 @@
 use crate::ErrorWrapper;
 use crate::consent_state::{Consent, ConsentState};
+use crate::enriched_message::DecodedMessage;
 use crate::identity::Identifier;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
@@ -190,7 +191,7 @@ pub struct ConversationDebugInfo {
 #[napi(object)]
 pub struct XmtpCursor {
   pub originator_id: u32,
-  // napi doesn't suppor u64
+  // napi doesn't support u64
   pub sequence_id: i64,
 }
 
@@ -466,6 +467,30 @@ impl Conversations {
   }
 
   #[napi]
+  pub async fn find_enriched_message_by_id(&self, message_id: String) -> Result<DecodedMessage> {
+    let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
+
+    let message = self
+      .inner_client
+      .message_v2(message_id)
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(message.into())
+  }
+
+  #[napi]
+  pub fn delete_message_by_id(&self, message_id: String) -> Result<u32> {
+    let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
+
+    let deleted_count = self
+      .inner_client
+      .delete_message(message_id)
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(deleted_count as u32)
+  }
+
+  #[napi]
   pub async fn process_streamed_welcome_message(
     &self,
     envelope_bytes: Uint8Array,
@@ -729,7 +754,7 @@ impl Conversations {
   }
 
   #[napi]
-  pub fn stream_message_deletions(
+  pub async fn stream_message_deletions(
     &self,
     callback: ThreadsafeFunction<String, ()>,
   ) -> Result<StreamCloser> {

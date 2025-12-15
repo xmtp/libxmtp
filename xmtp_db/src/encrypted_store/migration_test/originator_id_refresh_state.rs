@@ -6,7 +6,7 @@ use crate::group::QueryGroup;
 use crate::identity_update::StoredIdentityUpdate;
 use crate::prelude::QueryIdentityUpdates;
 use crate::{prelude::QueryRefreshState, refresh_state::EntityKind};
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, OriginatorId, SequenceId};
 
 use super::*;
 
@@ -175,10 +175,10 @@ async fn up_identity_updates() {
         .unwrap();
 
     let cursor = cursor.last().unwrap();
-    let cursor = Cursor {
-        sequence_id: cursor.sequence_id as u64,
-        originator_id: cursor.originator_id as u32,
-    };
+    let cursor = Cursor::new(
+        cursor.sequence_id as SequenceId,
+        cursor.originator_id as OriginatorId,
+    );
     assert_eq!(
         cursor,
         Cursor::inbox_log(2),

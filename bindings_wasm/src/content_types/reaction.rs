@@ -1,9 +1,9 @@
+use crate::encoded_content::EncodedContent;
 use js_sys::Uint8Array;
 use prost::Message;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
 
 #[wasm_bindgen(getter_with_clone)]
@@ -87,13 +87,9 @@ pub fn encode_reaction(reaction: Reaction) -> Result<Uint8Array, JsError> {
 }
 
 #[wasm_bindgen(js_name = "decodeReaction")]
-pub fn decode_reaction(bytes: Uint8Array) -> Result<Reaction, JsError> {
-  // Decode bytes into EncodedContent
-  let encoded_content = EncodedContent::decode(bytes.to_vec().as_slice())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
+pub fn decode_reaction(encoded_content: EncodedContent) -> Result<Reaction, JsError> {
   // Use ReactionCodec to decode into Reaction and convert to Reaction
-  ReactionCodec::decode(encoded_content)
+  ReactionCodec::decode(encoded_content.into())
     .map(Into::into)
     .map_err(|e| JsError::new(&format!("{}", e)))
 }

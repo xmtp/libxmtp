@@ -19,7 +19,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use xmtp_common::{BoxDynFuture, MaybeSend};
 use xmtp_db::prelude::*;
 use xmtp_proto::api_client::XmtpMlsStreams;
-use xmtp_proto::types::{Cursor, WelcomeMessage};
+use xmtp_proto::types::{Cursor, OriginatorId, SequenceId, WelcomeMessage};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConversationStreamError {
@@ -322,7 +322,7 @@ where
         if let Poll::Ready(Some(Ok(welcome_result))) =
             self.as_mut().project().welcome_syncs.poll_join_next(cx)
         {
-            // if filter is None, we continue to poll the innner stream.
+            // if filter is None, we continue to poll the inner stream.
             // the inner stream propagates a Pending, if its not pending, we register the task for
             // wakeup again. Therefore, we can ignore the None.
             if let Some(new_welcome) = self.as_mut().filter_welcome(welcome_result) {
@@ -399,10 +399,8 @@ where
                 if let Some(id) = maybe_sequence_id
                     && let Some(originator) = maybe_originator
                 {
-                    this.known_welcome_ids.insert(Cursor {
-                        originator_id: originator as u32,
-                        sequence_id: id as u64,
-                    });
+                    this.known_welcome_ids
+                        .insert(Cursor::new(id as SequenceId, originator as OriginatorId));
                 }
                 Some(Ok(group))
             }

@@ -2,7 +2,7 @@ use xmtp_cryptography::hash::sha256_bytes;
 use xmtp_proto::{
     ConversionError,
     mls_v1::group_message,
-    types::{Cursor, GroupMessage, GroupMessageBuilder},
+    types::{Cursor, GlobalCursor, GroupMessage, GroupMessageBuilder},
 };
 
 use crate::protocol::traits::EnvelopeVisitor;
@@ -16,11 +16,12 @@ use xmtp_proto::xmtp::mls::api::v1::group_message_input;
 use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
 
 /// Type to extract a Group Message from Originator Envelopes
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 pub struct GroupMessageExtractor {
     cursor: Cursor,
     created_ns: DateTime<Utc>,
     group_message: Option<GroupMessageBuilder>,
+    depends_on: GlobalCursor,
 }
 
 impl Extractor for GroupMessageExtractor {
@@ -31,10 +32,12 @@ impl Extractor for GroupMessageExtractor {
             cursor,
             created_ns,
             group_message,
+            depends_on,
         } = self;
         if let Some(mut gm) = group_message {
             gm.cursor(cursor);
             gm.created_ns(created_ns);
+            gm.depends_on(depends_on);
             Ok(gm.build()?)
         } else {
             Err(ExtractionError::Conversion(ConversionError::Missing {
@@ -52,11 +55,18 @@ impl EnvelopeVisitor<'_> for GroupMessageExtractor {
         &mut self,
         envelope: &UnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
-        self.cursor = Cursor {
-            originator_id: envelope.originator_node_id,
-            sequence_id: envelope.originator_sequence_id,
-        };
+        self.cursor = Cursor::new(envelope.originator_sequence_id, envelope.originator_node_id);
         self.created_ns = DateTime::from_timestamp_nanos(envelope.originator_ns);
+        Ok(())
+    }
+
+    fn visit_client(
+        &mut self,
+        e: &xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope,
+    ) -> Result<(), Self::Error> {
+        if let Some(ref aad) = e.aad {
+            self.depends_on = aad.depends_on.clone().unwrap_or_default().into();
+        }
         Ok(())
     }
 
@@ -108,10 +118,7 @@ impl EnvelopeVisitor<'_> for V3GroupMessageExtractor {
             xmtp_configuration::Originators::APPLICATION_MESSAGES
         };
         group_message
-            .cursor(Cursor {
-                originator_id: originator_node_id,
-                sequence_id: message.id,
-            })
+            .cursor(Cursor::new(message.id, originator_node_id))
             .created_ns(DateTime::from_timestamp_nanos(message.created_ns as i64))
             .sender_hmac(message.sender_hmac.clone())
             .should_push(message.should_push)

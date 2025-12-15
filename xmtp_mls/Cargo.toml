@@ -98,9 +98,9 @@ xmtp_content_types.workspace = true
 xmtp_cryptography = { workspace = true }
 xmtp_db.workspace = true
 xmtp_id.workspace = true
+xmtp_macro.workspace = true
 xmtp_mls_common.workspace = true
 xmtp_proto = { workspace = true }
-
 
 # Optional/Features
 alloy = { workspace = true, optional = true }
@@ -136,6 +136,7 @@ tokio = { workspace = true, features = [
 chrono = { workspace = true, features = ["clock"] }
 dyn-clone.workspace = true
 openmls.workspace = true
+
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }

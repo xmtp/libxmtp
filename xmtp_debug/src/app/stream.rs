@@ -45,7 +45,7 @@ impl Stream {
         } else {
             identity_store
                 .load(&network)?
-                .ok_or(eyre!("No identitites in store"))?
+                .ok_or(eyre!("No identities in store"))?
                 .map(|i| i.value())
                 .choose(rng)
                 .ok_or(eyre!("Identity not found"))?

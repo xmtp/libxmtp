@@ -22,6 +22,7 @@ pin-project-lite.workspace = true
 prost = { workspace = true, features = ["derive"] }
 prost-types = "0.14"
 serde = { workspace = true }
+smallvec.workspace = true
 thiserror.workspace = true
 tonic = { workspace = true, default-features = false }
 tonic-prost = "0.14"

@@ -130,12 +130,11 @@ mod tests {
         let current_message = generate_message(current_message, &rand_vec::<16>());
         let mut mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
-        mock_db.expect_last_cursor().times(1).returning(|_, o| {
-            Ok(Cursor {
-                sequence_id: 3,
-                originator_id: o,
-            })
-        });
+        let oid = current_message.originator_id();
+        mock_db
+            .expect_last_cursor()
+            .times(1)
+            .returning(move |_| Ok(Cursor::new(3, oid).into()));
         mock_db.expect_msg().times(1).returning(|_, _| Ok(None));
         mock_syncer
             .expect_process()
@@ -173,13 +172,12 @@ mod tests {
             generate_message(*success.first().unwrap_or(&55), &GroupId::generate());
         let mut mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
+        let oid = current_message.originator_id();
         // the last cursor is
-        mock_db.expect_last_cursor().times(1).returning(|_, o| {
-            Ok(Cursor {
-                sequence_id: 50,
-                originator_id: o,
-            })
-        });
+        mock_db
+            .expect_last_cursor()
+            .times(1)
+            .returning(move |_| Ok(Cursor::new(50, oid).into()));
         mock_db.expect_msg().times(1).returning(|_, _| Ok(None));
         mock_syncer
             .expect_process()
@@ -211,12 +209,11 @@ mod tests {
         let current_message = generate_message(55, &[0]);
         let mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
-        mock_db.expect_last_cursor().times(1).returning(|_, o| {
-            Ok(Cursor {
-                sequence_id: 100,
-                originator_id: o,
-            })
-        });
+        let oid = current_message.originator_id();
+        mock_db
+            .expect_last_cursor()
+            .times(1)
+            .returning(move |_| Ok(Cursor::new(100, oid).into()));
         let mocked_m = message.clone();
         mock_db
             .expect_msg()

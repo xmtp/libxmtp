@@ -1,4 +1,4 @@
-//! Implementions of traits
+//! Implementations of traits
 use crate::protocol::EnvelopeCollection;
 
 use crate::protocol::traits::{EnvelopeError, EnvelopeVisitor, Extractor, ProtocolEnvelope};
@@ -10,7 +10,7 @@ use xmtp_proto::mls_v1::subscribe_welcome_messages_request::Filter as SubscribeW
 use xmtp_proto::mls_v1::{
     SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest, welcome_message,
 };
-use xmtp_proto::types::Topic;
+use xmtp_proto::types::{Cursor, OrphanedEnvelope, Topic};
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     SubscribeEnvelopesResponse, get_newest_envelope_response,
 };
@@ -478,8 +478,16 @@ impl EnvelopeCollection<'_> for SubscribeEnvelopesResponse {
         self.envelopes.topics()
     }
 
+    fn cursors(&self) -> Result<Vec<Cursor>, EnvelopeError> {
+        self.envelopes.cursors()
+    }
+
     fn payloads(&self) -> Result<Vec<Payload>, EnvelopeError> {
         self.envelopes.payloads()
+    }
+
+    fn sha256_hashes(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
+        self.envelopes.sha256_hashes()
     }
 
     fn client_envelopes(&self) -> Result<Vec<ClientEnvelope>, EnvelopeError> {
@@ -515,6 +523,10 @@ impl EnvelopeCollection<'_> for SubscribeEnvelopesResponse {
     ) -> Result<Vec<Option<xmtp_proto::types::WelcomeMessage>>, EnvelopeError> {
         self.envelopes.welcome_messages()
     }
+
+    fn orphans(&self) -> Result<Vec<OrphanedEnvelope>, EnvelopeError> {
+        self.envelopes.orphans()
+    }
 }
 
 impl EnvelopeCollection<'_> for SubscribeGroupMessagesRequest {
@@ -522,8 +534,16 @@ impl EnvelopeCollection<'_> for SubscribeGroupMessagesRequest {
         self.filters.topics()
     }
 
+    fn cursors(&self) -> Result<Vec<Cursor>, EnvelopeError> {
+        self.filters.cursors()
+    }
+
     fn payloads(&self) -> Result<Vec<Payload>, EnvelopeError> {
         self.filters.payloads()
+    }
+
+    fn sha256_hashes(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
+        self.filters.sha256_hashes()
     }
 
     fn client_envelopes(&self) -> Result<Vec<ClientEnvelope>, EnvelopeError> {
@@ -557,6 +577,10 @@ impl EnvelopeCollection<'_> for SubscribeGroupMessagesRequest {
         &self,
     ) -> Result<Vec<Option<xmtp_proto::types::WelcomeMessage>>, EnvelopeError> {
         self.filters.welcome_messages()
+    }
+
+    fn orphans(&self) -> Result<Vec<OrphanedEnvelope>, EnvelopeError> {
+        self.filters.orphans()
     }
 }
 
@@ -565,8 +589,16 @@ impl EnvelopeCollection<'_> for SubscribeWelcomeMessagesRequest {
         self.filters.topics()
     }
 
+    fn cursors(&self) -> Result<Vec<Cursor>, EnvelopeError> {
+        self.filters.cursors()
+    }
+
     fn payloads(&self) -> Result<Vec<Payload>, EnvelopeError> {
         self.filters.payloads()
+    }
+
+    fn sha256_hashes(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
+        self.filters.sha256_hashes()
     }
 
     fn client_envelopes(&self) -> Result<Vec<ClientEnvelope>, EnvelopeError> {
@@ -600,6 +632,10 @@ impl EnvelopeCollection<'_> for SubscribeWelcomeMessagesRequest {
         &self,
     ) -> Result<Vec<Option<xmtp_proto::types::WelcomeMessage>>, EnvelopeError> {
         self.filters.welcome_messages()
+    }
+
+    fn orphans(&self) -> Result<Vec<OrphanedEnvelope>, EnvelopeError> {
+        self.filters.orphans()
     }
 }
 
