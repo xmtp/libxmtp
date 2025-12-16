@@ -5,13 +5,12 @@ use xmtp_proto::xmtp::device_sync::{backup_element::Element, message_backup::Gro
 #[xmtp_common::async_trait]
 impl BackupRecordProvider for GroupMessageSave {
     const BATCH_SIZE: i64 = 100;
-    async fn backup_records<D, Api>(
-        state: Arc<BackupProviderState<D, Api>>,
+    async fn backup_records<D>(
+        state: Arc<BackupProviderState<D>>,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
         Self: Sized,
         D: DbQuery,
-        Api: XmtpApi,
     {
         let args = MsgQueryArgs::builder()
             .sent_after_ns(state.opts.start_ns)

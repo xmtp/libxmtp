@@ -937,9 +937,8 @@ impl FfiXmtpClient {
         key: Vec<u8>,
     ) -> Result<(), GenericError> {
         let db = self.inner_client.context.db();
-        let api = self.inner_client.context.api().clone();
         let options: BackupOptions = opts.into();
-        ArchiveExporter::export_to_file(options, db, api, path, &check_key(key)?)
+        ArchiveExporter::export_to_file(options, db, path, &check_key(key)?)
             .await
             .map_err(DeviceSyncError::Archive)?;
         Ok(())

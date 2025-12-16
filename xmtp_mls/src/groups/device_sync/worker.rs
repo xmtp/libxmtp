@@ -434,8 +434,7 @@ where
         //
         // 1. Build the exporter
         let db = self.context.db();
-        let api = self.context.api().clone();
-        let exporter = ArchiveExporter::new(options, db, api, &key);
+        let exporter = ArchiveExporter::new(options, db, &key);
         let metadata = exporter.metadata().clone();
 
         // 5. Make the request

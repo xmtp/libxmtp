@@ -8683,12 +8683,8 @@ dependencies = [
  "tokio-util",
  "tracing",
  "wasm-bindgen-test",
- "xmtp_api",
- "xmtp_api_d14n",
- "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_db",
- "xmtp_id",
  "xmtp_mls_common",
  "xmtp_proto",
 ]
