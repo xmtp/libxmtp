@@ -22,7 +22,7 @@ pub use definitions::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test;
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 mod tests;
 mod traits;
 
