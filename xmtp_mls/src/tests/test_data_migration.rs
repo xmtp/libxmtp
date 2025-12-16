@@ -4,6 +4,7 @@ const ALIX_DB: &str = "tests/assets/alix.xmtp";
 const BO_DB: &str = "tests/assets/bo.xmtp";
 
 #[xmtp_common::test(unwrap_try = true)]
+#[ignore]
 async fn setup_migration_test() {
     tester!(alix);
     tester!(bo);

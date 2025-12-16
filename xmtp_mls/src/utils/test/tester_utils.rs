@@ -201,7 +201,7 @@ where
         if self.ephemeral_db || self.snapshot.is_some() {
             let db = if let Some(snapshot) = &self.snapshot {
                 client.allow_offline = true;
-                TestDb::create_ephemeral_store_from_snapshot(&snapshot, self.snapshot_path.as_ref())
+                TestDb::create_ephemeral_store_from_snapshot(snapshot, self.snapshot_path.as_ref())
                     .await
             } else {
                 TestDb::create_ephemeral_store().await
