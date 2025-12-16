@@ -112,3 +112,69 @@ async fn test_can_get_inbox_state_statically() {
         FfiSignatureKind::Erc191
     )
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_get_newest_message_metadata() {
+    let alix = new_test_client().await;
+    let bo = new_test_client().await;
+
+    // Create a group with alix and bo
+    let group = alix
+        .conversations()
+        .create_group(
+            vec![bo.account_identifier.clone()],
+            FfiCreateGroupOptions::default(),
+        )
+        .await
+        .unwrap();
+
+    // Send a message to the group
+    group
+        .send(b"Hello from alix".to_vec(), FfiSendMessageOpts::default())
+        .await
+        .unwrap();
+
+    let api_backend = connect_to_backend_test().await;
+
+    // Get the latest message metadata for the group
+    let metadata = get_newest_message_metadata(api_backend.clone(), vec![group.id()])
+        .await
+        .unwrap();
+
+    assert_eq!(metadata.len(), 1, "Should have metadata for one group");
+    let group_metadata = metadata.get(&group.id()).unwrap();
+    assert!(
+        group_metadata.created_ns > 0,
+        "Message should have a valid timestamp"
+    );
+
+    // Send another message and verify the metadata updates
+    group
+        .send(b"Second message".to_vec(), FfiSendMessageOpts::default())
+        .await
+        .unwrap();
+
+    let updated_metadata = get_newest_message_metadata(api_backend.clone(), vec![group.id()])
+        .await
+        .unwrap();
+
+    let updated_group_metadata = updated_metadata.get(&group.id()).unwrap();
+    assert!(
+        updated_group_metadata.created_ns >= group_metadata.created_ns,
+        "Updated metadata should have same or later timestamp"
+    );
+
+    // Test with a group that has no messages (new empty group)
+    let empty_group = alix
+        .conversations()
+        .create_group(vec![], FfiCreateGroupOptions::default())
+        .await
+        .unwrap();
+
+    let empty_metadata =
+        get_newest_message_metadata(api_backend.clone(), vec![empty_group.id()]).await;
+
+    // Empty group may or may not have metadata depending on implementation
+    // Just verify the call doesn't error
+    assert!(empty_metadata.is_ok(), "Should not error for empty group");
+}
