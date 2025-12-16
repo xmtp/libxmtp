@@ -35,7 +35,6 @@ use passkey::{
 };
 use public_suffix::PublicSuffixList;
 use std::{
-    i64,
     ops::Deref,
     path::{Path, PathBuf},
     sync::{
