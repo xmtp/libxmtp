@@ -7,16 +7,10 @@ import { sepolia } from 'viem/chains'
 import {
   createClient as create,
   createLocalToxicClient,
-  deserializeEncodedContent,
-  EncodedContent,
-  encodeReaction,
   generateInboxId,
   getInboxIdForIdentifier,
   IdentifierKind,
   LogLevel,
-  ReactionAction,
-  ReactionSchema,
-  serializeEncodedContent,
   SyncWorkerMode,
 } from '../dist/index'
 
@@ -131,58 +125,8 @@ export const createToxicRegisteredClient = async (user: User) => {
   return toxic_client
 }
 
-export const encodeTextMessage = (text: string): EncodedContent => {
-  return {
-    type: {
-      authorityId: 'xmtp.org',
-      typeId: 'text',
-      versionMajor: 1,
-      versionMinor: 0,
-    },
-    parameters: {
-      encoding: 'UTF-8',
-    },
-    content: new Uint8Array(new TextEncoder().encode(text)),
-  }
-}
-
 export function sleep(ms: number) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms)
   })
-}
-
-export const encodeReactionMessage = (
-  reference: string,
-  referenceInboxId: string,
-  content: string,
-  action: ReactionAction = ReactionAction.Added,
-  schema: ReactionSchema = ReactionSchema.Unicode
-): EncodedContent => {
-  // encodeReaction returns the fully encoded EncodedContent as bytes
-  // Deserialize it back to an EncodedContent object for send()
-  const bytes = encodeReaction({
-    reference,
-    referenceInboxId,
-    action,
-    content,
-    schema,
-  })
-  return deserializeEncodedContent(bytes)
-}
-
-export const encodeReplyMessage = (referenceId: string, content: string) => {
-  // Reply content type using composite codec
-  return {
-    type: {
-      authorityId: 'xmtp.org',
-      typeId: 'reply',
-      versionMajor: 1,
-      versionMinor: 0,
-    },
-    parameters: {
-      reference: referenceId,
-    },
-    content: serializeEncodedContent(encodeTextMessage(content)),
-  }
 }

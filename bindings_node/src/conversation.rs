@@ -4,12 +4,35 @@ use napi::{
   bindgen_prelude::{Result, Uint8Array},
   threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode},
 };
+use xmtp_content_types::{
+  actions::ActionsCodec,
+  attachment::AttachmentCodec,
+  intent::IntentCodec,
+  multi_remote_attachment::MultiRemoteAttachmentCodec,
+  reaction::ReactionCodec,
+  read_receipt::{ReadReceipt, ReadReceiptCodec},
+  remote_attachment::RemoteAttachmentCodec,
+  reply::ReplyCodec,
+  text::TextCodec,
+  transaction_reference::TransactionReferenceCodec,
+  wallet_send_calls::WalletSendCallsCodec,
+};
 use xmtp_db::{
   group::{ConversationType, DmIdExt},
   group_message::MsgQueryArgs,
 };
 
-use crate::conversations::GroupMembershipState;
+use xmtp_content_types::ContentCodec;
+
+use crate::{
+  content_types::{
+    actions::Actions, attachment::Attachment, intent::Intent,
+    multi_remote_attachment::MultiRemoteAttachment, reaction::Reaction,
+    remote_attachment::RemoteAttachment, reply::Reply, transaction_reference::TransactionReference,
+    wallet_send_calls::WalletSendCalls,
+  },
+  conversations::GroupMembershipState,
+};
 use xmtp_mls::{
   groups::{
     MlsGroup, UpdateAdminListType, intents::PermissionUpdateType as XmtpPermissionUpdateType,
@@ -43,6 +66,7 @@ use napi_derive::napi;
 #[napi(object)]
 pub struct SendMessageOpts {
   pub should_push: bool,
+  pub optimistic: Option<bool>,
 }
 
 impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
@@ -161,27 +185,155 @@ impl Conversation {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.create_mls_group();
 
-    let message_id = group
-      .send_message(encoded_content.encode_to_vec().as_slice(), opts.into())
-      .await
-      .map_err(ErrorWrapper::from)?;
-    Ok(hex::encode(message_id.clone()))
+    let message_id = match opts.optimistic {
+      Some(true) => group
+        .send_message_optimistic(encoded_content.encode_to_vec().as_slice(), opts.into())
+        .map_err(ErrorWrapper::from)?,
+      _ => group
+        .send_message(encoded_content.encode_to_vec().as_slice(), opts.into())
+        .await
+        .map_err(ErrorWrapper::from)?,
+    };
+
+    Ok(hex::encode(message_id))
   }
 
   #[napi]
-  pub fn send_optimistic(
+  pub async fn send_text(&self, text: String, optimistic: Option<bool>) -> Result<String> {
+    let encoded_content = TextCodec::encode(text).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: TextCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_reaction(
     &self,
-    encoded_content: EncodedContent,
-    opts: SendMessageOpts,
+    reaction: Reaction,
+    optimistic: Option<bool>,
   ) -> Result<String> {
-    let encoded_content: XmtpEncodedContent = encoded_content.into();
-    let group = self.create_mls_group();
+    let encoded_content = ReactionCodec::encode(reaction.into()).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: ReactionCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
 
-    let id = group
-      .send_message_optimistic(encoded_content.encode_to_vec().as_slice(), opts.into())
+  #[napi]
+  pub async fn send_reply(&self, reply: Reply, optimistic: Option<bool>) -> Result<String> {
+    let encoded_content = ReplyCodec::encode(reply.into()).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: ReplyCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_read_receipt(&self, optimistic: Option<bool>) -> Result<String> {
+    let encoded_content = ReadReceiptCodec::encode(ReadReceipt {}).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: ReadReceiptCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_attachment(
+    &self,
+    attachment: Attachment,
+    optimistic: Option<bool>,
+  ) -> Result<String> {
+    let encoded_content = AttachmentCodec::encode(attachment.into()).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: AttachmentCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_remote_attachment(
+    &self,
+    remote_attachment: RemoteAttachment,
+    optimistic: Option<bool>,
+  ) -> Result<String> {
+    let encoded_content =
+      RemoteAttachmentCodec::encode(remote_attachment.into()).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: RemoteAttachmentCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_multi_remote_attachment(
+    &self,
+    multi_remote_attachment: MultiRemoteAttachment,
+    optimistic: Option<bool>,
+  ) -> Result<String> {
+    let encoded_content = MultiRemoteAttachmentCodec::encode(multi_remote_attachment.into())
       .map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: MultiRemoteAttachmentCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
 
-    Ok(hex::encode(id.clone()))
+  #[napi]
+  pub async fn send_transaction_reference(
+    &self,
+    transaction_reference: TransactionReference,
+    optimistic: Option<bool>,
+  ) -> Result<String> {
+    let encoded_content = TransactionReferenceCodec::encode(transaction_reference.into())
+      .map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: TransactionReferenceCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_wallet_send_calls(
+    &self,
+    wallet_send_calls: WalletSendCalls,
+    optimistic: Option<bool>,
+  ) -> Result<String> {
+    let wsc = wallet_send_calls.try_into()?;
+    let encoded_content = WalletSendCallsCodec::encode(wsc).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: WalletSendCallsCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_actions(&self, actions: Actions, optimistic: Option<bool>) -> Result<String> {
+    let encoded_content = ActionsCodec::encode(actions.into()).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: ActionsCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_intent(&self, intent: Intent, optimistic: Option<bool>) -> Result<String> {
+    let encoded_content = IntentCodec::encode(intent.into()).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: IntentCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
   }
 
   #[napi]
@@ -203,20 +355,7 @@ impl Conversation {
   pub async fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
     let opts = opts.unwrap_or_default();
     let group = self.create_mls_group();
-    let conversation_type = group
-      .conversation_type()
-      .await
-      .map_err(ErrorWrapper::from)?;
-    let kind = match conversation_type {
-      ConversationType::Group => None,
-      ConversationType::Dm => None,
-      ConversationType::Sync => None,
-      ConversationType::Oneshot => None,
-    };
-    let opts = MsgQueryArgs {
-      kind,
-      ..opts.into()
-    };
+    let opts = MsgQueryArgs { ..opts.into() };
     let messages: Vec<Message> = group
       .find_messages(&opts)
       .map_err(ErrorWrapper::from)?
@@ -246,20 +385,7 @@ impl Conversation {
   ) -> Result<Vec<MessageWithReactions>> {
     let opts = opts.unwrap_or_default();
     let group = self.create_mls_group();
-    let conversation_type = group
-      .conversation_type()
-      .await
-      .map_err(ErrorWrapper::from)?;
-    let kind = match conversation_type {
-      ConversationType::Group => None,
-      ConversationType::Dm => None,
-      ConversationType::Sync => None,
-      ConversationType::Oneshot => None,
-    };
-    let opts = MsgQueryArgs {
-      kind,
-      ..opts.into()
-    };
+    let opts = MsgQueryArgs { ..opts.into() };
 
     let messages: Vec<MessageWithReactions> = group
       .find_messages_with_reactions(&opts)
@@ -780,8 +906,8 @@ impl Conversation {
       .find_messages_v2(&opts.into())
       .map_err(ErrorWrapper::from)?
       .into_iter()
-      .map(|msg| msg.into())
-      .collect();
+      .map(|msg| msg.try_into())
+      .collect::<Result<Vec<_>>>()?;
 
     Ok(messages)
   }
