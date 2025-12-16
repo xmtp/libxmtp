@@ -80,6 +80,8 @@ pub struct DecodedMessageMetadata {
     pub content_type: ContentTypeId,
     // Time in nanoseconds the message was inserted into the database
     pub inserted_at_ns: i64,
+    // Timestamp (in NS) after which the message must be deleted
+    pub expires_at_ns: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -205,6 +207,7 @@ impl TryFrom<StoredGroupMessage> for DecodedMessage {
             delivery_status: value.delivery_status,
             content_type: content_type_id,
             inserted_at_ns: value.inserted_at_ns,
+            expires_at_ns: value.expire_at_ns,
         };
 
         // For now, we'll set default values for reactions and replies
