@@ -659,12 +659,6 @@ mock! {
             &'a self,
             inbox_ids: &'a [&'a str],
         ) -> Result<std::collections::HashMap<String, i64>, crate::ConnectionError>;
-
-        fn identity_updates_paged(
-            &self,
-            limit: i64,
-            offset: i64,
-        ) -> Result<Vec<crate::identity_update::StoredIdentityUpdate>, crate::ConnectionError>;
     }
 
     impl QueryLocalCommitLog for DbQuery {

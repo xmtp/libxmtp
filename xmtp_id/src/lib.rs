@@ -42,7 +42,7 @@ use crate::associations::unverified::UnverifiedIdentityUpdate;
 use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct InboxUpdate {
     pub sequence_id: u64,
     pub server_timestamp_ns: u64,

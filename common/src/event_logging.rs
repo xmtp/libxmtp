@@ -3,7 +3,13 @@ pub use utils::*;
 
 #[xmtp_macro::build_logging_metadata]
 pub enum Event {
-    // ===================== Group Operations =====================
+    // ===================== Commit Ops =====================
+    /// Installation missing from AssociationState while validating commit.
+    /// If this is
+    #[context(inbox_id)]
+    CommitValidationMissingInstallation,
+
+    // ===================== Group Ops =====================
     /// DM created.
     #[context(group_id, target_inbox_id)]
     CreatedDM,
@@ -13,20 +19,6 @@ pub enum Event {
     /// Added members to group.
     #[context(group_id, members)]
     AddedMembers,
-
-    // ===================== MLS Operations =====================
-    /// Received staged commit. Merging and clearing any pending commits.
-    #[context(group_id, inbox_id, sender_inbox_id, msg_epoch, current_epoch)]
-    MLSReceivedStagedCommit,
-    /// Processed staged commit.
-    #[context(group_id, current_epoch)]
-    MLSProcessedStagedCommit,
-    /// Received application message.
-    #[context(group_id, current_epoch, msg_epoch, sender_inbox_id)]
-    MLSReceivedApplicationMessage,
-    /// Processed application message.
-    #[context(group_id)]
-    MLSProcessedApplicationMessage,
 
     // ===================== Group Syncing =====================
     /// Begin syncing group.
@@ -44,4 +36,18 @@ pub enum Event {
     /// Intent was found to be in error after attempting to sync.
     #[context(group_id, intent_id, summary)]
     GroupSyncIntentErrored,
+
+    // ===================== MLS Ops =====================
+    /// Received staged commit. Merging and clearing any pending commits.
+    #[context(group_id, inbox_id, sender_inbox_id, msg_epoch, current_epoch)]
+    MLSReceivedStagedCommit,
+    /// Processed staged commit.
+    #[context(group_id, current_epoch)]
+    MLSProcessedStagedCommit,
+    /// Received application message.
+    #[context(group_id, current_epoch, msg_epoch, sender_inbox_id)]
+    MLSReceivedApplicationMessage,
+    /// Processed application message.
+    #[context(group_id)]
+    MLSProcessedApplicationMessage,
 }

@@ -2,12 +2,15 @@
 
 use super::FullXmtpClient;
 use crate::{
-    Client,
+    Client, MlsContext,
     builder::{ClientBuilder, ForkRecoveryOpts, ForkRecoveryPolicy, SyncWorkerMode},
     client::ClientError,
     context::XmtpSharedContext,
     cursor_store::SqliteCursorStore,
-    groups::{GroupError, device_sync::worker::SyncMetric, intents::UpdateGroupMembershipResult},
+    groups::{
+        GroupError, device_sync::worker::SyncMetric, intents::UpdateGroupMembershipResult,
+        key_package_cleaner_worker::KeyPackagesCleanerWorker,
+    },
     identity::{Identity, IdentityStrategy, pq_key_package_references_key},
     identity_updates::load_identity_updates,
     subscriptions::SubscribeError,
@@ -32,6 +35,7 @@ use passkey::{
 };
 use public_suffix::PublicSuffixList;
 use std::{
+    i64,
     ops::Deref,
     path::{Path, PathBuf},
     sync::{
@@ -61,7 +65,7 @@ use xmtp_db::{
     ConnectionExt, ReadOnly, TestDb, XmtpMlsStorageProvider, XmtpTestDb,
     diesel::{self, Connection, RunQueryDsl, SqliteConnection, sql_query},
     key_package_history::StoredKeyPackageHistoryEntry,
-    prelude::{QueryIdentity, QueryIdentityUpdates},
+    prelude::{QueryIdentity, QueryIdentityUpdates, QueryKeyPackageHistory},
     sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
 };
 use xmtp_db::{
@@ -80,7 +84,7 @@ use xmtp_id::{
 use xmtp_proto::{
     api_client::ApiBuilder,
     xmtp::{
-        device_sync::{BackupElement, backup::SnapshotSave, backup_element::Element},
+        device_sync::{BackupElement, backup_element::Element},
         message_contents::PrivateKey,
     },
 };
@@ -297,6 +301,9 @@ where
                     .execute(c)
                     .unwrap();
                 xmtp_db::diesel::delete(xmtp_db::schema::identity_updates::table)
+                    .execute(c)
+                    .unwrap();
+                xmtp_db::diesel::delete(xmtp_db::schema::refresh_state::table)
                     .execute(c)
                     .unwrap();
 

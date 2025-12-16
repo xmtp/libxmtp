@@ -52,7 +52,6 @@ pub enum CommitValidationError {
     // Subject of the proposal has an invalid credential
     #[error("Inbox validation failed for {0}")]
     InboxValidationFailed(String),
-    // Not used yet, but seems obvious enough to include now
     #[error("Insufficient permissions")]
     InsufficientPermissions,
     #[error("Invalid version format: {0}")]
