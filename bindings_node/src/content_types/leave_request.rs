@@ -1,9 +1,8 @@
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::Uint8Array;
 use napi_derive::napi;
-use prost::Message;
 use xmtp_content_types::{ContentCodec, leave_request::LeaveRequestCodec};
 
-use crate::{ErrorWrapper, encoded_content::EncodedContent};
+use crate::encoded_content::ContentTypeId;
 
 #[napi(object)]
 pub struct LeaveRequest {
@@ -26,29 +25,7 @@ impl From<xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest> 
   }
 }
 
-impl From<LeaveRequest> for xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest {
-  fn from(lr: LeaveRequest) -> Self {
-    Self {
-      authenticated_note: lr.authenticated_note.map(|v| v.to_vec()),
-    }
-  }
-}
-
 #[napi]
-pub fn encode_leave_request(leave_request: LeaveRequest) -> Result<Uint8Array> {
-  let encoded = LeaveRequestCodec::encode(leave_request.into()).map_err(ErrorWrapper::from)?;
-
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(buf.into())
-}
-
-#[napi]
-pub fn decode_leave_request(encoded_content: EncodedContent) -> Result<LeaveRequest> {
-  Ok(
-    LeaveRequestCodec::decode(encoded_content.into())
-      .map(Into::into)
-      .map_err(ErrorWrapper::from)?,
-  )
+pub fn leave_request_content_type() -> ContentTypeId {
+  LeaveRequestCodec::content_type().into()
 }

@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::{Error, Result};
 use napi_derive::napi;
-use prost::Message;
 use xmtp_content_types::{ContentCodec, wallet_send_calls::WalletSendCallsCodec};
 
-use crate::{ErrorWrapper, encoded_content::EncodedContent};
+use crate::ErrorWrapper;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 
 #[derive(Clone)]
 #[napi(object)]
@@ -17,27 +17,37 @@ pub struct WalletSendCalls {
   pub capabilities: Option<HashMap<String, String>>,
 }
 
-impl From<xmtp_content_types::wallet_send_calls::WalletSendCalls> for WalletSendCalls {
-  fn from(wsc: xmtp_content_types::wallet_send_calls::WalletSendCalls) -> Self {
-    Self {
+impl TryFrom<xmtp_content_types::wallet_send_calls::WalletSendCalls> for WalletSendCalls {
+  type Error = Error;
+
+  fn try_from(
+    wsc: xmtp_content_types::wallet_send_calls::WalletSendCalls,
+  ) -> std::result::Result<Self, Self::Error> {
+    let calls: std::result::Result<Vec<_>, _> =
+      wsc.calls.into_iter().map(TryInto::try_into).collect();
+    Ok(Self {
       version: wsc.version,
       chain_id: wsc.chain_id,
       from: wsc.from,
-      calls: wsc.calls.into_iter().map(Into::into).collect(),
+      calls: calls?,
       capabilities: wsc.capabilities,
-    }
+    })
   }
 }
 
-impl From<WalletSendCalls> for xmtp_content_types::wallet_send_calls::WalletSendCalls {
-  fn from(wsc: WalletSendCalls) -> Self {
-    Self {
+impl TryFrom<WalletSendCalls> for xmtp_content_types::wallet_send_calls::WalletSendCalls {
+  type Error = Error;
+
+  fn try_from(wsc: WalletSendCalls) -> std::result::Result<Self, Self::Error> {
+    let calls: std::result::Result<Vec<_>, _> =
+      wsc.calls.into_iter().map(TryInto::try_into).collect();
+    Ok(Self {
       version: wsc.version,
       chain_id: wsc.chain_id,
       from: wsc.from,
-      calls: wsc.calls.into_iter().map(Into::into).collect(),
+      calls: calls?,
       capabilities: wsc.capabilities,
-    }
+    })
   }
 }
 
@@ -48,79 +58,60 @@ pub struct WalletCall {
   pub data: Option<String>,
   pub value: Option<String>,
   pub gas: Option<String>,
-  pub metadata: Option<WalletCallMetadata>,
+  pub metadata: Option<HashMap<String, String>>,
 }
 
-impl From<xmtp_content_types::wallet_send_calls::WalletCall> for WalletCall {
-  fn from(call: xmtp_content_types::wallet_send_calls::WalletCall) -> Self {
-    Self {
+impl TryFrom<xmtp_content_types::wallet_send_calls::WalletCall> for WalletCall {
+  type Error = Error;
+
+  fn try_from(
+    call: xmtp_content_types::wallet_send_calls::WalletCall,
+  ) -> std::result::Result<Self, Self::Error> {
+    let metadata = call
+      .metadata
+      .map(|meta| serde_json::to_value(meta).and_then(serde_json::from_value))
+      .transpose()
+      .map_err(|e| Error::from_reason(e.to_string()))?;
+    Ok(Self {
       to: call.to,
       data: call.data,
       value: call.value,
       gas: call.gas,
-      metadata: call.metadata.map(Into::into),
-    }
+      metadata,
+    })
   }
 }
 
-impl From<WalletCall> for xmtp_content_types::wallet_send_calls::WalletCall {
-  fn from(call: WalletCall) -> Self {
-    Self {
+impl TryFrom<WalletCall> for xmtp_content_types::wallet_send_calls::WalletCall {
+  type Error = Error;
+
+  fn try_from(call: WalletCall) -> std::result::Result<Self, Self::Error> {
+    let metadata = call
+      .metadata
+      .map(|meta| serde_json::to_value(meta).and_then(serde_json::from_value))
+      .transpose()
+      .map_err(|e| Error::from_reason(e.to_string()))?;
+    Ok(Self {
       to: call.to,
       data: call.data,
       value: call.value,
       gas: call.gas,
-      metadata: call.metadata.map(Into::into),
-    }
-  }
-}
-
-#[derive(Clone)]
-#[napi(object)]
-pub struct WalletCallMetadata {
-  pub description: String,
-  pub transaction_type: String,
-  pub extra: HashMap<String, String>,
-}
-
-impl From<xmtp_content_types::wallet_send_calls::WalletCallMetadata> for WalletCallMetadata {
-  fn from(meta: xmtp_content_types::wallet_send_calls::WalletCallMetadata) -> Self {
-    Self {
-      description: meta.description,
-      transaction_type: meta.transaction_type,
-      extra: meta.extra,
-    }
-  }
-}
-
-impl From<WalletCallMetadata> for xmtp_content_types::wallet_send_calls::WalletCallMetadata {
-  fn from(meta: WalletCallMetadata) -> Self {
-    Self {
-      description: meta.description,
-      transaction_type: meta.transaction_type,
-      extra: meta.extra,
-    }
+      metadata,
+    })
   }
 }
 
 #[napi]
-pub fn encode_wallet_send_calls(wallet_send_calls: WalletSendCalls) -> Result<Uint8Array> {
-  // Use WalletSendCallsCodec to encode the wallet send calls
-  let encoded =
-    WalletSendCallsCodec::encode(wallet_send_calls.into()).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(buf.into())
+pub fn wallet_send_calls_content_type() -> ContentTypeId {
+  WalletSendCallsCodec::content_type().into()
 }
 
 #[napi]
-pub fn decode_wallet_send_calls(encoded_content: EncodedContent) -> Result<WalletSendCalls> {
+pub fn encode_wallet_send_calls(wallet_send_calls: WalletSendCalls) -> Result<EncodedContent> {
+  let wsc = wallet_send_calls.try_into()?;
   Ok(
-    WalletSendCallsCodec::decode(encoded_content.into())
-      .map(Into::into)
-      .map_err(ErrorWrapper::from)?,
+    WalletSendCallsCodec::encode(wsc)
+      .map_err(ErrorWrapper::from)?
+      .into(),
   )
 }
