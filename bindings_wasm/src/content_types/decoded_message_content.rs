@@ -38,7 +38,7 @@ impl TryFrom<MessageBody> for DecodedMessageContent {
     match body {
       MessageBody::Text(t) => Ok(DecodedMessageContent::Text { content: t.content }),
       MessageBody::Reply(r) => Ok(DecodedMessageContent::Reply {
-        content: Box::new(r.into()),
+        content: Box::new(r.try_into()?),
       }),
       MessageBody::Reaction(r) => Ok(DecodedMessageContent::Reaction { content: r.into() }),
       MessageBody::Attachment(a) => Ok(DecodedMessageContent::Attachment { content: a.into() }),

@@ -18,28 +18,21 @@ pub struct EnrichedReply {
   pub in_reply_to: Option<Box<DecodedMessage>>,
 }
 
-impl From<xmtp_mls::messages::decoded_message::Reply> for EnrichedReply {
-  fn from(reply: xmtp_mls::messages::decoded_message::Reply) -> Self {
-    // Note: We need to handle the TryFrom for DecodedMessageContent
-    // For now, we unwrap - a more robust solution would propagate the error
-    let content = reply
-      .content
-      .as_ref()
-      .clone()
-      .try_into()
-      .expect("Failed to convert message content");
-    let in_reply_to = reply.in_reply_to.map(|m| {
-      let msg: DecodedMessage = (*m)
-        .try_into()
-        .expect("Failed to convert in_reply_to message");
-      Box::new(msg)
-    });
+impl TryFrom<xmtp_mls::messages::decoded_message::Reply> for EnrichedReply {
+  type Error = wasm_bindgen::JsError;
 
-    Self {
+  fn try_from(reply: xmtp_mls::messages::decoded_message::Reply) -> Result<Self, Self::Error> {
+    let content = reply.content.as_ref().clone().try_into()?;
+    let in_reply_to = reply
+      .in_reply_to
+      .map(|m| (*m).try_into().map(Box::new))
+      .transpose()?;
+
+    Ok(Self {
       reference_id: reply.reference_id,
       content: Box::new(content),
       in_reply_to,
-    }
+    })
   }
 }
 
