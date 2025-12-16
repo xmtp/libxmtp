@@ -1,16 +1,25 @@
 use napi::bindgen_prelude::{Result, Uint8Array};
 use napi_derive::napi;
-use prost::Message;
 use xmtp_content_types::{ContentCodec, attachment::AttachmentCodec};
 
-use crate::{ErrorWrapper, encoded_content::EncodedContent};
+use crate::ErrorWrapper;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 
-#[derive(Clone)]
 #[napi(object)]
 pub struct Attachment {
   pub filename: Option<String>,
   pub mime_type: String,
-  pub content: Vec<u8>,
+  pub content: Uint8Array,
+}
+
+impl Clone for Attachment {
+  fn clone(&self) -> Self {
+    Self {
+      filename: self.filename.clone(),
+      mime_type: self.mime_type.clone(),
+      content: Uint8Array::from(self.content.to_vec()),
+    }
+  }
 }
 
 impl From<xmtp_content_types::attachment::Attachment> for Attachment {
@@ -18,7 +27,7 @@ impl From<xmtp_content_types::attachment::Attachment> for Attachment {
     Self {
       filename: attachment.filename,
       mime_type: attachment.mime_type,
-      content: attachment.content,
+      content: attachment.content.into(),
     }
   }
 }
@@ -28,28 +37,21 @@ impl From<Attachment> for xmtp_content_types::attachment::Attachment {
     Self {
       filename: attachment.filename,
       mime_type: attachment.mime_type,
-      content: attachment.content,
+      content: attachment.content.to_vec(),
     }
   }
 }
 
 #[napi]
-pub fn encode_attachment(attachment: Attachment) -> Result<Uint8Array> {
-  // Use AttachmentCodec to encode the attachment
-  let encoded = AttachmentCodec::encode(attachment.into()).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(buf.into())
+pub fn attachment_content_type() -> ContentTypeId {
+  AttachmentCodec::content_type().into()
 }
 
 #[napi]
-pub fn decode_attachment(encoded_content: EncodedContent) -> Result<Attachment> {
+pub fn encode_attachment(attachment: Attachment) -> Result<EncodedContent> {
   Ok(
-    AttachmentCodec::decode(encoded_content.into())
-      .map(Into::into)
-      .map_err(ErrorWrapper::from)?,
+    AttachmentCodec::encode(attachment.into())
+      .map_err(ErrorWrapper::from)?
+      .into(),
   )
 }

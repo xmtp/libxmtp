@@ -1,27 +1,22 @@
-import {
-  ContentTypeGroupUpdated,
-  GroupUpdatedCodec,
-} from '@xmtp/content-type-group-updated'
-import { ContentTypeText, TextCodec } from '@xmtp/content-type-text'
 import { v4 } from 'uuid'
 import { describe, expect, it } from 'vitest'
 import {
   createRegisteredClient,
   createToxicRegisteredClient,
   createUser,
-  encodeTextMessage,
 } from '@test/helpers'
 import {
   ConsentState,
   Conversation,
   ConversationType,
   GroupPermissionsOptions,
+  groupUpdatedContentType,
   IdentifierKind,
   Message,
   MetadataField,
   PermissionPolicy,
   PermissionUpdateType,
-  SendMessageOpts,
+  textContentType,
 } from '../dist'
 
 const SLEEP_MS = 300
@@ -320,9 +315,7 @@ describe('Conversations', () => {
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    const messageId = await group.send(encodeTextMessage('gm!'), {
-      shouldPush: true,
-    })
+    const messageId = await group.sendText('gm!')
     expect(messageId).toBeDefined()
 
     const message = client1.conversations().findMessageById(messageId)
@@ -518,8 +511,8 @@ describe('Conversations', () => {
     }
 
     let closed = false
-    const stream = await client1.client.conversations().stream(
-      (err, convo) => {
+    await client1.client.conversations().stream(
+      (_, convo) => {
         groups.push(convo!)
       },
       () => {
@@ -712,24 +705,9 @@ describe('Conversations', () => {
     await groups4.sync()
     const groupsList4 = groups4.list()
 
-    const message1 = await groupsList2[0].conversation.send(
-      encodeTextMessage('gm!'),
-      {
-        shouldPush: true,
-      }
-    )
-    const message2 = await groupsList3[0].conversation.send(
-      encodeTextMessage('gm2!'),
-      {
-        shouldPush: true,
-      }
-    )
-    const message3 = await groupsList4[0].conversation.send(
-      encodeTextMessage('gm3!'),
-      {
-        shouldPush: true,
-      }
-    )
+    const message1 = await groupsList2[0].conversation.sendText('gm!')
+    const message2 = await groupsList3[0].conversation.sendText('gm2!')
+    const message3 = await groupsList4[0].conversation.sendText('gm3!')
 
     await sleep(2000)
 
@@ -798,21 +776,9 @@ describe('Conversations', () => {
     await groups4.sync()
     const groupsList4 = groups4.list()
 
-    await groupsList4[0].conversation.send(encodeTextMessage('gm3!'), {
-      shouldPush: true,
-    })
-    const message1 = await groupsList2[0].conversation.send(
-      encodeTextMessage('gm!'),
-      {
-        shouldPush: true,
-      }
-    )
-    const message2 = await groupsList3[0].conversation.send(
-      encodeTextMessage('gm2!'),
-      {
-        shouldPush: true,
-      }
-    )
+    await groupsList4[0].conversation.sendText('gm3!')
+    const message1 = await groupsList2[0].conversation.sendText('gm!')
+    const message2 = await groupsList3[0].conversation.sendText('gm2!')
 
     await sleep()
 
@@ -872,18 +838,9 @@ describe('Conversations', () => {
     await groups4.sync()
     const groupsList4 = groups4.list()
 
-    await groupsList2[0].conversation.send(encodeTextMessage('gm!'), {
-      shouldPush: true,
-    })
-    await groupsList3[0].conversation.send(encodeTextMessage('gm2!'), {
-      shouldPush: true,
-    })
-    const message3 = await groupsList4[0].conversation.send(
-      encodeTextMessage('gm3!'),
-      {
-        shouldPush: true,
-      }
-    )
+    await groupsList2[0].conversation.sendText('gm!')
+    await groupsList3[0].conversation.sendText('gm2!')
+    const message3 = await groupsList4[0].conversation.sendText('gm3!')
 
     await sleep()
 
@@ -892,7 +849,7 @@ describe('Conversations', () => {
     expect(messages.map((m) => m.id)).toEqual([message3])
   })
 
-  it.skip('stream should process dm messages from new installations without sync', async () => {
+  it('stream should process dm messages from new installations without sync', async () => {
     const agent = createUser()
     const user = createUser()
     const agent_client = await createRegisteredClient(agent)
@@ -918,10 +875,7 @@ describe('Conversations', () => {
     // await client_a_groups.sync()
     const client_a_conversations = client_a_groups.list()
     expect(client_a_conversations.length).toBe(1)
-    await client_a_conversations[0].conversation.send(
-      encodeTextMessage('gm!'),
-      { shouldPush: true }
-    )
+    await client_a_conversations[0].conversation.sendText('gm!')
 
     // confirm the agent received the message
     await sleep(10000)
@@ -941,9 +895,7 @@ describe('Conversations', () => {
     await client_b_groups.sync()
     const client_b_conversations = client_a_groups.list()
     expect(client_b_conversations.length).toBe(1)
-    await client_b_conversations[0].conversation.send(encodeTextMessage('b'), {
-      shouldPush: true,
-    })
+    await client_b_conversations[0].conversation.sendText('b')
 
     // confirm the agent received the second message
     await sleep(10000)
@@ -1016,8 +968,6 @@ describe('Conversations', () => {
   })
 
   it('should create initial group updated messages for added members', async () => {
-    const groupUpdatedCodec = new GroupUpdatedCodec()
-    const textCodec = new TextCodec()
     const user1 = createUser()
     const user2 = createUser()
     const user3 = createUser()
@@ -1030,11 +980,11 @@ describe('Conversations', () => {
     const group1 = await client1
       .conversations()
       .createGroupByInboxId([client2.inboxId(), client3.inboxId()])
-    await group1.send(encodeTextMessage('gm1'), { shouldPush: true })
+    await group1.sendText('gm1')
     await group1.removeMembersByInboxId([client2.inboxId()])
-    await group1.send(encodeTextMessage('gm2'), { shouldPush: true })
+    await group1.sendText('gm2')
     await group1.addMembersByInboxId([client2.inboxId()])
-    await group1.send(encodeTextMessage('gm3'), { shouldPush: true })
+    await group1.sendText('gm3')
 
     const messages1 = await group1.findMessages()
     expect(messages1.length).toBe(6)
@@ -1044,29 +994,29 @@ describe('Conversations', () => {
     await group2.sync()
     const messages2 = await group2.findMessages()
     expect(messages2.length).toBe(3)
-    expect(messages2[0].content.type).toEqual(ContentTypeGroupUpdated)
-    expect(messages2[1].content.type).toEqual(ContentTypeGroupUpdated)
-    expect(messages2[2].content.type).toEqual(ContentTypeText)
+    expect(messages2[0].content.type).toEqual(groupUpdatedContentType())
+    expect(messages2[1].content.type).toEqual(groupUpdatedContentType())
+    expect(messages2[2].content.type).toEqual(textContentType())
 
     await client3.conversations().sync()
     const group3 = client3.conversations().findGroupById(group1.id())
     await group3.sync()
     const messages3 = await group3.findMessages()
     expect(messages3.length).toBe(6)
-    expect(messages3[0].content.type).toEqual(ContentTypeGroupUpdated)
-    expect(messages3[1].content.type).toEqual(ContentTypeText)
-    expect(messages3[2].content.type).toEqual(ContentTypeGroupUpdated)
-    expect(messages3[3].content.type).toEqual(ContentTypeText)
-    expect(messages3[4].content.type).toEqual(ContentTypeGroupUpdated)
-    expect(messages3[5].content.type).toEqual(ContentTypeText)
+    expect(messages3[0].content.type).toEqual(groupUpdatedContentType())
+    expect(messages3[1].content.type).toEqual(textContentType())
+    expect(messages3[2].content.type).toEqual(groupUpdatedContentType())
+    expect(messages3[3].content.type).toEqual(textContentType())
+    expect(messages3[4].content.type).toEqual(groupUpdatedContentType())
+    expect(messages3[5].content.type).toEqual(textContentType())
 
     await client2_2.conversations().sync()
     const group4 = client2_2.conversations().findGroupById(group1.id())
     await group4.sync()
     const messages4 = await group4.findMessages()
     expect(messages4.length).toBe(3)
-    expect(messages4[0].content.type).toEqual(ContentTypeGroupUpdated)
-    expect(messages4[1].content.type).toEqual(ContentTypeGroupUpdated)
-    expect(messages4[2].content.type).toEqual(ContentTypeText)
+    expect(messages4[0].content.type).toEqual(groupUpdatedContentType())
+    expect(messages4[1].content.type).toEqual(groupUpdatedContentType())
+    expect(messages4[2].content.type).toEqual(textContentType())
   })
 })
