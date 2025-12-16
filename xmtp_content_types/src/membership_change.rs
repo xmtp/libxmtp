@@ -47,6 +47,10 @@ impl ContentCodec<GroupMembershipChanges> for GroupMembershipChangeCodec {
 
         Ok(decoded)
     }
+
+    fn should_push() -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

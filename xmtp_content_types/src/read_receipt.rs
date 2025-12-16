@@ -38,6 +38,10 @@ impl ContentCodec<ReadReceipt> for ReadReceiptCodec {
     fn decode(_: EncodedContent) -> Result<ReadReceipt, CodecError> {
         Ok(ReadReceipt {})
     }
+
+    fn should_push() -> bool {
+        false
+    }
 }
 
 /// The main content type for read receipts

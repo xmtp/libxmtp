@@ -88,6 +88,7 @@ pub trait ContentCodec<T> {
     fn content_type() -> ContentTypeId;
     fn encode(content: T) -> Result<EncodedContent, CodecError>;
     fn decode(content: EncodedContent) -> Result<T, CodecError>;
+    fn should_push() -> bool;
 }
 
 pub fn encoded_content_to_bytes(content: EncodedContent) -> Vec<u8> {
