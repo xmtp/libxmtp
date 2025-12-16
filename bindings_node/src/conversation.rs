@@ -352,23 +352,10 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
+  pub fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
     let opts = opts.unwrap_or_default();
     let group = self.create_mls_group();
-    let conversation_type = group
-      .conversation_type()
-      .await
-      .map_err(ErrorWrapper::from)?;
-    let kind = match conversation_type {
-      ConversationType::Group => None,
-      ConversationType::Dm => None,
-      ConversationType::Sync => None,
-      ConversationType::Oneshot => None,
-    };
-    let opts = MsgQueryArgs {
-      kind,
-      ..opts.into()
-    };
+    let opts = MsgQueryArgs { ..opts.into() };
     let messages: Vec<Message> = group
       .find_messages(&opts)
       .map_err(ErrorWrapper::from)?
@@ -392,26 +379,13 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn find_messages_with_reactions(
+  pub fn find_messages_with_reactions(
     &self,
     opts: Option<ListMessagesOptions>,
   ) -> Result<Vec<MessageWithReactions>> {
     let opts = opts.unwrap_or_default();
     let group = self.create_mls_group();
-    let conversation_type = group
-      .conversation_type()
-      .await
-      .map_err(ErrorWrapper::from)?;
-    let kind = match conversation_type {
-      ConversationType::Group => None,
-      ConversationType::Dm => None,
-      ConversationType::Sync => None,
-      ConversationType::Oneshot => None,
-    };
-    let opts = MsgQueryArgs {
-      kind,
-      ..opts.into()
-    };
+    let opts = MsgQueryArgs { ..opts.into() };
 
     let messages: Vec<MessageWithReactions> = group
       .find_messages_with_reactions(&opts)
@@ -922,7 +896,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn find_enriched_messages(
+  pub fn find_enriched_messages(
     &self,
     opts: Option<ListMessagesOptions>,
   ) -> Result<Vec<DecodedMessage>> {
