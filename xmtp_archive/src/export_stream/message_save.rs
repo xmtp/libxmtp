@@ -22,8 +22,7 @@ impl BackupRecordProvider for GroupMessageSave {
 
         let batch = state
             .db
-            .group_messages_paged(&args, state.cursor.load(Ordering::SeqCst))
-            .expect("Failed to load group records");
+            .group_messages_paged(&args, state.cursor.load(Ordering::SeqCst))?;
 
         let records = batch
             .into_iter()
