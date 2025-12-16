@@ -21,7 +21,7 @@ use crate::{
     worker::metrics::WorkerMetrics,
 };
 use alloy::signers::local::PrivateKeySigner;
-use diesel::{QueryDsl, QueryableByName};
+use diesel::{ExpressionMethods, QueryDsl, QueryableByName};
 use futures::{
     AsyncReadExt, Stream, StreamExt,
     io::{BufReader, Cursor},
@@ -46,7 +46,7 @@ use std::{
 use tokio::{runtime::Handle, sync::OnceCell};
 use toxiproxy_rust::proxy::{Proxy, ProxyPack};
 use url::Url;
-use xmtp_api::XmtpApi;
+use xmtp_api::{ApiError, XmtpApi};
 use xmtp_api_d14n::{
     DevOnlyTestClientCreator, LocalOnlyTestClientCreator, XmtpTestClientExt,
     protocol::InMemoryCursorStore,
@@ -82,6 +82,7 @@ use xmtp_id::{
     scw_verifier::SmartContractSignatureVerifier,
 };
 use xmtp_proto::{
+    api::ApiClientError,
     api_client::ApiBuilder,
     xmtp::{
         device_sync::{BackupElement, backup_element::Element},
@@ -325,7 +326,9 @@ where
                 .api_client
                 .publish_identity_update(update)
                 .await;
-            tracing::info!("{result:?}");
+            if let Err(ApiError::Api(err)) = result {
+                tracing::warn!("{err:?}");
+            }
         }
     }
     fn reset_identity_and_refresh_state(&self) {
