@@ -1,8 +1,7 @@
-use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use xmtp_content_types::{ContentCodec, group_updated::GroupUpdatedCodec};
 
-use crate::{ErrorWrapper, encoded_content::EncodedContent};
+use crate::encoded_content::ContentTypeId;
 
 #[derive(Clone)]
 #[napi(object)]
@@ -38,50 +37,6 @@ impl From<xmtp_proto::xmtp::mls::message_contents::GroupUpdated> for GroupUpdate
         .map(|c| c.into())
         .collect(),
       left_inboxes: updated.left_inboxes.into_iter().map(|i| i.into()).collect(),
-      added_admin_inboxes: updated
-        .added_admin_inboxes
-        .into_iter()
-        .map(|i| i.into())
-        .collect(),
-      removed_admin_inboxes: updated
-        .removed_admin_inboxes
-        .into_iter()
-        .map(|i| i.into())
-        .collect(),
-      added_super_admin_inboxes: updated
-        .added_super_admin_inboxes
-        .into_iter()
-        .map(|i| i.into())
-        .collect(),
-      removed_super_admin_inboxes: updated
-        .removed_super_admin_inboxes
-        .into_iter()
-        .map(|i| i.into())
-        .collect(),
-    }
-  }
-}
-
-impl From<GroupUpdated> for xmtp_proto::xmtp::mls::message_contents::GroupUpdated {
-  fn from(updated: GroupUpdated) -> Self {
-    Self {
-      initiated_by_inbox_id: updated.initiated_by_inbox_id,
-      added_inboxes: updated
-        .added_inboxes
-        .into_iter()
-        .map(|i| i.into())
-        .collect(),
-      removed_inboxes: updated
-        .removed_inboxes
-        .into_iter()
-        .map(|i| i.into())
-        .collect(),
-      left_inboxes: updated.left_inboxes.into_iter().map(|i| i.into()).collect(),
-      metadata_field_changes: updated
-        .metadata_field_changes
-        .into_iter()
-        .map(|c| c.into())
-        .collect(),
       added_admin_inboxes: updated
         .added_admin_inboxes
         .into_iter()
@@ -163,10 +118,6 @@ impl From<MetadataFieldChange>
 }
 
 #[napi]
-pub fn decode_group_updated(encoded_content: EncodedContent) -> Result<GroupUpdated> {
-  Ok(
-    GroupUpdatedCodec::decode(encoded_content.into())
-      .map(Into::into)
-      .map_err(ErrorWrapper::from)?,
-  )
+pub fn group_updated_content_type() -> ContentTypeId {
+  GroupUpdatedCodec::content_type().into()
 }

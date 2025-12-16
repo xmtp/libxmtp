@@ -1,9 +1,9 @@
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::Result;
 use napi_derive::napi;
-use prost::Message;
 use xmtp_content_types::{ContentCodec, read_receipt::ReadReceiptCodec};
 
-use crate::{ErrorWrapper, encoded_content::EncodedContent};
+use crate::ErrorWrapper;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 
 #[derive(Clone)]
 #[napi(object)]
@@ -22,22 +22,15 @@ impl From<ReadReceipt> for xmtp_content_types::read_receipt::ReadReceipt {
 }
 
 #[napi]
-pub fn encode_read_receipt(read_receipt: ReadReceipt) -> Result<Uint8Array> {
-  // Use ReadReceiptCodec to encode the read receipt
-  let encoded = ReadReceiptCodec::encode(read_receipt.into()).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(buf.into())
+pub fn read_receipt_content_type() -> ContentTypeId {
+  ReadReceiptCodec::content_type().into()
 }
 
 #[napi]
-pub fn decode_read_receipt(encoded_content: EncodedContent) -> Result<ReadReceipt> {
+pub fn encode_read_receipt(read_receipt: ReadReceipt) -> Result<EncodedContent> {
   Ok(
-    ReadReceiptCodec::decode(encoded_content.into())
-      .map(Into::into)
-      .map_err(ErrorWrapper::from)?,
+    ReadReceiptCodec::encode(read_receipt.into())
+      .map_err(ErrorWrapper::from)?
+      .into(),
   )
 }

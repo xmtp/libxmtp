@@ -1,12 +1,11 @@
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::Result;
 use napi_derive::napi;
-use prost::Message;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
 
 use crate::ErrorWrapper;
-use crate::encoded_content::EncodedContent;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 
 #[derive(Clone)]
 #[napi(object)]
@@ -32,46 +31,30 @@ impl From<Reaction> for ReactionV2 {
 
 impl From<ReactionV2> for Reaction {
   fn from(reaction: ReactionV2) -> Self {
+    let action = reaction.action().into();
+    let schema = reaction.schema().into();
     Reaction {
       reference: reaction.reference,
       reference_inbox_id: reaction.reference_inbox_id,
-      action: match reaction.action {
-        1 => ReactionAction::Added,
-        2 => ReactionAction::Removed,
-        _ => ReactionAction::Unknown,
-      },
+      action,
       content: reaction.content,
-      schema: match reaction.schema {
-        1 => ReactionSchema::Unicode,
-        2 => ReactionSchema::Shortcode,
-        3 => ReactionSchema::Custom,
-        _ => ReactionSchema::Unknown,
-      },
+      schema,
     }
   }
 }
 
 #[napi]
-pub fn encode_reaction(reaction: Reaction) -> Result<Uint8Array> {
-  // Convert Reaction to Reaction
-  let reaction: ReactionV2 = reaction.into();
-
-  // Use ReactionCodec to encode the reaction
-  let encoded = ReactionCodec::encode(reaction).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
+pub fn reaction_content_type() -> ContentTypeId {
+  ReactionCodec::content_type().into()
 }
 
 #[napi]
-pub fn decode_reaction(encoded_content: EncodedContent) -> Result<Reaction> {
+pub fn encode_reaction(reaction: Reaction) -> Result<EncodedContent> {
+  let reaction_v2: ReactionV2 = reaction.into();
   Ok(
-    ReactionCodec::decode(encoded_content.into())
-      .map(Into::into)
-      .map_err(ErrorWrapper::from)?,
+    ReactionCodec::encode(reaction_v2)
+      .map_err(ErrorWrapper::from)?
+      .into(),
   )
 }
 
@@ -111,29 +94,6 @@ impl From<ReactionSchema> for i32 {
       ReactionSchema::Unicode => 1,
       ReactionSchema::Shortcode => 2,
       ReactionSchema::Custom => 3,
-    }
-  }
-}
-
-// ReactionPayload for enriched messages
-#[derive(Clone)]
-#[napi(object)]
-pub struct ReactionPayload {
-  pub reference: String,
-  pub reference_inbox_id: String,
-  pub action: ReactionAction,
-  pub content: String,
-  pub schema: ReactionSchema,
-}
-
-impl From<xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2> for ReactionPayload {
-  fn from(reaction: xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2) -> Self {
-    Self {
-      reference: reaction.reference.clone(),
-      reference_inbox_id: reaction.reference_inbox_id.clone(),
-      action: reaction.action().into(),
-      content: reaction.content.clone(),
-      schema: reaction.schema().into(),
     }
   }
 }
