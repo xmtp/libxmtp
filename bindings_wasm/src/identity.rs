@@ -55,24 +55,17 @@ impl IdentityExt<Identifier, XmtpIdentifier> for Vec<Identifier> {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiStats {
-  #[wasm_bindgen(js_name = uploadKeyPackage)]
   pub upload_key_package: u64,
-  #[wasm_bindgen(js_name = fetchKeyPackage)]
   pub fetch_key_package: u64,
-  #[wasm_bindgen(js_name = sendGroupMessages)]
   pub send_group_messages: u64,
-  #[wasm_bindgen(js_name = sendWelcomeMessages)]
   pub send_welcome_messages: u64,
-  #[wasm_bindgen(js_name = queryGroupMessages)]
   pub query_group_messages: u64,
-  #[wasm_bindgen(js_name = queryWelcomeMessages)]
   pub query_welcome_messages: u64,
-  #[wasm_bindgen(js_name = subscribeMessages)]
   pub subscribe_messages: u64,
-  #[wasm_bindgen(js_name = subscribeWelcomes)]
   pub subscribe_welcomes: u64,
 }
 
@@ -91,16 +84,13 @@ impl From<xmtp_proto::api_client::ApiStats> for ApiStats {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
+#[serde(rename_all = "camelCase")]
 pub struct IdentityStats {
-  #[wasm_bindgen(js_name = publishIdentityUpdate)]
   pub publish_identity_update: u64,
-  #[wasm_bindgen(js_name = getIdentityUpdatesV2)]
   pub get_identity_updates_v2: u64,
-  #[wasm_bindgen(js_name = getInboxIds)]
   pub get_inbox_ids: u64,
-  #[wasm_bindgen(js_name = verifySmartContractWalletSignature)]
   pub verify_smart_contract_wallet_signature: u64,
 }
 

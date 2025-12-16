@@ -67,7 +67,7 @@ test("auth callback", async () => {
         called = true;
         return {
           value: "Bearer 1234567890",
-          expires_at_seconds: Date.now() + 1000,
+          expiresAtSeconds: BigInt(Date.now() + 1000),
         };
       },
     },

@@ -1,23 +1,31 @@
-use crate::encoded_content::EncodedContent;
-use js_sys::Uint8Array;
-use prost::Message;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
+use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use tsify::Tsify;
+use wasm_bindgen::JsError;
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::remote_attachment::RemoteAttachmentCodec;
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct RemoteAttachment {
   pub url: String,
-  #[wasm_bindgen(js_name = "contentDigest")]
   pub content_digest: String,
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
   pub secret: Vec<u8>,
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
   pub salt: Vec<u8>,
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
   pub nonce: Vec<u8>,
   pub scheme: String,
-  #[wasm_bindgen(js_name = "contentLength")]
   pub content_length: u32,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[tsify(optional)]
   pub filename: Option<String>,
 }
 
@@ -63,31 +71,18 @@ impl From<RemoteAttachment> for xmtp_content_types::remote_attachment::RemoteAtt
   }
 }
 
-#[wasm_bindgen(js_name = "encodeRemoteAttachment")]
-pub fn encode_remote_attachment(
-  #[wasm_bindgen(js_name = "remoteAttachment")] remote_attachment: RemoteAttachment,
-) -> Result<Uint8Array, JsError> {
-  // Use RemoteAttachmentCodec to encode the remote attachment
-  let encoded = RemoteAttachmentCodec::encode(remote_attachment.into())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
+#[wasm_bindgen(js_name = "remoteAttachmentContentType")]
+pub fn remote_attachment_content_type() -> ContentTypeId {
+  RemoteAttachmentCodec::content_type().into()
 }
 
-#[wasm_bindgen(js_name = "decodeRemoteAttachment")]
-pub fn decode_remote_attachment(
-  encoded_content: EncodedContent,
-) -> Result<RemoteAttachment, JsError> {
-  // Use RemoteAttachmentCodec to decode into RemoteAttachment
-  let attachment = RemoteAttachmentCodec::decode(encoded_content.into())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  // Convert to bindings type with error handling
-  RemoteAttachment::try_from(attachment)
+#[wasm_bindgen(js_name = "encodeRemoteAttachment")]
+pub fn encode_remote_attachment(
+  remote_attachment: RemoteAttachment,
+) -> Result<EncodedContent, JsError> {
+  Ok(
+    RemoteAttachmentCodec::encode(remote_attachment.into())
+      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .into(),
+  )
 }
