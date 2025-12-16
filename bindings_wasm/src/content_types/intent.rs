@@ -1,96 +1,54 @@
-use crate::encoded_content::EncodedContent;
-use js_sys::Uint8Array;
-use prost::Message;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+use tsify::Tsify;
+use wasm_bindgen::JsError;
 use wasm_bindgen::prelude::wasm_bindgen;
-use wasm_bindgen::{JsError, JsValue};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::intent::IntentCodec;
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, missing_as_null, hashmap_as_object)]
+#[serde(rename_all = "camelCase")]
 pub struct Intent {
   pub id: String,
-  #[wasm_bindgen(js_name = "actionId")]
   pub action_id: String,
-  pub metadata: JsValue,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[tsify(optional, type = "Record<string, string | number | boolean | null>")]
+  pub metadata: Option<HashMap<String, Value>>,
 }
 
-#[wasm_bindgen]
-impl Intent {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    id: String,
-    #[wasm_bindgen(js_name = actionId)] action_id: String,
-    metadata: JsValue,
-  ) -> Self {
+impl From<xmtp_content_types::intent::Intent> for Intent {
+  fn from(intent: xmtp_content_types::intent::Intent) -> Self {
     Self {
-      id,
-      action_id,
-      metadata,
+      id: intent.id,
+      action_id: intent.action_id,
+      metadata: intent.metadata,
     }
   }
 }
 
-impl TryFrom<xmtp_content_types::intent::Intent> for Intent {
-  type Error = JsError;
-
-  fn try_from(intent: xmtp_content_types::intent::Intent) -> Result<Self, Self::Error> {
-    let metadata = if let Some(data) = intent.metadata {
-      serde_wasm_bindgen::to_value(&data)
-        .map_err(|e| JsError::new(&format!("Failed to serialize Intent metadata: {}", e)))?
-    } else {
-      JsValue::UNDEFINED
-    };
-
-    Ok(Self {
+impl From<Intent> for xmtp_content_types::intent::Intent {
+  fn from(intent: Intent) -> Self {
+    Self {
       id: intent.id,
       action_id: intent.action_id,
-      metadata,
-    })
+      metadata: intent.metadata,
+    }
   }
 }
 
-impl TryFrom<Intent> for xmtp_content_types::intent::Intent {
-  type Error = JsError;
-
-  fn try_from(intent: Intent) -> Result<Self, Self::Error> {
-    let metadata = if intent.metadata.is_null() || intent.metadata.is_undefined() {
-      None
-    } else {
-      Some(
-        serde_wasm_bindgen::from_value(intent.metadata)
-          .map_err(|e| JsError::new(&format!("Failed to deserialize Intent metadata: {}", e)))?,
-      )
-    };
-
-    Ok(Self {
-      id: intent.id,
-      action_id: intent.action_id,
-      metadata,
-    })
-  }
+#[wasm_bindgen(js_name = "intentContentType")]
+pub fn intent_content_type() -> ContentTypeId {
+  IntentCodec::content_type().into()
 }
 
 #[wasm_bindgen(js_name = "encodeIntent")]
-pub fn encode_intent(intent: Intent) -> Result<Uint8Array, JsError> {
-  // Convert Intent and use IntentCodec to encode
-  let intent: xmtp_content_types::intent::Intent = intent.try_into()?;
-  let encoded = IntentCodec::encode(intent).map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
-}
-
-#[wasm_bindgen(js_name = "decodeIntent")]
-pub fn decode_intent(encoded_content: EncodedContent) -> Result<Intent, JsError> {
-  // Use IntentCodec to decode into Intent and convert to WASM Intent
-  let intent =
-    IntentCodec::decode(encoded_content.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  intent.try_into()
+pub fn encode_intent(intent: Intent) -> Result<EncodedContent, JsError> {
+  Ok(
+    IntentCodec::encode(intent.into())
+      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .into(),
+  )
 }

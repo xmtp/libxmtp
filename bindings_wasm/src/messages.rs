@@ -234,7 +234,7 @@ impl From<StoredGroupMessage> for Message {
           parameters: Default::default(),
           fallback: None,
           compression: None,
-          content: Uint8Array::new_with_length(0),
+          content: Vec::new(),
         }
       }
     };
