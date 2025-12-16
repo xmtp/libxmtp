@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{CodecError, ContentCodec, utils::get_param_or_default};
+use crate::{CodecError, ContentCodec, text::TextCodec, utils::get_param_or_default};
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +16,22 @@ impl ReplyCodec {
     pub const MINOR_VERSION: u32 = 0;
 }
 
+impl ReplyCodec {
+    fn fallback(content: &Reply) -> Option<String> {
+        let is_text = content
+            .content
+            .r#type
+            .as_ref()
+            .is_some_and(|t| t.type_id == TextCodec::TYPE_ID);
+
+        if is_text && let Ok(text) = TextCodec::decode(content.content.clone()) {
+            return Some(format!("Replied with \"{text}\" to an earlier message"));
+        }
+
+        Some("Replied to an earlier message".to_string())
+    }
+}
+
 impl ContentCodec<Reply> for ReplyCodec {
     fn content_type() -> ContentTypeId {
         ContentTypeId {
@@ -27,6 +43,7 @@ impl ContentCodec<Reply> for ReplyCodec {
     }
 
     fn encode(data: Reply) -> Result<EncodedContent, CodecError> {
+        let fallback = Self::fallback(&data);
         let inner_type = &data.content.r#type;
         // Set the reference and reference inbox ID as parameters.
         let mut parameters = HashMap::new();
@@ -53,6 +70,7 @@ impl ContentCodec<Reply> for ReplyCodec {
             r#type: Some(Self::content_type()),
             parameters,
             content: content_bytes,
+            fallback,
             ..Default::default()
         })
     }
@@ -73,6 +91,10 @@ impl ContentCodec<Reply> for ReplyCodec {
             reference_inbox_id,
             content: inner_content,
         })
+    }
+
+    fn should_push() -> bool {
+        true
     }
 }
 

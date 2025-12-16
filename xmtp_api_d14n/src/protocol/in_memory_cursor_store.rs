@@ -1,18 +1,22 @@
 use crate::protocol::{CursorStore, CursorStoreError};
-use std::collections::HashMap;
+use parking_lot::Mutex;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::sync::Arc;
 use xmtp_proto::api::VectorClock;
-use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId, Topic};
+use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId, OrphanedEnvelope, Topic};
 
 #[derive(Default, Clone)]
 pub struct InMemoryCursorStore {
     topics: HashMap<Topic, GlobalCursor>,
+    icebox: Arc<Mutex<HashSet<OrphanedEnvelope>>>,
 }
 
 impl InMemoryCursorStore {
     pub fn new() -> Self {
         Self {
             topics: HashMap::new(),
+            icebox: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -30,7 +34,7 @@ impl InMemoryCursorStore {
     /// Compute the lowest common cursor across a set of topics.
     /// For each node_id, uses the **minimum** sequence ID seen across all topics.
     pub fn lowest_common_cursor(&self, topics: &[&Topic]) -> GlobalCursor {
-        let mut min_clock: HashMap<u32, u64> = HashMap::new();
+        let mut min_clock = GlobalCursor::default();
 
         for topic in topics {
             if let Some(cursor) = self.get_latest(topic) {
@@ -42,8 +46,19 @@ impl InMemoryCursorStore {
                 }
             }
         }
+        min_clock
+    }
 
-        GlobalCursor::new(min_clock)
+    /// Get the number of orphaned envelopes currently in the icebox
+    #[cfg(test)]
+    pub fn orphan_count(&self) -> usize {
+        self.icebox.lock().len()
+    }
+
+    #[cfg(test)]
+    pub fn icebox(&self) -> Vec<OrphanedEnvelope> {
+        let icebox = self.icebox.lock();
+        Vec::from_iter(icebox.clone())
     }
 }
 
@@ -104,6 +119,49 @@ impl CursorStore for InMemoryCursorStore {
             hash.iter().map(hex::encode).collect(),
         ))
     }
+
+    fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<(), CursorStoreError> {
+        let mut icebox = self.icebox.lock();
+        (*icebox).extend(orphans);
+        Ok(())
+    }
+
+    fn resolve_children(
+        &self,
+        cursors: &[Cursor],
+    ) -> Result<Vec<OrphanedEnvelope>, CursorStoreError> {
+        let icebox = self.icebox.lock();
+        Ok(Vec::from_iter(resolve_children_inner(cursors, &icebox)))
+    }
+}
+
+fn resolve_children_inner(
+    cursors: &[Cursor],
+    icebox: &HashSet<OrphanedEnvelope>,
+) -> HashSet<OrphanedEnvelope> {
+    let mut children: HashSet<OrphanedEnvelope> =
+        cursors.iter().fold(HashSet::new(), |mut acc, cursor| {
+            // extract if item in an icebox is child of the cursor
+            let children = icebox
+                .iter()
+                .filter(|o| o.is_child_of(cursor))
+                .cloned()
+                .collect::<HashSet<_>>();
+            acc.extend(children);
+            acc
+        });
+    // recursively work through deps
+    let cursors = children.iter().fold(Vec::new(), |mut acc, c| {
+        if !c.depends_on.is_empty() {
+            acc.push(c.cursor);
+        }
+        acc
+    });
+    if !cursors.is_empty() {
+        let v = resolve_children_inner(&cursors, icebox);
+        children.extend(v);
+    }
+    children
 }
 
 impl fmt::Debug for InMemoryCursorStore {

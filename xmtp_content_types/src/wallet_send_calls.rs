@@ -11,10 +11,12 @@ impl WalletSendCallsCodec {
     pub const TYPE_ID: &'static str = "walletSendCalls";
     pub const MAJOR_VERSION: u32 = 1;
     pub const MINOR_VERSION: u32 = 0;
+}
 
-    fn fallback(content: &WalletSendCalls) -> String {
+impl WalletSendCallsCodec {
+    fn fallback(content: &WalletSendCalls) -> Option<String> {
         let json = serde_json::to_string(content).unwrap_or_else(|_| "{}".to_string());
-        format!("[Transaction request generated]: {}", json)
+        Some(format!("[Transaction request generated]: {}", json))
     }
 }
 
@@ -35,7 +37,7 @@ impl ContentCodec<WalletSendCalls> for WalletSendCallsCodec {
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
             parameters: HashMap::new(),
-            fallback: Some(Self::fallback(&content)),
+            fallback: Self::fallback(&content),
             compression: None,
             content: json,
         })
@@ -44,6 +46,10 @@ impl ContentCodec<WalletSendCalls> for WalletSendCallsCodec {
     fn decode(encoded: EncodedContent) -> Result<WalletSendCalls, CodecError> {
         serde_json::from_slice(&encoded.content)
             .map_err(|e| CodecError::Decode(format!("JSON decode error: {e}")))
+    }
+
+    fn should_push() -> bool {
+        true
     }
 }
 

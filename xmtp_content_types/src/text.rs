@@ -52,6 +52,10 @@ impl ContentCodec<String> for TextCodec {
             .map_err(|utf8_err| CodecError::Decode(utf8_err.to_string()))?;
         Ok(text.to_string())
     }
+
+    fn should_push() -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

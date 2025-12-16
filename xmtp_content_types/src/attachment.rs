@@ -15,6 +15,18 @@ impl AttachmentCodec {
     pub const MINOR_VERSION: u32 = 0;
 }
 
+impl AttachmentCodec {
+    fn fallback(content: &Attachment) -> Option<String> {
+        Some(format!(
+            "Can't display {}. This app doesn't support attachments.",
+            content
+                .filename
+                .clone()
+                .unwrap_or("this content".to_string())
+        ))
+    }
+}
+
 impl ContentCodec<Attachment> for AttachmentCodec {
     fn content_type() -> ContentTypeId {
         ContentTypeId {
@@ -39,7 +51,7 @@ impl ContentCodec<Attachment> for AttachmentCodec {
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
             parameters,
-            fallback: Some(fallback),
+            fallback,
             compression: None,
             content: data.content,
         })
@@ -54,15 +66,9 @@ impl ContentCodec<Attachment> for AttachmentCodec {
             content: encoded.content,
         })
     }
-}
 
-impl AttachmentCodec {
-    fn fallback(content: &Attachment) -> String {
-        if let Some(filename) = &content.filename {
-            format!("[Attachment] {filename}")
-        } else {
-            "[Attachment]".to_string()
-        }
+    fn should_push() -> bool {
+        true
     }
 }
 
