@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use tsify::Tsify;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::{
@@ -7,13 +8,13 @@ use xmtp_db::consent_record::{
 
 use crate::{client::Client, conversation::Conversation};
 
-#[wasm_bindgen]
-#[derive(Copy, Clone, Serialize, Deserialize)]
-#[repr(u16)]
+#[derive(Copy, Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "lowercase")]
 pub enum ConsentState {
-  Unknown = 0,
-  Allowed = 1,
-  Denied = 2,
+  Unknown,
+  Allowed,
+  Denied,
 }
 
 impl From<XmtpConsentState> for ConsentState {
@@ -36,12 +37,12 @@ impl From<ConsentState> for XmtpConsentState {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Copy, Clone, Serialize, Deserialize)]
-#[repr(u16)]
+#[derive(Copy, Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub enum ConsentEntityType {
-  GroupId = 0,
-  InboxId = 1,
+  GroupId,
+  InboxId,
 }
 
 impl From<ConsentEntityType> for XmtpConsentType {
@@ -53,47 +54,13 @@ impl From<ConsentEntityType> for XmtpConsentType {
   }
 }
 
-fn entity_to_u16<S>(consent_entity_type: &ConsentEntityType, s: S) -> Result<S::Ok, S::Error>
-where
-  S: serde::Serializer,
-{
-  let num: u16 = (*consent_entity_type) as u16;
-  s.serialize_u16(num)
-}
-
-fn state_to_u16<S>(consent_state: &ConsentState, s: S) -> Result<S::Ok, S::Error>
-where
-  S: serde::Serializer,
-{
-  let num: u16 = (*consent_state) as u16;
-  s.serialize_u16(num)
-}
-
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct Consent {
-  #[wasm_bindgen(js_name = entityType)]
-  #[serde(rename = "entityType", serialize_with = "entity_to_u16")]
   pub entity_type: ConsentEntityType,
-  #[serde(serialize_with = "state_to_u16")]
   pub state: ConsentState,
   pub entity: String,
-}
-
-#[wasm_bindgen]
-impl Consent {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    #[wasm_bindgen(js_name = entityType)] entity_type: ConsentEntityType,
-    state: ConsentState,
-    entity: String,
-  ) -> Self {
-    Self {
-      entity_type,
-      state,
-      entity,
-    }
-  }
 }
 
 impl From<Consent> for StoredConsentRecord {

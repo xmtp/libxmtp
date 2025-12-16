@@ -10,6 +10,8 @@ use xmtp_content_types::attachment::AttachmentCodec;
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct Attachment {
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub filename: Option<String>,
   pub mime_type: String,
   #[serde(with = "serde_bytes")]

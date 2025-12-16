@@ -56,6 +56,8 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedConten
 #[serde(rename_all = "camelCase")]
 pub struct SendMessageOpts {
   pub should_push: bool,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub optimistic: Option<bool>,
 }
 
@@ -67,71 +69,46 @@ impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageO
   }
 }
 
-#[wasm_bindgen]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupMetadata {
-  inner: XmtpGroupMetadata,
+  pub creator_inbox_id: String,
+  pub conversation_type: String,
 }
 
-#[wasm_bindgen]
-impl GroupMetadata {
-  #[wasm_bindgen(js_name = creatorInboxId)]
-  pub fn creator_inbox_id(&self) -> String {
-    self.inner.creator_inbox_id.clone()
-  }
-
-  #[wasm_bindgen(js_name = conversationType)]
-  pub fn conversation_type(&self) -> String {
-    match self.inner.conversation_type {
-      ConversationType::Group => "group".to_string(),
-      ConversationType::Dm => "dm".to_string(),
-      ConversationType::Sync => "sync".to_string(),
-      ConversationType::Oneshot => "oneshot".to_string(),
+impl From<XmtpGroupMetadata> for GroupMetadata {
+  fn from(metadata: XmtpGroupMetadata) -> Self {
+    Self {
+      creator_inbox_id: metadata.creator_inbox_id,
+      conversation_type: match metadata.conversation_type {
+        ConversationType::Group => "group".to_string(),
+        ConversationType::Dm => "dm".to_string(),
+        ConversationType::Sync => "sync".to_string(),
+        ConversationType::Oneshot => "oneshot".to_string(),
+      },
     }
   }
 }
 
-#[wasm_bindgen]
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub enum PermissionLevel {
   Member,
   Admin,
   SuperAdmin,
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct GroupMember {
-  #[wasm_bindgen(js_name = inboxId)]
   pub inbox_id: String,
-  #[wasm_bindgen(js_name = accountIdentifiers)]
   pub account_identifiers: Vec<Identifier>,
-  #[wasm_bindgen(js_name = installationIds)]
   pub installation_ids: Vec<String>,
-  #[wasm_bindgen(js_name = permissionLevel)]
   pub permission_level: PermissionLevel,
-  #[wasm_bindgen(js_name = consentState)]
   pub consent_state: ConsentState,
-}
-
-#[wasm_bindgen]
-impl GroupMember {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
-    #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
-    #[wasm_bindgen(js_name = installationIds)] installation_ids: Vec<String>,
-    #[wasm_bindgen(js_name = permissionLevel)] permission_level: PermissionLevel,
-    #[wasm_bindgen(js_name = consentState)] consent_state: ConsentState,
-  ) -> Self {
-    Self {
-      inbox_id,
-      account_identifiers,
-      installation_ids,
-      permission_level,
-      consent_state,
-    }
-  }
 }
 
 #[wasm_bindgen]
@@ -646,7 +623,7 @@ impl Conversation {
       .permissions()
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
-    Ok(GroupPermissions::new(permissions))
+    Ok(permissions.into())
   }
 
   #[wasm_bindgen(js_name = addMembersByInboxId)]
@@ -853,7 +830,7 @@ impl Conversation {
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
-    Ok(GroupMetadata { inner: metadata })
+    Ok(metadata.into())
   }
 
   #[wasm_bindgen(js_name = dmPeerInboxId)]

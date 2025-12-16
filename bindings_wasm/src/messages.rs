@@ -9,7 +9,8 @@ use xmtp_db::group_message::{
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
-use crate::{content_types::ContentType, encoded_content::EncodedContent};
+use crate::content_types::ContentType;
+use crate::encoded_content::EncodedContent;
 
 #[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
@@ -100,29 +101,45 @@ impl From<MessageSortBy> for XmtpMessageSortBy {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Default)]
+#[derive(Clone, Default, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
+#[serde(rename_all = "camelCase")]
 pub struct ListMessagesOptions {
-  #[wasm_bindgen(js_name = contentTypes)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub content_types: Option<Vec<ContentType>>,
-  #[wasm_bindgen(js_name = excludeContentTypes)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub exclude_content_types: Option<Vec<ContentType>>,
-  #[wasm_bindgen(js_name = sentBeforeNs)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub sent_before_ns: Option<i64>,
-  #[wasm_bindgen(js_name = sentAfterNs)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub sent_after_ns: Option<i64>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub limit: Option<i64>,
-  #[wasm_bindgen(js_name = deliveryStatus)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub delivery_status: Option<DeliveryStatus>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub direction: Option<SortDirection>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub kind: Option<GroupMessageKind>,
-  #[wasm_bindgen(js_name = excludeSenderInboxIds)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub exclude_sender_inbox_ids: Option<Vec<String>>,
-  #[wasm_bindgen(js_name = sortBy)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub sort_by: Option<MessageSortBy>,
-  #[wasm_bindgen(js_name = insertedAfterNs)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub inserted_after_ns: Option<i64>,
-  #[wasm_bindgen(js_name = insertedBeforeNs)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub inserted_before_ns: Option<i64>,
 }
 
@@ -150,79 +167,17 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
   }
 }
 
-#[wasm_bindgen]
-impl ListMessagesOptions {
-  #[allow(clippy::too_many_arguments)]
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    #[wasm_bindgen(js_name = sentBeforeNs)] sent_before_ns: Option<i64>,
-    #[wasm_bindgen(js_name = sentAfterNs)] sent_after_ns: Option<i64>,
-    limit: Option<i64>,
-    #[wasm_bindgen(js_name = deliveryStatus)] delivery_status: Option<DeliveryStatus>,
-    direction: Option<SortDirection>,
-    #[wasm_bindgen(js_name = contentTypes)] content_types: Option<Vec<ContentType>>,
-    #[wasm_bindgen(js_name = excludeContentTypes)] exclude_content_types: Option<Vec<ContentType>>,
-    kind: Option<GroupMessageKind>,
-    #[wasm_bindgen(js_name = excludeSenderInboxIds)] exclude_sender_inbox_ids: Option<Vec<String>>,
-    #[wasm_bindgen(js_name = sortBy)] sort_by: Option<MessageSortBy>,
-    #[wasm_bindgen(js_name = insertedAfterNs)] inserted_after_ns: Option<i64>,
-    #[wasm_bindgen(js_name = insertedBeforeNs)] inserted_before_ns: Option<i64>,
-  ) -> Self {
-    Self {
-      sent_before_ns,
-      sent_after_ns,
-      limit,
-      delivery_status,
-      direction,
-      content_types,
-      exclude_content_types,
-      kind,
-      exclude_sender_inbox_ids,
-      sort_by,
-      inserted_after_ns,
-      inserted_before_ns,
-    }
-  }
-}
-
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
+#[serde(rename_all = "camelCase")]
 pub struct Message {
   pub id: String,
-  #[wasm_bindgen(js_name = sentAtNs)]
   pub sent_at_ns: i64,
-  #[wasm_bindgen(js_name = convoId)]
   pub convo_id: String,
-  #[wasm_bindgen(js_name = senderInboxId)]
   pub sender_inbox_id: String,
   pub content: EncodedContent,
   pub kind: GroupMessageKind,
-  #[wasm_bindgen(js_name = deliveryStatus)]
   pub delivery_status: DeliveryStatus,
-}
-
-#[wasm_bindgen]
-impl Message {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    id: String,
-    #[wasm_bindgen(js_name = sentAtNs)] sent_at_ns: i64,
-    #[wasm_bindgen(js_name = conversationId)] convo_id: String,
-    #[wasm_bindgen(js_name = senderInboxId)] sender_inbox_id: String,
-    content: EncodedContent,
-    kind: GroupMessageKind,
-    #[wasm_bindgen(js_name = deliveryStatus)] delivery_status: DeliveryStatus,
-  ) -> Self {
-    Self {
-      id,
-      sent_at_ns,
-      convo_id,
-      sender_inbox_id,
-      content,
-      kind,
-      delivery_status,
-    }
-  }
 }
 
 impl From<StoredGroupMessage> for Message {
@@ -256,8 +211,9 @@ impl From<StoredGroupMessage> for Message {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct MessageWithReactions {
   pub message: Message,
   pub reactions: Vec<Message>,

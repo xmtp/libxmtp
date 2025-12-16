@@ -4,7 +4,9 @@ use crate::{
 };
 use futures::lock::Mutex;
 use js_sys::Uint8Array;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tsify::Tsify;
 use wasm_bindgen::prelude::{JsError, wasm_bindgen};
 use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_d14n::{MessageBackendBuilder, TrackedStatsClient};
@@ -103,34 +105,22 @@ pub async fn apply_signature_request(
   Ok(())
 }
 
-#[wasm_bindgen]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct PasskeySignature {
-  #[wasm_bindgen(js_name = publicKey)]
-  public_key: Vec<u8>,
-  #[wasm_bindgen(js_name = signature)]
-  signature: Vec<u8>,
-  #[wasm_bindgen(js_name = authenticatorData)]
-  authenticator_data: Vec<u8>,
-  #[wasm_bindgen(js_name = clientDataJson)]
-  client_data_json: Vec<u8>,
-}
-
-#[wasm_bindgen]
-impl PasskeySignature {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    #[wasm_bindgen(js_name = publicKey)] public_key: Vec<u8>,
-    signature: Vec<u8>,
-    #[wasm_bindgen(js_name = authenticatorData)] authenticator_data: Vec<u8>,
-    #[wasm_bindgen(js_name = clientDataJson)] client_data_json: Vec<u8>,
-  ) -> Self {
-    Self {
-      public_key,
-      signature,
-      authenticator_data,
-      client_data_json,
-    }
-  }
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
+  pub public_key: Vec<u8>,
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
+  pub signature: Vec<u8>,
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
+  pub authenticator_data: Vec<u8>,
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
+  pub client_data_json: Vec<u8>,
 }
 
 /// Methods on SignatureRequestHandle

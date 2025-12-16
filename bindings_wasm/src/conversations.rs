@@ -6,8 +6,10 @@ use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::streams::{ConversationStream, StreamCallback, StreamCloser};
 use crate::user_preferences::UserPreference;
 use crate::{client::RustXmtpClient, conversation::Conversation};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tsify::Tsify;
 use wasm_bindgen::UnwrapThrowExt;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
@@ -20,15 +22,16 @@ use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
 use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::Cursor as XmtpCursor;
 
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "lowercase")]
 pub enum ConversationType {
-  Dm = 0,
-  Group = 1,
-  Sync = 2,
-  Oneshot = 3,
+  Dm,
+  Group,
+  Sync,
+  Oneshot,
 }
 
 impl From<XmtpConversationType> for ConversationType {
@@ -53,14 +56,15 @@ impl From<ConversationType> for XmtpConversationType {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub enum GroupMembershipState {
-  Allowed = 0,
-  Rejected = 1,
-  Pending = 2,
-  Restored = 3,
-  PendingRemove = 4,
+  Allowed,
+  Rejected,
+  Pending,
+  Restored,
+  PendingRemove,
 }
 
 impl From<XmtpGroupMembershipState> for GroupMembershipState {
@@ -87,8 +91,9 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub enum ListConversationsOrderBy {
   CreatedAt,
   LastActivity,
@@ -103,21 +108,30 @@ impl From<ListConversationsOrderBy> for GroupQueryOrderBy {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Default)]
+#[derive(Clone, Default, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
+#[serde(rename_all = "camelCase")]
 pub struct ListConversationsOptions {
-  #[wasm_bindgen(js_name = consentStates)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub consent_states: Option<Vec<ConsentState>>,
-  #[wasm_bindgen(js_name = conversationType)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub conversation_type: Option<ConversationType>,
-  #[wasm_bindgen(js_name = createdAfterNs)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub created_after_ns: Option<i64>,
-  #[wasm_bindgen(js_name = createdBeforeNs)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub created_before_ns: Option<i64>,
-  #[wasm_bindgen(js_name = includeDuplicateDms)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub include_duplicate_dms: Option<bool>,
-  #[wasm_bindgen(js_name = orderBy)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub order_by: Option<ListConversationsOrderBy>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub limit: Option<i64>,
 }
 
@@ -142,36 +156,11 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
   }
 }
 
-#[wasm_bindgen]
-impl ListConversationsOptions {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    #[wasm_bindgen(js_name = consentStates)] consent_states: Option<Vec<ConsentState>>,
-    #[wasm_bindgen(js_name = conversationType)] conversation_type: Option<ConversationType>,
-    #[wasm_bindgen(js_name = createdAfterNs)] created_after_ns: Option<i64>,
-    #[wasm_bindgen(js_name = createdBeforeNs)] created_before_ns: Option<i64>,
-    #[wasm_bindgen(js_name = includeDuplicateDms)] include_duplicate_dms: Option<bool>,
-    limit: Option<i64>,
-    #[wasm_bindgen(js_name = orderBy)] order_by: Option<ListConversationsOrderBy>,
-  ) -> Self {
-    Self {
-      consent_states,
-      conversation_type,
-      created_after_ns,
-      created_before_ns,
-      include_duplicate_dms,
-      limit,
-      order_by,
-    }
-  }
-}
-
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
+#[serde(rename_all = "camelCase")]
 pub struct MessageDisappearingSettings {
-  #[wasm_bindgen(js_name = fromNs)]
   pub from_ns: i64,
-  #[wasm_bindgen(js_name = inNs)]
   pub in_ns: i64,
 }
 
@@ -193,101 +182,64 @@ impl From<XmtpMessageDisappearingSettings> for MessageDisappearingSettings {
   }
 }
 
-#[wasm_bindgen]
-impl MessageDisappearingSettings {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    #[wasm_bindgen(js_name = fromNs)] from_ns: i64,
-    #[wasm_bindgen(js_name = inNs)] in_ns: i64,
-  ) -> Self {
-    Self { from_ns, in_ns }
-  }
-}
-
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
 #[serde(rename_all = "camelCase")]
-pub struct XmtpCursor {
-  #[wasm_bindgen(js_name = originatorId)]
+pub struct Cursor {
   pub originator_id: u32,
-  #[wasm_bindgen(js_name = sequenceId)]
   // wasm doesn't support u64
   pub sequence_id: i64,
 }
 
-impl From<Cursor> for XmtpCursor {
-  fn from(value: Cursor) -> Self {
-    XmtpCursor {
+impl From<XmtpCursor> for Cursor {
+  fn from(value: XmtpCursor) -> Self {
+    Self {
       originator_id: value.originator_id,
       sequence_id: value.sequence_id as i64,
     }
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
 #[serde(rename_all = "camelCase")]
 pub struct ConversationDebugInfo {
   pub epoch: u64,
-  #[wasm_bindgen(js_name = maybeForked)]
   pub maybe_forked: bool,
-  #[wasm_bindgen(js_name = forkDetails)]
   pub fork_details: String,
-  #[wasm_bindgen(js_name = isCommitLogForked)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub is_commit_log_forked: Option<bool>,
-  #[wasm_bindgen(js_name = localCommitLog)]
   pub local_commit_log: String,
-  #[wasm_bindgen(js_name = remoteCommitLog)]
   pub remote_commit_log: String,
-  #[wasm_bindgen(js_name = cursor)]
-  pub cursor: Vec<XmtpCursor>,
+  pub cursor: Vec<Cursor>,
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Default, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateGroupOptions {
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub permissions: Option<GroupPermissionsOptions>,
-  #[wasm_bindgen(js_name = groupName)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub group_name: Option<String>,
-  #[wasm_bindgen(js_name = groupImageUrlSquare)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub group_image_url_square: Option<String>,
-  #[wasm_bindgen(js_name = groupDescription)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub group_description: Option<String>,
-  #[wasm_bindgen(js_name = customPermissionPolicySet)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
-  #[wasm_bindgen(js_name = messageDisappearingSettings)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub message_disappearing_settings: Option<MessageDisappearingSettings>,
-  #[wasm_bindgen(js_name = appData)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub app_data: Option<String>,
-}
-
-#[wasm_bindgen]
-impl CreateGroupOptions {
-  #[wasm_bindgen(constructor)]
-  #[allow(clippy::too_many_arguments)]
-  pub fn new(
-    permissions: Option<GroupPermissionsOptions>,
-    #[wasm_bindgen(js_name = groupName)] group_name: Option<String>,
-    #[wasm_bindgen(js_name = groupImageUrlSquare)] group_image_url_square: Option<String>,
-    #[wasm_bindgen(js_name = groupDescription)] group_description: Option<String>,
-    #[wasm_bindgen(js_name = customPermissionPolicySet)] custom_permission_policy_set: Option<
-      PermissionPolicySet,
-    >,
-    #[wasm_bindgen(js_name = messageDisappearingSettings)] message_disappearing_settings: Option<
-      MessageDisappearingSettings,
-    >,
-    #[wasm_bindgen(js_name = appData)] app_data: Option<String>,
-  ) -> Self {
-    Self {
-      permissions,
-      group_name,
-      group_image_url_square,
-      group_description,
-      custom_permission_policy_set,
-      message_disappearing_settings,
-      app_data,
-    }
-  }
 }
 
 impl CreateGroupOptions {
@@ -304,26 +256,13 @@ impl CreateGroupOptions {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateDMOptions {
-  #[wasm_bindgen(js_name = messageDisappearingSettings)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub message_disappearing_settings: Option<MessageDisappearingSettings>,
-}
-
-#[wasm_bindgen]
-impl CreateDMOptions {
-  #[wasm_bindgen(constructor)]
-  #[allow(clippy::too_many_arguments)]
-  pub fn new(
-    #[wasm_bindgen(js_name = messageDisappearingSettings)] message_disappearing_settings: Option<
-      MessageDisappearingSettings,
-    >,
-  ) -> Self {
-    Self {
-      message_disappearing_settings,
-    }
-  }
 }
 
 impl CreateDMOptions {
@@ -336,9 +275,12 @@ impl CreateDMOptions {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(serde::Serialize)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
+#[serde(rename_all = "camelCase")]
 pub struct HmacKey {
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
   pub key: Vec<u8>,
   pub epoch: i64,
 }

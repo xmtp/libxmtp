@@ -128,7 +128,11 @@ impl From<Inbox> for xmtp_proto::xmtp::mls::message_contents::group_updated::Inb
 #[serde(rename_all = "camelCase")]
 pub struct MetadataFieldChange {
   pub field_name: String,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub old_value: Option<String>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub new_value: Option<String>,
 }
 

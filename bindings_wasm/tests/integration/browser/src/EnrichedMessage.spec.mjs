@@ -4,8 +4,6 @@ import init, {
   encodeText,
   encodeAttachment,
   encodeIntent,
-  // Classes
-  ListMessagesOptions,
   // Content type functions
   textContentType,
   reactionContentType,
@@ -76,21 +74,11 @@ describe("EnrichedMessage", () => {
       await conversation.sendText("Message 2");
       await conversation.sendText("Message 3");
 
-      // Use ListMessagesOptions constructor for WASM bindings
-      const opts = new ListMessagesOptions(
-        undefined, // sentBeforeNs
-        undefined, // sentAfterNs
-        2n, // limit
-        undefined, // deliveryStatus
-        "descending", // direction (Tsify enum serializes to string)
-        undefined, // contentTypes
-        undefined, // excludeContentTypes
-        undefined, // kind
-        undefined, // excludeSenderInboxIds
-        undefined, // sortBy
-        undefined, // insertedAfterNs
-        undefined // insertedBeforeNs
-      );
+      // Use plain object for tsify-based types
+      const opts = {
+        limit: 2n,
+        direction: "descending",
+      };
       const limitedMessages = await conversation.findEnrichedMessages(opts);
       const limitedTextMessages = limitedMessages.filter(
         (m) => m.content.type === "text"
