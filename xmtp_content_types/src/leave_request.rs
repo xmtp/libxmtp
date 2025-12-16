@@ -48,6 +48,10 @@ impl ContentCodec<LeaveRequest> for LeaveRequestCodec {
 
         Ok(decoded)
     }
+
+    fn should_push() -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
