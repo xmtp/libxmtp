@@ -1,29 +1,17 @@
 use serde::{Deserialize, Serialize};
+use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 use xmtp_common::BoxDynError;
 
-#[wasm_bindgen]
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
+#[serde(rename_all = "camelCase")]
 pub struct Credential {
-  name: Option<String>,
-  value: String,
-  expires_at_seconds: i64,
-}
-
-#[wasm_bindgen]
-impl Credential {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    name: Option<String>,
-    value: String,
-    #[wasm_bindgen(js_name = expiresAtSeconds)] expires_at_seconds: i64,
-  ) -> Self {
-    Self {
-      name,
-      value,
-      expires_at_seconds,
-    }
-  }
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub name: Option<String>,
+  pub value: String,
+  pub expires_at_seconds: i64,
 }
 
 impl TryFrom<Credential> for xmtp_api_d14n::Credential {

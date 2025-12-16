@@ -1,50 +1,57 @@
-use wasm_bindgen::prelude::*;
+use serde::{Deserialize, Serialize};
+use tsify::Tsify;
+use wasm_bindgen::JsError;
 use xmtp_mls::messages::decoded_message::DecodedMessage as XmtpDecodedMessage;
 
 use crate::content_types::decoded_message_content::DecodedMessageContent;
 use crate::encoded_content::ContentTypeId;
 use crate::messages::{DeliveryStatus, GroupMessageKind};
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(
+  into_wasm_abi,
+  from_wasm_abi,
+  large_number_types_as_bigints,
+  hashmap_as_object
+)]
+#[serde(rename_all = "camelCase")]
 pub struct DecodedMessage {
-  pub id: Vec<u8>,
-  #[wasm_bindgen(js_name = sentAtNs)]
+  pub id: String,
   pub sent_at_ns: i64,
   pub kind: GroupMessageKind,
-  #[wasm_bindgen(js_name = senderInstallationId)]
-  pub sender_installation_id: Vec<u8>,
-  #[wasm_bindgen(js_name = senderInboxId)]
+  pub sender_installation_id: String,
   pub sender_inbox_id: String,
-  #[wasm_bindgen(js_name = contentType)]
   pub content_type: ContentTypeId,
-  #[wasm_bindgen(js_name = conversationId)]
-  pub conversation_id: Vec<u8>,
+  pub conversation_id: String,
   pub content: DecodedMessageContent,
-  #[wasm_bindgen(js_name = fallbackText)]
-  pub fallback_text: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[tsify(optional)]
+  pub fallback: Option<String>,
   pub reactions: Vec<DecodedMessage>,
-  #[wasm_bindgen(js_name = deliveryStatus)]
   pub delivery_status: DeliveryStatus,
-  #[wasm_bindgen(js_name = numReplies)]
   pub num_replies: i64,
 }
 
-impl From<XmtpDecodedMessage> for DecodedMessage {
-  fn from(msg: XmtpDecodedMessage) -> Self {
-    Self {
-      id: msg.metadata.id,
+impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
+  type Error = JsError;
+
+  fn try_from(msg: XmtpDecodedMessage) -> Result<Self, Self::Error> {
+    let content = msg.content.try_into()?;
+    let reactions: Result<Vec<_>, _> = msg.reactions.into_iter().map(|r| r.try_into()).collect();
+
+    Ok(Self {
+      id: hex::encode(msg.metadata.id),
       sent_at_ns: msg.metadata.sent_at_ns,
       kind: msg.metadata.kind.into(),
-      sender_installation_id: msg.metadata.sender_installation_id,
+      sender_installation_id: hex::encode(msg.metadata.sender_installation_id),
       sender_inbox_id: msg.metadata.sender_inbox_id,
       content_type: msg.metadata.content_type.into(),
-      conversation_id: msg.metadata.group_id,
-      content: msg.content.into(),
-      fallback_text: msg.fallback_text,
-      reactions: msg.reactions.into_iter().map(|r| r.into()).collect(),
+      conversation_id: hex::encode(msg.metadata.group_id),
+      content,
+      fallback: msg.fallback_text,
+      reactions: reactions?,
       delivery_status: msg.metadata.delivery_status.into(),
       num_replies: msg.num_replies as i64,
-    }
+    })
   }
 }

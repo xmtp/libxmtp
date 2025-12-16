@@ -1,10 +1,12 @@
 use js_sys::Uint8Array;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter, fmt::format::Pretty};
+use tsify::Tsify;
 use wasm_bindgen::{JsValue, prelude::*};
 use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
@@ -41,22 +43,37 @@ impl Client {
 static LOGGER_INIT: std::sync::OnceLock<Result<(), filter::LevelParseError>> =
   std::sync::OnceLock::new();
 
-#[wasm_bindgen]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "lowercase")]
 pub enum LogLevel {
-  Off = "off",
-  Error = "error",
-  Warn = "warn",
-  Info = "info",
-  Debug = "debug",
-  Trace = "trace",
+  Off,
+  Error,
+  Warn,
+  Info,
+  Debug,
+  Trace,
 }
 
-#[wasm_bindgen]
-#[derive(Copy, Clone, Debug)]
+impl LogLevel {
+  pub fn to_str(&self) -> &'static str {
+    match self {
+      LogLevel::Off => "off",
+      LogLevel::Error => "error",
+      LogLevel::Warn => "warn",
+      LogLevel::Info => "info",
+      LogLevel::Debug => "debug",
+      LogLevel::Trace => "trace",
+    }
+  }
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "lowercase")]
 pub enum DeviceSyncWorkerMode {
-  Enabled = "enabled",
-  Disabled = "disabled",
+  Enabled,
+  Disabled,
 }
 
 impl From<DeviceSyncWorkerMode> for SyncWorkerMode {
@@ -64,13 +81,13 @@ impl From<DeviceSyncWorkerMode> for SyncWorkerMode {
     match value {
       DeviceSyncWorkerMode::Enabled => Self::Enabled,
       DeviceSyncWorkerMode::Disabled => Self::Disabled,
-      DeviceSyncWorkerMode::__Invalid => unreachable!("DeviceSyncWorkerMode is invalid."),
     }
   }
 }
 
-#[wasm_bindgen]
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub enum ClientMode {
   #[default]
   Default,
@@ -78,50 +95,30 @@ pub enum ClientMode {
 }
 
 /// Specify options for the logger
-#[derive(Default)]
-#[wasm_bindgen(getter_with_clone)]
+#[derive(Clone, Default, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct LogOptions {
-  /// enable structured JSON logging to stdout.Useful for third-party log viewers
-  pub structured: bool,
+  /// enable structured JSON logging to stdout. Useful for third-party log viewers
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub structured: Option<bool>,
   /// enable performance metrics for libxmtp in the `performance` tab
-  pub performance: bool,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub performance: Option<bool>,
   /// filter for logs
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub level: Option<LogLevel>,
 }
 
-#[wasm_bindgen]
-impl LogOptions {
-  #[wasm_bindgen(constructor)]
-  pub fn new(structured: bool, performance: bool, level: Option<LogLevel>) -> Self {
-    Self {
-      structured,
-      performance,
-      level,
-    }
-  }
-}
-
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupSyncSummary {
-  #[wasm_bindgen(js_name = numEligible)]
   pub num_eligible: u32,
-  #[wasm_bindgen(js_name = numSynced)]
   pub num_synced: u32,
-}
-
-#[wasm_bindgen]
-impl GroupSyncSummary {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    #[wasm_bindgen(js_name = numEligible)] num_eligible: u32,
-    #[wasm_bindgen(js_name = numSynced)] num_synced: u32,
-  ) -> Self {
-    Self {
-      num_eligible,
-      num_synced,
-    }
-  }
 }
 
 impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for GroupSyncSummary {
@@ -144,7 +141,7 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
         EnvFilter::builder().parse_lossy("info")
       };
 
-      if options.structured {
+      if options.structured.unwrap_or_default() {
         let fmt = tracing_subscriber::fmt::layer()
           .json()
           .flatten_event(true)
@@ -161,7 +158,7 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
 
         let subscriber = tracing_subscriber::registry().with(fmt).with(filter);
 
-        if options.performance {
+        if options.performance.unwrap_or_default() {
           subscriber
             .with(tracing_web::performance_layer().with_details_from_fields(Pretty::default()))
             .init();

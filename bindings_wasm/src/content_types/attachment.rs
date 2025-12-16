@@ -1,16 +1,21 @@
-use crate::encoded_content::EncodedContent;
-use js_sys::Uint8Array;
-use prost::Message;
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use crate::encoded_content::{ContentTypeId, EncodedContent};
+use serde::{Deserialize, Serialize};
+use tsify::Tsify;
+use wasm_bindgen::JsError;
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::attachment::AttachmentCodec;
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct Attachment {
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub filename: Option<String>,
-  #[wasm_bindgen(js_name = "mimeType")]
   pub mime_type: String,
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
   pub content: Vec<u8>,
 }
 
@@ -34,25 +39,16 @@ impl From<Attachment> for xmtp_content_types::attachment::Attachment {
   }
 }
 
-#[wasm_bindgen(js_name = "encodeAttachment")]
-pub fn encode_attachment(attachment: Attachment) -> Result<Uint8Array, JsError> {
-  // Use AttachmentCodec to encode the attachment
-  let encoded =
-    AttachmentCodec::encode(attachment.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
+#[wasm_bindgen(js_name = "attachmentContentType")]
+pub fn attachment_content_type() -> ContentTypeId {
+  AttachmentCodec::content_type().into()
 }
 
-#[wasm_bindgen(js_name = "decodeAttachment")]
-pub fn decode_attachment(encoded_content: EncodedContent) -> Result<Attachment, JsError> {
-  // Use AttachmentCodec to decode into Attachment and convert to Attachment
-  AttachmentCodec::decode(encoded_content.into())
-    .map(Into::into)
-    .map_err(|e| JsError::new(&format!("{}", e)))
+#[wasm_bindgen(js_name = "encodeAttachment")]
+pub fn encode_attachment(attachment: Attachment) -> Result<EncodedContent, JsError> {
+  Ok(
+    AttachmentCodec::encode(attachment.into())
+      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .into(),
+  )
 }

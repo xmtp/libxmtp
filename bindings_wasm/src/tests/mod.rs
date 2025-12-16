@@ -1,5 +1,3 @@
-mod web;
-
 use crate::client::LogLevel;
 use crate::client::gateway_auth::{AuthCallback, AuthHandle};
 use crate::client::{Client, LogOptions, create_client};
@@ -7,7 +5,6 @@ use crate::inbox_id::generate_inbox_id;
 use alloy::signers::SignerSync;
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_test::*;
 use xmtp_configuration::GrpcUrls;
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_id::InboxOwner;
@@ -28,8 +25,8 @@ pub async fn create_test_client(path: Option<String>) -> Client {
     None,
     Some(crate::client::DeviceSyncWorkerMode::Disabled),
     Some(LogOptions {
-      structured: false,
-      performance: true,
+      structured: Some(false),
+      performance: Some(true),
       level: Some(LogLevel::Info),
     }),
     None,
@@ -72,8 +69,8 @@ pub async fn create_auth_test_client(
     None,
     Some(crate::client::DeviceSyncWorkerMode::Disabled),
     Some(LogOptions {
-      structured: false,
-      performance: true,
+      structured: Some(false),
+      performance: Some(true),
       level: Some(LogLevel::Trace),
     }),
     None,
