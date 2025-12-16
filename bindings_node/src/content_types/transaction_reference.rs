@@ -1,9 +1,9 @@
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::Result;
 use napi_derive::napi;
-use prost::Message;
 use xmtp_content_types::{ContentCodec, transaction_reference::TransactionReferenceCodec};
 
-use crate::{ErrorWrapper, encoded_content::EncodedContent};
+use crate::ErrorWrapper;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 
 #[derive(Clone)]
 #[napi(object)]
@@ -78,28 +78,17 @@ impl From<TransactionMetadata> for xmtp_content_types::transaction_reference::Tr
 }
 
 #[napi]
-pub fn encode_transaction_reference(
-  transaction_reference: TransactionReference,
-) -> Result<Uint8Array> {
-  // Use TransactionReferenceCodec to encode the transaction reference
-  let encoded =
-    TransactionReferenceCodec::encode(transaction_reference.into()).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(buf.into())
+pub fn transaction_reference_content_type() -> ContentTypeId {
+  TransactionReferenceCodec::content_type().into()
 }
 
 #[napi]
-pub fn decode_transaction_reference(
-  encoded_content: EncodedContent,
-) -> Result<TransactionReference> {
-  // Use TransactionReferenceCodec to decode into TransactionReference and convert to TransactionReference
+pub fn encode_transaction_reference(
+  transaction_reference: TransactionReference,
+) -> Result<EncodedContent> {
   Ok(
-    TransactionReferenceCodec::decode(encoded_content.into())
-      .map(Into::into)
-      .map_err(ErrorWrapper::from)?,
+    TransactionReferenceCodec::encode(transaction_reference.into())
+      .map_err(ErrorWrapper::from)?
+      .into(),
   )
 }

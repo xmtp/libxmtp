@@ -1,6 +1,5 @@
 use napi::bindgen_prelude::{Result, Uint8Array};
 use napi_derive::napi;
-use prost::Message;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_proto::xmtp::mls::message_contents::content_types::{
@@ -8,7 +7,8 @@ use xmtp_proto::xmtp::mls::message_contents::content_types::{
   RemoteAttachmentInfo as XmtpRemoteAttachmentInfo,
 };
 
-use crate::{ErrorWrapper, encoded_content::EncodedContent};
+use crate::ErrorWrapper;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 
 #[napi(object)]
 pub struct RemoteAttachmentInfo {
@@ -82,31 +82,18 @@ impl From<XmtpMultiRemoteAttachment> for MultiRemoteAttachment {
 }
 
 #[napi]
-pub fn encode_multi_remote_attachment(
-  multi_remote_attachment: MultiRemoteAttachment,
-) -> Result<Uint8Array> {
-  // Convert MultiRemoteAttachment to MultiRemoteAttachment
-  let multi_remote_attachment: XmtpMultiRemoteAttachment = multi_remote_attachment.into();
-
-  // Use MultiRemoteAttachmentCodec to encode the attachments
-  let encoded =
-    MultiRemoteAttachmentCodec::encode(multi_remote_attachment).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(buf.into())
+pub fn multi_remote_attachment_content_type() -> ContentTypeId {
+  MultiRemoteAttachmentCodec::content_type().into()
 }
 
 #[napi]
-pub fn decode_multi_remote_attachment(
-  encoded_content: EncodedContent,
-) -> Result<MultiRemoteAttachment> {
+pub fn encode_multi_remote_attachment(
+  multi_remote_attachment: MultiRemoteAttachment,
+) -> Result<EncodedContent> {
   Ok(
-    MultiRemoteAttachmentCodec::decode(encoded_content.into())
-      .map(Into::into)
-      .map_err(ErrorWrapper::from)?,
+    MultiRemoteAttachmentCodec::encode(multi_remote_attachment.into())
+      .map_err(ErrorWrapper::from)?
+      .into(),
   )
 }
 

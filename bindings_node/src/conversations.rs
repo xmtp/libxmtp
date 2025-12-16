@@ -475,7 +475,7 @@ impl Conversations {
       .message_v2(message_id)
       .map_err(ErrorWrapper::from)?;
 
-    Ok(message.into())
+    message.try_into()
   }
 
   #[napi]
