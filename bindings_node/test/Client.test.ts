@@ -5,7 +5,6 @@ import {
   createClient,
   createRegisteredClient,
   createUser,
-  encodeTextMessage,
   sleep,
   TEST_API_URL,
 } from '@test/helpers'
@@ -199,17 +198,19 @@ describe('Client', () => {
       await client3.revokeAllOtherInstallationsSignatureRequest()
     expect(signatureRequest).toBeDefined()
 
-    // sign message
-    const signature = await user.wallet.signMessage({
-      message: await signatureRequest.signatureText(),
-    })
+    if (signatureRequest) {
+      // sign message
+      const signature = await user.wallet.signMessage({
+        message: await signatureRequest.signatureText(),
+      })
 
-    await signatureRequest.addEcdsaSignature(toBytes(signature))
-    await client3.applySignatureRequest(signatureRequest)
-    const inboxState2 = await client3.inboxState(true)
+      await signatureRequest.addEcdsaSignature(toBytes(signature))
+      await client3.applySignatureRequest(signatureRequest)
+      const inboxState2 = await client3.inboxState(true)
 
-    expect(inboxState2.installations.length).toBe(1)
-    expect(inboxState2.installations[0].id).toBe(client3.installationId())
+      expect(inboxState2.installations.length).toBe(1)
+      expect(inboxState2.installations[0].id).toBe(client3.installationId())
+    }
   })
 
   it('should revoke a specific installation using static_revoke_installations', async () => {
@@ -417,10 +418,10 @@ describe('Streams', () => {
       }
     )
     await stream.waitForReady()
-    group.send(encodeTextMessage('Test1'), { shouldPush: true })
-    group.send(encodeTextMessage('Test2'), { shouldPush: true })
-    group.send(encodeTextMessage('Test3'), { shouldPush: true })
-    group.send(encodeTextMessage('Test4'), { shouldPush: true })
+    group.sendText('Test1')
+    group.sendText('Test2')
+    group.sendText('Test3')
+    group.sendText('Test4')
     await sleep(1000)
     await stream.endAndWait()
     expect(messages.length).toBe(4)

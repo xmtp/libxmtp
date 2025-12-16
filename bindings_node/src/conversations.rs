@@ -467,7 +467,7 @@ impl Conversations {
   }
 
   #[napi]
-  pub async fn find_enriched_message_by_id(&self, message_id: String) -> Result<DecodedMessage> {
+  pub fn find_enriched_message_by_id(&self, message_id: String) -> Result<DecodedMessage> {
     let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
 
     let message = self
@@ -475,7 +475,7 @@ impl Conversations {
       .message_v2(message_id)
       .map_err(ErrorWrapper::from)?;
 
-    Ok(message.into())
+    message.try_into()
   }
 
   #[napi]
