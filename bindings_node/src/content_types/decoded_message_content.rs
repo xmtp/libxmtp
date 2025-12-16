@@ -8,7 +8,7 @@ use super::group_updated::GroupUpdated;
 use super::intent::Intent;
 use super::leave_request::LeaveRequest;
 use super::multi_remote_attachment::MultiRemoteAttachmentPayload;
-use super::reaction::ReactionPayload;
+use super::reaction::Reaction;
 use super::read_receipt::ReadReceipt;
 use super::remote_attachment::RemoteAttachment;
 use super::reply::EnrichedReply;
@@ -39,7 +39,7 @@ pub enum DecodedMessageContentType {
 pub enum DecodedMessageContentInner {
   Text(String),
   Reply(EnrichedReply),
-  Reaction(ReactionPayload),
+  Reaction(Reaction),
   Attachment(Attachment),
   RemoteAttachment(RemoteAttachment),
   MultiRemoteAttachment(MultiRemoteAttachmentPayload),
@@ -104,7 +104,7 @@ impl DecodedMessageContent {
   }
 
   #[napi(getter)]
-  pub fn reaction(&self) -> Option<ReactionPayload> {
+  pub fn reaction(&self) -> Option<Reaction> {
     match &self.inner {
       DecodedMessageContentInner::Reaction(r) => Some(r.clone()),
       _ => None,

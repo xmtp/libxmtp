@@ -31,21 +31,14 @@ impl From<Reaction> for ReactionV2 {
 
 impl From<ReactionV2> for Reaction {
   fn from(reaction: ReactionV2) -> Self {
+    let action = reaction.action().into();
+    let schema = reaction.schema().into();
     Reaction {
       reference: reaction.reference,
       reference_inbox_id: reaction.reference_inbox_id,
-      action: match reaction.action {
-        1 => ReactionAction::Added,
-        2 => ReactionAction::Removed,
-        _ => ReactionAction::Unknown,
-      },
+      action,
       content: reaction.content,
-      schema: match reaction.schema {
-        1 => ReactionSchema::Unicode,
-        2 => ReactionSchema::Shortcode,
-        3 => ReactionSchema::Custom,
-        _ => ReactionSchema::Unknown,
-      },
+      schema,
     }
   }
 }
@@ -101,29 +94,6 @@ impl From<ReactionSchema> for i32 {
       ReactionSchema::Unicode => 1,
       ReactionSchema::Shortcode => 2,
       ReactionSchema::Custom => 3,
-    }
-  }
-}
-
-// ReactionPayload for enriched messages
-#[derive(Clone)]
-#[napi(object)]
-pub struct ReactionPayload {
-  pub reference: String,
-  pub reference_inbox_id: String,
-  pub action: ReactionAction,
-  pub content: String,
-  pub schema: ReactionSchema,
-}
-
-impl From<xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2> for ReactionPayload {
-  fn from(reaction: xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2) -> Self {
-    Self {
-      reference: reaction.reference.clone(),
-      reference_inbox_id: reaction.reference_inbox_id.clone(),
-      action: reaction.action().into(),
-      content: reaction.content.clone(),
-      schema: reaction.schema().into(),
     }
   }
 }
