@@ -13,6 +13,23 @@ impl ActionsCodec {
     pub const MINOR_VERSION: u32 = 0;
 }
 
+impl ActionsCodec {
+    fn fallback(content: &Actions) -> Option<String> {
+        let action_list = content
+            .actions
+            .iter()
+            .enumerate()
+            .map(|(i, a)| format!("[{}] {}", i + 1, a.label))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        Some(format!(
+            "{}\n\n{}\n\nReply with the number to select",
+            content.description, action_list
+        ))
+    }
+}
+
 impl ContentCodec<Actions> for ActionsCodec {
     fn content_type() -> ContentTypeId {
         ContentTypeId {
@@ -46,23 +63,11 @@ impl ContentCodec<Actions> for ActionsCodec {
             return Err(CodecError::Encode("Action ids must be unique.".to_string()));
         }
 
-        let fallback = actions
-            .actions
-            .iter()
-            .enumerate()
-            .map(|(i, a)| format!("{} {}", i + 1, a.label))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let fallback = format!(
-            "{}\n\n{fallback}\n\nReply with the number to select",
-            actions.description
-        );
-
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
             content: serde_json::to_vec(&actions)
                 .map_err(|e| CodecError::Encode(format!("Unable to serialize actions. {e:?}")))?,
-            fallback: Some(fallback),
+            fallback: Self::fallback(&actions),
             ..Default::default()
         })
     }
@@ -72,6 +77,10 @@ impl ContentCodec<Actions> for ActionsCodec {
             .map_err(|e| CodecError::Decode(format!("Unable to deserialize actions. {e:?}")))?;
 
         Ok(actions)
+    }
+
+    fn should_push() -> bool {
+        true
     }
 }
 
@@ -134,7 +143,7 @@ mod tests {
         assert!(
             encoded
                 .fallback()
-                .contains("1 The Turkey (of course)\n2 Pork Loin"),
+                .contains("[1] The Turkey (of course)\n[2] Pork Loin"),
         );
         let decoded = ActionsCodec::decode(encoded)?;
 
