@@ -352,7 +352,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
+  pub async fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
     let opts = opts.unwrap_or_default();
     let group = self.create_mls_group();
     let opts = MsgQueryArgs { ..opts.into() };
@@ -367,7 +367,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub fn count_messages(&self, opts: Option<ListMessagesOptions>) -> Result<i64> {
+  pub async fn count_messages(&self, opts: Option<ListMessagesOptions>) -> Result<i64> {
     let opts = opts.unwrap_or_default();
     let group = self.create_mls_group();
     let msg_args: MsgQueryArgs = opts.into();
@@ -379,7 +379,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub fn find_messages_with_reactions(
+  pub async fn find_messages_with_reactions(
     &self,
     opts: Option<ListMessagesOptions>,
   ) -> Result<Vec<MessageWithReactions>> {
@@ -896,7 +896,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub fn find_enriched_messages(
+  pub async fn find_enriched_messages(
     &self,
     opts: Option<ListMessagesOptions>,
   ) -> Result<Vec<DecodedMessage>> {
