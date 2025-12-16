@@ -1,6 +1,5 @@
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::Uint8Array;
 use napi_derive::napi;
-use prost::Message;
 use std::{collections::HashMap, ops::Deref};
 use xmtp_proto::xmtp::mls::message_contents::{
   ContentTypeId as XmtpContentTypeId, EncodedContent as XmtpEncodedContent,
@@ -56,32 +55,6 @@ impl Clone for EncodedContent {
       content: self.content.to_vec().into(),
     }
   }
-}
-
-#[napi]
-#[allow(dead_code)]
-pub fn deserialize_encoded_content(bytes: Uint8Array) -> Result<EncodedContent> {
-  let encoded = XmtpEncodedContent::decode(&*bytes)
-    .map_err(|e| napi::Error::from_reason(format!("Failed to decode EncodedContent: {}", e)))?;
-  Ok(encoded.into())
-}
-
-#[napi]
-#[allow(dead_code)]
-pub fn serialize_encoded_content(content: EncodedContent) -> Result<Uint8Array> {
-  let encoded = XmtpEncodedContent {
-    r#type: content.r#type.map(|v| v.into()),
-    parameters: content.parameters,
-    fallback: content.fallback,
-    compression: content.compression,
-    content: content.content.to_vec(),
-  };
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| napi::Error::from_reason(format!("Failed to serialize EncodedContent: {}", e)))?;
-
-  Ok(buf.into())
 }
 
 impl From<XmtpEncodedContent> for EncodedContent {
