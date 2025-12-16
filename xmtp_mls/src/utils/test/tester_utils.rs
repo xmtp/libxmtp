@@ -563,6 +563,7 @@ where
         self
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn snapshot_file(mut self, snapshot_path: impl Into<PathBuf>) -> Self {
         let snapshot_path = snapshot_path.into();
         let snapshot = std::fs::read(&snapshot_path).unwrap();
@@ -855,16 +856,15 @@ macro_rules! tester {
 mod tests {
     use std::sync::Arc;
 
-    xmtp_common::if_native! {
-        #[xmtp_common::test(unwrap_try = true)]
-        async fn test_snapshots() {
-            tester!(alix);
-            let g = alix.create_group(None, None)?;
-            let snap = Arc::new(alix.db_snapshot());
-            tester!(alix2, snapshot: snap);
+    #[xmtp_common::test(unwrap_try = true)]
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn test_snapshots() {
+        tester!(alix);
+        let g = alix.create_group(None, None)?;
+        let snap = Arc::new(alix.db_snapshot());
+        tester!(alix2, snapshot: snap);
 
-            assert_eq!(alix.inbox_id(), alix2.inbox_id());
-            assert!(alix2.group(&g.group_id).is_ok());
-        }
+        assert_eq!(alix.inbox_id(), alix2.inbox_id());
+        assert!(alix2.group(&g.group_id).is_ok());
     }
 }
