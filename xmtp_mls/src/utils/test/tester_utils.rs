@@ -276,51 +276,6 @@ where
             worker.as_ref().unwrap().wait_for_init().await.unwrap();
         }
 
-        if self.snapshot.is_some() {
-            let updates = client
-                .db()
-                .get_identity_updates(client.inbox_id(), None, None)
-                .unwrap();
-            for update in updates {
-                let update: UnverifiedIdentityUpdate = update.payload.try_into().unwrap();
-                let result = client
-                    .context
-                    .api_client
-                    .publish_identity_update(update)
-                    .await;
-                tracing::info!("{result:?}");
-            }
-
-            client.rotate_and_upload_key_package().await.unwrap();
-
-            client.context.db().raw_query_write(|c| {
-                xmtp_db::diesel::delete(xmtp_db::schema::association_state::table)
-                    .execute(c)
-                    .unwrap();
-                xmtp_db::diesel::delete(xmtp_db::schema::identity_cache::table)
-                    .execute(c)
-                    .unwrap();
-                xmtp_db::diesel::delete(xmtp_db::schema::identity_updates::table)
-                    .execute(c)
-                    .unwrap();
-                xmtp_db::diesel::delete(xmtp_db::schema::refresh_state::table)
-                    .execute(c)
-                    .unwrap();
-
-                Ok(())
-            });
-
-            load_identity_updates(
-                &client.context.api_client,
-                &client.db(),
-                &[client.inbox_id()],
-            )
-            .await
-            .unwrap();
-        }
-
-        client.sync_welcomes().await;
-
         let mut tester = Tester {
             builder: self.clone(),
             client,
@@ -330,6 +285,22 @@ where
             proxy,
         };
 
+        // If the tester is loaded from a snapshot, we need to do some housekeeping,
+        // because the client and the server are now out-of-sync.
+        if self.snapshot.is_some() {
+            tester.publish_all_identity_updates().await;
+            tester.reset_identity_and_refresh_state();
+            tester.rotate_and_upload_key_package().await.unwrap();
+            load_identity_updates(
+                &tester.context.api_client,
+                &tester.db(),
+                &[tester.inbox_id()],
+            )
+            .await
+            .unwrap();
+        }
+
+        tester.sync_welcomes().await;
         if self.stream {
             tester.stream();
         }
@@ -342,6 +313,40 @@ impl<Owner> Tester<Owner, FullXmtpClient>
 where
     Owner: InboxOwner + Clone + 'static,
 {
+    async fn publish_all_identity_updates(&self) {
+        let updates = self
+            .db()
+            .get_identity_updates(self.inbox_id(), None, None)
+            .unwrap();
+        for update in updates {
+            let update: UnverifiedIdentityUpdate = update.payload.try_into().unwrap();
+            let result = self
+                .context
+                .api_client
+                .publish_identity_update(update)
+                .await;
+            tracing::info!("{result:?}");
+        }
+    }
+    fn reset_identity_and_refresh_state(&self) {
+        self.context.db().raw_query_write(|c| {
+            xmtp_db::diesel::delete(xmtp_db::schema::association_state::table)
+                .execute(c)
+                .unwrap();
+            xmtp_db::diesel::delete(xmtp_db::schema::identity_cache::table)
+                .execute(c)
+                .unwrap();
+            xmtp_db::diesel::delete(xmtp_db::schema::identity_updates::table)
+                .execute(c)
+                .unwrap();
+            xmtp_db::diesel::delete(xmtp_db::schema::refresh_state::table)
+                .execute(c)
+                .unwrap();
+
+            Ok(())
+        });
+    }
+
     pub async fn new_with_owner(owner: Owner) -> Self {
         TesterBuilder::new().owner(owner).build().await
     }

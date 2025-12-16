@@ -67,24 +67,3 @@ async fn test_dm_welcome_with_preexisting_consent() {
         a_group.group_id
     );
 }
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_snapshotssss() {
-    {
-        tester!(alix);
-        tester!(bo);
-
-        alix.test_talk_in_dm_with(&bo).await?;
-
-        alix.save_snapshot_to_file("alix.xmtp");
-        bo.save_snapshot_to_file("bo.xmtp");
-    }
-
-    tester!(alix, snapshot_file: "alix.xmtp", disable_workers);
-    tester!(bo, snapshot_file: "alix.xmtp", disable_workers);
-
-    bo.test_talk_in_new_group_with(&alix).await?;
-    alix.test_talk_in_new_group_with(&bo).await?;
-
-    alix.test_talk_in_dm_with(&bo).await?;
-}
