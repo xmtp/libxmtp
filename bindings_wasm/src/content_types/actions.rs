@@ -1,52 +1,22 @@
-use crate::encoded_content::EncodedContent;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 use chrono::DateTime;
-use js_sys::Uint8Array;
-use prost::Message;
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
-use xmtp_content_types::{ContentCodec, actions::ActionsCodec};
+use tsify::Tsify;
+use wasm_bindgen::JsError;
+use wasm_bindgen::prelude::wasm_bindgen;
+use xmtp_content_types::ContentCodec;
+use xmtp_content_types::actions::ActionsCodec;
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
+#[serde(rename_all = "camelCase")]
 pub struct Actions {
   pub id: String,
   pub description: String,
-  #[wasm_bindgen(skip)]
   pub actions: Vec<Action>,
-  #[wasm_bindgen(js_name = "expiresAtNs")]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub expires_at_ns: Option<i64>,
-}
-
-#[wasm_bindgen]
-impl Actions {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    id: String,
-    description: String,
-    #[wasm_bindgen(js_name = expiresAtNs)] expires_at_ns: Option<i64>,
-  ) -> Self {
-    Self {
-      id,
-      description,
-      actions: Vec::new(),
-      expires_at_ns,
-    }
-  }
-
-  #[wasm_bindgen(js_name = "getActions")]
-  pub fn get_actions(&self) -> Vec<Action> {
-    self.actions.clone()
-  }
-
-  #[wasm_bindgen(js_name = "setActions")]
-  pub fn set_actions(&mut self, actions: Vec<Action>) {
-    self.actions = actions;
-  }
-
-  #[wasm_bindgen(js_name = "addAction")]
-  pub fn add_action(&mut self, action: Action) {
-    self.actions.push(action);
-  }
 }
 
 impl TryFrom<xmtp_content_types::actions::Actions> for Actions {
@@ -99,37 +69,21 @@ impl From<Actions> for xmtp_content_types::actions::Actions {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
+#[serde(rename_all = "camelCase")]
 pub struct Action {
   pub id: String,
   pub label: String,
-  #[wasm_bindgen(js_name = "imageUrl")]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub image_url: Option<String>,
-  #[wasm_bindgen]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub style: Option<ActionStyle>,
-  #[wasm_bindgen(js_name = "expiresAtNs")]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub expires_at_ns: Option<i64>,
-}
-
-#[wasm_bindgen]
-impl Action {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    id: String,
-    label: String,
-    #[wasm_bindgen(js_name = imageUrl)] image_url: Option<String>,
-    style: Option<ActionStyle>,
-    #[wasm_bindgen(js_name = expiresAtNs)] expires_at_ns: Option<i64>,
-  ) -> Self {
-    Self {
-      id,
-      label,
-      image_url,
-      style,
-      expires_at_ns,
-    }
-  }
 }
 
 impl TryFrom<xmtp_content_types::actions::Action> for Action {
@@ -181,8 +135,9 @@ impl From<Action> for xmtp_content_types::actions::Action {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "lowercase")]
 pub enum ActionStyle {
   Primary,
   Secondary,
@@ -209,26 +164,16 @@ impl From<ActionStyle> for xmtp_content_types::actions::ActionStyle {
   }
 }
 
-#[wasm_bindgen(js_name = "encodeActions")]
-pub fn encode_actions(actions: Actions) -> Result<Uint8Array, JsError> {
-  // Convert Actions and use ActionsCodec to encode
-  let encoded =
-    ActionsCodec::encode(actions.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
+#[wasm_bindgen(js_name = "actionsContentType")]
+pub fn actions_content_type() -> ContentTypeId {
+  ActionsCodec::content_type().into()
 }
 
-#[wasm_bindgen(js_name = "decodeActions")]
-pub fn decode_actions(encoded_content: EncodedContent) -> Result<Actions, JsError> {
-  // Use ActionsCodec to decode into Actions and convert to Actions
-  let actions =
-    ActionsCodec::decode(encoded_content.into()).map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  actions.try_into()
+#[wasm_bindgen(js_name = "encodeActions")]
+pub fn encode_actions(actions: Actions) -> Result<EncodedContent, JsError> {
+  Ok(
+    ActionsCodec::encode(actions.into())
+      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .into(),
+  )
 }
