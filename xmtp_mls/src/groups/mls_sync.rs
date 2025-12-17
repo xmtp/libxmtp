@@ -468,9 +468,14 @@ where
     ) -> Result<SyncSummary, GroupError> {
         let mut summary = SyncSummary::default();
         let db = self.context.db();
-        let mut num_attempts = 0;
+
         // Return the last error to the caller if we fail to sync
-        while num_attempts < xmtp_configuration::MAX_GROUP_SYNC_RETRIES {
+        for attempt in 0..xmtp_configuration::MAX_GROUP_SYNC_RETRIES {
+            log_event!(
+                Event::GroupSyncAttempt,
+                group_id = hex::encode(&self.group_id),
+                attempt
+            );
             match self.sync_with_conn().await {
                 Ok(s) => summary.extend(s),
                 Err(s) => {
@@ -520,7 +525,6 @@ where
                     summary.add_other(GroupError::Storage(err));
                 }
             };
-            num_attempts += 1;
         }
         Err(GroupError::SyncFailedToWait(Box::new(summary)))
     }
