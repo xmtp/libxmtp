@@ -3207,6 +3207,7 @@ pub struct FfiMessage {
     pub sequence_id: u64,
     pub originator_id: u32,
     pub inserted_at_ns: i64,
+    pub expire_at_ns: Option<i64>,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -3222,6 +3223,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             sequence_id: msg.sequence_id as u64,
             originator_id: msg.originator_id as u32,
             inserted_at_ns: msg.inserted_at_ns,
+            expire_at_ns: msg.expire_at_ns,
         }
     }
 }
