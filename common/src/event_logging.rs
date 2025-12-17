@@ -67,8 +67,8 @@ pub enum Event {
     /// Commit sent. Staged commit is present. Stopping further publishes for this round.
     #[context(group_id)]
     GroupSyncStagedCommitPresent,
-    /// Maybe updating group cursor.
-    #[context(group_id, cursor, updated)]
+    /// Updating group cursor.
+    #[context(group_id, cursor)]
     GroupCursorUpdate,
 
     // ===================== Group Membership =====================

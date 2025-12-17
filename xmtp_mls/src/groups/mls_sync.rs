@@ -1916,12 +1916,15 @@ where
         message: &xmtp_proto::types::GroupMessage,
     ) -> Result<bool, StorageError> {
         let updated = db.update_cursor(&message.group_id, message.entity_kind(), message.cursor)?;
-        log_event!(
-            Event::GroupCursorUpdate,
-            group_id = hex::encode(&message.group_id),
-            cursor = ?message.cursor,
-            updated
-        );
+        if updated {
+            log_event!(
+                Event::GroupCursorUpdate,
+                group_id = hex::encode(&message.group_id),
+                cursor = ?message.cursor
+            );
+        } else {
+            tracing::debug!("no cursor update required");
+        }
         Ok(updated)
     }
 
