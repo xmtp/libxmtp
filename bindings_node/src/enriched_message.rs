@@ -21,6 +21,7 @@ pub struct DecodedMessage {
   pub fallback: Option<String>,
   pub delivery_status: DeliveryStatus,
   pub num_replies: i64,
+  pub expire_at_ns: Option<i64>,
 }
 
 #[napi]
@@ -61,6 +62,7 @@ impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
       fallback: msg.fallback_text.clone(),
       delivery_status: msg.metadata.delivery_status.into(),
       num_replies: msg.num_replies as i64,
+      expire_at_ns: msg.metadata.expire_at_ns,
       inner: Box::new(msg),
     })
   }

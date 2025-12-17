@@ -30,6 +30,7 @@ pub struct DecodedMessage {
   pub reactions: Vec<DecodedMessage>,
   pub delivery_status: DeliveryStatus,
   pub num_replies: i64,
+  pub expire_at_ns: Option<i64>,
 }
 
 impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
@@ -52,6 +53,7 @@ impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
       reactions: reactions?,
       delivery_status: msg.metadata.delivery_status.into(),
       num_replies: msg.num_replies as i64,
+      expire_at_ns: msg.metadata.expire_at_ns,
     })
   }
 }
