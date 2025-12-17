@@ -401,7 +401,7 @@ impl Conversation {
   pub async fn process_streamed_group_message(
     &self,
     envelope_bytes: Uint8Array,
-  ) -> Result<Message> {
+  ) -> Result<Vec<Message>> {
     let group = self.create_mls_group();
     let envelope_bytes: Vec<u8> = envelope_bytes.deref().to_vec();
     let message = group
@@ -409,7 +409,7 @@ impl Conversation {
       .await
       .map_err(ErrorWrapper::from)?;
 
-    Ok(message.into())
+    Ok(message.into_iter().map(Into::into).collect())
   }
 
   #[napi]
