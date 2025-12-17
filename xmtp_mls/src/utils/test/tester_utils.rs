@@ -331,22 +331,25 @@ where
         }
     }
     fn reset_identity_and_refresh_state(&self) {
-        self.context.db().raw_query_write(|c| {
-            xmtp_db::diesel::delete(xmtp_db::schema::association_state::table)
-                .execute(c)
-                .unwrap();
-            xmtp_db::diesel::delete(xmtp_db::schema::identity_cache::table)
-                .execute(c)
-                .unwrap();
-            xmtp_db::diesel::delete(xmtp_db::schema::identity_updates::table)
-                .execute(c)
-                .unwrap();
-            xmtp_db::diesel::delete(xmtp_db::schema::refresh_state::table)
-                .execute(c)
-                .unwrap();
+        self.context
+            .db()
+            .raw_query_write(|c| {
+                xmtp_db::diesel::delete(xmtp_db::schema::association_state::table)
+                    .execute(c)
+                    .unwrap();
+                xmtp_db::diesel::delete(xmtp_db::schema::identity_cache::table)
+                    .execute(c)
+                    .unwrap();
+                xmtp_db::diesel::delete(xmtp_db::schema::identity_updates::table)
+                    .execute(c)
+                    .unwrap();
+                xmtp_db::diesel::delete(xmtp_db::schema::refresh_state::table)
+                    .execute(c)
+                    .unwrap();
 
-            Ok(())
-        });
+                Ok(())
+            })
+            .unwrap();
     }
 
     pub async fn new_with_owner(owner: Owner) -> Self {
