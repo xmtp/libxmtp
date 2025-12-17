@@ -6,7 +6,7 @@ use crate::{
     identity::IdentityError,
     subscriptions::SyncWorkerEvent,
 };
-use futures::future::try_join_all;
+use futures::{StreamExt, future::try_join_all, stream::FuturesUnordered};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{Event, Retry, RetryableError, retry_async, retryable};
@@ -522,24 +522,30 @@ where
         let mut added_installations: HashSet<Vec<u8>> = HashSet::new();
         let mut removed_installations: HashSet<Vec<u8>> = HashSet::new();
 
-        // TODO: Do all of this in parallel
+        let mut futs = FuturesUnordered::new();
         for inbox_id in added_and_updated_members {
-            let starting_sequence_id = match old_group_membership.get(inbox_id) {
-                Some(0) => None,
-                Some(i) => Some(*i as i64),
-                None => None,
-            };
-            let state_diff = self
-                .get_association_state_diff(
-                    conn,
-                    inbox_id.as_str(),
-                    starting_sequence_id,
-                    new_group_membership.get(inbox_id).map(|i| *i as i64),
-                )
-                .await?;
+            futs.push(async move {
+                let starting_sequence_id = match old_group_membership.get(inbox_id) {
+                    Some(0) => None,
+                    Some(i) => Some(*i as i64),
+                    None => None,
+                };
+                let state_diff = self
+                    .get_association_state_diff(
+                        conn,
+                        inbox_id.as_str(),
+                        starting_sequence_id,
+                        new_group_membership.get(inbox_id).map(|i| *i as i64),
+                    )
+                    .await?;
 
-            added_installations.extend(state_diff.new_installations());
-            removed_installations.extend(state_diff.removed_installations());
+                Ok::<_, InstallationDiffError>(state_diff)
+            });
+        }
+        while let Some(result) = futs.next().await {
+            let diff = result?;
+            added_installations.extend(diff.new_installations());
+            removed_installations.extend(diff.removed_installations());
         }
 
         for inbox_id in membership_diff.removed_inboxes.iter() {
