@@ -562,6 +562,13 @@ where
             removed_installations.extend(state_diff.new_installations());
         }
 
+        log_event!(
+            Event::MembershipInstallationDiffComputed,
+            group_id = ?hex::encode(group_id),
+            added_installations = ?added_installations,
+            removed_installations = ?removed_installations
+        );
+
         Ok(InstallationDiff {
             added_installations,
             removed_installations,

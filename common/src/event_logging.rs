@@ -49,4 +49,7 @@ pub enum Event {
     /// Fetching installation diff
     #[context(group_id, old_membership, new_membership)]
     MembershipInstallationDiff,
+    /// Computed installation diff
+    #[context(group_id, added_installations, removed_installations)]
+    MembershipInstallationDiffComputed,
 }
