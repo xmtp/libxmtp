@@ -80,6 +80,8 @@ pub enum GenericError {
     Expired(#[from] Expired),
     #[error(transparent)]
     BackendBuilder(#[from] MessageBackendBuilderError),
+    #[error(transparent)]
+    Api(#[from] xmtp_api::ApiError),
 }
 
 // this impl allows us to gracefully handle unexpected errors from foreign code without panicking
