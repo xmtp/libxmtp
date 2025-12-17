@@ -2458,6 +2458,7 @@ where
 
             let changes_with_kps = calculate_membership_changes_with_keypackages(
                 &self.context,
+                &self.group_id,
                 &new_membership,
                 &old_group_membership,
             )
@@ -2767,6 +2768,7 @@ fn extract_message_sender(
 
 async fn calculate_membership_changes_with_keypackages<'a>(
     context: &impl XmtpSharedContext,
+    group_id: &[u8],
     new_group_membership: &'a GroupMembership,
     old_group_membership: &'a GroupMembership,
 ) -> Result<MembershipDiffWithKeyPackages, GroupError> {
@@ -2776,6 +2778,7 @@ async fn calculate_membership_changes_with_keypackages<'a>(
     let mut installation_diff = identity
         .get_installation_diff(
             &context.db(),
+            group_id,
             old_group_membership,
             new_group_membership,
             &membership_diff,

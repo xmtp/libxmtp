@@ -492,6 +492,7 @@ where
     ) -> Result<InstallationDiff, InstallationDiffError> {
         log_event!(
             Event::MembershipInstallationDiff,
+            group_id = ?hex::encode(group_id),
             old_membership = ?old_group_membership,
             new_membership = ?new_group_membership
         );
@@ -1060,6 +1061,7 @@ pub(crate) mod tests {
             .identity_updates()
             .get_installation_diff(
                 &other_conn,
+                &[],
                 &original_group_membership,
                 &new_group_membership,
                 &membership_diff,
