@@ -1764,6 +1764,7 @@ where
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         let message = match process_result {
             Ok(m) => {
+                self.context.db().prune_icebox()?;
                 tracing::info!(
                     "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
                     &envelope.group_id,
