@@ -353,7 +353,10 @@ where
         let mut summary = SyncSummary::default();
 
         if !self.is_active().map_err(SyncSummary::other)? {
-            log_event!(Event::GroupSyncGroupInactive, group_id = ?hex::encode(&self.group_id));
+            log_event!(
+                Event::GroupSyncGroupInactive,
+                group_id = hex::encode(&self.group_id)
+            );
             return Err(SyncSummary::other(GroupError::GroupInactive));
         }
 
@@ -436,7 +439,7 @@ where
     ) -> Result<SyncSummary, GroupError> {
         log_event!(
             Event::GroupSyncStart,
-            group_id = ?hex::encode(&self.group_id)
+            group_id = hex::encode(&self.group_id)
         );
 
         let result = self.sync_until_intent_resolved_inner(intent_id).await;
@@ -449,7 +452,7 @@ where
 
         log_event!(
             Event::GroupSyncFinished,
-            group_id = ?hex::encode(&self.group_id),
+            group_id = hex::encode(&self.group_id),
             summary = ?summary,
             success = result.is_ok()
         );
@@ -508,7 +511,7 @@ where
                     log_event!(
                         Event::GroupSyncIntentErrored,
                         level = warn,
-                        group_id = ?hex::encode(&self.group_id), intent_id = intent_id,
+                        group_id = hex::encode(&self.group_id), intent_id = intent_id,
                         summary = ?summary, intent_kind = ?kind
                     );
                     return Err(GroupError::from(summary));
@@ -2142,7 +2145,8 @@ where
                                     Event::GroupSyncCommitPublishSuccess,
                                     group_id = hex::encode(&intent.group_id),
                                     intent_id = intent.id,
-                                    intent_kind = ?kind
+                                    intent_kind = ?kind,
+                                    commit_hash = hex::encode(sha256(payload_slice))
                                 )
                             }
                         }

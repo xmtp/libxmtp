@@ -59,7 +59,7 @@ pub enum Event {
     #[context(group_id, intent_id)]
     GroupSyncApplicationMessagePublishSuccess,
     /// Commit published successfully
-    #[context(group_id, intent_id, intent_kind)]
+    #[context(group_id, intent_id, intent_kind, commit_hash)]
     GroupSyncCommitPublishSuccess,
     /// Commit sent. Staged commit is present. Stopping further publishes for this round.
     #[context(group_id)]
