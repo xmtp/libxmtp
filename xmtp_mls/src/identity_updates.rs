@@ -9,7 +9,7 @@ use crate::{
 use futures::future::try_join_all;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_common::{Retry, RetryableError, retry_async, retryable};
+use xmtp_common::{Event, Retry, RetryableError, retry_async, retryable};
 use xmtp_configuration::Originators;
 use xmtp_cryptography::CredentialSign;
 use xmtp_db::StorageError;
@@ -29,6 +29,7 @@ use xmtp_id::{
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
+use xmtp_macro::log_event;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
@@ -484,15 +485,17 @@ where
     pub async fn get_installation_diff(
         &self,
         conn: &impl DbQuery,
+        group_id: &[u8], // used for logging
         old_group_membership: &GroupMembership,
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
-        tracing::info!(
-            "Getting installation diff. Old: {:?}. New {:?}",
-            old_group_membership,
-            new_group_membership
+        log_event!(
+            Event::MembershipInstallationDiff,
+            old_membership = ?old_group_membership,
+            new_membership = ?new_group_membership
         );
+
         let added_and_updated_members = membership_diff
             .added_inboxes
             .iter()

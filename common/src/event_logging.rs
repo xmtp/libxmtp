@@ -44,4 +44,9 @@ pub enum Event {
     /// Intent was found to be in error after attempting to sync.
     #[context(group_id, intent_id, summary)]
     GroupSyncIntentErrored,
+
+    // ===================== Group Membership =====================
+    /// Fetching installation diff
+    #[context(group_id, old_membership, new_membership)]
+    MembershipInstallationDiff,
 }
