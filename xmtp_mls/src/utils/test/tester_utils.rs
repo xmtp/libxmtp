@@ -860,7 +860,6 @@ mod tests {
     use std::sync::Arc;
 
     #[xmtp_common::test(unwrap_try = true)]
-    #[cfg(not(target_arch = "wasm32"))]
     async fn test_snapshots() {
         tester!(alix);
         let g = alix.create_group(None, None)?;
