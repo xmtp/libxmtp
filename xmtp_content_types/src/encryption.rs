@@ -34,7 +34,7 @@ pub fn encrypt(plaintext: &[u8], secret: &[u8]) -> Result<EncryptedPayload, Code
     let nonce: [u8; AES_GCM_NONCE_SIZE] = xmtp_common::rand_array();
 
     // Derive AES-256 key using HKDF-SHA256
-    let key = derive_key(secret, &salt)?;
+    let key = derive_key(secret, &salt).map_err(CodecError::Encode)?;
 
     // Create cipher
     let cipher = Aes256Gcm::new_from_slice(&key)
@@ -70,7 +70,7 @@ pub fn decrypt(encrypted: &EncryptedPayload, secret: &[u8]) -> Result<Vec<u8>, C
     }
 
     // Derive AES-256 key using HKDF-SHA256
-    let key = derive_key(secret, &encrypted.salt)?;
+    let key = derive_key(secret, &encrypted.salt).map_err(CodecError::Decode)?;
 
     // Create cipher
     let cipher = Aes256Gcm::new_from_slice(&key)
@@ -96,13 +96,13 @@ pub fn sha256(bytes: &[u8]) -> Vec<u8> {
 }
 
 /// Derives an AES-256 key from a secret and salt using HKDF-SHA256.
-fn derive_key(secret: &[u8], salt: &[u8]) -> Result<[u8; 32], CodecError> {
+fn derive_key(secret: &[u8], salt: &[u8]) -> Result<[u8; 32], String> {
     let hkdf = Hkdf::<Sha256>::new(Some(salt), secret);
 
     let mut key = [0u8; 32];
     // Empty info, matching the TypeScript implementation
     hkdf.expand(&[], &mut key)
-        .map_err(|e| CodecError::Encode(format!("HKDF key derivation failed: {e}")))?;
+        .map_err(|e| format!("HKDF key derivation failed: {e}"))?;
 
     Ok(key)
 }
