@@ -32,6 +32,9 @@ pub enum Event {
     /// Processed application message.
     #[context(group_id)]
     MLSProcessedApplicationMessage,
+    /// Group epoch updated.
+    #[context(group_id, cursor, epoch, previous_epoch)]
+    MLSGroupEpochUpdated,
 
     // ===================== Group Syncing =====================
     /// Begin syncing group.
@@ -52,18 +55,21 @@ pub enum Event {
     /// Intent was found to be in error after attempting to sync.
     #[context(group_id, intent_id, intent_kind, summary)]
     GroupSyncIntentErrored,
-    /// Attempt to publish intent failed
+    /// Attempt to publish intent failed.
     #[context(group_id, intent_id, intent_kind, err)]
     GroupSyncPublishFailed,
-    /// Application message published successfully
+    /// Application message published successfully.
     #[context(group_id, intent_id)]
     GroupSyncApplicationMessagePublishSuccess,
-    /// Commit published successfully
+    /// Commit published successfully.
     #[context(group_id, intent_id, intent_kind, commit_hash)]
     GroupSyncCommitPublishSuccess,
     /// Commit sent. Staged commit is present. Stopping further publishes for this round.
     #[context(group_id)]
     GroupSyncStagedCommitPresent,
+    /// Maybe updating group cursor.
+    #[context(group_id, cursor, updated)]
+    GroupCursorUpdate,
 
     // ===================== Group Membership =====================
     /// Updating group membership. Calculating which installations need to be added / removed.

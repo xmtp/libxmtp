@@ -1011,12 +1011,12 @@ where
             )?;
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
-                tracing::info!(
-                    "[{}] externally processed message [{}] advanced epoch from [{}] to [{}]",
-                    self.context.inbox_id(),
-                    cursor,
-                    previous_epoch,
-                    new_epoch
+                log_event!(
+                    Event::MLSGroupEpochUpdated,
+                    group_id = hex::encode(&self.group_id),
+                    cursor = ?cursor,
+                    epoch = new_epoch,
+                    previous_epoch
                 );
             }
             Ok::<_, GroupMessageProcessingError>(identifier)
@@ -1915,17 +1915,13 @@ where
         db: &impl DbQuery,
         message: &xmtp_proto::types::GroupMessage,
     ) -> Result<bool, StorageError> {
-        tracing::info!(
-            "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
-            message.group_id,
-            message.cursor
-        );
         let updated = db.update_cursor(&message.group_id, message.entity_kind(), message.cursor)?;
-        if updated {
-            tracing::debug!("cursor updated to [{}]", message.cursor);
-        } else {
-            tracing::debug!("no cursor update required");
-        }
+        log_event!(
+            Event::GroupCursorUpdate,
+            group_id = hex::encode(&message.group_id),
+            cursor = ?message.cursor,
+            updated
+        );
         Ok(updated)
     }
 
