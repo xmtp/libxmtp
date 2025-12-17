@@ -9,6 +9,7 @@
   },
   "scripts": {
     "rollup": "rollup -c",
-    "test": "yarn build:test && vitest"
+    "test": "yarn build:test && vitest",
+    "test:macos": "yarn build:test:macos && vitest run"
   }
 }

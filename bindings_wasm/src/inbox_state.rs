@@ -1,7 +1,8 @@
 use crate::{client::Client, identity::Identifier};
-use js_sys::Uint8Array;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tsify::Tsify;
 use wasm_bindgen::{JsError, JsValue, prelude::wasm_bindgen};
 use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_d14n::MessageBackendBuilder;
@@ -12,58 +13,27 @@ use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_mls::client::inbox_addresses_with_verifier;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
+#[serde(rename_all = "camelCase")]
 pub struct Installation {
-  pub bytes: Uint8Array,
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
+  pub bytes: Vec<u8>,
   pub id: String,
-  #[wasm_bindgen(js_name = clientTimestampNs)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub client_timestamp_ns: Option<u64>,
 }
 
-#[wasm_bindgen]
-impl Installation {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    bytes: Uint8Array,
-    id: String,
-    #[wasm_bindgen(js_name = clientTimestampNs)] client_timestamp_ns: Option<u64>,
-  ) -> Self {
-    Self {
-      bytes,
-      client_timestamp_ns,
-      id,
-    }
-  }
-}
-
-#[wasm_bindgen(getter_with_clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct InboxState {
-  #[wasm_bindgen(js_name = inboxId)]
   pub inbox_id: String,
-  #[wasm_bindgen(js_name = recoveryIdentifier)]
   pub recovery_identifier: Identifier,
   pub installations: Vec<Installation>,
-  #[wasm_bindgen(js_name = accountIdentifiers)]
   pub account_identifiers: Vec<Identifier>,
-}
-
-#[wasm_bindgen]
-impl InboxState {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
-    #[wasm_bindgen(js_name = recoveryIdentifier)] recovery_identifier: Identifier,
-    installations: Vec<Installation>,
-    #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
-  ) -> Self {
-    Self {
-      inbox_id,
-      recovery_identifier,
-      installations,
-      account_identifiers,
-    }
-  }
 }
 
 impl From<AssociationState> for InboxState {
@@ -77,7 +47,7 @@ impl From<AssociationState> for InboxState {
         .into_iter()
         .filter_map(|m| match m.identifier {
           MemberIdentifier::Installation(ident::Installation(key)) => Some(Installation {
-            bytes: Uint8Array::from(key.as_slice()),
+            bytes: key.to_vec(),
             client_timestamp_ns: m.client_timestamp_ns,
             id: hex::encode(key),
           }),
@@ -89,22 +59,23 @@ impl From<AssociationState> for InboxState {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct KeyPackageStatus {
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub lifetime: Option<Lifetime>,
-  #[wasm_bindgen(js_name = validationError)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub validation_error: Option<String>,
 }
 
-#[wasm_bindgen]
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
 #[serde(rename_all = "camelCase")]
 pub struct Lifetime {
-  #[wasm_bindgen(js_name = notBefore)]
   pub not_before: u64,
-  #[wasm_bindgen(js_name = notAfter)]
   pub not_after: u64,
 }
 

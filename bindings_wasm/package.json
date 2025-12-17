@@ -29,6 +29,7 @@
     "build:web": "RUSTFLAGS=\"-Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend=\\\"wasm_js\\\"\" wasm-pack build --target web --out-dir ./dist --no-pack --release",
     "build:test": "RUSTFLAGS=\"-Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend=\\\"wasm_js\\\"\" wasm-pack build --no-opt --target web --out-dir ./dist --no-pack --release -- --features test-utils",
     "build:web:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang RUSTFLAGS=\"-Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend=\\\"wasm_js\\\"\" wasm-pack build --target web --out-dir ./dist --no-pack --release",
+    "build:test:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang RUSTFLAGS=\"-Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend=\\\"wasm_js\\\"\" wasm-pack build --no-opt --target web --out-dir ./dist --no-pack --release -- --features test-utils",
     "check": "cargo check --target wasm32-unknown-unknown",
     "check:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo check --target wasm32-unknown-unknown",
     "clean": "rm -rf ./dist",

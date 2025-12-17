@@ -1,4 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tsify::Tsify;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_mls::{
   groups::{
@@ -13,15 +15,18 @@ use xmtp_mls::{
   mls_common::group_mutable_metadata::MetadataField as XmtpMetadataField,
 };
 
-#[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub enum GroupPermissionsOptions {
   Default,
   AdminOnly,
   CustomPolicy,
 }
 
-#[wasm_bindgen]
+#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub enum PermissionUpdateType {
   AddMember,
   RemoveMember,
@@ -42,8 +47,9 @@ impl From<&PermissionUpdateType> for XmtpPermissionUpdateType {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub enum PermissionPolicy {
   Allow,
   Deny,
@@ -153,54 +159,18 @@ impl TryInto<MembershipPolicies> for PermissionPolicy {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct PermissionPolicySet {
-  #[wasm_bindgen(js_name = addMemberPolicy)]
   pub add_member_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = removeMemberPolicy)]
   pub remove_member_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = addAdminPolicy)]
   pub add_admin_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = removeAdminPolicy)]
   pub remove_admin_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = updateGroupNamePolicy)]
   pub update_group_name_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = updateGroupDescriptionPolicy)]
   pub update_group_description_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = updateGroupImageUrlSquarePolicy)]
   pub update_group_image_url_square_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = updateMessageDisappearingPolicy)]
   pub update_message_disappearing_policy: PermissionPolicy,
-}
-
-#[wasm_bindgen]
-impl PermissionPolicySet {
-  #[wasm_bindgen(constructor)]
-  #[allow(clippy::too_many_arguments)]
-  pub fn new(
-    #[wasm_bindgen(js_name = addMemberPolicy)] add_member_policy: PermissionPolicy,
-    #[wasm_bindgen(js_name = removeMemberPolicy)] remove_member_policy: PermissionPolicy,
-    #[wasm_bindgen(js_name = addAdminPolicy)] add_admin_policy: PermissionPolicy,
-    #[wasm_bindgen(js_name = removeAdminPolicy)] remove_admin_policy: PermissionPolicy,
-    #[wasm_bindgen(js_name = updateGroupNamePolicy)] update_group_name_policy: PermissionPolicy,
-    #[wasm_bindgen(js_name = updateGroupDescriptionPolicy)]
-    update_group_description_policy: PermissionPolicy,
-    #[wasm_bindgen(js_name = updateGroupImageUrlSquarePolicy)] update_group_image_url_square_policy: PermissionPolicy,
-    #[wasm_bindgen(js_name = updateMessageDisappearingPolicy)]
-    update_message_disappearing_policy: PermissionPolicy,
-  ) -> Self {
-    Self {
-      add_member_policy,
-      remove_member_policy,
-      add_admin_policy,
-      remove_admin_policy,
-      update_group_name_policy,
-      update_group_description_policy,
-      update_group_image_url_square_policy,
-      update_message_disappearing_policy,
-    }
-  }
 }
 
 impl From<PreconfiguredPolicies> for GroupPermissionsOptions {
@@ -212,31 +182,23 @@ impl From<PreconfiguredPolicies> for GroupPermissionsOptions {
   }
 }
 
-#[wasm_bindgen]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupPermissions {
-  inner: GroupMutablePermissions,
+  pub policy_type: GroupPermissionsOptions,
+  pub policy_set: PermissionPolicySet,
 }
 
-impl GroupPermissions {
-  pub fn new(permissions: GroupMutablePermissions) -> Self {
-    Self { inner: permissions }
-  }
-}
-
-#[wasm_bindgen]
-impl GroupPermissions {
-  #[wasm_bindgen(js_name = policyType)]
-  pub fn policy_type(&self) -> Result<GroupPermissionsOptions, JsError> {
-    if let Ok(preconfigured_policy) = self.inner.preconfigured_policy() {
-      Ok(preconfigured_policy.into())
+impl From<GroupMutablePermissions> for GroupPermissions {
+  fn from(permissions: GroupMutablePermissions) -> Self {
+    let policy_type = if let Ok(preconfigured_policy) = permissions.preconfigured_policy() {
+      preconfigured_policy.into()
     } else {
-      Ok(GroupPermissionsOptions::CustomPolicy)
-    }
-  }
+      GroupPermissionsOptions::CustomPolicy
+    };
 
-  #[wasm_bindgen(js_name = policySet)]
-  pub fn policy_set(&self) -> Result<PermissionPolicySet, JsError> {
-    let policy_set = &self.inner.policies;
+    let policy_set = &permissions.policies;
     let metadata_policy_map = &policy_set.update_metadata_policy;
     let get_policy = |field: &str| {
       metadata_policy_map
@@ -244,7 +206,8 @@ impl GroupPermissions {
         .map(PermissionPolicy::from)
         .unwrap_or(PermissionPolicy::DoesNotExist)
     };
-    Ok(PermissionPolicySet {
+
+    let policy_set = PermissionPolicySet {
       add_member_policy: PermissionPolicy::from(&policy_set.add_member_policy),
       remove_member_policy: PermissionPolicy::from(&policy_set.remove_member_policy),
       add_admin_policy: PermissionPolicy::from(&policy_set.add_admin_policy),
@@ -257,7 +220,12 @@ impl GroupPermissions {
       update_message_disappearing_policy: get_policy(
         XmtpMetadataField::MessageDisappearInNS.as_str(),
       ),
-    })
+    };
+
+    Self {
+      policy_type,
+      policy_set,
+    }
   }
 }
 
@@ -293,7 +261,9 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
   }
 }
 
-#[wasm_bindgen]
+#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub enum MetadataField {
   GroupName,
   Description,

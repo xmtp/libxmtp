@@ -1,4 +1,5 @@
-use wasm_bindgen::prelude::wasm_bindgen;
+use serde::{Deserialize, Serialize};
+use tsify::Tsify;
 use xmtp_db::group_message::ContentType as XmtpContentType;
 
 pub mod actions;
@@ -16,8 +17,9 @@ pub mod text;
 pub mod transaction_reference;
 pub mod wallet_send_calls;
 
-#[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub enum ContentType {
   Unknown,
   Text,
