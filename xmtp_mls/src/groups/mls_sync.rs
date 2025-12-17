@@ -497,23 +497,22 @@ where
 
                 Ok(Some(StoredGroupIntent {
                     state: IntentState::Error,
+                    kind,
                     ..
                 })) => {
                     log_event!(
                         Event::GroupSyncIntentErrored,
                         level = warn,
-                        group_id = ?hex::encode(&self.group_id),
-                        intent_id = intent_id,
-                        summary = ?summary
+                        group_id = ?hex::encode(&self.group_id), intent_id = intent_id,
+                        summary = ?summary, intent_kind = ?kind
                     );
                     return Err(GroupError::from(summary));
                 }
-                Ok(Some(StoredGroupIntent { state, .. })) => {
+                Ok(Some(StoredGroupIntent { state, kind, .. })) => {
                     log_event!(
                         Event::GroupSyncIntentRetry,
-                        level = warn,
-                        group_id = ?hex::encode(&self.group_id),
-                        intent_id = intent_id, state = ?state
+                        level = warn, group_id = ?hex::encode(&self.group_id),
+                        intent_id = intent_id, state = ?state, intent_kind = ?kind
                     );
                 }
                 Err(err) => {
@@ -2111,25 +2110,41 @@ where
                         );
 
                         let messages = self.prepare_group_messages(vec![(payload_slice, should_send_push_notification)])?;
-                        self.context
+                        let result = self.context
                             .api()
                             .send_group_messages(messages)
-                            .await?;
+                            .await;
 
-                        tracing::info!(
-                            intent.id,
-                            intent.kind = %intent.kind,
-                            inbox_id = self.context.inbox_id(),
-                            installation_id = %self.context.installation_id(),
-                            group_id = hex::encode(&self.group_id),
-                            "[{}] published intent [{}] of type [{}] with hash [{}]",
-                            self.context.inbox_id(),
-                            intent.id,
-                            intent.kind,
-                            hex::encode(sha256(payload_slice))
-                        );
+                        match (intent.kind, result) {
+                            (IntentKind::SendMessage, Ok(_)) => {
+                                log_event!(
+                                    Event::GroupSyncApplicationMessagePublishSuccess,
+                                    group_id = hex::encode(&intent.group_id),
+                                    intent_id = intent.id
+                                );
+                            }
+                            (kind, Err(err)) => {
+                                log_event!(
+                                    Event::GroupSyncPublishFailed,
+                                    group_id = hex::encode(&intent.group_id),
+                                    intent_id = intent.id,
+                                    intent_kind = ?kind,
+                                    err = ?err
+                                );
+                                return Err(err)?;
+                            }
+                            (kind, Ok(_)) => {
+                                log_event!(
+                                    Event::GroupSyncCommitPublishSuccess,
+                                    group_id = hex::encode(&intent.group_id),
+                                    intent_id = intent.id,
+                                    intent_kind = ?kind
+                                )
+                            }
+                        }
+
                         if has_staged_commit {
-                            tracing::info!("Commit sent. Stopping further publishes for this round");
+                            log_event!(Event::GroupSyncStagedCommitPresent, group_id = hex::encode(&intent.group_id));
                             return Ok(());
                         }
                     }
