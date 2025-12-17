@@ -191,7 +191,7 @@ where
                 // Update cursor for next batch
                 this.provider_state
                     .cursor
-                    .fetch_add(elements.len() as i64, Ordering::SeqCst);
+                    .fetch_add(R::BATCH_SIZE, Ordering::SeqCst);
                 Poll::Ready(Some(Ok(elements)))
             }
             Err(e) => {
