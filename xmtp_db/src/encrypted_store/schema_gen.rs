@@ -83,20 +83,20 @@ diesel::table! {
 }
 
 diesel::table! {
-    icebox (sequence_id, originator_id) {
-        sequence_id -> BigInt,
+    icebox (originator_id, sequence_id) {
         originator_id -> BigInt,
+        sequence_id -> BigInt,
         group_id -> Binary,
         envelope_payload -> Binary,
     }
 }
 
 diesel::table! {
-    icebox_dependencies (envelope_sequence_id, envelope_originator_id, dependency_sequence_id, dependency_originator_id) {
-        envelope_sequence_id -> BigInt,
+    icebox_dependencies (envelope_originator_id, envelope_sequence_id, dependency_originator_id, dependency_sequence_id) {
         envelope_originator_id -> BigInt,
-        dependency_sequence_id -> BigInt,
+        envelope_sequence_id -> BigInt,
         dependency_originator_id -> BigInt,
+        dependency_sequence_id -> BigInt,
     }
 }
 

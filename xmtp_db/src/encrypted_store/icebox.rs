@@ -331,7 +331,7 @@ mod tests {
     use super::*;
 
     fn create_test_group(conn: &impl crate::DbQuery) -> Vec<u8> {
-        let group_id = vec![1u8; 1];
+        let group_id = xmtp_common::rand_vec::<24>();
         let group = StoredGroup {
             id: group_id.clone(),
             created_at_ns: 0,
