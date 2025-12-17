@@ -3,6 +3,11 @@ pub use utils::*;
 
 #[xmtp_macro::build_logging_metadata]
 pub enum Event {
+    // ===================== General Client =====================
+    /// Client created
+    #[context(inbox_id, device_sync_enabled, disabled_workers)]
+    ClientCreated,
+
     // ===================== Group Operations =====================
     /// DM created.
     #[context(group_id, target_inbox_id)]
@@ -27,11 +32,17 @@ pub enum Event {
     /// Processed application message.
     #[context(group_id)]
     MLSProcessedApplicationMessage,
+    /// Group epoch updated.
+    #[context(group_id, cursor, epoch, previous_epoch)]
+    MLSGroupEpochUpdated,
 
     // ===================== Group Syncing =====================
     /// Begin syncing group.
     #[context(group_id)]
     GroupSyncStart,
+    /// Attempting to sync group.
+    #[context(group_id, attempt)]
+    GroupSyncAttempt,
     /// Group sync complete.
     #[context(group_id, summary, success)]
     GroupSyncFinished,
@@ -39,9 +50,32 @@ pub enum Event {
     #[context(group_id)]
     GroupSyncGroupInactive,
     /// Intent failed to sync but did not error. This can happen for a variety of reasons.
-    #[context(group_id, intent_id, state)]
+    #[context(group_id, intent_id, intent_kind, state)]
     GroupSyncIntentRetry,
     /// Intent was found to be in error after attempting to sync.
-    #[context(group_id, intent_id, summary)]
+    #[context(group_id, intent_id, intent_kind, summary)]
     GroupSyncIntentErrored,
+    /// Attempt to publish intent failed.
+    #[context(group_id, intent_id, intent_kind, err)]
+    GroupSyncPublishFailed,
+    /// Application message published successfully.
+    #[context(group_id, intent_id)]
+    GroupSyncApplicationMessagePublishSuccess,
+    /// Commit published successfully.
+    #[context(group_id, intent_id, intent_kind, commit_hash)]
+    GroupSyncCommitPublishSuccess,
+    /// Commit sent. Staged commit is present. Stopping further publishes for this round.
+    #[context(group_id)]
+    GroupSyncStagedCommitPresent,
+    /// Updating group cursor.
+    #[context(group_id, cursor)]
+    GroupCursorUpdate,
+
+    // ===================== Group Membership =====================
+    /// Updating group membership. Calculating which installations need to be added / removed.
+    #[context(group_id, old_membership, new_membership)]
+    MembershipInstallationDiff,
+    /// Result: The following installations need to be added / removed.
+    #[context(group_id, added_installations, removed_installations)]
+    MembershipInstallationDiffComputed,
 }

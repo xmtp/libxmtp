@@ -353,7 +353,10 @@ where
         let mut summary = SyncSummary::default();
 
         if !self.is_active().map_err(SyncSummary::other)? {
-            log_event!(Event::GroupSyncGroupInactive, group_id = ?hex::encode(&self.group_id));
+            log_event!(
+                Event::GroupSyncGroupInactive,
+                group_id = hex::encode(&self.group_id)
+            );
             return Err(SyncSummary::other(GroupError::GroupInactive));
         }
 
@@ -436,7 +439,7 @@ where
     ) -> Result<SyncSummary, GroupError> {
         log_event!(
             Event::GroupSyncStart,
-            group_id = ?hex::encode(&self.group_id)
+            group_id = hex::encode(&self.group_id)
         );
 
         let result = self.sync_until_intent_resolved_inner(intent_id).await;
@@ -449,7 +452,7 @@ where
 
         log_event!(
             Event::GroupSyncFinished,
-            group_id = ?hex::encode(&self.group_id),
+            group_id = hex::encode(&self.group_id),
             summary = ?summary,
             success = result.is_ok()
         );
@@ -468,9 +471,14 @@ where
     ) -> Result<SyncSummary, GroupError> {
         let mut summary = SyncSummary::default();
         let db = self.context.db();
-        let mut num_attempts = 0;
+
         // Return the last error to the caller if we fail to sync
-        while num_attempts < xmtp_configuration::MAX_GROUP_SYNC_RETRIES {
+        for attempt in 0..xmtp_configuration::MAX_GROUP_SYNC_RETRIES {
+            log_event!(
+                Event::GroupSyncAttempt,
+                group_id = hex::encode(&self.group_id),
+                attempt
+            );
             match self.sync_with_conn().await {
                 Ok(s) => summary.extend(s),
                 Err(s) => {
@@ -497,23 +505,22 @@ where
 
                 Ok(Some(StoredGroupIntent {
                     state: IntentState::Error,
+                    kind,
                     ..
                 })) => {
                     log_event!(
                         Event::GroupSyncIntentErrored,
                         level = warn,
-                        group_id = ?hex::encode(&self.group_id),
-                        intent_id = intent_id,
-                        summary = ?summary
+                        group_id = hex::encode(&self.group_id), intent_id = intent_id,
+                        summary = ?summary, intent_kind = ?kind
                     );
                     return Err(GroupError::from(summary));
                 }
-                Ok(Some(StoredGroupIntent { state, .. })) => {
+                Ok(Some(StoredGroupIntent { state, kind, .. })) => {
                     log_event!(
                         Event::GroupSyncIntentRetry,
-                        level = warn,
-                        group_id = ?hex::encode(&self.group_id),
-                        intent_id = intent_id, state = ?state
+                        level = warn, group_id = ?hex::encode(&self.group_id),
+                        intent_id = intent_id, state = ?state, intent_kind = ?kind
                     );
                 }
                 Err(err) => {
@@ -521,7 +528,6 @@ where
                     summary.add_other(GroupError::Storage(err));
                 }
             };
-            num_attempts += 1;
         }
         Err(GroupError::SyncFailedToWait(Box::new(summary)))
     }
@@ -1005,12 +1011,12 @@ where
             )?;
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
-                tracing::info!(
-                    "[{}] externally processed message [{}] advanced epoch from [{}] to [{}]",
-                    self.context.inbox_id(),
-                    cursor,
-                    previous_epoch,
-                    new_epoch
+                log_event!(
+                    Event::MLSGroupEpochUpdated,
+                    group_id = hex::encode(&self.group_id),
+                    cursor = ?cursor,
+                    epoch = new_epoch,
+                    previous_epoch
                 );
             }
             Ok::<_, GroupMessageProcessingError>(identifier)
@@ -1910,14 +1916,13 @@ where
         db: &impl DbQuery,
         message: &xmtp_proto::types::GroupMessage,
     ) -> Result<bool, StorageError> {
-        tracing::info!(
-            "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
-            message.group_id,
-            message.cursor
-        );
         let updated = db.update_cursor(&message.group_id, message.entity_kind(), message.cursor)?;
         if updated {
-            tracing::debug!("cursor updated to [{}]", message.cursor);
+            log_event!(
+                Event::GroupCursorUpdate,
+                group_id = hex::encode(&message.group_id),
+                cursor = ?message.cursor
+            );
         } else {
             tracing::debug!("no cursor update required");
         }
@@ -2112,25 +2117,42 @@ where
                         );
 
                         let messages = self.prepare_group_messages(vec![(payload_slice, should_send_push_notification)])?;
-                        self.context
+                        let result = self.context
                             .api()
                             .send_group_messages(messages)
-                            .await?;
+                            .await;
 
-                        tracing::info!(
-                            intent.id,
-                            intent.kind = %intent.kind,
-                            inbox_id = self.context.inbox_id(),
-                            installation_id = %self.context.installation_id(),
-                            group_id = hex::encode(&self.group_id),
-                            "[{}] published intent [{}] of type [{}] with hash [{}]",
-                            self.context.inbox_id(),
-                            intent.id,
-                            intent.kind,
-                            hex::encode(sha256(payload_slice))
-                        );
+                        match (intent.kind, result) {
+                            (IntentKind::SendMessage, Ok(_)) => {
+                                log_event!(
+                                    Event::GroupSyncApplicationMessagePublishSuccess,
+                                    group_id = hex::encode(&intent.group_id),
+                                    intent_id = intent.id
+                                );
+                            }
+                            (kind, Err(err)) => {
+                                log_event!(
+                                    Event::GroupSyncPublishFailed,
+                                    group_id = hex::encode(&intent.group_id),
+                                    intent_id = intent.id,
+                                    intent_kind = ?kind,
+                                    err = ?err
+                                );
+                                return Err(err)?;
+                            }
+                            (kind, Ok(_)) => {
+                                log_event!(
+                                    Event::GroupSyncCommitPublishSuccess,
+                                    group_id = hex::encode(&intent.group_id),
+                                    intent_id = intent.id,
+                                    intent_kind = ?kind,
+                                    commit_hash = hex::encode(sha256(payload_slice))
+                                )
+                            }
+                        }
+
                         if has_staged_commit {
-                            tracing::info!("Commit sent. Stopping further publishes for this round");
+                            log_event!(Event::GroupSyncStagedCommitPresent, group_id = hex::encode(&intent.group_id));
                             return Ok(());
                         }
                     }
@@ -2459,6 +2481,7 @@ where
 
             let changes_with_kps = calculate_membership_changes_with_keypackages(
                 &self.context,
+                &self.group_id,
                 &new_membership,
                 &old_group_membership,
             )
@@ -2768,6 +2791,7 @@ fn extract_message_sender(
 
 async fn calculate_membership_changes_with_keypackages<'a>(
     context: &impl XmtpSharedContext,
+    group_id: &[u8],
     new_group_membership: &'a GroupMembership,
     old_group_membership: &'a GroupMembership,
 ) -> Result<MembershipDiffWithKeyPackages, GroupError> {
@@ -2777,6 +2801,7 @@ async fn calculate_membership_changes_with_keypackages<'a>(
     let mut installation_diff = identity
         .get_installation_diff(
             &context.db(),
+            group_id,
             old_group_membership,
             new_group_membership,
             &membership_diff,
