@@ -163,15 +163,16 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
         let parameters: &HashMap<String, String> = &encoded.parameters;
 
         let content_digest = get_param_or_default(parameters, "contentDigest").to_string();
-        let salt = hex::decode(get_param_or_default(parameters, "salt")).unwrap_or_else(|_| vec![]);
-        let nonce =
-            hex::decode(get_param_or_default(parameters, "nonce")).unwrap_or_else(|_| vec![]);
-        let secret =
-            hex::decode(get_param_or_default(parameters, "secret")).unwrap_or_else(|_| vec![]);
+        let salt = hex::decode(get_param_or_default(parameters, "salt"))
+            .map_err(|e| CodecError::Decode(format!("invalid hex in salt parameter: {e}")))?;
+        let nonce = hex::decode(get_param_or_default(parameters, "nonce"))
+            .map_err(|e| CodecError::Decode(format!("invalid hex in nonce parameter: {e}")))?;
+        let secret = hex::decode(get_param_or_default(parameters, "secret"))
+            .map_err(|e| CodecError::Decode(format!("invalid hex in secret parameter: {e}")))?;
         let scheme = get_param_or_default(parameters, "scheme").to_string();
         let content_length = get_param_or_default(parameters, "contentLength")
             .parse()
-            .unwrap_or(0);
+            .map_err(|e| CodecError::Decode(format!("invalid contentLength parameter: {e}")))?;
 
         let filename = parameters.get("filename").cloned();
 
@@ -350,5 +351,129 @@ pub(crate) mod tests {
 
         let result = decrypt_attachment(&encrypted.payload, &remote_attachment);
         assert!(result.is_err());
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn test_decode_with_invalid_salt_hex() {
+        let encoded = EncodedContent {
+            r#type: Some(RemoteAttachmentCodec::content_type()),
+            parameters: [
+                ("contentDigest", "abc123"),
+                ("salt", "not_valid_hex"),
+                ("nonce", "0a0b0c0d"),
+                ("secret", "0102030405060708"),
+                ("scheme", "https"),
+                ("contentLength", "100"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+            fallback: None,
+            compression: None,
+            content: b"https://example.com/file".to_vec(),
+        };
+
+        let result = RemoteAttachmentCodec::decode(encoded);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("invalid hex in salt")
+        );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn test_decode_with_invalid_nonce_hex() {
+        let encoded = EncodedContent {
+            r#type: Some(RemoteAttachmentCodec::content_type()),
+            parameters: [
+                ("contentDigest", "abc123"),
+                ("salt", "0a0b0c0d"),
+                ("nonce", "not_valid_hex"),
+                ("secret", "0102030405060708"),
+                ("scheme", "https"),
+                ("contentLength", "100"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+            fallback: None,
+            compression: None,
+            content: b"https://example.com/file".to_vec(),
+        };
+
+        let result = RemoteAttachmentCodec::decode(encoded);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("invalid hex in nonce")
+        );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn test_decode_with_invalid_secret_hex() {
+        let encoded = EncodedContent {
+            r#type: Some(RemoteAttachmentCodec::content_type()),
+            parameters: [
+                ("contentDigest", "abc123"),
+                ("salt", "0a0b0c0d"),
+                ("nonce", "0a0b0c0d"),
+                ("secret", "not_valid_hex"),
+                ("scheme", "https"),
+                ("contentLength", "100"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+            fallback: None,
+            compression: None,
+            content: b"https://example.com/file".to_vec(),
+        };
+
+        let result = RemoteAttachmentCodec::decode(encoded);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("invalid hex in secret")
+        );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn test_decode_with_invalid_content_length() {
+        let encoded = EncodedContent {
+            r#type: Some(RemoteAttachmentCodec::content_type()),
+            parameters: [
+                ("contentDigest", "abc123"),
+                ("salt", "0a0b0c0d"),
+                ("nonce", "0a0b0c0d"),
+                ("secret", "0102030405060708"),
+                ("scheme", "https"),
+                ("contentLength", "not_a_number"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+            fallback: None,
+            compression: None,
+            content: b"https://example.com/file".to_vec(),
+        };
+
+        let result = RemoteAttachmentCodec::decode(encoded);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("invalid contentLength")
+        );
     }
 }
