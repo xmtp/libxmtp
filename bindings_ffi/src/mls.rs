@@ -98,8 +98,8 @@ use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
-use xmtp_proto::types::ApiIdentifier;
 use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{ApiIdentifier, GroupMessageMetadata};
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
@@ -209,6 +209,47 @@ pub async fn inbox_state_from_inbox_ids(
     });
 
     try_join_all(mapped_futures).await
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiMessageMetadata {
+    pub cursor: FfiCursor,
+    pub created_ns: i64,
+}
+
+impl TryFrom<GroupMessageMetadata> for FfiMessageMetadata {
+    type Error = GenericError;
+
+    fn try_from(metadata: GroupMessageMetadata) -> Result<Self, Self::Error> {
+        Ok(FfiMessageMetadata {
+            cursor: metadata.cursor.into(),
+            created_ns: metadata.created_ns.timestamp_nanos_opt().ok_or_else(|| {
+                GenericError::Generic {
+                    err: "Received a timestamp from the server more than 584 years from 1970"
+                        .to_string(),
+                }
+            })?,
+        })
+    }
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn get_newest_message_metadata(
+    api: Arc<XmtpApiClient>,
+    group_ids: Vec<Vec<u8>>,
+) -> Result<HashMap<Vec<u8>, FfiMessageMetadata>, GenericError> {
+    let backend = MessageBackendBuilder::default().from_bundle(api.0.clone())?;
+    let api: ApiClientWrapper<xmtp_mls::XmtpApiClient> =
+        ApiClientWrapper::new(backend, strategies::exponential_cooldown());
+
+    let group_id_refs: Vec<&[u8]> = group_ids.iter().map(|id| id.as_slice()).collect();
+
+    let metadata = api.get_newest_message_metadata(group_id_refs).await?;
+
+    metadata
+        .into_iter()
+        .map(|(k, v)| Ok((k.to_vec(), FfiMessageMetadata::try_from(v)?)))
+        .collect()
 }
 
 /**
