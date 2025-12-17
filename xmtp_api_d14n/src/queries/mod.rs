@@ -5,7 +5,7 @@ mod client_bundle;
 mod combinators;
 mod combined;
 mod d14n;
-mod stream;
+pub mod stream;
 mod v3;
 
 pub use api_stats::*;

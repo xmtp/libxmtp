@@ -366,6 +366,7 @@ pub struct FfiDecodedMessageMetadata {
     pub content_type: FfiContentTypeId,
     pub conversation_id: Vec<u8>,
     pub inserted_at_ns: i64,
+    pub expires_at_ns: Option<i64>,
 }
 
 #[derive(uniffi::Enum, Clone, Debug)]
@@ -1022,6 +1023,7 @@ impl From<DecodedMessageMetadata> for FfiDecodedMessageMetadata {
             sender_inbox_id: metadata.sender_inbox_id,
             content_type: metadata.content_type.into(),
             inserted_at_ns: metadata.inserted_at_ns,
+            expires_at_ns: metadata.expires_at_ns,
         }
     }
 }
@@ -1184,6 +1186,7 @@ pub struct FfiDecodedMessage {
     delivery_status: FfiDeliveryStatus,
     num_replies: u64,
     inserted_at_ns: i64,
+    expires_at_ns: Option<i64>,
 }
 
 #[uniffi::export]
@@ -1249,6 +1252,10 @@ impl FfiDecodedMessage {
     pub fn inserted_at_ns(&self) -> i64 {
         self.inserted_at_ns
     }
+
+    pub fn expires_at_ns(&self) -> Option<i64> {
+        self.expires_at_ns
+    }
 }
 
 impl From<DecodedMessage> for FfiDecodedMessage {
@@ -1277,6 +1284,7 @@ impl From<DecodedMessage> for FfiDecodedMessage {
                 .collect(),
             num_replies: item.num_replies as u64,
             inserted_at_ns: metadata.inserted_at_ns,
+            expires_at_ns: metadata.expires_at_ns,
         }
     }
 }

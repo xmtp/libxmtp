@@ -782,6 +782,8 @@ mock! {
             &self,
             orphans: Vec<OrphanedEnvelope>,
         ) -> Result<usize, crate::ConnectionError>;
+
+        fn prune_icebox(&self) -> Result<usize, crate::ConnectionError>;
     }
 
     impl crate::migrations::QueryMigrations for DbQuery {
