@@ -86,6 +86,11 @@ pub trait QueryIcebox {
 
     /// cache the orphans until its parent(s) may be found.
     fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError>;
+
+    /// Removes icebox entries that have been processed according to refresh_state.
+    /// Deletes entries where the refresh_state cursor for the group is at or beyond
+    /// the icebox entry's sequence_id, indicating the envelope has been processed.
+    fn prune_icebox(&self) -> Result<usize, crate::ConnectionError>;
 }
 
 impl<T> QueryIcebox for &T
@@ -108,6 +113,10 @@ where
 
     fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError> {
         (**self).ice(orphans)
+    }
+
+    fn prune_icebox(&self) -> Result<usize, crate::ConnectionError> {
+        (**self).prune_icebox()
     }
 }
 
@@ -316,6 +325,33 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
 
                 Ok(total)
             })
+        })
+    }
+
+    fn prune_icebox(&self) -> Result<usize, crate::ConnectionError> {
+        use super::refresh_state::EntityKind;
+        use super::schema::{icebox, refresh_state};
+
+        self.raw_query_write(|conn| {
+            diesel::delete(
+                icebox::table.filter(diesel::dsl::exists(
+                    refresh_state::table
+                        .filter(refresh_state::entity_id.eq(icebox::group_id))
+                        .filter(
+                            refresh_state::originator_id
+                                .cast::<diesel::sql_types::BigInt>()
+                                .eq(icebox::originator_id),
+                        )
+                        .filter(refresh_state::sequence_id.ge(icebox::sequence_id))
+                        .filter(
+                            refresh_state::entity_kind.eq_any(&[
+                                EntityKind::ApplicationMessage,
+                                EntityKind::CommitMessage,
+                            ]),
+                        ),
+                )),
+            )
+            .execute(conn)
         })
     }
 }
@@ -626,6 +662,209 @@ mod tests {
             assert_eq!(result.len(), 1);
             assert_eq!(result[0].cursor, Cursor::new(41, 1u32));
             assert_eq!(result[0].depends_on, Cursor::new(40, 1u32).into());
+        })
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_prune_icebox() {
+        use crate::StoreOrIgnore;
+        use crate::encrypted_store::refresh_state::{EntityKind, RefreshState};
+
+        with_connection(|conn| {
+            let group_id = create_test_group(conn);
+
+            let orphans = vec![
+                OrphanedEnvelope::builder()
+                    .cursor(Cursor::new(10, 1u32))
+                    .depending_on(Cursor::new(9, 1u32))
+                    .payload(vec![1, 2, 3])
+                    .group_id(group_id.clone())
+                    .build()
+                    .unwrap(),
+                OrphanedEnvelope::builder()
+                    .cursor(Cursor::new(20, 1u32))
+                    .depending_on(Cursor::new(19, 1u32))
+                    .payload(vec![4, 5, 6])
+                    .group_id(group_id.clone())
+                    .build()
+                    .unwrap(),
+                OrphanedEnvelope::builder()
+                    .cursor(Cursor::new(30, 1u32))
+                    .depending_on(Cursor::new(29, 1u32))
+                    .payload(vec![7, 8, 9])
+                    .group_id(group_id.clone())
+                    .build()
+                    .unwrap(),
+                OrphanedEnvelope::builder()
+                    .cursor(Cursor::new(10, 10u32))
+                    .depending_on(Cursor::new(1, 1u32))
+                    .payload(vec![1, 2, 3])
+                    .group_id(group_id.clone())
+                    .build()
+                    .unwrap(),
+            ];
+            conn.ice(orphans)?;
+
+            RefreshState {
+                entity_id: group_id.clone(),
+                entity_kind: EntityKind::ApplicationMessage,
+                sequence_id: 20,
+                originator_id: 1,
+            }
+            .store_or_ignore(conn)?;
+
+            let deleted = conn.prune_icebox()?;
+            assert_eq!(
+                deleted, 2,
+                "Should delete entries with sequence_id 10 and 20"
+            );
+
+            // Verify entry 30 remains
+            let mut remaining: Vec<Icebox> = conn.raw_query_read(|conn| {
+                dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn)
+            })?;
+            remaining.sort_by_key(|e| e.originator_id);
+
+            assert_eq!(remaining.len(), 2, "Should have 2 entries remaining");
+            assert_eq!(remaining[0].sequence_id, 30);
+            assert_eq!(remaining[0].originator_id, 1);
+            assert_eq!(remaining[1].sequence_id, 10);
+            assert_eq!(remaining[1].originator_id, 10);
+        })
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_prune_icebox_no_cleanup_when_cursor_lower() {
+        use crate::StoreOrIgnore;
+        use crate::encrypted_store::refresh_state::{EntityKind, RefreshState};
+
+        with_connection(|conn| {
+            let group_id = create_test_group(conn);
+
+            let orphans = vec![
+                OrphanedEnvelope::builder()
+                    .cursor(Cursor::new(50, 1u32))
+                    .depending_on(Cursor::new(49, 1u32))
+                    .payload(vec![1, 2, 3])
+                    .group_id(group_id.clone())
+                    .build()
+                    .unwrap(),
+                OrphanedEnvelope::builder()
+                    .cursor(Cursor::new(60, 1u32))
+                    .depending_on(Cursor::new(59, 1u32))
+                    .payload(vec![4, 5, 6])
+                    .group_id(group_id.clone())
+                    .build()
+                    .unwrap(),
+            ];
+            conn.ice(orphans)?;
+
+            RefreshState {
+                entity_id: group_id.clone(),
+                entity_kind: EntityKind::ApplicationMessage,
+                sequence_id: 40,
+                originator_id: 1,
+            }
+            .store_or_ignore(conn)?;
+
+            let deleted = conn.prune_icebox()?;
+            assert_eq!(deleted, 0, "Should not delete any entries");
+
+            let remaining: Vec<Icebox> = conn.raw_query_read(|conn| {
+                dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn)
+            })?;
+            assert_eq!(remaining.len(), 2);
+        })
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_prune_icebox_only_relevant_entity_kinds() {
+        use crate::StoreOrIgnore;
+        use crate::encrypted_store::refresh_state::{EntityKind, RefreshState};
+
+        with_connection(|conn| {
+            let group_id = create_test_group(conn);
+
+            let orphans = vec![
+                OrphanedEnvelope::builder()
+                    .cursor(Cursor::new(10, 1u32))
+                    .depending_on(Cursor::new(9, 1u32))
+                    .payload(vec![1, 2, 3])
+                    .group_id(group_id.clone())
+                    .build()
+                    .unwrap(),
+            ];
+            conn.ice(orphans)?;
+
+            RefreshState {
+                entity_id: group_id.clone(),
+                entity_kind: EntityKind::Welcome,
+                sequence_id: 100,
+                originator_id: 1,
+            }
+            .store_or_ignore(conn)?;
+
+            let deleted = conn.prune_icebox()?;
+            assert_eq!(deleted, 0, "Should not delete due to wrong entity_kind");
+
+            let remaining: Vec<Icebox> = conn.raw_query_read(|conn| {
+                dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn)
+            })?;
+            assert_eq!(remaining.len(), 1);
+        })
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_prune_icebox_dependencies_cascade_deleted() {
+        use crate::StoreOrIgnore;
+        use crate::encrypted_store::refresh_state::{EntityKind, RefreshState};
+
+        with_connection(|conn| {
+            let group_id = create_test_group(conn);
+
+            let orphans = vec![
+                OrphanedEnvelope::builder()
+                    .cursor(Cursor::new(10, 1u32))
+                    .depending_on(Cursor::new(9, 1u32))
+                    .payload(vec![1, 2, 3])
+                    .group_id(group_id.clone())
+                    .build()
+                    .unwrap(),
+            ];
+            conn.ice(orphans)?;
+
+            use crate::schema::icebox_dependencies::dsl as dep_dsl;
+            let deps: Vec<IceboxDependency> = conn.raw_query_read(|conn| {
+                icebox_dependencies::table
+                    .filter(dep_dsl::envelope_originator_id.eq(1))
+                    .filter(dep_dsl::envelope_sequence_id.eq(10))
+                    .load(conn)
+            })?;
+            assert_eq!(deps.len(), 1);
+
+            RefreshState {
+                entity_id: group_id.clone(),
+                entity_kind: EntityKind::ApplicationMessage,
+                sequence_id: 10,
+                originator_id: 1,
+            }
+            .store_or_ignore(conn)?;
+
+            let deleted = conn.prune_icebox()?;
+            assert_eq!(deleted, 1, "Should delete the icebox entry");
+
+            let remaining: Vec<Icebox> = conn.raw_query_read(|conn| {
+                dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn)
+            })?;
+            assert_eq!(remaining.len(), 0);
+
+            let deps: Vec<IceboxDependency> = conn.raw_query_read(|conn| {
+                icebox_dependencies::table
+                    .filter(dep_dsl::envelope_originator_id.eq(1))
+                    .filter(dep_dsl::envelope_sequence_id.eq(10))
+                    .load(conn)
+            })?;
+            assert_eq!(deps.len(), 0, "Dependencies should be cascade deleted");
         })
     }
 }
