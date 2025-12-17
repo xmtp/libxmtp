@@ -2301,17 +2301,15 @@ pub fn filter_inbox_ids_needing_updates<'a>(
 
     let needs_update = filters
         .iter()
-        .filter_map(|filter| {
-            let existing_sequence_id = existing_sequence_ids.get(filter.0);
-            if let Some(sequence_id) = existing_sequence_id
-                && sequence_id.ge(&filter.1)
-            {
+        .filter_map(|&(inbox_id, seq)| {
+            let existing_sequence_id = existing_sequence_ids.get(inbox_id);
+            if existing_sequence_id.is_some_and(|&s| s >= seq) {
                 return None;
             }
 
-            Some(filter.0)
+            Some(inbox_id)
         })
-        .collect::<Vec<&str>>();
+        .collect();
     Ok(needs_update)
 }
 

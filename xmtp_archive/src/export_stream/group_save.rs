@@ -16,11 +16,7 @@ use xmtp_proto::xmtp::device_sync::{
 impl BackupRecordProvider for GroupSave {
     const BATCH_SIZE: i64 = 100;
     async fn backup_records<D>(
-        db: Arc<D>,
-        start_ns: Option<i64>,
-        end_ns: Option<i64>,
-        _exclude_disappearing_messages: bool,
-        cursor: i64,
+        state: Arc<BackupProviderState<D>>,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
         Self: Sized,
@@ -28,17 +24,18 @@ impl BackupRecordProvider for GroupSave {
     {
         let mut args = GroupQueryArgs::default();
 
-        if let Some(start_ns) = start_ns {
+        if let Some(start_ns) = state.opts.start_ns {
             args.created_after_ns = Some(start_ns);
         }
-        if let Some(end_ns) = end_ns {
+        if let Some(end_ns) = state.opts.end_ns {
             args.created_before_ns = Some(end_ns);
         }
 
         args.limit = Some(Self::BATCH_SIZE);
 
-        let batch = db.find_groups_by_id_paged(args, cursor)?;
-        let storage = SqlKeyStore::new(db);
+        let cursor = state.cursor.load(Ordering::SeqCst);
+        let batch = state.db.find_groups_by_id_paged(args, cursor)?;
+        let storage = SqlKeyStore::new(&state.db);
         let records = batch
             .into_iter()
             .filter_map(|record| {
