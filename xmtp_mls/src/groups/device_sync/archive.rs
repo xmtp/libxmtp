@@ -289,6 +289,7 @@ mod tests {
         };
         let export = {
             let mut file = vec![];
+
             let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
             exporter.read_to_end(&mut file).await?;
             file
