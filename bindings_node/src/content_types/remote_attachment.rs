@@ -169,7 +169,7 @@ pub fn decrypt_attachment(
   encrypted_bytes: Uint8Array,
   remote_attachment: RemoteAttachment,
 ) -> Result<Attachment> {
-  let decrypted = xmtp_decrypt_attachment(&encrypted_bytes.to_vec(), &remote_attachment.into())
+  let decrypted = xmtp_decrypt_attachment(&encrypted_bytes, &remote_attachment.into())
     .map_err(ErrorWrapper::from)?;
   Ok(decrypted.into())
 }
