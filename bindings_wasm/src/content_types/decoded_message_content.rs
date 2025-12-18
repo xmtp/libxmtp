@@ -5,8 +5,9 @@ use xmtp_mls::messages::decoded_message::MessageBody;
 
 use super::{
   actions::Actions, attachment::Attachment, group_updated::GroupUpdated, intent::Intent,
-  leave_request::LeaveRequest, multi_remote_attachment::MultiRemoteAttachment, reaction::Reaction,
-  read_receipt::ReadReceipt, remote_attachment::RemoteAttachment, reply::EnrichedReply,
+  leave_request::LeaveRequest, markdown::MarkdownContent,
+  multi_remote_attachment::MultiRemoteAttachment, reaction::Reaction, read_receipt::ReadReceipt,
+  remote_attachment::RemoteAttachment, reply::EnrichedReply,
   transaction_reference::TransactionReference, wallet_send_calls::WalletSendCalls,
 };
 use crate::encoded_content::EncodedContent;
@@ -16,6 +17,7 @@ use crate::encoded_content::EncodedContent;
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum DecodedMessageContent {
   Text { content: String },
+  Markdown { content: MarkdownContent },
   Reply { content: Box<EnrichedReply> },
   Reaction { content: Reaction },
   Attachment { content: Attachment },
@@ -37,6 +39,7 @@ impl TryFrom<MessageBody> for DecodedMessageContent {
   fn try_from(body: MessageBody) -> Result<Self, Self::Error> {
     match body {
       MessageBody::Text(t) => Ok(DecodedMessageContent::Text { content: t.content }),
+      MessageBody::Markdown(m) => Ok(DecodedMessageContent::Markdown { content: m.into() }),
       MessageBody::Reply(r) => Ok(DecodedMessageContent::Reply {
         content: Box::new(r.try_into()?),
       }),

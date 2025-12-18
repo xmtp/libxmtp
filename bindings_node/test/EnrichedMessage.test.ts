@@ -125,6 +125,31 @@ describe.concurrent('EnrichedMessage', () => {
       })
     })
 
+    describe('Markdown', () => {
+      it('should send and receive a markdown message', async () => {
+        const { client1, conversation, conversation2 } =
+          await setupConversation()
+
+        const messageId = await conversation.sendMarkdown('# Hello, world!')
+        expect(messageId).toBeDefined()
+
+        await conversation2.sync()
+
+        const messages = await conversation2.findEnrichedMessages()
+        const markdownMessage = messages.find((m) => m.id === messageId)
+        expect(markdownMessage).toBeDefined()
+        expect(markdownMessage!.content.type).toBe(
+          DecodedMessageContentType.Markdown
+        )
+        expect(markdownMessage!.content.markdown).toBe('# Hello, world!')
+        expect(markdownMessage!.senderInboxId).toBe(client1.inboxId())
+        expect(markdownMessage!.contentType?.authorityId).toBe('xmtp.org')
+        expect(markdownMessage!.contentType?.typeId).toBe('markdown')
+        // Markdown has no fallback (napi-rs returns null for Option::None)
+        expect(markdownMessage!.fallback).toBeNull()
+      })
+    })
+
     describe('Reaction', () => {
       it('should send and receive reaction with Added action', async () => {
         const { client1, conversation, conversation2 } =

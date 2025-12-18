@@ -20,6 +20,7 @@ use crate::encoded_content::EncodedContent;
 #[derive(Clone, PartialEq)]
 pub enum DecodedMessageContentType {
   Text,
+  Markdown,
   Reply,
   Reaction,
   Attachment,
@@ -38,6 +39,7 @@ pub enum DecodedMessageContentType {
 #[derive(Clone)]
 pub enum DecodedMessageContentInner {
   Text(String),
+  Markdown(String),
   Reply(EnrichedReply),
   Reaction(Reaction),
   Attachment(Attachment),
@@ -65,6 +67,7 @@ impl DecodedMessageContent {
   pub fn content_type(&self) -> DecodedMessageContentType {
     match &self.inner {
       DecodedMessageContentInner::Text(_) => DecodedMessageContentType::Text,
+      DecodedMessageContentInner::Markdown(_) => DecodedMessageContentType::Markdown,
       DecodedMessageContentInner::Reply(_) => DecodedMessageContentType::Reply,
       DecodedMessageContentInner::Reaction(_) => DecodedMessageContentType::Reaction,
       DecodedMessageContentInner::Attachment(_) => DecodedMessageContentType::Attachment,
@@ -91,6 +94,14 @@ impl DecodedMessageContent {
   pub fn text(&self) -> Option<String> {
     match &self.inner {
       DecodedMessageContentInner::Text(t) => Some(t.clone()),
+      _ => None,
+    }
+  }
+
+  #[napi(getter)]
+  pub fn markdown(&self) -> Option<String> {
+    match &self.inner {
+      DecodedMessageContentInner::Markdown(m) => Some(m.clone()),
       _ => None,
     }
   }
@@ -206,6 +217,7 @@ impl TryFrom<MessageBody> for DecodedMessageContent {
   fn try_from(body: MessageBody) -> Result<Self> {
     let inner = match body {
       MessageBody::Text(t) => DecodedMessageContentInner::Text(t.content),
+      MessageBody::Markdown(m) => DecodedMessageContentInner::Markdown(m.content),
       MessageBody::Reply(r) => DecodedMessageContentInner::Reply(r.into()),
       MessageBody::Reaction(r) => DecodedMessageContentInner::Reaction(r.into()),
       MessageBody::Attachment(a) => DecodedMessageContentInner::Attachment(a.into()),
