@@ -13,7 +13,7 @@ use xmtp_content_types::{
 };
 use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
 use xmtp_mls::messages::decoded_message::{
-    DecodedMessage, DecodedMessageMetadata, MessageBody, Reply as ProcessedReply, Text,
+    DecodedMessage, DecodedMessageMetadata, Markdown, MessageBody, Reply as ProcessedReply, Text,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent, GroupUpdated, group_updated::MetadataFieldChange,
@@ -42,6 +42,7 @@ pub struct FfiEnrichedReply {
 #[derive(uniffi::Enum, Clone, Debug)]
 pub enum FfiDecodedMessageBody {
     Text(FfiTextContent),
+    Markdown(FfiMarkdownContent),
     Reaction(FfiReactionPayload),
     Attachment(FfiAttachment),
     RemoteAttachment(FfiRemoteAttachment),
@@ -56,9 +57,15 @@ pub enum FfiDecodedMessageBody {
     Custom(FfiEncodedContent),
 }
 
-// Wrap text content in a struct to be consident with other content types
+// Wrap text content in a struct to be consistent with other content types
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiTextContent {
+    pub content: String,
+}
+
+// Wrap markdown content in a struct to be consistent with other content types
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiMarkdownContent {
     pub content: String,
 }
 
@@ -372,6 +379,7 @@ pub struct FfiDecodedMessageMetadata {
 #[derive(uniffi::Enum, Clone, Debug)]
 pub enum FfiDecodedMessageContent {
     Text(FfiTextContent),
+    Markdown(FfiMarkdownContent),
     Reply(FfiEnrichedReply),
     Reaction(FfiReactionPayload),
     Attachment(FfiAttachment),
@@ -393,6 +401,14 @@ impl From<Text> for FfiTextContent {
     fn from(text: Text) -> Self {
         FfiTextContent {
             content: text.content,
+        }
+    }
+}
+
+impl From<Markdown> for FfiMarkdownContent {
+    fn from(markdown: Markdown) -> Self {
+        FfiMarkdownContent {
+            content: markdown.content,
         }
     }
 }
@@ -1034,6 +1050,7 @@ impl From<MessageBody> for FfiDecodedMessageContent {
     fn from(content: MessageBody) -> Self {
         match content {
             MessageBody::Text(text) => FfiDecodedMessageContent::Text(text.into()),
+            MessageBody::Markdown(markdown) => FfiDecodedMessageContent::Markdown(markdown.into()),
             MessageBody::Reply(reply) => FfiDecodedMessageContent::Reply(reply.into()),
             MessageBody::Reaction(reaction) => FfiDecodedMessageContent::Reaction(reaction.into()),
             MessageBody::Attachment(attachment) => {
@@ -1105,6 +1122,7 @@ impl From<MessageBody> for FfiDecodedMessageContent {
 pub fn content_to_optional_body(content: MessageBody) -> Option<FfiDecodedMessageBody> {
     match content {
         MessageBody::Text(text) => Some(FfiDecodedMessageBody::Text(text.into())),
+        MessageBody::Markdown(markdown) => Some(FfiDecodedMessageBody::Markdown(markdown.into())),
         MessageBody::Reply(_) => None,
         MessageBody::Reaction(reaction) => Some(FfiDecodedMessageBody::Reaction(reaction.into())),
         MessageBody::Attachment(attachment) => {
