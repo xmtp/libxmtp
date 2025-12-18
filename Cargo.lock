@@ -8774,12 +8774,15 @@ dependencies = [
 name = "xmtp_content_types"
 version = "1.7.0-rc1"
 dependencies = [
+ "aes-gcm",
  "base64 0.22.1",
  "chrono",
  "const-hex",
+ "hkdf",
  "prost",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.17",
  "tracing",
  "wasm-bindgen-test",
