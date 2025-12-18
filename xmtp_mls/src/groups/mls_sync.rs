@@ -1136,9 +1136,9 @@ where
                     }
                 }
             }
-            ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
+            ProcessedMessageContent::ProposalMessage(proposal) => {
+                mls_group.store_pending_proposal(storage, *proposal)?;
                 Ok(())
-                // intentionally left blank.
             }
             ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
                 Ok(())
