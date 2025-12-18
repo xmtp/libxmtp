@@ -940,22 +940,6 @@ class ClientTests: XCTestCase {
 		try alix.deleteLocalDatabase()
 	}
 
-	func testUploadArchiveDebugInformation() async throws {
-		let key = try Crypto.secureRandomBytes(count: 32)
-		let alixWallet = try PrivateKey.generate()
-		let alix = try await Client.create(
-			account: alixWallet,
-			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-				dbEncryptionKey: key
-			)
-		)
-
-		let uploadKey = try await alix.debugInformation.uploadDebugInformation()
-		XCTAssertFalse(uploadKey.isEmpty)
-		try alix.deleteLocalDatabase()
-	}
-
 	func testCanSeeKeyPackageStatus() async throws {
 		let fixtures = try await fixtures()
 		let api = ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure)
@@ -1307,6 +1291,35 @@ class ClientTests: XCTestCase {
 		try alix.deleteLocalDatabase()
 		try alix2.deleteLocalDatabase()
 		try alix3.deleteLocalDatabase()
+	}
+
+	func testGetNewestMessageMetadata() async throws {
+		let fixtures = try await fixtures()
+
+		// Create a group and send a message
+		let group = try await fixtures.alixClient.conversations.newGroup(
+			with: [fixtures.boClient.inboxID]
+		)
+		_ = try await group.send(content: "Hello from alix")
+
+		// Get the group ID as a hex string
+		let groupId = group.id
+
+		// Call the static method
+		let metadata = try await Client.getNewestMessageMetadata(
+			groupIds: [groupId],
+			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure)
+		)
+
+		// Verify we got metadata for our group
+		XCTAssertEqual(metadata.count, 1)
+		XCTAssertNotNil(metadata[groupId])
+
+		// Verify the metadata has expected properties
+		let groupMetadata = try XCTUnwrap(metadata[groupId])
+		XCTAssertGreaterThan(groupMetadata.createdNs, 0)
+
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testApiClientCacheKeysDifferentConfigurations() async throws {

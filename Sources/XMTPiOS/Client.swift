@@ -2,6 +2,7 @@ import Foundation
 import os
 
 public typealias PreEventCallback = () async throws -> Void
+public typealias MessageMetadata = FfiMessageMetadata
 
 public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 	case creationError(String)
@@ -408,7 +409,6 @@ public final class Client {
 			deviceSyncServerUrl: options.historySyncUrl,
 			deviceSyncMode: deviceSyncMode,
 			allowOffline: buildOffline,
-			disableEvents: options.debugEventsEnabled,
 			forkRecoveryOpts: options.forkRecoveryOptions?.toFfi()
 		)
 
@@ -632,7 +632,6 @@ public final class Client {
 			deviceSyncServerUrl: nil,
 			deviceSyncMode: nil,
 			allowOffline: false,
-			disableEvents: false,
 			forkRecoveryOpts: nil
 		)
 	}
@@ -679,6 +678,29 @@ public final class Client {
 			statusMap[keyHex] = status
 		}
 		return statusMap
+	}
+
+	public static func getNewestMessageMetadata(
+		groupIds: [String],
+		api: ClientOptions.Api
+	) async throws -> [String: MessageMetadata] {
+		let apiClient = try await connectToApiBackend(api: api)
+		let groupIdData = groupIds.map(\.hexToData)
+		let result: [Data: FfiMessageMetadata]
+		#if canImport(XMTPiOS)
+			result = try await XMTPiOS.getNewestMessageMetadata(
+				api: apiClient,
+				groupIds: groupIdData
+			)
+		#else
+			result = try await XMTP.getNewestMessageMetadata(
+				api: apiClient,
+				groupIds: groupIdData
+			)
+		#endif
+		return Dictionary(
+			uniqueKeysWithValues: result.map { ($0.key.toHex, $0.value) }
+		)
 	}
 
 	init(
