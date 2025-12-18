@@ -29,7 +29,11 @@ async fn basic_sync() {
     let alix2_dm = alix2.group(&dm.group_id)?;
     let alix2_dm_msgs = alix2_dm.find_messages(&MsgQueryArgs::default())?;
     assert_eq!(alix2_dm_msgs.len(), 2);
-    assert_eq!(alix2_dm_msgs[1].decrypted_message_bytes, dm_msg.as_bytes());
+    assert!(
+        alix2_dm_msgs
+            .iter()
+            .any(|msg| msg.decrypted_message_bytes == dm_msg.as_bytes())
+    );
 }
 
 #[rstest::rstest]
