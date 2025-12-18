@@ -813,7 +813,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             query = query.limit(limit);
         }
 
-        Ok(self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?)
+        self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))
     }
 
     /// Count group messages matching the given criteria

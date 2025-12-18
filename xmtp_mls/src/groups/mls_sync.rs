@@ -1985,15 +1985,19 @@ where
 
         self.handle_metadata_update_from_commit(&payload.metadata_field_changes, storage)?;
 
-        let msgs = self.find_messages_v2_with_conn(
-            &MsgQueryArgs {
-                content_types: Some(vec![ContentType::GroupUpdated]),
-                ..Default::default()
-            },
-            &storage.db(),
-        )?;
-        if msgs.iter().any(|m| m.is_duplicate(&payload)) {
-            return Ok(None);
+        if self.dm_id.is_some() {
+            // DMs are stitched, so we don't want to have the same
+            // group updates from multiple DMs being saved to the database.
+            let msgs = self.find_messages_v2_with_conn(
+                &MsgQueryArgs {
+                    content_types: Some(vec![ContentType::GroupUpdated]),
+                    ..Default::default()
+                },
+                storage.db(),
+            )?;
+            if msgs.iter().any(|m| m.is_duplicate(&payload)) {
+                return Ok(None);
+            }
         }
 
         let msg = StoredGroupMessage {
