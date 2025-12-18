@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use xmtp_common::{NS_IN_DAY, time::now_ns};
 use xmtp_content_types::{
-    attachment, group_updated, leave_request, membership_change, reaction, read_receipt,
+    attachment, group_updated, leave_request, markdown, membership_change, reaction, read_receipt,
     remote_attachment, reply, text, transaction_reference, wallet_send_calls,
 };
 use xmtp_proto::types::Cursor;
@@ -198,6 +198,7 @@ pub enum ContentType {
     TransactionReference = 9,
     WalletSendCalls = 10,
     LeaveRequest = 11,
+    Markdown = 12,
 }
 
 impl ContentType {
@@ -215,6 +216,7 @@ impl ContentType {
             ContentType::TransactionReference,
             ContentType::WalletSendCalls,
             ContentType::LeaveRequest,
+            ContentType::Markdown,
         ]
     }
 }
@@ -224,6 +226,7 @@ impl std::fmt::Display for ContentType {
         let as_string = match self {
             Self::Unknown => "unknown",
             Self::Text => text::TextCodec::TYPE_ID,
+            Self::Markdown => markdown::MarkdownCodec::TYPE_ID,
             Self::GroupMembershipChange => membership_change::GroupMembershipChangeCodec::TYPE_ID,
             Self::GroupUpdated => group_updated::GroupUpdatedCodec::TYPE_ID,
             Self::Reaction => reaction::ReactionCodec::TYPE_ID,
@@ -244,6 +247,7 @@ impl From<String> for ContentType {
     fn from(type_id: String) -> Self {
         match type_id.as_str() {
             text::TextCodec::TYPE_ID => Self::Text,
+            markdown::MarkdownCodec::TYPE_ID => Self::Markdown,
             membership_change::GroupMembershipChangeCodec::TYPE_ID => Self::GroupMembershipChange,
             group_updated::GroupUpdatedCodec::TYPE_ID => Self::GroupUpdated,
             reaction::ReactionCodec::TYPE_ID => Self::Reaction,
@@ -287,6 +291,7 @@ where
             9 => Ok(ContentType::TransactionReference),
             10 => Ok(ContentType::WalletSendCalls),
             11 => Ok(ContentType::LeaveRequest),
+            12 => Ok(ContentType::Markdown),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
