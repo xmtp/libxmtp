@@ -33,7 +33,13 @@ fn filter_out_hidden_message_types_from_query(query: &MsgQueryArgs) -> MsgQueryA
         DbContentType::DeleteMessage,
     ];
 
-    new_query.exclude_content_types = Some(hidden_message_types);
+    let mut exclusions = new_query.exclude_content_types.unwrap_or_default();
+    for content_type in hidden_message_types {
+        if !exclusions.contains(&content_type) {
+            exclusions.push(content_type);
+        }
+    }
+    new_query.exclude_content_types = Some(exclusions);
     new_query
 }
 

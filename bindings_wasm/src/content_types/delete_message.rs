@@ -1,6 +1,7 @@
 use crate::encoded_content::EncodedContent;
 use js_sys::Uint8Array;
 use prost::Message;
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::{ContentCodec, delete_message::DeleteMessageCodec};
 
@@ -58,7 +59,7 @@ pub fn decode_delete_message(encoded_content: EncodedContent) -> Result<DeleteMe
 }
 
 #[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DeletedMessage {
   #[wasm_bindgen(getter_with_clone, js_name = "deletedBy")]
   pub deleted_by: DeletedBy,
@@ -67,7 +68,7 @@ pub struct DeletedMessage {
 }
 
 #[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub enum DeletedBy {
   Sender,
   Admin,
