@@ -105,6 +105,18 @@ pub struct DecodedMessage {
     pub num_replies: usize,
 }
 
+impl DecodedMessage {
+    pub fn is_duplicate(&self, other: &GroupUpdated) -> bool {
+        let MessageBody::GroupUpdated(this) = &self.content else {
+            return false;
+        };
+
+        this.added_inboxes == other.added_inboxes
+            && this.removed_inboxes == other.removed_inboxes
+            && this.metadata_field_changes == other.metadata_field_changes
+    }
+}
+
 impl TryFrom<EncodedContent> for MessageBody {
     type Error = GroupError;
 

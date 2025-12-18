@@ -21,8 +21,7 @@ use diesel::{
     sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::hash::{DefaultHasher, Hash, Hasher};
+use std::collections::HashMap;
 use xmtp_common::{NS_IN_DAY, time::now_ns};
 use xmtp_content_types::{
     attachment, group_updated, leave_request, markdown, membership_change, reaction, read_receipt,
@@ -370,7 +369,7 @@ where
     }
 }
 
-#[derive(Default, Clone, Builder)]
+#[derive(Default, Clone, Builder, Debug)]
 #[builder(setter(into))]
 pub struct MsgQueryArgs {
     #[builder(default = None)]
@@ -778,15 +777,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         group_id: &[u8],
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
-        use crate::schema::{group_messages::dsl, groups::dsl as groups_dsl};
-
-        // Check if this is a DM group
-        let is_dm = self.raw_query_read(|conn| {
-            groups_dsl::groups
-                .filter(groups_dsl::id.eq(group_id))
-                .select(groups_dsl::conversation_type)
-                .first::<ConversationType>(conn)
-        })? == ConversationType::Dm;
+        use crate::schema::group_messages::dsl;
 
         // Start with base query
         let mut query = dsl::group_messages
@@ -822,55 +813,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             query = query.limit(limit);
         }
 
-        let messages = self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?;
-
-        // Mirroring previous behaviour, if you explicitly want duplicate group updates for DMs
-        // you can include that type in the content_types argument.
-        let include_duplicate_group_updated = args
-            .content_types
-            .as_ref()
-            .map(|types| types.contains(&ContentType::GroupUpdated))
-            .unwrap_or(false);
-
-        let messages = if is_dm && !include_duplicate_group_updated {
-            // For DM conversations, we need to de-dupe stitched group updated messages
-            let is_ascending = args
-                .direction
-                .as_ref()
-                .map(|d| matches!(d, SortDirection::Ascending))
-                .unwrap_or(true);
-            let mut messages = Box::new(messages.into_iter())
-                as Box<dyn DoubleEndedIterator<Item = StoredGroupMessage>>;
-            if !is_ascending {
-                messages = Box::new(messages.rev());
-            }
-
-            let mut update_msgs: HashSet<u64> = HashSet::default();
-            let messages = messages.filter_map(|msg| {
-                if !matches!(msg.content_type, ContentType::GroupUpdated) {
-                    return Some(msg);
-                }
-
-                let mut hasher = DefaultHasher::new();
-                msg.decrypted_message_bytes.hash(&mut hasher);
-                let hash: u64 = hasher.finish();
-
-                if update_msgs.insert(hash) {
-                    return Some(msg);
-                }
-                None
-            });
-
-            if is_ascending {
-                messages.collect()
-            } else {
-                messages.rev().collect()
-            }
-        } else {
-            messages
-        };
-
-        Ok(messages)
+        Ok(self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?)
     }
 
     /// Count group messages matching the given criteria
