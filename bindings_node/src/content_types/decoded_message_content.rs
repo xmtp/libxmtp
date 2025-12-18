@@ -4,6 +4,7 @@ use xmtp_mls::messages::decoded_message::MessageBody;
 
 use super::actions::Actions;
 use super::attachment::Attachment;
+use super::delete_message::DeletedMessage;
 use super::group_updated::GroupUpdated;
 use super::intent::Intent;
 use super::leave_request::LeaveRequest;
@@ -33,6 +34,7 @@ pub enum DecodedMessageContentType {
   WalletSendCalls,
   Intent,
   Actions,
+  DeletedMessage,
   Custom,
 }
 
@@ -52,6 +54,7 @@ pub enum DecodedMessageContentInner {
   WalletSendCalls(WalletSendCalls),
   Intent(Option<Intent>),
   Actions(Option<Actions>),
+  DeletedMessage(DeletedMessage),
   Custom(EncodedContent),
 }
 
@@ -86,6 +89,7 @@ impl DecodedMessageContent {
       DecodedMessageContentInner::WalletSendCalls(_) => DecodedMessageContentType::WalletSendCalls,
       DecodedMessageContentInner::Intent(_) => DecodedMessageContentType::Intent,
       DecodedMessageContentInner::Actions(_) => DecodedMessageContentType::Actions,
+      DecodedMessageContentInner::DeletedMessage(_) => DecodedMessageContentType::DeletedMessage,
       DecodedMessageContentInner::Custom(_) => DecodedMessageContentType::Custom,
     }
   }
@@ -203,6 +207,14 @@ impl DecodedMessageContent {
   }
 
   #[napi(getter)]
+  pub fn deleted_message(&self) -> Option<DeletedMessage> {
+    match &self.inner {
+      DecodedMessageContentInner::DeletedMessage(dm) => Some(dm.clone()),
+      _ => None,
+    }
+  }
+
+  #[napi(getter)]
   pub fn custom(&self) -> Option<EncodedContent> {
     match &self.inner {
       DecodedMessageContentInner::Custom(c) => Some(c.clone()),
@@ -243,6 +255,20 @@ impl TryFrom<MessageBody> for DecodedMessageContent {
           None => None,
         };
         DecodedMessageContentInner::Actions(actions)
+      }
+      MessageBody::DeleteMessage(_) => {
+        // DeleteMessage shouldn't appear in decoded messages for Node
+        // It's only used internally for deletion processing
+        DecodedMessageContentInner::Custom(EncodedContent {
+          r#type: None,
+          parameters: std::collections::HashMap::new(),
+          fallback: None,
+          compression: None,
+          content: vec![].into(),
+        })
+      }
+      MessageBody::DeletedMessage { deleted_by } => {
+        DecodedMessageContentInner::DeletedMessage(deleted_by.into())
       }
       MessageBody::Custom(c) => DecodedMessageContentInner::Custom(c.into()),
     };

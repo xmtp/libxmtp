@@ -24,8 +24,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use xmtp_common::{NS_IN_DAY, time::now_ns};
 use xmtp_content_types::{
-    attachment, delete_message, group_updated, leave_request, markdown, membership_change, reaction,
-    read_receipt, remote_attachment, reply, text, transaction_reference, wallet_send_calls,
+    attachment, delete_message, group_updated, leave_request, markdown, membership_change,
+    reaction, read_receipt, remote_attachment, reply, text, transaction_reference,
+    wallet_send_calls,
 };
 use xmtp_proto::types::Cursor;
 
@@ -251,6 +252,7 @@ impl Deletable for ContentType {
             | ContentType::DeleteMessage => false,
 
             ContentType::Text
+            | ContentType::Markdown
             | ContentType::Reply
             | ContentType::Attachment
             | ContentType::RemoteAttachment

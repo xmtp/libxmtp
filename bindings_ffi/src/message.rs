@@ -13,7 +13,8 @@ use xmtp_content_types::{
 };
 use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
 use xmtp_mls::messages::decoded_message::{
-    DecodedMessage, DecodedMessageMetadata, Markdown,DeletedBy, MessageBody, Reply as ProcessedReply, Text,
+    DecodedMessage, DecodedMessageMetadata, DeletedBy, Markdown, MessageBody,
+    Reply as ProcessedReply, Text,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent, GroupUpdated, group_updated::MetadataFieldChange,
