@@ -22,6 +22,7 @@ use xmtp_content_types::attachment::AttachmentCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_content_types::intent::{Intent, IntentCodec};
 use xmtp_content_types::leave_request::LeaveRequestCodec;
+use xmtp_content_types::markdown::MarkdownCodec;
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::read_receipt::ReadReceipt;
@@ -3207,6 +3208,27 @@ pub fn decode_text(bytes: Vec<u8>) -> Result<String, GenericError> {
         .map_err(|e| GenericError::Generic { err: e.to_string() })?;
 
     TextCodec::decode(encoded_content).map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
+#[uniffi::export]
+pub fn encode_markdown(text: String) -> Result<Vec<u8>, GenericError> {
+    let encoded =
+        MarkdownCodec::encode(text).map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_markdown(bytes: Vec<u8>) -> Result<String, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    MarkdownCodec::decode(encoded_content).map_err(|e| GenericError::Generic { err: e.to_string() })
 }
 
 #[uniffi::export]

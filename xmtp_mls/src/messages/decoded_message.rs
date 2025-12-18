@@ -15,6 +15,7 @@ use xmtp_content_types::wallet_send_calls::{WalletSendCalls, WalletSendCallsCode
 use xmtp_content_types::{CodecError, ContentCodec};
 use xmtp_content_types::{
     attachment::{Attachment, AttachmentCodec},
+    markdown::MarkdownCodec,
     read_receipt::ReadReceipt,
     remote_attachment::RemoteAttachment,
     text::TextCodec,
@@ -36,15 +37,22 @@ pub struct Reply {
     pub reference_id: String,
 }
 
-// Wrap text content in a struct to be consident with other content types
+// Wrap text content in a struct to be consistent with other content types
 #[derive(Debug, Clone)]
 pub struct Text {
+    pub content: String,
+}
+
+// Wrap markdown content in a struct to be consistent with other content types
+#[derive(Debug, Clone)]
+pub struct Markdown {
     pub content: String,
 }
 
 #[derive(Debug, Clone)]
 pub enum MessageBody {
     Text(Text),
+    Markdown(Markdown),
     Reply(Reply),
     Reaction(ReactionV2),
     Attachment(Attachment),
@@ -110,6 +118,10 @@ impl TryFrom<EncodedContent> for MessageBody {
             (TextCodec::TYPE_ID, TextCodec::MAJOR_VERSION) => {
                 let text = TextCodec::decode(value)?;
                 Ok(MessageBody::Text(Text { content: text }))
+            }
+            (MarkdownCodec::TYPE_ID, MarkdownCodec::MAJOR_VERSION) => {
+                let markdown = MarkdownCodec::decode(value)?;
+                Ok(MessageBody::Markdown(Markdown { content: markdown }))
             }
             (AttachmentCodec::TYPE_ID, AttachmentCodec::MAJOR_VERSION) => {
                 let attachment = AttachmentCodec::decode(value)?;

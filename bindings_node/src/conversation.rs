@@ -8,6 +8,7 @@ use xmtp_content_types::{
   actions::ActionsCodec,
   attachment::AttachmentCodec,
   intent::IntentCodec,
+  markdown::MarkdownCodec,
   multi_remote_attachment::MultiRemoteAttachmentCodec,
   reaction::ReactionCodec,
   read_receipt::{ReadReceipt, ReadReceiptCodec},
@@ -203,6 +204,16 @@ impl Conversation {
     let encoded_content = TextCodec::encode(text).map_err(ErrorWrapper::from)?;
     let opts = SendMessageOpts {
       should_push: TextCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_markdown(&self, markdown: String, optimistic: Option<bool>) -> Result<String> {
+    let encoded_content = MarkdownCodec::encode(markdown).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: MarkdownCodec::should_push(),
       optimistic,
     };
     self.send(encoded_content.into(), opts).await
