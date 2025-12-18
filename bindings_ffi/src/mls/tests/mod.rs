@@ -21,7 +21,7 @@ use crate::{
     decode_transaction_reference, encode_actions, encode_attachment, encode_intent,
     encode_leave_request, encode_multi_remote_attachment, encode_reaction, encode_read_receipt,
     encode_remote_attachment, encode_reply, encode_text, encode_transaction_reference,
-    get_inbox_id_for_identifier,
+    get_inbox_id_for_identifier, get_newest_message_metadata,
     identity::FfiIdentifier,
     inbox_owner::FfiInboxOwner,
     inbox_state_from_inbox_ids, is_connected,

@@ -2,6 +2,7 @@ use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::consent_record::{ConsentState, ConsentType};
 use xmtp_db::prelude::*;
 
+use crate::context::XmtpSharedContext;
 use crate::tester;
 
 /// Test case: If two users are talking in a DM, and one user

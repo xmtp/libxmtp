@@ -52,7 +52,6 @@ pub enum CommitValidationError {
     // Subject of the proposal has an invalid credential
     #[error("Inbox validation failed for {0}")]
     InboxValidationFailed(String),
-    // Not used yet, but seems obvious enough to include now
     #[error("Insufficient permissions")]
     InsufficientPermissions,
     #[error("Invalid version format: {0}")]
@@ -653,6 +652,7 @@ impl ExpectedDiff {
 
         let expected_diff = Self::extract_expected_diff(
             context,
+            openmls_group.group_id().as_slice(),
             staged_commit,
             extensions,
             &immutable_metadata,
@@ -669,6 +669,7 @@ impl ExpectedDiff {
     /// Satisfies Rule 2
     async fn extract_expected_diff(
         context: &impl XmtpSharedContext,
+        group_id: &[u8], // used for logging
         staged_commit: &StagedCommit,
         existing_group_extensions: &Extensions,
         immutable_metadata: &GroupMetadata,
@@ -700,6 +701,7 @@ impl ExpectedDiff {
         let expected_installation_diff = identity_updates
             .get_installation_diff(
                 &conn,
+                group_id,
                 &old_group_membership,
                 &new_group_membership,
                 &membership_diff,

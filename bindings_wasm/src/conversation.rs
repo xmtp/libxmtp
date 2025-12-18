@@ -28,6 +28,7 @@ use xmtp_content_types::{
   actions::ActionsCodec,
   attachment::AttachmentCodec,
   intent::IntentCodec,
+  markdown::MarkdownCodec,
   multi_remote_attachment::MultiRemoteAttachmentCodec,
   reaction::ReactionCodec,
   read_receipt::{ReadReceipt, ReadReceiptCodec},
@@ -208,6 +209,21 @@ impl Conversation {
     let encoded_content = TextCodec::encode(text).map_err(|e| JsError::new(&format!("{e}")))?;
     let opts = SendMessageOpts {
       should_push: TextCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[wasm_bindgen(js_name = sendMarkdown)]
+  pub async fn send_markdown(
+    &self,
+    markdown: String,
+    optimistic: Option<bool>,
+  ) -> Result<String, JsError> {
+    let encoded_content =
+      MarkdownCodec::encode(markdown).map_err(|e| JsError::new(&format!("{e}")))?;
+    let opts = SendMessageOpts {
+      should_push: MarkdownCodec::should_push(),
       optimistic,
     };
     self.send(encoded_content.into(), opts).await
@@ -851,14 +867,13 @@ impl Conversation {
   pub async fn process_streamed_group_message(
     &self,
     #[wasm_bindgen(js_name = envelopeBytes)] envelope_bytes: Uint8Array,
-  ) -> Result<Message, JsError> {
+  ) -> Result<Vec<Message>, JsError> {
     let group = self.to_mls_group();
     let message = group
       .process_streamed_group_message(envelope_bytes.to_vec())
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
-
-    Ok(message.into())
+    Ok(message.into_iter().map(Into::into).collect())
   }
 
   #[wasm_bindgen(js_name = updatePermissionPolicy)]

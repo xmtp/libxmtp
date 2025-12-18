@@ -107,7 +107,7 @@ where
 mod test {
     use super::*;
     use crate::protocol::{InMemoryCursorStore, test::missing_dependencies};
-    use futures::{FutureExt, StreamExt, stream};
+    use futures::{FutureExt, StreamExt, future, stream};
     use proptest::prelude::*;
     use xmtp_proto::api::VectorClock;
 
@@ -118,7 +118,7 @@ mod test {
         ) {
             let store = InMemoryCursorStore::new();
             let envs = envelopes.envelopes.clone();
-            let s = stream::once(async move { Ok::<_, EnvelopeError>(envs) });
+            let s = stream::once(future::ready(Ok::<_, EnvelopeError>(envs)));
             let ordered_stream = ordered(s, store.clone(), TopicCursor::default());
             futures::pin_mut!(ordered_stream);
 

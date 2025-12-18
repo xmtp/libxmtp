@@ -2,13 +2,17 @@
 
 use super::FullXmtpClient;
 use crate::{
-    Client,
+    Client, MlsContext,
     builder::{ClientBuilder, ForkRecoveryOpts, ForkRecoveryPolicy, SyncWorkerMode},
     client::ClientError,
     context::XmtpSharedContext,
     cursor_store::SqliteCursorStore,
-    groups::{GroupError, device_sync::worker::SyncMetric, intents::UpdateGroupMembershipResult},
-    identity::{Identity, IdentityStrategy},
+    groups::{
+        GroupError, device_sync::worker::SyncMetric, intents::UpdateGroupMembershipResult,
+        key_package_cleaner_worker::KeyPackagesCleanerWorker,
+    },
+    identity::{Identity, IdentityStrategy, pq_key_package_references_key},
+    identity_updates::load_identity_updates,
     subscriptions::SubscribeError,
     utils::{
         TestClient, TestMlsStorage, ToxicOnlyTestClientCreator, VersionInfo, register_client,
@@ -17,8 +21,11 @@ use crate::{
     worker::metrics::WorkerMetrics,
 };
 use alloy::signers::local::PrivateKeySigner;
-use diesel::QueryableByName;
-use futures::Stream;
+use diesel::{ExpressionMethods, QueryDsl, QueryableByName};
+use futures::{
+    AsyncReadExt, Stream, StreamExt,
+    io::{BufReader, Cursor},
+};
 use futures_executor::block_on;
 use parking_lot::Mutex;
 use passkey::{
@@ -38,40 +45,54 @@ use std::{
 use tokio::{runtime::Handle, sync::OnceCell};
 use toxiproxy_rust::proxy::{Proxy, ProxyPack};
 use url::Url;
-use xmtp_api::XmtpApi;
+use xmtp_api::{ApiError, XmtpApi};
 use xmtp_api_d14n::{
     DevOnlyTestClientCreator, LocalOnlyTestClientCreator, XmtpTestClientExt,
     protocol::InMemoryCursorStore,
 };
+use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
 use xmtp_common::StreamHandle;
 use xmtp_common::TestLogReplace;
-use xmtp_configuration::LOCALHOST;
 use xmtp_configuration::{DeviceSyncUrls, DockerUrls};
+use xmtp_configuration::{KEY_PACKAGE_ROTATION_INTERVAL_NS, LOCALHOST};
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
 #[cfg(not(target_arch = "wasm32"))]
 use xmtp_db::NativeDb;
 #[cfg(target_arch = "wasm32")]
 use xmtp_db::WasmDb;
 use xmtp_db::{
-    ConnectionExt, ReadOnly, TestDb, XmtpTestDb,
+    ConnectionExt, ReadOnly, TestDb, XmtpMlsStorageProvider, XmtpTestDb,
     diesel::{self, Connection, RunQueryDsl, SqliteConnection, sql_query},
+    key_package_history::StoredKeyPackageHistoryEntry,
+    prelude::{QueryIdentity, QueryIdentityUpdates, QueryKeyPackageHistory},
+    sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
 };
 use xmtp_db::{
     EncryptedMessageStore, MlsProviderExt, StorageOption, XmtpOpenMlsProvider,
-    group_message::StoredGroupMessage, sql_key_store::SqlKeyStore,
+    group_message::StoredGroupMessage,
 };
 use xmtp_id::{
     InboxOwner,
     associations::{
         Identifier, ident,
         test_utils::MockSmartContractSignatureVerifier,
-        unverified::{UnverifiedPasskeySignature, UnverifiedSignature},
+        unverified::{UnverifiedIdentityUpdate, UnverifiedPasskeySignature, UnverifiedSignature},
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
-use xmtp_proto::api_client::ToxicTestClient;
-use xmtp_proto::{api_client::ApiBuilder, xmtp::message_contents::PrivateKey};
+use xmtp_proto::{
+    api::ApiClientError,
+    api_client::ApiBuilder,
+    xmtp::{
+        device_sync::{BackupElement, backup_element::Element},
+        message_contents::PrivateKey,
+    },
+};
 use xmtp_proto::{api_client::ToxicProxies, prelude::XmtpTestClient};
+use xmtp_proto::{
+    api_client::ToxicTestClient,
+    xmtp::device_sync::{BackupElementSelection, BackupOptions},
+};
 
 type XmtpMlsProvider = XmtpOpenMlsProvider<Arc<TestMlsStorage>>;
 
@@ -112,7 +133,7 @@ where
             .unwrap()
     }
 
-    pub fn save_db_snapshot_to_file(&self, path: impl AsRef<Path>) {
+    pub fn save_snapshot_to_file(&self, path: impl AsRef<Path>) {
         let snapshot = self.db_snapshot();
         std::fs::write(path, &snapshot).unwrap();
     }
@@ -255,8 +276,6 @@ where
             worker.as_ref().unwrap().wait_for_init().await.unwrap();
         }
 
-        client.sync_welcomes().await;
-
         let mut tester = Tester {
             builder: self.clone(),
             client,
@@ -266,6 +285,22 @@ where
             proxy,
         };
 
+        // If the tester is loaded from a snapshot, we need to do some housekeeping,
+        // because the client and the server are now out-of-sync.
+        if self.snapshot.is_some() {
+            tester.publish_all_identity_updates().await;
+            tester.reset_identity_and_refresh_state();
+            tester.rotate_and_upload_key_package().await.unwrap();
+            load_identity_updates(
+                &tester.context.api_client,
+                &tester.db(),
+                &[tester.inbox_id()],
+            )
+            .await
+            .unwrap();
+        }
+
+        tester.sync_welcomes().await;
         if self.stream {
             tester.stream();
         }
@@ -278,6 +313,45 @@ impl<Owner> Tester<Owner, FullXmtpClient>
 where
     Owner: InboxOwner + Clone + 'static,
 {
+    async fn publish_all_identity_updates(&self) {
+        let updates = self
+            .db()
+            .get_identity_updates(self.inbox_id(), None, None)
+            .unwrap();
+        for update in updates {
+            let update: UnverifiedIdentityUpdate = update.payload.try_into().unwrap();
+            let result = self
+                .context
+                .api_client
+                .publish_identity_update(update)
+                .await;
+            if let Err(ApiError::Api(err)) = result {
+                tracing::warn!("{err:?}");
+            }
+        }
+    }
+    fn reset_identity_and_refresh_state(&self) {
+        self.context
+            .db()
+            .raw_query_write(|c| {
+                xmtp_db::diesel::delete(xmtp_db::schema::association_state::table)
+                    .execute(c)
+                    .unwrap();
+                xmtp_db::diesel::delete(xmtp_db::schema::identity_cache::table)
+                    .execute(c)
+                    .unwrap();
+                xmtp_db::diesel::delete(xmtp_db::schema::identity_updates::table)
+                    .execute(c)
+                    .unwrap();
+                xmtp_db::diesel::delete(xmtp_db::schema::refresh_state::table)
+                    .execute(c)
+                    .unwrap();
+
+                Ok(())
+            })
+            .unwrap();
+    }
+
     pub async fn new_with_owner(owner: Owner) -> Self {
         TesterBuilder::new().owner(owner).build().await
     }
@@ -492,6 +566,7 @@ where
         self
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn snapshot_file(mut self, snapshot_path: impl Into<PathBuf>) -> Self {
         let snapshot_path = snapshot_path.into();
         let snapshot = std::fs::read(&snapshot_path).unwrap();

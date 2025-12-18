@@ -1,19 +1,21 @@
-use futures::{Stream, StreamExt};
+use futures::{FutureExt, Stream, StreamExt, TryStreamExt, future, stream as future_stream};
 use process_welcome::ProcessWelcomeFuture;
-use prost::Message;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
-use xmtp_api_d14n::protocol::{Extractor, ProtocolEnvelope as _};
+use xmtp_api_d14n::protocol::{EnvelopeError, V3WelcomeMessageExtractor, WelcomeMessageExtractor};
+use xmtp_api_d14n::stream;
+use xmtp_proto::types::WelcomeMessage;
 
 use tracing::instrument;
 use xmtp_db::prelude::*;
-use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
+use xmtp_proto::api_client::XmtpMlsStreams;
 
 use process_welcome::ProcessWelcomeResult;
 use stream_all::StreamAllMessages;
 use stream_conversations::{StreamConversations, WelcomeOrGroup};
 
+pub(crate) mod d14n_compat;
 pub mod process_message;
 pub mod process_welcome;
 mod stream_all;
@@ -31,6 +33,7 @@ use crate::{
         GroupError, MlsGroup, device_sync::preference_sync::PreferenceUpdate,
         mls_sync::GroupMessageProcessingError,
     },
+    subscriptions::d14n_compat::{V3OrD14n, decode_welcome_message},
 };
 use thiserror::Error;
 use xmtp_common::{MaybeSend, RetryableError, StreamHandle, retryable};
@@ -204,8 +207,12 @@ pub enum SubscribeError {
     Conversion(#[from] xmtp_proto::ConversionError),
     #[error(transparent)]
     Envelope(#[from] xmtp_api_d14n::protocol::EnvelopeError),
-    #[error("the originators of the messages do not match expected: {expected}, got: {got}")]
-    MismatchedOriginators { expected: u32, got: u32 },
+}
+
+impl SubscribeError {
+    pub fn dyn_err(other: impl RetryableError + 'static) -> Self {
+        SubscribeError::BoxError(Box::new(other) as _)
+    }
 }
 
 impl From<GroupError> for SubscribeError {
@@ -237,8 +244,6 @@ impl RetryableError for SubscribeError {
             Db(c) => retryable!(c),
             Conversion(c) => retryable!(c),
             Envelope(c) => retryable!(c),
-            // this is an error which should never occur
-            MismatchedOriginators { .. } => false,
         }
     }
 }
@@ -253,30 +258,64 @@ where
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<MlsGroup<Context>> {
+    ) -> Result<Vec<MlsGroup<Context>>> {
         let conn = self.context.db();
-        let envelope =
-            WelcomeMessage::decode(envelope_bytes.as_slice()).map_err(SubscribeError::from)?;
-        let known_welcomes = HashSet::from_iter(conn.group_cursors()?.into_iter());
-        let mut extractor = xmtp_api_d14n::protocol::V3WelcomeMessageExtractor::default();
-        envelope.accept(&mut extractor)?;
-        let welcome: xmtp_proto::types::WelcomeMessage = extractor.get()?;
+        let mut known_welcomes = HashSet::from_iter(conn.group_cursors()?.into_iter());
+        let welcome = decode_welcome_message(envelope_bytes.as_slice())?;
+        let welcomes: Vec<_> = match welcome {
+            V3OrD14n::D14n(s) => {
+                let messages = s.envelopes;
+                stream::try_extractor::<_, WelcomeMessageExtractor>(future_stream::once(
+                    future::ready(Ok::<_, EnvelopeError>(messages)),
+                ))
+                .try_collect()
+                .now_or_never()
+                .expect("stream has no pending operations, created with one item")
+            }
+            V3OrD14n::V3(message) => {
+                let s: Vec<WelcomeMessage> = stream::try_extractor::<_, V3WelcomeMessageExtractor>(
+                    future_stream::iter(vec![Ok::<_, EnvelopeError>(vec![message])]),
+                )
+                .try_collect::<Vec<WelcomeMessage>>()
+                .now_or_never()
+                .expect("stream must not fail because it is statically created with one item")?
+                .into_iter()
+                .collect();
+                Ok(s)
+            }
+        }?;
 
-        let future = ProcessWelcomeFuture::new(
-            known_welcomes,
-            self.context.clone(),
-            WelcomeOrGroup::Welcome(welcome),
-            None,
-            false,
-            None,
-        )?;
-        match future.process().await? {
-            ProcessWelcomeResult::New { group, .. } => Ok(group),
-            ProcessWelcomeResult::NewStored { group, .. } => Ok(group),
-            ProcessWelcomeResult::IgnoreId { .. } | ProcessWelcomeResult::Ignore => {
-                Err(stream_conversations::ConversationStreamError::InvalidConversationType.into())
+        let mut out = Vec::with_capacity(welcomes.len());
+        for welcome in welcomes {
+            let welcome_id = welcome.cursor;
+            let future = ProcessWelcomeFuture::new(
+                known_welcomes.clone(),
+                self.context.clone(),
+                WelcomeOrGroup::Welcome(welcome),
+                None,
+                false,
+                None,
+            )?;
+
+            match future.process().await? {
+                ProcessWelcomeResult::New { group, .. } => {
+                    known_welcomes.insert(welcome_id);
+                    out.push(group)
+                }
+                ProcessWelcomeResult::NewStored { group, .. } => {
+                    known_welcomes.insert(welcome_id);
+                    out.push(group)
+                }
+                ProcessWelcomeResult::IgnoreId { .. } | ProcessWelcomeResult::Ignore => {
+                    known_welcomes.insert(welcome_id);
+                    return Err(
+                        stream_conversations::ConversationStreamError::InvalidConversationType
+                            .into(),
+                    );
+                }
             }
         }
+        Ok(out)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -508,6 +547,10 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use crate::context::XmtpSharedContext;
+    use crate::tester;
+    use xmtp_api_d14n::protocol::XmtpQuery;
+
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
@@ -554,5 +597,141 @@ pub(crate) mod tests {
                     .is_empty()
             );
         };
+    }
+
+    #[cfg(not(feature = "d14n"))]
+    #[xmtp_common::test(flavor = "multi_thread", worker_threads = 5, unwrap_try = true)]
+    async fn test_process_streamed_welcome_message_v3() {
+        use prost::Message;
+
+        tester!(alix);
+        tester!(bo);
+
+        // Alix creates a group and adds Bo
+        let alix_group = alix.create_group(None, None)?;
+        alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+
+        // Query the welcome message envelope using query_at
+        let envelope = alix
+            .context
+            .api()
+            .query_at(
+                xmtp_proto::types::TopicKind::WelcomeMessagesV1
+                    .create(bo.context.installation_id()),
+                None,
+            )
+            .await?;
+
+        // Get the welcome messages and encode the first one as V3 protobuf
+        let welcomes = envelope.welcome_messages()?;
+        assert!(welcomes.len() > 0, "Should have at least one welcome");
+
+        let welcome = &welcomes[0];
+        let v1 = welcome.as_v1().expect("Should be a V1 welcome");
+
+        // Manually construct the protobuf welcome message from V1 fields
+        let mut envelope_bytes = Vec::new();
+        let proto_welcome = xmtp_proto::xmtp::mls::api::v1::WelcomeMessage {
+            version: Some(
+                xmtp_proto::xmtp::mls::api::v1::welcome_message::Version::V1(
+                    xmtp_proto::xmtp::mls::api::v1::welcome_message::V1 {
+                        id: welcome.sequence_id(),
+                        created_ns: welcome.timestamp() as u64,
+                        installation_key: v1.installation_key.to_vec(),
+                        data: v1.data.clone(),
+                        hpke_public_key: v1.hpke_public_key.clone(),
+                        wrapper_algorithm: v1.wrapper_algorithm as i32,
+                        welcome_metadata: v1.welcome_metadata.clone(),
+                    },
+                ),
+            ),
+        };
+        proto_welcome.encode(&mut envelope_bytes)?;
+
+        // Process the streamed welcome message
+        let groups = bo.process_streamed_welcome_message(envelope_bytes).await?;
+
+        assert_eq!(groups.len(), 1, "Should have exactly one group");
+    }
+
+    #[cfg(feature = "d14n")]
+    #[xmtp_common::test(flavor = "multi_thread", worker_threads = 5, unwrap_try = true)]
+    async fn test_process_streamed_welcome_message_d14n() {
+        use prost::Message;
+        use xmtp_proto::types::TopicKind;
+
+        tester!(alix);
+        tester!(bo);
+
+        // Alix creates a group and adds Bo
+        let alix_group = alix.create_group(None, None)?;
+        alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+
+        // Query the welcome envelope using query_at for D14n format
+        let envelope = alix
+            .context
+            .api()
+            .query_at(
+                TopicKind::WelcomeMessagesV1.create(bo.context.installation_id()),
+                None,
+            )
+            .await?;
+
+        // Get the client envelopes and cursors
+        let client_envelopes = envelope.client_envelopes()?;
+        let cursors = envelope.cursors()?;
+
+        // Wrap in D14n envelope structure
+        let mut envelope_bytes = Vec::new();
+        xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse {
+            envelopes: client_envelopes
+                .into_iter()
+                .zip(cursors.iter())
+                .map(|(client_env, cursor)| {
+                    use xmtp_proto::xmtp::xmtpv4::envelopes::*;
+
+                    let mut client_bytes = Vec::new();
+                    client_env.encode(&mut client_bytes).unwrap();
+
+                    let payer_envelope = PayerEnvelope {
+                        unsigned_client_envelope: client_bytes,
+                        payer_signature: None,
+                        target_originator: cursor.originator_id,
+                        message_retention_days: 30,
+                    };
+
+                    let mut payer_bytes = Vec::new();
+                    payer_envelope.encode(&mut payer_bytes).unwrap();
+
+                    let unsigned_originator_envelope = UnsignedOriginatorEnvelope {
+                        originator_node_id: cursor.originator_id,
+                        originator_sequence_id: cursor.sequence_id,
+                        originator_ns: 1000000,
+                        payer_envelope_bytes: payer_bytes,
+                        base_fee_picodollars: 0,
+                        congestion_fee_picodollars: 0,
+                        expiry_unixtime: 0,
+                    };
+
+                    let mut unsigned_bytes = Vec::new();
+                    unsigned_originator_envelope
+                        .encode(&mut unsigned_bytes)
+                        .unwrap();
+
+                    OriginatorEnvelope {
+                        unsigned_originator_envelope: unsigned_bytes,
+                        proof: Some(originator_envelope::Proof::OriginatorSignature(
+                            Default::default(),
+                        )),
+                    }
+                })
+                .collect(),
+        }
+        .encode(&mut envelope_bytes)?;
+
+        // Process the streamed welcome message
+        let groups = bo.process_streamed_welcome_message(envelope_bytes).await?;
+
+        assert_eq!(groups.len(), 1, "Should have exactly one group");
     }
 }

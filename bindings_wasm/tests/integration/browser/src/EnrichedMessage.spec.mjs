@@ -6,6 +6,7 @@ import init, {
   encodeIntent,
   // Content type functions
   textContentType,
+  markdownContentType,
   reactionContentType,
   replyContentType,
   readReceiptContentType,
@@ -135,6 +136,37 @@ describe("EnrichedMessage", () => {
         const contentType = textContentType();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("text");
+        expect(contentType.versionMajor).toBeGreaterThan(0);
+        expect(contentType.versionMinor).toBeGreaterThanOrEqual(0);
+      });
+    });
+
+    describe("Markdown", () => {
+      test("should send and receive markdown messages", async () => {
+        const { client1, conversation, conversation2 } =
+          await setupConversation();
+
+        const messageId = await conversation.sendMarkdown("# Hello, world!");
+        expect(messageId).toBeDefined();
+
+        await conversation2.sync();
+
+        const messages = await conversation2.findEnrichedMessages();
+        const markdownMessage = messages.find((m) => m.id === messageId);
+        expect(markdownMessage).toBeDefined();
+        expect(markdownMessage.content.type).toBe("markdown");
+        expect(markdownMessage.content.content.content).toBe("# Hello, world!");
+        expect(markdownMessage.senderInboxId).toBe(client1.inboxId);
+        expect(markdownMessage.contentType?.authorityId).toBe("xmtp.org");
+        expect(markdownMessage.contentType?.typeId).toBe("markdown");
+        // Markdown has no fallback
+        expect(markdownMessage.fallback).toBeUndefined();
+      });
+
+      test("should have correct content type", () => {
+        const contentType = markdownContentType();
+        expect(contentType.authorityId).toEqual("xmtp.org");
+        expect(contentType.typeId).toEqual("markdown");
         expect(contentType.versionMajor).toBeGreaterThan(0);
         expect(contentType.versionMinor).toBeGreaterThanOrEqual(0);
       });
