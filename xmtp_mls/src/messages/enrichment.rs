@@ -36,24 +36,47 @@ type ReferencedMessageMap = HashMap<Vec<u8>, (StoredGroupMessage, DecodedMessage
 // Mapping of deletions, keyed by the ID of the deleted message
 type DeletionMap = HashMap<Vec<u8>, StoredMessageDeletion>;
 
-/// Validates if a deletion record should be applied to a message
-/// Returns true if the deletion is valid and should be applied
-fn is_deletion_valid(
+/// Validates if a deletion record should be applied to a message.
+/// Returns true if the deletion is valid and should be applied.
+///
+/// This function is `pub(crate)` only for testing purposes.
+/// It should not be used directly outside of this module.
+pub(crate) fn is_deletion_valid(
     deletion: &StoredMessageDeletion,
     message: &StoredGroupMessage,
     group_id: &[u8],
 ) -> bool {
-    // 1. Check same group (prevent cross-group deletion)
+    // 1. Verify the message being deleted matches the deletion target
+    if deletion.deleted_message_id != message.id {
+        tracing::warn!(
+            "Deletion target mismatch: deletion targets {:?} but message ID is {:?}",
+            hex::encode(&deletion.deleted_message_id),
+            hex::encode(&message.id)
+        );
+        return false;
+    }
+
+    // 2. Check deletion's group matches expected group (prevent cross-group deletion)
     if deletion.group_id != group_id {
         tracing::warn!(
-            "Ignoring cross-group deletion: deletion group {:?}, message group {:?}",
+            "Ignoring cross-group deletion: deletion group {:?}, expected group {:?}",
             hex::encode(&deletion.group_id),
             hex::encode(group_id)
         );
         return false;
     }
 
-    // 2. Check message type is deletable
+    // 3. Check message's group matches expected group (consistency check)
+    if message.group_id != group_id {
+        tracing::warn!(
+            "Message group mismatch: message group {:?}, expected group {:?}",
+            hex::encode(&message.group_id),
+            hex::encode(group_id)
+        );
+        return false;
+    }
+
+    // 4. Check message type is deletable
     if !message.kind.is_deletable() || !message.content_type.is_deletable() {
         tracing::warn!(
             "Ignoring deletion of non-deletable message (kind: {:?}, content_type: {:?})",
@@ -63,7 +86,7 @@ fn is_deletion_valid(
         return false;
     }
 
-    // 3. Check authorization: either original sender OR super admin
+    // 5. Check authorization: either original sender OR super admin
     let is_sender = deletion.deleted_by_inbox_id == message.sender_inbox_id;
     let is_authorized = is_sender || deletion.is_super_admin_deletion;
 
@@ -101,35 +124,25 @@ pub fn enrich_messages(
                 .ok()?;
 
             // Check if this message has been deleted and validate the deletion
-            if let Some(deletion) = relations.deletions.get(&decoded.metadata.id) {
-                // Validate deletion before applying it
-                if is_deletion_valid(deletion, &stored_message, group_id) {
-                    // Replace content with DeletedMessage placeholder
-                    decoded.content = MessageBody::DeletedMessage {
-                        deleted_by: if deletion.is_super_admin_deletion {
-                            DeletedBy::Admin(deletion.deleted_by_inbox_id.clone())
-                        } else {
-                            DeletedBy::Sender
-                        },
-                    };
-                    // Clear reactions and replies for deleted messages
-                    decoded.reactions = Vec::new();
-                    decoded.num_replies = 0;
-                } else {
-                    // Invalid deletion - treat as non-deleted
-                    decoded.reactions = relations
-                        .reactions
-                        .remove(&decoded.metadata.id)
-                        .unwrap_or_default();
+            let valid_deletion = relations
+                .deletions
+                .get(&decoded.metadata.id)
+                .filter(|deletion| is_deletion_valid(deletion, &stored_message, group_id));
 
-                    decoded.num_replies = relations
-                        .reply_counts
-                        .get(&decoded.metadata.id)
-                        .cloned()
-                        .unwrap_or(0);
-                }
+            if let Some(deletion) = valid_deletion {
+                // Replace content with DeletedMessage placeholder
+                decoded.content = MessageBody::DeletedMessage {
+                    deleted_by: if deletion.is_super_admin_deletion {
+                        DeletedBy::Admin(deletion.deleted_by_inbox_id.clone())
+                    } else {
+                        DeletedBy::Sender
+                    },
+                };
+                // Clear reactions and replies for deleted messages
+                decoded.reactions = Vec::new();
+                decoded.num_replies = 0;
             } else {
-                // Only populate reactions and replies for non-deleted messages
+                // Populate reactions and replies for non-deleted messages
                 decoded.reactions = relations
                     .reactions
                     .remove(&decoded.metadata.id)
@@ -141,6 +154,7 @@ pub fn enrich_messages(
                     .cloned()
                     .unwrap_or(0);
 
+                // Handle Reply messages - populate in_reply_to field
                 if let MessageBody::Reply(mut reply_body) = decoded.content {
                     let _ = hex::decode(&reply_body.reference_id)
                         .inspect_err(|err| {
