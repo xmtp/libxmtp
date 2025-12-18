@@ -1345,4 +1345,3 @@ async fn test_text_codec() {
     let result = decode_text(invalid_bytes);
     assert!(result.is_err());
 }
-

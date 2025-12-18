@@ -1293,8 +1293,13 @@ where
 
         let delete_msg = DeleteMessage::decode(encoded_content.content.as_slice())?;
 
-        let target_message_id = hex::decode(&delete_msg.message_id)
-            .map_err(|_| GroupMessageProcessingError::InvalidPayload)?;
+        let target_message_id = match hex::decode(&delete_msg.message_id) {
+            Ok(id) => id,
+            Err(_) => {
+                tracing::warn!("Invalid delete message_id: {}", delete_msg.message_id);
+                return Ok(());
+            }
+        };
 
         // Check if the original message exists
         let original_msg_opt = storage.db().get_group_message(&target_message_id)?;
@@ -1371,13 +1376,13 @@ where
 
         deletion.store_or_ignore(&storage.db())?;
 
-        // Fire local event to notify subscribers about the deletion
-        let _ =
-            self.context
-                .local_events()
-                .send(crate::subscriptions::LocalEvents::MessageDeleted(
-                    target_message_id,
-                ));
+        // Fire local event only if the target message exists
+        // (skip for out-of-order deletions where deletion arrives before the message)
+        if original_msg_opt.is_some() {
+            let _ = self.context.local_events().send(
+                crate::subscriptions::LocalEvents::MessageDeleted(target_message_id),
+            );
+        }
 
         tracing::info!(
             "Message {} deleted by {} (super_admin: {})",
