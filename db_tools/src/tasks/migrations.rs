@@ -194,7 +194,7 @@ mod tests {
         // Get migrations sorted by numeric version descending (newest first)
         // This matches how the rollback function compares versions
         let mut available = db.available_migrations()?;
-        available.sort_by(|a, b| migration_numeric_version(b).cmp(&migration_numeric_version(a)));
+        available.sort_by_key(|m| std::cmp::Reverse(migration_numeric_version(m)));
 
         assert!(
             available.len() >= 10,
