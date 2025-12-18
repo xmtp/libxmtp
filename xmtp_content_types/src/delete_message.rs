@@ -13,10 +13,6 @@ impl DeleteMessageCodec {
     pub const TYPE_ID: &'static str = "deleteMessage";
     pub const MAJOR_VERSION: u32 = 1;
     pub const MINOR_VERSION: u32 = 0;
-
-    fn fallback() -> Option<String> {
-        Some("Deleted a message".to_string())
-    }
 }
 
 impl ContentCodec<DeleteMessage> for DeleteMessageCodec {
@@ -37,7 +33,7 @@ impl ContentCodec<DeleteMessage> for DeleteMessageCodec {
         Ok(EncodedContent {
             r#type: Some(DeleteMessageCodec::content_type()),
             parameters: HashMap::new(),
-            fallback: Self::fallback(),
+            fallback: None,
             compression: None,
             content: buf,
         })
