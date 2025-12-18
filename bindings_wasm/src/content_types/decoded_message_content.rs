@@ -72,11 +72,6 @@ impl TryFrom<MessageBody> for DecodedMessageContent {
       MessageBody::Actions(a) => Ok(DecodedMessageContent::Actions {
         content: a.map(|a| a.try_into()).transpose()?,
       }),
-      MessageBody::DeleteMessage(_) => {
-        // DeleteMessage itself shouldn't appear in decoded messages for WASM
-        // It's only used internally for deletion processing
-        Ok(DecodedMessageContent::DeleteMessage)
-      }
       MessageBody::DeletedMessage { deleted_by } => Ok(DecodedMessageContent::DeletedMessage {
         content: deleted_by.into(),
       }),

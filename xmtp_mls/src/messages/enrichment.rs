@@ -227,11 +227,12 @@ fn get_relations(
     let reply_counts =
         conn.get_inbound_relation_counts(group_id, message_ids, replies_count_query)?;
 
-    // Get deletions for all messages in a single batch query (avoids N+1 pattern).
-    // The in-memory HashMap lookup in `get_deletions` is O(1) per message, making
-    // the overall deletion enrichment O(n) which is acceptable for typical message counts.
-    let message_ids_vec: Vec<Vec<u8>> = message_ids.iter().map(|id| id.to_vec()).collect();
-    let deletions = conn.get_deletions_for_messages(message_ids_vec)?;
+    // Get deletions for all messages AND referenced messages in a single batch query.
+    // This ensures that if a reply references a deleted message, we can properly show
+    // the deletion state in the reply chain.
+    let mut all_ids: Vec<Vec<u8>> = message_ids.iter().map(|id| id.to_vec()).collect();
+    all_ids.extend(reference_ids.iter().map(|id| id.to_vec()));
+    let deletions = conn.get_deletions_for_messages(all_ids)?;
 
     Ok(GetRelationsResults {
         reactions: get_reactions(reactions),

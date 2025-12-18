@@ -21,8 +21,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     content_types::{
-        DeleteMessage, LeaveRequest, MultiRemoteAttachment, ReactionAction, ReactionSchema,
-        ReactionV2, RemoteAttachmentInfo,
+        LeaveRequest, MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2,
+        RemoteAttachmentInfo,
     },
     group_updated::Inbox,
 };
@@ -55,6 +55,7 @@ pub enum FfiDecodedMessageBody {
     Intent(FfiIntent),
     Actions(FfiActions),
     LeaveRequest(FfiLeaveRequest),
+    DeletedMessage(FfiDeletedMessage),
     Custom(FfiEncodedContent),
 }
 
@@ -287,13 +288,6 @@ pub struct FfiReadReceipt {}
 pub struct FfiLeaveRequest {
     /// Optional authenticated note for the leave request
     pub authenticated_note: Option<Vec<u8>>,
-}
-
-/// Represents a delete message request sent when a user wants to delete a message.
-#[derive(uniffi::Record, Clone, Debug)]
-pub struct FfiDeleteMessage {
-    /// The ID of the message to delete (hex-encoded)
-    pub message_id: String,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -761,22 +755,6 @@ impl From<FfiLeaveRequest> for LeaveRequest {
     }
 }
 
-impl From<DeleteMessage> for FfiDeleteMessage {
-    fn from(value: DeleteMessage) -> Self {
-        FfiDeleteMessage {
-            message_id: value.message_id,
-        }
-    }
-}
-
-impl From<FfiDeleteMessage> for DeleteMessage {
-    fn from(value: FfiDeleteMessage) -> Self {
-        DeleteMessage {
-            message_id: value.message_id,
-        }
-    }
-}
-
 impl From<WalletSendCalls> for FfiWalletSendCalls {
     fn from(value: WalletSendCalls) -> Self {
         FfiWalletSendCalls {
@@ -1163,17 +1141,6 @@ impl From<MessageBody> for FfiDecodedMessageContent {
                     deleted_by: deleted_by.into(),
                 })
             }
-            MessageBody::DeleteMessage(_) => {
-                // DeleteMessage itself shouldn't appear in decoded messages for FFI
-                // It's only used internally for deletion processing
-                FfiDecodedMessageContent::Custom(FfiEncodedContent {
-                    type_id: None,
-                    parameters: std::collections::HashMap::new(),
-                    fallback: None,
-                    compression: None,
-                    content: vec![],
-                })
-            }
             MessageBody::Custom(encoded) => FfiDecodedMessageContent::Custom(encoded.into()),
         }
     }
@@ -1243,8 +1210,11 @@ pub fn content_to_optional_body(content: MessageBody) -> Option<FfiDecodedMessag
         MessageBody::LeaveRequest(leave_request) => {
             Some(FfiDecodedMessageBody::LeaveRequest(leave_request.into()))
         }
-        MessageBody::DeletedMessage { .. } => None,
-        MessageBody::DeleteMessage(_) => None,
+        MessageBody::DeletedMessage { deleted_by } => {
+            Some(FfiDecodedMessageBody::DeletedMessage(FfiDeletedMessage {
+                deleted_by: deleted_by.into(),
+            }))
+        }
         MessageBody::Custom(encoded) => Some(FfiDecodedMessageBody::Custom(encoded.into())),
     }
 }

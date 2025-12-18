@@ -1363,13 +1363,21 @@ where
         let deletion = StoredMessageDeletion {
             id: message.id.clone(),
             group_id: self.group_id.clone(),
-            deleted_message_id: target_message_id,
+            deleted_message_id: target_message_id.clone(),
             deleted_by_inbox_id: message.sender_inbox_id.clone(),
             is_super_admin_deletion,
             deleted_at_ns: message.sent_at_ns,
         };
 
         deletion.store_or_ignore(&storage.db())?;
+
+        // Fire local event to notify subscribers about the deletion
+        let _ = self
+            .context
+            .local_events()
+            .send(crate::subscriptions::LocalEvents::MessageDeleted(
+                target_message_id,
+            ));
 
         tracing::info!(
             "Message {} deleted by {} (super_admin: {})",

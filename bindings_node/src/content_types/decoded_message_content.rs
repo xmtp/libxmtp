@@ -256,17 +256,6 @@ impl TryFrom<MessageBody> for DecodedMessageContent {
         };
         DecodedMessageContentInner::Actions(actions)
       }
-      MessageBody::DeleteMessage(_) => {
-        // DeleteMessage shouldn't appear in decoded messages for Node
-        // It's only used internally for deletion processing
-        DecodedMessageContentInner::Custom(EncodedContent {
-          r#type: None,
-          parameters: std::collections::HashMap::new(),
-          fallback: None,
-          compression: None,
-          content: vec![].into(),
-        })
-      }
       MessageBody::DeletedMessage { deleted_by } => {
         DecodedMessageContentInner::DeletedMessage(deleted_by.into())
       }

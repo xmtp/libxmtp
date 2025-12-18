@@ -2,7 +2,6 @@ use crate::groups::GroupError;
 use crate::messages::enrichment::EnrichMessageError;
 use prost::Message;
 use xmtp_content_types::actions::{Actions, ActionsCodec};
-use xmtp_content_types::delete_message::DeleteMessageCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_content_types::intent::{Intent, IntentCodec};
 use xmtp_content_types::leave_request::LeaveRequestCodec;
@@ -24,7 +23,6 @@ use xmtp_content_types::{
 };
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
-use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent, GroupUpdated,
     content_types::{LeaveRequest, MultiRemoteAttachment, ReactionV2},
@@ -75,8 +73,6 @@ pub enum MessageBody {
     Intent(Option<Intent>),
     Actions(Option<Actions>),
     LeaveRequest(LeaveRequest),
-    /// The actual DeleteMessage content type (not shown in message lists)
-    DeleteMessage(DeleteMessage),
     /// Placeholder for a message that has been deleted (shown in message lists)
     DeletedMessage {
         deleted_by: DeletedBy,
@@ -195,10 +191,6 @@ impl TryFrom<EncodedContent> for MessageBody {
             (LeaveRequestCodec::TYPE_ID, LeaveRequestCodec::MAJOR_VERSION) => {
                 let leave_request = LeaveRequestCodec::decode(value)?;
                 Ok(MessageBody::LeaveRequest(leave_request))
-            }
-            (DeleteMessageCodec::TYPE_ID, DeleteMessageCodec::MAJOR_VERSION) => {
-                let delete_message = DeleteMessageCodec::decode(value)?;
-                Ok(MessageBody::DeleteMessage(delete_message))
             }
 
             _ => Err(CodecError::CodecNotFound(content_type.clone()).into()),

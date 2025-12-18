@@ -121,13 +121,7 @@ async fn test_delete_message_authorization_failure() {
 
     // Bola tries to delete Alix's message (should fail - not authorized)
     let result = bo_group.delete_message(message_id.clone());
-    assert!(result.is_err());
-
-    if let Err(GroupError::DeleteMessage(DeleteMessageError::NotAuthorized)) = result {
-        // Expected error
-    } else {
-        panic!("Expected NotAuthorized error, got: {:?}", result);
-    }
+    assert!(matches!(result, Err(GroupError::DeleteMessage(DeleteMessageError::NotAuthorized))));
 }
 
 /// Test that transcript messages cannot be deleted
@@ -152,13 +146,7 @@ async fn test_cannot_delete_transcript_messages() {
 
     // Try to delete the membership change message (should fail)
     let result = alix_group.delete_message(membership_message_id);
-    assert!(result.is_err());
-
-    if let Err(GroupError::DeleteMessage(DeleteMessageError::NonDeletableMessage)) = result {
-        // Expected error
-    } else {
-        panic!("Expected NonDeletableMessage error, got: {:?}", result);
-    }
+    assert!(matches!(result, Err(GroupError::DeleteMessage(DeleteMessageError::NonDeletableMessage))));
 }
 
 /// Test deleting a message that doesn't exist
@@ -170,13 +158,7 @@ async fn test_delete_nonexistent_message() {
     // Try to delete a message that doesn't exist
     let fake_message_id = vec![1, 2, 3, 4, 5];
     let result = alix_group.delete_message(fake_message_id);
-    assert!(result.is_err());
-
-    if let Err(GroupError::DeleteMessage(DeleteMessageError::MessageNotFound(_))) = result {
-        // Expected error
-    } else {
-        panic!("Expected MessageNotFound error, got: {:?}", result);
-    }
+    assert!(matches!(result, Err(GroupError::DeleteMessage(DeleteMessageError::MessageNotFound(_)))));
 }
 
 /// Test deleting an already deleted message
@@ -199,13 +181,7 @@ async fn test_delete_already_deleted_message() {
 
     // Try to delete again (should fail)
     let result = alix_group.delete_message(message_id);
-    assert!(result.is_err());
-
-    if let Err(GroupError::DeleteMessage(DeleteMessageError::MessageAlreadyDeleted)) = result {
-        // Expected error
-    } else {
-        panic!("Expected MessageAlreadyDeleted error, got: {:?}", result);
-    }
+    assert!(matches!(result, Err(GroupError::DeleteMessage(DeleteMessageError::MessageAlreadyDeleted))));
 }
 
 /// Test out-of-order deletion (deletion arrives before original message)
@@ -268,11 +244,10 @@ async fn test_enrichment_with_deleted_messages() {
     })?;
     assert_eq!(messages.len(), 1);
 
-    if let MessageBody::Text(text) = &messages[0].content {
-        assert_eq!(text.content, "Secret message");
-    } else {
+    let MessageBody::Text(text) = &messages[0].content else {
         panic!("Expected Text message body");
-    }
+    };
+    assert_eq!(text.content, "Secret message");
 
     // Alix deletes the message
     alix_group.delete_message(message_id.clone())?;
@@ -287,14 +262,10 @@ async fn test_enrichment_with_deleted_messages() {
     assert!(deleted_msg.is_some());
 
     let deleted_msg = deleted_msg.unwrap();
-    if let MessageBody::DeletedMessage { deleted_by } = &deleted_msg.content {
-        assert_eq!(deleted_by, &DeletedBy::Sender);
-    } else {
-        panic!(
-            "Expected DeletedMessage placeholder, got: {:?}",
-            deleted_msg.content
-        );
-    }
+    let MessageBody::DeletedMessage { deleted_by } = &deleted_msg.content else {
+        panic!("Expected DeletedMessage placeholder");
+    };
+    assert_eq!(*deleted_by, DeletedBy::Sender);
 
     // Verify reactions and replies are cleared
     assert_eq!(deleted_msg.reactions.len(), 0);
@@ -409,15 +380,13 @@ async fn test_admin_deletion_flag() {
     let deleted_msg = messages.iter().find(|msg| msg.metadata.id == bo_message_id);
     assert!(deleted_msg.is_some());
 
-    if let MessageBody::DeletedMessage { deleted_by } = &deleted_msg.unwrap().content {
-        if let DeletedBy::Admin(inbox_id) = deleted_by {
-            assert_eq!(inbox_id, alix.inbox_id());
-        } else {
-            panic!("Expected Admin deletion");
-        }
-    } else {
+    let MessageBody::DeletedMessage { deleted_by } = &deleted_msg.unwrap().content else {
         panic!("Expected DeletedMessage placeholder");
-    }
+    };
+    let DeletedBy::Admin(admin_inbox_id) = deleted_by else {
+        panic!("Expected Admin deletion");
+    };
+    assert_eq!(admin_inbox_id, alix.inbox_id());
 }
 
 /// Test that replies to deleted messages show the deleted state
@@ -464,14 +433,13 @@ async fn test_reply_to_deleted_message() {
         .find(|msg| msg.metadata.id == reply_message_id);
     assert!(reply_msg_before.is_some());
 
-    if let MessageBody::Reply(reply_body) = &reply_msg_before.unwrap().content {
-        assert!(reply_body.in_reply_to.is_some());
-        let in_reply_to = reply_body.in_reply_to.as_ref().unwrap();
-        // Before deletion, the referenced message should be a Text message
-        assert!(matches!(in_reply_to.content, MessageBody::Text(_)));
-    } else {
+    let MessageBody::Reply(reply_body) = &reply_msg_before.unwrap().content else {
         panic!("Expected Reply message");
-    }
+    };
+    assert!(reply_body.in_reply_to.is_some());
+    let MessageBody::Text(_) = &reply_body.in_reply_to.as_ref().unwrap().content else {
+        panic!("Expected Text in in_reply_to");
+    };
 
     // Now Alix deletes the original message
     alix_group.delete_message(original_message_id.clone())?;
@@ -486,24 +454,19 @@ async fn test_reply_to_deleted_message() {
         .find(|msg| msg.metadata.id == reply_message_id);
     assert!(reply_msg_after.is_some());
 
-    if let MessageBody::Reply(reply_body) = &reply_msg_after.unwrap().content {
-        assert!(reply_body.in_reply_to.is_some());
-        let in_reply_to = reply_body.in_reply_to.as_ref().unwrap();
-        // After deletion, the referenced message should be a DeletedMessage
-        if let MessageBody::DeletedMessage { deleted_by } = &in_reply_to.content {
-            assert_eq!(deleted_by, &DeletedBy::Sender);
-            // Reactions and replies should be cleared on the deleted referenced message
-            assert_eq!(in_reply_to.reactions.len(), 0);
-            assert_eq!(in_reply_to.num_replies, 0);
-        } else {
-            panic!(
-                "Expected DeletedMessage in reply's in_reply_to, got: {:?}",
-                in_reply_to.content
-            );
-        }
-    } else {
+    let MessageBody::Reply(reply_body) = &reply_msg_after.unwrap().content else {
         panic!("Expected Reply message");
-    }
+    };
+    assert!(reply_body.in_reply_to.is_some(), "Expected in_reply_to to be set");
+    let in_reply_to = reply_body.in_reply_to.as_ref().unwrap();
+    // After deletion, the referenced message should be a DeletedMessage
+    let MessageBody::DeletedMessage { deleted_by } = &in_reply_to.content else {
+        panic!("Expected DeletedMessage in reply's in_reply_to");
+    };
+    assert_eq!(*deleted_by, DeletedBy::Sender);
+    // Reactions and replies should be cleared on the deleted referenced message
+    assert_eq!(in_reply_to.reactions.len(), 0);
+    assert_eq!(in_reply_to.num_replies, 0);
 }
 
 /// Test that cross-group deletion attempts are rejected
@@ -534,11 +497,7 @@ async fn test_cannot_delete_message_from_different_group() {
 
     // Attempt to delete group1's message from group2 (should fail)
     let result = group2.delete_message(group1_message_id.clone());
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        GroupError::DeleteMessage(DeleteMessageError::NotAuthorized)
-    ));
+    assert!(matches!(result, Err(GroupError::DeleteMessage(DeleteMessageError::NotAuthorized))));
 
     // Verify the message in group1 is NOT deleted
     let alix_conn = alix.context.db();
@@ -582,12 +541,163 @@ async fn test_cannot_delete_delete_message() {
 
     // Try to delete the delete message - should fail
     let result = alix_group.delete_message(delete_message_id.clone());
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        GroupError::DeleteMessage(DeleteMessageError::NonDeletableMessage)
-    ));
+    assert!(matches!(result, Err(GroupError::DeleteMessage(DeleteMessageError::NonDeletableMessage))));
 
     // Verify the delete message is NOT deleted
     assert!(!alix_conn.is_message_deleted(&delete_message_id)?);
+}
+
+/// Test concurrent deletions - multiple people trying to delete the same message
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_concurrent_deletions() {
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+
+    // Alix creates a group with Bo and Caro, making Bo also a super admin
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members_by_inbox_id(&[bo.inbox_id(), caro.inbox_id()])
+        .await?;
+
+    // Bo syncs and gets the group
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = &bo_groups[0];
+    bo_group.sync().await?;
+
+    // Caro syncs and gets the group
+    let caro_groups = caro.sync_welcomes().await?;
+    let caro_group = &caro_groups[0];
+    caro_group.sync().await?;
+
+    // Make Bo a super admin
+    alix_group
+        .update_admin_list(
+            crate::groups::UpdateAdminListType::AddSuper,
+            bo.inbox_id().to_string(),
+        )
+        .await?;
+    alix_group.publish_messages().await?;
+
+    // Sync everyone
+    bo_group.sync().await?;
+    caro_group.sync().await?;
+
+    // Caro sends a message
+    let text_content = TextCodec::encode("Message to be deleted".to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    let message_id = caro_group
+        .send_message(&text_bytes, SendMessageOpts::default())
+        .await?;
+
+    // Sync Alix and Bo to receive the message
+    alix_group.sync().await?;
+    bo_group.sync().await?;
+
+    // Both Alix (super admin) and Bo (super admin) try to delete the message "concurrently"
+    // In practice, one will succeed and one will get MessageAlreadyDeleted
+    let alix_deletion = alix_group.delete_message(message_id.clone());
+    alix_group.publish_messages().await?;
+
+    // Bo syncs to get Alix's deletion, then tries to delete
+    bo_group.sync().await?;
+    let bo_deletion = bo_group.delete_message(message_id.clone());
+
+    // At least one should succeed, the other should get MessageAlreadyDeleted
+    let alix_succeeded = alix_deletion.is_ok();
+    let bo_succeeded = bo_deletion.is_ok();
+
+    // At least one must succeed
+    assert!(
+        alix_succeeded || bo_succeeded,
+        "At least one deletion should succeed"
+    );
+
+    // If both succeeded locally (before sync), both should publish
+    // After sync, both should see the message as deleted
+    if bo_succeeded {
+        bo_group.publish_messages().await?;
+    }
+
+    alix_group.sync().await?;
+    bo_group.sync().await?;
+    caro_group.sync().await?;
+
+    // Verify the message is deleted for everyone
+    let alix_conn = alix.context.db();
+    let bo_conn = bo.context.db();
+    let caro_conn = caro.context.db();
+
+    assert!(alix_conn.is_message_deleted(&message_id)?);
+    assert!(bo_conn.is_message_deleted(&message_id)?);
+    assert!(caro_conn.is_message_deleted(&message_id)?);
+
+    // Verify enriched messages show the deleted state
+    let caro_messages = caro_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let deleted_msg = caro_messages
+        .iter()
+        .find(|msg| msg.metadata.id == message_id);
+    assert!(deleted_msg.is_some());
+
+    let deleted_msg = deleted_msg.unwrap();
+    let MessageBody::DeletedMessage { deleted_by } = &deleted_msg.content else {
+        panic!("Expected DeletedMessage placeholder");
+    };
+    // The message was deleted by a super admin (either Alix or Bo)
+    let DeletedBy::Admin(admin_inbox_id) = deleted_by else {
+        panic!("Expected Admin deletion");
+    };
+    assert!(
+        admin_inbox_id == alix.inbox_id() || admin_inbox_id == bo.inbox_id(),
+        "Deletion should be by Alix or Bo, got: {}",
+        admin_inbox_id
+    );
+}
+
+/// Test that deletion works correctly when both sender and admin try to delete
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_sender_and_admin_both_delete() {
+    tester!(alix);
+    tester!(bo);
+
+    // Alix creates a group with Bo
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+
+    // Bo syncs and gets the group
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = &bo_groups[0];
+    bo_group.sync().await?;
+
+    // Bo sends a message
+    let text_content = TextCodec::encode("Bo's message".to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    let message_id = bo_group
+        .send_message(&text_bytes, SendMessageOpts::default())
+        .await?;
+
+    // Alix syncs to receive the message
+    alix_group.sync().await?;
+
+    // Bo (sender) deletes their own message first
+    bo_group.delete_message(message_id.clone())?;
+    bo_group.publish_messages().await?;
+
+    // Alix syncs to see the deletion
+    alix_group.sync().await?;
+
+    // Alix (super admin) tries to delete the same message - should fail
+    let result = alix_group.delete_message(message_id.clone());
+    assert!(matches!(result, Err(GroupError::DeleteMessage(DeleteMessageError::MessageAlreadyDeleted))));
+
+    // Verify the message is deleted and shows as deleted by sender
+    let bo_messages = bo_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let deleted_msg = bo_messages.iter().find(|msg| msg.metadata.id == message_id);
+    assert!(deleted_msg.is_some());
+
+    let deleted_msg = deleted_msg.unwrap();
+    let MessageBody::DeletedMessage { deleted_by } = &deleted_msg.content else {
+        panic!("Expected DeletedMessage placeholder");
+    };
+    assert_eq!(*deleted_by, DeletedBy::Sender);
 }

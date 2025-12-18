@@ -1,26 +1,4 @@
 use napi_derive::napi;
-use xmtp_content_types::{ContentCodec, delete_message::DeleteMessageCodec};
-
-use crate::encoded_content::ContentTypeId;
-
-#[napi(object)]
-#[derive(Clone)]
-pub struct DeleteMessage {
-  pub message_id: String,
-}
-
-impl From<xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage> for DeleteMessage {
-  fn from(dm: xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage) -> Self {
-    Self {
-      message_id: dm.message_id,
-    }
-  }
-}
-
-#[napi]
-pub fn delete_message_content_type() -> ContentTypeId {
-  DeleteMessageCodec::content_type().into()
-}
 
 #[napi(string_enum)]
 #[derive(Clone, PartialEq)]
