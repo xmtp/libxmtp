@@ -121,7 +121,10 @@ async fn test_delete_message_authorization_failure() {
 
     // Bola tries to delete Alix's message (should fail - not authorized)
     let result = bo_group.delete_message(message_id.clone());
-    assert!(matches!(result, Err(GroupError::DeleteMessage(DeleteMessageError::NotAuthorized))));
+    assert!(matches!(
+        result,
+        Err(GroupError::DeleteMessage(DeleteMessageError::NotAuthorized))
+    ));
 }
 
 /// Test that transcript messages cannot be deleted
@@ -146,7 +149,12 @@ async fn test_cannot_delete_transcript_messages() {
 
     // Try to delete the membership change message (should fail)
     let result = alix_group.delete_message(membership_message_id);
-    assert!(matches!(result, Err(GroupError::DeleteMessage(DeleteMessageError::NonDeletableMessage))));
+    assert!(matches!(
+        result,
+        Err(GroupError::DeleteMessage(
+            DeleteMessageError::NonDeletableMessage
+        ))
+    ));
 }
 
 /// Test deleting a message that doesn't exist
@@ -158,7 +166,12 @@ async fn test_delete_nonexistent_message() {
     // Try to delete a message that doesn't exist
     let fake_message_id = vec![1, 2, 3, 4, 5];
     let result = alix_group.delete_message(fake_message_id);
-    assert!(matches!(result, Err(GroupError::DeleteMessage(DeleteMessageError::MessageNotFound(_)))));
+    assert!(matches!(
+        result,
+        Err(GroupError::DeleteMessage(
+            DeleteMessageError::MessageNotFound(_)
+        ))
+    ));
 }
 
 /// Test deleting an already deleted message
@@ -181,7 +194,12 @@ async fn test_delete_already_deleted_message() {
 
     // Try to delete again (should fail)
     let result = alix_group.delete_message(message_id);
-    assert!(matches!(result, Err(GroupError::DeleteMessage(DeleteMessageError::MessageAlreadyDeleted))));
+    assert!(matches!(
+        result,
+        Err(GroupError::DeleteMessage(
+            DeleteMessageError::MessageAlreadyDeleted
+        ))
+    ));
 }
 
 /// Test out-of-order deletion (deletion arrives before original message)
@@ -457,7 +475,10 @@ async fn test_reply_to_deleted_message() {
     let MessageBody::Reply(reply_body) = &reply_msg_after.unwrap().content else {
         panic!("Expected Reply message");
     };
-    assert!(reply_body.in_reply_to.is_some(), "Expected in_reply_to to be set");
+    assert!(
+        reply_body.in_reply_to.is_some(),
+        "Expected in_reply_to to be set"
+    );
     let in_reply_to = reply_body.in_reply_to.as_ref().unwrap();
     // After deletion, the referenced message should be a DeletedMessage
     let MessageBody::DeletedMessage { deleted_by } = &in_reply_to.content else {
@@ -497,7 +518,10 @@ async fn test_cannot_delete_message_from_different_group() {
 
     // Attempt to delete group1's message from group2 (should fail)
     let result = group2.delete_message(group1_message_id.clone());
-    assert!(matches!(result, Err(GroupError::DeleteMessage(DeleteMessageError::NotAuthorized))));
+    assert!(matches!(
+        result,
+        Err(GroupError::DeleteMessage(DeleteMessageError::NotAuthorized))
+    ));
 
     // Verify the message in group1 is NOT deleted
     let alix_conn = alix.context.db();
@@ -541,7 +565,12 @@ async fn test_cannot_delete_delete_message() {
 
     // Try to delete the delete message - should fail
     let result = alix_group.delete_message(delete_message_id.clone());
-    assert!(matches!(result, Err(GroupError::DeleteMessage(DeleteMessageError::NonDeletableMessage))));
+    assert!(matches!(
+        result,
+        Err(GroupError::DeleteMessage(
+            DeleteMessageError::NonDeletableMessage
+        ))
+    ));
 
     // Verify the delete message is NOT deleted
     assert!(!alix_conn.is_message_deleted(&delete_message_id)?);
@@ -688,7 +717,12 @@ async fn test_sender_and_admin_both_delete() {
 
     // Alix (super admin) tries to delete the same message - should fail
     let result = alix_group.delete_message(message_id.clone());
-    assert!(matches!(result, Err(GroupError::DeleteMessage(DeleteMessageError::MessageAlreadyDeleted))));
+    assert!(matches!(
+        result,
+        Err(GroupError::DeleteMessage(
+            DeleteMessageError::MessageAlreadyDeleted
+        ))
+    ));
 
     // Verify the message is deleted and shows as deleted by sender
     let bo_messages = bo_group.find_enriched_messages(&MsgQueryArgs::default())?;

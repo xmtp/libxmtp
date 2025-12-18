@@ -1372,12 +1372,12 @@ where
         deletion.store_or_ignore(&storage.db())?;
 
         // Fire local event to notify subscribers about the deletion
-        let _ = self
-            .context
-            .local_events()
-            .send(crate::subscriptions::LocalEvents::MessageDeleted(
-                target_message_id,
-            ));
+        let _ =
+            self.context
+                .local_events()
+                .send(crate::subscriptions::LocalEvents::MessageDeleted(
+                    target_message_id,
+                ));
 
         tracing::info!(
             "Message {} deleted by {} (super_admin: {})",
