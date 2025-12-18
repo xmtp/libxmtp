@@ -1,9 +1,11 @@
 pub mod actions;
 pub mod attachment;
+pub mod encryption;
 pub mod delete_message;
 pub mod group_updated;
 pub mod intent;
 pub mod leave_request;
+pub mod markdown;
 pub mod membership_change;
 pub mod multi_remote_attachment;
 pub mod reaction;
@@ -38,6 +40,7 @@ pub enum CodecError {
 
 pub enum ContentType {
     Text,
+    Markdown,
     GroupMembershipChange,
     GroupUpdated,
     Reaction,
@@ -61,6 +64,7 @@ impl TryFrom<&str> for ContentType {
     fn try_from(type_id: &str) -> Result<Self, Self::Error> {
         match type_id {
             text::TextCodec::TYPE_ID => Ok(Self::Text),
+            markdown::MarkdownCodec::TYPE_ID => Ok(Self::Markdown),
             membership_change::GroupMembershipChangeCodec::TYPE_ID => {
                 Ok(Self::GroupMembershipChange)
             }

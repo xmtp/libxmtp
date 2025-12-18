@@ -6,10 +6,10 @@ use crate::{
     identity::IdentityError,
     subscriptions::SyncWorkerEvent,
 };
-use futures::future::try_join_all;
+use futures::{StreamExt, future::try_join_all, stream::FuturesUnordered};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_common::{Retry, RetryableError, retry_async, retryable};
+use xmtp_common::{Event, Retry, RetryableError, retry_async, retryable};
 use xmtp_configuration::Originators;
 use xmtp_cryptography::CredentialSign;
 use xmtp_db::StorageError;
@@ -29,6 +29,7 @@ use xmtp_id::{
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
+use xmtp_macro::log_event;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
@@ -484,15 +485,18 @@ where
     pub async fn get_installation_diff(
         &self,
         conn: &impl DbQuery,
+        group_id: &[u8], // used for logging
         old_group_membership: &GroupMembership,
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
-        tracing::info!(
-            "Getting installation diff. Old: {:?}. New {:?}",
-            old_group_membership,
-            new_group_membership
+        log_event!(
+            Event::MembershipInstallationDiff,
+            group_id = hex::encode(group_id),
+            old_membership = ?old_group_membership,
+            new_membership = ?new_group_membership
         );
+
         let added_and_updated_members = membership_diff
             .added_inboxes
             .iter()
@@ -518,24 +522,30 @@ where
         let mut added_installations: HashSet<Vec<u8>> = HashSet::new();
         let mut removed_installations: HashSet<Vec<u8>> = HashSet::new();
 
-        // TODO: Do all of this in parallel
+        let mut futs = FuturesUnordered::new();
         for inbox_id in added_and_updated_members {
-            let starting_sequence_id = match old_group_membership.get(inbox_id) {
-                Some(0) => None,
-                Some(i) => Some(*i as i64),
-                None => None,
-            };
-            let state_diff = self
-                .get_association_state_diff(
-                    conn,
-                    inbox_id.as_str(),
-                    starting_sequence_id,
-                    new_group_membership.get(inbox_id).map(|i| *i as i64),
-                )
-                .await?;
+            futs.push(async move {
+                let starting_sequence_id = match old_group_membership.get(inbox_id) {
+                    Some(0) => None,
+                    Some(i) => Some(*i as i64),
+                    None => None,
+                };
+                let state_diff = self
+                    .get_association_state_diff(
+                        conn,
+                        inbox_id.as_str(),
+                        starting_sequence_id,
+                        new_group_membership.get(inbox_id).map(|i| *i as i64),
+                    )
+                    .await?;
 
-            added_installations.extend(state_diff.new_installations());
-            removed_installations.extend(state_diff.removed_installations());
+                Ok::<_, InstallationDiffError>(state_diff)
+            });
+        }
+        while let Some(result) = futs.next().await {
+            let diff = result?;
+            added_installations.extend(diff.new_installations());
+            removed_installations.extend(diff.removed_installations());
         }
 
         for inbox_id in membership_diff.removed_inboxes.iter() {
@@ -551,6 +561,13 @@ where
             // In the case of a removed member, get all the "new installations" from the diff and add them to the list of removed installations
             removed_installations.extend(state_diff.new_installations());
         }
+
+        log_event!(
+            Event::MembershipInstallationDiffComputed,
+            group_id = hex::encode(group_id),
+            added_installations = ?added_installations,
+            removed_installations = ?removed_installations
+        );
 
         Ok(InstallationDiff {
             added_installations,
@@ -1057,6 +1074,7 @@ pub(crate) mod tests {
             .identity_updates()
             .get_installation_diff(
                 &other_conn,
+                &[],
                 &original_group_membership,
                 &new_group_membership,
                 &membership_diff,

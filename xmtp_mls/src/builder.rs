@@ -23,11 +23,12 @@ use xmtp_api_d14n::{
     TrackedStatsClient,
     protocol::{CursorStore, XmtpQuery},
 };
-use xmtp_common::Retry;
+use xmtp_common::{Event, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{XmtpDb, sql_key_store::SqlKeyStore};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_macro::log_event;
 
 type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
 
@@ -337,6 +338,13 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         if !disable_workers {
             workers.spawn(context.clone());
         }
+
+        log_event!(
+            Event::ClientCreated,
+            inbox_id = context.inbox_id(),
+            device_sync_enabled = context.device_sync_worker_enabled(),
+            disabled_workers = disable_workers
+        );
 
         let client = Client {
             context,

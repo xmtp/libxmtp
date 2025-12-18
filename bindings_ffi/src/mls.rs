@@ -23,6 +23,7 @@ use xmtp_content_types::delete_message::DeleteMessageCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_content_types::intent::{Intent, IntentCodec};
 use xmtp_content_types::leave_request::LeaveRequestCodec;
+use xmtp_content_types::markdown::MarkdownCodec;
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::read_receipt::ReadReceipt;
@@ -61,6 +62,7 @@ use xmtp_id::{
     },
 };
 use xmtp_mls::client::inbox_addresses_with_verifier;
+use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::ConversationDebugInfo;
 use xmtp_mls::groups::device_sync::DeviceSyncError;
@@ -98,8 +100,8 @@ use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
-use xmtp_proto::types::ApiIdentifier;
 use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{ApiIdentifier, GroupMessageMetadata};
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, LeaveRequest};
@@ -209,6 +211,47 @@ pub async fn inbox_state_from_inbox_ids(
     });
 
     try_join_all(mapped_futures).await
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiMessageMetadata {
+    pub cursor: FfiCursor,
+    pub created_ns: i64,
+}
+
+impl TryFrom<GroupMessageMetadata> for FfiMessageMetadata {
+    type Error = GenericError;
+
+    fn try_from(metadata: GroupMessageMetadata) -> Result<Self, Self::Error> {
+        Ok(FfiMessageMetadata {
+            cursor: metadata.cursor.into(),
+            created_ns: metadata.created_ns.timestamp_nanos_opt().ok_or_else(|| {
+                GenericError::Generic {
+                    err: "Received a timestamp from the server more than 584 years from 1970"
+                        .to_string(),
+                }
+            })?,
+        })
+    }
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn get_newest_message_metadata(
+    api: Arc<XmtpApiClient>,
+    group_ids: Vec<Vec<u8>>,
+) -> Result<HashMap<Vec<u8>, FfiMessageMetadata>, GenericError> {
+    let backend = MessageBackendBuilder::default().from_bundle(api.0.clone())?;
+    let api: ApiClientWrapper<xmtp_mls::XmtpApiClient> =
+        ApiClientWrapper::new(backend, strategies::exponential_cooldown());
+
+    let group_id_refs: Vec<&[u8]> = group_ids.iter().map(|id| id.as_slice()).collect();
+
+    let metadata = api.get_newest_message_metadata(group_id_refs).await?;
+
+    metadata
+        .into_iter()
+        .map(|(k, v)| Ok((k.to_vec(), FfiMessageMetadata::try_from(v)?)))
+        .collect()
 }
 
 /**
@@ -1597,11 +1640,11 @@ impl FfiConversations {
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<Arc<FfiConversation>, GenericError> {
+    ) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
         self.inner_client
             .process_streamed_welcome_message(envelope_bytes)
             .await
-            .map(|g| Arc::new(g.into()))
+            .map(|list| list.into_iter().map(|g| Arc::new(g.into())).collect())
             .map_err(Into::into)
     }
 
@@ -2430,14 +2473,12 @@ impl FfiConversation {
     pub async fn process_streamed_conversation_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<FfiMessage, FfiSubscribeError> {
+    ) -> Result<Vec<FfiMessage>, FfiSubscribeError> {
         let message = self
             .inner
             .process_streamed_group_message(envelope_bytes)
             .await?;
-        let ffi_message = message.into();
-
-        Ok(ffi_message)
+        Ok(message.into_iter().map(Into::into).collect())
     }
 
     pub async fn list_members(&self) -> Result<Vec<FfiConversationMember>, GenericError> {
@@ -3205,6 +3246,27 @@ pub fn decode_text(bytes: Vec<u8>) -> Result<String, GenericError> {
 }
 
 #[uniffi::export]
+pub fn encode_markdown(text: String) -> Result<Vec<u8>, GenericError> {
+    let encoded =
+        MarkdownCodec::encode(text).map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_markdown(bytes: Vec<u8>) -> Result<String, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    MarkdownCodec::decode(encoded_content).map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
+#[uniffi::export]
 pub fn encode_wallet_send_calls(
     wallet_send_calls: FfiWalletSendCalls,
 ) -> Result<Vec<u8>, GenericError> {
@@ -3241,6 +3303,7 @@ pub struct FfiMessage {
     pub sequence_id: u64,
     pub originator_id: u32,
     pub inserted_at_ns: i64,
+    pub expire_at_ns: Option<i64>,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -3256,6 +3319,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             sequence_id: msg.sequence_id as u64,
             originator_id: msg.originator_id as u32,
             inserted_at_ns: msg.inserted_at_ns,
+            expire_at_ns: msg.expire_at_ns,
         }
     }
 }

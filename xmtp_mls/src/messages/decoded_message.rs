@@ -16,6 +16,7 @@ use xmtp_content_types::wallet_send_calls::{WalletSendCalls, WalletSendCallsCode
 use xmtp_content_types::{CodecError, ContentCodec};
 use xmtp_content_types::{
     attachment::{Attachment, AttachmentCodec},
+    markdown::MarkdownCodec,
     read_receipt::ReadReceipt,
     remote_attachment::RemoteAttachment,
     text::TextCodec,
@@ -38,9 +39,15 @@ pub struct Reply {
     pub reference_id: String,
 }
 
-// Wrap text content in a struct to be consident with other content types
+// Wrap text content in a struct to be consistent with other content types
 #[derive(Debug, Clone)]
 pub struct Text {
+    pub content: String,
+}
+
+// Wrap markdown content in a struct to be consistent with other content types
+#[derive(Debug, Clone)]
+pub struct Markdown {
     pub content: String,
 }
 
@@ -55,6 +62,7 @@ pub enum DeletedBy {
 #[derive(Debug, Clone)]
 pub enum MessageBody {
     Text(Text),
+    Markdown(Markdown),
     Reply(Reply),
     Reaction(ReactionV2),
     Attachment(Attachment),
@@ -96,6 +104,8 @@ pub struct DecodedMessageMetadata {
     pub content_type: ContentTypeId,
     // Time in nanoseconds the message was inserted into the database
     pub inserted_at_ns: i64,
+    // Timestamp (in NS) after which the message must be deleted
+    pub expires_at_ns: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -124,6 +134,10 @@ impl TryFrom<EncodedContent> for MessageBody {
             (TextCodec::TYPE_ID, TextCodec::MAJOR_VERSION) => {
                 let text = TextCodec::decode(value)?;
                 Ok(MessageBody::Text(Text { content: text }))
+            }
+            (MarkdownCodec::TYPE_ID, MarkdownCodec::MAJOR_VERSION) => {
+                let markdown = MarkdownCodec::decode(value)?;
+                Ok(MessageBody::Markdown(Markdown { content: markdown }))
             }
             (AttachmentCodec::TYPE_ID, AttachmentCodec::MAJOR_VERSION) => {
                 let attachment = AttachmentCodec::decode(value)?;
@@ -225,6 +239,7 @@ impl TryFrom<StoredGroupMessage> for DecodedMessage {
             delivery_status: value.delivery_status,
             content_type: content_type_id,
             inserted_at_ns: value.inserted_at_ns,
+            expires_at_ns: value.expire_at_ns,
         };
 
         // For now, we'll set default values for reactions and replies

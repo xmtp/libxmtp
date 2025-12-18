@@ -8,6 +8,7 @@ use xmtp_content_types::{
   actions::ActionsCodec,
   attachment::AttachmentCodec,
   intent::IntentCodec,
+  markdown::MarkdownCodec,
   multi_remote_attachment::MultiRemoteAttachmentCodec,
   reaction::ReactionCodec,
   read_receipt::{ReadReceipt, ReadReceiptCodec},
@@ -209,6 +210,16 @@ impl Conversation {
   }
 
   #[napi]
+  pub async fn send_markdown(&self, markdown: String, optimistic: Option<bool>) -> Result<String> {
+    let encoded_content = MarkdownCodec::encode(markdown).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: MarkdownCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
   pub async fn send_reaction(
     &self,
     reaction: Reaction,
@@ -401,7 +412,7 @@ impl Conversation {
   pub async fn process_streamed_group_message(
     &self,
     envelope_bytes: Uint8Array,
-  ) -> Result<Message> {
+  ) -> Result<Vec<Message>> {
     let group = self.create_mls_group();
     let envelope_bytes: Vec<u8> = envelope_bytes.deref().to_vec();
     let message = group
@@ -409,7 +420,7 @@ impl Conversation {
       .await
       .map_err(ErrorWrapper::from)?;
 
-    Ok(message.into())
+    Ok(message.into_iter().map(Into::into).collect())
   }
 
   #[napi]

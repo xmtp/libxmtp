@@ -21,7 +21,7 @@ use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate as XmtpUserPreferenceUpdate;
 use xmtp_mls::mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::Cursor as XmtpCursor;
 
 #[napi]
 #[derive(Debug, Clone, Copy)]
@@ -185,19 +185,19 @@ pub struct ConversationDebugInfo {
   pub is_commit_log_forked: Option<bool>,
   pub local_commit_log: String,
   pub remote_commit_log: String,
-  pub cursor: Vec<XmtpCursor>,
+  pub cursor: Vec<Cursor>,
 }
 
 #[napi(object)]
-pub struct XmtpCursor {
+pub struct Cursor {
   pub originator_id: u32,
   // napi doesn't support u64
   pub sequence_id: i64,
 }
 
-impl From<Cursor> for XmtpCursor {
-  fn from(value: Cursor) -> Self {
-    XmtpCursor {
+impl From<XmtpCursor> for Cursor {
+  fn from(value: XmtpCursor) -> Self {
+    Self {
       originator_id: value.originator_id,
       sequence_id: value.sequence_id as i64,
     }
@@ -494,14 +494,15 @@ impl Conversations {
   pub async fn process_streamed_welcome_message(
     &self,
     envelope_bytes: Uint8Array,
-  ) -> Result<Conversation> {
+  ) -> Result<Vec<Conversation>> {
     let envelope_bytes = envelope_bytes.deref().to_vec();
     let group = self
       .inner_client
       .process_streamed_welcome_message(envelope_bytes)
       .await
       .map_err(ErrorWrapper::from)?;
-    Ok(group.into())
+
+    Ok(group.into_iter().map(Into::into).collect())
   }
 
   #[napi]

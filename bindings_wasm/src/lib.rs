@@ -9,7 +9,6 @@ pub mod identity;
 pub mod inbox_id;
 pub mod inbox_state;
 pub mod messages;
-pub mod opfs;
 pub mod permissions;
 pub mod signatures;
 pub mod streams;

@@ -1,134 +1,129 @@
-use crate::encoded_content::EncodedContent;
-use js_sys::Uint8Array;
-use prost::Message;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use wasm_bindgen::JsValue;
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use tsify::Tsify;
+use wasm_bindgen::JsError;
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
-use xmtp_content_types::wallet_send_calls::{
-  WalletSendCalls as XmtpWalletSendCalls, WalletSendCallsCodec,
-};
+use xmtp_content_types::wallet_send_calls::WalletSendCalls as XmtpWalletSendCalls;
+use xmtp_content_types::wallet_send_calls::WalletSendCallsCodec;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, hashmap_as_object)]
+#[serde(rename_all = "camelCase")]
 pub struct WalletSendCalls {
   pub version: String,
   pub chain_id: String,
   pub from: String,
   pub calls: Vec<WalletCall>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub capabilities: Option<HashMap<String, String>>,
 }
 
-impl From<XmtpWalletSendCalls> for WalletSendCalls {
-  fn from(wsc: XmtpWalletSendCalls) -> Self {
-    Self {
+impl TryFrom<XmtpWalletSendCalls> for WalletSendCalls {
+  type Error = JsError;
+
+  fn try_from(wsc: XmtpWalletSendCalls) -> Result<Self, Self::Error> {
+    let calls: Result<Vec<_>, _> = wsc.calls.into_iter().map(TryInto::try_into).collect();
+    Ok(Self {
       version: wsc.version,
       chain_id: wsc.chain_id,
       from: wsc.from,
-      calls: wsc.calls.into_iter().map(Into::into).collect(),
+      calls: calls?,
       capabilities: wsc.capabilities,
-    }
+    })
   }
 }
 
-impl From<WalletSendCalls> for XmtpWalletSendCalls {
-  fn from(wsc: WalletSendCalls) -> Self {
-    Self {
+impl TryFrom<WalletSendCalls> for XmtpWalletSendCalls {
+  type Error = JsError;
+
+  fn try_from(wsc: WalletSendCalls) -> Result<Self, Self::Error> {
+    let calls: Result<Vec<_>, _> = wsc.calls.into_iter().map(TryInto::try_into).collect();
+    Ok(Self {
       version: wsc.version,
       chain_id: wsc.chain_id,
       from: wsc.from,
-      calls: wsc.calls.into_iter().map(Into::into).collect(),
+      calls: calls?,
       capabilities: wsc.capabilities,
-    }
+    })
   }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, hashmap_as_object)]
 pub struct WalletCall {
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub to: Option<String>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub data: Option<String>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub value: Option<String>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub gas: Option<String>,
-  pub metadata: Option<WalletCallMetadata>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub metadata: Option<HashMap<String, String>>,
 }
 
-impl From<xmtp_content_types::wallet_send_calls::WalletCall> for WalletCall {
-  fn from(call: xmtp_content_types::wallet_send_calls::WalletCall) -> Self {
-    Self {
+impl TryFrom<xmtp_content_types::wallet_send_calls::WalletCall> for WalletCall {
+  type Error = JsError;
+
+  fn try_from(
+    call: xmtp_content_types::wallet_send_calls::WalletCall,
+  ) -> Result<Self, Self::Error> {
+    let metadata = call
+      .metadata
+      .map(|meta| serde_json::to_value(meta).and_then(serde_json::from_value))
+      .transpose()
+      .map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(Self {
       to: call.to,
       data: call.data,
       value: call.value,
       gas: call.gas,
-      metadata: call.metadata.map(Into::into),
-    }
+      metadata,
+    })
   }
 }
 
-impl From<WalletCall> for xmtp_content_types::wallet_send_calls::WalletCall {
-  fn from(call: WalletCall) -> Self {
-    Self {
+impl TryFrom<WalletCall> for xmtp_content_types::wallet_send_calls::WalletCall {
+  type Error = JsError;
+
+  fn try_from(call: WalletCall) -> Result<Self, Self::Error> {
+    let metadata = call
+      .metadata
+      .map(|meta| serde_json::to_value(meta).and_then(serde_json::from_value))
+      .transpose()
+      .map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(Self {
       to: call.to,
       data: call.data,
       value: call.value,
       gas: call.gas,
-      metadata: call.metadata.map(Into::into),
-    }
+      metadata,
+    })
   }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct WalletCallMetadata {
-  pub description: String,
-  pub transaction_type: String,
-  pub extra: HashMap<String, String>,
-}
-
-impl From<xmtp_content_types::wallet_send_calls::WalletCallMetadata> for WalletCallMetadata {
-  fn from(meta: xmtp_content_types::wallet_send_calls::WalletCallMetadata) -> Self {
-    Self {
-      description: meta.description,
-      transaction_type: meta.transaction_type,
-      extra: meta.extra,
-    }
-  }
-}
-
-impl From<WalletCallMetadata> for xmtp_content_types::wallet_send_calls::WalletCallMetadata {
-  fn from(meta: WalletCallMetadata) -> Self {
-    Self {
-      description: meta.description,
-      transaction_type: meta.transaction_type,
-      extra: meta.extra,
-    }
-  }
+#[wasm_bindgen(js_name = "walletSendCallsContentType")]
+pub fn wallet_send_calls_content_type() -> ContentTypeId {
+  WalletSendCallsCodec::content_type().into()
 }
 
 #[wasm_bindgen(js_name = "encodeWalletSendCalls")]
 pub fn encode_wallet_send_calls(
-  #[wasm_bindgen(js_name = walletSendCalls)] wallet_send_calls: JsValue,
-) -> Result<Uint8Array, JsError> {
-  let wallet_send_calls: WalletSendCalls = serde_wasm_bindgen::from_value(wallet_send_calls)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  // Use WalletSendCallsCodec to encode the wallet send calls
-  let encoded = WalletSendCallsCodec::encode(wallet_send_calls.into())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded
-    .encode(&mut buf)
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
-}
-
-#[wasm_bindgen(js_name = "decodeWalletSendCalls")]
-pub fn decode_wallet_send_calls(encoded_content: EncodedContent) -> Result<JsValue, JsError> {
-  // Use WalletSendCallsCodec to decode into WalletSendCalls and convert to WalletSendCalls
-  let wallet_send_calls = WalletSendCallsCodec::decode(encoded_content.into())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
-  let wallet_send_calls: WalletSendCalls = wallet_send_calls.into();
-
-  serde_wasm_bindgen::to_value(&wallet_send_calls).map_err(|e| JsError::new(&format!("{}", e)))
+  wallet_send_calls: WalletSendCalls,
+) -> Result<EncodedContent, JsError> {
+  let wsc: XmtpWalletSendCalls = wallet_send_calls.try_into()?;
+  Ok(
+    WalletSendCallsCodec::encode(wsc)
+      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .into(),
+  )
 }

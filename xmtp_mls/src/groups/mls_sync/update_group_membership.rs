@@ -26,6 +26,7 @@ pub(crate) async fn apply_update_group_membership_intent(
 
     let changes_with_kps = calculate_membership_changes_with_keypackages(
         context,
+        openmls_group.group_id().as_slice(),
         &new_group_membership,
         &old_group_membership,
     )
