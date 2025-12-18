@@ -21,7 +21,8 @@ use diesel::{
     sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use xmtp_common::{NS_IN_DAY, time::now_ns};
 use xmtp_content_types::{
     attachment, group_updated, leave_request, markdown, membership_change, reaction, read_receipt,
@@ -832,22 +833,38 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .unwrap_or(false);
 
         let messages = if is_dm && !include_duplicate_group_updated {
-            // For DM conversations, do some gymnastics to make sure that there is only one GroupUpdated
-            // message and that it is treated as the oldest
-            let (group_updated_msgs, non_group_msgs): (Vec<_>, Vec<_>) = messages
-                .into_iter()
-                .partition(|msg| msg.content_type == ContentType::GroupUpdated);
+            // For DM conversations, we need to de-dupe stitched group updated messages
+            let is_ascending = args
+                .direction
+                .as_ref()
+                .map(|d| matches!(d, SortDirection::Ascending))
+                .unwrap_or(true);
+            let mut messages = Box::new(messages.into_iter())
+                as Box<dyn DoubleEndedIterator<Item = StoredGroupMessage>>;
+            if !is_ascending {
+                messages = Box::new(messages.rev());
+            }
 
-            let oldest_group_updated = group_updated_msgs
-                .into_iter()
-                .min_by_key(|msg| msg.sent_at_ns);
+            let mut update_msgs: HashSet<u64> = HashSet::default();
+            let messages = messages.filter_map(|msg| {
+                if !matches!(msg.content_type, ContentType::GroupUpdated) {
+                    return Some(msg);
+                }
 
-            match oldest_group_updated {
-                Some(msg) => match args.direction.as_ref().unwrap_or(&SortDirection::Ascending) {
-                    SortDirection::Ascending => [vec![msg], non_group_msgs].concat(),
-                    SortDirection::Descending => [non_group_msgs, vec![msg]].concat(),
-                },
-                None => non_group_msgs,
+                let mut hasher = DefaultHasher::new();
+                msg.decrypted_message_bytes.hash(&mut hasher);
+                let hash: u64 = hasher.finish();
+
+                if update_msgs.insert(hash) {
+                    return Some(msg);
+                }
+                None
+            });
+
+            if is_ascending {
+                messages.collect()
+            } else {
+                messages.rev().collect()
             }
         } else {
             messages

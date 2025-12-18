@@ -7,6 +7,7 @@ mod test_dm;
 mod test_extract_readded_installations;
 mod test_group_updated;
 mod test_libxmtp_version;
+mod test_message_disappearing_settings;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_network;
 mod test_send_message_opts;
