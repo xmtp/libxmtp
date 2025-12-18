@@ -32,9 +32,5 @@ async fn test_disappearing_message_update_message_in_group() {
 
     let alix_bo_alix_dm = alix.group(&_bo_alix_dm.group_id)?;
     let msgs = alix_bo_alix_dm.find_messages_v2(&Default::default())?;
-
-    for msg in msgs {
-        tracing::warn!("{msg:?}");
-    }
     assert_eq!(msgs.len(), 3);
 }

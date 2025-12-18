@@ -70,7 +70,7 @@ use xmtp_configuration::{
     SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
-use xmtp_db::{ConnectionError, group::GroupMembershipState};
+use xmtp_db::group::GroupMembershipState;
 use xmtp_db::{
     Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
     group::{ConversationType, StoredGroup},
