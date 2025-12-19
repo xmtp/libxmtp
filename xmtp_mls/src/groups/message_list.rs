@@ -1,9 +1,9 @@
-use xmtp_db::group_message::{ContentType as DbContentType, MsgQueryArgs};
-
 use crate::context::XmtpSharedContext;
-use crate::groups::{GroupError, MlsGroup};
+use crate::groups::MlsGroup;
 use crate::messages::decoded_message::DecodedMessage;
-use crate::messages::enrichment::enrich_messages;
+use crate::messages::enrichment::{EnrichMessageError, enrich_messages};
+use xmtp_db::DbQuery;
+use xmtp_db::group_message::{ContentType as DbContentType, MsgQueryArgs};
 use xmtp_db::prelude::QueryGroupMessage;
 
 impl<Context> MlsGroup<Context>
@@ -13,15 +13,25 @@ where
     pub fn find_messages_v2(
         &self,
         query: &MsgQueryArgs,
-    ) -> Result<Vec<DecodedMessage>, GroupError> {
+    ) -> Result<Vec<DecodedMessage>, EnrichMessageError> {
         let conn = self.context.db();
+        self.find_messages_v2_with_conn(query, conn)
+    }
 
+    pub fn find_messages_v2_with_conn<C>(
+        &self,
+        query: &MsgQueryArgs,
+        conn: C,
+    ) -> Result<Vec<DecodedMessage>, EnrichMessageError>
+    where
+        C: QueryGroupMessage + DbQuery,
+    {
         let initial_messages = conn.get_group_messages(
             &self.group_id,
             &filter_out_hidden_message_types_from_query(query),
         )?;
 
-        Ok(enrich_messages(conn, &self.group_id, initial_messages)?)
+        enrich_messages(conn, &self.group_id, initial_messages)
     }
 }
 

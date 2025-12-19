@@ -1185,7 +1185,7 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn double_dms() {
+    async fn test_double_dms() {
         tester!(alice);
         tester!(bob);
 
@@ -1233,7 +1233,7 @@ pub(crate) mod tests {
         group.sync().await?;
         let messages = group.find_messages(&MsgQueryArgs::default())?;
 
-        assert_eq!(messages.len(), 4);
+        assert_eq!(messages.len(), 6);
 
         // Reload alice's DM. This will load the DM that Bob just created and sent a message on.
         let new_alice_dm = alice.stitched_group(&alice_dm.group_id)?;
