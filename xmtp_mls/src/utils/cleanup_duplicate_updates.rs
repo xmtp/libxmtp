@@ -44,7 +44,7 @@ where
         }
 
         for group in groups {
-            let mut inserted_after_ns = None;
+            let mut sent_after_ns = None;
             let mut msgs;
             let mut originals: HashSet<u64> = HashSet::default();
 
@@ -53,7 +53,7 @@ where
                     &group.id,
                     &MsgQueryArgs {
                         content_types: Some(vec![ContentType::GroupUpdated]),
-                        inserted_after_ns,
+                        sent_after_ns,
                         limit: Some(BATCH_SIZE),
                         ..Default::default()
                     },
@@ -63,7 +63,7 @@ where
                     let Some(msg) = msgs.last() else {
                         break;
                     };
-                    inserted_after_ns = Some(msg.inserted_at_ns);
+                    sent_after_ns = Some(msg.sent_at_ns);
                 }
 
                 let msgs = enrich_messages(&db, &group.id, msgs)?;
