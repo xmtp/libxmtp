@@ -7,7 +7,7 @@ use super::attachment::Attachment;
 use super::group_updated::GroupUpdated;
 use super::intent::Intent;
 use super::leave_request::LeaveRequest;
-use super::multi_remote_attachment::MultiRemoteAttachmentPayload;
+use super::multi_remote_attachment::MultiRemoteAttachment;
 use super::reaction::Reaction;
 use super::read_receipt::ReadReceipt;
 use super::remote_attachment::RemoteAttachment;
@@ -44,7 +44,7 @@ pub enum DecodedMessageContentInner {
   Reaction(Reaction),
   Attachment(Attachment),
   RemoteAttachment(RemoteAttachment),
-  MultiRemoteAttachment(MultiRemoteAttachmentPayload),
+  MultiRemoteAttachment(MultiRemoteAttachment),
   TransactionReference(TransactionReference),
   GroupUpdated(GroupUpdated),
   ReadReceipt(ReadReceipt),
@@ -139,7 +139,7 @@ impl DecodedMessageContent {
   }
 
   #[napi(getter)]
-  pub fn multi_remote_attachment(&self) -> Option<MultiRemoteAttachmentPayload> {
+  pub fn multi_remote_attachment(&self) -> Option<MultiRemoteAttachment> {
     match &self.inner {
       DecodedMessageContentInner::MultiRemoteAttachment(mra) => Some(mra.clone()),
       _ => None,
