@@ -4,7 +4,6 @@ use super::mls_sync::GroupMessageProcessingError;
 use super::summary::SyncSummary;
 use super::{intents::IntentError, validated_commit::CommitValidationError};
 use crate::identity::IdentityError;
-use crate::messages::enrichment::EnrichMessageError;
 use crate::mls_store::MlsStoreError;
 use crate::{
     client::ClientError, identity_updates::InstallationDiffError, intents::ProcessIntentError,
@@ -182,8 +181,6 @@ pub enum GroupError {
     Diesel(#[from] xmtp_db::diesel::result::Error),
     #[error(transparent)]
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
-    #[error(transparent)]
-    EnrichMessage(#[from] EnrichMessageError),
 }
 
 impl From<prost::EncodeError> for GroupError {
@@ -306,7 +303,6 @@ impl RetryableError for GroupError {
             Self::WrapWelcome(e) => e.is_retryable(),
             Self::UnwrapWelcome(e) => e.is_retryable(),
             Self::Diesel(e) => e.is_retryable(),
-            Self::EnrichMessage(e) => e.is_retryable(),
             Self::LeaveCantProcessed(e) => e.is_retryable(),
             Self::NotFound(_)
             | Self::UserLimitExceeded

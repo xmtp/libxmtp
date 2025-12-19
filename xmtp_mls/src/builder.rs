@@ -1,7 +1,7 @@
 use crate::{
     GroupCommitLock, StorageError, XmtpApi,
     client::{Client, DeviceSync},
-    context::XmtpMlsLocalContext,
+    context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::{
         device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
         key_package_cleaner_worker::KeyPackagesCleanerWorker,
@@ -10,7 +10,7 @@ use crate::{
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
-    utils::VersionInfo,
+    utils::{VersionInfo, cleanup_duplicate_updates},
     worker::WorkerRunner,
 };
 use futures::FutureExt;
@@ -25,7 +25,7 @@ use xmtp_api_d14n::{
 };
 use xmtp_common::Retry;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::XmtpMlsStorageProvider;
+use xmtp_db::{DbConnection, XmtpMlsStorageProvider};
 use xmtp_db::{XmtpDb, sql_key_store::SqlKeyStore};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
@@ -343,6 +343,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             local_events,
             workers,
         };
+
+        // Cleanup old unstitched group updated messages.
+        let conn = DbConnection::new(client.db());
+        xmtp_common::spawn(None, cleanup_duplicate_updates::perform(conn));
 
         Ok(client)
     }

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "bench")]
 pub mod bench;
+pub mod cleanup_duplicate_updates;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test;
 

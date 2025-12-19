@@ -543,13 +543,14 @@ fn it_dedupes_group_updated_messages_from_dm_by_default() {
             .get_group_messages(&group.id, &MsgQueryArgs::default())
             .unwrap();
 
-        assert_eq!(messages_default.len(), 3);
+        assert_eq!(messages_default.len(), 4);
+        // One group updated message for each person joining.
         assert_eq!(
             messages_default
                 .iter()
                 .filter(|m| m.content_type == ContentType::GroupUpdated)
                 .count(),
-            1
+            2
         );
 
         // Explicitly request GroupUpdated messages - should get them
