@@ -369,7 +369,7 @@ where
     }
 }
 
-#[derive(Default, Clone, Builder)]
+#[derive(Default, Clone, Builder, Debug)]
 #[builder(setter(into))]
 pub struct MsgQueryArgs {
     #[builder(default = None)]
@@ -777,15 +777,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         group_id: &[u8],
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
-        use crate::schema::{group_messages::dsl, groups::dsl as groups_dsl};
-
-        // Check if this is a DM group
-        let is_dm = self.raw_query_read(|conn| {
-            groups_dsl::groups
-                .filter(groups_dsl::id.eq(group_id))
-                .select(groups_dsl::conversation_type)
-                .first::<ConversationType>(conn)
-        })? == ConversationType::Dm;
+        use crate::schema::group_messages::dsl;
 
         // Start with base query
         let mut query = dsl::group_messages
@@ -821,39 +813,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             query = query.limit(limit);
         }
 
-        let messages = self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?;
-
-        // Mirroring previous behaviour, if you explicitly want duplicate group updates for DMs
-        // you can include that type in the content_types argument.
-        let include_duplicate_group_updated = args
-            .content_types
-            .as_ref()
-            .map(|types| types.contains(&ContentType::GroupUpdated))
-            .unwrap_or(false);
-
-        let messages = if is_dm && !include_duplicate_group_updated {
-            // For DM conversations, do some gymnastics to make sure that there is only one GroupUpdated
-            // message and that it is treated as the oldest
-            let (group_updated_msgs, non_group_msgs): (Vec<_>, Vec<_>) = messages
-                .into_iter()
-                .partition(|msg| msg.content_type == ContentType::GroupUpdated);
-
-            let oldest_group_updated = group_updated_msgs
-                .into_iter()
-                .min_by_key(|msg| msg.sent_at_ns);
-
-            match oldest_group_updated {
-                Some(msg) => match args.direction.as_ref().unwrap_or(&SortDirection::Ascending) {
-                    SortDirection::Ascending => [vec![msg], non_group_msgs].concat(),
-                    SortDirection::Descending => [non_group_msgs, vec![msg]].concat(),
-                },
-                None => non_group_msgs,
-            }
-        } else {
-            messages
-        };
-
-        Ok(messages)
+        self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))
     }
 
     /// Count group messages matching the given criteria

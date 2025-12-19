@@ -16,6 +16,8 @@ pub struct StoredUserPreferences {
     /// HMAC key root
     pub hmac_key: Option<Vec<u8>>,
     pub hmac_key_cycled_at_ns: Option<i64>,
+    /// Whether DM group updates have been migrated.
+    pub dm_group_updates_migrated: bool,
 }
 
 impl<C> Store<C> for StoredUserPreferences
