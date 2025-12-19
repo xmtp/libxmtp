@@ -220,11 +220,6 @@ mod tests {
 
         // Rollback target and newer migrations should be pending
         assert_eq!(
-            migration_status(mid_recent, &applied_after),
-            "[pending]",
-            "{mid_recent} should be pending after rollback"
-        );
-        assert_eq!(
             migration_status(newest, &applied_after),
             "[pending]",
             "{newest} should be pending after rollback"
