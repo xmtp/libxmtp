@@ -22,6 +22,21 @@ pub struct RemoteAttachmentInfo {
   pub filename: Option<String>,
 }
 
+impl Clone for RemoteAttachmentInfo {
+  fn clone(&self) -> Self {
+    Self {
+      secret: Uint8Array::from(self.secret.to_vec()),
+      content_digest: self.content_digest.clone(),
+      nonce: Uint8Array::from(self.nonce.to_vec()),
+      scheme: self.scheme.clone(),
+      url: self.url.clone(),
+      salt: Uint8Array::from(self.salt.to_vec()),
+      content_length: self.content_length,
+      filename: self.filename.clone(),
+    }
+  }
+}
+
 impl From<RemoteAttachmentInfo> for XmtpRemoteAttachmentInfo {
   fn from(remote_attachment_info: RemoteAttachmentInfo) -> Self {
     XmtpRemoteAttachmentInfo {
@@ -53,6 +68,7 @@ impl From<XmtpRemoteAttachmentInfo> for RemoteAttachmentInfo {
 }
 
 #[napi(object)]
+#[derive(Clone)]
 pub struct MultiRemoteAttachment {
   pub attachments: Vec<RemoteAttachmentInfo>,
 }
@@ -95,55 +111,4 @@ pub fn encode_multi_remote_attachment(
       .map_err(ErrorWrapper::from)?
       .into(),
   )
-}
-
-// Additional types for enriched messages using Vec<u8> instead of Uint8Array
-#[derive(Clone)]
-#[napi(object)]
-pub struct RemoteAttachmentInfoPayload {
-  pub url: String,
-  pub content_digest: String,
-  pub secret: Vec<u8>,
-  pub salt: Vec<u8>,
-  pub nonce: Vec<u8>,
-  pub scheme: String,
-  pub content_length: Option<u32>,
-  pub filename: Option<String>,
-}
-
-impl From<xmtp_proto::xmtp::mls::message_contents::content_types::RemoteAttachmentInfo>
-  for RemoteAttachmentInfoPayload
-{
-  fn from(
-    info: xmtp_proto::xmtp::mls::message_contents::content_types::RemoteAttachmentInfo,
-  ) -> Self {
-    Self {
-      url: info.url,
-      content_digest: info.content_digest,
-      secret: info.secret,
-      salt: info.salt,
-      nonce: info.nonce,
-      scheme: info.scheme,
-      content_length: info.content_length,
-      filename: info.filename,
-    }
-  }
-}
-
-#[derive(Clone)]
-#[napi(object)]
-pub struct MultiRemoteAttachmentPayload {
-  pub attachments: Vec<RemoteAttachmentInfoPayload>,
-}
-
-impl From<xmtp_proto::xmtp::mls::message_contents::content_types::MultiRemoteAttachment>
-  for MultiRemoteAttachmentPayload
-{
-  fn from(
-    multi: xmtp_proto::xmtp::mls::message_contents::content_types::MultiRemoteAttachment,
-  ) -> Self {
-    Self {
-      attachments: multi.attachments.into_iter().map(|a| a.into()).collect(),
-    }
-  }
 }
