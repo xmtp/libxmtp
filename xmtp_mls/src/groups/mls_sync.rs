@@ -1985,19 +1985,9 @@ where
 
         self.handle_metadata_update_from_commit(&payload.metadata_field_changes, storage)?;
 
-        if self.dm_id.is_some() {
-            // DMs are stitched, so we don't want to have the same
-            // group updates from multiple DMs being saved to the database.
-            let msgs = self.find_messages_v2_with_conn(
-                &MsgQueryArgs {
-                    content_types: Some(vec![ContentType::GroupUpdated]),
-                    ..Default::default()
-                },
-                storage.db(),
-            )?;
-            if msgs.iter().any(|m| m.is_duplicate(&payload)) {
-                return Ok(None);
-            }
+        // When a DM is stitched, it can repeat group updates. We want to prevent saving those messages.
+        if self.update_already_exists(&payload, storage)? {
+            return Ok(None);
         }
 
         let msg = StoredGroupMessage {
@@ -2022,6 +2012,44 @@ where
 
         msg.store_or_ignore(&storage.db())?;
         Ok(Some(msg))
+    }
+
+    fn update_already_exists(
+        &self,
+        payload: &GroupUpdated,
+        storage: &impl XmtpMlsStorageProvider,
+    ) -> Result<bool, GroupMessageProcessingError> {
+        if self.dm_id.is_none() {
+            // Don't dedupe for regular groups.
+            return Ok(false);
+        }
+
+        let mut inserted_after_ns = None;
+        let mut msgs;
+        loop {
+            // DMs are stitched, so we don't want to have the same
+            // group updates from multiple DMs being saved to the database.
+            msgs = self.find_messages_v2_with_conn(
+                &MsgQueryArgs {
+                    content_types: Some(vec![ContentType::GroupUpdated]),
+                    inserted_after_ns,
+                    limit: Some(100),
+                    ..Default::default()
+                },
+                storage.db(),
+            )?;
+
+            let Some(msg) = msgs.last() else {
+                break;
+            };
+            inserted_after_ns = Some(msg.metadata.inserted_at_ns);
+
+            if msgs.iter().any(|m| m.is_duplicate(&payload)) {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
     }
 
     async fn process_group_message_error_for_fork_detection(
