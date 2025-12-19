@@ -95,8 +95,12 @@ where
                             .filter(xmtp_db::schema::group_messages::id.eq(&msg.metadata.id))
                             .execute(conn)
                     })?;
+
+                    tokio::task::yield_now().await;
                 }
             }
+
+            tokio::task::yield_now().await;
         }
 
         group_offset += BATCH_SIZE;
