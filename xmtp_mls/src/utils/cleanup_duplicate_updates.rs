@@ -83,9 +83,7 @@ where
                     };
 
                     let mut hasher = DefaultHasher::new();
-                    update.added_inboxes.hash(&mut hasher);
-                    update.removed_inboxes.hash(&mut hasher);
-                    update.metadata_field_changes.hash(&mut hasher);
+                    update.hash(&mut hasher);
                     if originals.insert(hasher.finish()) {
                         continue;
                     }
