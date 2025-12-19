@@ -4,7 +4,7 @@ use xmtp_mls::messages::decoded_message::MessageBody;
 
 use super::actions::Actions;
 use super::attachment::Attachment;
-use super::delete_message::DeletedMessage;
+use super::deleted_message::DeletedMessage;
 use super::group_updated::GroupUpdated;
 use super::intent::Intent;
 use super::leave_request::LeaveRequest;

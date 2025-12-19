@@ -4,7 +4,7 @@ use xmtp_db::group_message::ContentType as XmtpContentType;
 pub mod actions;
 pub mod attachment;
 pub mod decoded_message_content;
-pub mod delete_message;
+pub mod deleted_message;
 pub mod group_updated;
 pub mod intent;
 pub mod leave_request;
