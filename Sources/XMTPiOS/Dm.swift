@@ -144,7 +144,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			try await ffiConversation.processStreamedConversationMessage(
 				envelopeBytes: messageBytes
 			)
-		return DecodedMessage.create(ffiMessage: message)
+		// TODO: Handle multiple messages, which is now possible with d14n iceboxes
+		return DecodedMessage.create(ffiMessage: message[0])
 	}
 
 	public func send<T>(content: T, options: SendOptions? = nil) async throws

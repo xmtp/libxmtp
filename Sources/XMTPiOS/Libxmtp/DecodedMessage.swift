@@ -124,6 +124,14 @@ public struct DecodedMessage: Identifiable {
 		ffiMessage.insertedAtNs
 	}
 
+	public var expiresAtNs: Int64? {
+		ffiMessage.expireAtNs
+	}
+
+	public var expiresAt: Date? {
+		expiresAtNs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1_000_000_000) }
+	}
+
 	public var deliveryStatus: MessageDeliveryStatus {
 		switch ffiMessage.deliveryStatus {
 		case .unpublished:

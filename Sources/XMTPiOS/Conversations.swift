@@ -786,9 +786,11 @@ public class Conversations {
 	public func fromWelcome(envelopeBytes: Data) async throws
 		-> Conversation?
 	{
-		let conversation =
+		let conversations =
 			try await ffiConversations
 				.processStreamedWelcomeMessage(envelopeBytes: envelopeBytes)
+		// TODO: Handle multiple conversations, which is now possible with d14n iceboxes
+		let conversation = conversations[0]
 		return try await conversation.toConversation(client: client)
 	}
 

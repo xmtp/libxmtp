@@ -34,6 +34,14 @@ public struct DecodedMessageV2: Identifiable {
 		ffiMessage.insertedAtNs()
 	}
 
+	public var expiresAtNs: Int64? {
+		ffiMessage.expiresAtNs()
+	}
+
+	public var expiresAt: Date? {
+		expiresAtNs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1_000_000_000) }
+	}
+
 	public var deliveryStatus: MessageDeliveryStatus {
 		switch ffiMessage.deliveryStatus() {
 		case .unpublished:
@@ -156,6 +164,9 @@ public struct DecodedMessageV2: Identifiable {
 
 		case let .actions(actions):
 			return actions
+
+		case let .markdown(markdownContent):
+			return markdownContent.content
 		}
 	}
 
@@ -212,6 +223,8 @@ public struct DecodedMessageV2: Identifiable {
 			return try codec.decode(content: encoded)
 		case let .intent(intent):
 			return intent as Intent
+		case let .markdown(markdownContent):
+			return markdownContent.content
 		case let .actions(actions):
 			return actions as Actions
 		}
@@ -267,6 +280,13 @@ public struct DecodedMessageV2: Identifiable {
 			return ContentTypeID(
 				authorityID: "coinbase.com",
 				typeID: "actions",
+				versionMajor: 1,
+				versionMinor: 0
+			)
+		case .markdown:
+			return ContentTypeID(
+				authorityID: "xmtp.org",
+				typeID: "markdown",
 				versionMajor: 1,
 				versionMinor: 0
 			)
