@@ -1993,7 +1993,7 @@ where
         let msg = StoredGroupMessage {
             id: message_id,
             group_id: self.group_id.clone(),
-            decrypted_message_bytes: encoded_payload_bytes.to_vec(),
+            decrypted_message_bytes: encoded_payload_bytes,
             sent_at_ns: timestamp_ns as i64,
             kind: GroupMessageKind::MembershipChange,
             sender_installation_id,
@@ -2044,7 +2044,7 @@ where
             };
             inserted_after_ns = Some(msg.metadata.inserted_at_ns);
 
-            if msgs.iter().any(|m| m.is_duplicate(&payload)) {
+            if msgs.iter().any(|m| m.is_duplicate(payload)) {
                 return Ok(true);
             }
         }
