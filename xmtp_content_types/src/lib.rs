@@ -1,5 +1,6 @@
 pub mod actions;
 pub mod attachment;
+pub mod delete_message;
 pub mod encryption;
 pub mod group_updated;
 pub mod intent;
@@ -54,6 +55,7 @@ pub enum ContentType {
     WalletSendCalls,
     DeviceSyncMessage,
     LeaveRequest,
+    DeleteMessage,
 }
 
 impl TryFrom<&str> for ContentType {
@@ -82,6 +84,7 @@ impl TryFrom<&str> for ContentType {
             leave_request::LeaveRequestCodec::TYPE_ID => Ok(Self::LeaveRequest),
             actions::ActionsCodec::TYPE_ID => Ok(Self::Actions),
             intent::IntentCodec::TYPE_ID => Ok(Self::Intent),
+            delete_message::DeleteMessageCodec::TYPE_ID => Ok(Self::DeleteMessage),
             _ => Err(format!("Unknown content type ID: {type_id}")),
         }
     }

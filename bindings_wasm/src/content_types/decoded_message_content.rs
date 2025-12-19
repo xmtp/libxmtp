@@ -4,10 +4,10 @@ use wasm_bindgen::JsError;
 use xmtp_mls::messages::decoded_message::MessageBody;
 
 use super::{
-  actions::Actions, attachment::Attachment, group_updated::GroupUpdated, intent::Intent,
-  leave_request::LeaveRequest, markdown::MarkdownContent,
-  multi_remote_attachment::MultiRemoteAttachment, reaction::Reaction, read_receipt::ReadReceipt,
-  remote_attachment::RemoteAttachment, reply::EnrichedReply,
+  actions::Actions, attachment::Attachment, deleted_message::DeletedMessage,
+  group_updated::GroupUpdated, intent::Intent, leave_request::LeaveRequest,
+  markdown::MarkdownContent, multi_remote_attachment::MultiRemoteAttachment, reaction::Reaction,
+  read_receipt::ReadReceipt, remote_attachment::RemoteAttachment, reply::EnrichedReply,
   transaction_reference::TransactionReference, wallet_send_calls::WalletSendCalls,
 };
 use crate::encoded_content::EncodedContent;
@@ -30,6 +30,7 @@ pub enum DecodedMessageContent {
   WalletSendCalls { content: WalletSendCalls },
   Intent { content: Option<Intent> },
   Actions { content: Option<Actions> },
+  DeletedMessage { content: DeletedMessage },
   Custom { content: EncodedContent },
 }
 
@@ -69,6 +70,9 @@ impl TryFrom<MessageBody> for DecodedMessageContent {
       }),
       MessageBody::Actions(a) => Ok(DecodedMessageContent::Actions {
         content: a.map(|a| a.try_into()).transpose()?,
+      }),
+      MessageBody::DeletedMessage { deleted_by } => Ok(DecodedMessageContent::DeletedMessage {
+        content: deleted_by.into(),
       }),
       MessageBody::Custom(c) => Ok(DecodedMessageContent::Custom { content: c.into() }),
     }
