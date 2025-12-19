@@ -201,5 +201,18 @@ mod tests {
                 msg.metadata.id
             );
         }
+
+        // Let's insert another duplicate and make sure it stays this time.
+        // We don't want the perform to run more than once.
+        let msg = gen_update_msg(dm.group_id.clone(), payload1.clone());
+        msg.store(&alix.db())?;
+        perform(alix.db())?;
+
+        // The duplicate should remain because perform will only clean up once.
+        let msgs = dm.find_messages_v2(&MsgQueryArgs {
+            content_types: Some(vec![ContentType::GroupUpdated]),
+            ..Default::default()
+        })?;
+        assert!(msgs.iter().any(|m| m.metadata.id == msg.id));
     }
 }
