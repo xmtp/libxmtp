@@ -2,8 +2,10 @@ use crate::context::XmtpSharedContext;
 use crate::groups::GroupError;
 use crate::groups::mls_sync::generate_commit_with_rollback;
 use crate::utils::fixtures::{alix, bola};
+use openmls::prelude::MlsMessageIn;
 use openmls::prelude::hash_ref::HashReference;
 use openmls::prelude::tls_codec::Serialize;
+use tls_codec::Deserialize;
 
 /// Test to compare commit sizes when using proposals inline vs proposal references
 ///
@@ -184,7 +186,6 @@ async fn test_commit_size_measurement() {
     panic!();
 }
 
-
 /// This test measures sizes for 5 members for both approaches.
 #[xmtp_common::test]
 async fn test_commit_size_comparison() {
@@ -272,8 +273,7 @@ async fn test_commit_size_comparison() {
                             .propose_add_member(provider, &signer, kp)
                             .map_err(|e| GroupError::Any(e.into()))?;
 
-                        total_proposal_size +=
-                            proposal_msg.tls_serialize_detached().unwrap().len();
+                        total_proposal_size += proposal_msg.tls_serialize_detached().unwrap().len();
                     }
 
                     // Commit to all pending proposals
@@ -314,7 +314,6 @@ async fn test_commit_size_comparison() {
         diff.abs(),
         if diff > 0 { "larger" } else { "smaller" }
     );
-
 }
 
 #[xmtp_common::test]
@@ -402,7 +401,8 @@ async fn test_proposal_network_flow() {
                     .commit_to_pending_proposals(&provider, &signer)
                     .map_err(|e| GroupError::Any(e.into()))?;
 
-                let commit_size = commit.tls_serialize_detached().unwrap().len();
+                let commit_bytes = commit.tls_serialize_detached().unwrap();
+                let commit_size = commit_bytes.len();
                 let welcome_size = welcome
                     .as_ref()
                     .map(|w| w.tls_serialize_detached().unwrap().len())
@@ -414,7 +414,7 @@ async fn test_proposal_network_flow() {
                     welcome_size
                 );
 
-                Ok::<_, GroupError>((commit_size, welcome_size))
+                Ok::<_, GroupError>((commit_bytes, welcome_size))
             })
             .unwrap()
     };
@@ -422,7 +422,27 @@ async fn test_proposal_network_flow() {
     tracing::info!(
         "Total bytes sent: proposal={} + commit={} = {} bytes",
         proposal_bytes.len(),
-        commit_bytes.0,
-        proposal_bytes.len() + commit_bytes.0
+        commit_bytes.0.len(),
+        proposal_bytes.len() + commit_bytes.0.len()
     );
+
+    let mls_message_in = MlsMessageIn::tls_deserialize_exact(&commit_bytes.0).unwrap();
+
+    let protocol_message = mls_message_in.try_into_protocol_message().unwrap();
+
+    let provider = bola.context.mls_provider();
+    bola_group
+        .load_mls_group_with_lock_async(|mut mls_group| async move {
+            let count = mls_group.pending_proposals().count();
+            tracing::info!("Bola has {} pending proposal(s)", count);
+            let processed_message = mls_group
+                .process_message(&provider, protocol_message)
+                .unwrap();
+            dbg!(&processed_message);
+            let content = processed_message.into_content();
+
+            Ok::<_, GroupError>(())
+        })
+        .await
+        .unwrap();
 }
