@@ -354,10 +354,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         // Cleanup old unstitched group updated messages.
         let conn = DbConnection::new(client.db());
-        xmtp_common::spawn(
-            None,
-            async move { cleanup_duplicate_updates::perform(conn) },
-        );
+        xmtp_common::spawn(None, cleanup_duplicate_updates::perform(conn));
 
         Ok(client)
     }

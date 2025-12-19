@@ -17,7 +17,16 @@ use crate::messages::enrichment::enrich_messages;
 
 const BATCH_SIZE: i64 = 100;
 
-pub fn perform<C>(db: DbConnection<C>) -> Result<(), GroupMessageProcessingError>
+pub async fn perform<C>(db: DbConnection<C>)
+where
+    C: ConnectionExt,
+{
+    if let Err(err) = perform_inner(db).await {
+        tracing::error!("Duplicate cleanup task failed: {err:?}");
+    }
+}
+
+async fn perform_inner<C>(db: DbConnection<C>) -> Result<(), GroupMessageProcessingError>
 where
     C: ConnectionExt,
 {
