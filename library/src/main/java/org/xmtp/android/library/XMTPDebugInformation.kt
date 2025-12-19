@@ -6,7 +6,6 @@ import uniffi.xmtpv3.FfiXmtpClient
 
 class XMTPDebugInformation(
     private val ffiClient: FfiXmtpClient,
-    private val client: Client,
 ) {
     val apiStatistics: ApiStats
         get() = ApiStats(ffiClient.apiStatistics())
@@ -14,9 +13,6 @@ class XMTPDebugInformation(
         get() = IdentityStats(ffiClient.apiIdentityStatistics())
     val aggregateStatistics: String
         get() = ffiClient.apiAggregateStatistics()
-
-    suspend fun uploadDebugInformation(serverUrl: String = client.environment.getHistorySyncUrl()): String =
-        ffiClient.uploadDebugArchive(serverUrl)
 
     fun clearAllStatistics() = ffiClient.clearAllStatistics()
 }

@@ -396,8 +396,9 @@ class Dm(
 
     suspend fun processMessage(messageBytes: ByteArray): DecodedMessage? =
         withContext(Dispatchers.IO) {
-            val message = libXMTPGroup.processStreamedConversationMessage(messageBytes)
-            DecodedMessage.create(message)
+            val messages = libXMTPGroup.processStreamedConversationMessage(messageBytes)
+            // TODO: Handle multiple messages with d14n
+            messages.firstOrNull()?.let { DecodedMessage.create(it) }
         }
 
     suspend fun creatorInboxId(): InboxId = withContext(Dispatchers.IO) { metadata().creatorInboxId() }

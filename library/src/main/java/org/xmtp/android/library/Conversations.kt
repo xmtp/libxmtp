@@ -153,7 +153,9 @@ data class Conversations(
 
     suspend fun fromWelcome(envelopeBytes: ByteArray): Conversation =
         withContext(Dispatchers.IO) {
-            val conversation = ffiConversations.processStreamedWelcomeMessage(envelopeBytes)
+            val conversations = ffiConversations.processStreamedWelcomeMessage(envelopeBytes)
+            // TODO: Handle multiple conversations with d14n
+            val conversation = conversations[0]
             when (conversation.conversationType()) {
                 FfiConversationType.DM -> Conversation.Dm(Dm(client, conversation))
                 else -> Conversation.Group(Group(client, conversation))

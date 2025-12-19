@@ -1094,7 +1094,7 @@ class ClientTest : BaseInstrumentedTest() {
 
             val apiStats2 = alix.debugInformation.apiStatistics
             assertEquals(0, apiStats2.fetchKeyPackage)
-            assertEquals(5, apiStats2.sendGroupMessages)
+            assertEquals(4, apiStats2.sendGroupMessages)
             assertEquals(0, apiStats2.sendWelcomeMessages)
             assertEquals(1, apiStats2.queryWelcomeMessages)
             assertEquals(1, apiStats2.subscribeWelcomes)
@@ -1105,26 +1105,6 @@ class ClientTest : BaseInstrumentedTest() {
             assertEquals(0, identityStats2.getInboxIds)
             assertEquals(0, identityStats2.verifySmartContractWalletSignature)
             job.cancel()
-        }
-
-    @Test
-    fun testUploadArchiveDebugInformation() =
-        runBlocking {
-            val key = SecureRandom().generateSeed(32)
-            val context = InstrumentationRegistry.getInstrumentation().targetContext
-            val alixWallet = PrivateKeyBuilder()
-            val alix =
-                Client.create(
-                    account = alixWallet,
-                    options =
-                        ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
-            val uploadKey = alix.debugInformation.uploadDebugInformation()
-            assert(uploadKey.isNotEmpty())
         }
 
     @Test

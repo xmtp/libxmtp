@@ -59,6 +59,12 @@ class DecodedMessageV2 private constructor(
     val insertedAtNs: Long
         get() = libXMTPMessage.insertedAtNs()
 
+    val expiresAtNs: Long?
+        get() = libXMTPMessage.expiresAtNs()
+
+    val expiresAt: Date?
+        get() = expiresAtNs?.let { Date(it / 1_000_000) }
+
     val deliveryStatus: DecodedMessage.MessageDeliveryStatus
         get() =
             when (libXMTPMessage.deliveryStatus()) {

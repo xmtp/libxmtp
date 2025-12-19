@@ -22,6 +22,7 @@ import uniffi.xmtpv3.FfiForkRecoveryPolicy
 import uniffi.xmtpv3.FfiKeyPackageStatus
 import uniffi.xmtpv3.FfiLogLevel
 import uniffi.xmtpv3.FfiLogRotation
+import uniffi.xmtpv3.FfiMessageMetadata
 import uniffi.xmtpv3.FfiProcessType
 import uniffi.xmtpv3.FfiSyncWorkerMode
 import uniffi.xmtpv3.FfiXmtpClient
@@ -33,6 +34,7 @@ import uniffi.xmtpv3.enterDebugWriter
 import uniffi.xmtpv3.exitDebugWriter
 import uniffi.xmtpv3.generateInboxId
 import uniffi.xmtpv3.getInboxIdForIdentifier
+import uniffi.xmtpv3.getNewestMessageMetadata
 import uniffi.xmtpv3.getVersionInfo
 import uniffi.xmtpv3.inboxStateFromInboxIds
 import uniffi.xmtpv3.isConnected
@@ -41,6 +43,7 @@ import java.io.File
 
 typealias PreEventCallback = suspend () -> Unit
 typealias ProcessType = FfiProcessType
+typealias MessageMetadata = FfiMessageMetadata
 
 data class ClientOptions(
     val api: Api = Api(),
@@ -50,7 +53,6 @@ data class ClientOptions(
     val historySyncUrl: String? = api.env.getHistorySyncUrl(),
     val dbDirectory: String? = null,
     val deviceSyncEnabled: Boolean = true,
-    val debugEventsEnabled: Boolean = false,
     val forkRecoveryOptions: ForkRecoveryOptions? = null,
 ) {
     data class Api(
@@ -109,7 +111,7 @@ class Client(
             ffiClient = libXMTPClient,
         )
     val debugInformation: XMTPDebugInformation =
-        XMTPDebugInformation(ffiClient = libXMTPClient, this)
+        XMTPDebugInformation(ffiClient = libXMTPClient)
     val libXMTPVersion: String = getVersionInfo()
     private val ffiClient: FfiXmtpClient = libXMTPClient
 
@@ -329,7 +331,6 @@ class Client(
                         deviceSyncServerUrl = null,
                         deviceSyncMode = null,
                         allowOffline = false,
-                        disableEvents = true,
                         forkRecoveryOpts = null,
                     )
 
@@ -343,6 +344,19 @@ class Client(
             withContext(Dispatchers.IO) {
                 val apiClient = connectToApiBackend(api)
                 inboxStateFromInboxIds(apiClient, inboxIds).map { InboxState(it) }
+            }
+
+        suspend fun getNewestMessageMetadata(
+            groupIds: List<String>,
+            api: ClientOptions.Api,
+        ): Map<String, MessageMetadata> =
+            withContext(Dispatchers.IO) {
+                val apiClient = connectToApiBackend(api)
+                val groupIdBytes = groupIds.map { it.hexToByteArray() }
+                val result = getNewestMessageMetadata(apiClient, groupIdBytes)
+                result.entries.associate { (byteArrayKey, metadata) ->
+                    byteArrayKey.toHex() to metadata
+                }
             }
 
         suspend fun keyPackageStatusesForInstallationIds(
@@ -505,7 +519,6 @@ class Client(
                                 FfiSyncWorkerMode.ENABLED
                             },
                         allowOffline = buildOffline,
-                        disableEvents = options.debugEventsEnabled,
                         forkRecoveryOpts = options.forkRecoveryOptions?.toFfi(),
                     )
                 Pair(ffiClient, dbPath)
