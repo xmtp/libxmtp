@@ -166,6 +166,11 @@ mod tests {
         };
 
         let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
+        dm.sync().await?;
+        let old_updates = dm.find_messages_v2(&MsgQueryArgs {
+            content_types: Some(vec![ContentType::GroupUpdated]),
+            ..Default::default()
+        })?;
 
         // Insert some duplicate group_updated messages
         let payload1 = GroupUpdated {
@@ -205,13 +210,15 @@ mod tests {
             ..Default::default()
         })?;
 
-        for msg in msgs {
+        for msg in &msgs {
             assert!(
                 !duplicates.contains(&msg.metadata.id),
                 "A duplicate has remained in the db {:?}",
                 msg.metadata.id
             );
         }
+        // Make sure the old update didn't get deleted. The +2 is for the 2 dummy updates.
+        assert_eq!(msgs.len(), old_updates.len() + 2);
 
         // Let's insert another duplicate and make sure it stays this time.
         // We don't want the perform to run more than once.
