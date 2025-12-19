@@ -200,7 +200,7 @@ mod tests {
             }
         }
 
-        perform(alix.db())?;
+        perform(alix.db()).await;
 
         let msgs = dm.find_messages_v2(&MsgQueryArgs {
             content_types: Some(vec![ContentType::GroupUpdated]),
@@ -219,7 +219,7 @@ mod tests {
         // We don't want the perform to run more than once.
         let msg = gen_update_msg(dm.group_id.clone(), payload1.clone());
         msg.store(&alix.db())?;
-        perform(alix.db())?;
+        perform(alix.db()).await;
 
         // The duplicate should remain because perform will only clean up once.
         let msgs = dm.find_messages_v2(&MsgQueryArgs {
