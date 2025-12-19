@@ -1,7 +1,9 @@
 use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
+use tracing::info;
 use xmtp_db::diesel::prelude::*;
+use xmtp_db::user_preferences::StoredUserPreferences;
 use xmtp_db::{ConnectionExt, DbConnection};
 use xmtp_db::{
     group::{ConversationType, GroupQueryArgs, QueryGroup},
@@ -19,6 +21,12 @@ pub fn perform<C>(db: DbConnection<C>) -> Result<(), GroupMessageProcessingError
 where
     C: ConnectionExt,
 {
+    let prefs = StoredUserPreferences::load(&db)?;
+    if prefs.dm_group_updates_migrated {
+        info!("DM group updates migration has already been performed. Skipping.");
+        return Ok(());
+    }
+
     let mut group_offset = 0;
     let mut groups;
     loop {
@@ -84,6 +92,12 @@ where
 
         group_offset += BATCH_SIZE;
     }
+
+    db.raw_query_write(|conn| {
+        xmtp_db::diesel::update(xmtp_db::schema::user_preferences::table)
+            .set(xmtp_db::schema::user_preferences::dm_group_updates_migrated.eq(true))
+            .execute(conn)
+    })?;
 
     Ok(())
 }
