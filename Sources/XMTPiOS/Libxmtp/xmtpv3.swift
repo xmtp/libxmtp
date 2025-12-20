@@ -13596,6 +13596,8 @@ public enum GenericError: Swift.Error {
     
     case Api(message: String)
     
+    case Enrich(message: String)
+    
 }
 
 
@@ -13720,6 +13722,10 @@ public struct FfiConverterTypeGenericError: FfiConverterRustBuffer {
             message: try FfiConverterString.read(from: &buf)
         )
         
+        case 28: return .Enrich(
+            message: try FfiConverterString.read(from: &buf)
+        )
+        
 
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -13785,6 +13791,8 @@ public struct FfiConverterTypeGenericError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(26))
         case .Api(_ /* message is ignored*/):
             writeInt(&buf, Int32(27))
+        case .Enrich(_ /* message is ignored*/):
+            writeInt(&buf, Int32(28))
 
         
         }

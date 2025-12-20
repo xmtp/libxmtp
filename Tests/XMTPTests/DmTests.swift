@@ -416,8 +416,8 @@ class DmTests: XCTestCase {
 		let alixGroupMessagesPersist = try await alixDm?.messages().count
 
 		// Ensure messages persist
-		XCTAssertEqual(boGroupMessagesPersist, 3) // memberAdd settings 1, settings 2, boMessage, alixMessage
-		XCTAssertEqual(alixGroupMessagesPersist, 3) // memberAdd settings 1, settings 2, boMessage, alixMessage
+		XCTAssertEqual(boGroupMessagesPersist, 5) // memberAdd settings 1, settings 2, boMessage, alixMessage
+		XCTAssertEqual(alixGroupMessagesPersist, 5) // memberAdd settings 1, settings 2, boMessage, alixMessage
 
 		// Re-enable disappearing messages
 		let boDmMessages = try await boDm.messages()
@@ -452,8 +452,8 @@ class DmTests: XCTestCase {
 		let alixGroupMessagesAfterNewSend = try await alixDm?.messages()
 			.count
 
-		XCTAssertEqual(boGroupMessagesAfterNewSend, 5)
-		XCTAssertEqual(alixGroupMessagesAfterNewSend, 5)
+		XCTAssertEqual(boGroupMessagesAfterNewSend, 9)
+		XCTAssertEqual(alixGroupMessagesAfterNewSend, 9)
 
 		try await Task.sleep(nanoseconds: 6_000_000_000) // Sleep for 6 seconds to let messages disappear
 
@@ -461,8 +461,8 @@ class DmTests: XCTestCase {
 		let alixGroupMessagesFinal = try await alixDm?.messages().count
 
 		// Validate messages were deleted
-		XCTAssertEqual(boGroupMessagesFinal, 3)
-		XCTAssertEqual(alixGroupMessagesFinal, 3)
+		XCTAssertEqual(boGroupMessagesFinal, 7)
+		XCTAssertEqual(alixGroupMessagesFinal, 7)
 
 		let boGroupFinalSettings = boDm.disappearingMessageSettings
 		let alixGroupFinalSettings = alixDm?.disappearingMessageSettings
@@ -514,8 +514,8 @@ class DmTests: XCTestCase {
 		let convoAlixMessageCountAfterSync = try await convoAlix.messages()
 			.count
 
-		XCTAssertEqual(convoBoMessageCountAfterSync, 3) // memberAdd, Bo hey, Alix hey
-		XCTAssertEqual(convoAlixMessageCountAfterSync, 3) // memberAdd, Bo hey, Alix hey
+		XCTAssertEqual(convoBoMessageCountAfterSync, 4) // memberAdd, Bo hey, Alix hey
+		XCTAssertEqual(convoAlixMessageCountAfterSync, 4) // memberAdd, Bo hey, Alix hey
 
 		let sameConvoBo = try await fixtures.alixClient.conversations
 			.findOrCreateDm(with: fixtures.boClient.inboxID)
@@ -550,8 +550,8 @@ class DmTests: XCTestCase {
 		let sameConvoBoMessageCount = try await sameConvoBo.messages().count
 		let sameConvoAlixMessageCount = try await sameConvoAlix.messages().count
 
-		XCTAssertEqual(sameConvoBoMessageCount, 5) // memberAdd, Bo hey, Alix hey, Bo hey2, Alix hey2
-		XCTAssertEqual(sameConvoAlixMessageCount, 5) // memberAdd, Bo hey, Alix hey, Bo hey2, Alix hey2
+		XCTAssertEqual(sameConvoBoMessageCount, 6) // memberAdd, Bo hey, Alix hey, Bo hey2, Alix hey2
+		XCTAssertEqual(sameConvoAlixMessageCount, 6) // memberAdd, Bo hey, Alix hey, Bo hey2, Alix hey2
 		try fixtures.cleanUpDatabases()
 	}
 
