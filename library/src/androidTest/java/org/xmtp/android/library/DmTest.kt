@@ -80,8 +80,8 @@ class DmTest : BaseInstrumentedTest() {
         runBlocking { fixtures.alixClient.conversations.syncAllConversations() }
 
         runBlocking {
-            assertEquals(1, convoBo.messages().size) // memberAdd
-            assertEquals(1, convoAlix.messages().size) // memberAdd
+            assertEquals(2, convoBo.messages().size) // memberAdd
+            assertEquals(2, convoAlix.messages().size) // memberAdd
         }
 
         val sameConvoBo =
@@ -130,11 +130,11 @@ class DmTest : BaseInstrumentedTest() {
 
         runBlocking {
             assertEquals(
-                3,
+                4,
                 sameConvoBo.messages().size,
             ) // memberAdd Bo hey Alix hey Bo hey2 Alix hey2
             assertEquals(
-                3,
+                4,
                 sameConvoAlix.messages().size,
             ) // memberAdd Bo hey Alix hey Bo hey2 Alix hey2
         }
@@ -647,11 +647,11 @@ class DmTest : BaseInstrumentedTest() {
             // Ensure messages persist
             assertEquals(
                 boDm.messages().size,
-                3,
+                5,
             ) // memberAdd disappearing settings 1, disappearing settings 2, boMessage, alixMessage
             assertEquals(
                 alixDm.messages().size,
-                3,
+                5,
             ) // memberAdd disappearing settings 1, disappearing settings 2, boMessage, alixMessage
 
             // Re-enable disappearing messages
@@ -682,12 +682,12 @@ class DmTest : BaseInstrumentedTest() {
 
             assertEquals(
                 boDm.messages().size,
-                5,
+                9,
             ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage,
             // disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
             assertEquals(
                 alixDm.messages().size,
-                5,
+                9,
             ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage,
             // disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
 
@@ -696,12 +696,12 @@ class DmTest : BaseInstrumentedTest() {
             // Validate messages were deleted
             assertEquals(
                 boDm.messages().size,
-                3,
+                7,
             ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage,
             // disappearing settings 5, disappearing settings 6
             assertEquals(
                 alixDm.messages().size,
-                3,
+                7,
             ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage,
             // disappearing settings 5, disappearing settings 6
 
