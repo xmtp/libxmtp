@@ -1,4 +1,4 @@
-use std::hash::Hash;
+mod update_dedupe;
 
 use crate::types::GlobalCursor;
 /// implementations for some generated types
@@ -8,6 +8,7 @@ use crate::xmtp::mls::message_contents::{
 };
 use crate::xmtp::xmtpv4::envelopes::AuthenticatedData;
 use crate::xmtp::xmtpv4::envelopes::client_envelope::Payload;
+use std::hash::Hash;
 
 impl std::fmt::Display for Payload {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
