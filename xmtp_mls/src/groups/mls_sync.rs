@@ -24,7 +24,7 @@ use crate::{
     identity::{IdentityError, parse_credential},
     identity_updates::{IdentityUpdates, load_identity_updates},
     intents::ProcessIntentError,
-    messages::enrichment::EnrichMessageError,
+    messages::{decoded_message::MessageBody, enrichment::EnrichMessageError},
     mls_store::MlsStore,
     subscriptions::{LocalEvents, SyncWorkerEvent},
     traits::IntoWith,
@@ -89,7 +89,6 @@ use xmtp_db::{
 };
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
-use xmtp_proto::types::{Cursor, GroupMessage};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         GroupMessageInput, WelcomeMessageInput, WelcomeMetadata,
@@ -103,6 +102,10 @@ use xmtp_proto::xmtp::mls::{
         GroupUpdated, PlaintextEnvelope, WelcomePointer as WelcomePointerProto, group_updated,
         plaintext_envelope::{Content, V1, V2},
     },
+};
+use xmtp_proto::{
+    GroupUpdateDeduper,
+    types::{Cursor, GroupMessage},
 };
 use zeroize::Zeroizing;
 pub mod update_group_membership;
@@ -2024,6 +2027,7 @@ where
             return Ok(false);
         }
 
+        let mut deduper = GroupUpdateDeduper::default();
         let mut inserted_after_ns = None;
         let mut msgs;
         loop {
@@ -2044,12 +2048,16 @@ where
             };
             inserted_after_ns = Some(msg.metadata.inserted_at_ns);
 
-            if msgs.iter().any(|m| m.is_duplicate(payload)) {
-                return Ok(true);
+            for msg in msgs {
+                let MessageBody::GroupUpdated(update) = msg.content else {
+                    continue;
+                };
+
+                deduper.consume(&update);
             }
         }
 
-        Ok(false)
+        Ok(deduper.is_dupe(payload))
     }
 
     async fn process_group_message_error_for_fork_detection(

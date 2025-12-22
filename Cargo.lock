@@ -9041,6 +9041,7 @@ dependencies = [
  "prost-types",
  "relative-path 2.0.1",
  "rstest",
+ "rustc-hash 2.1.1",
  "serde",
  "smallvec",
  "thiserror 2.0.17",
