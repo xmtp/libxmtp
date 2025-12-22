@@ -1,4 +1,4 @@
-mod update_dedupe;
+pub mod update_dedupe;
 
 use crate::types::GlobalCursor;
 /// implementations for some generated types
