@@ -15,7 +15,7 @@ jobs:
           - aarch64-apple-darwin
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Install Nix
         uses: cachix/install-nix-action@v31
         with:
@@ -33,7 +33,7 @@ jobs:
           nix develop --command \
             cargo build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
       - name: Upload binary
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.target }}
           path: target/${{ matrix.target }}/release/libxmtpv3.a
@@ -42,7 +42,7 @@ jobs:
     runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - uses: DeterminateSystems/magic-nix-cache-action@v13
       - name: Cache
         uses: Swatinem/rust-cache@v2
@@ -60,7 +60,7 @@ jobs:
         run: |
           nix develop ./../ --command make swift
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: swift
           path: bindings_ffi/build/swift/
@@ -70,9 +70,9 @@ jobs:
     runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Download artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           path: bindings_ffi/build
       - name: Build archive
