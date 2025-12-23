@@ -18,10 +18,7 @@ use xmtp_content_types::{
   transaction_reference::TransactionReferenceCodec,
   wallet_send_calls::WalletSendCallsCodec,
 };
-use xmtp_db::{
-  group::{ConversationType, DmIdExt},
-  group_message::MsgQueryArgs,
-};
+use xmtp_db::{group::DmIdExt, group_message::MsgQueryArgs};
 
 use xmtp_content_types::ContentCodec;
 
@@ -32,7 +29,7 @@ use crate::{
     remote_attachment::RemoteAttachment, reply::Reply, transaction_reference::TransactionReference,
     wallet_send_calls::WalletSendCalls,
   },
-  conversations::GroupMembershipState,
+  conversations::{ConversationType, GroupMembershipState},
 };
 use xmtp_mls::{
   groups::{
@@ -91,13 +88,8 @@ impl GroupMetadata {
   }
 
   #[napi]
-  pub fn conversation_type(&self) -> String {
-    match self.inner.conversation_type {
-      ConversationType::Group => "group".to_string(),
-      ConversationType::Dm => "dm".to_string(),
-      ConversationType::Sync => "sync".to_string(),
-      ConversationType::Oneshot => "oneshot".to_string(),
-    }
+  pub fn conversation_type(&self) -> ConversationType {
+    self.inner.conversation_type.into()
   }
 }
 

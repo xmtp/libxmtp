@@ -75,19 +75,14 @@ impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageO
 #[serde(rename_all = "camelCase")]
 pub struct GroupMetadata {
   pub creator_inbox_id: String,
-  pub conversation_type: String,
+  pub conversation_type: ConversationType,
 }
 
 impl From<XmtpGroupMetadata> for GroupMetadata {
   fn from(metadata: XmtpGroupMetadata) -> Self {
     Self {
       creator_inbox_id: metadata.creator_inbox_id,
-      conversation_type: match metadata.conversation_type {
-        ConversationType::Group => "group".to_string(),
-        ConversationType::Dm => "dm".to_string(),
-        ConversationType::Sync => "sync".to_string(),
-        ConversationType::Oneshot => "oneshot".to_string(),
-      },
+      conversation_type: metadata.conversation_type.into(),
     }
   }
 }
