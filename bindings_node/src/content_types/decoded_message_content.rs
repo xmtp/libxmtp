@@ -19,40 +19,40 @@ use crate::encoded_content::EncodedContent;
 #[napi(string_enum)]
 #[derive(Clone, PartialEq)]
 pub enum DecodedMessageContentType {
-  Text,
-  Markdown,
-  Reply,
-  Reaction,
-  Attachment,
-  RemoteAttachment,
-  MultiRemoteAttachment,
-  TransactionReference,
-  GroupUpdated,
-  ReadReceipt,
-  LeaveRequest,
-  WalletSendCalls,
-  Intent,
   Actions,
+  Attachment,
   Custom,
+  GroupUpdated,
+  Intent,
+  LeaveRequest,
+  Markdown,
+  MultiRemoteAttachment,
+  Reaction,
+  ReadReceipt,
+  RemoteAttachment,
+  Reply,
+  Text,
+  TransactionReference,
+  WalletSendCalls,
 }
 
 #[derive(Clone)]
 pub enum DecodedMessageContentInner {
-  Text(String),
-  Markdown(String),
-  Reply(EnrichedReply),
-  Reaction(Reaction),
-  Attachment(Attachment),
-  RemoteAttachment(RemoteAttachment),
-  MultiRemoteAttachment(MultiRemoteAttachment),
-  TransactionReference(TransactionReference),
-  GroupUpdated(GroupUpdated),
-  ReadReceipt(ReadReceipt),
-  LeaveRequest(LeaveRequest),
-  WalletSendCalls(WalletSendCalls),
-  Intent(Option<Intent>),
   Actions(Option<Actions>),
+  Attachment(Attachment),
   Custom(EncodedContent),
+  GroupUpdated(GroupUpdated),
+  Intent(Option<Intent>),
+  LeaveRequest(LeaveRequest),
+  Markdown(String),
+  MultiRemoteAttachment(MultiRemoteAttachment),
+  Reaction(Reaction),
+  ReadReceipt(ReadReceipt),
+  RemoteAttachment(RemoteAttachment),
+  Reply(EnrichedReply),
+  Text(String),
+  TransactionReference(TransactionReference),
+  WalletSendCalls(WalletSendCalls),
 }
 
 #[derive(Clone)]
@@ -66,27 +66,27 @@ impl DecodedMessageContent {
   #[napi(getter, js_name = "type")]
   pub fn content_type(&self) -> DecodedMessageContentType {
     match &self.inner {
-      DecodedMessageContentInner::Text(_) => DecodedMessageContentType::Text,
-      DecodedMessageContentInner::Markdown(_) => DecodedMessageContentType::Markdown,
-      DecodedMessageContentInner::Reply(_) => DecodedMessageContentType::Reply,
-      DecodedMessageContentInner::Reaction(_) => DecodedMessageContentType::Reaction,
+      DecodedMessageContentInner::Actions(_) => DecodedMessageContentType::Actions,
       DecodedMessageContentInner::Attachment(_) => DecodedMessageContentType::Attachment,
-      DecodedMessageContentInner::RemoteAttachment(_) => {
-        DecodedMessageContentType::RemoteAttachment
-      }
+      DecodedMessageContentInner::Custom(_) => DecodedMessageContentType::Custom,
+      DecodedMessageContentInner::GroupUpdated(_) => DecodedMessageContentType::GroupUpdated,
+      DecodedMessageContentInner::Intent(_) => DecodedMessageContentType::Intent,
+      DecodedMessageContentInner::LeaveRequest(_) => DecodedMessageContentType::LeaveRequest,
+      DecodedMessageContentInner::Markdown(_) => DecodedMessageContentType::Markdown,
       DecodedMessageContentInner::MultiRemoteAttachment(_) => {
         DecodedMessageContentType::MultiRemoteAttachment
       }
+      DecodedMessageContentInner::Reaction(_) => DecodedMessageContentType::Reaction,
+      DecodedMessageContentInner::ReadReceipt(_) => DecodedMessageContentType::ReadReceipt,
+      DecodedMessageContentInner::RemoteAttachment(_) => {
+        DecodedMessageContentType::RemoteAttachment
+      }
+      DecodedMessageContentInner::Reply(_) => DecodedMessageContentType::Reply,
+      DecodedMessageContentInner::Text(_) => DecodedMessageContentType::Text,
       DecodedMessageContentInner::TransactionReference(_) => {
         DecodedMessageContentType::TransactionReference
       }
-      DecodedMessageContentInner::GroupUpdated(_) => DecodedMessageContentType::GroupUpdated,
-      DecodedMessageContentInner::ReadReceipt(_) => DecodedMessageContentType::ReadReceipt,
-      DecodedMessageContentInner::LeaveRequest(_) => DecodedMessageContentType::LeaveRequest,
       DecodedMessageContentInner::WalletSendCalls(_) => DecodedMessageContentType::WalletSendCalls,
-      DecodedMessageContentInner::Intent(_) => DecodedMessageContentType::Intent,
-      DecodedMessageContentInner::Actions(_) => DecodedMessageContentType::Actions,
-      DecodedMessageContentInner::Custom(_) => DecodedMessageContentType::Custom,
     }
   }
 
