@@ -26,7 +26,6 @@ use xmtp_proto::types::Cursor as XmtpCursor;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "lowercase")]
 pub enum ConversationType {
   Dm,
   Group,
