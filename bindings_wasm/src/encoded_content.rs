@@ -44,7 +44,7 @@ pub struct EncodedContent {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[tsify(optional)]
   pub r#type: Option<ContentTypeId>,
-  #[tsify(optional, type = "Record<string, string>")]
+  #[tsify(type = "Record<string, string>")]
   pub parameters: HashMap<String, String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[tsify(optional)]
