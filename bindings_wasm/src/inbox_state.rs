@@ -27,7 +27,7 @@ pub struct Installation {
 }
 
 #[derive(Clone, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
 #[serde(rename_all = "camelCase")]
 pub struct InboxState {
   pub inbox_id: String,
@@ -60,7 +60,7 @@ impl From<AssociationState> for InboxState {
 }
 
 #[derive(Clone, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
 #[serde(rename_all = "camelCase")]
 pub struct KeyPackageStatus {
   #[tsify(optional)]
