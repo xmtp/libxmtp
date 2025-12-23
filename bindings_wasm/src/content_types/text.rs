@@ -1,24 +1,8 @@
 use crate::encoded_content::{ContentTypeId, EncodedContent};
-use serde::{Deserialize, Serialize};
-use tsify::Tsify;
 use wasm_bindgen::JsError;
 use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::text::TextCodec;
-
-#[derive(Clone, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-pub struct TextContent {
-  pub content: String,
-}
-
-impl From<xmtp_mls::messages::decoded_message::Text> for TextContent {
-  fn from(text: xmtp_mls::messages::decoded_message::Text) -> Self {
-    Self {
-      content: text.content,
-    }
-  }
-}
 
 #[wasm_bindgen(js_name = "textContentType")]
 pub fn text_content_type() -> ContentTypeId {
