@@ -9,12 +9,13 @@ use xmtp_proto::types::ApiIdentifier;
 pub async fn get_inbox_id_for_identifier(
   #[wasm_bindgen(js_name = host)] v3_host: String,
   #[wasm_bindgen(js_name = gatewayHost)] gateway_host: Option<String>,
+  #[wasm_bindgen(js_name = isSecure)] is_secure: bool,
   #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
 ) -> Result<Option<String>, JsError> {
   let backend = MessageBackendBuilder::default()
     .v3_host(&v3_host)
     .maybe_gateway_host(gateway_host)
-    .is_secure(true)
+    .is_secure(is_secure)
     .build()
     .map_err(|e| JsError::new(&e.to_string()))?;
   let api_client = ApiClientWrapper::new(
