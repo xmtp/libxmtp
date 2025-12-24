@@ -265,21 +265,50 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub enum MetadataField {
-  GroupName,
+  AppData,
   Description,
-  ImageUrlSquare,
-  MessageExpirationFromMS,
-  MessageExpirationMS,
+  GroupName,
+  GroupImageUrlSquare,
+  MessageExpirationFromNs,
+  MessageExpirationInNs,
 }
 
 impl From<&MetadataField> for XmtpMetadataField {
   fn from(field: &MetadataField) -> Self {
     match field {
-      MetadataField::GroupName => XmtpMetadataField::GroupName,
+      MetadataField::AppData => XmtpMetadataField::AppData,
       MetadataField::Description => XmtpMetadataField::Description,
-      MetadataField::ImageUrlSquare => XmtpMetadataField::GroupImageUrlSquare,
-      MetadataField::MessageExpirationFromMS => XmtpMetadataField::MessageDisappearFromNS,
-      MetadataField::MessageExpirationMS => XmtpMetadataField::MessageDisappearInNS,
+      MetadataField::GroupName => XmtpMetadataField::GroupName,
+      MetadataField::GroupImageUrlSquare => XmtpMetadataField::GroupImageUrlSquare,
+      MetadataField::MessageExpirationFromNs => XmtpMetadataField::MessageDisappearFromNS,
+      MetadataField::MessageExpirationInNs => XmtpMetadataField::MessageDisappearInNS,
     }
+  }
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "snake_case")]
+pub enum MetadataFieldName {
+  AppData,
+  Description,
+  GroupImageUrlSquare,
+  GroupName,
+  MessageDisappearFromNs,
+  MessageDisappearInNs,
+}
+
+// Ensure MetadataFieldName variants stay in sync with MetadataField variants
+#[allow(dead_code)]
+fn xmtp_field_to_field_name(field: XmtpMetadataField) -> Option<MetadataFieldName> {
+  match field {
+    XmtpMetadataField::AppData => Some(MetadataFieldName::AppData),
+    XmtpMetadataField::Description => Some(MetadataFieldName::Description),
+    XmtpMetadataField::GroupImageUrlSquare => Some(MetadataFieldName::GroupImageUrlSquare),
+    XmtpMetadataField::GroupName => Some(MetadataFieldName::GroupName),
+    XmtpMetadataField::MessageDisappearFromNS => Some(MetadataFieldName::MessageDisappearFromNs),
+    XmtpMetadataField::MessageDisappearInNS => Some(MetadataFieldName::MessageDisappearInNs),
+    // Internal fields not exposed in MetadataFieldName
+    XmtpMetadataField::MinimumSupportedProtocolVersion | XmtpMetadataField::CommitLogSigner => None,
   }
 }
