@@ -40,7 +40,8 @@
     "lint:clippy:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo clippy --locked --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings",
     "lint:fmt": "cargo fmt --check",
     "prepublishOnly": "yarn build",
-    "test": "wasm-pack test --chrome --headless"
+    "test": "cargo test --target wasm32-unknown-unknown",
+    "test:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo test --target wasm32-unknown-unknown"
   },
   "files": [
     "dist"
