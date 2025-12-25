@@ -171,6 +171,7 @@ pub struct PermissionPolicySet {
   pub update_group_description_policy: PermissionPolicy,
   pub update_group_image_url_square_policy: PermissionPolicy,
   pub update_message_disappearing_policy: PermissionPolicy,
+  pub update_app_data_policy: PermissionPolicy,
 }
 
 impl From<PreconfiguredPolicies> for GroupPermissionsOptions {
@@ -220,6 +221,7 @@ impl From<GroupMutablePermissions> for GroupPermissions {
       update_message_disappearing_policy: get_policy(
         XmtpMetadataField::MessageDisappearInNS.as_str(),
       ),
+      update_app_data_policy: get_policy(XmtpMetadataField::AppData.as_str()),
     };
 
     Self {
@@ -248,6 +250,10 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
     metadata_permissions_map.insert(
       XmtpMetadataField::MessageDisappearInNS.to_string(),
       policy_set.update_message_disappearing_policy.try_into()?,
+    );
+    metadata_permissions_map.insert(
+      XmtpMetadataField::AppData.to_string(),
+      policy_set.update_app_data_policy.try_into()?,
     );
 
     Ok(PolicySet {
