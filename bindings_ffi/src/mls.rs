@@ -1310,6 +1310,7 @@ pub enum FfiPermissionUpdateType {
     AddAdmin,
     RemoveAdmin,
     UpdateMetadata,
+    UpdateDisappearingMessagesPolicy,
 }
 
 impl From<&FfiPermissionUpdateType> for PermissionUpdateType {
@@ -1320,6 +1321,9 @@ impl From<&FfiPermissionUpdateType> for PermissionUpdateType {
             FfiPermissionUpdateType::AddAdmin => PermissionUpdateType::AddAdmin,
             FfiPermissionUpdateType::RemoveAdmin => PermissionUpdateType::RemoveAdmin,
             FfiPermissionUpdateType::UpdateMetadata => PermissionUpdateType::UpdateMetadata,
+            FfiPermissionUpdateType::UpdateDisappearingMessagesPolicy => {
+                PermissionUpdateType::UpdateDisappearingMessagesPolicy
+            }
         }
     }
 }

@@ -501,11 +501,12 @@ impl TryFrom<Vec<u8>> for UpdateAdminListIntentData {
 #[repr(i32)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum PermissionUpdateType {
-    AddMember = 1,      // Matches ADD_MEMBER in Protobuf
-    RemoveMember = 2,   // Matches REMOVE_MEMBER in Protobuf
-    AddAdmin = 3,       // Matches ADD_ADMIN in Protobuf
-    RemoveAdmin = 4,    // Matches REMOVE_ADMIN in Protobuf
-    UpdateMetadata = 5, // Matches UPDATE_METADATA in Protobuf
+    AddMember = 1,                        // Matches ADD_MEMBER in Protobuf
+    RemoveMember = 2,                     // Matches REMOVE_MEMBER in Protobuf
+    AddAdmin = 3,                         // Matches ADD_ADMIN in Protobuf
+    RemoveAdmin = 4,                      // Matches REMOVE_ADMIN in Protobuf
+    UpdateMetadata = 5,                   // Matches UPDATE_METADATA in Protobuf
+    UpdateDisappearingMessagesPolicy = 6, // Matches UPDATE_DISAPPEARING_MESSAGES_POLICY in Protobuf
 }
 
 impl TryFrom<i32> for PermissionUpdateType {
@@ -518,6 +519,7 @@ impl TryFrom<i32> for PermissionUpdateType {
             3 => Ok(PermissionUpdateType::AddAdmin),
             4 => Ok(PermissionUpdateType::RemoveAdmin),
             5 => Ok(PermissionUpdateType::UpdateMetadata),
+            6 => Ok(PermissionUpdateType::UpdateDisappearingMessagesPolicy),
             _ => Err(IntentError::UnknownPermissionUpdateType),
         }
     }

@@ -3420,6 +3420,244 @@ async fn test_can_update_permissions_after_group_creation() {
 }
 
 #[xmtp_common::test]
+async fn test_can_update_disappearing_messages_policy_after_group_creation() {
+    use super::group_permissions::MetadataPolicies;
+    use xmtp_mls_common::group_mutable_metadata::MetadataField;
+
+    // Step 1: Amal creates a group with default permissions (admin-only for disappearing messages)
+    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let amal_group: &TestMlsGroup = &amal.create_group(None, None).unwrap();
+
+    // Step 2: Add Bola to the group (needed for proper sync)
+    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    amal_group
+        .add_members_by_inbox_id(&[bola.inbox_id()])
+        .await
+        .unwrap();
+    bola.sync_welcomes().await.unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+    let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
+    bola_group.sync().await.unwrap();
+
+    // Step 3: Verify Bola cannot update disappearing messages (default is admin-only)
+    let result = bola_group
+        .update_conversation_message_disappear_in_ns(1000)
+        .await;
+    assert!(
+        result.is_err(),
+        "Bola should not be able to update disappearing messages"
+    );
+
+    // Step 4: Verify that the default disappearing messages policy is admin-only
+    let permissions = amal_group.permissions().unwrap();
+    let metadata_policies = &permissions.policies.update_metadata_policy;
+    let disappear_in_ns_policy = metadata_policies
+        .get(&MetadataField::MessageDisappearInNS.to_string())
+        .expect("MessageDisappearInNS policy should exist");
+    let disappear_from_ns_policy = metadata_policies
+        .get(&MetadataField::MessageDisappearFromNS.to_string())
+        .expect("MessageDisappearFromNS policy should exist");
+    assert_eq!(
+        disappear_in_ns_policy,
+        &MetadataPolicies::allow_if_actor_admin()
+    );
+    assert_eq!(
+        disappear_from_ns_policy,
+        &MetadataPolicies::allow_if_actor_admin()
+    );
+
+    // Step 5: Amal updates the disappearing messages policy to allow all members
+    amal_group
+        .update_permission_policy(
+            PermissionUpdateType::UpdateDisappearingMessagesPolicy,
+            PermissionPolicyOption::Allow,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Step 6: Verify that both disappearing messages policies were updated
+    let permissions = amal_group.permissions().unwrap();
+    let metadata_policies = &permissions.policies.update_metadata_policy;
+    let disappear_in_ns_policy = metadata_policies
+        .get(&MetadataField::MessageDisappearInNS.to_string())
+        .expect("MessageDisappearInNS policy should exist");
+    let disappear_from_ns_policy = metadata_policies
+        .get(&MetadataField::MessageDisappearFromNS.to_string())
+        .expect("MessageDisappearFromNS policy should exist");
+    assert_eq!(disappear_in_ns_policy, &MetadataPolicies::allow());
+    assert_eq!(disappear_from_ns_policy, &MetadataPolicies::allow());
+
+    // Step 7: Bola syncs and can now update disappearing messages
+    bola_group.sync().await.unwrap();
+    bola_group
+        .update_conversation_message_disappear_in_ns(1000)
+        .await
+        .unwrap();
+
+    // Step 8: Verify the setting was updated
+    amal_group.sync().await.unwrap();
+    let metadata = amal_group.mutable_metadata().unwrap();
+    let disappear_in_ns = metadata
+        .attributes
+        .get(&MetadataField::MessageDisappearInNS.to_string())
+        .expect("MessageDisappearInNS should be set");
+    assert_eq!(disappear_in_ns, "1000");
+}
+
+#[xmtp_common::test]
+async fn test_update_disappearing_messages_policy_to_super_admin_only() {
+    use super::group_permissions::MetadataPolicies;
+    use xmtp_mls_common::group_mutable_metadata::MetadataField;
+
+    // Step 1: Amal creates a group
+    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let amal_group: &TestMlsGroup = &amal.create_group(None, None).unwrap();
+
+    // Step 2: Add Bola to the group and make them an admin
+    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    amal_group
+        .add_members_by_inbox_id(&[bola.inbox_id()])
+        .await
+        .unwrap();
+    amal_group
+        .update_admin_list(UpdateAdminListType::Add, bola.inbox_id().to_string())
+        .await
+        .unwrap();
+
+    bola.sync_welcomes().await.unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+    let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
+    bola_group.sync().await.unwrap();
+
+    // Step 3: Bola (admin) can update disappearing messages with default policy (admin-only)
+    bola_group
+        .update_conversation_message_disappear_in_ns(500)
+        .await
+        .unwrap();
+
+    // Step 4: Amal updates the policy to super-admin-only
+    amal_group
+        .update_permission_policy(
+            PermissionUpdateType::UpdateDisappearingMessagesPolicy,
+            PermissionPolicyOption::SuperAdminOnly,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Step 5: Verify both policies were updated to super-admin-only
+    let permissions = amal_group.permissions().unwrap();
+    let metadata_policies = &permissions.policies.update_metadata_policy;
+    let disappear_in_ns_policy = metadata_policies
+        .get(&MetadataField::MessageDisappearInNS.to_string())
+        .expect("MessageDisappearInNS policy should exist");
+    let disappear_from_ns_policy = metadata_policies
+        .get(&MetadataField::MessageDisappearFromNS.to_string())
+        .expect("MessageDisappearFromNS policy should exist");
+    assert_eq!(
+        disappear_in_ns_policy,
+        &MetadataPolicies::allow_if_actor_super_admin()
+    );
+    assert_eq!(
+        disappear_from_ns_policy,
+        &MetadataPolicies::allow_if_actor_super_admin()
+    );
+
+    // Step 6: Bola (admin but not super admin) can no longer update disappearing messages
+    bola_group.sync().await.unwrap();
+    let result = bola_group
+        .update_conversation_message_disappear_in_ns(1000)
+        .await;
+    assert!(
+        result.is_err(),
+        "Admin should not be able to update disappearing messages with super-admin-only policy"
+    );
+
+    // Step 7: Amal (super admin) can still update disappearing messages
+    amal_group
+        .update_conversation_message_disappear_in_ns(2000)
+        .await
+        .unwrap();
+
+    // Verify the setting was updated
+    let metadata = amal_group.mutable_metadata().unwrap();
+    let disappear_in_ns = metadata
+        .attributes
+        .get(&MetadataField::MessageDisappearInNS.to_string())
+        .expect("MessageDisappearInNS should be set");
+    assert_eq!(disappear_in_ns, "2000");
+}
+
+#[xmtp_common::test]
+async fn test_update_disappearing_messages_policy_to_deny() {
+    use super::group_permissions::MetadataPolicies;
+    use xmtp_mls_common::group_mutable_metadata::MetadataField;
+
+    // Step 1: Amal creates a group
+    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let amal_group: &TestMlsGroup = &amal.create_group(None, None).unwrap();
+
+    // Step 2: Add Bola to the group
+    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    amal_group
+        .add_members_by_inbox_id(&[bola.inbox_id()])
+        .await
+        .unwrap();
+    bola.sync_welcomes().await.unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+    let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
+    bola_group.sync().await.unwrap();
+
+    // Step 3: Amal (admin) can update disappearing messages with default policy
+    amal_group
+        .update_conversation_message_disappear_in_ns(500)
+        .await
+        .unwrap();
+
+    // Step 4: Amal updates the policy to deny
+    amal_group
+        .update_permission_policy(
+            PermissionUpdateType::UpdateDisappearingMessagesPolicy,
+            PermissionPolicyOption::Deny,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Step 5: Verify both policies were updated to deny
+    let permissions = amal_group.permissions().unwrap();
+    let metadata_policies = &permissions.policies.update_metadata_policy;
+    let disappear_in_ns_policy = metadata_policies
+        .get(&MetadataField::MessageDisappearInNS.to_string())
+        .expect("MessageDisappearInNS policy should exist");
+    let disappear_from_ns_policy = metadata_policies
+        .get(&MetadataField::MessageDisappearFromNS.to_string())
+        .expect("MessageDisappearFromNS policy should exist");
+    assert_eq!(disappear_in_ns_policy, &MetadataPolicies::deny());
+    assert_eq!(disappear_from_ns_policy, &MetadataPolicies::deny());
+
+    // Step 6: Bola cannot update disappearing messages
+    bola_group.sync().await.unwrap();
+    let result = bola_group
+        .update_conversation_message_disappear_in_ns(1000)
+        .await;
+    assert!(
+        result.is_err(),
+        "Member should not be able to update disappearing messages with deny policy"
+    );
+
+    // Step 7: Even Amal (super admin) cannot update disappearing messages with deny policy
+    let result = amal_group
+        .update_conversation_message_disappear_in_ns(2000)
+        .await;
+    assert!(
+        result.is_err(),
+        "Super admin should not be able to update disappearing messages with deny policy"
+    );
+}
+
+#[xmtp_common::test]
 async fn test_optimistic_send() {
     let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
     let bola_wallet = generate_local_wallet();

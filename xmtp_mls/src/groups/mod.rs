@@ -28,7 +28,7 @@ pub use self::group_permissions::PreconfiguredPolicies;
 use self::{
     group_membership::GroupMembership,
     group_permissions::PolicySet,
-    group_permissions::{GroupMutablePermissions, extract_group_permissions},
+    group_permissions::{GroupMutablePermissions, MetadataPolicies, extract_group_permissions},
     intents::{
         AdminListActionType, PermissionPolicyOption, PermissionUpdateType,
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
@@ -2177,6 +2177,24 @@ pub fn build_extensions_for_permissions_update(
                     .ok_or(GroupMutableMetadataError::MissingMetadataField)?,
                 update_permissions_intent.policy_option.into(),
             );
+            PolicySet::new(
+                existing_policy_set.add_member_policy,
+                existing_policy_set.remove_member_policy,
+                metadata_policy,
+                existing_policy_set.add_admin_policy,
+                existing_policy_set.remove_admin_policy,
+                existing_policy_set.update_permissions_policy,
+            )
+        }
+        PermissionUpdateType::UpdateDisappearingMessagesPolicy => {
+            let mut metadata_policy = existing_policy_set.update_metadata_policy.clone();
+            // Update both disappearing messages metadata fields with the same policy
+            let policy: MetadataPolicies = update_permissions_intent.policy_option.into();
+            metadata_policy.insert(
+                MetadataField::MessageDisappearInNS.to_string(),
+                policy.clone(),
+            );
+            metadata_policy.insert(MetadataField::MessageDisappearFromNS.to_string(), policy);
             PolicySet::new(
                 existing_policy_set.add_member_policy,
                 existing_policy_set.remove_member_policy,

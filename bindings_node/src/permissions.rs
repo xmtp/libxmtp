@@ -29,6 +29,7 @@ pub enum PermissionUpdateType {
   AddAdmin,
   RemoveAdmin,
   UpdateMetadata,
+  UpdateDisappearingMessagesPolicy,
 }
 
 impl From<&PermissionUpdateType> for XmtpPermissionUpdateType {
@@ -39,6 +40,9 @@ impl From<&PermissionUpdateType> for XmtpPermissionUpdateType {
       PermissionUpdateType::AddAdmin => XmtpPermissionUpdateType::AddAdmin,
       PermissionUpdateType::RemoveAdmin => XmtpPermissionUpdateType::RemoveAdmin,
       PermissionUpdateType::UpdateMetadata => XmtpPermissionUpdateType::UpdateMetadata,
+      PermissionUpdateType::UpdateDisappearingMessagesPolicy => {
+        XmtpPermissionUpdateType::UpdateDisappearingMessagesPolicy
+      }
     }
   }
 }
