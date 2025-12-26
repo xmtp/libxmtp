@@ -1,7 +1,7 @@
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use prost::Message as ProstMessage;
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
-use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_db::group_message::{
   DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs,
   SortBy as XmtpMessageSortBy, SortDirection as XmtpSortDirection, StoredGroupMessage,
@@ -12,12 +12,10 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedConten
 use crate::content_types::ContentType;
 use crate::encoded_content::EncodedContent;
 
-#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "lowercase")]
+#[wasm_bindgen_numbered_enum]
 pub enum GroupMessageKind {
-  Application,
-  MembershipChange,
+  Application = 0,
+  MembershipChange = 1,
 }
 
 impl From<XmtpGroupMessageKind> for GroupMessageKind {
@@ -38,13 +36,11 @@ impl From<GroupMessageKind> for XmtpGroupMessageKind {
   }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "lowercase")]
+#[wasm_bindgen_numbered_enum]
 pub enum DeliveryStatus {
-  Unpublished,
-  Published,
-  Failed,
+  Unpublished = 0,
+  Published = 1,
+  Failed = 2,
 }
 
 impl From<XmtpDeliveryStatus> for DeliveryStatus {
@@ -67,12 +63,10 @@ impl From<DeliveryStatus> for XmtpDeliveryStatus {
   }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "lowercase")]
+#[wasm_bindgen_numbered_enum]
 pub enum SortDirection {
-  Ascending,
-  Descending,
+  Ascending = 0,
+  Descending = 1,
 }
 
 impl From<SortDirection> for XmtpSortDirection {
@@ -84,12 +78,10 @@ impl From<SortDirection> for XmtpSortDirection {
   }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum MessageSortBy {
-  SentAt,
-  InsertedAt,
+  SentAt = 0,
+  InsertedAt = 1,
 }
 
 impl From<MessageSortBy> for XmtpMessageSortBy {

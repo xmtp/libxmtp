@@ -9,6 +9,7 @@ members = [
   "xmtp_api",
   "xmtp_id",
   "bindings_wasm",
+  "bindings_wasm_macros",
   "bindings_node",
   "bindings_ffi",
   "xmtp_debug",
@@ -159,6 +160,7 @@ http-body-util = { version = "0.1" }
 
 # Internal Crate Dependencies
 bindings-wasm = { path = "bindings_wasm" }
+bindings_wasm_macros = { path = "bindings_wasm_macros" }
 xmtp_api = { path = "xmtp_api" }
 xmtp_api_d14n = { path = "xmtp_api_d14n" }
 xmtp_api_grpc = { path = "xmtp_api_grpc" }

@@ -1,3 +1,5 @@
+pub use bindings_wasm_macros::wasm_bindgen_numbered_enum;
+
 pub mod client;
 pub mod consent_state;
 pub mod content_types;
