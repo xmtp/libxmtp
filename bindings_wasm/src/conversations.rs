@@ -1,11 +1,4 @@
-use crate::consent_state::{Consent, ConsentState};
-use crate::enriched_message::DecodedMessage;
-use crate::identity::Identifier;
-use crate::messages::Message;
-use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
-use crate::streams::{ConversationStream, StreamCallback, StreamCloser};
-use crate::user_preferences::UserPreference;
-use crate::{client::RustXmtpClient, conversation::Conversation};
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,13 +17,21 @@ use xmtp_mls::mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_proto::types::Cursor as XmtpCursor;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
+use crate::consent_state::{Consent, ConsentState};
+use crate::enriched_message::DecodedMessage;
+use crate::identity::Identifier;
+use crate::messages::Message;
+use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
+use crate::streams::{ConversationStream, StreamCallback, StreamCloser};
+use crate::user_preferences::UserPreference;
+use crate::{client::RustXmtpClient, conversation::Conversation};
+
+#[wasm_bindgen_numbered_enum]
 pub enum ConversationType {
-  Dm,
-  Group,
-  Sync,
-  Oneshot,
+  Dm = 0,
+  Group = 1,
+  Sync = 2,
+  Oneshot = 3,
 }
 
 impl From<XmtpConversationType> for ConversationType {
@@ -55,15 +56,13 @@ impl From<ConversationType> for XmtpConversationType {
   }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum GroupMembershipState {
-  Allowed,
-  Rejected,
-  Pending,
-  Restored,
-  PendingRemove,
+  Allowed = 0,
+  Rejected = 1,
+  Pending = 2,
+  Restored = 3,
+  PendingRemove = 4,
 }
 
 impl From<XmtpGroupMembershipState> for GroupMembershipState {
@@ -90,12 +89,10 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
   }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum ListConversationsOrderBy {
-  CreatedAt,
-  LastActivity,
+  CreatedAt = 0,
+  LastActivity = 1,
 }
 
 impl From<ListConversationsOrderBy> for GroupQueryOrderBy {

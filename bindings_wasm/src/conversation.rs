@@ -1,3 +1,12 @@
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
+use js_sys::Uint8Array;
+use prost::Message as ProstMessage;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use tsify::Tsify;
+use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+
 use crate::client::RustMlsGroup;
 use crate::content_types::{
   actions::Actions, attachment::Attachment, intent::Intent,
@@ -6,7 +15,8 @@ use crate::content_types::{
   wallet_send_calls::WalletSendCalls,
 };
 use crate::conversations::{
-  ConversationDebugInfo, GroupMembershipState, HmacKey, MessageDisappearingSettings,
+  ConversationDebugInfo, ConversationType, GroupMembershipState, HmacKey,
+  MessageDisappearingSettings,
 };
 use crate::encoded_content::EncodedContent;
 use crate::identity::{Identifier, IdentityExt};
@@ -16,13 +26,6 @@ use crate::streams::{StreamCallback, StreamCloser};
 use crate::{
   consent_state::ConsentState, enriched_message::DecodedMessage, permissions::GroupPermissions,
 };
-use js_sys::Uint8Array;
-use prost::Message as ProstMessage;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use tsify::Tsify;
-use wasm_bindgen::JsValue;
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_content_types::{
   ContentCodec,
   actions::ActionsCodec,
@@ -38,7 +41,7 @@ use xmtp_content_types::{
   transaction_reference::TransactionReferenceCodec,
   wallet_send_calls::WalletSendCallsCodec,
 };
-use xmtp_db::group::{ConversationType, DmIdExt};
+use xmtp_db::group::{ConversationType as XmtpConversationType, DmIdExt};
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_mls::{
   groups::{
@@ -87,13 +90,11 @@ impl From<XmtpGroupMetadata> for GroupMetadata {
   }
 }
 
-#[derive(Clone, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum PermissionLevel {
-  Member,
-  Admin,
-  SuperAdmin,
+  Member = 0,
+  Admin = 1,
+  SuperAdmin = 2,
 }
 
 #[derive(Clone, Serialize, Deserialize, Tsify)]
@@ -408,10 +409,10 @@ impl Conversation {
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
     let kind = match conversation_type {
-      ConversationType::Group => None,
-      ConversationType::Dm => None,
-      ConversationType::Sync => None,
-      ConversationType::Oneshot => None,
+      XmtpConversationType::Group => None,
+      XmtpConversationType::Dm => None,
+      XmtpConversationType::Sync => None,
+      XmtpConversationType::Oneshot => None,
     };
 
     let opts = MsgQueryArgs {
@@ -452,10 +453,10 @@ impl Conversation {
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
     let kind = match conversation_type {
-      ConversationType::Group => None,
-      ConversationType::Dm => None,
-      ConversationType::Sync => None,
-      ConversationType::Oneshot => None,
+      XmtpConversationType::Group => None,
+      XmtpConversationType::Dm => None,
+      XmtpConversationType::Sync => None,
+      XmtpConversationType::Oneshot => None,
     };
 
     let opts = MsgQueryArgs {

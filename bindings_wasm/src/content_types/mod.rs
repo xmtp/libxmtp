@@ -1,5 +1,4 @@
-use serde::{Deserialize, Serialize};
-use tsify::Tsify;
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use xmtp_db::group_message::ContentType as XmtpContentType;
 
 pub mod actions;
@@ -18,26 +17,24 @@ pub mod text;
 pub mod transaction_reference;
 pub mod wallet_send_calls;
 
-#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum ContentType {
-  Actions,
-  Attachment,
-  Custom,
-  GroupMembershipChange,
-  GroupUpdated,
-  Intent,
-  LeaveRequest,
-  Markdown,
-  MultiRemoteAttachment,
-  Reaction,
-  ReadReceipt,
-  RemoteAttachment,
-  Reply,
-  Text,
-  TransactionReference,
-  WalletSendCalls,
+  Actions = 0,
+  Attachment = 1,
+  Custom = 2,
+  GroupMembershipChange = 3,
+  GroupUpdated = 4,
+  Intent = 5,
+  LeaveRequest = 6,
+  Markdown = 7,
+  MultiRemoteAttachment = 8,
+  Reaction = 9,
+  ReadReceipt = 10,
+  RemoteAttachment = 11,
+  Reply = 12,
+  Text = 13,
+  TransactionReference = 14,
+  WalletSendCalls = 15,
 }
 
 impl From<ContentType> for XmtpContentType {

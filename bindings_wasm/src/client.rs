@@ -1,3 +1,4 @@
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -43,16 +44,14 @@ impl Client {
 static LOGGER_INIT: std::sync::OnceLock<Result<(), filter::LevelParseError>> =
   std::sync::OnceLock::new();
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "lowercase")]
+#[wasm_bindgen_numbered_enum]
 pub enum LogLevel {
-  Off,
-  Error,
-  Warn,
-  Info,
-  Debug,
-  Trace,
+  Off = 0,
+  Error = 1,
+  Warn = 2,
+  Info = 3,
+  Debug = 4,
+  Trace = 5,
 }
 
 impl LogLevel {
@@ -68,12 +67,10 @@ impl LogLevel {
   }
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "lowercase")]
+#[wasm_bindgen_numbered_enum]
 pub enum DeviceSyncWorkerMode {
-  Enabled,
-  Disabled,
+  Enabled = 0,
+  Disabled = 1,
 }
 
 impl From<DeviceSyncWorkerMode> for SyncWorkerMode {
@@ -85,13 +82,12 @@ impl From<DeviceSyncWorkerMode> for SyncWorkerMode {
   }
 }
 
-#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
+#[derive(Default)]
 pub enum ClientMode {
   #[default]
-  Default,
-  Notification,
+  Default = 0,
+  Notification = 1,
 }
 
 /// Specify options for the logger

@@ -1,3 +1,4 @@
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tsify::Tsify;
@@ -15,24 +16,20 @@ use xmtp_mls::{
   mls_common::group_mutable_metadata::MetadataField as XmtpMetadataField,
 };
 
-#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum GroupPermissionsOptions {
-  Default,
-  AdminOnly,
-  CustomPolicy,
+  Default = 0,
+  AdminOnly = 1,
+  CustomPolicy = 2,
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum PermissionUpdateType {
-  AddMember,
-  RemoveMember,
-  AddAdmin,
-  RemoveAdmin,
-  UpdateMetadata,
+  AddMember = 0,
+  RemoveMember = 1,
+  AddAdmin = 2,
+  RemoveAdmin = 3,
+  UpdateMetadata = 4,
 }
 
 impl From<&PermissionUpdateType> for XmtpPermissionUpdateType {
@@ -47,16 +44,14 @@ impl From<&PermissionUpdateType> for XmtpPermissionUpdateType {
   }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum PermissionPolicy {
-  Allow,
-  Deny,
-  Admin,
-  SuperAdmin,
-  DoesNotExist,
-  Other,
+  Allow = 0,
+  Deny = 1,
+  Admin = 2,
+  SuperAdmin = 3,
+  DoesNotExist = 4,
+  Other = 5,
 }
 
 impl TryInto<PermissionPolicyOption> for PermissionPolicy {
@@ -267,16 +262,14 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
   }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum MetadataField {
-  AppData,
-  Description,
-  GroupName,
-  GroupImageUrlSquare,
-  MessageExpirationFromNs,
-  MessageExpirationInNs,
+  AppData = 0,
+  Description = 1,
+  GroupName = 2,
+  GroupImageUrlSquare = 3,
+  MessageExpirationFromNs = 4,
+  MessageExpirationInNs = 5,
 }
 
 impl From<&MetadataField> for XmtpMetadataField {
