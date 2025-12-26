@@ -23,7 +23,7 @@ use crate::identity::Identifier;
 use crate::messages::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::streams::{ConversationStream, StreamCallback, StreamCloser};
-use crate::user_preferences::UserPreference;
+use crate::user_preferences::UserPreferenceUpdate;
 use crate::{client::RustXmtpClient, conversation::Conversation};
 
 #[wasm_bindgen_numbered_enum]
@@ -680,9 +680,8 @@ impl Conversations {
     let stream_closer = RustXmtpClient::stream_preferences_with_callback(
       self.inner_client.clone(),
       move |message| match message {
-        Ok(m) => {
-          callback.on_user_preference_update(m.into_iter().map(UserPreference::from).collect())
-        }
+        Ok(m) => callback
+          .on_user_preference_update(m.into_iter().map(UserPreferenceUpdate::from).collect()),
         Err(e) => callback.on_error(JsError::from(e)),
       },
       move || on_close_cb.on_close(),
