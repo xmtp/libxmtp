@@ -151,7 +151,7 @@ impl From<ActionStyle> for xmtp_content_types::actions::ActionStyle {
 }
 
 #[napi]
-pub fn actions_content_type() -> ContentTypeId {
+pub fn content_type_actions() -> ContentTypeId {
   ActionsCodec::content_type().into()
 }
 

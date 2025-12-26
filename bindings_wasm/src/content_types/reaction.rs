@@ -53,8 +53,8 @@ impl From<ReactionV2> for Reaction {
   }
 }
 
-#[wasm_bindgen(js_name = "reactionContentType")]
-pub fn reaction_content_type() -> ContentTypeId {
+#[wasm_bindgen(js_name = "contentTypeReaction")]
+pub fn content_type_reaction() -> ContentTypeId {
   ReactionCodec::content_type().into()
 }
 

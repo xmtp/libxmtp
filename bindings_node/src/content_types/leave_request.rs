@@ -26,6 +26,6 @@ impl From<xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest> 
 }
 
 #[napi]
-pub fn leave_request_content_type() -> ContentTypeId {
+pub fn content_type_leave_request() -> ContentTypeId {
   LeaveRequestCodec::content_type().into()
 }

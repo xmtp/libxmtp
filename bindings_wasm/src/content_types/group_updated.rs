@@ -162,7 +162,7 @@ impl From<MetadataFieldChange>
   }
 }
 
-#[wasm_bindgen(js_name = "groupUpdatedContentType")]
-pub fn group_updated_content_type() -> ContentTypeId {
+#[wasm_bindgen(js_name = "contentTypeGroupUpdated")]
+pub fn content_type_group_updated() -> ContentTypeId {
   GroupUpdatedCodec::content_type().into()
 }

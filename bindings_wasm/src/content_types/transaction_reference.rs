@@ -84,8 +84,8 @@ impl From<TransactionMetadata> for xmtp_content_types::transaction_reference::Tr
   }
 }
 
-#[wasm_bindgen(js_name = "transactionReferenceContentType")]
-pub fn transaction_reference_content_type() -> ContentTypeId {
+#[wasm_bindgen(js_name = "contentTypeTransactionReference")]
+pub fn content_type_transaction_reference() -> ContentTypeId {
   TransactionReferenceCodec::content_type().into()
 }
 

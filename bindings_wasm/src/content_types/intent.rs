@@ -39,8 +39,8 @@ impl From<Intent> for xmtp_content_types::intent::Intent {
   }
 }
 
-#[wasm_bindgen(js_name = "intentContentType")]
-pub fn intent_content_type() -> ContentTypeId {
+#[wasm_bindgen(js_name = "contentTypeIntent")]
+pub fn content_type_intent() -> ContentTypeId {
   IntentCodec::content_type().into()
 }
 

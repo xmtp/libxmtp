@@ -164,8 +164,8 @@ impl From<ActionStyle> for xmtp_content_types::actions::ActionStyle {
   }
 }
 
-#[wasm_bindgen(js_name = "actionsContentType")]
-pub fn actions_content_type() -> ContentTypeId {
+#[wasm_bindgen(js_name = "contentTypeActions")]
+pub fn content_type_actions() -> ContentTypeId {
   ActionsCodec::content_type().into()
 }
 
