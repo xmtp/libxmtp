@@ -22,7 +22,7 @@ impl From<ReadReceipt> for xmtp_content_types::read_receipt::ReadReceipt {
 }
 
 #[napi]
-pub fn read_receipt_content_type() -> ContentTypeId {
+pub fn content_type_read_receipt() -> ContentTypeId {
   ReadReceiptCodec::content_type().into()
 }
 

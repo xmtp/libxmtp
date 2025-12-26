@@ -83,7 +83,7 @@ impl From<RemoteAttachment> for xmtp_content_types::remote_attachment::RemoteAtt
 }
 
 #[napi]
-pub fn remote_attachment_content_type() -> ContentTypeId {
+pub fn content_type_remote_attachment() -> ContentTypeId {
   RemoteAttachmentCodec::content_type().into()
 }
 

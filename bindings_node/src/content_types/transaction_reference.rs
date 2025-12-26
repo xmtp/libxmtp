@@ -78,7 +78,7 @@ impl From<TransactionMetadata> for xmtp_content_types::transaction_reference::Tr
 }
 
 #[napi]
-pub fn transaction_reference_content_type() -> ContentTypeId {
+pub fn content_type_transaction_reference() -> ContentTypeId {
   TransactionReferenceCodec::content_type().into()
 }
 

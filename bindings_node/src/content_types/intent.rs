@@ -37,7 +37,7 @@ impl From<Intent> for xmtp_content_types::intent::Intent {
 }
 
 #[napi]
-pub fn intent_content_type() -> ContentTypeId {
+pub fn content_type_intent() -> ContentTypeId {
   IntentCodec::content_type().into()
 }
 

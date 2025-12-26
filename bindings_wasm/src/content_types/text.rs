@@ -4,8 +4,8 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::text::TextCodec;
 
-#[wasm_bindgen(js_name = "textContentType")]
-pub fn text_content_type() -> ContentTypeId {
+#[wasm_bindgen(js_name = "contentTypeText")]
+pub fn content_type_text() -> ContentTypeId {
   TextCodec::content_type().into()
 }
 

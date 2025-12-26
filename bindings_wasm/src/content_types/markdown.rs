@@ -4,8 +4,8 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::markdown::MarkdownCodec;
 
-#[wasm_bindgen(js_name = "markdownContentType")]
-pub fn markdown_content_type() -> ContentTypeId {
+#[wasm_bindgen(js_name = "contentTypeMarkdown")]
+pub fn content_type_markdown() -> ContentTypeId {
   MarkdownCodec::content_type().into()
 }
 

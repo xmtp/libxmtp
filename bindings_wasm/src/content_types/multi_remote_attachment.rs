@@ -86,8 +86,8 @@ impl From<XmtpMultiRemoteAttachment> for MultiRemoteAttachment {
   }
 }
 
-#[wasm_bindgen(js_name = "multiRemoteAttachmentContentType")]
-pub fn multi_remote_attachment_content_type() -> ContentTypeId {
+#[wasm_bindgen(js_name = "contentTypeMultiRemoteAttachment")]
+pub fn content_type_multi_remote_attachment() -> ContentTypeId {
   MultiRemoteAttachmentCodec::content_type().into()
 }
 

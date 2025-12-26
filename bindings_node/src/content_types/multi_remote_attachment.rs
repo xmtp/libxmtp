@@ -98,7 +98,7 @@ impl From<XmtpMultiRemoteAttachment> for MultiRemoteAttachment {
 }
 
 #[napi]
-pub fn multi_remote_attachment_content_type() -> ContentTypeId {
+pub fn content_type_multi_remote_attachment() -> ContentTypeId {
   MultiRemoteAttachmentCodec::content_type().into()
 }
 

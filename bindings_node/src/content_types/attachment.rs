@@ -43,7 +43,7 @@ impl From<Attachment> for xmtp_content_types::attachment::Attachment {
 }
 
 #[napi]
-pub fn attachment_content_type() -> ContentTypeId {
+pub fn content_type_attachment() -> ContentTypeId {
   AttachmentCodec::content_type().into()
 }
 
