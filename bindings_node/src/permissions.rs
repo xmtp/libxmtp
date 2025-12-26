@@ -286,27 +286,8 @@ impl From<&MetadataField> for XmtpMetadataField {
   }
 }
 
-#[napi(string_enum = "snake_case")]
-pub enum MetadataFieldName {
-  AppData,
-  Description,
-  GroupImageUrlSquare,
-  GroupName,
-  MessageDisappearFromNs,
-  MessageDisappearInNs,
-}
-
-// Ensure MetadataFieldName variants stay in sync with MetadataField variants
+#[napi]
 #[allow(dead_code)]
-fn xmtp_field_to_field_name(field: XmtpMetadataField) -> Option<MetadataFieldName> {
-  match field {
-    XmtpMetadataField::AppData => Some(MetadataFieldName::AppData),
-    XmtpMetadataField::Description => Some(MetadataFieldName::Description),
-    XmtpMetadataField::GroupImageUrlSquare => Some(MetadataFieldName::GroupImageUrlSquare),
-    XmtpMetadataField::GroupName => Some(MetadataFieldName::GroupName),
-    XmtpMetadataField::MessageDisappearFromNS => Some(MetadataFieldName::MessageDisappearFromNs),
-    XmtpMetadataField::MessageDisappearInNS => Some(MetadataFieldName::MessageDisappearInNs),
-    // Internal fields not exposed in MetadataFieldName
-    XmtpMetadataField::MinimumSupportedProtocolVersion | XmtpMetadataField::CommitLogSigner => None,
-  }
+pub fn metadata_field_name(field: MetadataField) -> String {
+  XmtpMetadataField::from(&field).as_str().to_string()
 }
