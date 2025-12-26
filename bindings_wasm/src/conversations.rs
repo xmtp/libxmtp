@@ -255,13 +255,13 @@ impl CreateGroupOptions {
 #[derive(Clone, Default, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
-pub struct CreateDMOptions {
+pub struct CreateDmOptions {
   #[tsify(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
 
-impl CreateDMOptions {
+impl CreateDmOptions {
   pub fn into_dm_metadata_options(self) -> DMMetadataOptions {
     DMMetadataOptions {
       message_disappearing_settings: self
@@ -420,7 +420,7 @@ impl Conversations {
   pub async fn find_or_create_dm(
     &self,
     #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
-    options: Option<CreateDMOptions>,
+    options: Option<CreateDmOptions>,
   ) -> Result<Conversation, JsError> {
     let convo = self
       .inner_client
@@ -438,7 +438,7 @@ impl Conversations {
   pub async fn find_or_create_dm_by_inbox_id(
     &self,
     #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
-    options: Option<CreateDMOptions>,
+    options: Option<CreateDmOptions>,
   ) -> Result<Conversation, JsError> {
     let convo = self
       .inner_client
