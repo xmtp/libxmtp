@@ -41,8 +41,7 @@ use xmtp_content_types::{
   transaction_reference::TransactionReferenceCodec,
   wallet_send_calls::WalletSendCallsCodec,
 };
-use xmtp_db::group::{ConversationType as XmtpConversationType, DmIdExt};
-use xmtp_db::group_message::MsgQueryArgs;
+use xmtp_db::group::DmIdExt;
 use xmtp_mls::{
   groups::{
     MlsGroup, UpdateAdminListType, intents::PermissionUpdateType as XmtpPermissionUpdateType,
@@ -404,23 +403,8 @@ impl Conversation {
   ) -> Result<Vec<Message>, JsError> {
     let opts = opts.unwrap_or_default();
     let group = self.to_mls_group();
-    let conversation_type = group
-      .conversation_type()
-      .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
-    let kind = match conversation_type {
-      XmtpConversationType::Group => None,
-      XmtpConversationType::Dm => None,
-      XmtpConversationType::Sync => None,
-      XmtpConversationType::Oneshot => None,
-    };
-
-    let opts = MsgQueryArgs {
-      kind,
-      ..opts.into()
-    };
     let messages: Vec<Message> = group
-      .find_messages(&opts)
+      .find_messages(&opts.into())
       .map_err(|e| JsError::new(&format!("{e}")))?
       .into_iter()
       .map(Into::into)
@@ -448,24 +432,8 @@ impl Conversation {
   ) -> Result<Vec<MessageWithReactions>, JsError> {
     let opts = opts.unwrap_or_default();
     let group = self.to_mls_group();
-    let conversation_type = group
-      .conversation_type()
-      .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
-    let kind = match conversation_type {
-      XmtpConversationType::Group => None,
-      XmtpConversationType::Dm => None,
-      XmtpConversationType::Sync => None,
-      XmtpConversationType::Oneshot => None,
-    };
-
-    let opts = MsgQueryArgs {
-      kind,
-      ..opts.into()
-    };
-
     let messages: Vec<MessageWithReactions> = group
-      .find_messages_with_reactions(&opts)?
+      .find_messages_with_reactions(&opts.into())?
       .into_iter()
       .map(Into::into)
       .collect();
