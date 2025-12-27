@@ -107,13 +107,14 @@ impl From<ListConversationsOrderBy> for GroupQueryOrderBy {
 #[napi(object)]
 #[derive(Default)]
 pub struct ListConversationsOptions {
+  pub allowed_states: Option<Vec<GroupMembershipState>>,
   pub consent_states: Option<Vec<ConsentState>>,
   pub conversation_type: Option<ConversationType>,
-  pub created_after_ns: Option<i64>,
-  pub created_before_ns: Option<i64>,
+  pub created_after_ns: Option<BigInt>,
+  pub created_before_ns: Option<BigInt>,
   pub include_duplicate_dms: Option<bool>,
-  pub order_by: Option<ListConversationsOrderBy>,
   pub limit: Option<i64>,
+  pub order_by: Option<ListConversationsOrderBy>,
 }
 
 impl From<ListConversationsOptions> for GroupQueryArgs {
@@ -122,8 +123,8 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       consent_states: opts
         .consent_states
         .map(|vec| vec.into_iter().map(Into::into).collect()),
-      created_before_ns: opts.created_before_ns,
-      created_after_ns: opts.created_after_ns,
+      created_before_ns: opts.created_before_ns.map(|v| v.get_i64().0),
+      created_after_ns: opts.created_after_ns.map(|v| v.get_i64().0),
       include_duplicate_dms: opts.include_duplicate_dms.unwrap_or_default(),
       limit: opts.limit,
       allowed_states: None,
@@ -140,15 +141,15 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
 #[napi(object)]
 #[derive(Clone)]
 pub struct MessageDisappearingSettings {
-  pub from_ns: i64,
-  pub in_ns: i64,
+  pub from_ns: BigInt,
+  pub in_ns: BigInt,
 }
 
 impl From<MessageDisappearingSettings> for XmtpMessageDisappearingSettings {
   fn from(value: MessageDisappearingSettings) -> Self {
     Self {
-      from_ns: value.from_ns,
-      in_ns: value.in_ns,
+      from_ns: value.from_ns.get_i64().0,
+      in_ns: value.in_ns.get_i64().0,
     }
   }
 }
@@ -156,8 +157,8 @@ impl From<MessageDisappearingSettings> for XmtpMessageDisappearingSettings {
 impl From<XmtpMessageDisappearingSettings> for MessageDisappearingSettings {
   fn from(value: XmtpMessageDisappearingSettings) -> Self {
     Self {
-      from_ns: value.from_ns,
-      in_ns: value.in_ns,
+      from_ns: BigInt::from(value.from_ns),
+      in_ns: BigInt::from(value.in_ns),
     }
   }
 }
