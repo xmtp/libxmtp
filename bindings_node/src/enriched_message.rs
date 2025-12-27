@@ -1,5 +1,5 @@
 use napi::Error;
-use napi::bindgen_prelude::Result;
+use napi::bindgen_prelude::{BigInt, Result};
 use napi_derive::napi;
 use xmtp_mls::messages::decoded_message::DecodedMessage as XmtpDecodedMessage;
 
@@ -12,7 +12,7 @@ use crate::message::{DeliveryStatus, GroupMessageKind};
 pub struct DecodedMessage {
   inner: Box<XmtpDecodedMessage>,
   pub id: String,
-  pub sent_at_ns: i64,
+  sent_at_ns: BigInt,
   pub kind: GroupMessageKind,
   pub sender_installation_id: String,
   pub sender_inbox_id: String,
@@ -21,11 +21,21 @@ pub struct DecodedMessage {
   pub fallback: Option<String>,
   pub delivery_status: DeliveryStatus,
   pub num_replies: i64,
-  pub expires_at_ns: Option<i64>,
+  expires_at_ns: Option<BigInt>,
 }
 
 #[napi]
 impl DecodedMessage {
+  #[napi(getter)]
+  pub fn sent_at_ns(&self) -> BigInt {
+    self.sent_at_ns.clone()
+  }
+
+  #[napi(getter)]
+  pub fn expires_at_ns(&self) -> Option<BigInt> {
+    self.expires_at_ns.clone()
+  }
+
   #[napi(getter)]
   pub fn reactions(&self) -> Result<Vec<DecodedMessage>> {
     self
@@ -53,7 +63,7 @@ impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
   fn try_from(msg: XmtpDecodedMessage) -> Result<Self> {
     Ok(Self {
       id: hex::encode(&msg.metadata.id),
-      sent_at_ns: msg.metadata.sent_at_ns,
+      sent_at_ns: BigInt::from(msg.metadata.sent_at_ns),
       kind: msg.metadata.kind.into(),
       sender_installation_id: hex::encode(&msg.metadata.sender_installation_id),
       sender_inbox_id: msg.metadata.sender_inbox_id.clone(),
@@ -62,7 +72,7 @@ impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
       fallback: msg.fallback_text.clone(),
       delivery_status: msg.metadata.delivery_status.into(),
       num_replies: msg.num_replies as i64,
-      expires_at_ns: msg.metadata.expires_at_ns,
+      expires_at_ns: msg.metadata.expires_at_ns.map(BigInt::from),
       inner: Box::new(msg),
     })
   }

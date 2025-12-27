@@ -1,7 +1,7 @@
 use std::{collections::HashMap, ops::Deref};
 
 use napi::{
-  bindgen_prelude::{Result, Uint8Array},
+  bindgen_prelude::{BigInt, Result, Uint8Array},
   threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode},
 };
 use xmtp_content_types::{
@@ -123,7 +123,7 @@ pub struct Conversation {
   inner_group: RustMlsGroup,
   group_id: Vec<u8>,
   dm_id: Option<String>,
-  created_at_ns: i64,
+  created_at_ns: BigInt,
 }
 
 impl From<RustMlsGroup> for Conversation {
@@ -131,7 +131,7 @@ impl From<RustMlsGroup> for Conversation {
     Conversation {
       group_id: mls_group.group_id.clone(),
       dm_id: mls_group.dm_id.clone(),
-      created_at_ns: mls_group.created_at_ns,
+      created_at_ns: BigInt::from(mls_group.created_at_ns),
       inner_group: mls_group,
     }
   }
@@ -143,7 +143,7 @@ impl Conversation {
     inner_group: RustMlsGroup,
     group_id: Vec<u8>,
     dm_id: Option<String>,
-    created_at_ns: i64,
+    created_at_ns: BigInt,
   ) -> Self {
     Self {
       inner_group,
@@ -160,7 +160,7 @@ impl Conversation {
       self.group_id.clone(),
       self.dm_id.clone(),
       self.inner_group.conversation_type,
-      self.created_at_ns,
+      self.created_at_ns.get_i64().0,
     )
   }
 
@@ -704,8 +704,8 @@ impl Conversation {
   }
 
   #[napi]
-  pub fn created_at_ns(&self) -> i64 {
-    self.created_at_ns
+  pub fn created_at_ns(&self) -> BigInt {
+    self.created_at_ns.clone()
   }
 
   #[napi]
@@ -835,7 +835,7 @@ impl Conversation {
     self.message_disappearing_settings().map(|settings| {
       settings
         .as_ref()
-        .is_some_and(|s| s.from_ns > 0 && s.in_ns > 0)
+        .is_some_and(|s| s.from_ns.get_i64().0 > 0 && s.in_ns.get_i64().0 > 0)
     })
   }
 
