@@ -8,7 +8,8 @@ use std::collections::{HashMap, HashSet};
 use xmtp_db::{
     StorageError,
     consent_record::{ConsentState, ConsentType},
-    group::{ConversationType, GroupMembershipState, GroupQueryArgs, StoredGroup},
+    group::{ConversationType, GroupQueryArgs, StoredGroup},
+    group_message::SortDirection,
     prelude::*,
 };
 use xmtp_id::{
@@ -31,23 +32,39 @@ pub struct Contact {
     pub consent_state: ConsentState,
 }
 
+/// Sort options for contacts
+#[derive(Debug, Clone, Copy, Default)]
+pub enum ContactsSortBy {
+    /// Sort by inbox ID alphabetically
+    #[default]
+    InboxId,
+    /// Sort by the first account address alphabetically
+    Address,
+}
+
 /// Query arguments for filtering contacts
 #[derive(Debug, Default, Clone)]
-pub struct ContactQueryArgs {
-    /// Filter by specific group IDs (allow list)
-    pub allowed_group_ids: Option<Vec<Vec<u8>>>,
-    /// Exclude specific group IDs (deny list)
-    pub denied_group_ids: Option<Vec<Vec<u8>>>,
+pub struct ContactsQueryArgs {
+    /// Only include contacts from these specific group IDs
+    pub include_group_ids: Option<Vec<Vec<u8>>>,
+    /// Exclude contacts from these specific group IDs
+    pub exclude_group_ids: Option<Vec<Vec<u8>>>,
     /// Filter by consent states
     pub consent_states: Option<Vec<ConsentState>>,
     /// Filter by conversation type
     pub conversation_type: Option<ConversationType>,
-    /// Filter by membership state
-    pub allowed_states: Option<Vec<GroupMembershipState>>,
     /// Only include contacts from groups created after this timestamp
     pub created_after_ns: Option<i64>,
     /// Only include contacts from groups created before this timestamp
     pub created_before_ns: Option<i64>,
+    /// Maximum number of contacts to return
+    pub limit: Option<usize>,
+    /// Number of contacts to skip before returning results
+    pub offset: Option<usize>,
+    /// Field to sort contacts by
+    pub sort_by: Option<ContactsSortBy>,
+    /// Sort direction (ascending or descending)
+    pub sort_direction: Option<SortDirection>,
 }
 
 // Type aliases to reduce complexity
@@ -206,26 +223,31 @@ where
     /// and consent state.
     ///
     /// Filters:
-    /// - allowed_group_ids: only include members from these specific group IDs
-    /// - denied_group_ids: exclude members from these specific group IDs
+    /// - include_group_ids: only include members from these specific group IDs
+    /// - exclude_group_ids: exclude members from these specific group IDs
     /// - consent_states: only return contacts with the given consent states
     /// - conversation_type: filter by conversation type (Group or Dm)
-    /// - allowed_states: only include contacts from groups with the given membership states
     /// - created_after_ns/created_before_ns: filter by group creation time
-    pub async fn contacts_list(&self, args: ContactQueryArgs) -> Result<Vec<Contact>, ClientError> {
-        let ContactQueryArgs {
-            allowed_group_ids,
-            denied_group_ids,
+    pub async fn contacts_list(
+        &self,
+        args: ContactsQueryArgs,
+    ) -> Result<Vec<Contact>, ClientError> {
+        let ContactsQueryArgs {
+            include_group_ids,
+            exclude_group_ids,
             consent_states,
             conversation_type,
-            allowed_states,
             created_after_ns,
             created_before_ns,
+            limit,
+            offset,
+            sort_by,
+            sort_direction,
         } = args;
 
         // Build group query args from contact query args
         let group_args = GroupQueryArgs {
-            allowed_states,
+            allowed_states: None,
             created_after_ns,
             created_before_ns,
             last_activity_after_ns: None,
@@ -246,12 +268,12 @@ where
             .find_groups(group_args)?
             .into_iter()
             .filter(|g| {
-                allowed_group_ids
+                include_group_ids
                     .as_ref()
                     .is_none_or(|ids| ids.contains(&g.id))
             })
             .filter(|g| {
-                denied_group_ids
+                exclude_group_ids
                     .as_ref()
                     .is_none_or(|ids| !ids.contains(&g.id))
             })
@@ -287,7 +309,7 @@ where
         let contact_map = build_contact_map(&self.context, &group_members_map, association_map)?;
 
         // remove self and filter by consent states
-        let contacts: Vec<Contact> = contact_map
+        let mut contacts: Vec<Contact> = contact_map
             .into_iter()
             .filter(|(inbox_id, _)| inbox_id != self.inbox_id())
             .filter(|(_, (_, _, consent_state))| {
@@ -305,6 +327,42 @@ where
                 },
             )
             .collect();
+
+        // Apply sorting
+        let sort_by = sort_by.unwrap_or_default();
+        let sort_direction = sort_direction.unwrap_or_default();
+
+        match sort_by {
+            ContactsSortBy::InboxId => match sort_direction {
+                SortDirection::Ascending => contacts.sort_by(|a, b| a.inbox_id.cmp(&b.inbox_id)),
+                SortDirection::Descending => contacts.sort_by(|a, b| b.inbox_id.cmp(&a.inbox_id)),
+            },
+            ContactsSortBy::Address => {
+                // Sort by first account identifier's string representation
+                let get_first_address = |c: &Contact| -> String {
+                    c.account_identifiers
+                        .first()
+                        .map(|id| id.to_string())
+                        .unwrap_or_default()
+                };
+                match sort_direction {
+                    SortDirection::Ascending => contacts.sort_by_key(|c| get_first_address(c)),
+                    SortDirection::Descending => {
+                        contacts.sort_by_key(|c| std::cmp::Reverse(get_first_address(c)))
+                    }
+                }
+            }
+        }
+
+        // Apply offset and limit
+        let offset = offset.unwrap_or(0);
+        let contacts: Vec<Contact> = contacts.into_iter().skip(offset).collect();
+
+        let contacts: Vec<Contact> = if let Some(limit) = limit {
+            contacts.into_iter().take(limit).collect()
+        } else {
+            contacts
+        };
 
         Ok(contacts)
     }
@@ -427,7 +485,7 @@ mod tests {
 
         // Test 1: List all contacts (should have 9 contacts: all except Alice herself)
         let all_contacts = alice
-            .contacts_list(ContactQueryArgs::default())
+            .contacts_list(ContactsQueryArgs::default())
             .await
             .unwrap();
 
@@ -439,10 +497,10 @@ mod tests {
             "Alice should not be in her own contacts"
         );
 
-        // Test 2: Filter by allowed_group_ids (only Group 1)
+        // Test 2: Filter by include_group_ids (only Group 1)
         let group1_contacts = alice
-            .contacts_list(ContactQueryArgs {
-                allowed_group_ids: Some(vec![group1.group_id.clone()]),
+            .contacts_list(ContactsQueryArgs {
+                include_group_ids: Some(vec![group1.group_id.clone()]),
                 ..Default::default()
             })
             .await
@@ -455,10 +513,10 @@ mod tests {
         assert!(group1_inbox_ids.contains(&charlie.inbox_id().to_string()));
         assert!(group1_inbox_ids.contains(&diana.inbox_id().to_string()));
 
-        // Test 3: Filter by denied_group_ids (exclude Group 2)
+        // Test 3: Filter by exclude_group_ids (exclude Group 2)
         let without_group2 = alice
-            .contacts_list(ContactQueryArgs {
-                denied_group_ids: Some(vec![group2.group_id.clone()]),
+            .contacts_list(ContactsQueryArgs {
+                exclude_group_ids: Some(vec![group2.group_id.clone()]),
                 ..Default::default()
             })
             .await
@@ -479,7 +537,7 @@ mod tests {
 
         // Test 4: Filter by consent_states (Allowed only)
         let allowed_contacts = alice
-            .contacts_list(ContactQueryArgs {
+            .contacts_list(ContactsQueryArgs {
                 consent_states: Some(vec![ConsentState::Allowed]),
                 ..Default::default()
             })
@@ -496,7 +554,7 @@ mod tests {
 
         // Test 5: Filter by consent_states (Denied only)
         let denied_contacts = alice
-            .contacts_list(ContactQueryArgs {
+            .contacts_list(ContactsQueryArgs {
                 consent_states: Some(vec![ConsentState::Denied]),
                 ..Default::default()
             })
@@ -508,7 +566,7 @@ mod tests {
 
         // Test 6: Filter by consent_states (Unknown only)
         let unknown_contacts = alice
-            .contacts_list(ContactQueryArgs {
+            .contacts_list(ContactsQueryArgs {
                 consent_states: Some(vec![ConsentState::Unknown]),
                 ..Default::default()
             })
@@ -529,7 +587,7 @@ mod tests {
 
         // Test 7: Filter by consent_states (Allowed + Unknown)
         let allowed_or_unknown = alice
-            .contacts_list(ContactQueryArgs {
+            .contacts_list(ContactsQueryArgs {
                 consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
                 ..Default::default()
             })
@@ -544,7 +602,7 @@ mod tests {
 
         // Test 8: Filter by conversation_type (Groups only)
         let group_contacts = alice
-            .contacts_list(ContactQueryArgs {
+            .contacts_list(ContactsQueryArgs {
                 conversation_type: Some(ConversationType::Group),
                 ..Default::default()
             })
@@ -560,7 +618,7 @@ mod tests {
 
         // Test 9: Filter by conversation_type (DMs only)
         let dm_contacts = alice
-            .contacts_list(ContactQueryArgs {
+            .contacts_list(ContactsQueryArgs {
                 conversation_type: Some(ConversationType::Dm),
                 ..Default::default()
             })
@@ -576,7 +634,7 @@ mod tests {
 
         // Test 10: Filter by created_after_ns
         let recent_contacts = alice
-            .contacts_list(ContactQueryArgs {
+            .contacts_list(ContactsQueryArgs {
                 created_after_ns: Some(mid_time),
                 ..Default::default()
             })
@@ -591,7 +649,7 @@ mod tests {
 
         // Test 11: Filter by created_before_ns
         let early_contacts = alice
-            .contacts_list(ContactQueryArgs {
+            .contacts_list(ContactsQueryArgs {
                 created_before_ns: Some(mid_time),
                 ..Default::default()
             })
@@ -625,10 +683,10 @@ mod tests {
             "Jack should be in 1 conversation (DM only)"
         );
 
-        // Test 13: Combined filters - allowed_group_ids + consent_states
+        // Test 13: Combined filters - include_group_ids + consent_states
         let group1_allowed = alice
-            .contacts_list(ContactQueryArgs {
-                allowed_group_ids: Some(vec![group1.group_id.clone()]),
+            .contacts_list(ContactsQueryArgs {
+                include_group_ids: Some(vec![group1.group_id.clone()]),
                 consent_states: Some(vec![ConsentState::Allowed]),
                 ..Default::default()
             })
@@ -641,7 +699,7 @@ mod tests {
 
         // Test 14: Combined filters - conversation_type + consent_states
         let dm_unknown = alice
-            .contacts_list(ContactQueryArgs {
+            .contacts_list(ContactsQueryArgs {
                 conversation_type: Some(ConversationType::Dm),
                 consent_states: Some(vec![ConsentState::Unknown]),
                 ..Default::default()
@@ -665,8 +723,8 @@ mod tests {
 
         // Test 16: Edge case - deny all DMs
         let no_dms = alice
-            .contacts_list(ContactQueryArgs {
-                denied_group_ids: Some(vec![
+            .contacts_list(ContactsQueryArgs {
+                exclude_group_ids: Some(vec![
                     dm1.group_id.clone(),
                     dm2.group_id.clone(),
                     dm3.group_id.clone(),
@@ -690,7 +748,7 @@ mod tests {
 
         // List contacts - should return empty without errors
         let contacts = client
-            .contacts_list(ContactQueryArgs::default())
+            .contacts_list(ContactsQueryArgs::default())
             .await
             .unwrap();
 
@@ -702,8 +760,8 @@ mod tests {
 
         // Filter specifically by this empty group
         let empty_group_contacts = client
-            .contacts_list(ContactQueryArgs {
-                allowed_group_ids: Some(vec![empty_group.group_id.clone()]),
+            .contacts_list(ContactsQueryArgs {
+                include_group_ids: Some(vec![empty_group.group_id.clone()]),
                 ..Default::default()
             })
             .await
@@ -733,7 +791,7 @@ mod tests {
 
         // Verify Bob is in the contacts
         let contacts_before = alice
-            .contacts_list(ContactQueryArgs::default())
+            .contacts_list(ContactsQueryArgs::default())
             .await
             .unwrap();
         assert_eq!(contacts_before.len(), 1, "Should have Bob as a contact");
@@ -750,7 +808,7 @@ mod tests {
 
         // List contacts again - Bob should no longer appear since he's been removed
         let contacts_after = alice
-            .contacts_list(ContactQueryArgs::default())
+            .contacts_list(ContactsQueryArgs::default())
             .await
             .unwrap();
 
@@ -778,7 +836,7 @@ mod tests {
 
         // Get initial contacts
         let contacts1 = alice
-            .contacts_list(ContactQueryArgs::default())
+            .contacts_list(ContactsQueryArgs::default())
             .await
             .unwrap();
         assert_eq!(contacts1.len(), 1);
@@ -792,7 +850,7 @@ mod tests {
 
         // Query again - should see both members
         let contacts2 = alice
-            .contacts_list(ContactQueryArgs::default())
+            .contacts_list(ContactsQueryArgs::default())
             .await
             .unwrap();
         assert_eq!(contacts2.len(), 2, "Should see both Bob and Charlie");
@@ -810,7 +868,7 @@ mod tests {
 
         // Query again - should only see Charlie
         let contacts3 = alice
-            .contacts_list(ContactQueryArgs::default())
+            .contacts_list(ContactsQueryArgs::default())
             .await
             .unwrap();
         assert_eq!(contacts3.len(), 1, "Should only see Charlie");
@@ -837,7 +895,7 @@ mod tests {
 
         // Query contacts - should succeed with Unknown consent state
         let contacts = alice
-            .contacts_list(ContactQueryArgs::default())
+            .contacts_list(ContactsQueryArgs::default())
             .await
             .unwrap();
 
@@ -865,7 +923,7 @@ mod tests {
 
         // Query again
         let contacts_after = alice
-            .contacts_list(ContactQueryArgs::default())
+            .contacts_list(ContactsQueryArgs::default())
             .await
             .unwrap();
 
@@ -886,8 +944,8 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    async fn test_contacts_allowed_and_denied_group_ids() {
-        // Test using both allowed_group_ids and denied_group_ids together
+    async fn test_contacts_include_and_exclude_group_ids() {
+        // Test using both include_group_ids and exclude_group_ids together
         tester!(alice);
         tester!(bob);
         tester!(charlie);
@@ -918,9 +976,9 @@ mod tests {
 
         // Allow groups 1 and 2, but deny group 2 - should only get group 1 contacts
         let contacts = alice
-            .contacts_list(ContactQueryArgs {
-                allowed_group_ids: Some(vec![group1.group_id.clone(), group2.group_id.clone()]),
-                denied_group_ids: Some(vec![group2.group_id.clone()]),
+            .contacts_list(ContactsQueryArgs {
+                include_group_ids: Some(vec![group1.group_id.clone(), group2.group_id.clone()]),
+                exclude_group_ids: Some(vec![group2.group_id.clone()]),
                 ..Default::default()
             })
             .await
@@ -945,8 +1003,8 @@ mod tests {
 
         // Filter by a non-existent group ID
         let contacts = alice
-            .contacts_list(ContactQueryArgs {
-                allowed_group_ids: Some(vec![vec![0, 1, 2, 3]]), // fake group ID
+            .contacts_list(ContactsQueryArgs {
+                include_group_ids: Some(vec![vec![0, 1, 2, 3]]), // fake group ID
                 ..Default::default()
             })
             .await
@@ -956,8 +1014,8 @@ mod tests {
 
         // Deny a non-existent group ID (should have no effect)
         let contacts = alice
-            .contacts_list(ContactQueryArgs {
-                denied_group_ids: Some(vec![vec![0, 1, 2, 3]]), // fake group ID
+            .contacts_list(ContactsQueryArgs {
+                exclude_group_ids: Some(vec![vec![0, 1, 2, 3]]), // fake group ID
                 ..Default::default()
             })
             .await
@@ -971,53 +1029,12 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    async fn test_contacts_allowed_states_filter() {
-        // Test filtering by membership state
-        tester!(alice);
-        tester!(bob);
-
-        let group = alice.create_group(None, None).unwrap();
-        group
-            .add_members_by_inbox_id(&[bob.inbox_id()])
-            .await
-            .unwrap();
-        bob.sync_welcomes().await.unwrap();
-
-        // Filter by Allowed membership state (which is the default for created groups)
-        let contacts = alice
-            .contacts_list(ContactQueryArgs {
-                allowed_states: Some(vec![GroupMembershipState::Allowed]),
-                ..Default::default()
-            })
-            .await
-            .unwrap();
-
-        assert_eq!(contacts.len(), 1, "Should have Bob from allowed group");
-        assert_eq!(contacts[0].inbox_id, bob.inbox_id());
-
-        // Filter by Pending membership state (should return nothing since group is allowed)
-        let contacts = alice
-            .contacts_list(ContactQueryArgs {
-                allowed_states: Some(vec![GroupMembershipState::Pending]),
-                ..Default::default()
-            })
-            .await
-            .unwrap();
-
-        assert_eq!(
-            contacts.len(),
-            0,
-            "Should have no contacts from pending groups"
-        );
-    }
-
-    #[xmtp_common::test]
     async fn test_contacts_no_groups() {
         // Test when client has no groups at all
         tester!(alice);
 
         let contacts = alice
-            .contacts_list(ContactQueryArgs::default())
+            .contacts_list(ContactsQueryArgs::default())
             .await
             .unwrap();
 
@@ -1054,7 +1071,7 @@ mod tests {
 
         // Query all contacts
         let contacts = alice
-            .contacts_list(ContactQueryArgs::default())
+            .contacts_list(ContactsQueryArgs::default())
             .await
             .unwrap();
 
@@ -1074,5 +1091,485 @@ mod tests {
         assert!(group_ids.contains(&&group1.group_id));
         assert!(group_ids.contains(&&group2.group_id));
         assert!(group_ids.contains(&&group3.group_id));
+    }
+
+    #[xmtp_common::test]
+    async fn test_contacts_pagination_limit() {
+        // Test pagination with limit
+        tester!(alice);
+        tester!(bob);
+        tester!(charlie);
+        tester!(diana);
+
+        let group = alice.create_group(None, None).unwrap();
+        group
+            .add_members_by_inbox_id(&[bob.inbox_id(), charlie.inbox_id(), diana.inbox_id()])
+            .await
+            .unwrap();
+
+        bob.sync_welcomes().await.unwrap();
+        charlie.sync_welcomes().await.unwrap();
+        diana.sync_welcomes().await.unwrap();
+
+        // Get all contacts first to verify we have 3
+        let all_contacts = alice
+            .contacts_list(ContactsQueryArgs::default())
+            .await
+            .unwrap();
+        assert_eq!(all_contacts.len(), 3, "Should have 3 contacts");
+
+        // Test limit of 2
+        let limited_contacts = alice
+            .contacts_list(ContactsQueryArgs {
+                limit: Some(2),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            limited_contacts.len(),
+            2,
+            "Should have 2 contacts with limit"
+        );
+
+        // Test limit of 1
+        let single_contact = alice
+            .contacts_list(ContactsQueryArgs {
+                limit: Some(1),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(single_contact.len(), 1, "Should have 1 contact with limit");
+
+        // Test limit greater than count
+        let over_limit = alice
+            .contacts_list(ContactsQueryArgs {
+                limit: Some(10),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(over_limit.len(), 3, "Should have all 3 contacts");
+    }
+
+    #[xmtp_common::test]
+    async fn test_contacts_pagination_offset() {
+        // Test pagination with offset
+        tester!(alice);
+        tester!(bob);
+        tester!(charlie);
+        tester!(diana);
+
+        let group = alice.create_group(None, None).unwrap();
+        group
+            .add_members_by_inbox_id(&[bob.inbox_id(), charlie.inbox_id(), diana.inbox_id()])
+            .await
+            .unwrap();
+
+        bob.sync_welcomes().await.unwrap();
+        charlie.sync_welcomes().await.unwrap();
+        diana.sync_welcomes().await.unwrap();
+
+        // Get all contacts with default sorting
+        let all_contacts = alice
+            .contacts_list(ContactsQueryArgs::default())
+            .await
+            .unwrap();
+        assert_eq!(all_contacts.len(), 3);
+
+        // Test offset of 1 - should skip first contact
+        let offset_contacts = alice
+            .contacts_list(ContactsQueryArgs {
+                offset: Some(1),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            offset_contacts.len(),
+            2,
+            "Should have 2 contacts with offset 1"
+        );
+
+        // Test offset of 2
+        let offset_2 = alice
+            .contacts_list(ContactsQueryArgs {
+                offset: Some(2),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(offset_2.len(), 1, "Should have 1 contact with offset 2");
+
+        // Test offset greater than count
+        let over_offset = alice
+            .contacts_list(ContactsQueryArgs {
+                offset: Some(10),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            over_offset.len(),
+            0,
+            "Should have no contacts with large offset"
+        );
+    }
+
+    #[xmtp_common::test]
+    async fn test_contacts_pagination_limit_and_offset() {
+        // Test pagination with both limit and offset
+        tester!(alice);
+        tester!(bob);
+        tester!(charlie);
+        tester!(diana);
+        tester!(eve);
+
+        let group = alice.create_group(None, None).unwrap();
+        group
+            .add_members_by_inbox_id(&[
+                bob.inbox_id(),
+                charlie.inbox_id(),
+                diana.inbox_id(),
+                eve.inbox_id(),
+            ])
+            .await
+            .unwrap();
+
+        bob.sync_welcomes().await.unwrap();
+        charlie.sync_welcomes().await.unwrap();
+        diana.sync_welcomes().await.unwrap();
+        eve.sync_welcomes().await.unwrap();
+
+        // Get all contacts sorted for comparison
+        let all_sorted = alice
+            .contacts_list(ContactsQueryArgs {
+                sort_by: Some(ContactsSortBy::InboxId),
+                sort_direction: Some(SortDirection::Ascending),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(all_sorted.len(), 4);
+
+        // Get second page: offset 2, limit 2
+        let page = alice
+            .contacts_list(ContactsQueryArgs {
+                limit: Some(2),
+                offset: Some(2),
+                sort_by: Some(ContactsSortBy::InboxId),
+                sort_direction: Some(SortDirection::Ascending),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(page.len(), 2, "Page should have 2 contacts");
+
+        // Verify the page contains the correct contacts (3rd and 4th from sorted list)
+        assert_eq!(page[0].inbox_id, all_sorted[2].inbox_id);
+        assert_eq!(page[1].inbox_id, all_sorted[3].inbox_id);
+    }
+
+    #[xmtp_common::test]
+    async fn test_contacts_sorting() {
+        // Test sorting by inbox_id
+        tester!(alice);
+        tester!(bob);
+        tester!(charlie);
+        tester!(diana);
+
+        let group = alice.create_group(None, None).unwrap();
+        group
+            .add_members_by_inbox_id(&[bob.inbox_id(), charlie.inbox_id(), diana.inbox_id()])
+            .await
+            .unwrap();
+
+        bob.sync_welcomes().await.unwrap();
+        charlie.sync_welcomes().await.unwrap();
+        diana.sync_welcomes().await.unwrap();
+
+        // Get contacts sorted ascending
+        let asc_contacts = alice
+            .contacts_list(ContactsQueryArgs {
+                sort_by: Some(ContactsSortBy::InboxId),
+                sort_direction: Some(SortDirection::Ascending),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(asc_contacts.len(), 3);
+
+        // Verify ascending order
+        for i in 0..asc_contacts.len() - 1 {
+            assert!(
+                asc_contacts[i].inbox_id <= asc_contacts[i + 1].inbox_id,
+                "Contacts should be sorted ascending by inbox_id"
+            );
+        }
+
+        // Get contacts sorted descending
+        let desc_contacts = alice
+            .contacts_list(ContactsQueryArgs {
+                sort_by: Some(ContactsSortBy::InboxId),
+                sort_direction: Some(SortDirection::Descending),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(desc_contacts.len(), 3);
+
+        // Verify descending order
+        for i in 0..desc_contacts.len() - 1 {
+            assert!(
+                desc_contacts[i].inbox_id >= desc_contacts[i + 1].inbox_id,
+                "Contacts should be sorted descending by inbox_id"
+            );
+        }
+
+        // Verify ascending and descending are reverse of each other
+        let asc_ids: Vec<String> = asc_contacts.iter().map(|c| c.inbox_id.clone()).collect();
+        let desc_ids: Vec<String> = desc_contacts.iter().map(|c| c.inbox_id.clone()).collect();
+        let reversed_asc: Vec<String> = asc_ids.iter().rev().cloned().collect();
+        assert_eq!(
+            desc_ids, reversed_asc,
+            "Descending should be reverse of ascending"
+        );
+    }
+
+    #[xmtp_common::test]
+    async fn test_contacts_sorting_default() {
+        // Test default sorting behavior
+        tester!(alice);
+        tester!(bob);
+        tester!(charlie);
+
+        let group = alice.create_group(None, None).unwrap();
+        group
+            .add_members_by_inbox_id(&[bob.inbox_id(), charlie.inbox_id()])
+            .await
+            .unwrap();
+
+        bob.sync_welcomes().await.unwrap();
+        charlie.sync_welcomes().await.unwrap();
+
+        // Get contacts with default sorting (should be ascending by inbox_id)
+        let default_contacts = alice
+            .contacts_list(ContactsQueryArgs::default())
+            .await
+            .unwrap();
+
+        // Get contacts with explicit ascending sort
+        let explicit_asc = alice
+            .contacts_list(ContactsQueryArgs {
+                sort_by: Some(ContactsSortBy::InboxId),
+                sort_direction: Some(SortDirection::Ascending),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Verify default sorting is ascending
+        let default_ids: Vec<String> = default_contacts
+            .iter()
+            .map(|c| c.inbox_id.clone())
+            .collect();
+        let explicit_ids: Vec<String> = explicit_asc.iter().map(|c| c.inbox_id.clone()).collect();
+        assert_eq!(
+            default_ids, explicit_ids,
+            "Default sort should match ascending by inbox_id"
+        );
+    }
+
+    #[xmtp_common::test]
+    async fn test_contacts_combined_sort_filter_paginate() {
+        // Test combining sorting, filtering, and pagination
+        tester!(alice);
+        tester!(bob);
+        tester!(charlie);
+        tester!(diana);
+        tester!(eve);
+
+        let group = alice.create_group(None, None).unwrap();
+        group
+            .add_members_by_inbox_id(&[
+                bob.inbox_id(),
+                charlie.inbox_id(),
+                diana.inbox_id(),
+                eve.inbox_id(),
+            ])
+            .await
+            .unwrap();
+
+        bob.sync_welcomes().await.unwrap();
+        charlie.sync_welcomes().await.unwrap();
+        diana.sync_welcomes().await.unwrap();
+        eve.sync_welcomes().await.unwrap();
+
+        // Set consent for some contacts
+        alice
+            .set_consent_states(&[
+                StoredConsentRecord::new(
+                    ConsentType::InboxId,
+                    ConsentState::Allowed,
+                    bob.inbox_id().to_string(),
+                ),
+                StoredConsentRecord::new(
+                    ConsentType::InboxId,
+                    ConsentState::Allowed,
+                    charlie.inbox_id().to_string(),
+                ),
+            ])
+            .await
+            .unwrap();
+
+        // Query allowed contacts, sorted descending, with pagination
+        let result = alice
+            .contacts_list(ContactsQueryArgs {
+                consent_states: Some(vec![ConsentState::Allowed]),
+                sort_by: Some(ContactsSortBy::InboxId),
+                sort_direction: Some(SortDirection::Descending),
+                limit: Some(1),
+                offset: Some(0),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Should have 1 contact (first of 2 allowed, sorted descending)
+        assert_eq!(result.len(), 1);
+
+        // Get the second allowed contact
+        let second_result = alice
+            .contacts_list(ContactsQueryArgs {
+                consent_states: Some(vec![ConsentState::Allowed]),
+                sort_by: Some(ContactsSortBy::InboxId),
+                sort_direction: Some(SortDirection::Descending),
+                limit: Some(1),
+                offset: Some(1),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(second_result.len(), 1);
+        // The two results should be different
+        assert_ne!(result[0].inbox_id, second_result[0].inbox_id);
+
+        // Verify ordering - first result should be greater than second (descending)
+        assert!(
+            result[0].inbox_id > second_result[0].inbox_id,
+            "First page should have greater inbox_id in descending order"
+        );
+    }
+
+    #[xmtp_common::test]
+    async fn test_contacts_sorting_by_address() {
+        // Test sorting by address
+        tester!(alice);
+        tester!(bob);
+        tester!(charlie);
+        tester!(diana);
+
+        let group = alice.create_group(None, None).unwrap();
+        group
+            .add_members_by_inbox_id(&[bob.inbox_id(), charlie.inbox_id(), diana.inbox_id()])
+            .await
+            .unwrap();
+
+        bob.sync_welcomes().await.unwrap();
+        charlie.sync_welcomes().await.unwrap();
+        diana.sync_welcomes().await.unwrap();
+
+        // Get contacts sorted by address ascending
+        let asc_contacts = alice
+            .contacts_list(ContactsQueryArgs {
+                sort_by: Some(ContactsSortBy::Address),
+                sort_direction: Some(SortDirection::Ascending),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(asc_contacts.len(), 3);
+
+        // Verify each contact has account identifiers
+        for contact in &asc_contacts {
+            assert!(
+                !contact.account_identifiers.is_empty(),
+                "Each contact should have at least one account identifier"
+            );
+        }
+
+        // Verify ascending order by first address
+        for i in 0..asc_contacts.len() - 1 {
+            let addr_a = asc_contacts[i]
+                .account_identifiers
+                .first()
+                .map(|id| id.to_string())
+                .unwrap_or_default();
+            let addr_b = asc_contacts[i + 1]
+                .account_identifiers
+                .first()
+                .map(|id| id.to_string())
+                .unwrap_or_default();
+            assert!(
+                addr_a <= addr_b,
+                "Contacts should be sorted ascending by address"
+            );
+        }
+
+        // Get contacts sorted by address descending
+        let desc_contacts = alice
+            .contacts_list(ContactsQueryArgs {
+                sort_by: Some(ContactsSortBy::Address),
+                sort_direction: Some(SortDirection::Descending),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(desc_contacts.len(), 3);
+
+        // Verify descending order by first address
+        for i in 0..desc_contacts.len() - 1 {
+            let addr_a = desc_contacts[i]
+                .account_identifiers
+                .first()
+                .map(|id| id.to_string())
+                .unwrap_or_default();
+            let addr_b = desc_contacts[i + 1]
+                .account_identifiers
+                .first()
+                .map(|id| id.to_string())
+                .unwrap_or_default();
+            assert!(
+                addr_a >= addr_b,
+                "Contacts should be sorted descending by address"
+            );
+        }
+
+        // Verify ascending and descending are reverse of each other
+        let asc_addrs: Vec<String> = asc_contacts
+            .iter()
+            .map(|c| {
+                c.account_identifiers
+                    .first()
+                    .map(|id| id.to_string())
+                    .unwrap_or_default()
+            })
+            .collect();
+        let desc_addrs: Vec<String> = desc_contacts
+            .iter()
+            .map(|c| {
+                c.account_identifiers
+                    .first()
+                    .map(|id| id.to_string())
+                    .unwrap_or_default()
+            })
+            .collect();
+        let reversed_asc: Vec<String> = asc_addrs.iter().rev().cloned().collect();
+        assert_eq!(
+            desc_addrs, reversed_asc,
+            "Descending should be reverse of ascending"
+        );
     }
 }
