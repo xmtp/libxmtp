@@ -293,8 +293,6 @@ mod tests {
         };
         let messages = group.find_messages_v2(&query).unwrap();
 
-        // BUG: Currently this fails because filter_out_hidden_message_types_from_query
-        // overwrites exclude_content_types instead of merging it
         assert_message_count(&messages, 1);
         if let MessageBody::GroupUpdated(_) = &messages[0].content {
             // Expected
