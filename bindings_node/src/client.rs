@@ -45,38 +45,35 @@ impl Client {
 
 #[napi(string_enum)]
 #[derive(Debug)]
-#[allow(non_camel_case_types)]
 pub enum LogLevel {
-  off,
-  error,
-  warn,
-  info,
-  debug,
-  trace,
+  Off,
+  Error,
+  Warn,
+  Info,
+  Debug,
+  Trace,
 }
 
 #[napi(string_enum)]
 #[derive(Debug)]
-#[allow(non_camel_case_types)]
 pub enum SyncWorkerMode {
-  enabled,
-  disabled,
+  Enabled,
+  Disabled,
 }
 
 #[napi(string_enum)]
 #[derive(Debug, Default)]
-#[allow(non_camel_case_types)]
 pub enum ClientMode {
   #[default]
-  default,
-  notification,
+  Default,
+  Notification,
 }
 
 impl From<SyncWorkerMode> for XmtpSyncWorkerMode {
   fn from(value: SyncWorkerMode) -> Self {
     match value {
-      SyncWorkerMode::enabled => Self::Enabled,
-      SyncWorkerMode::disabled => Self::Disabled,
+      SyncWorkerMode::Enabled => Self::Enabled,
+      SyncWorkerMode::Disabled => Self::Disabled,
     }
   }
 }
@@ -85,12 +82,12 @@ impl std::fmt::Display for LogLevel {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     use LogLevel::*;
     let s = match self {
-      off => "off",
-      error => "error",
-      warn => "warn",
-      info => "info",
-      debug => "debug",
-      trace => "trace",
+      Off => "off",
+      Error => "error",
+      Warn => "warn",
+      Info => "info",
+      Debug => "debug",
+      Trace => "trace",
     };
     write!(f, "{}", s)
   }
@@ -185,7 +182,7 @@ pub async fn create_client(
   backend
     .v3_host(&v3_host)
     .maybe_gateway_host(gateway_host)
-    .readonly(matches!(client_mode, ClientMode::notification))
+    .readonly(matches!(client_mode, ClientMode::Notification))
     .maybe_auth_callback(auth_callback.map(|c| Arc::new(c.clone()) as _))
     .maybe_auth_handle(auth_handle.map(|h| h.clone().into()))
     .app_version(app_version.clone().unwrap_or_default())
