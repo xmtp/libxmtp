@@ -107,7 +107,6 @@ impl From<ListConversationsOrderBy> for GroupQueryOrderBy {
 #[napi(object)]
 #[derive(Default)]
 pub struct ListConversationsOptions {
-  pub allowed_states: Option<Vec<GroupMembershipState>>,
   pub consent_states: Option<Vec<ConsentState>>,
   pub conversation_type: Option<ConversationType>,
   pub created_after_ns: Option<BigInt>,
