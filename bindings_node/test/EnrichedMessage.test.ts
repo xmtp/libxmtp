@@ -1042,7 +1042,7 @@ describe.concurrent('EnrichedMessage', () => {
         const { conversation, conversation2 } = await setupConversation()
 
         // Use a timestamp in nanoseconds (must fit in i64)
-        const expiresAtNs = 1700000000000000000 // Nov 2023 in nanoseconds
+        const expiresAtNs = 1700000000000000000n // Nov 2023 in nanoseconds
 
         const actions: Actions = {
           id: 'expiring-action',

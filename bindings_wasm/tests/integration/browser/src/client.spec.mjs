@@ -50,7 +50,7 @@ test("streams groups", async () => {
     .stream({ on_conversation: streamCallback });
   const g = await alix.conversations().createGroupByInboxIds([bo.inboxId]);
   while (groups.length == 0) {
-    await new Promise((r) => setTimeout(r, 100));
+    await sleep(100);
   }
   // let group_id = value.id();
   expect(groups[0].id()).toBe(g.id());
