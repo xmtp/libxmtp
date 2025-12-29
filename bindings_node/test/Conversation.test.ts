@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createRegisteredClient, createUser } from '@test/helpers'
+import { createRegisteredClient, createUser, sleep } from '@test/helpers'
 import {
   ConsentState,
   IdentifierKind,
@@ -285,12 +285,11 @@ describe.concurrent('Conversation', () => {
         console.log('closed')
       }
     )
-    await new Promise((resolve) => setTimeout(resolve, 10000))
     const message1 = await conversation.sendText('gm')
     const message2 = await conversation.sendText('gm2')
 
     // Add sleep to allow messages to be processed
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await sleep(1000)
 
     expect(streamedMessages).toContain(message1)
     expect(streamedMessages).toContain(message2)
@@ -406,6 +405,7 @@ describe.concurrent('Conversation', () => {
       removeMemberPolicy: 2,
       addAdminPolicy: 3,
       removeAdminPolicy: 3,
+      updateAppDataPolicy: 0,
       updateGroupNamePolicy: 0,
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
@@ -447,7 +447,7 @@ describe.concurrent('Conversation', () => {
     await conversation.updatePermissionPolicy(
       PermissionUpdateType.UpdateMetadata,
       PermissionPolicy.Admin,
-      MetadataField.ImageUrlSquare
+      MetadataField.GroupImageUrlSquare
     )
 
     expect(conversation.groupPermissions().policySet()).toEqual({
@@ -455,6 +455,7 @@ describe.concurrent('Conversation', () => {
       removeMemberPolicy: 3,
       addAdminPolicy: 2,
       removeAdminPolicy: 2,
+      updateAppDataPolicy: 0,
       updateGroupNamePolicy: 2,
       updateGroupDescriptionPolicy: 2,
       updateGroupImageUrlSquarePolicy: 2,

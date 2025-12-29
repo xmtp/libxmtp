@@ -1448,6 +1448,7 @@ pub struct FfiPermissionPolicySet {
     pub update_group_description_policy: FfiPermissionPolicy,
     pub update_group_image_url_square_policy: FfiPermissionPolicy,
     pub update_message_disappearing_policy: FfiPermissionPolicy,
+    pub update_app_data_policy: FfiPermissionPolicy,
 }
 
 impl From<PreconfiguredPolicies> for FfiGroupPermissionsOptions {
@@ -1488,6 +1489,10 @@ impl TryFrom<FfiPermissionPolicySet> for PolicySet {
             MetadataField::MessageDisappearInNS.to_string(),
             policy_set.update_message_disappearing_policy.try_into()?,
         );
+        metadata_permissions_map.insert(
+            MetadataField::AppData.to_string(),
+            policy_set.update_app_data_policy.try_into()?,
+        );
 
         Ok(PolicySet {
             add_member_policy: policy_set.add_member_policy.try_into()?,
@@ -1505,6 +1510,7 @@ pub enum FfiMetadataField {
     GroupName,
     Description,
     ImageUrlSquare,
+    AppData,
 }
 
 impl From<&FfiMetadataField> for MetadataField {
@@ -1513,6 +1519,7 @@ impl From<&FfiMetadataField> for MetadataField {
             FfiMetadataField::GroupName => MetadataField::GroupName,
             FfiMetadataField::Description => MetadataField::Description,
             FfiMetadataField::ImageUrlSquare => MetadataField::GroupImageUrlSquare,
+            FfiMetadataField::AppData => MetadataField::AppData,
         }
     }
 }
@@ -2302,7 +2309,12 @@ pub enum FfiContentType {
     Attachment,
     RemoteAttachment,
     TransactionReference,
+    WalletSendCalls,
     LeaveRequest,
+    Markdown,
+    Actions,
+    Intent,
+    MultiRemoteAttachment,
 }
 
 impl From<FfiContentType> for ContentType {
@@ -2318,7 +2330,12 @@ impl From<FfiContentType> for ContentType {
             FfiContentType::Attachment => ContentType::Attachment,
             FfiContentType::RemoteAttachment => ContentType::RemoteAttachment,
             FfiContentType::TransactionReference => ContentType::TransactionReference,
+            FfiContentType::WalletSendCalls => ContentType::WalletSendCalls,
             FfiContentType::LeaveRequest => ContentType::LeaveRequest,
+            FfiContentType::Markdown => ContentType::Markdown,
+            FfiContentType::Actions => ContentType::Actions,
+            FfiContentType::Intent => ContentType::Intent,
+            FfiContentType::MultiRemoteAttachment => ContentType::MultiRemoteAttachment,
         }
     }
 }
@@ -3521,6 +3538,7 @@ impl FfiGroupPermissions {
             update_message_disappearing_policy: get_policy(
                 MetadataField::MessageDisappearInNS.as_str(),
             ),
+            update_app_data_policy: get_policy(MetadataField::AppData.as_str()),
         })
     }
 }

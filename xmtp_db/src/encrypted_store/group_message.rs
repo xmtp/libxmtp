@@ -24,8 +24,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use xmtp_common::{NS_IN_DAY, time::now_ns};
 use xmtp_content_types::{
-    attachment, group_updated, leave_request, markdown, membership_change, reaction, read_receipt,
-    remote_attachment, reply, text, transaction_reference, wallet_send_calls,
+    actions, attachment, group_updated, intent, leave_request, markdown, membership_change,
+    multi_remote_attachment, reaction, read_receipt, remote_attachment, reply, text,
+    transaction_reference, wallet_send_calls,
 };
 use xmtp_proto::types::Cursor;
 
@@ -199,6 +200,9 @@ pub enum ContentType {
     WalletSendCalls = 10,
     LeaveRequest = 11,
     Markdown = 12,
+    Actions = 13,
+    Intent = 14,
+    MultiRemoteAttachment = 15,
 }
 
 impl ContentType {
@@ -217,6 +221,9 @@ impl ContentType {
             ContentType::WalletSendCalls,
             ContentType::LeaveRequest,
             ContentType::Markdown,
+            ContentType::Actions,
+            ContentType::Intent,
+            ContentType::MultiRemoteAttachment,
         ]
     }
 }
@@ -237,6 +244,11 @@ impl std::fmt::Display for ContentType {
             Self::TransactionReference => transaction_reference::TransactionReferenceCodec::TYPE_ID,
             Self::WalletSendCalls => wallet_send_calls::WalletSendCallsCodec::TYPE_ID,
             Self::LeaveRequest => leave_request::LeaveRequestCodec::TYPE_ID,
+            Self::Actions => actions::ActionsCodec::TYPE_ID,
+            Self::Intent => intent::IntentCodec::TYPE_ID,
+            Self::MultiRemoteAttachment => {
+                multi_remote_attachment::MultiRemoteAttachmentCodec::TYPE_ID
+            }
         };
 
         write!(f, "{}", as_string)
@@ -258,6 +270,11 @@ impl From<String> for ContentType {
             transaction_reference::TransactionReferenceCodec::TYPE_ID => Self::TransactionReference,
             wallet_send_calls::WalletSendCallsCodec::TYPE_ID => Self::WalletSendCalls,
             leave_request::LeaveRequestCodec::TYPE_ID => Self::LeaveRequest,
+            actions::ActionsCodec::TYPE_ID => Self::Actions,
+            intent::IntentCodec::TYPE_ID => Self::Intent,
+            multi_remote_attachment::MultiRemoteAttachmentCodec::TYPE_ID => {
+                Self::MultiRemoteAttachment
+            }
             _ => Self::Unknown,
         }
     }
@@ -292,6 +309,9 @@ where
             10 => Ok(ContentType::WalletSendCalls),
             11 => Ok(ContentType::LeaveRequest),
             12 => Ok(ContentType::Markdown),
+            13 => Ok(ContentType::Actions),
+            14 => Ok(ContentType::Intent),
+            15 => Ok(ContentType::MultiRemoteAttachment),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

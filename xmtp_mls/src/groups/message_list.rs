@@ -39,7 +39,19 @@ fn filter_out_hidden_message_types_from_query(query: &MsgQueryArgs) -> MsgQueryA
     let mut new_query = query.clone();
     let hidden_message_types = vec![DbContentType::Reaction, DbContentType::ReadReceipt];
 
-    new_query.exclude_content_types = Some(hidden_message_types);
+    let excluded_content_types = match &query.exclude_content_types {
+        Some(excluded) => {
+            let mut content_types = excluded.clone();
+            content_types.extend(
+                hidden_message_types
+                    .into_iter()
+                    .filter(|t| !excluded.contains(t)),
+            );
+            content_types
+        }
+        None => hidden_message_types,
+    };
+    new_query.exclude_content_types = Some(excluded_content_types);
     new_query
 }
 
@@ -244,6 +256,53 @@ mod tests {
     }
 
     // ===== Tests =====
+
+    #[tokio::test]
+    async fn test_exclude_content_types_with_custom_exclusions() {
+        let (group, context) = setup_test_group().await;
+        let conn = context.db();
+
+        // Store a text message
+        create_and_store_message(
+            &conn,
+            &group.group_id,
+            vec![1],
+            TestContentGenerator::text_content("Hello World"),
+            0,
+            "sender1",
+        );
+
+        // Store a GroupUpdated message
+        create_and_store_message(
+            &conn,
+            &group.group_id,
+            vec![2],
+            TestContentGenerator::group_updated_content(vec!["inbox1".to_string()]),
+            1000,
+            "sender2",
+        );
+
+        // Query with default args - should return both messages
+        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        assert_message_count(&messages, 2);
+
+        // Query excluding Text messages - should only return the GroupUpdated message
+        let query = MsgQueryArgs {
+            exclude_content_types: Some(vec![DbContentType::Text]),
+            ..Default::default()
+        };
+        let messages = group.find_messages_v2(&query).unwrap();
+
+        assert_message_count(&messages, 1);
+        if let MessageBody::GroupUpdated(_) = &messages[0].content {
+            // Expected
+        } else {
+            panic!(
+                "Expected GroupUpdated message, got {:?}",
+                messages[0].content
+            );
+        }
+    }
 
     #[tokio::test]
     async fn test_find_messages_no_reactions_or_replies() {

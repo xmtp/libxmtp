@@ -1,11 +1,4 @@
-use crate::consent_state::{Consent, ConsentState};
-use crate::enriched_message::DecodedMessage;
-use crate::identity::Identifier;
-use crate::messages::Message;
-use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
-use crate::streams::{ConversationStream, StreamCallback, StreamCloser};
-use crate::user_preferences::UserPreference;
-use crate::{client::RustXmtpClient, conversation::Conversation};
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,14 +17,21 @@ use xmtp_mls::mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_proto::types::Cursor as XmtpCursor;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "lowercase")]
+use crate::consent_state::{Consent, ConsentState};
+use crate::enriched_message::DecodedMessage;
+use crate::identity::Identifier;
+use crate::messages::Message;
+use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
+use crate::streams::{ConversationStream, StreamCallback, StreamCloser};
+use crate::user_preferences::UserPreferenceUpdate;
+use crate::{client::RustXmtpClient, conversation::Conversation};
+
+#[wasm_bindgen_numbered_enum]
 pub enum ConversationType {
-  Dm,
-  Group,
-  Sync,
-  Oneshot,
+  Dm = 0,
+  Group = 1,
+  Sync = 2,
+  Oneshot = 3,
 }
 
 impl From<XmtpConversationType> for ConversationType {
@@ -56,15 +56,13 @@ impl From<ConversationType> for XmtpConversationType {
   }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum GroupMembershipState {
-  Allowed,
-  Rejected,
-  Pending,
-  Restored,
-  PendingRemove,
+  Allowed = 0,
+  Rejected = 1,
+  Pending = 2,
+  Restored = 3,
+  PendingRemove = 4,
 }
 
 impl From<XmtpGroupMembershipState> for GroupMembershipState {
@@ -91,12 +89,10 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
   }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum ListConversationsOrderBy {
-  CreatedAt,
-  LastActivity,
+  CreatedAt = 0,
+  LastActivity = 1,
 }
 
 impl From<ListConversationsOrderBy> for GroupQueryOrderBy {
@@ -259,13 +255,13 @@ impl CreateGroupOptions {
 #[derive(Clone, Default, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
-pub struct CreateDMOptions {
+pub struct CreateDmOptions {
   #[tsify(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
 
-impl CreateDMOptions {
+impl CreateDmOptions {
   pub fn into_dm_metadata_options(self) -> DMMetadataOptions {
     DMMetadataOptions {
       message_disappearing_settings: self
@@ -424,7 +420,7 @@ impl Conversations {
   pub async fn find_or_create_dm(
     &self,
     #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
-    options: Option<CreateDMOptions>,
+    options: Option<CreateDmOptions>,
   ) -> Result<Conversation, JsError> {
     let convo = self
       .inner_client
@@ -442,7 +438,7 @@ impl Conversations {
   pub async fn find_or_create_dm_by_inbox_id(
     &self,
     #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
-    options: Option<CreateDMOptions>,
+    options: Option<CreateDmOptions>,
   ) -> Result<Conversation, JsError> {
     let convo = self
       .inner_client
@@ -684,9 +680,8 @@ impl Conversations {
     let stream_closer = RustXmtpClient::stream_preferences_with_callback(
       self.inner_client.clone(),
       move |message| match message {
-        Ok(m) => {
-          callback.on_user_preference_update(m.into_iter().map(UserPreference::from).collect())
-        }
+        Ok(m) => callback
+          .on_user_preference_update(m.into_iter().map(UserPreferenceUpdate::from).collect()),
         Err(e) => callback.on_error(JsError::from(e)),
       },
       move || on_close_cb.on_close(),

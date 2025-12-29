@@ -121,16 +121,7 @@ impl LocalEvents {
 
     fn preference_filter(self) -> Option<Vec<PreferenceUpdate>> {
         match self {
-            Self::PreferencesChanged(updates) => {
-                let updates = updates
-                    .into_iter()
-                    .filter_map(|pu| match pu {
-                        PreferenceUpdate::Consent(_) => None,
-                        _ => Some(pu),
-                    })
-                    .collect();
-                Some(updates)
-            }
+            Self::PreferencesChanged(updates) => Some(updates),
             _ => None,
         }
     }

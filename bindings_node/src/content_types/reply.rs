@@ -77,6 +77,6 @@ impl From<Reply> for xmtp_content_types::reply::Reply {
 }
 
 #[napi]
-pub fn reply_content_type() -> ContentTypeId {
+pub fn content_type_reply() -> ContentTypeId {
   ReplyCodec::content_type().into()
 }

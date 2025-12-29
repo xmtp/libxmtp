@@ -1312,6 +1312,7 @@ version = "1.8.0-dev"
 dependencies = [
  "alloy",
  "async-trait",
+ "bindings_wasm_macros",
  "chrono",
  "console_error_panic_hook",
  "const-hex",
@@ -1343,6 +1344,15 @@ dependencies = [
  "xmtp_id",
  "xmtp_mls",
  "xmtp_proto",
+]
+
+[[package]]
+name = "bindings_wasm_macros"
+version = "1.7.0-dev"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
 ]
 
 [[package]]

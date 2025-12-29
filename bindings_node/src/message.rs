@@ -5,6 +5,7 @@ use xmtp_db::group_message::{
   StoredGroupMessageWithReactions,
 };
 
+use napi::bindgen_prelude::BigInt;
 use napi_derive::napi;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
@@ -96,8 +97,8 @@ impl From<MessageSortBy> for XmtpMessageSortBy {
 #[napi(object)]
 #[derive(Default)]
 pub struct ListMessagesOptions {
-  pub sent_before_ns: Option<i64>,
-  pub sent_after_ns: Option<i64>,
+  pub sent_before_ns: Option<BigInt>,
+  pub sent_after_ns: Option<BigInt>,
   pub limit: Option<i64>,
   pub delivery_status: Option<DeliveryStatus>,
   pub direction: Option<SortDirection>,
@@ -106,8 +107,8 @@ pub struct ListMessagesOptions {
   pub kind: Option<GroupMessageKind>,
   pub exclude_sender_inbox_ids: Option<Vec<String>>,
   pub sort_by: Option<MessageSortBy>,
-  pub inserted_after_ns: Option<i64>,
-  pub inserted_before_ns: Option<i64>,
+  pub inserted_after_ns: Option<BigInt>,
+  pub inserted_before_ns: Option<BigInt>,
 }
 
 impl From<ListMessagesOptions> for MsgQueryArgs {
@@ -122,8 +123,8 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
       .map(|types| types.into_iter().map(Into::into).collect());
 
     MsgQueryArgs {
-      sent_before_ns: opts.sent_before_ns,
-      sent_after_ns: opts.sent_after_ns,
+      sent_before_ns: opts.sent_before_ns.map(|v| v.get_i64().0),
+      sent_after_ns: opts.sent_after_ns.map(|v| v.get_i64().0),
       delivery_status,
       limit: opts.limit,
       direction,
@@ -132,8 +133,8 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
       kind: opts.kind.map(Into::into),
       exclude_sender_inbox_ids: opts.exclude_sender_inbox_ids,
       sort_by: opts.sort_by.map(Into::into),
-      inserted_after_ns: opts.inserted_after_ns,
-      inserted_before_ns: opts.inserted_before_ns,
+      inserted_after_ns: opts.inserted_after_ns.map(|v| v.get_i64().0),
+      inserted_before_ns: opts.inserted_before_ns.map(|v| v.get_i64().0),
       exclude_disappearing: false,
     }
   }
@@ -143,13 +144,13 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
 #[derive(Clone)]
 pub struct Message {
   pub id: String,
-  pub sent_at_ns: i64,
+  pub sent_at_ns: BigInt,
   pub convo_id: String,
   pub sender_inbox_id: String,
   pub content: EncodedContent,
   pub kind: GroupMessageKind,
   pub delivery_status: DeliveryStatus,
-  pub inserted_at_ns: i64,
+  pub inserted_at_ns: BigInt,
 }
 
 impl From<StoredGroupMessage> for Message {
@@ -173,13 +174,13 @@ impl From<StoredGroupMessage> for Message {
 
     Self {
       id,
-      sent_at_ns: msg.sent_at_ns,
+      sent_at_ns: BigInt::from(msg.sent_at_ns),
       convo_id,
       sender_inbox_id: msg.sender_inbox_id,
       content,
       kind: msg.kind.into(),
       delivery_status: msg.delivery_status.into(),
-      inserted_at_ns: msg.inserted_at_ns,
+      inserted_at_ns: BigInt::from(msg.inserted_at_ns),
     }
   }
 }

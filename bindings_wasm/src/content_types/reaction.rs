@@ -1,4 +1,4 @@
-use crate::encoded_content::{ContentTypeId, EncodedContent};
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::JsError;
@@ -6,6 +6,8 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
+
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 
 #[derive(Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
@@ -51,8 +53,8 @@ impl From<ReactionV2> for Reaction {
   }
 }
 
-#[wasm_bindgen(js_name = "reactionContentType")]
-pub fn reaction_content_type() -> ContentTypeId {
+#[wasm_bindgen(js_name = "contentTypeReaction")]
+pub fn content_type_reaction() -> ContentTypeId {
   ReactionCodec::content_type().into()
 }
 
@@ -66,44 +68,33 @@ pub fn encode_reaction(reaction: Reaction) -> Result<EncodedContent, JsError> {
   )
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Debug, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "lowercase")]
+#[wasm_bindgen_numbered_enum]
+#[derive(Default)]
 pub enum ReactionAction {
-  Unknown,
+  Unknown = 0,
   #[default]
-  Added,
-  Removed,
+  Added = 1,
+  Removed = 2,
 }
 
 impl From<ReactionAction> for i32 {
   fn from(action: ReactionAction) -> Self {
-    match action {
-      ReactionAction::Unknown => 0,
-      ReactionAction::Added => 1,
-      ReactionAction::Removed => 2,
-    }
+    action as i32
   }
 }
 
-#[derive(Copy, Clone, Default, PartialEq, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "lowercase")]
+#[wasm_bindgen_numbered_enum]
+#[derive(Default)]
 pub enum ReactionSchema {
-  Unknown,
+  Unknown = 0,
   #[default]
-  Unicode,
-  Shortcode,
-  Custom,
+  Unicode = 1,
+  Shortcode = 2,
+  Custom = 3,
 }
 
 impl From<ReactionSchema> for i32 {
   fn from(schema: ReactionSchema) -> Self {
-    match schema {
-      ReactionSchema::Unknown => 0,
-      ReactionSchema::Unicode => 1,
-      ReactionSchema::Shortcode => 2,
-      ReactionSchema::Custom => 3,
-    }
+    schema as i32
   }
 }

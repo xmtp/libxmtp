@@ -1,4 +1,4 @@
-use crate::encoded_content::{ContentTypeId, EncodedContent};
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -6,6 +6,8 @@ use wasm_bindgen::JsError;
 use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::actions::ActionsCodec;
+
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 
 #[derive(Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
@@ -135,13 +137,11 @@ impl From<Action> for xmtp_content_types::actions::Action {
   }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "lowercase")]
+#[wasm_bindgen_numbered_enum]
 pub enum ActionStyle {
-  Primary,
-  Secondary,
-  Danger,
+  Primary = 0,
+  Secondary = 1,
+  Danger = 2,
 }
 
 impl From<xmtp_content_types::actions::ActionStyle> for ActionStyle {
@@ -164,8 +164,8 @@ impl From<ActionStyle> for xmtp_content_types::actions::ActionStyle {
   }
 }
 
-#[wasm_bindgen(js_name = "actionsContentType")]
-pub fn actions_content_type() -> ContentTypeId {
+#[wasm_bindgen(js_name = "contentTypeActions")]
+pub fn content_type_actions() -> ContentTypeId {
   ActionsCodec::content_type().into()
 }
 

@@ -30,7 +30,7 @@ impl From<LeaveRequest> for xmtp_proto::xmtp::mls::message_contents::content_typ
   }
 }
 
-#[wasm_bindgen(js_name = "leaveRequestContentType")]
-pub fn leave_request_content_type() -> ContentTypeId {
+#[wasm_bindgen(js_name = "contentTypeLeaveRequest")]
+pub fn content_type_leave_request() -> ContentTypeId {
   LeaveRequestCodec::content_type().into()
 }

@@ -39,8 +39,8 @@ impl From<Attachment> for xmtp_content_types::attachment::Attachment {
   }
 }
 
-#[wasm_bindgen(js_name = "attachmentContentType")]
-pub fn attachment_content_type() -> ContentTypeId {
+#[wasm_bindgen(js_name = "contentTypeAttachment")]
+pub fn content_type_attachment() -> ContentTypeId {
   AttachmentCodec::content_type().into()
 }
 

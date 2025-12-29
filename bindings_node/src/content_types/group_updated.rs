@@ -118,6 +118,6 @@ impl From<MetadataFieldChange>
 }
 
 #[napi]
-pub fn group_updated_content_type() -> ContentTypeId {
+pub fn content_type_group_updated() -> ContentTypeId {
   GroupUpdatedCodec::content_type().into()
 }

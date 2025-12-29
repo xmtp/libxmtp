@@ -102,7 +102,7 @@ impl TryFrom<WalletCall> for xmtp_content_types::wallet_send_calls::WalletCall {
 }
 
 #[napi]
-pub fn wallet_send_calls_content_type() -> ContentTypeId {
+pub fn content_type_wallet_send_calls() -> ContentTypeId {
   WalletSendCallsCodec::content_type().into()
 }
 

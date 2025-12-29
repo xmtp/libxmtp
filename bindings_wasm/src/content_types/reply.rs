@@ -67,7 +67,7 @@ impl From<Reply> for xmtp_content_types::reply::Reply {
   }
 }
 
-#[wasm_bindgen(js_name = "replyContentType")]
-pub fn reply_content_type() -> ContentTypeId {
+#[wasm_bindgen(js_name = "contentTypeReply")]
+pub fn content_type_reply() -> ContentTypeId {
   ReplyCodec::content_type().into()
 }

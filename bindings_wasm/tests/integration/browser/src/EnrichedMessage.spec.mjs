@@ -5,22 +5,26 @@ import init, {
   encodeAttachment,
   encodeIntent,
   // Content type functions
-  textContentType,
-  markdownContentType,
-  reactionContentType,
-  replyContentType,
-  readReceiptContentType,
-  attachmentContentType,
-  remoteAttachmentContentType,
-  multiRemoteAttachmentContentType,
-  transactionReferenceContentType,
-  walletSendCallsContentType,
-  actionsContentType,
-  intentContentType,
-  groupUpdatedContentType,
-  leaveRequestContentType,
+  contentTypeText,
+  contentTypeMarkdown,
+  contentTypeReaction,
+  contentTypeReply,
+  contentTypeReadReceipt,
+  contentTypeAttachment,
+  contentTypeRemoteAttachment,
+  contentTypeMultiRemoteAttachment,
+  contentTypeTransactionReference,
+  contentTypeWalletSendCalls,
+  contentTypeActions,
+  contentTypeIntent,
+  contentTypeGroupUpdated,
+  contentTypeLeaveRequest,
   // Test helpers
   createTestClient,
+  SortDirection,
+  ReactionAction,
+  ReactionSchema,
+  ActionStyle,
 } from "@xmtp/wasm-bindings";
 
 await init();
@@ -78,7 +82,7 @@ describe("EnrichedMessage", () => {
       // Use plain object for tsify-based types
       const opts = {
         limit: 2n,
-        direction: "descending",
+        direction: SortDirection.Descending,
       };
       const limitedMessages = await conversation.findEnrichedMessages(opts);
       const limitedTextMessages = limitedMessages.filter(
@@ -133,7 +137,7 @@ describe("EnrichedMessage", () => {
       });
 
       test("should have correct content type", () => {
-        const contentType = textContentType();
+        const contentType = contentTypeText();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("text");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -155,7 +159,7 @@ describe("EnrichedMessage", () => {
         const markdownMessage = messages.find((m) => m.id === messageId);
         expect(markdownMessage).toBeDefined();
         expect(markdownMessage.content.type).toBe("markdown");
-        expect(markdownMessage.content.content.content).toBe("# Hello, world!");
+        expect(markdownMessage.content.content).toBe("# Hello, world!");
         expect(markdownMessage.senderInboxId).toBe(client1.inboxId);
         expect(markdownMessage.contentType?.authorityId).toBe("xmtp.org");
         expect(markdownMessage.contentType?.typeId).toBe("markdown");
@@ -164,7 +168,7 @@ describe("EnrichedMessage", () => {
       });
 
       test("should have correct content type", () => {
-        const contentType = markdownContentType();
+        const contentType = contentTypeMarkdown();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("markdown");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -182,9 +186,9 @@ describe("EnrichedMessage", () => {
         const reactionId = await conversation.sendReaction({
           reference: textMessageId,
           referenceInboxId: client1.inboxId,
-          action: "added",
+          action: ReactionAction.Added,
           content: "👍",
-          schema: "unicode",
+          schema: ReactionSchema.Unicode,
         });
         expect(reactionId).toBeDefined();
 
@@ -200,8 +204,12 @@ describe("EnrichedMessage", () => {
         expect(reactionOnMessage.id).toBe(reactionId);
         expect(reactionOnMessage.content.type).toBe("reaction");
         expect(reactionOnMessage.content.content?.content).toBe("👍");
-        expect(reactionOnMessage.content.content?.action).toBe("added");
-        expect(reactionOnMessage.content.content?.schema).toBe("unicode");
+        expect(reactionOnMessage.content.content?.action).toBe(
+          ReactionAction.Added
+        );
+        expect(reactionOnMessage.content.content?.schema).toBe(
+          ReactionSchema.Unicode
+        );
         expect(reactionOnMessage.senderInboxId).toBe(client1.inboxId);
         // Reaction Added fallback
         expect(reactionOnMessage.fallback).toBe(
@@ -219,18 +227,18 @@ describe("EnrichedMessage", () => {
         await conversation.sendReaction({
           reference: textMessageId,
           referenceInboxId: client1.inboxId,
-          action: "added",
+          action: ReactionAction.Added,
           content: "👍",
-          schema: "unicode",
+          schema: ReactionSchema.Unicode,
         });
 
         // Then remove it
         const removeReactionId = await conversation.sendReaction({
           reference: textMessageId,
           referenceInboxId: client1.inboxId,
-          action: "removed",
+          action: ReactionAction.Removed,
           content: "👍",
-          schema: "unicode",
+          schema: ReactionSchema.Unicode,
         });
         expect(removeReactionId).toBeDefined();
 
@@ -241,7 +249,7 @@ describe("EnrichedMessage", () => {
         expect(textMessage).toBeDefined();
         // After removal, the reactions array should reflect the removal
         const removedReaction = textMessage.reactions.find(
-          (r) => r.content.content?.action === "removed"
+          (r) => r.content.content?.action === ReactionAction.Removed
         );
         expect(removedReaction).toBeDefined();
         expect(removedReaction.content.content?.content).toBe("👍");
@@ -260,9 +268,9 @@ describe("EnrichedMessage", () => {
         const reactionId = await conversation.sendReaction({
           reference: textMessageId,
           referenceInboxId: client1.inboxId,
-          action: "added",
+          action: ReactionAction.Added,
           content: ":thumbsup:",
-          schema: "shortcode",
+          schema: ReactionSchema.Shortcode,
         });
 
         await conversation2.sync();
@@ -272,7 +280,7 @@ describe("EnrichedMessage", () => {
         const reaction = textMessage.reactions.find((r) => r.id === reactionId);
         expect(reaction).toBeDefined();
         expect(reaction.content.content?.content).toBe(":thumbsup:");
-        expect(reaction.content.content?.schema).toBe("shortcode");
+        expect(reaction.content.content?.schema).toBe(ReactionSchema.Shortcode);
       });
 
       test("should handle custom reaction schema", async () => {
@@ -284,9 +292,9 @@ describe("EnrichedMessage", () => {
         const reactionId = await conversation.sendReaction({
           reference: textMessageId,
           referenceInboxId: client1.inboxId,
-          action: "added",
+          action: ReactionAction.Added,
           content: "custom-reaction-id",
-          schema: "custom",
+          schema: ReactionSchema.Custom,
         });
 
         await conversation2.sync();
@@ -296,11 +304,11 @@ describe("EnrichedMessage", () => {
         const reaction = textMessage.reactions.find((r) => r.id === reactionId);
         expect(reaction).toBeDefined();
         expect(reaction.content.content?.content).toBe("custom-reaction-id");
-        expect(reaction.content.content?.schema).toBe("custom");
+        expect(reaction.content.content?.schema).toBe(ReactionSchema.Custom);
       });
 
       test("should have correct content type", () => {
-        const contentType = reactionContentType();
+        const contentType = contentTypeReaction();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("reaction");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -387,7 +395,7 @@ describe("EnrichedMessage", () => {
       });
 
       test("should have correct content type", () => {
-        const contentType = replyContentType();
+        const contentType = contentTypeReply();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("reply");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -442,7 +450,7 @@ describe("EnrichedMessage", () => {
       });
 
       test("should have correct content type", () => {
-        const contentType = attachmentContentType();
+        const contentType = contentTypeAttachment();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("attachment");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -522,7 +530,7 @@ describe("EnrichedMessage", () => {
       });
 
       test("should have correct content type", () => {
-        const contentType = remoteAttachmentContentType();
+        const contentType = contentTypeRemoteAttachment();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("remoteStaticAttachment");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -621,7 +629,7 @@ describe("EnrichedMessage", () => {
       });
 
       test("should have correct content type", () => {
-        const contentType = multiRemoteAttachmentContentType();
+        const contentType = contentTypeMultiRemoteAttachment();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("multiRemoteStaticAttachment");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -643,7 +651,7 @@ describe("EnrichedMessage", () => {
       });
 
       test("should have correct content type", () => {
-        const contentType = readReceiptContentType();
+        const contentType = contentTypeReadReceipt();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("readReceipt");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -776,7 +784,7 @@ describe("EnrichedMessage", () => {
       });
 
       test("should have correct content type", () => {
-        const contentType = transactionReferenceContentType();
+        const contentType = contentTypeTransactionReference();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("transactionReference");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -955,7 +963,7 @@ describe("EnrichedMessage", () => {
       });
 
       test("should have correct content type", () => {
-        const contentType = walletSendCallsContentType();
+        const contentType = contentTypeWalletSendCalls();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("walletSendCalls");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -974,12 +982,12 @@ describe("EnrichedMessage", () => {
             {
               id: "opt-1",
               label: "Option 1",
-              style: "primary",
+              style: ActionStyle.Primary,
             },
             {
               id: "opt-2",
               label: "Option 2",
-              style: "secondary",
+              style: ActionStyle.Secondary,
             },
           ],
         });
@@ -1000,7 +1008,7 @@ describe("EnrichedMessage", () => {
           "Option 1"
         );
         expect(actionsMessage.content.content?.actions[0].style).toBe(
-          "primary"
+          ActionStyle.Primary
         );
         expect(actionsMessage.contentType?.authorityId).toBe("coinbase.com");
         expect(actionsMessage.contentType?.typeId).toBe("actions");
@@ -1020,17 +1028,17 @@ describe("EnrichedMessage", () => {
             {
               id: "primary",
               label: "Primary",
-              style: "primary",
+              style: ActionStyle.Primary,
             },
             {
               id: "secondary",
               label: "Secondary",
-              style: "secondary",
+              style: ActionStyle.Secondary,
             },
             {
               id: "danger",
               label: "Danger",
-              style: "danger",
+              style: ActionStyle.Danger,
             },
           ],
         });
@@ -1041,12 +1049,14 @@ describe("EnrichedMessage", () => {
         const actionsMessage = messages.find((m) => m.id === actionsId);
         expect(actionsMessage).toBeDefined();
         expect(actionsMessage.content.content?.actions[0].style).toBe(
-          "primary"
+          ActionStyle.Primary
         );
         expect(actionsMessage.content.content?.actions[1].style).toBe(
-          "secondary"
+          ActionStyle.Secondary
         );
-        expect(actionsMessage.content.content?.actions[2].style).toBe("danger");
+        expect(actionsMessage.content.content?.actions[2].style).toBe(
+          ActionStyle.Danger
+        );
       });
 
       test("should send and receive actions with expiration", async () => {
@@ -1062,7 +1072,7 @@ describe("EnrichedMessage", () => {
             {
               id: "opt-1",
               label: "Option 1",
-              style: "primary",
+              style: ActionStyle.Primary,
               expiresAtNs: expiresAtNs,
             },
           ],
@@ -1090,7 +1100,7 @@ describe("EnrichedMessage", () => {
             {
               id: "opt-1",
               label: "Option 1",
-              style: "primary",
+              style: ActionStyle.Primary,
               imageUrl: "https://example.com/image.png",
             },
           ],
@@ -1107,7 +1117,7 @@ describe("EnrichedMessage", () => {
       });
 
       test("should have correct content type", () => {
-        const contentType = actionsContentType();
+        const contentType = contentTypeActions();
         expect(contentType.authorityId).toEqual("coinbase.com");
         expect(contentType.typeId).toEqual("actions");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -1191,7 +1201,7 @@ describe("EnrichedMessage", () => {
       });
 
       test("should have correct content type", () => {
-        const contentType = intentContentType();
+        const contentType = contentTypeIntent();
         expect(contentType.authorityId).toEqual("coinbase.com");
         expect(contentType.typeId).toEqual("intent");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -1283,7 +1293,7 @@ describe("EnrichedMessage", () => {
       });
 
       test("should have correct content type", () => {
-        const contentType = groupUpdatedContentType();
+        const contentType = contentTypeGroupUpdated();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("group_updated");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -1293,7 +1303,7 @@ describe("EnrichedMessage", () => {
 
     describe("Leave Request", () => {
       test("should have correct content type", () => {
-        const contentType = leaveRequestContentType();
+        const contentType = contentTypeLeaveRequest();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("leave_request");
         expect(contentType.versionMajor).toBeGreaterThan(0);

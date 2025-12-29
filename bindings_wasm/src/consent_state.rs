@@ -1,3 +1,4 @@
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
@@ -8,13 +9,11 @@ use xmtp_db::consent_record::{
 
 use crate::{client::Client, conversation::Conversation};
 
-#[derive(Copy, Clone, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "lowercase")]
+#[wasm_bindgen_numbered_enum]
 pub enum ConsentState {
-  Unknown,
-  Allowed,
-  Denied,
+  Unknown = 0,
+  Allowed = 1,
+  Denied = 2,
 }
 
 impl From<XmtpConsentState> for ConsentState {
@@ -37,12 +36,10 @@ impl From<ConsentState> for XmtpConsentState {
   }
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum ConsentEntityType {
-  GroupId,
-  InboxId,
+  GroupId = 0,
+  InboxId = 1,
 }
 
 impl From<ConsentEntityType> for XmtpConsentType {

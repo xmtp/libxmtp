@@ -1,3 +1,4 @@
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tsify::Tsify;
@@ -15,24 +16,20 @@ use xmtp_mls::{
   mls_common::group_mutable_metadata::MetadataField as XmtpMetadataField,
 };
 
-#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum GroupPermissionsOptions {
-  Default,
-  AdminOnly,
-  CustomPolicy,
+  Default = 0,
+  AdminOnly = 1,
+  CustomPolicy = 2,
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum PermissionUpdateType {
-  AddMember,
-  RemoveMember,
-  AddAdmin,
-  RemoveAdmin,
-  UpdateMetadata,
+  AddMember = 0,
+  RemoveMember = 1,
+  AddAdmin = 2,
+  RemoveAdmin = 3,
+  UpdateMetadata = 4,
 }
 
 impl From<&PermissionUpdateType> for XmtpPermissionUpdateType {
@@ -47,16 +44,14 @@ impl From<&PermissionUpdateType> for XmtpPermissionUpdateType {
   }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum PermissionPolicy {
-  Allow,
-  Deny,
-  Admin,
-  SuperAdmin,
-  DoesNotExist,
-  Other,
+  Allow = 0,
+  Deny = 1,
+  Admin = 2,
+  SuperAdmin = 3,
+  DoesNotExist = 4,
+  Other = 5,
 }
 
 impl TryInto<PermissionPolicyOption> for PermissionPolicy {
@@ -171,6 +166,7 @@ pub struct PermissionPolicySet {
   pub update_group_description_policy: PermissionPolicy,
   pub update_group_image_url_square_policy: PermissionPolicy,
   pub update_message_disappearing_policy: PermissionPolicy,
+  pub update_app_data_policy: PermissionPolicy,
 }
 
 impl From<PreconfiguredPolicies> for GroupPermissionsOptions {
@@ -220,6 +216,7 @@ impl From<GroupMutablePermissions> for GroupPermissions {
       update_message_disappearing_policy: get_policy(
         XmtpMetadataField::MessageDisappearInNS.as_str(),
       ),
+      update_app_data_policy: get_policy(XmtpMetadataField::AppData.as_str()),
     };
 
     Self {
@@ -249,6 +246,10 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
       XmtpMetadataField::MessageDisappearInNS.to_string(),
       policy_set.update_message_disappearing_policy.try_into()?,
     );
+    metadata_permissions_map.insert(
+      XmtpMetadataField::AppData.to_string(),
+      policy_set.update_app_data_policy.try_into()?,
+    );
 
     Ok(PolicySet {
       add_member_policy: policy_set.add_member_policy.try_into()?,
@@ -261,25 +262,30 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
   }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum MetadataField {
-  GroupName,
-  Description,
-  ImageUrlSquare,
-  MessageExpirationFromMS,
-  MessageExpirationMS,
+  AppData = 0,
+  Description = 1,
+  GroupName = 2,
+  GroupImageUrlSquare = 3,
+  MessageExpirationFromNs = 4,
+  MessageExpirationInNs = 5,
 }
 
 impl From<&MetadataField> for XmtpMetadataField {
   fn from(field: &MetadataField) -> Self {
     match field {
-      MetadataField::GroupName => XmtpMetadataField::GroupName,
+      MetadataField::AppData => XmtpMetadataField::AppData,
       MetadataField::Description => XmtpMetadataField::Description,
-      MetadataField::ImageUrlSquare => XmtpMetadataField::GroupImageUrlSquare,
-      MetadataField::MessageExpirationFromMS => XmtpMetadataField::MessageDisappearFromNS,
-      MetadataField::MessageExpirationMS => XmtpMetadataField::MessageDisappearInNS,
+      MetadataField::GroupName => XmtpMetadataField::GroupName,
+      MetadataField::GroupImageUrlSquare => XmtpMetadataField::GroupImageUrlSquare,
+      MetadataField::MessageExpirationFromNs => XmtpMetadataField::MessageDisappearFromNS,
+      MetadataField::MessageExpirationInNs => XmtpMetadataField::MessageDisappearInNS,
     }
   }
+}
+
+#[wasm_bindgen(js_name = metadataFieldName)]
+pub fn metadata_field_name(field: MetadataField) -> String {
+  XmtpMetadataField::from(&field).as_str().to_string()
 }
