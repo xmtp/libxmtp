@@ -501,6 +501,7 @@ async fn test_dm_permissions_show_expected_values() {
         update_group_description_policy: FfiPermissionPolicy::Allow,
         update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
         update_message_disappearing_policy: FfiPermissionPolicy::Allow,
+        update_app_data_policy: FfiPermissionPolicy::Allow,
     };
     assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
 
@@ -530,6 +531,7 @@ async fn test_dm_permissions_show_expected_values() {
         update_group_description_policy: FfiPermissionPolicy::Allow,
         update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
         update_message_disappearing_policy: FfiPermissionPolicy::Admin,
+        update_app_data_policy: FfiPermissionPolicy::Allow,
     };
     assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
 }

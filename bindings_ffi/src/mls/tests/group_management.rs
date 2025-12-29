@@ -161,6 +161,7 @@ async fn test_group_permissions_show_expected_values() {
         update_group_description_policy: FfiPermissionPolicy::Admin,
         update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
         update_message_disappearing_policy: FfiPermissionPolicy::Admin,
+        update_app_data_policy: FfiPermissionPolicy::Admin,
     };
     assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
 
@@ -190,6 +191,7 @@ async fn test_group_permissions_show_expected_values() {
         update_group_description_policy: FfiPermissionPolicy::Allow,
         update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
         update_message_disappearing_policy: FfiPermissionPolicy::Admin,
+        update_app_data_policy: FfiPermissionPolicy::Allow,
     };
     assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
 }
@@ -223,6 +225,7 @@ async fn test_permissions_updates() {
         update_group_description_policy: FfiPermissionPolicy::Admin,
         update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
         update_message_disappearing_policy: FfiPermissionPolicy::Admin,
+        update_app_data_policy: FfiPermissionPolicy::Admin,
     };
     assert_eq!(alix_group_permissions, expected_permission_policy_set);
 
@@ -250,6 +253,7 @@ async fn test_permissions_updates() {
         update_group_description_policy: FfiPermissionPolicy::Admin,
         update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
         update_message_disappearing_policy: FfiPermissionPolicy::Admin,
+        update_app_data_policy: FfiPermissionPolicy::Admin,
     };
     assert_eq!(alix_group_permissions, new_expected_permission_policy_set);
 
@@ -290,6 +294,87 @@ async fn test_permissions_updates() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_app_data_permission_update() {
+    let alix = new_test_client().await;
+    let bola = new_test_client().await;
+
+    // Create a group with admin-only permissions
+    let admin_only_options = FfiCreateGroupOptions {
+        permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
+        ..Default::default()
+    };
+    let alix_group = alix
+        .conversations()
+        .create_group(vec![bola.account_identifier.clone()], admin_only_options)
+        .await
+        .unwrap();
+
+    // Verify initial app_data permission is Admin
+    let alix_group_permissions = alix_group
+        .group_permissions()
+        .unwrap()
+        .policy_set()
+        .unwrap();
+    assert_eq!(
+        alix_group_permissions.update_app_data_policy,
+        FfiPermissionPolicy::Admin
+    );
+
+    // Sync bola and get the group
+    let bola_conversations = bola.conversations();
+    let _ = bola_conversations.sync().await;
+    let bola_groups = bola_conversations
+        .list(FfiListConversationsOptions::default())
+        .unwrap();
+    let bola_group = bola_groups.first().unwrap();
+
+    // Verify bola cannot update app_data (not an admin)
+    bola_group
+        .conversation
+        .update_app_data("bola's data".to_string())
+        .await
+        .unwrap_err();
+
+    // Alix updates the app_data permission policy to Allow
+    alix_group
+        .update_permission_policy(
+            FfiPermissionUpdateType::UpdateMetadata,
+            FfiPermissionPolicy::Allow,
+            Some(FfiMetadataField::AppData),
+        )
+        .await
+        .unwrap();
+    alix_group.sync().await.unwrap();
+
+    // Verify the permission was updated
+    let updated_permissions = alix_group
+        .group_permissions()
+        .unwrap()
+        .policy_set()
+        .unwrap();
+    assert_eq!(
+        updated_permissions.update_app_data_policy,
+        FfiPermissionPolicy::Allow
+    );
+
+    // Sync bola to get the permission update
+    bola_group.conversation.sync().await.unwrap();
+
+    // Now bola CAN update app_data
+    bola_group
+        .conversation
+        .update_app_data("bola's data".to_string())
+        .await
+        .unwrap();
+
+    // Verify we can read the updated app_data
+    bola_group.conversation.sync().await.unwrap();
+    alix_group.sync().await.unwrap();
+    assert_eq!(bola_group.conversation.app_data().unwrap(), "bola's data");
+    assert_eq!(alix_group.app_data().unwrap(), "bola's data");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn test_group_creation_custom_permissions() {
     let alix = Tester::new().await;
     let bola = Tester::new().await;
@@ -303,6 +388,7 @@ async fn test_group_creation_custom_permissions() {
         add_member_policy: FfiPermissionPolicy::Allow,
         remove_member_policy: FfiPermissionPolicy::Deny,
         update_message_disappearing_policy: FfiPermissionPolicy::Admin,
+        update_app_data_policy: FfiPermissionPolicy::SuperAdmin,
     };
 
     let create_group_options = FfiCreateGroupOptions {
@@ -360,6 +446,10 @@ async fn test_group_creation_custom_permissions() {
         group_permissions_policy_set.remove_member_policy,
         FfiPermissionPolicy::Deny
     );
+    assert_eq!(
+        group_permissions_policy_set.update_app_data_policy,
+        FfiPermissionPolicy::SuperAdmin
+    );
 
     // Verify that Bola can not update the group name
     let bola_conversations = bola.conversations();
@@ -415,6 +505,7 @@ async fn test_group_creation_custom_permissions_fails_when_invalid() {
         add_member_policy: FfiPermissionPolicy::Allow,
         remove_member_policy: FfiPermissionPolicy::Deny,
         update_message_disappearing_policy: FfiPermissionPolicy::Admin,
+        update_app_data_policy: FfiPermissionPolicy::Admin,
     };
 
     let custom_permissions_valid = FfiPermissionPolicySet {
@@ -426,6 +517,7 @@ async fn test_group_creation_custom_permissions_fails_when_invalid() {
         add_member_policy: FfiPermissionPolicy::Allow,
         remove_member_policy: FfiPermissionPolicy::Deny,
         update_message_disappearing_policy: FfiPermissionPolicy::Admin,
+        update_app_data_policy: FfiPermissionPolicy::Admin,
     };
 
     let create_group_options_invalid_1 = FfiCreateGroupOptions {
