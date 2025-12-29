@@ -2022,8 +2022,9 @@ where
         payload: &GroupUpdated,
         storage: &impl XmtpMlsStorageProvider,
     ) -> Result<bool, GroupMessageProcessingError> {
-        if self.dm_id.is_none() {
-            // Don't dedupe for regular groups.
+        if self.dm_id.is_none() || payload.added_inboxes.is_empty() {
+            // Only dedupe for DMs.
+            // Only dedupe for group adds.
             return Ok(false);
         }
 
@@ -2067,39 +2068,41 @@ where
         error: &GroupMessageProcessingError,
         mls_group: &OpenMlsGroup,
     ) -> Result<(), GroupMessageProcessingError> {
-        if let OpenMlsProcessMessage(ProcessMessageError::ValidationError(
-            ValidationError::WrongEpoch,
-        )) = error
-        {
-            let group_epoch = mls_group.epoch().as_u64();
-            let epoch_validation_result = Self::validate_message_epoch(
-                self.context.inbox_id(),
-                0,
-                GroupEpoch::from(group_epoch),
-                message_epoch,
-                MAX_PAST_EPOCHS,
-            );
-
-            if let Err(GroupMessageProcessingError::FutureEpoch(_, _)) = &epoch_validation_result {
-                let fork_details = format!(
-                    "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
-                    message_cursor, message_epoch, group_epoch
-                );
-                tracing::error!(
-                    inbox_id = self.context.inbox_id(),
-                    installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(&self.group_id),
-                    original_error = error.to_string(),
-                    fork_details
-                );
-                let _ = self
-                    .context
-                    .db()
-                    .mark_group_as_maybe_forked(&self.group_id, fork_details);
-                return epoch_validation_result;
-            }
-
+        if !matches!(
+            error,
+            OpenMlsProcessMessage(ProcessMessageError::ValidationError(
+                ValidationError::WrongEpoch,
+            ))
+        ) {
             return Ok(());
+        }
+
+        let group_epoch = mls_group.epoch().as_u64();
+        let epoch_validation_result = Self::validate_message_epoch(
+            self.context.inbox_id(),
+            0,
+            GroupEpoch::from(group_epoch),
+            message_epoch,
+            MAX_PAST_EPOCHS,
+        );
+
+        if let Err(GroupMessageProcessingError::FutureEpoch(_, _)) = &epoch_validation_result {
+            let fork_details = format!(
+                "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
+                message_cursor, message_epoch, group_epoch
+            );
+            tracing::error!(
+                inbox_id = self.context.inbox_id(),
+                installation_id = %self.context.installation_id(),
+                group_id = hex::encode(&self.group_id),
+                original_error = error.to_string(),
+                fork_details
+            );
+            let _ = self
+                .context
+                .db()
+                .mark_group_as_maybe_forked(&self.group_id, fork_details);
+            return epoch_validation_result;
         }
 
         Ok(())
