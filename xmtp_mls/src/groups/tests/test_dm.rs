@@ -1,5 +1,6 @@
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::consent_record::{ConsentState, ConsentType};
+use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::prelude::*;
 
 use crate::context::XmtpSharedContext;
@@ -66,4 +67,39 @@ async fn test_dm_welcome_with_preexisting_consent() {
             .group_id,
         a_group.group_id
     );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_group_update_dedupes() {
+    tester!(alix);
+    tester!(bo);
+
+    let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
+
+    let updates = || {
+        dm.find_messages(&MsgQueryArgs {
+            content_types: Some(vec![ContentType::GroupUpdated]),
+            ..Default::default()
+        })?
+    };
+    assert_eq!(updates().len(), 1);
+
+    dm.update_conversation_message_disappear_from_ns(1).await?;
+    assert_eq!(updates().len(), 2);
+
+    // The same event in a row will be deduped
+    dm.update_conversation_message_disappear_from_ns(1).await?;
+    assert_eq!(updates().len(), 2);
+
+    // Different time means different update, will not be deduped.
+    dm.update_conversation_message_disappear_from_ns(2).await?;
+    assert_eq!(updates().len(), 3);
+
+    // Back to 1, will not be deduped because we set it to 2 and back.
+    dm.update_conversation_message_disappear_from_ns(1).await?;
+    assert_eq!(updates().len(), 4);
+
+    // Continue to dedupe because the field did not change.
+    dm.update_conversation_message_disappear_from_ns(1).await?;
+    assert_eq!(updates().len(), 4);
 }

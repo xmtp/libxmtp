@@ -24,7 +24,7 @@ use crate::{
     identity::{IdentityError, parse_credential},
     identity_updates::{IdentityUpdates, load_identity_updates},
     intents::ProcessIntentError,
-    messages::enrichment::EnrichMessageError,
+    messages::{decoded_message::MessageBody, enrichment::EnrichMessageError},
     mls_store::MlsStore,
     subscriptions::{LocalEvents, SyncWorkerEvent},
     traits::IntoWith,
@@ -89,7 +89,6 @@ use xmtp_db::{
 };
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
-use xmtp_proto::types::{Cursor, GroupMessage};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         GroupMessageInput, WelcomeMessageInput, WelcomeMetadata,
@@ -103,6 +102,10 @@ use xmtp_proto::xmtp::mls::{
         GroupUpdated, PlaintextEnvelope, WelcomePointer as WelcomePointerProto, group_updated,
         plaintext_envelope::{Content, V1, V2},
     },
+};
+use xmtp_proto::{
+    GroupUpdateDeduper,
+    types::{Cursor, GroupMessage},
 };
 use zeroize::Zeroizing;
 pub mod update_group_membership;
@@ -2019,11 +2022,13 @@ where
         payload: &GroupUpdated,
         storage: &impl XmtpMlsStorageProvider,
     ) -> Result<bool, GroupMessageProcessingError> {
-        if self.dm_id.is_none() {
-            // Don't dedupe for regular groups.
+        if self.dm_id.is_none() || payload.added_inboxes.is_empty() {
+            // Only dedupe for DMs.
+            // Only dedupe for group adds.
             return Ok(false);
         }
 
+        let mut deduper = GroupUpdateDeduper::default();
         let mut inserted_after_ns = None;
         let mut msgs;
         loop {
@@ -2044,12 +2049,16 @@ where
             };
             inserted_after_ns = Some(msg.metadata.inserted_at_ns);
 
-            if msgs.iter().any(|m| m.is_duplicate(payload)) {
-                return Ok(true);
+            for msg in msgs {
+                let MessageBody::GroupUpdated(update) = msg.content else {
+                    continue;
+                };
+
+                deduper.consume(&update);
             }
         }
 
-        Ok(false)
+        Ok(deduper.is_dupe(payload))
     }
 
     async fn process_group_message_error_for_fork_detection(
@@ -2059,39 +2068,41 @@ where
         error: &GroupMessageProcessingError,
         mls_group: &OpenMlsGroup,
     ) -> Result<(), GroupMessageProcessingError> {
-        if let OpenMlsProcessMessage(ProcessMessageError::ValidationError(
-            ValidationError::WrongEpoch,
-        )) = error
-        {
-            let group_epoch = mls_group.epoch().as_u64();
-            let epoch_validation_result = Self::validate_message_epoch(
-                self.context.inbox_id(),
-                0,
-                GroupEpoch::from(group_epoch),
-                message_epoch,
-                MAX_PAST_EPOCHS,
-            );
-
-            if let Err(GroupMessageProcessingError::FutureEpoch(_, _)) = &epoch_validation_result {
-                let fork_details = format!(
-                    "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
-                    message_cursor, message_epoch, group_epoch
-                );
-                tracing::error!(
-                    inbox_id = self.context.inbox_id(),
-                    installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(&self.group_id),
-                    original_error = error.to_string(),
-                    fork_details
-                );
-                let _ = self
-                    .context
-                    .db()
-                    .mark_group_as_maybe_forked(&self.group_id, fork_details);
-                return epoch_validation_result;
-            }
-
+        if !matches!(
+            error,
+            OpenMlsProcessMessage(ProcessMessageError::ValidationError(
+                ValidationError::WrongEpoch,
+            ))
+        ) {
             return Ok(());
+        }
+
+        let group_epoch = mls_group.epoch().as_u64();
+        let epoch_validation_result = Self::validate_message_epoch(
+            self.context.inbox_id(),
+            0,
+            GroupEpoch::from(group_epoch),
+            message_epoch,
+            MAX_PAST_EPOCHS,
+        );
+
+        if let Err(GroupMessageProcessingError::FutureEpoch(_, _)) = &epoch_validation_result {
+            let fork_details = format!(
+                "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
+                message_cursor, message_epoch, group_epoch
+            );
+            tracing::error!(
+                inbox_id = self.context.inbox_id(),
+                installation_id = %self.context.installation_id(),
+                group_id = hex::encode(&self.group_id),
+                original_error = error.to_string(),
+                fork_details
+            );
+            let _ = self
+                .context
+                .db()
+                .mark_group_as_maybe_forked(&self.group_id, fork_details);
+            return epoch_validation_result;
         }
 
         Ok(())

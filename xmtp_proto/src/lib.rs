@@ -21,6 +21,7 @@ pub mod types;
 
 pub use error::*;
 pub use generated::*;
+pub use impls::update_dedupe::GroupUpdateDeduper;
 pub use proto_cache::*;
 
 pub mod api {
