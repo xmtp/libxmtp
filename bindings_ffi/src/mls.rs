@@ -2302,7 +2302,12 @@ pub enum FfiContentType {
     Attachment,
     RemoteAttachment,
     TransactionReference,
+    WalletSendCalls,
     LeaveRequest,
+    Markdown,
+    Actions,
+    Intent,
+    MultiRemoteAttachment,
 }
 
 impl From<FfiContentType> for ContentType {
@@ -2318,7 +2323,12 @@ impl From<FfiContentType> for ContentType {
             FfiContentType::Attachment => ContentType::Attachment,
             FfiContentType::RemoteAttachment => ContentType::RemoteAttachment,
             FfiContentType::TransactionReference => ContentType::TransactionReference,
+            FfiContentType::WalletSendCalls => ContentType::WalletSendCalls,
             FfiContentType::LeaveRequest => ContentType::LeaveRequest,
+            FfiContentType::Markdown => ContentType::Markdown,
+            FfiContentType::Actions => ContentType::Actions,
+            FfiContentType::Intent => ContentType::Intent,
+            FfiContentType::MultiRemoteAttachment => ContentType::MultiRemoteAttachment,
         }
     }
 }
