@@ -44,7 +44,7 @@ test("streams groups", async () => {
   };
   const alix = await createTestClient();
   const bo = await createTestClient();
-  const stream = alix
+  const stream = await alix
     .conversations()
     .stream({ on_conversation: streamCallback });
   const g = await alix.conversations().createGroupByInboxIds([bo.inboxId]);
@@ -52,7 +52,6 @@ test("streams groups", async () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   expect(groups[0].id()).toBe(g.id());
-  await stream.endAndWait();
 });
 
 test("auth callback", async () => {
