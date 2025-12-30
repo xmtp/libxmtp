@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, it } from "vitest";
 import init, {
   Actions,
   ActionStyle,
@@ -55,7 +55,7 @@ describe("EnrichedMessage", () => {
   };
 
   describe("Basic message retrieval", () => {
-    test("should return enriched messages with basic fields populated", async () => {
+    it("should return enriched messages with basic fields populated", async () => {
       const { client1, conversation } = await setupConversation();
 
       await conversation.sendText("Hello World");
@@ -82,7 +82,7 @@ describe("EnrichedMessage", () => {
       expect(helloWorldMessage?.deliveryStatus).toBeDefined();
     });
 
-    test("should handle list options", async () => {
+    it("should handle list options", async () => {
       const { conversation } = await setupConversation();
 
       await conversation.sendText("Message 1");
@@ -109,7 +109,7 @@ describe("EnrichedMessage", () => {
   });
 
   describe("Message metadata", () => {
-    test("should include message kind", async () => {
+    it("should include message kind", async () => {
       const { conversation } = await setupConversation();
 
       await conversation.sendText("Test");
@@ -125,7 +125,7 @@ describe("EnrichedMessage", () => {
 
   describe("Content types", () => {
     describe("Text", () => {
-      test("should send and receive text message", async () => {
+      it("should send and receive text message", async () => {
         const { client1, conversation, conversation2 } =
           await setupConversation();
 
@@ -146,7 +146,7 @@ describe("EnrichedMessage", () => {
         expect(textMessage?.fallback).toBeUndefined();
       });
 
-      test("should have correct content type", () => {
+      it("should have correct content type", () => {
         const contentType = contentTypeText();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("text");
@@ -156,7 +156,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Markdown", () => {
-      test("should send and receive markdown messages", async () => {
+      it("should send and receive markdown messages", async () => {
         const { client1, conversation, conversation2 } =
           await setupConversation();
 
@@ -177,7 +177,7 @@ describe("EnrichedMessage", () => {
         expect(markdownMessage?.fallback).toBeUndefined();
       });
 
-      test("should have correct content type", () => {
+      it("should have correct content type", () => {
         const contentType = contentTypeMarkdown();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("markdown");
@@ -187,7 +187,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Reaction", () => {
-      test("should send and receive reaction with Added action", async () => {
+      it("should send and receive reaction with Added action", async () => {
         const { client1, conversation, conversation2 } =
           await setupConversation();
 
@@ -224,7 +224,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should send and receive reaction with Removed action", async () => {
+      it("should send and receive reaction with Removed action", async () => {
         const { client1, conversation, conversation2 } =
           await setupConversation();
 
@@ -269,7 +269,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should handle shortcode reaction schema", async () => {
+      it("should handle shortcode reaction schema", async () => {
         const { client1, conversation, conversation2 } =
           await setupConversation();
 
@@ -296,7 +296,7 @@ describe("EnrichedMessage", () => {
         expect(reactionContent.schema).toBe(ReactionSchema.Shortcode);
       });
 
-      test("should handle custom reaction schema", async () => {
+      it("should handle custom reaction schema", async () => {
         const { client1, conversation, conversation2 } =
           await setupConversation();
 
@@ -323,7 +323,7 @@ describe("EnrichedMessage", () => {
         expect(reactionContent.schema).toBe(ReactionSchema.Custom);
       });
 
-      test("should have correct content type", () => {
+      it("should have correct content type", () => {
         const contentType = contentTypeReaction();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("reaction");
@@ -333,7 +333,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Reply", () => {
-      test("should send and receive reply with text content", async () => {
+      it("should send and receive reply with text content", async () => {
         const { client1, conversation, conversation2 } =
           await setupConversation();
 
@@ -363,7 +363,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should include inReplyTo with original message", async () => {
+      it("should include inReplyTo with original message", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const textMessageId = await conversation.sendText("Original message");
@@ -385,7 +385,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should send and receive reply with non-text content (attachment)", async () => {
+      it("should send and receive reply with non-text content (attachment)", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const textMessageId = await conversation.sendText("Original message");
@@ -411,7 +411,7 @@ describe("EnrichedMessage", () => {
         expect(replyMessage?.fallback).toBe(`Replied to an earlier message`);
       });
 
-      test("should have correct content type", () => {
+      it("should have correct content type", () => {
         const contentType = contentTypeReply();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("reply");
@@ -421,7 +421,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Attachment", () => {
-      test("should send and receive attachment", async () => {
+      it("should send and receive attachment", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const attachmentId = await conversation.sendAttachment({
@@ -451,7 +451,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should send and receive attachment without filename", async () => {
+      it("should send and receive attachment without filename", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const attachmentId = await conversation.sendAttachment({
@@ -470,7 +470,7 @@ describe("EnrichedMessage", () => {
         expect(attachmentContent.mimeType).toBe("image/png");
       });
 
-      test("should have correct content type", () => {
+      it("should have correct content type", () => {
         const contentType = contentTypeAttachment();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("attachment");
@@ -480,7 +480,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Remote Attachment", () => {
-      test("should send and receive remote attachment", async () => {
+      it("should send and receive remote attachment", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const remoteAttachmentId = await conversation.sendRemoteAttachment({
@@ -521,7 +521,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should send and receive remote attachment without filename", async () => {
+      it("should send and receive remote attachment without filename", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const remoteAttachmentId = await conversation.sendRemoteAttachment({
@@ -546,7 +546,7 @@ describe("EnrichedMessage", () => {
         expect(remoteAttachmentContent.filename).toBeUndefined();
       });
 
-      test("should have correct content type", () => {
+      it("should have correct content type", () => {
         const contentType = contentTypeRemoteAttachment();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("remoteStaticAttachment");
@@ -556,7 +556,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Multi Remote Attachment", () => {
-      test("should send and receive multi remote attachment", async () => {
+      it("should send and receive multi remote attachment", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const multiRemoteAttachmentId =
@@ -614,7 +614,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should send and receive multi remote attachment with single attachment", async () => {
+      it("should send and receive multi remote attachment with single attachment", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const multiRemoteAttachmentId =
@@ -645,7 +645,7 @@ describe("EnrichedMessage", () => {
         expect(multiRemoteAttachmentContent.attachments.length).toBe(1);
       });
 
-      test("should have correct content type", () => {
+      it("should have correct content type", () => {
         const contentType = contentTypeMultiRemoteAttachment();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("multiRemoteStaticAttachment");
@@ -655,7 +655,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Read Receipt", () => {
-      test("should send read receipt (excluded from enriched messages by design)", async () => {
+      it("should send read receipt (excluded from enriched messages by design)", async () => {
         const { conversation } = await setupConversation();
 
         const receiptId = await conversation.sendReadReceipt();
@@ -667,7 +667,7 @@ describe("EnrichedMessage", () => {
         expect(receiptMessage).toBeUndefined();
       });
 
-      test("should have correct content type", () => {
+      it("should have correct content type", () => {
         const contentType = contentTypeReadReceipt();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("readReceipt");
@@ -677,7 +677,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Transaction Reference", () => {
-      test("should send and receive transaction reference", async () => {
+      it("should send and receive transaction reference", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const transactionReferenceId =
@@ -714,7 +714,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should send and receive transaction reference without namespace", async () => {
+      it("should send and receive transaction reference without namespace", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const transactionReferenceId =
@@ -736,7 +736,7 @@ describe("EnrichedMessage", () => {
         expect(transactionReferenceContent.networkId).toBe("137");
       });
 
-      test("should send and receive transaction reference with empty reference", async () => {
+      it("should send and receive transaction reference with empty reference", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const transactionReferenceId =
@@ -759,7 +759,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should send and receive transaction reference with metadata", async () => {
+      it("should send and receive transaction reference with metadata", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const transactionReferenceId =
@@ -794,7 +794,7 @@ describe("EnrichedMessage", () => {
         expect(transactionReferenceContent.metadata?.amount).toBe(1.5);
       });
 
-      test("should have correct content type", () => {
+      it("should have correct content type", () => {
         const contentType = contentTypeTransactionReference();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("transactionReference");
@@ -804,7 +804,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Wallet Send Calls", () => {
-      test("should send and receive wallet send calls", async () => {
+      it("should send and receive wallet send calls", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const walletSendCallsId = await conversation.sendWalletSendCalls({
@@ -850,7 +850,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should send and receive wallet send calls with multiple calls", async () => {
+      it("should send and receive wallet send calls with multiple calls", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const walletSendCallsId = await conversation.sendWalletSendCalls({
@@ -886,7 +886,7 @@ describe("EnrichedMessage", () => {
         expect(walletSendCallsContent.calls[1].gas).toBe("0x5208");
       });
 
-      test("should send and receive wallet send calls with metadata", async () => {
+      it("should send and receive wallet send calls with metadata", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const walletSendCallsId = await conversation.sendWalletSendCalls({
@@ -928,7 +928,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should error when metadata is missing `description` field", async () => {
+      it("should error when metadata is missing `description` field", async () => {
         const { conversation } = await setupConversation();
 
         let error;
@@ -957,7 +957,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should error when metadata is missing `transactionType` field", async () => {
+      it("should error when metadata is missing `transactionType` field", async () => {
         const { conversation } = await setupConversation();
 
         let error;
@@ -986,7 +986,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should have correct content type", () => {
+      it("should have correct content type", () => {
         const contentType = contentTypeWalletSendCalls();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("walletSendCalls");
@@ -996,7 +996,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Actions", () => {
-      test("should send and receive actions", async () => {
+      it("should send and receive actions", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const actionsId = await conversation.sendActions({
@@ -1037,7 +1037,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should send and receive actions with all styles", async () => {
+      it("should send and receive actions with all styles", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const actionsId = await conversation.sendActions({
@@ -1073,7 +1073,7 @@ describe("EnrichedMessage", () => {
         expect(actionsContent.actions[2].style).toBe(ActionStyle.Danger);
       });
 
-      test("should send and receive actions with expiration", async () => {
+      it("should send and receive actions with expiration", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         // Use a timestamp in nanoseconds (must fit in i64)
@@ -1103,7 +1103,7 @@ describe("EnrichedMessage", () => {
         expect(actionsContent.actions[0].expiresAtNs).toBeDefined();
       });
 
-      test("should send and receive actions with image URL", async () => {
+      it("should send and receive actions with image URL", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const actionsId = await conversation.sendActions({
@@ -1130,7 +1130,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should have correct content type", () => {
+      it("should have correct content type", () => {
         const contentType = contentTypeActions();
         expect(contentType.authorityId).toEqual("coinbase.com");
         expect(contentType.typeId).toEqual("actions");
@@ -1140,7 +1140,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Intent", () => {
-      test("should send and receive intent using encodeIntent", async () => {
+      it("should send and receive intent using encodeIntent", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         // Test with encodeIntent + send to verify the original pattern still works
@@ -1168,7 +1168,7 @@ describe("EnrichedMessage", () => {
         expect(intentMessage?.fallback).toBe(`User selected action: opt-1`);
       });
 
-      test("should send and receive intent using sendIntent", async () => {
+      it("should send and receive intent using sendIntent", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const intentId = await conversation.sendIntent({
@@ -1192,7 +1192,7 @@ describe("EnrichedMessage", () => {
         expect(intentMessage?.fallback).toBe(`User selected action: opt-1`);
       });
 
-      test("should send and receive intent with metadata", async () => {
+      it("should send and receive intent with metadata", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const intentId = await conversation.sendIntent({
@@ -1215,7 +1215,7 @@ describe("EnrichedMessage", () => {
         expect(intentContent.metadata?.timestamp).toBe("2024-01-01");
       });
 
-      test("should have correct content type", () => {
+      it("should have correct content type", () => {
         const contentType = contentTypeIntent();
         expect(contentType.authorityId).toEqual("coinbase.com");
         expect(contentType.typeId).toEqual("intent");
@@ -1225,7 +1225,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Group Updated", () => {
-      test("should include group updated messages when members are added", async () => {
+      it("should include group updated messages when members are added", async () => {
         const client1 = await createTestClient();
         const client2 = await createTestClient();
         const client3 = await createTestClient();
@@ -1250,7 +1250,7 @@ describe("EnrichedMessage", () => {
         expect(groupUpdatedContent.addedInboxes.length).toBeGreaterThan(0);
       });
 
-      test("should include group updated messages when members are removed", async () => {
+      it("should include group updated messages when members are removed", async () => {
         const client1 = await createTestClient();
         const client2 = await createTestClient();
         const client3 = await createTestClient();
@@ -1276,7 +1276,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should include group updated messages when metadata is changed", async () => {
+      it("should include group updated messages when metadata is changed", async () => {
         const client1 = await createTestClient();
         const client2 = await createTestClient();
 
@@ -1298,7 +1298,7 @@ describe("EnrichedMessage", () => {
         );
       });
 
-      test("should have correct content type", () => {
+      it("should have correct content type", () => {
         const contentType = contentTypeGroupUpdated();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("group_updated");
@@ -1308,7 +1308,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Leave Request", () => {
-      test("should have correct content type", () => {
+      it("should have correct content type", () => {
         const contentType = contentTypeLeaveRequest();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("leave_request");
