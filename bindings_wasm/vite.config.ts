@@ -1,5 +1,5 @@
-import { defineConfig, mergeConfig } from "vite";
 import { playwright } from "@vitest/browser-playwright";
+import { defineConfig, mergeConfig } from "vite";
 import { defineConfig as defineVitestConfig } from "vitest/config";
 
 // https://vitejs.dev/config/

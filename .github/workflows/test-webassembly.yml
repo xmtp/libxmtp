@@ -70,15 +70,9 @@ jobs:
           nix develop .#wasm --command \
             cargo test --locked --release -p xmtp_mls -- subscriptions::
         working-directory: ./
-      - name: yarn install
+      - name: webassembly integration tests
         working-directory: bindings_wasm
         run: |
           yarn
-      - working-directory: bindings_wasm/tests/integration/browser
-        run: |
-          yarn
-      - name: webassembly integration tests
-        working-directory: bindings_wasm/tests/integration/browser
-        run: |
           yarn playwright install
-          yarn test
+          yarn test:integration

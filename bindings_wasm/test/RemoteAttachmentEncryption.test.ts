@@ -1,13 +1,14 @@
-import { expect, it, describe, afterAll } from "vitest";
-import { toHex } from "viem";
-import init, {
-  encryptAttachment,
-  decryptAttachment,
-} from "@xmtp/wasm-bindings";
 import {
+  Attachment,
   AttachmentCodec,
   RemoteAttachmentCodec,
 } from "@xmtp/content-type-remote-attachment";
+import init, {
+  decryptAttachment,
+  encryptAttachment,
+} from "@xmtp/wasm-bindings";
+import { toHex } from "viem";
+import { afterAll, describe, expect, it } from "vitest";
 
 await init();
 
@@ -18,13 +19,14 @@ describe("RemoteAttachment encryption compatibility", () => {
     globalThis.fetch = originalFetch;
   });
 
-  const mockFetch = (responseData) => {
-    globalThis.fetch = async () => ({
-      ok: true,
-      status: 200,
-      statusText: "OK",
-      arrayBuffer: async () => responseData,
-    });
+  const mockFetch = (responseData: ArrayBufferLike) => {
+    globalThis.fetch = async () =>
+      ({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        arrayBuffer: async () => responseData,
+      }) as Response;
   };
 
   const testContent = "foo";
@@ -39,7 +41,7 @@ describe("RemoteAttachment encryption compatibility", () => {
         mimeType: testMimeType,
         data: encodedContent,
       },
-      new AttachmentCodec()
+      new AttachmentCodec(),
     );
 
     const decrypted = decryptAttachment(encrypted.payload, {
@@ -67,7 +69,7 @@ describe("RemoteAttachment encryption compatibility", () => {
 
     mockFetch(encrypted.payload.buffer);
 
-    const decrypted = await RemoteAttachmentCodec.load(
+    const decrypted = await RemoteAttachmentCodec.load<Attachment>(
       {
         url: "https://example.com/wasm-encrypted",
         contentDigest: encrypted.contentDigest,
@@ -80,7 +82,7 @@ describe("RemoteAttachment encryption compatibility", () => {
       },
       {
         codecFor: () => new AttachmentCodec(),
-      }
+      },
     );
 
     expect(new TextDecoder().decode(decrypted.data)).toBe(testContent);
@@ -105,7 +107,7 @@ describe("RemoteAttachment encryption compatibility", () => {
         scheme: "https",
         contentLength: encrypted.payload.byteLength,
         filename: testFilename,
-      })
+      }),
     ).toThrow("content digest mismatch");
   });
 
@@ -129,7 +131,7 @@ describe("RemoteAttachment encryption compatibility", () => {
         scheme: "https",
         contentLength: encrypted.payload.byteLength,
         filename: testFilename,
-      })
+      }),
     ).toThrow();
   });
 
@@ -153,7 +155,7 @@ describe("RemoteAttachment encryption compatibility", () => {
         scheme: "https",
         contentLength: corruptedPayload.byteLength,
         filename: testFilename,
-      })
+      }),
     ).toThrow();
   });
 

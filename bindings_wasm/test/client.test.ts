@@ -1,11 +1,10 @@
-import { expect, test } from "vitest";
 import init, {
-  Client,
-  Conversation,
-  createTestClient,
-  createAuthTestClient,
   AuthHandle,
+  Conversation,
+  createAuthTestClient,
+  createTestClient,
 } from "@xmtp/wasm-bindings";
+import { expect, test } from "vitest";
 
 await init();
 
@@ -39,8 +38,8 @@ test("streams groups local", async () => {
 });
 
 test("streams groups", async () => {
-  let groups = new Array();
-  const streamCallback = async (conversation) => {
+  let groups: Conversation[] = [];
+  const streamCallback = async (conversation: Conversation) => {
     groups.push(conversation);
   };
   const alix = await createTestClient();
@@ -50,7 +49,7 @@ test("streams groups", async () => {
     .stream({ on_conversation: streamCallback });
   const g = await alix.conversations().createGroupByInboxIds([bo.inboxId]);
   while (groups.length == 0) {
-    await sleep(100);
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
   // let group_id = value.id();
   expect(groups[0].id()).toBe(g.id());
@@ -71,7 +70,7 @@ test("auth callback", async () => {
         };
       },
     },
-    handle
+    handle,
   );
   expect(called).toBe(true);
 });
@@ -90,8 +89,8 @@ test("auth callback throws error", async () => {
         },
       },
 
-      handle
-    )
+      handle,
+    ),
   ).rejects.toThrow("Auth callback failed");
   expect(called).toBe(true);
 });
