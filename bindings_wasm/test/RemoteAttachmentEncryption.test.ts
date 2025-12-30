@@ -3,12 +3,9 @@ import {
   AttachmentCodec,
   RemoteAttachmentCodec,
 } from "@xmtp/content-type-remote-attachment";
-import init, {
-  decryptAttachment,
-  encryptAttachment,
-} from "@xmtp/wasm-bindings";
 import { toHex } from "viem";
 import { afterAll, describe, expect, it } from "vitest";
+import init, { decryptAttachment, encryptAttachment } from "../";
 
 await init();
 

@@ -1,10 +1,10 @@
+import { expect, test } from "vitest";
 import init, {
   AuthHandle,
   Conversation,
   createAuthTestClient,
   createTestClient,
-} from "@xmtp/wasm-bindings";
-import { expect, test } from "vitest";
+} from "../";
 
 await init();
 

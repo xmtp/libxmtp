@@ -1,3 +1,4 @@
+import { describe, expect, test } from "vitest";
 import init, {
   Actions,
   ActionStyle,
@@ -34,8 +35,7 @@ import init, {
   SortDirection,
   TransactionReference,
   WalletSendCalls,
-} from "@xmtp/wasm-bindings";
-import { describe, expect, test } from "vitest";
+} from "../";
 
 await init();
 
