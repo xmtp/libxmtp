@@ -1085,7 +1085,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@xmtp/wasm-bindings@workspace:., @xmtp/wasm-bindings@workspace:^":
+"@xmtp/wasm-bindings@workspace:.":
   version: 0.0.0-use.local
   resolution: "@xmtp/wasm-bindings@workspace:."
   dependencies:
@@ -1094,7 +1094,6 @@ __metadata:
     "@vitest/browser": "npm:^4.0.8"
     "@vitest/browser-playwright": "npm:^4.0.8"
     "@xmtp/content-type-remote-attachment": "npm:^2.0.3"
-    "@xmtp/wasm-bindings": "workspace:^"
     binaryen: "npm:^124.0.0"
     playwright: "npm:^1.56.1"
     prettier: "npm:^3.7.4"
