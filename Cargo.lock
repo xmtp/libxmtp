@@ -1348,7 +1348,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_wasm_macros"
-version = "1.7.0-dev"
+version = "1.8.0-dev"
 dependencies = [
  "proc-macro2",
  "quote",
