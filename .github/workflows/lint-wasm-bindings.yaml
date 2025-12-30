@@ -41,12 +41,8 @@ jobs:
           cargo clippy --locked --manifest-path bindings_wasm/Cargo.toml --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings
       - name: Run format check
         run: cargo fmt --manifest-path bindings_wasm/Cargo.toml --check
-      - name: Install dependencies
-        working-directory: bindings_wasm
-        run: yarn
-      - name: Run typecheck on typescript files
-        working-directory: bindings_wasm
-        run: yarn typecheck
       - name: Run format check on typescript files
         working-directory: bindings_wasm
-        run: yarn format:check
+        run: |
+          yarn
+          yarn format:check

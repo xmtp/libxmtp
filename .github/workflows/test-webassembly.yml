@@ -74,5 +74,6 @@ jobs:
         working-directory: bindings_wasm
         run: |
           yarn
+          yarn typecheck
           yarn playwright install
           yarn test:integration
