@@ -23,11 +23,11 @@ test("streams groups local", async () => {
     .conversations()
     .createGroupByInboxIds([alix.inboxId, bo.inboxId]);
 
-  let groups = new Array();
+  let groups: string[] = [];
   let reader = stream.getReader();
   let i = 0;
   while (i < 3) {
-    var { done, value } = await reader.read();
+    const { value } = await reader.read();
     groups.push(value.id());
     i++;
   }
@@ -38,25 +38,25 @@ test("streams groups local", async () => {
 });
 
 test("streams groups", async () => {
-  let groups: Conversation[] = [];
+  const groups: Conversation[] = [];
   const streamCallback = async (conversation: Conversation) => {
     groups.push(conversation);
   };
   const alix = await createTestClient();
   const bo = await createTestClient();
-  const stream = await alix
+  const stream = alix
     .conversations()
     .stream({ on_conversation: streamCallback });
   const g = await alix.conversations().createGroupByInboxIds([bo.inboxId]);
   while (groups.length == 0) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  // let group_id = value.id();
   expect(groups[0].id()).toBe(g.id());
+  await stream.endAndWait();
 });
 
 test("auth callback", async () => {
-  let handle = new AuthHandle();
+  const handle = new AuthHandle();
   console.log("creating client");
   let called = false;
   await createAuthTestClient(
@@ -76,7 +76,7 @@ test("auth callback", async () => {
 });
 
 test("auth callback throws error", async () => {
-  let handle = new AuthHandle();
+  const handle = new AuthHandle();
   console.log("creating client");
   let called = false;
   await expect(
