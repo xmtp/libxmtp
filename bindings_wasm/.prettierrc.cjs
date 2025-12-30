@@ -19,12 +19,15 @@ module.exports = {
     {
       files: "**/*.ts",
       options: {
-        plugins: [
-          "@ianvs/prettier-plugin-sort-imports",
-          "prettier-plugin-packagejson",
-        ],
+        plugins: ["@ianvs/prettier-plugin-sort-imports"],
         importOrder: ["<BUILTIN_MODULES>", "<THIRD_PARTY_MODULES>", "^[.]"],
         importOrderTypeScriptVersion: "5.9.3",
+      },
+    },
+    {
+      files: "**/package.json",
+      options: {
+        plugins: ["prettier-plugin-packagejson"],
       },
     },
   ],
