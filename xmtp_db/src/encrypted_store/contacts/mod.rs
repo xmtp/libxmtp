@@ -1,12 +1,13 @@
+mod addresses;
+mod convert;
 mod emails;
 mod phone_numbers;
-mod addresses;
 mod urls;
 mod wallet_addresses;
 
+pub use addresses::*;
 pub use emails::*;
 pub use phone_numbers::*;
-pub use addresses::*;
 pub use urls::*;
 pub use wallet_addresses::*;
 use xmtp_proto::mls_v1::SortDirection;
@@ -15,7 +16,7 @@ use super::ConnectionExt;
 use super::db_connection::DbConnection;
 use super::schema::contacts::{self, dsl};
 use super::schema::{
-    contact_emails, contact_phone_numbers, contact_addresses, contact_urls,
+    contact_addresses, contact_emails, contact_phone_numbers, contact_urls,
     contact_wallet_addresses,
 };
 use crate::StorageError;
@@ -322,6 +323,9 @@ pub trait QueryContacts {
     /// Delete a contact and all related data by inbox_id
     fn delete_contact(&self, inbox_id: &str) -> Result<(), StorageError>;
 
+    /// Get contacts with pagination for device sync
+    fn contacts_paged(&self, limit: i64, offset: i64) -> Result<Vec<FullContact>, StorageError>;
+
     // Phone number operations
     fn get_phone_numbers(&self, inbox_id: &str) -> Result<Vec<PhoneNumber>, StorageError>;
     fn add_phone_number(
@@ -502,6 +506,17 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
             Ok(())
         })?;
         Ok(())
+    }
+
+    fn contacts_paged(&self, limit: i64, offset: i64) -> Result<Vec<FullContact>, StorageError> {
+        Ok(self.raw_query_read(|conn| {
+            let sql = format!(
+                "SELECT * FROM contact_list ORDER BY inbox_id LIMIT {} OFFSET {}",
+                limit, offset
+            );
+            let results: Vec<RawFullContact> = diesel::sql_query(&sql).load(conn)?;
+            Ok(results.into_iter().map(FullContact::from).collect())
+        })?)
     }
 
     fn get_phone_numbers(&self, inbox_id: &str) -> Result<Vec<PhoneNumber>, StorageError> {
@@ -822,10 +837,9 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
             let Some(contact) = contact else {
                 return Ok(Vec::new());
             };
-            let addresses: Vec<StoredContactAddress> =
-                contact_addresses::dsl::contact_addresses
-                    .filter(contact_addresses::dsl::contact_id.eq(contact.id))
-                    .load(conn)?;
+            let addresses: Vec<StoredContactAddress> = contact_addresses::dsl::contact_addresses
+                .filter(contact_addresses::dsl::contact_id.eq(contact.id))
+                .load(conn)?;
             Ok(addresses
                 .into_iter()
                 .map(|s| AddressData {
@@ -866,8 +880,7 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
     fn update_address(&self, id: i32, data: AddressData) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
             diesel::update(
-                contact_addresses::dsl::contact_addresses
-                    .filter(contact_addresses::dsl::id.eq(id)),
+                contact_addresses::dsl::contact_addresses.filter(contact_addresses::dsl::id.eq(id)),
             )
             .set((
                 contact_addresses::dsl::address1.eq(data.address1),
@@ -888,8 +901,7 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
     fn delete_address(&self, id: i32) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
             diesel::delete(
-                contact_addresses::dsl::contact_addresses
-                    .filter(contact_addresses::dsl::id.eq(id)),
+                contact_addresses::dsl::contact_addresses.filter(contact_addresses::dsl::id.eq(id)),
             )
             .execute(conn)?;
             Ok(())
@@ -921,6 +933,10 @@ impl<T: QueryContacts + ?Sized> QueryContacts for &T {
 
     fn delete_contact(&self, inbox_id: &str) -> Result<(), StorageError> {
         (**self).delete_contact(inbox_id)
+    }
+
+    fn contacts_paged(&self, limit: i64, offset: i64) -> Result<Vec<FullContact>, StorageError> {
+        (**self).contacts_paged(limit, offset)
     }
 
     fn get_phone_numbers(&self, inbox_id: &str) -> Result<Vec<PhoneNumber>, StorageError> {

@@ -807,6 +807,8 @@ mock! {
 
         fn delete_contact(&self, inbox_id: &str) -> Result<(), StorageError>;
 
+        fn contacts_paged(&self, limit: i64, offset: i64) -> Result<Vec<crate::contacts::FullContact>, StorageError>;
+
         fn get_phone_numbers(&self, inbox_id: &str) -> Result<Vec<crate::contacts::PhoneNumber>, StorageError>;
 
         fn add_phone_number(

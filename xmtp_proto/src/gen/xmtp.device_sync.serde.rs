@@ -27,6 +27,9 @@ impl serde::Serialize for BackupElement {
                 backup_element::Element::Event(v) => {
                     struct_ser.serialize_field("event", v)?;
                 }
+                backup_element::Element::Contact(v) => {
+                    struct_ser.serialize_field("contact", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -45,6 +48,7 @@ impl<'de> serde::Deserialize<'de> for BackupElement {
             "groupMessage",
             "consent",
             "event",
+            "contact",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -54,6 +58,7 @@ impl<'de> serde::Deserialize<'de> for BackupElement {
             GroupMessage,
             Consent,
             Event,
+            Contact,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -81,6 +86,7 @@ impl<'de> serde::Deserialize<'de> for BackupElement {
                             "groupMessage" | "group_message" => Ok(GeneratedField::GroupMessage),
                             "consent" => Ok(GeneratedField::Consent),
                             "event" => Ok(GeneratedField::Event),
+                            "contact" => Ok(GeneratedField::Contact),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -138,6 +144,13 @@ impl<'de> serde::Deserialize<'de> for BackupElement {
                             element__ = map_.next_value::<::std::option::Option<_>>()?.map(backup_element::Element::Event)
 ;
                         }
+                        GeneratedField::Contact => {
+                            if element__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("contact"));
+                            }
+                            element__ = map_.next_value::<::std::option::Option<_>>()?.map(backup_element::Element::Contact)
+;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -162,6 +175,7 @@ impl serde::Serialize for BackupElementSelection {
             Self::Messages => "BACKUP_ELEMENT_SELECTION_MESSAGES",
             Self::Consent => "BACKUP_ELEMENT_SELECTION_CONSENT",
             Self::Event => "BACKUP_ELEMENT_SELECTION_EVENT",
+            Self::Contacts => "BACKUP_ELEMENT_SELECTION_CONTACTS",
         };
         serializer.serialize_str(variant)
     }
@@ -177,6 +191,7 @@ impl<'de> serde::Deserialize<'de> for BackupElementSelection {
             "BACKUP_ELEMENT_SELECTION_MESSAGES",
             "BACKUP_ELEMENT_SELECTION_CONSENT",
             "BACKUP_ELEMENT_SELECTION_EVENT",
+            "BACKUP_ELEMENT_SELECTION_CONTACTS",
         ];
 
         struct GeneratedVisitor;
@@ -221,6 +236,7 @@ impl<'de> serde::Deserialize<'de> for BackupElementSelection {
                     "BACKUP_ELEMENT_SELECTION_MESSAGES" => Ok(BackupElementSelection::Messages),
                     "BACKUP_ELEMENT_SELECTION_CONSENT" => Ok(BackupElementSelection::Consent),
                     "BACKUP_ELEMENT_SELECTION_EVENT" => Ok(BackupElementSelection::Event),
+                    "BACKUP_ELEMENT_SELECTION_CONTACTS" => Ok(BackupElementSelection::Contacts),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }

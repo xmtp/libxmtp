@@ -13,10 +13,11 @@ use xmtp_common::{MaybeSend, MaybeSendFuture, if_native, if_wasm};
 use xmtp_db::{StorageError, prelude::*};
 use xmtp_proto::xmtp::device_sync::{
     BackupElement, BackupElementSelection, BackupOptions, consent_backup::ConsentSave,
-    group_backup::GroupSave, message_backup::GroupMessageSave,
+    contact_backup::ContactSave, group_backup::GroupSave, message_backup::GroupMessageSave,
 };
 
 pub(crate) mod consent_save;
+pub(crate) mod contact_save;
 pub(crate) mod group_save;
 pub(crate) mod message_save;
 
@@ -58,6 +59,12 @@ impl BatchExportStream {
                     ),
                 ],
                 BackupElementSelection::Event => vec![],
+                BackupElementSelection::Contacts => {
+                    vec![BackupRecordStreamer::<ContactSave, D>::new_stream(
+                        db.clone(),
+                        opts.clone(),
+                    )]
+                }
                 BackupElementSelection::Unspecified => vec![],
             })
             .rev()

@@ -48,6 +48,8 @@ use xmtp_proto::xmtp::{
 };
 
 pub mod archive;
+pub mod contact_backup;
+pub mod contact_sync;
 pub mod preference_sync;
 pub mod worker;
 
@@ -92,6 +94,8 @@ pub enum DeviceSyncError {
     Archive(#[from] ArchiveError),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
+    #[error(transparent)]
+    Encode(#[from] prost::EncodeError),
     #[error(transparent)]
     Deserialization(#[from] DeserializationError),
     #[error("Sync interaction is already acknowledged by another installation")]
@@ -327,6 +331,7 @@ fn default_archive_options() -> BackupOptions {
         elements: vec![
             BackupElementSelection::Messages as i32,
             BackupElementSelection::Consent as i32,
+            BackupElementSelection::Contacts as i32,
         ],
         ..Default::default()
     }

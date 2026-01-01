@@ -1037,10 +1037,7 @@ where
         Ok(can_message)
     }
 
-    pub fn get_contact(
-        &self,
-        inbox_id: &str,
-    ) -> Result<Option<Contact<Context>>, ClientError>
+    pub fn get_contact(&self, inbox_id: &str) -> Result<Option<Contact<Context>>, ClientError>
     where
         Context: Clone,
     {

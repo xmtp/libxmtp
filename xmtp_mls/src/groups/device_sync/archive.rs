@@ -18,6 +18,8 @@ use xmtp_mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
 
+use super::contact_sync::import_single_contact;
+
 #[derive(Default)]
 struct ImportContext {
     group_timestamps: HashMap<Vec<u8>, Option<i64>>,
@@ -155,6 +157,9 @@ fn insert(
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;
             message.store_or_ignore(&context.db())?;
+        }
+        Element::Contact(contact) => {
+            import_single_contact(&context.db(), contact)?;
         }
         _ => {}
     }
