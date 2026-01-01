@@ -807,6 +807,8 @@ mock! {
 
         fn delete_contact(&self, inbox_id: &str) -> Result<(), StorageError>;
 
+        fn get_phone_numbers(&self, inbox_id: &str) -> Result<Vec<crate::contacts::PhoneNumber>, StorageError>;
+
         fn add_phone_number(
             &self,
             inbox_id: &str,
@@ -823,6 +825,8 @@ mock! {
 
         fn delete_phone_number(&self, id: i32) -> Result<(), StorageError>;
 
+        fn get_emails(&self, inbox_id: &str) -> Result<Vec<crate::contacts::Email>, StorageError>;
+
         fn add_email(
             &self,
             inbox_id: &str,
@@ -834,6 +838,8 @@ mock! {
 
         fn delete_email(&self, id: i32) -> Result<(), StorageError>;
 
+        fn get_urls(&self, inbox_id: &str) -> Result<Vec<crate::contacts::Url>, StorageError>;
+
         fn add_url(
             &self,
             inbox_id: &str,
@@ -844,6 +850,8 @@ mock! {
         fn update_url(&self, id: i32, url: String, label: Option<String>) -> Result<(), StorageError>;
 
         fn delete_url(&self, id: i32) -> Result<(), StorageError>;
+
+        fn get_wallet_addresses(&self, inbox_id: &str) -> Result<Vec<crate::contacts::WalletAddress>, StorageError>;
 
         fn add_wallet_address(
             &self,
@@ -860,6 +868,8 @@ mock! {
         ) -> Result<(), StorageError>;
 
         fn delete_wallet_address(&self, id: i32) -> Result<(), StorageError>;
+
+        fn get_addresses(&self, inbox_id: &str) -> Result<Vec<crate::contacts::AddressData>, StorageError>;
 
         fn add_address(
             &self,
