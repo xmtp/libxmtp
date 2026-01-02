@@ -1,3 +1,22 @@
+//! Contacts database operations for storing and querying contacts.
+//!
+//! # Architecture
+//!
+//! Contacts are stored with a main `contacts` table and five companion tables for
+//! multi-valued fields (phone numbers, emails, URLs, wallet addresses, and addresses).
+//! A SQL view (`contact_list`) aggregates all companion data as JSON for efficient retrieval.
+//!
+//! # Full-Text Search
+//!
+//! The `contacts_fts` FTS5 table with trigram tokenizer enables substring matching across
+//! all contact fields. Database triggers automatically keep the FTS index synchronized.
+//!
+//! **Performance Note:** FTS triggers execute on every insert/update/delete of companion
+//! table rows. For bulk imports (e.g., device sync), this means each companion record
+//! triggers a full FTS rebuild for that contact. This is acceptable for typical contact
+//! counts but could be optimized for very large imports by disabling triggers during
+//! bulk operations.
+
 mod addresses;
 mod convert;
 mod emails;
@@ -253,8 +272,55 @@ pub struct FullContact {
 
 impl From<RawFullContact> for FullContact {
     fn from(raw: RawFullContact) -> Self {
+        // Clone inbox_id for use in error logging closures
+        let inbox_id = raw.inbox_id;
         Self {
-            inbox_id: raw.inbox_id,
+            phone_numbers: serde_json::from_str(&raw.phone_numbers).unwrap_or_else(|e| {
+                tracing::warn!(
+                    inbox_id = %inbox_id,
+                    field = "phone_numbers",
+                    error = %e,
+                    "Failed to parse contact companion data, using empty default"
+                );
+                Vec::new()
+            }),
+            emails: serde_json::from_str(&raw.emails).unwrap_or_else(|e| {
+                tracing::warn!(
+                    inbox_id = %inbox_id,
+                    field = "emails",
+                    error = %e,
+                    "Failed to parse contact companion data, using empty default"
+                );
+                Vec::new()
+            }),
+            urls: serde_json::from_str(&raw.urls).unwrap_or_else(|e| {
+                tracing::warn!(
+                    inbox_id = %inbox_id,
+                    field = "urls",
+                    error = %e,
+                    "Failed to parse contact companion data, using empty default"
+                );
+                Vec::new()
+            }),
+            wallet_addresses: serde_json::from_str(&raw.wallet_addresses).unwrap_or_else(|e| {
+                tracing::warn!(
+                    inbox_id = %inbox_id,
+                    field = "wallet_addresses",
+                    error = %e,
+                    "Failed to parse contact companion data, using empty default"
+                );
+                Vec::new()
+            }),
+            addresses: serde_json::from_str(&raw.addresses).unwrap_or_else(|e| {
+                tracing::warn!(
+                    inbox_id = %inbox_id,
+                    field = "addresses",
+                    error = %e,
+                    "Failed to parse contact companion data, using empty default"
+                );
+                Vec::new()
+            }),
+            inbox_id,
             display_name: raw.display_name,
             first_name: raw.first_name,
             last_name: raw.last_name,
@@ -268,11 +334,6 @@ impl From<RawFullContact> for FullContact {
             is_favorite: raw.is_favorite != 0,
             created_at_ns: raw.created_at_ns,
             updated_at_ns: raw.updated_at_ns,
-            phone_numbers: serde_json::from_str(&raw.phone_numbers).unwrap_or_default(),
-            emails: serde_json::from_str(&raw.emails).unwrap_or_default(),
-            urls: serde_json::from_str(&raw.urls).unwrap_or_default(),
-            wallet_addresses: serde_json::from_str(&raw.wallet_addresses).unwrap_or_default(),
-            addresses: serde_json::from_str(&raw.addresses).unwrap_or_default(),
         }
     }
 }
@@ -406,17 +467,19 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
         Ok(self.raw_query_write(|conn| {
             diesel::insert_into(contacts::table)
                 .values(&insertable)
-                .execute(conn)?;
-            dsl::contacts.order(dsl::id.desc()).first(conn)
+                .get_result(conn)
         })?)
     }
 
     fn update_contact(&self, inbox_id: &str, data: ContactData) -> Result<(), StorageError> {
         let updatable = UpdatableContact::from_data(data);
         self.raw_query_write(|conn| {
-            diesel::update(dsl::contacts.filter(dsl::inbox_id.eq(inbox_id)))
+            let rows_affected = diesel::update(dsl::contacts.filter(dsl::inbox_id.eq(inbox_id)))
                 .set(&updatable)
                 .execute(conn)?;
+            if rows_affected == 0 {
+                return Err(diesel::result::Error::NotFound);
+            }
             Ok(())
         })?;
         Ok(())
@@ -437,10 +500,13 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
         Ok(self.raw_query_read(|conn| {
             let query = query.unwrap_or_default();
 
+            // Check if we have a non-empty search term
+            let has_search = query.search.as_ref().is_some_and(|s| !s.is_empty());
+
             // Build the query based on whether we have a search term
             // With search: JOIN with FTS5 table for fast indexed search
             // Without search: query contact_list directly
-            let mut sql = if query.search.is_some() {
+            let mut sql = if has_search {
                 String::from(
                     "SELECT cl.* FROM contact_list cl \
                      JOIN contacts_fts fts ON fts.inbox_id = cl.inbox_id \
@@ -451,14 +517,19 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
             };
 
             // Build FTS search pattern if searching
-            let search_pattern = query.search.as_ref().map(|search| {
-                // FTS5 trigram tokenizer uses quoted string for substring match
-                // Escape any quotes in the search term
-                let escaped = search.replace('"', "\"\"");
-                format!("\"{}\"", escaped)
-            });
+            let search_pattern = if has_search {
+                query.search.as_ref().map(|search| {
+                    // FTS5 trigram tokenizer uses quoted string for substring match
+                    // Escape any quotes in the search term
+                    let escaped = search.replace('"', "\"\"");
+                    format!("\"{}\"", escaped)
+                })
+            } else {
+                None
+            };
 
-            // is_favorite filter (bool-derived, safe for interpolation)
+            // is_favorite filter
+            // SAFETY: is_fav is a Rust bool, so the interpolation is always "0" or "1"
             if let Some(is_fav) = query.is_favorite {
                 sql.push_str(&format!(
                     " AND is_favorite = {}",
@@ -466,7 +537,9 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
                 ));
             }
 
-            // Sorting (enum-controlled, safe for interpolation)
+            // Sorting
+            // SAFETY: sort_field and sort_dir are string literals from enum matches,
+            // not user-controlled strings, so they cannot cause SQL injection.
             let sort_field = match query.sort_by.unwrap_or_default() {
                 ContactSortField::DisplayName => "display_name",
                 ContactSortField::FirstName => "first_name",
@@ -482,12 +555,17 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
             };
             sql.push_str(&format!(" ORDER BY {} {}", sort_field, sort_dir));
 
-            // Pagination (i64 values, safe for interpolation)
+            // Pagination
+            // SAFETY: limit and offset are i64 values. We clamp them to reasonable bounds
+            // to prevent potential integer overflow issues, and the formatted value is
+            // always a valid decimal integer literal.
             if let Some(limit) = query.limit {
-                sql.push_str(&format!(" LIMIT {}", limit));
+                let safe_limit = limit.clamp(0, i64::MAX);
+                sql.push_str(&format!(" LIMIT {}", safe_limit));
             }
             if let Some(offset) = query.offset {
-                sql.push_str(&format!(" OFFSET {}", offset));
+                let safe_offset = offset.clamp(0, i64::MAX);
+                sql.push_str(&format!(" OFFSET {}", safe_offset));
             }
 
             // Execute query - only search requires binding (user-provided string)
@@ -502,7 +580,11 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
 
     fn delete_contact(&self, inbox_id: &str) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
-            diesel::delete(dsl::contacts.filter(dsl::inbox_id.eq(inbox_id))).execute(conn)?;
+            let rows_affected =
+                diesel::delete(dsl::contacts.filter(dsl::inbox_id.eq(inbox_id))).execute(conn)?;
+            if rows_affected == 0 {
+                return Err(diesel::result::Error::NotFound);
+            }
             Ok(())
         })?;
         Ok(())
@@ -560,10 +642,7 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
             };
             diesel::insert_into(contact_phone_numbers::table)
                 .values(&new)
-                .execute(conn)?;
-            contact_phone_numbers::dsl::contact_phone_numbers
-                .order(contact_phone_numbers::dsl::id.desc())
-                .first(conn)
+                .get_result(conn)
         })?)
     }
 
@@ -574,7 +653,7 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
         label: Option<String>,
     ) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
-            diesel::update(
+            let rows_affected = diesel::update(
                 contact_phone_numbers::dsl::contact_phone_numbers
                     .filter(contact_phone_numbers::dsl::id.eq(id)),
             )
@@ -583,6 +662,9 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
                 contact_phone_numbers::dsl::label.eq(label),
             ))
             .execute(conn)?;
+            if rows_affected == 0 {
+                return Err(diesel::result::Error::NotFound);
+            }
             Ok(())
         })?;
         Ok(())
@@ -590,11 +672,14 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
 
     fn delete_phone_number(&self, id: i32) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
-            diesel::delete(
+            let rows_affected = diesel::delete(
                 contact_phone_numbers::dsl::contact_phone_numbers
                     .filter(contact_phone_numbers::dsl::id.eq(id)),
             )
             .execute(conn)?;
+            if rows_affected == 0 {
+                return Err(diesel::result::Error::NotFound);
+            }
             Ok(())
         })?;
         Ok(())
@@ -640,10 +725,7 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
             };
             diesel::insert_into(contact_emails::table)
                 .values(&new)
-                .execute(conn)?;
-            contact_emails::dsl::contact_emails
-                .order(contact_emails::dsl::id.desc())
-                .first(conn)
+                .get_result(conn)
         })?)
     }
 
@@ -654,7 +736,7 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
         label: Option<String>,
     ) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
-            diesel::update(
+            let rows_affected = diesel::update(
                 contact_emails::dsl::contact_emails.filter(contact_emails::dsl::id.eq(id)),
             )
             .set((
@@ -662,6 +744,9 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
                 contact_emails::dsl::label.eq(label),
             ))
             .execute(conn)?;
+            if rows_affected == 0 {
+                return Err(diesel::result::Error::NotFound);
+            }
             Ok(())
         })?;
         Ok(())
@@ -669,10 +754,13 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
 
     fn delete_email(&self, id: i32) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
-            diesel::delete(
+            let rows_affected = diesel::delete(
                 contact_emails::dsl::contact_emails.filter(contact_emails::dsl::id.eq(id)),
             )
             .execute(conn)?;
+            if rows_affected == 0 {
+                return Err(diesel::result::Error::NotFound);
+            }
             Ok(())
         })?;
         Ok(())
@@ -718,21 +806,23 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
             };
             diesel::insert_into(contact_urls::table)
                 .values(&new)
-                .execute(conn)?;
-            contact_urls::dsl::contact_urls
-                .order(contact_urls::dsl::id.desc())
-                .first(conn)
+                .get_result(conn)
         })?)
     }
 
     fn update_url(&self, id: i32, url: String, label: Option<String>) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
-            diesel::update(contact_urls::dsl::contact_urls.filter(contact_urls::dsl::id.eq(id)))
-                .set((
-                    contact_urls::dsl::url.eq(url),
-                    contact_urls::dsl::label.eq(label),
-                ))
-                .execute(conn)?;
+            let rows_affected = diesel::update(
+                contact_urls::dsl::contact_urls.filter(contact_urls::dsl::id.eq(id)),
+            )
+            .set((
+                contact_urls::dsl::url.eq(url),
+                contact_urls::dsl::label.eq(label),
+            ))
+            .execute(conn)?;
+            if rows_affected == 0 {
+                return Err(diesel::result::Error::NotFound);
+            }
             Ok(())
         })?;
         Ok(())
@@ -740,8 +830,13 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
 
     fn delete_url(&self, id: i32) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
-            diesel::delete(contact_urls::dsl::contact_urls.filter(contact_urls::dsl::id.eq(id)))
-                .execute(conn)?;
+            let rows_affected = diesel::delete(
+                contact_urls::dsl::contact_urls.filter(contact_urls::dsl::id.eq(id)),
+            )
+            .execute(conn)?;
+            if rows_affected == 0 {
+                return Err(diesel::result::Error::NotFound);
+            }
             Ok(())
         })?;
         Ok(())
@@ -788,10 +883,7 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
             };
             diesel::insert_into(contact_wallet_addresses::table)
                 .values(&new)
-                .execute(conn)?;
-            contact_wallet_addresses::dsl::contact_wallet_addresses
-                .order(contact_wallet_addresses::dsl::id.desc())
-                .first(conn)
+                .get_result(conn)
         })?)
     }
 
@@ -802,7 +894,7 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
         label: Option<String>,
     ) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
-            diesel::update(
+            let rows_affected = diesel::update(
                 contact_wallet_addresses::dsl::contact_wallet_addresses
                     .filter(contact_wallet_addresses::dsl::id.eq(id)),
             )
@@ -811,6 +903,9 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
                 contact_wallet_addresses::dsl::label.eq(label),
             ))
             .execute(conn)?;
+            if rows_affected == 0 {
+                return Err(diesel::result::Error::NotFound);
+            }
             Ok(())
         })?;
         Ok(())
@@ -818,11 +913,14 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
 
     fn delete_wallet_address(&self, id: i32) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
-            diesel::delete(
+            let rows_affected = diesel::delete(
                 contact_wallet_addresses::dsl::contact_wallet_addresses
                     .filter(contact_wallet_addresses::dsl::id.eq(id)),
             )
             .execute(conn)?;
+            if rows_affected == 0 {
+                return Err(diesel::result::Error::NotFound);
+            }
             Ok(())
         })?;
         Ok(())
@@ -870,16 +968,13 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
             new.contact_id = contact.id;
             diesel::insert_into(contact_addresses::table)
                 .values(&new)
-                .execute(conn)?;
-            contact_addresses::dsl::contact_addresses
-                .order(contact_addresses::dsl::id.desc())
-                .first(conn)
+                .get_result(conn)
         })?)
     }
 
     fn update_address(&self, id: i32, data: AddressData) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
-            diesel::update(
+            let rows_affected = diesel::update(
                 contact_addresses::dsl::contact_addresses.filter(contact_addresses::dsl::id.eq(id)),
             )
             .set((
@@ -893,6 +988,9 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
                 contact_addresses::dsl::label.eq(data.label),
             ))
             .execute(conn)?;
+            if rows_affected == 0 {
+                return Err(diesel::result::Error::NotFound);
+            }
             Ok(())
         })?;
         Ok(())
@@ -900,10 +998,13 @@ impl<C: ConnectionExt> QueryContacts for DbConnection<C> {
 
     fn delete_address(&self, id: i32) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
-            diesel::delete(
+            let rows_affected = diesel::delete(
                 contact_addresses::dsl::contact_addresses.filter(contact_addresses::dsl::id.eq(id)),
             )
             .execute(conn)?;
+            if rows_affected == 0 {
+                return Err(diesel::result::Error::NotFound);
+            }
             Ok(())
         })?;
         Ok(())
@@ -1106,8 +1207,8 @@ mod tests {
             let contact = conn.add_contact("inbox_bob", data)?;
             let original_created_at = contact.created_at_ns;
 
-            // Small delay to ensure updated_at changes
-            std::thread::sleep(std::time::Duration::from_millis(1));
+            // Small delay to ensure updated_at changes (20ms to avoid flakiness on slow CI)
+            std::thread::sleep(std::time::Duration::from_millis(20));
 
             let update_data = ContactData {
                 display_name: Some("Robert".to_string()),
@@ -1296,26 +1397,95 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn test_cascade_delete() {
         with_connection(|conn| {
-            conn.add_contact(
+            let stored = conn.add_contact(
                 "inbox_cascade",
                 ContactData {
                     display_name: Some("Cascade Test".to_string()),
                     ..Default::default()
                 },
             )?;
+            let contact_id = stored.id;
 
+            // Add data to all companion tables
             conn.add_phone_number("inbox_cascade", "555-0000".to_string(), None)?;
             conn.add_email("inbox_cascade", "cascade@example.com".to_string(), None)?;
+            conn.add_url("inbox_cascade", "https://example.com".to_string(), None)?;
+            conn.add_wallet_address("inbox_cascade", "0x1234".to_string(), None)?;
+            conn.add_address(
+                "inbox_cascade",
+                AddressData {
+                    city: Some("Test City".to_string()),
+                    ..Default::default()
+                },
+            )?;
 
             let contact = conn.get_contact("inbox_cascade")?.unwrap();
             assert_eq!(contact.phone_numbers.len(), 1);
             assert_eq!(contact.emails.len(), 1);
+            assert_eq!(contact.urls.len(), 1);
+            assert_eq!(contact.wallet_addresses.len(), 1);
+            assert_eq!(contact.addresses.len(), 1);
 
             // Delete contact - should cascade to all companion tables
             conn.delete_contact("inbox_cascade")?;
 
             assert!(conn.get_contact("inbox_cascade")?.is_none());
+
+            // Verify companion tables are actually empty (no orphaned records)
+            // Use raw queries to confirm cascade delete worked
+            conn.raw_query_read(|db_conn| {
+                use diesel::sql_types::Integer;
+
+                let phone_count: i32 = diesel::sql_query(
+                    "SELECT COUNT(*) as count FROM contact_phone_numbers WHERE contact_id = ?",
+                )
+                .bind::<Integer, _>(contact_id)
+                .get_result::<CountResult>(db_conn)?
+                .count;
+                assert_eq!(phone_count, 0, "Phone numbers should be deleted");
+
+                let email_count: i32 = diesel::sql_query(
+                    "SELECT COUNT(*) as count FROM contact_emails WHERE contact_id = ?",
+                )
+                .bind::<Integer, _>(contact_id)
+                .get_result::<CountResult>(db_conn)?
+                .count;
+                assert_eq!(email_count, 0, "Emails should be deleted");
+
+                let url_count: i32 = diesel::sql_query(
+                    "SELECT COUNT(*) as count FROM contact_urls WHERE contact_id = ?",
+                )
+                .bind::<Integer, _>(contact_id)
+                .get_result::<CountResult>(db_conn)?
+                .count;
+                assert_eq!(url_count, 0, "URLs should be deleted");
+
+                let wallet_count: i32 = diesel::sql_query(
+                    "SELECT COUNT(*) as count FROM contact_wallet_addresses WHERE contact_id = ?",
+                )
+                .bind::<Integer, _>(contact_id)
+                .get_result::<CountResult>(db_conn)?
+                .count;
+                assert_eq!(wallet_count, 0, "Wallet addresses should be deleted");
+
+                let address_count: i32 = diesel::sql_query(
+                    "SELECT COUNT(*) as count FROM contact_addresses WHERE contact_id = ?",
+                )
+                .bind::<Integer, _>(contact_id)
+                .get_result::<CountResult>(db_conn)?
+                .count;
+                assert_eq!(address_count, 0, "Addresses should be deleted");
+
+                Ok(())
+            })?;
         })
+    }
+
+    /// Helper struct for COUNT(*) queries
+    #[derive(diesel::QueryableByName)]
+    struct CountResult {
+        #[diesel(sql_type = diesel::sql_types::Integer)]
+        count: i32,
     }
 
     #[xmtp_common::test(unwrap_try = true)]
