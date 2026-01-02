@@ -11,7 +11,6 @@ use xmtp_macro::log_event;
 
 use crate::{
     builder::SyncWorkerMode,
-    contacts::Contact,
     context::XmtpSharedContext,
     groups::{
         ConversationListItem, GroupError, MlsGroup,
@@ -38,10 +37,7 @@ use xmtp_db::{
     ConnectionExt, NotFound, StorageError, XmtpDb,
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
-    encrypted_store::{
-        contacts::{ContactData, ContactsQuery, QueryContacts},
-        conversation_list::ConversationListItem as DbConversationListItem,
-    },
+    encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
     identity::StoredIdentity,
@@ -1035,40 +1031,6 @@ where
         }
 
         Ok(can_message)
-    }
-
-    pub fn get_contact(&self, inbox_id: &str) -> Result<Option<Contact<Context>>, ClientError>
-    where
-        Context: Clone,
-    {
-        let contact = self.context.db().get_contact(inbox_id)?;
-        Ok(contact.map(|c| Contact::new(self.context.clone(), c)))
-    }
-
-    pub fn list_contacts(
-        &self,
-        query: Option<ContactsQuery>,
-    ) -> Result<Vec<Contact<Context>>, ClientError>
-    where
-        Context: Clone,
-    {
-        let contacts = self.context.db().get_contacts(query)?;
-        Ok(contacts
-            .into_iter()
-            .map(|c| Contact::new(self.context.clone(), c))
-            .collect())
-    }
-
-    pub fn create_contact(
-        &self,
-        inbox_id: &str,
-        data: ContactData,
-    ) -> Result<Contact<Context>, ClientError>
-    where
-        Context: Clone,
-    {
-        let stored = self.context.db().add_contact(inbox_id, data)?;
-        Ok(Contact::from_stored(self.context.clone(), stored))
     }
 }
 

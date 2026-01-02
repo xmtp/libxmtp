@@ -8,6 +8,7 @@ use xmtp_db::{
 use crate::context::XmtpSharedContext;
 
 mod address;
+mod client;
 mod email;
 mod phone_number;
 mod url;
