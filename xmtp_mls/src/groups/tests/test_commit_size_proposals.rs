@@ -9,7 +9,9 @@ use openmls::prelude::hash_ref::HashReference;
 use openmls::prelude::tls_codec::Serialize;
 use openmls::prelude::{MlsMessageIn, StagedWelcome};
 use tls_codec::Deserialize;
-use xmtp_db::XmtpOpenMlsProviderRef;
+use xmtp_db::{
+    TransactionalKeyStore, XmtpMlsStorageProvider, XmtpOpenMlsProviderRef, prelude::QueryGroup,
+};
 
 /// Test to compare commit sizes when using proposals inline vs proposal references
 ///
@@ -640,10 +642,21 @@ async fn test_commit_sizes_with_proposals() {
             .unwrap();
         let added_by_installation_id = added_by_node.signature_key().as_slice().to_vec();
 
-        // Create the OpenMLS group directly from the staged welcome
-        // The group is automatically stored via the provider's storage implementation
+        // Create the OpenMLS group and full XMTP MlsGroup with database entries
+        use crate::groups::MlsGroup;
         use openmls::group::MlsGroup as OpenMlsGroup;
-        let _mls_group = OpenMlsGroup::from_welcome_logged(
+        use xmtp_common::time::now_ns;
+        use xmtp_db::{
+            consent_record::StoredConsentRecord,
+            group::{ConversationType, GroupMembershipState, StoredGroup},
+        };
+        use xmtp_mls_common::{
+            group_metadata::extract_group_metadata,
+            group_mutable_metadata::extract_group_mutable_metadata,
+        };
+
+        // Create the OpenMLS group from the staged welcome
+        let mls_group = OpenMlsGroup::from_welcome_logged(
             &tester_provider,
             staged_welcome,
             &added_by_inbox_id,
@@ -652,7 +665,60 @@ async fn test_commit_sizes_with_proposals() {
         .map_err(|e| GroupError::Any(e.into()))
         .unwrap();
 
-        // Group is now stored and ready - the tester can now access it
+        // Extract metadata from the group
+        let group_id = mls_group.group_id().to_vec();
+        let metadata = extract_group_metadata(mls_group.extensions())
+            .map_err(|e| GroupError::Any(e.into()))
+            .unwrap();
+        let mutable_metadata = extract_group_mutable_metadata(&mls_group).ok();
+        let conversation_type = metadata.conversation_type;
+        let dm_members = metadata.dm_members;
+
+        // Create and store the StoredGroup in the database
+        let stored_group = tester
+            .context
+            .mls_storage()
+            .transaction(|conn| {
+                let storage = conn.key_store();
+                let db = storage.db();
+
+                // Extract disappearing settings from mutable metadata if available
+                // For simplicity in the test, we'll just set to None
+                use crate::groups::MessageDisappearingSettings;
+                let disappearing_settings: Option<MessageDisappearingSettings> = None;
+
+                let stored_group = StoredGroup::builder()
+                    .id(group_id.clone())
+                    .created_at_ns(now_ns())
+                    .added_by_inbox_id(&added_by_inbox_id)
+                    .conversation_type(conversation_type)
+                    .membership_state(GroupMembershipState::Pending)
+                    .dm_id(dm_members.map(String::from))
+                    .message_disappear_from_ns(disappearing_settings.as_ref().map(|m| m.from_ns))
+                    .message_disappear_in_ns(disappearing_settings.as_ref().map(|m| m.in_ns))
+                    .should_publish_commit_log(false) // For test, we don't need to publish commit log
+                    .build()
+                    .map_err(|e| GroupError::Any(e.into()))?;
+
+                let stored_group = db.insert_or_replace_group(stored_group)?;
+                StoredConsentRecord::stitch_dm_consent(&db, &stored_group)?;
+
+                Ok::<_, GroupError>(stored_group)
+            })
+            .unwrap();
+
+        // Create the XMTP MlsGroup wrapper that allows sending messages
+        let _xmtp_group = MlsGroup::new(
+            tester.context.clone(),
+            stored_group.id,
+            stored_group.dm_id,
+            stored_group.conversation_type,
+            stored_group.created_at_ns,
+        );
+
+        let tester_group = tester.group(&group_id).unwrap();
+
+        // Group is now fully set up and ready for the tester to use
 
         // Add the tester to the group
         testers.push(tester);
