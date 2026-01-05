@@ -23,7 +23,7 @@ jobs:
             output_target: arm64-v8a
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Update rust toolchains, add target
         run: |
           rustup update
@@ -45,7 +45,7 @@ jobs:
           mkdir -p bindings_ffi/jniLibs/${{ matrix.output_target }}/ && \
           cp target/${{ matrix.target }}/release/libxmtpv3.so bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
       - name: Upload binary
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.output_target }}
           path: bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
@@ -55,9 +55,9 @@ jobs:
     runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Download artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           path: bindings_ffi/jniLibs
       - name: Build archive

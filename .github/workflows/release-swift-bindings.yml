@@ -15,7 +15,7 @@ jobs:
           - aarch64-apple-darwin
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Update rust toolchains, add target
         run: |
           rustup update
@@ -47,7 +47,7 @@ jobs:
           fi
           cross build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
       - name: Upload binary
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.target }}
           path: |
@@ -58,7 +58,7 @@ jobs:
     runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Update rust toolchains, add target
         run: |
           rustup update
@@ -82,7 +82,7 @@ jobs:
           make bindgendynamic
           make swiftdyn
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: swift
           path: bindings_ffi/build/swift/
@@ -92,9 +92,9 @@ jobs:
     runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Download artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           path: bindings_ffi/build
       - name: Build static archive
@@ -106,7 +106,7 @@ jobs:
           cp ../LICENSE ./LICENSE
           zip -r LibXMTPSwiftFFI.zip Sources LibXMTPSwiftFFI.xcframework LICENSE
       - name: Upload static
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: LibXMTPSwiftFFI
           retention-days: 1
@@ -117,9 +117,9 @@ jobs:
     runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Download artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           path: bindings_ffi/build
       - name: Build dynamic archive
@@ -131,7 +131,7 @@ jobs:
           cp ../LICENSE ./LICENSE
           zip -r LibXMTPSwiftFFIDynamic.zip Sources LibXMTPSwiftFFIDynamic.xcframework LICENSE
       - name: Upload dynamic
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: LibXMTPSwiftFFIDynamic
           retention-days: 1
@@ -142,9 +142,9 @@ jobs:
     runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Download artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v7
         with:
           pattern: LibXMTPSwiftFFI*
           merge-multiple: true
