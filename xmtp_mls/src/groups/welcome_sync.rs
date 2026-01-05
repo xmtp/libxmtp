@@ -151,7 +151,7 @@ where
                         self.context.inbox_id()
                     );
                     let is_active = group
-                        .load_mls_group_with_lock_async(|mls_group| async move {
+                        .load_mls_group_with_lock_async(async |mls_group| {
                             Ok::<bool, GroupError>(mls_group.is_active())
                         })
                         .await?;
@@ -285,7 +285,7 @@ where
                     tracing::info!(inbox_id, "[{}] syncing group", inbox_id);
 
                     let is_active_res = group
-                        .load_mls_group_with_lock_async(|mls_group| async move {
+                        .load_mls_group_with_lock_async(async |mls_group| {
                             Ok::<bool, GroupError>(mls_group.is_active())
                         })
                         .await;

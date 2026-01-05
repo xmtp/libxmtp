@@ -1555,7 +1555,7 @@ where
             }
         }
 
-        self.load_mls_group_with_lock_async(|mut mls_group| async move {
+        self.load_mls_group_with_lock_async(async |mut mls_group| {
             // ensure we are processing a private message
             match &envelope.message {
                 ProtocolMessage::PrivateMessage(_) => (),
@@ -2469,7 +2469,7 @@ where
         inbox_ids_to_add: &[InboxIdRef<'_>],
         inbox_ids_to_remove: &[InboxIdRef<'_>],
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
-        self.load_mls_group_with_lock_async(|mls_group| async move {
+        self.load_mls_group_with_lock_async(async |mls_group| {
             let existing_group_membership = extract_group_membership(mls_group.extensions())?;
             // TODO:nm prevent querying for updates on members who are being removed
             let mut inbox_ids = existing_group_membership.inbox_ids();

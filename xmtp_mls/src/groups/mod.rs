@@ -372,28 +372,21 @@ where
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
     #[tracing::instrument(level = "trace", skip(operation))]
-    pub(crate) async fn load_mls_group_with_lock_async<F, E, R, Fut>(
+    pub(crate) async fn load_mls_group_with_lock_async<R, E>(
         &self,
-        operation: F,
+        operation: impl AsyncFnOnce(OpenMlsGroup) -> Result<R, E>,
     ) -> Result<R, E>
     where
-        F: FnOnce(OpenMlsGroup) -> Fut,
-        Fut: Future<Output = Result<R, E>>,
-        E:
-            From<GroupMessageProcessingError>
-                + From<crate::StorageError>
-                + From<
-                    <Context::MlsStorage as openmls_traits::storage::StorageProvider<
-                        CURRENT_VERSION,
-                    >>::Error,
-                >,
+        E: From<crate::StorageError>,
+        E: From<xmtp_db::sql_key_store::SqlKeyStoreError>,
     {
         let mls_storage = self.context.mls_storage();
-        // Get the group ID for locking
-        let group_id = self.group_id.clone();
 
         // Acquire the lock asynchronously
-        let _lock = self.mls_commit_lock.get_lock_async(group_id.clone()).await;
+        let _lock = self
+            .mls_commit_lock
+            .get_lock_async(self.group_id.clone())
+            .await;
 
         // Load the MLS group
         let mls_group = OpenMlsGroup::load(mls_storage, &GroupId::from_slice(&self.group_id))?
@@ -1759,10 +1752,8 @@ where
 
     /// Get the current epoch number of the group.
     pub async fn epoch(&self) -> Result<u64, GroupError> {
-        self.load_mls_group_with_lock_async(|mls_group| {
-            futures::future::ready(Ok(mls_group.epoch().as_u64()))
-        })
-        .await
+        self.load_mls_group_with_lock_async(async |mls_group| Ok(mls_group.epoch().as_u64()))
+            .await
     }
 
     /// Get the encryption state of the current epoch. Should match for all installations
@@ -1770,8 +1761,8 @@ where
     #[cfg(test)]
     #[allow(unused)]
     pub(crate) async fn epoch_authenticator(&self) -> Result<Vec<u8>, GroupError> {
-        self.load_mls_group_with_lock_async(|mls_group| {
-            futures::future::ready(Ok(mls_group.epoch_authenticator().as_slice().to_vec()))
+        self.load_mls_group_with_lock_async(async |mls_group| {
+            Ok(mls_group.epoch_authenticator().as_slice().to_vec())
         })
         .await
     }
@@ -1878,12 +1869,10 @@ where
 
     /// Get the `GroupMetadata` of the group.
     pub async fn metadata(&self) -> Result<GroupMetadata, GroupError> {
-        self.load_mls_group_with_lock_async(|mls_group| {
-            futures::future::ready(
-                extract_group_metadata(mls_group.extensions())
-                    .map_err(MetadataPermissionsError::from)
-                    .map_err(Into::into),
-            )
+        self.load_mls_group_with_lock_async(async |mls_group| {
+            extract_group_metadata(mls_group.extensions())
+                .map_err(MetadataPermissionsError::from)
+                .map_err(Into::into)
         })
         .await
     }

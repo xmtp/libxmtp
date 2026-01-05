@@ -151,7 +151,7 @@ async fn test_commit_size_one_at_a_time_with_messages() {
         g.add_members_by_inbox_id(&[tester.inbox_id()])
             .await
             .unwrap();
-        g.load_mls_group_with_lock_async(|mls| async move {
+        g.load_mls_group_with_lock_async(async |mls| {
             println!("tester {i}");
             mls.print_ratchet_tree("");
             dbg!(mls.export_ratchet_tree());
@@ -165,7 +165,7 @@ async fn test_commit_size_one_at_a_time_with_messages() {
             .await
             .unwrap();
         g.sync().await.unwrap();
-        g.load_mls_group_with_lock_async(|mls| async move {
+        g.load_mls_group_with_lock_async(async |mls| {
             println!("tester {i} after sending message");
             mls.print_ratchet_tree("");
             dbg!(mls.export_ratchet_tree());
@@ -176,7 +176,7 @@ async fn test_commit_size_one_at_a_time_with_messages() {
         for j in 0..9 {
             let new_installation = tester.new_installation().await;
             g.update_installations().await.unwrap();
-            g.load_mls_group_with_lock_async(|mls| async move {
+            g.load_mls_group_with_lock_async(async |mls| {
                 println!("tester {i} installation {j}");
                 mls.print_ratchet_tree("");
                 dbg!(mls.export_ratchet_tree());
@@ -190,7 +190,7 @@ async fn test_commit_size_one_at_a_time_with_messages() {
                 .await
                 .unwrap();
             g.sync().await.unwrap();
-            g.load_mls_group_with_lock_async(|mls| async move {
+            g.load_mls_group_with_lock_async(async |mls| {
                 println!("tester {i} installation {j} after sending message");
                 mls.print_ratchet_tree("");
                 dbg!(mls.export_ratchet_tree());
@@ -231,7 +231,7 @@ async fn test_commit_size_ten_at_a_time_with_messages() {
             );
             // g.update_installations().instrument(tracing::error_span!("g updating installations")).await.unwrap();
         }
-        g.load_mls_group_with_lock_async(|mls| async move {
+        g.load_mls_group_with_lock_async(async |mls| {
             println!("tester {i} before adding members");
             mls.print_ratchet_tree("");
             // dbg!(mls.export_ratchet_tree());
@@ -244,7 +244,7 @@ async fn test_commit_size_ten_at_a_time_with_messages() {
             .instrument(tracing::error_span!("g adding members"))
             .await
             .unwrap();
-        g.load_mls_group_with_lock_async(|mls| async move {
+        g.load_mls_group_with_lock_async(async |mls| {
             println!("tester {i} after adding members");
             mls.print_ratchet_tree("");
             // dbg!(mls.export_ratchet_tree());
@@ -275,7 +275,7 @@ async fn test_commit_size_ten_at_a_time_with_messages() {
             .instrument(tracing::error_span!("g syncing", i))
             .await
             .unwrap();
-        g.load_mls_group_with_lock_async(|mls| async move {
+        g.load_mls_group_with_lock_async(async |mls| {
             println!("tester {i} after sending message");
             mls.print_ratchet_tree("");
             // dbg!(mls.export_ratchet_tree());
@@ -332,7 +332,7 @@ async fn test_commit_size_ten_at_a_time_with_messages() {
                 ))
                 .await
                 .unwrap();
-            g.load_mls_group_with_lock_async(|mls| async move {
+            g.load_mls_group_with_lock_async(async |mls| {
                 println!("tester {i} installation {j} after sending message");
                 mls.print_ratchet_tree("");
                 // dbg!(mls.export_ratchet_tree());
